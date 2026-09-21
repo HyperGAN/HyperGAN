@@ -182,7 +182,8 @@ class ReferenceTrainer:
             raise ValueError("Objective constructors must not own trainable parameters; declare trainable transforms as components and bind their outputs into an objective")
         if any(isinstance(term, torch.nn.Module) and list(term.buffers()) for term in self.objectives):
             raise ValueError("Stateful objective buffers are not supported by this reference loop; declare stateful transforms as components")
-        self.program = compile_legacy_program(self.graph, self.prior, config, self.objectives)
+        self.program = compile_legacy_program(
+            self.graph, self.prior, config, self.objectives, self.gan, self.penalty, self.spread)
         opt = config["optimizer"]
         groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"]}]
         if self.program.prior_parameters:
@@ -229,7 +230,7 @@ class ReferenceTrainer:
         """Execute one D update followed by G/prior/aux update and matched EMA.
 
         Explicit batch and (latent, indices) enable controlled numerical comparisons.
-        Term routing and parameter membership come from the compiled program.
+        Sample bindings, gradient policy, and parameter membership come from the compiled program.
         """
         return run_native_program(self, batch, latent_draw, generator_batch, generator_latent_draw)
 

@@ -88,17 +88,20 @@ The discriminator penalty uses ParticleGAN arm names: `b_cap` is the default; `a
 
 Additional objectives select a loss factory, input bindings and weight. Reconstruction objectives such as MSE or L1 can connect generated output and paired targets. Custom task losses can be imported through the same factory mechanism. The runtime's supported update ownership is explicit; it does not infer a new training algorithm from component names.
 
-The native step runs one compiled program, `d-then-g-v1`: a critic step, then a generator step. The program lists the terms, the gradient policy of each critic input, and the ordered parameter groups. The trainer executes that program. It does not choose routing or optimizer membership by reading component names during the update.
+The native step runs one compiled program, `d-then-g-v1`: a critic step, then a generator step. The program records the adversarial term, its sample bindings, the per-phase detach policy of each scored sample and each critic input, the generator terms, and the ordered parameter groups. The executor follows those records. It does not choose sample sources, detachment, routing, or optimizer membership by reading component names during the update.
 
-A recipe declares four things. Components and bindings say what each forward reads. Weighted losses include weight 0, which still runs and scales the scalar by zero. Gradient routing says, for each input and phase, whether the value is used and whether gradients flow into it. A frozen module can still pass gradients to its inputs. A detached target cannot. The update schedule names which groups step and in what order. `d-then-g-v1` is the schedule these recipes use. A later method can add another schedule when that method needs it.
+A recipe declares four things. Components and bindings say what each forward reads. Weighted losses include weight 0, which still runs and scales the scalar by zero. Gradient routing records, for each phase, where each scored sample is read, whether that sample is detached before the critic forward, and whether its score is detached after the forward. It also records, for each critic input and phase, whether the resolved value is detached. A frozen module can still pass gradients to its inputs. A detached score or a detached input cannot. The update schedule names which groups step and in what order. `d-then-g-v1` is the schedule these recipes use. A later method can add another schedule when that method needs it.
 
-Legacy recipes compile into this program. `[adversarial]`, `components.discriminator`, and `[gradient_penalty]` become one adversarial term. `[prior_regularizer]` and each `[[objectives]]` entry become generator terms. Existing files and fingerprints stay as they are. Replicated and accumulated execution keep their own loops until they run this same program.
+Legacy recipes compile into this program. The legacy compiler is what reads the discriminator component and its input bindings, and writes today's policy. `[adversarial]` and `[gradient_penalty]` become one adversarial term. `[prior_regularizer]` and each `[[objectives]]` entry become generator terms. The loss, penalty, and prior-spread callables are stored on the program at compile time. Existing files and fingerprints stay as they are. Replicated and accumulated execution keep their own loops until they run this same program.
 
-The compiled adversarial term keeps the current routing:
+The legacy compiler records this policy, and the executor runs those records:
 
-- The critic step scores the real batch and a detached fake sample. Gradients enter the critic. The penalty uses the coefficient in `[gradient_penalty]`, including when `adversarial.weight` is 0. That weight does not scale the penalty.
-- The generator step scores an attached fake sample. The real score is used and detached, because relativistic losses need the value. `adversarial.weight` scales only the adversarial scalar. Critic parameters are frozen for this step.
-- Every critic input other than `candidate` is conditioning. Conditioning is detached on both steps, whether it comes from the batch or from a component.
+- The real sample binding is `batch.real`. The fake sample binding is `generated`.
+- On the critic step, the fake sample is detached before the forward. Both scores stay attached. Gradients enter the critic. The penalty scores those same samples with that same sample-detach policy. Its coefficient comes from `[gradient_penalty]`, including when `adversarial.weight` is 0. That weight does not scale the penalty.
+- On the generator step, the fake sample and its score stay attached. The real sample is not detached before the forward; its score is detached after the forward, because relativistic losses need the value. `adversarial.weight` scales only the adversarial scalar. Critic parameters are frozen for this step.
+- The critic input whose path is `candidate` stays attached on both steps. Every other critic input is detached on both steps, whether it comes from the batch or from a component. A detached input is resolved against a detached context, so a component-produced condition sees detached inputs.
+
+These records describe the current recipe. They do not implement another training method.
 
 Objective forwards run on the generator step even at weight 0. Names in an objective's `detach` list contribute no gradient. `freeze_parameters` on a reused module blocks that module's parameter gradients for the forward and still passes gradients to its inputs.
 

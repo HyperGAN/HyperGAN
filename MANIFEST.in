@@ -5,6 +5,7 @@ prune docs
 prune examples
 include examples/paired-linear.toml
 include examples/cifar-pretrained-sagan.toml
+include examples/logos-colorization-256.toml
 include examples/execution/*.toml
 prune worktrees
 prune tests

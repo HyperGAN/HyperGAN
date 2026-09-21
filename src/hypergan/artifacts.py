@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from .config import config_values, resolve_config
-from .recipes import ComponentGraph, make_prior
+from .recipes import ComponentGraph, generation_particle_ids, make_prior
 from .run_state import sync_directory
 
 
@@ -141,7 +141,9 @@ def _sample(run_dir, count, seed, output, *, inputs):
     rng = torch.Generator().manual_seed(seed)
     with torch.inference_mode():
         z, ids = prior.sample(count, generator=rng)
-        values = graph.generate(z, normalized, prior=prior)["generated"]
+        context = graph.generate(z, normalized, prior=prior)
+        values = context['generated']
+        ids = generation_particle_ids(graph, context, ids, config['sampling'])
     if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
         raise ValueError(f"Generator must return a tensor with {count} samples")
     if not torch.isfinite(values).all():

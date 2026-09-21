@@ -46,6 +46,86 @@ class ImageData:
         return {'real': torch.rand(count, 3, 2, 2, generator=generator).mul(2).sub(1)}
 
 
+class ColorGenerator(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.project = nn.Linear(2, 3)
+
+    def forward(self, x, gray):
+        return (gray + self.project(x)[:, :, None, None]).tanh()
+
+
+class ColorDiscriminator(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.project = nn.Linear(3, 1)
+
+    def forward(self, x):
+        return self.project(x.mean((2, 3)))
+
+
+class RoutedColorEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.project = nn.Linear(1, 2)
+
+    def forward(self, gray):
+        return {'latent': self.project(gray.mean((2, 3))),
+                'ids': torch.full((len(gray),), 3, dtype=torch.int64, device=gray.device)}
+
+
+def test_preview_records_routed_particle_ids_and_disambiguates_input_names():
+    config = recipe()
+    config['components']['generator'].update(factory=__name__ + ':ColorGenerator',
+        inputs={'x': 'components.encoder.latent', 'gray': 'batch.x'})
+    config['components']['discriminator'].update(factory=__name__ + ':ColorDiscriminator')
+    config['components']['encoder'] = dict(factory=__name__ + ':RoutedColorEncoder', args={},
+        inputs={'gray': 'batch.x'}, trainable=True)
+    config['sampling']['particle_ids'] = 'components.encoder.ids'
+    trainer = ReferenceTrainer(config)
+    batch = {'real': torch.zeros(3, 3, 2, 2), 'x': torch.zeros(3, 1, 2, 2)}
+    payload = render_preview(trainer, batch, {'run_id': 'run'})
+    assert payload['particle_ids'] == [3, 3, 3]
+    assert payload['input_image_grid_0']['name'] == 'input:0'
+    assert payload['input_image_grid_0']['source'] == 'batch.x'
+    with Image.open(io.BytesIO(base64.b64decode(payload['image_grid']['png_base64']))) as image:
+        assert json.loads(image.info['hypergan'])['particle_ids'] == [3, 3, 3]
+
+
+def test_color256_snapshot_png_only_named_inputs_and_tensor_budget(tmp_path):
+    from hypergan.preview_snapshot import capture_snapshot, renderer_command
+    from hypergan.snapshot_renderer import _read_output
+    from hypergan.previews import MAX_BYTES, preview_budget
+    config = recipe()
+    config['components']['generator'].update(factory=__name__ + ':ColorGenerator',
+        inputs={'x': 'latent', 'gray': 'batch.gray'})
+    config['components']['discriminator'].update(factory=__name__ + ':ColorDiscriminator')
+    config['sampling']['count'] = 8
+    trainer = ReferenceTrainer(config)
+    batch = {'real': torch.rand(8, 3, 256, 256).mul(2).sub(1),
+             'gray': torch.rand(8, 1, 256, 256).mul(2).sub(1)}
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1}
+    snapshot, output = tmp_path / 'snapshot.pt', tmp_path / 'render.json'
+    descriptor = capture_snapshot(trainer, batch, identity, snapshot)
+    receipt = renderer_command((str(snapshot), descriptor, identity, trainer.step, str(output)), 'render', None)
+    payload = _read_output(output, receipt, identity, trainer.step)
+    assert payload['count'] == 8 and payload['shape'] == [8, 3, 256, 256]
+    assert payload['representation'] == 'png' and payload['samples'] is None
+    assert payload['inputs']['gray'] == {'shape': [8, 1, 256, 256], 'representation': 'png'}
+    assert output.stat().st_size > MAX_BYTES  # Separate bounded PNG transport.
+    record, _, _ = publish_preview_payload(tmp_path, payload, identity, trainer.step)
+    assert record['bytes'] < 8192 and record['representation'] == 'png'
+    for field, name, mode in [('image_grid', 'g', 'RGB'), ('real_image_grid', 'x', 'RGB'),
+                              ('input_image_grid_0', 'gray', 'L')]:
+        assert record[field]['name'] == name
+        with Image.open(record[field]['path']) as image:
+            assert image.size == (768, 768) and image.mode == mode
+    with pytest.raises(ValueError, match='element'):
+        preview_budget(trainer, {'real': torch.zeros(1, 65537)}, {})
+    with pytest.raises(ValueError, match='element'):
+        preview_budget(trainer, {'real': torch.zeros(1, 3, 2048, 2048)}, {})
+
+
 def recipe():
     config = copy.deepcopy(DEFAULT)
     config['components']['generator'].update(factory=__name__ + ':ImageGenerator', args={})

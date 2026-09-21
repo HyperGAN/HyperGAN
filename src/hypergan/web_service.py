@@ -248,13 +248,17 @@ class ObservationService:
                         # source across steps so a viewer can group its history.
                         key = 'preview-' + _digest(identity)[:32]
                         name = _sample_name(preview.get('name'), identity.get('name'))
-                        records[key] = dict(path=relative_path(preview['path']), bytes=preview['bytes'],
-                            sha256=preview.get('sha256'), role='sample', modality='tensor', name=name,
-                            media_type='application/json', provenance=dict(identity, step=preview['step'], name=name),
-                            shape=preview['shape'])
-                        if not isinstance(records[key]['sha256'], str):
-                            records[key].update(status='unavailable', reason='Preview predates indexed content digests')
-                        for field, suffix in (('image_grid', '-grid'), ('real_image_grid', '-real-grid')):
+                        if preview.get('representation') != 'png':
+                            records[key] = dict(path=relative_path(preview['path']), bytes=preview['bytes'],
+                                sha256=preview.get('sha256'), role='sample', modality='tensor', name=name,
+                                media_type='application/json', provenance=dict(identity, step=preview['step'], name=name),
+                                shape=preview['shape'])
+                            if not isinstance(records[key]['sha256'], str):
+                                records[key].update(status='unavailable', reason='Preview predates indexed content digests')
+                        from .previews import MAX_INPUT_GRIDS
+                        grid_fields = (('image_grid', '-grid'), ('real_image_grid', '-real-grid')) + tuple(
+                            (f'input_image_grid_{n}', f'-input-{n}') for n in range(MAX_INPUT_GRIDS))
+                        for field, suffix in grid_fields:
                             grid = preview.get(field)
                             if grid is None:
                                 continue

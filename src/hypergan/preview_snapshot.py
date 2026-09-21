@@ -18,7 +18,7 @@ import torch.distributed as dist
 
 from .artifacts import _restore_buffers
 from .checkpoints import _portable, capture_rng, restore_rng
-from .previews import MAX_COUNT, MAX_ELEMENTS, _inputs, _write_bounded, render_preview
+from .previews import MAX_RENDER_BYTES, _inputs, _write_bounded, preview_budget, render_preview
 from .recipes import ComponentGraph, make_prior
 
 MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
@@ -60,14 +60,7 @@ def capture_snapshot_state(trainer, batch, identity):
         real = batch['real']
         if not isinstance(real, torch.Tensor) or real.ndim < 1 or not len(real):
             raise ValueError('Preview capture requires a nonempty completed real batch')
-        elements = real[0].numel()
-        for name, value in inputs.items():
-            if not isinstance(value, torch.Tensor) or value.ndim < 1 or not len(value):
-                raise ValueError(f'Preview input {name} must be a nonempty batched tensor')
-            elements += value[0].numel()
-        count = min(trainer.config['sampling']['count'], MAX_COUNT, MAX_ELEMENTS // max(1, elements))
-        if count < 1:
-            raise ValueError(f'One preview sample exceeds the {MAX_ELEMENTS}-element budget')
+        count, _, _, _ = preview_budget(trainer, batch, inputs)
         normalized = {name: value[torch.arange(count) % len(value)].detach().clone() for name, value in inputs.items()}
         # Real rows supply output-shape budgeting and the comparable 'x' grid.
         normalized['real'] = (real[torch.arange(count) % len(real)].detach().clone()
@@ -224,5 +217,5 @@ def renderer_command(state, operation, payload):
     _restore_buffers(prior, saved['prior_buffers'])
     trainer = SimpleNamespace(config=saved['config'], step=step, ema_graph=graph, ema_prior=prior)
     result = render_preview(trainer, saved['batch'], identity)
-    size = _write_bounded(Path(output), result)
+    size = _write_bounded(Path(output), result, max_bytes=MAX_RENDER_BYTES)
     return {'bytes': size, 'sha256': _sha256(output), 'step': step, 'identity': identity}

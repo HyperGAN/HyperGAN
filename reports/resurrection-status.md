@@ -2,6 +2,61 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Colorization demo acceptance (2026-09-20): the owner requested a 256x256
+logo colorization demo with learned grayscale E, 4,096 hard-routed fixed-sigma
+particles, frozen DINOv3 plus discriminator attention, independent metrics, and
+GPU-1 verification followed by a stopped launcher for direct control. The
+[acceptance report](colorization-2026-09-20.md) records the formulation,
+provenance, complete inventory, failure handling and evidence. Owner authorized
+PRs/merges and pushing the existing local develop history; local/GitHub develop
+at `a83d7072` preserved all earlier work and closed prior PRs #355/#356.
+
+[PR #357](https://github.com/HyperGAN/HyperGAN/pull/357) adds bounded 256px PNG
+previews with g/x/gray shelves and explicit routed particle IDs. [PR #358](https://github.com/HyperGAN/HyperGAN/pull/358)
+adds the colorization recipe/data/models/metrics and includes that preview head.
+Combined code is complete at `903393713d592059cdcbc924f53a0374537cf426`,
+including the newly merged develop heavy-test selection (`6ed2eafb`). CI caught
+a captured-default byte-limit regression; `377974f8` / `49f206b5` fixes it and
+42 targeted preview checks passed. The installed combined fast suite passed
+851 tests with 185 heavy tests explicitly deselected. The owner then requested that GitHub
+heavy jobs run only for master. `41f3cedb` restricts them to master pushes and
+PRs targeting master, and verifies all 36 final-gate result combinations.
+Develop CI keeps the fast, viewer, reducer and integrity checks; results pending.
+The repository does not enable automatic PR merges; coordinator will merge the
+combined passing head, preserving both reviewed slices, then synchronize develop.
+
+Full preparation attempted 426,445 image paths and accepted 426,343: 404,757
+train / 21,586 held-out. Exactly 102 exclusions (99 truncated, two unreadable,
+one animated) are explicitly hash-pinned. Three valid one-bit PNGs were
+revalidated and retained after adding mode support. Original files are unchanged;
+initial failure and final exclusion reports are preserved. The manifest SHA256 is
+`e336ddec33364aa9300108fa9566f51a1e321d632067f553ffb97f410e3fbdb0`.
+
+Acceptance: 58 focused local tests, 34 installed focused checks, and 12 final
+installed data/metric checks passed. Combined preview/API/browser checks passed
+67 initially; the sole isolated-server environment failure passed after installing
+the declared web extras. Actual DINO CPU/GPU-1 double backward and frozen masks
+passed. The fixture CLI crossed lazy b-cap step 8, resumed to 10, and recovered
+from earlier step 4 to 5. The actual launcher/full-inventory run also trained to
+8 and resumed to 10; complete restore matched 1,050 tensors and 407,414 values.
+All three full 512-output held-out snapshot metrics passed; actual Chromium
+confirmed all g/x/gray grids. Source->sdist->wheel packaging matched all 65 runtime
+Python files. The validated run records clean source `165dea8e`; the launcher
+was subsequently updated to clean `90339371` with the preview guard fix, again
+matching all 65 runtime files. No trained quality or distributed
+qualification is claimed.
+
+Ready launcher: `/home/martyn/dev/hypergan/training-runs/start-color.sh`, physical
+GPU 1 pinned by UUID, dedicated installed environment and `train-color` run.
+The verification run and its viewer are stopped; the owner run was left fresh.
+Recipe defaults are batch 16, 200k total updates, 1k checkpoints and 100-update
+previews; the owner controls startup and stopping. Evidence/builds/commands and
+preexisting-ledger backup: `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-colorization/`.
+Main-checkout HNDL/research edits are preserved separately. No paid compute or
+release. Next: merge passing PRs #357/#358 into develop, commit final ledger/receipt
+and restore the preserved uncommitted research ledger changes. After that, owner
+runs start-color.sh and assesses color diversity and logo structure over training.
+
 Resume on the other identical GPU, and the heavy-test gate (2026-09-20): the
 owner restarted `training-runs/start.sh` and resume failed with the bare
 `Resume runtime/topology differs from checkpoint`. Diagnosis: two identical RTX

@@ -10,6 +10,10 @@ target CUDA; CPU execution is explicit for small correctness fixtures. Full imag
 reproduction, actual two-GPU image qualification and real cluster training remain
 release gates. Custom configurations still require their own qualification.
 
+The experimental [256×256 logo colorization demo](docs/colorization.md) pairs a
+grayscale particle encoder with a DINOv3 attention discriminator, held-out color
+and structure metrics, and multiple sampled colorizations.
+
 ## Install the development foundation
 
 Use Python 3.12 for the tested training runtime. Lightweight package checks cover Python 3.10–3.12 on Linux, macOS and Windows; the CPU reference profile is tested on Linux.
@@ -81,7 +85,7 @@ See [configuration and component contracts](docs/configuration.md) and the [pair
 
 ## Development and migration
 
-Install `.[dev,train,image]` in the tested runtime environment, then run `python -m pytest` for CPU and lightweight correctness tests. That default selection deselects the `heavy` marker, which gates the tests that start real subprocesses, multi-rank jobs and worker services; run those deliberately with `python -m pytest -m heavy`. With two visible NVIDIA GPUs and the CUDA runtime, run `python -m pytest tests/cuda`; this separate hardware gate fails if its required GPUs are unavailable. See [CUDA execution and validation](docs/cuda.md). [Foundation CI](.github/workflows/ci.yml) additionally builds wheel/sdist artifacts, checks clean installations outside the checkout and tests lightweight commands without the training stack.
+Install `.[dev,train,image]` in the tested runtime environment, then run `python -m pytest` for CPU and lightweight correctness tests. That default selection deselects the `heavy` marker, which gates the tests that start real subprocesses, multi-rank jobs and worker services; run those deliberately with `python -m pytest -m heavy`. GitHub runs the heavy jobs only on pushes to `master` and PRs targeting `master`; `develop` uses the fast selection. With two visible NVIDIA GPUs and the CUDA runtime, run `python -m pytest tests/cuda`; this separate hardware gate fails if its required GPUs are unavailable. See [CUDA execution and validation](docs/cuda.md). [Foundation CI](.github/workflows/ci.yml) additionally builds wheel/sdist artifacts, checks clean installations outside the checkout and tests lightweight commands without the training stack.
 
 Historical HyperGAN code and experiments are preserved in archive tags. Legacy configurations and checkpoints require their archived runtime; see [migration notes](docs/migration.md) and [preservation evidence](reports/resurrection-preservation-2026-09-18.md).
 

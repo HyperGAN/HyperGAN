@@ -25,7 +25,7 @@ def fixture_run(root):
 def editable_assets(directory):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / 'index.html').write_text('<html><body><main>viewer</main></body></html>', encoding='utf-8')
-    (directory / 'app.js').write_text('export const build = 1;\n', encoding='utf-8')
+    (directory / 'app.js').write_bytes(b'export const build = 1;\n')
     return directory
 
 
@@ -63,7 +63,7 @@ def test_dev_mode_serves_edits_on_refresh_without_restarting(tmp_path, monkeypat
         before = client.get('/dev/version').json()['version']
 
         # The same long-lived server, as during training; only the file changed.
-        (assets / 'app.js').write_text('export const build = 2;\n', encoding='utf-8')
+        (assets / 'app.js').write_bytes(b'export const build = 2;\n')
         assert client.get('/assets/app.js').text == 'export const build = 2;\n'
         assert client.get('/dev/version').json()['version'] != before
 

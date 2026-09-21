@@ -164,7 +164,8 @@ def resolve_config(raw):
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
-            _keys(value, result[key], key)
+            allowed = set(result[key]) | ({'particle_ids'} if key == 'sampling' else set())
+            _keys(value, allowed, key)
             result[key].update(deepcopy(value))
         else:
             result[key] = deepcopy(value)
@@ -302,6 +303,13 @@ def resolve_config(raw):
         if 'reuse' in components[name]:
             reachable.add(components[name]['reuse'])
     visit("generator", set())
+    if 'particle_ids' in result['sampling']:
+        binding = result['sampling']['particle_ids']
+        if (not isinstance(binding, str) or len(binding.split('.')) < 3
+                or binding.split('.')[0] != 'components'
+                or binding.split('.')[1] not in reachable
+                or not all(binding.split('.'))):
+            raise ValueError('sampling.particle_ids must bind an output of the generator dependency graph')
     g_reachable = set(reachable)
     for term in result["objectives"]:
         for path in term["inputs"].values():

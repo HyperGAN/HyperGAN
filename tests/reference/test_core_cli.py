@@ -1,5 +1,6 @@
 """Installed-package recovery workflow and isolated inference publication."""
 import json
+import math
 from pathlib import Path
 import random
 import queue
@@ -48,6 +49,14 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     assert [row["step"] for row in rows if row["event"] == "train"] == [1, 2]
     before = rows[-1]["manifest"]
     assert before["status"] != "complete" and before["last_durable_step"] == 2
+    batch = before["global_batch_size"]
+    train_rows = [row for row in rows if row["event"] == "train"]
+    assert [row["samples_seen"] for row in train_rows] == [batch, 2 * batch]
+    assert all(row["training_seconds"] > 0 for row in train_rows)
+    assert all(math.isfinite(row["steps_per_second"]) and row["steps_per_second"] > 0
+               for row in train_rows if "steps_per_second" in row)
+    assert before["samples_seen"] == 2 * batch and before["training_seconds"] > 0
+    assert before["steps_per_second"] > 0
     previews = json.loads((run / "previews" / "index.json").read_text())
     first_steps = [record["step"] for record in previews["previews"]]
     assert first_steps == sorted(set(first_steps)) and first_steps[0] == 1
@@ -61,6 +70,11 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     assert second.returncode == 0, second.stderr
     after = json.loads(second.stdout)
     assert after["status"] == "complete" and after["steps"] == 5
+    # Cumulative training time continues across the resume and adds only this
+    # attempt's wall clock, never the idle gap between the two commands.
+    assert after["samples_seen"] == 5 * batch and after["global_batch_size"] == batch
+    assert after["training_seconds"] > before["training_seconds"]
+    assert after["training_seconds"] == pytest.approx(before["training_seconds"] + after["seconds"], abs=.05)
     previews = json.loads((run / "previews" / "index.json").read_text())
     events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
     measured = [row for row in events if row["event"] == "preview"]
@@ -327,7 +341,10 @@ def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path):
                    torch.load(Path(actual['checkpoint_path']) / 'state.pt', weights_only=True))
         for root in [tmp_path / 'headless', tmp_path / 'viewed']:
             events = [json.loads(line) for line in (root / 'events.jsonl').read_text().splitlines()]
-            losses = [{key: value for key, value in event['metrics'].items() if not key.startswith('timing/')}
+            # Wall-clock metrics (durations and throughput) are observations of
+            # this machine, not numerics; samples seen stays comparable.
+            losses = [{key: value for key, value in event['metrics'].items()
+                       if not key.startswith(('timing/', 'throughput/'))}
                       for event in events if event['event'] == 'train']
             if root.name == 'headless':
                 expected_losses = losses

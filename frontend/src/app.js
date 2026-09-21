@@ -158,6 +158,31 @@ const fmt = (value) =>
   value === null || value === undefined
     ? "—"
     : Number(value).toLocaleString(undefined, { maximumSignificantDigits: 6 });
+// Headline counters stay a fixed width: exact below 100k, compact above it.
+const count = (value) =>
+  !Number.isFinite(value)
+    ? "—"
+    : Number(value).toLocaleString(
+        undefined,
+        value >= 1e5
+          ? { notation: "compact", maximumFractionDigits: 2 }
+          : { maximumFractionDigits: 0 },
+      );
+const rate = (value) =>
+  !Number.isFinite(value) || value < 0
+    ? "—"
+    : value >= 1
+      ? value.toFixed(1)
+      : Number(value.toPrecision(3)).toString();
+// Matches the CLI progress line: 45s, 12m 05s, 1h 23m.
+function duration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  const total = Math.floor(seconds);
+  const pad = (value) => String(value).padStart(2, "0");
+  if (total < 60) return `${total}s`;
+  if (total < 3600) return `${Math.floor(total / 60)}m ${pad(total % 60)}s`;
+  return `${Math.floor(total / 3600)}h ${pad(Math.floor((total % 3600) / 60))}m`;
+}
 function updateRun(run) {
   state.run = run;
   evaluations.update(state.catalog, run);
@@ -166,6 +191,15 @@ function updateRun(run) {
   $("run-id").textContent = run.run_id;
   $("run-status").textContent = run.status || "Unknown";
   $("step").textContent = fmt(run.steps);
+  $("steps-per-second").textContent = rate(run.steps_per_second);
+  $("training-time").textContent = duration(run.training_seconds);
+  $("samples-seen").textContent = count(run.samples_seen);
+  $("samples-seen").title = Number.isFinite(run.samples_seen)
+    ? `${Number(run.samples_seen).toLocaleString()} samples`
+    : "";
+  $("samples-batch").textContent = Number.isFinite(run.global_batch_size)
+    ? `${fmt(run.global_batch_size)} per completed update`
+    : "Updates × global batch";
   $("durable").textContent = fmt(run.last_durable_step);
   const consistency = run.metric_consistency;
   $("metric-consistency").textContent = !consistency ? "" :
@@ -541,6 +575,7 @@ function defaults() {
     "loss/d_total",
     "loss/gradient_penalty",
     "loss/prior_regularizer",
+    "throughput/steps_per_second",
   ];
   return [...preferred.filter((id) => id in state.catalog.metrics), ...Object.keys(state.evaluationMetrics)].slice(0, 8);
 }

@@ -13,7 +13,7 @@ import uuid
 import warnings
 
 from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
-from .metrics import digest, metric_catalog, publish_catalog, select_metrics
+from .metrics import digest, metric_catalog, publish_catalog, select_metrics, Throughput
 from .previews import DEFAULT_KEEP, DEFAULT_NAME, KEEP_ALL, sample_name
 from .metric_plugins import prepare_custom, ScalarMetrics
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
@@ -364,12 +364,26 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     custom_metrics = ScalarMetrics(config)
     catalog = metric_catalog(config)
     catalog_revision = publish_catalog(run_dir, config)
+    throughput = Throughput()
+    global_batch_size = config['training']['batch_size']
+    # Cumulative training time continues across attempts; only the wall clock
+    # inside an attempt is added, so idle time between attempts never counts.
+    training_baseline = manifest.get('training_seconds', 0.0)
+    if type(training_baseline) not in (int, float) or not math.isfinite(training_baseline) or training_baseline < 0:
+        raise ValueError('Run manifest training_seconds must be a finite, nonnegative number of seconds')
+    training_baseline = float(training_baseline)
+
+    def training_seconds(now=None):
+        return training_baseline + max(0.0, (time.monotonic() if now is None else now) - started)
+
     manifest.update(metrics_catalog=catalog_revision, observation_sha256=observation_fingerprint(config))
     manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
                     status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
-                    possible_lost_steps=0)
+                    possible_lost_steps=0, training_seconds=training_baseline,
+                    global_batch_size=global_batch_size,
+                    samples_seen=manifest['steps'] * global_batch_size)
     for key in ('error', 'shutdown_error', 'metric_shutdown_error', 'progress_observation',
-                'sample_path', 'bundle_path'):
+                'sample_path', 'bundle_path', 'steps_per_second'):
         manifest.pop(key, None)
     atomic_json(run_dir / 'manifest.json', manifest)
     journal = ObservationIO(run_dir, attempt_dir)
@@ -464,6 +478,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             journal.check()
             return
         manifest['seconds'] = now - started
+        manifest['training_seconds'] = training_seconds(now)
         journal.publish(manifest, wait=wait)
         last_published = now
 
@@ -706,7 +721,17 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             manifest['steps'] = completed.step
             durable = manifest['last_durable_step']
             manifest['possible_lost_steps'] = manifest['steps'] - durable if durable is not None else manifest['steps']
-            metrics, statuses, publication = select_metrics(config, catalog, row, completed.step, step_seconds)
+            # One completed update consumes exactly one global batch; accumulation
+            # and world size split that batch without changing how many real
+            # examples the step drew.
+            batch = row['global_batch_size'] if type(row.get('global_batch_size')) is int and row['global_batch_size'] > 0 else global_batch_size
+            progress = {'samples_seen': completed.step * batch, 'training_seconds': training_seconds()}
+            rate = throughput.observe(step_seconds)
+            if rate is not None:
+                progress['steps_per_second'] = rate
+                manifest['steps_per_second'] = rate
+            manifest.update(samples_seen=progress['samples_seen'], training_seconds=progress['training_seconds'])
+            metrics, statuses, publication = select_metrics(config, catalog, row, completed.step, step_seconds, progress)
             custom_values, custom_statuses = custom_metrics.evaluate(dict(row, step=completed.step, step_seconds=step_seconds),
                 {'run_id': manifest['run_id'], 'attempt_id': attempt_id, 'step': completed.step})
             metrics.update(custom_values)
@@ -714,7 +739,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if custom_values:
                 publication = 'sampled'
             emit('train', metrics=metrics, measurement_status=statuses, metric_publication=publication,
-                 samples_seen=completed.step * config['training']['batch_size'],
+                 **progress,
                  **{key: row[key] for key in ('global_batch_size', 'local_batch_size', 'world_size',
                                              'accumulation_steps', 'microbatch_size') if key in row})
             periodic_checkpoint = manifest['steps'] % checkpoint_every == 0

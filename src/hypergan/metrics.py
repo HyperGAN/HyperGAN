@@ -3,6 +3,7 @@
 Numerical adapters always validate their complete internal results. Publication
 selects already computed values; it never computes objectives or executes plugins.
 """
+from collections import deque
 from copy import deepcopy
 import hashlib
 import json
@@ -16,6 +17,37 @@ from .metric_plugins import DEFAULT_EVALUATION_EVERY_STEPS, validate_custom, ena
 PRESET_VERSION = 'standard/v1'
 DEFAULT_METRICS = {'preset': 'standard', 'disable': [], 'every_steps': 1, 'overrides': {}, 'custom': {}}
 MAX_CATALOG_BYTES = 1024 * 1024
+# Completed updates averaged by the published throughput metric. A short
+# trailing window charts cleanly without hiding a sustained slowdown.
+THROUGHPUT_WINDOW = 20
+SAMPLES_SEEN_DEFINITION = ('Real examples drawn from the data stream: one completed update consumes '
+                           'exactly one global batch (training.batch_size), which gradient accumulation '
+                           'and a world size larger than one split but never change.')
+
+
+class Throughput:
+    """Trailing-window steps per second over complete update boundaries.
+
+    The window is attempt-local: a resumed attempt restarts it rather than
+    averaging across the idle gap. A window whose measured durations sum to
+    zero has no rate to report; it publishes nothing instead of dividing.
+    """
+
+    def __init__(self, window=THROUGHPUT_WINDOW):
+        if type(window) is not int or window < 1:
+            raise ValueError('Throughput window must be a positive integer')
+        self.durations = deque(maxlen=window)
+
+    def observe(self, step_seconds):
+        """Record one update duration; return the smoothed rate, or None."""
+        if type(step_seconds) not in (int, float) or not math.isfinite(step_seconds) or step_seconds < 0:
+            raise ValueError('Update duration must be a finite, nonnegative number of seconds')
+        self.durations.append(float(step_seconds))
+        total = math.fsum(self.durations)
+        if total <= 0:
+            return None
+        rate = len(self.durations) / total
+        return rate if math.isfinite(rate) else None
 
 
 def digest(value):
@@ -40,6 +72,9 @@ def _available(config):
         'loss/prior_regularizer': ('prior_loss', 'G prior regularizer contribution', 'loss'),
         'optimizer/lr_scale': ('lr_scale', 'Learning rate multiplier', 'ratio'),
         'timing/step_seconds': ('step_seconds', 'Complete update duration', 'seconds'),
+        'timing/training_seconds': ('training_seconds', 'Time spent training', 'seconds'),
+        'throughput/steps_per_second': ('steps_per_second', 'Steps per second', 'steps/second'),
+        'progress/samples_seen': ('samples_seen', 'Samples seen', 'samples'),
     }
     for term in config['objectives']:
         name = objective_id(term)
@@ -156,6 +191,15 @@ def metric_catalog(config):
         if name == 'loss/total':
             definition['formula'] = 'loss/d_total + loss/g_total'
             definition['description'] = 'Diagnostic sum; not a joint optimization objective or quality score.'
+        if name == 'throughput/steps_per_second':
+            definition.update(window=THROUGHPUT_WINDOW, direction='up',
+                              description=f'Trailing average over the last {THROUGHPUT_WINDOW} complete updates. '
+                                          'The window is attempt-local and restarts on resume.')
+        if name == 'timing/training_seconds':
+            definition['description'] = ('Cumulative wall clock spent inside training attempts. Resume continues '
+                                         'the total; time between attempts is not counted.')
+        if name == 'progress/samples_seen':
+            definition['description'] = SAMPLES_SEEN_DEFINITION
         if 'adversarial' in name:
             definition['coefficient'] = config['adversarial']['weight']
         if name == 'loss/gradient_penalty':
@@ -224,11 +268,19 @@ def read_catalog(run_dir, revision=None, *, _open_file=None):
     return catalog
 
 
-def select_metrics(config, catalog, row, step, step_seconds):
-    """Sample the completed boundary, never average skipped steps or recompute."""
+def select_metrics(config, catalog, row, step, step_seconds, progress=None):
+    """Sample the completed boundary, never average skipped steps or recompute.
+
+    ``progress`` carries controller-measured scalars for this same boundary
+    (throughput, cumulative training time, samples seen). A scalar the
+    controller cannot measure yet is omitted, never fabricated.
+    """
     if step % config['metrics']['every_steps']:
         return {}, {}, 'cadence'
-    values = dict(row, step_seconds=step_seconds)
+    if progress is not None and (not isinstance(progress, dict)
+                                 or any(not isinstance(key, str) for key in progress)):
+        raise ValueError('Controller progress scalars must be keyed by name')
+    values = dict(row, step_seconds=step_seconds, **(progress or {}))
     if 'd_loss' in row and 'g_loss' in row:
         values['combined'] = row['d_loss'] + row['g_loss']
     for term, value in zip(config['objectives'], row.get('objectives', [])):

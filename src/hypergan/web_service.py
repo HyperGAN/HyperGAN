@@ -178,7 +178,8 @@ class ObservationService:
         fields = ('schema_version', 'run_id', 'attempt_id', 'attempt_index', 'status', 'steps',
                   'total_steps', 'last_durable_step', 'seconds', 'metrics_catalog',
                   'observation_sha256', 'checkpoint_every', 'stop_reason', 'possible_lost_steps',
-                  'evaluation_schedule')
+                  'evaluation_schedule', 'training_seconds', 'steps_per_second', 'samples_seen',
+                  'global_batch_size')
         result = {key: self.manifest[key] for key in fields if key in self.manifest}
         result['name'] = self.manifest.get('config', {}).get('name', self.root.name)
         boundary = self.manifest.get('durable_event_boundary')

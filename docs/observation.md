@@ -19,6 +19,31 @@ Run the observation and checkpoint commands in another terminal while training i
 
 The root manifest remains the source of current status and durable progress. An event showing update N does not prove that update N can be restored. Inspect `last_durable_step` and `checkpoint_path`. Absence of new events does not establish completion or worker health.
 
+## Training progress metrics
+
+Every complete update publishes three built-in progress scalars alongside the
+losses, in the run manifest and on the `train` event:
+
+| Metric ID | Manifest field | Meaning |
+| --- | --- | --- |
+| `throughput/steps_per_second` | `steps_per_second` | Completed updates per second, averaged over the last 20 updates. |
+| `timing/training_seconds` | `training_seconds` | Cumulative wall clock spent inside training attempts. |
+| `progress/samples_seen` | `samples_seen` | Real examples drawn from the data stream. |
+
+Samples seen is `completed updates × training.batch_size`: one completed update
+consumes exactly one global batch, which gradient accumulation and a world size
+larger than one split into microbatches and shards but never change.
+
+Throughput is a trailing average so it charts cleanly; the window is
+attempt-local and restarts on resume, and an update boundary too fast for the
+clock to separate publishes no rate rather than an infinite one. Cumulative
+training time continues across attempts — a resumed run adds its own attempt's
+wall clock to the stored total — and time between attempts is never counted.
+Both are observations of this machine, not part of the numerical recipe: they do
+not change the configuration fingerprint, and a replayed run reproduces the same
+losses with different durations. They are selectable in the browser's learning
+curves like any loss, and `metrics.disable` removes any of them.
+
 ## Safe checkpoint requests
 
 `checkpoint` submits an atomic request addressed to a specific run and attempt. The default attempt comes from the current manifest; `--attempt-id` lets a caller pin it explicitly. Use a stable `--request-id` for retries. Reusing an ID with different target identity is an error. After resume changes the current attempt, use `--attempt-id ORIGINAL` to retry that original request, or `--status ID` to read its receipt. Without an ID, the command creates one and returns it in the receipt.
@@ -89,6 +114,17 @@ queues drop oldest lines and oversized progress/diagnostic lines are omitted.
 Shutdown allows one second for delivery before killing and reaping blocked
 drains. Reconnect through `hypergan events RUN` or `hypergan inspect RUN` for the
 durable result and accepted event history, including recorded observation gaps.
+
+A printed progress line names the update, the published losses and the progress
+metrics above:
+
+```
+step 400: D=0.683355 G=0.805652 | 123.4 steps/s | 1h 23m | 12,800 samples
+```
+
+Fields that an update has not measured are omitted rather than guessed. With
+`--progress-json`, the same values appear as the `steps_per_second`,
+`training_seconds` and `samples_seen` keys of each `train` row.
 
 Routine CLI training progress prints every **100 updates** by default. Set
 `--progress-every N` on `train` or `resume`, or use **CLI progress every N steps**

@@ -42,7 +42,7 @@ The image and particle-routing adapters load their architectures from [`src/hype
 
 Legacy `mlp` and `linear` factory arguments remain readable through HNDL adapters. They no longer construct handwritten PyTorch networks. New examples and generated projects use explicit HNDL source.
 
-HNDL 0.3.0 or newer is part of the `train` extra. Configuration loading and ordinary CLI validation stay Torch-free. HNDL parses and resolves the architecture at model construction; invalid operators and shape constraints fail before training updates. Custom factories execute trusted Python and must construct a `torch.nn.Module`.
+HNDL 0.4.0 or newer is part of the `train` extra. Configuration loading and ordinary CLI validation stay Torch-free. HNDL parses and resolves the architecture at model construction; invalid operators and shape constraints fail before training updates. Custom factories execute trusted Python and must construct a `torch.nn.Module`.
 
 Bindings refer to `latent`, `batch.<field>`, `components.<name>` and their nested outputs. Generator output is available as `generated`; discriminator candidate input is `candidate`. Auxiliary components execute when an input or objective requires them. Cyclic or missing bindings fail. Dictionary/list outputs can be selected through dotted keys/indices.
 
@@ -79,6 +79,12 @@ linear(1, name="score")
 The provider registration uses torchvision's external ResNet18 checkpoint architecture; no ResNet layers are authored in HyperGAN Python. It is registered lazily through HNDL's native provider API and requires the `cifar` extra (torchvision). The local weights path and its SHA256 are in `args.parameters`. HNDL verifies the checkpoint before loading it; this recipe downloads nothing.
 
 Edit the head in `.hndl` to change its width or pooling, or select `layer2`, `layer3`, or `layer4` for features at different depths. HNDL infers the connecting channels. Use a new run directory for an architecture change. The variant preserves the generator, dataset, batch size, and seed of the DCGAN recipe to isolate the discriminator change.
+
+The [128px multiscale variant](../examples/dcgan-resnet-multiscale-128.toml) adapts the CIFAR discriminator design to 128px while retaining the DCGAN generator and training settings. Its [standalone HNDL source](../examples/networks/resnet18-multiscale-discriminator-128.hndl) declares the complete discriminator: a trainable pixel branch with five residual downsampling blocks and SAGAN attention at 16px, plus three trainable feature heads on frozen ResNet18 `layer1`, `layer2`, and `layer3` outputs. Each feature head uses a 1×1 projection, GroupNorm, a 3×3 convolution, and a scalar readout. The final score is `(pixel + (feature1 + feature2 + feature3) / sqrt(3)) / sqrt(2)`.
+
+The fixed context is a zero RGB image in the input range `[-1, 1]`. HNDL concatenates candidate and context along the batch axis, applies ImageNet normalization to both, and runs one shared frozen backbone with `layers=("layer1", "layer2", "layer3")`. Native `chunk(..., 2, dim=0)` restores the two batches; each head concatenates its candidate and context features along channels. The context therefore has the pretrained features of midgray RGB, not zero feature maps. Frozen BatchNorm keeps examples independent. This graph supports variable batch sizes and differentiates through the candidate features, including the second derivatives required by b-cap.
+
+Unlike the historical CIFAR adapter's cached context, the standalone graph recomputes context features in its shared `2*B` pass. It uses native 128px backbone input and 32/16/8px feature maps. Set the dataset manifest path/hash and local checkpoint path/hash in the TOML before training, and choose a new run directory. This is a configurable architecture experiment; no image-quality result is claimed for the 128px variant.
 
 ## Numerical recipe
 

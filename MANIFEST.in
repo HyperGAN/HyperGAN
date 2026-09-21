@@ -6,6 +6,7 @@ prune examples
 include examples/paired-linear.toml
 include examples/dcgan-128.toml
 include examples/dcgan-resnet-128.toml
+include examples/dcgan-resnet-multiscale-128.toml
 recursive-include examples/networks *.hndl
 include examples/logos-ae-gan-256.toml
 include examples/cifar-pretrained-sagan.toml

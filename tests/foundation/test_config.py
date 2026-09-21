@@ -5,7 +5,10 @@ import subprocess
 
 import pytest
 
-from hypergan.config import DEFAULT, config_values, load_config, resolve_config, write_default
+from hypergan.config import (
+    DEFAULT, config_values, fingerprint, load_config, numerical_values, resolve_config, resume_compatible, write_default)
+
+LEGACY_FINGERPRINT = "11dd870ea803a25a38cba344d0131c74f1d5e0575b9560f47bf7a5863a6ecda5"
 
 
 def test_default_roundtrip_without_runtime(tmp_path):
@@ -96,6 +99,70 @@ def test_invalid_device_does_not_create_project(tmp_path, device):
 def test_invalid_sampling_output_views_and_columns_are_rejected(sampling):
     with pytest.raises(ValueError):
         resolve_config({'sampling': sampling})
+
+
+def _extra_term(**overrides):
+    term = {"id": "extra", "component": "discriminator", "real": "batch.real", "fake": "generated"}
+    term.update(overrides)
+    return term
+
+
+def test_legacy_fingerprint_ignores_a_missing_adversarial_terms_key():
+    resolved = resolve_config({})
+    assert "adversarial_terms" not in resolved
+    assert resolved["qualification"]["recipe_match"]
+    assert "adversarial_terms" not in numerical_values(resolved)
+    assert "adversarial_terms" not in config_values(resolved)
+    assert fingerprint(resolved) == LEGACY_FINGERPRINT
+    assert fingerprint(resolved) == fingerprint(dict(resolved))
+    assert fingerprint(resolved) == fingerprint(config_values(resolved))
+    assert fingerprint(resolved) == fingerprint(numerical_values(resolved))
+    checkpoint = dict(numerical_values(resolved))
+    assert "adversarial_terms" not in checkpoint
+    assert numerical_values(checkpoint)["schema_version"] == 1
+    assert fingerprint(checkpoint) == fingerprint(resolved)
+    assert resume_compatible(resolved, config_values(resolved))
+    extra = resolve_config({"adversarial_terms": [_extra_term()]})
+    assert extra["adversarial_terms"][0]["loss_type"] == resolved["adversarial"]["loss_type"]
+    assert extra["adversarial_terms"][0]["mode"] == resolved["adversarial"]["mode"]
+    assert extra["adversarial_terms"][0]["weight"] == 1.0
+    assert extra["adversarial_terms"][0]["penalty"] is False
+    assert extra["adversarial_terms"][0]["penalty_coeff"] == resolved["gradient_penalty"]["coeff"]
+    assert extra["adversarial_terms"][0]["inputs"] == resolved["components"]["discriminator"]["inputs"]
+    assert not extra["qualification"]["recipe_match"]
+    assert fingerprint(extra) != fingerprint(resolved)
+    assert numerical_values(extra)["adversarial_terms"] == extra["adversarial_terms"]
+    assert config_values(extra)["adversarial_terms"] == extra["adversarial_terms"]
+
+
+def test_adversarial_term_rules_and_reachability():
+    with pytest.raises(ValueError, match="non-empty list"):
+        resolve_config({"adversarial_terms": []})
+    with pytest.raises(ValueError, match="Unknown adversarial_terms"):
+        resolve_config({"adversarial_terms": [_extra_term(bonus=1)]})
+    with pytest.raises(ValueError, match="unique"):
+        resolve_config({"adversarial_terms": [_extra_term(), _extra_term(id="extra")]})
+    with pytest.raises(ValueError, match="exactly one input"):
+        resolve_config({"adversarial_terms": [_extra_term(inputs={"x": "batch.real", "y": "generated"})]})
+    raw = deepcopy(DEFAULT)
+    raw["components"]["alias"] = {"reuse": "generator", "inputs": {"x": "latent"}}
+    raw["adversarial_terms"] = [_extra_term(component="alias")]
+    with pytest.raises(ValueError, match="non-reuse"):
+        resolve_config(raw)
+    raw = deepcopy(DEFAULT)
+    raw["components"]["encoder"] = {"factory": "linear", "args": {"in_features": 2, "out_features": 2}, "inputs": {"input": "batch.real"}}
+    raw["adversarial_terms"] = [_extra_term(fake="components.encoder")]
+    assert resolve_config(raw)["adversarial_terms"][0]["fake"] == "components.encoder"
+    raw["adversarial_terms"] = [_extra_term(inputs={"x": "candidate", "condition": "components.encoder"})]
+    with pytest.raises(ValueError, match="only discriminator conditioning, which is detached"):
+        resolve_config(raw)
+    raw["components"]["encoder"]["trainable"] = False
+    assert resolve_config(raw)["components"]["encoder"]["trainable"] is False
+    raw = deepcopy(DEFAULT)
+    raw["adversarial_terms"] = [_extra_term(weight=0, penalty=True, penalty_coeff=0.25, loss_type="hinge", mode="vanilla")]
+    term = resolve_config(raw)["adversarial_terms"][0]
+    assert term["weight"] == 0 and term["penalty"] is True and term["penalty_coeff"] == 0.25
+    assert term["loss_type"] == "hinge" and term["mode"] == "vanilla"
 
 
 def test_sampling_view_does_not_make_a_dormant_trainable_component_reachable():

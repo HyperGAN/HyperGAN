@@ -17,6 +17,8 @@ _KINDS = {'cpu-single': 'hypergan-training-checkpoint',
 
 def validate_replicated_recipe(config):
     """Reject native-only numerical policies before allocating ranks or a viewer."""
+    if config.get('adversarial_terms'):
+        raise ValueError('Replicated execution rejects extra adversarial_terms; those terms require native execution')
     training = config['training']
     if (training.get('phase_draws', 'shared') != 'shared'
             or training.get('data_rng_device', 'cpu') != 'cpu'

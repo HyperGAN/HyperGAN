@@ -64,12 +64,37 @@ class _MetricScalarTransfer:
         return result
 
 
+def _paired_groups(targets, sources):
+    """Pair tensors positionally, grouped so one foreach call sees one kind.
+
+    ``zip`` keeps the previous per-tensor pairing; the grouping key is every
+    property a foreach fast route requires to be uniform, so mixed device or
+    dtype inventories simply produce more groups instead of a silent fallback.
+    """
+    groups = {}
+    for target, source in zip(targets, sources):
+        key = (target.device, target.dtype, source.device, source.dtype)
+        group = groups.setdefault(key, ([], []))
+        group[0].append(target)
+        group[1].append(source)
+    return list(groups.values())
+
+
 @torch.no_grad()
 def update_ema(average, current, decay):
-    for target, source in zip(average.parameters(), current.parameters()):
-        target.lerp_(source, 1.0 - decay)
-    for target, source in zip(average.buffers(), current.buffers()):
-        target.copy_(source)
+    """Fused EMA update; bitwise identical to the previous per-tensor loop.
+
+    ``torch._foreach_lerp_``/``torch._foreach_copy_`` evaluate the same element
+    math as ``Tensor.lerp_``/``Tensor.copy_`` while issuing one launch per group
+    instead of one per tensor. Integer buffers such as BatchNorm
+    ``num_batches_tracked`` copy unchanged; empty inventories are skipped
+    because the foreach operators reject empty tensor lists.
+    """
+    weight = 1.0 - decay
+    for targets, sources in _paired_groups(average.parameters(), current.parameters()):
+        torch._foreach_lerp_(targets, sources, weight)
+    for targets, sources in _paired_groups(average.buffers(), current.buffers()):
+        torch._foreach_copy_(targets, sources)
 
 
 def _version(name):
@@ -174,6 +199,7 @@ class ReferenceTrainer:
         self.streams = {"data": torch.Generator(device=data_device).manual_seed(settings["seed"] + settings['data_seed_offset']), "prior": torch.Generator(device=self.device).manual_seed(settings["seed"] + settings['prior_seed_offset']), "penalty": torch.Generator(device=self.device).manual_seed(settings["seed"] + 3)}
         self.step = 0
         self._metric_transfer = _MetricScalarTransfer(self.device)
+        self._unscale_scalars = {}
 
     def batch(self):
         batch = self.data(self.config["training"]["batch_size"], generator=self.streams["data"])
@@ -228,10 +254,10 @@ class ReferenceTrainer:
         d_penalty = self.penalty(critic, real, fake.detach(), step=step, generator=self.streams["penalty"])
         d_adversarial_weighted = cfg["adversarial"]["weight"] * d_adversarial
         d_loss = d_adversarial_weighted + d_penalty
-        if not torch.isfinite(d_loss).all():
-            raise ValueError("Nonfinite discriminator loss; run stopped")
         d_loss.backward()
-        self._check_gradients(self.graph.models["discriminator"].parameters(), "discriminator")
+        self._refuse_nonfinite(d_loss, "Nonfinite discriminator loss; run stopped",
+                               [("Nonfinite discriminator gradient; run stopped",
+                                 self.graph.models["discriminator"].parameters())])
         self.opt_d.step()
         discriminator = self.graph.models["discriminator"]
         flags = [p.requires_grad for p in discriminator.parameters()]
@@ -258,11 +284,11 @@ class ReferenceTrainer:
                 objective_losses.append(term["weight"] * value)
             g_adversarial_weighted = cfg["adversarial"]["weight"] * g_adversarial
             g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-            if not torch.isfinite(g_loss).all():
-                raise ValueError("Nonfinite generator loss; run stopped")
             g_loss.backward()
-            self._check_gradients(self.graph.generator_parameters(), "generator/auxiliary")
-            self._check_gradients(self.prior.parameters(), "prior")
+            self._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
+                                   [("Nonfinite generator/auxiliary gradient; run stopped",
+                                     self.graph.generator_parameters()),
+                                    ("Nonfinite prior gradient; run stopped", self.prior.parameters())])
             self.opt_g.step()
         finally:
             for parameter, flag in zip(discriminator.parameters(), flags):
@@ -279,10 +305,59 @@ class ReferenceTrainer:
         row.update(event='train', step=step, objectives=values[8:], lr_scale=scale)
         return row, detach(batch)
 
-    @staticmethod
-    def _check_gradients(parameters, name):
-        if any(p.grad is not None and not torch.isfinite(p.grad).all() for p in parameters):
-            raise ValueError(f"Nonfinite {name} gradient; run stopped")
+    def _unscale(self, device):
+        """A reusable ``inv_scale`` of exactly one per gradient device."""
+        if device not in self._unscale_scalars:
+            self._unscale_scalars[device] = torch.ones((), dtype=torch.float32, device=device)
+        return self._unscale_scalars[device]
+
+    def _gradient_flags(self, parameters):
+        """Device-side nonfinite flags for one parameter group; no host read.
+
+        ``torch._amp_foreach_non_finite_check_and_unscale_`` is the AMP
+        GradScaler kernel: it records any nonfinite element in ``found_inf`` and
+        multiplies each gradient by ``inv_scale``. With ``inv_scale`` exactly one
+        that multiplication is exact for normals, subnormals and signed zero and
+        preserves inf/nan, so gradients stay bitwise unchanged while a whole
+        group is screened in one launch per device and dtype instead of one
+        blocking host read per tensor. Gradients the kernel does not accept
+        (integer, complex or non-strided) keep the previous elementwise
+        ``isfinite`` reduction, which is also computed without a host read.
+        """
+        fused, flags = {}, []
+        for parameter in parameters:
+            gradient = parameter.grad
+            if gradient is None:
+                continue
+            if gradient.is_floating_point() and gradient.layout == torch.strided:
+                fused.setdefault((gradient.device, gradient.dtype), []).append(gradient)
+            else:
+                flags.append(torch.isfinite(gradient).all().logical_not().to(device=self.device))
+        for (device, _), gradients in fused.items():
+            found = torch.zeros((), dtype=torch.float32, device=device)
+            torch._amp_foreach_non_finite_check_and_unscale_(gradients, found, self._unscale(device))
+            flags.append(found.to(device=self.device, dtype=torch.bool))
+        return flags
+
+    def _refuse_nonfinite(self, loss, loss_message, groups):
+        """Screen one phase's loss and gradients with exactly one host read.
+
+        ``groups`` pairs a message with the parameters it describes. Every flag
+        is computed on the device, stacked into one small tensor and read once,
+        so the per-tensor synchronizations are gone while the optimizer step is
+        still reached only when nothing was flagged: a refused step leaves
+        parameters and optimizer state untouched. The loss flag is stacked first
+        so a nonfinite loss keeps reporting the loss message.
+        """
+        messages = [loss_message]
+        flags = [torch.isfinite(loss).all().logical_not().to(device=self.device)]
+        for message, parameters in groups:
+            for flag in self._gradient_flags(parameters):
+                messages.append(message)
+                flags.append(flag)
+        for message, nonfinite in zip(messages, torch.stack(flags).tolist()):
+            if nonfinite:
+                raise ValueError(message)
 
 
 def _implementation(trainer):

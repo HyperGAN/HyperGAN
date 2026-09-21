@@ -189,7 +189,8 @@ def render_preview(trainer, batch, identity):
         restore_rng(rng)
 
 
-def _write_bounded(path, payload, max_bytes=MAX_BYTES):
+def _write_bounded(path, payload, max_bytes=None):
+    max_bytes = MAX_BYTES if max_bytes is None else max_bytes
     size = 0
     with path.open('xb') as output:
         for chunk in json.JSONEncoder(allow_nan=False, separators=(',', ':')).iterencode(payload):

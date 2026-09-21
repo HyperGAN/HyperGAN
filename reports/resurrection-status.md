@@ -19,9 +19,11 @@ owner replaced the outdated AGENTS.md in `4d143c87`, preserved verbatim here. Th
 121 passing tests / zero failures, with 64 selected tests unfinished; this is
 not a complete heavy pass. The develop gates are fast, focused GPU and GitHub
 checks. Original two-path checkpoint restore also matched 1,050 tensors / 407,414
-values. Normal PR CI at `588a5cc4` passed all required checks; the earlier manual
-run's unchanged browser test timed out, with evidence preserved. Next: merge after
-GitHub checks for the final policy/docs update.
+values. CI exposed an existing viewer discovery race: an older inventory response
+could forget a newly discovered evaluation. A deterministic test reproduced the
+missing cancelled status against the old bundle; bounded per-run inventory union
+fixes it. All 35 browser tests and bundle reproducibility pass; failed logs remain
+preserved. Next: install the final bundle and merge after final GitHub checks.
 Evidence: `../resurrection-backups/2026-09-20-colorization-projected/` outside repo.
 
 

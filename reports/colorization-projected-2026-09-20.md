@@ -78,9 +78,13 @@ No owner training allocation, paid compute, release or quality claim is included
 
 Integration: [PR #360](https://github.com/HyperGAN/HyperGAN/pull/360).
 
-GitHub's first manually dispatched run failed one pre-existing browser test
-waiting for a cancelled metric status (33 passed, one timeout); the affected
-frontend/service sources are unchanged. The normal PR run at `588a5cc4` passed
-all required checks including that browser suite. The failure log remains in
-evidence; its underlying race was not diagnosed. Final integration status is
-recorded in the ledger.
+CI exposed an existing viewer discovery race twice: overlapping `/views`
+responses could arrive out of order, replacing a newer stream inventory while a
+result was still loading. The cancelled result's only discovery event was then
+lost. A deterministic browser regression reproduced the exact missing-status
+timeout against the old bundle (11.90s). The fix retains a bounded union of
+immutable discovered streams per run. The regression passes with the fix (1.83s),
+and the complete browser suite passes **35 tests** (60.61s). The original failed
+CI logs and before/after regression logs remain in evidence. The viewer bundle
+was rebuilt and its reproducibility check passed; no timeout was increased or
+test skipped. Final integration status is recorded in the ledger.

@@ -31,9 +31,20 @@ checks pass; the Windows viewer failure is a pre-existing CRLF assertion in
 recipe `training-runs/cifar10-pretrained-20260920/cifar10-fast.toml` with
 `start-fast.sh` applies the source backend flags for a new run directory; adopting
 them in the shipped recipe is an owner decision (exact within-run resume is lost).
-Blockers: none. Next: owner picks the backend policy; apply the same fused
-screening to `distributed_training._reduce_gradients` with two-GPU qualification;
-beyond parity, throughput needs fewer launches (CUDA graphs or larger batch).
+Owner decision (same day): determinism is not needed and resume must simply
+work. Back-to-back on GPU 0 under the same load, ParticleGAN `9e9ce96` ran 19.9
+steps/s and HyperGAN with the merged fix plus source flags 21.9 steps/s (45.7
+ms/step), so the port now matches the source. PR #356
+(`perf/recipe-source-backend`, merged locally as `a23dfbfd`) ships
+`examples/cifar-pretrained-sagan.toml` with the source backend (TF32, cuDNN
+benchmark, nondeterministic kernels, `deterministic_features = false`) and keeps
+the strict policy as a documented opt-in in `docs/cifar-recipe.md` and
+`docs/image-core.md`. The example resolves on CPU; suites not run at the owner's
+request. The owner's live run directory keeps its recorded configuration, so
+the faster policy needs a new run directory (`training-runs/start-fast.sh`).
+Blockers: none. Next: apply the same fused screening to
+`distributed_training._reduce_gradients` with two-GPU qualification; beyond
+parity, throughput needs fewer launches (CUDA graphs or larger batch).
 
 Checkpoint compatibility and release provenance (2026-09-20): the owner
 clarified that HyperGAN release/source SHAs must be recorded, not used as resume

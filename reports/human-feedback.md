@@ -31,9 +31,11 @@ Where the cost was (measured 2026-09-20 on GPU 0, CIFAR recipe, batch 64):
   EMA — PR #355 (`2bc0a9d3`, merged locally as `82f9df11`). 69.8 → 61.4 ms/step under
   the shipped backend, 47.0 → 41.2 ms/step under the source backend flags; metrics
   bitwise identical.
-- [ ] Owner decision: adopt the source backend flags in the shipped recipe (fast, but
-  within-run resume is no longer bit-exact) or keep determinism. A ready variant is
-  `training-runs/cifar10-pretrained-20260920/cifar10-fast.toml` via `start-fast.sh`.
+- [x] Owner decision: "i dont care about deterministic tbh it should resume fine
+  without." PR #356 (merged locally as `a23dfbfd`) ships the example with the source
+  backend flags; the strict policy stays documented as an opt-in. Back to back on
+  GPU 0: ParticleGAN 19.9 steps/s, HyperGAN 21.9 steps/s. The live run keeps its
+  recorded config, so start a new run directory (`training-runs/start-fast.sh`).
 - [ ] Apply the same fused screening to `distributed_training._reduce_gradients`
   (per-parameter host reads on every rank) with two-GPU qualification.
 - [ ] Beyond parity: both loops are launch-bound (~5,000 launches/step, 38% GPU

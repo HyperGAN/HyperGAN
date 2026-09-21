@@ -50,8 +50,24 @@ def render_source(source, parameters=None):
         raise ValueError(f'Invalid HNDL template parameter: {exc}') from exc
 
 
+def validate_pretrained_providers(providers):
+    """Validate trusted provider options without importing model libraries."""
+    if not isinstance(providers, dict):
+        raise ValueError('pretrained_providers must be a table')
+    for name, options in providers.items():
+        if name != 'dinov3_vits16':
+            raise ValueError(f'Unknown configurable pretrained provider: {name}')
+        if not isinstance(options, dict) or set(options) != {'source_path', 'source_commit'}:
+            raise ValueError('dinov3_vits16 requires source_path and source_commit')
+        if not isinstance(options['source_path'], str) or not options['source_path'].strip():
+            raise ValueError('DINOv3 source_path must be nonempty text')
+        commit = options['source_commit']
+        if not isinstance(commit, str) or len(commit) != 40 or any(c not in '0123456789abcdef' for c in commit):
+            raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
+
+
 def validate_network_args(args, location):
-    allowed = {'source', 'file', 'input_shape', 'output_shape', 'parameters', 'input_dtype'}
+    allowed = {'source', 'file', 'input_shape', 'output_shape', 'parameters', 'input_dtype', 'pretrained_providers'}
     if set(args) - allowed:
         raise ValueError(f'{location}: unknown HNDL arguments {sorted(set(args) - allowed)}')
     if ('source' in args) == ('file' in args):
@@ -67,6 +83,7 @@ def validate_network_args(args, location):
                 raise ValueError(f'{location}.{key}.{name} must be ["B", positive dimensions...]')
     if not isinstance(args.get('parameters', {}), dict):
         raise ValueError(f'{location}.parameters must be a table')
+    validate_pretrained_providers(args.get('pretrained_providers', {}))
     if 'source' in args:
         render_source(args['source'], args.get('parameters'))
     elif not isinstance(args['file'], str) or not args['file']:

@@ -15,7 +15,7 @@ matched 948 tensors / 407,302 values, and all three 512-output metrics plus g/x/
 viewer PNGs pass. Independent review found no blockers. The verification run and
 viewer are stopped. start-color.sh selects the fresh, unstarted projected run.
 [PR #360](https://github.com/HyperGAN/HyperGAN/pull/360) is open. Owner clarified that the full heavy suite is for prereleases; the
-outdated AGENTS.md instruction is corrected. The active suite was stopped at
+owner replaced the outdated AGENTS.md in `4d143c87`, preserved verbatim here. The active suite was stopped at
 121 passing tests / zero failures, with 64 selected tests unfinished; this is
 not a complete heavy pass. The develop gates are fast, focused GPU and GitHub
 checks. Original two-path checkpoint restore also matched 1,050 tensors / 407,414

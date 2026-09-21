@@ -52,8 +52,8 @@ head and particle means updated; sigma stayed fixed. A checkpoint from the old
 two-path experiment also restored exactly under the new installed package:
 1,050 tensors and 407,414 other values.
 The old AGENTS.md required a full heavy suite before training changes merged.
-The owner clarified that heavy tests are for prereleases, so that instruction
-is corrected. The full heavy run was stopped immediately: 121 passed, zero
+The owner clarified that heavy tests are for prereleases and replaced the old
+AGENTS.md in `4d143c87`; the PR preserves that owner-authored file verbatim. The full heavy run was stopped immediately: 121 passed, zero
 failed, 64 selected tests unfinished, in 564.83 seconds. This is partial evidence,
 not a full heavy-suite pass; no heavy suite is required for this develop merge.
 Fast, focused GPU checks and GitHub checks are the merge gates.

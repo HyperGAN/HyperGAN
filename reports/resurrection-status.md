@@ -2,6 +2,45 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Colorization demo in progress (2026-09-20): owner requested 256x256 logo
+colorization from `/mnt/ml7tb/data/logos256`, learned grayscale E, 4,096 hard-routed
+MoG particles with fixed matching sigma and no optimized constant KL, frozen
+DINOv3 ViT-S/16 plus attention, GPU 1 verification only, and a ready-to-run
+`training-runs/start-color.sh`. Owner authorizes PRs, merges into develop and
+pushing the existing local develop history. GitHub/local develop now match
+`a83d707296ea9125c1eea26f83c3b158561e3d0d`; existing main-checkout research/ledger
+edits remain preserved. No prerequisite synchronization PR was needed after
+that push; prior PRs #355/#356 are merged.
+
+External worktree: `/home/martyn/dev/hypergan/colorization-demo`, branch
+`feat/colorization-demo`. PR #357 adds bounded 256px g/x/gray PNG previews and
+explicit routed particle sample provenance; PR #358 adds the recipe, components,
+validated paired dataset inventory and held-out chroma/edge/diversity metrics.
+Both await required CI. Source commits `c94fc65b` and `0781d7ce`; DINOv3 source
+`6876159a11b4df116f30f667f8c9888617df0751`, owner-provided weights SHA256
+`08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d`.
+
+Local acceptance: 58 focused configuration/model/data/metric checks passed;
+combined preview/API/browser checks passed 67 tests and initially found one
+isolated-environment missing-web-dependency failure, which passed after installing
+the declared web extras. GPU-1 full model derivatives/b-cap passed with frozen
+DINO weights and nonzero particle gradients. Actual public CLI trained a real-logo
+fixture through step 8, resumed to 10, and recovered from earlier step 4 to 5.
+Exact restoration compared 1,050 tensors and 2,717 values, including all optimizer,
+EMA, sampler and RNG state. All three snapshot metrics executed. This proves
+execution/recovery only, not learned image quality or distributed behavior.
+
+Dataset preparation is validating all 426,445 image paths, with an explicit
+rejection report for invalid files and no source modification. Content-hash
+splitting keeps identical bytes in one split; evaluation uses a fixed hash-ordered
+held-out subset. The launcher already exists and is shell-validated; it pins
+physical GPU 1 by UUID. The owner run `training-runs/train-color` is not started.
+Evidence/logs/builds: `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-colorization/`.
+Next: finish full census, inspect/publish explicit exclusion inventory, write
+machine-specific TOML, verify the actual launcher on a separate full-dataset run
+with save/resume/previews/evaluation, stop its server, merge passing PRs and update
+this entry with final run/merge receipts. No paid compute or release.
+
 Training throughput (2026-09-20): the owner reported the CIFAR run on one A6000
 at 10-12 steps/s against 14-15 for the ParticleGAN source and asked for the GPU
 to be utilized as fully as possible, with less host blocking if needed. Two

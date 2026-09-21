@@ -214,7 +214,7 @@ class ColorizationData(ImageFolder):
                         raise ValueError(f'decoded image exceeds max_pixels={self.max_pixels}')
                     if getattr(image, 'n_frames', 1) != 1:
                         raise ValueError('animated/multi-frame images need explicit frame extraction')
-                    if image.mode not in {'RGB', 'RGBA', 'L', 'LA', 'P'}:
+                    if image.mode not in {'RGB', 'RGBA', 'L', 'LA', 'P', '1'}:
                         raise ValueError(f'unsupported source mode {image.mode!r}')
                     image.load()
                     source = {'source_width': image.width, 'source_height': image.height, 'source_mode': image.mode}

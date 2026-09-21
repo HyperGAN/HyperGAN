@@ -17,6 +17,7 @@ def logos(tmp_path):
     for i in range(100):
         Image.new('RGB', (8, 4), (i * 2, i, 255 - i)).save(root / f'{i:03}.png')
     Image.new('RGBA', (4, 8), (0, 0, 0, 0)).save(root / 'transparent.png')
+    Image.new('1', (8, 8), 1).save(root / 'one_bit.png')
     (root / 'archive.tgz').write_bytes(b'Explicitly ignored non-image archive')
     manifest = tmp_path / 'manifest.json'
     info = prepare_manifest(root, manifest, height=8, width=8, workers=2)
@@ -63,6 +64,12 @@ def test_alpha_white_and_pad(logos):
     assert torch.equal(sample['real'][opaque, :, :2], torch.ones(3, 2, 8))
     with pytest.raises(StopIteration, match='never wraps'):
         data(1, generator=torch.Generator())
+    one_bit = next(e for e in inventory['entries'] if e['path'] == 'one_bit.png')
+    assert one_bit['source_mode'] == '1'
+    bit_data = ColorizationData(root, manifest, info['sha256'], split=one_bit['split'], shuffle=False)
+    bit_sample = bit_data(len(bit_data.entries), generator=torch.Generator())
+    bit_index = next(i for i, e in enumerate(bit_data.entries) if e['path'] == 'one_bit.png')
+    assert torch.equal(bit_sample['real'][bit_index], torch.ones(3, 8, 8))
 
 
 def test_pinned_manifest_and_file_changes_fail_without_sampler_rng_advance(logos):

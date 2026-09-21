@@ -50,3 +50,21 @@ Evidence is in
 The owner run is left unstarted. Execution checks do not establish that ResNet
 fixes collapse; training must assess palette and conditional routing as well as
 random spread. No repeated-seed experiments or prerelease heavy tests are used.
+
+## Validation
+
+The installed wheel passes **939 fast tests**, with **186 heavy tests deselected**.
+Eleven new CPU tests cover native feature shapes, frozen BatchNorm and parameters,
+first/second input derivatives, checkpoint/cache handling, and legacy defaults.
+An independent real-weight comparison against develop commit `a1bdd1b6` found
+all 159 default CIFAR state tensors, constructor RNG state, train/eval outputs,
+input gradients, cached context features and pretrained metadata exactly equal.
+
+On physical GPU 1, the installed ResNet recipe completed updates 1–8, then
+resumed its checkpoint and completed updates 9–16. Both attempts exercised b-cap
+and emitted checkpoints plus paired and random previews. This validates execution
+and recovery only; no long training or alternate-seed run was performed.
+
+Receipts include `fast-tests.log`, `installed-smoke.log`, `installed-resume.log`,
+`cifar-default-parity.json`, and `owner-collapse-audit.json`. The launcher passes
+shell syntax and CLI argument checks, and the owner run directory is absent.

@@ -17,9 +17,10 @@ import numpy as np
 import torch
 from particlegan import GANLoss, GradientPenalty, ParticleRegularizer, learning_rate_scale
 
-from .recipes import ComponentGraph, construct, detach, make_prior, execution_device, move_tensors
+from .recipes import ComponentGraph, construct, make_prior, execution_device, move_tensors
 from .checkpoints import data_contract
 from .numerical_policy import apply_backend_policy
+from .objective_program import compile_legacy_program, run_native_program
 
 
 class _MetricScalarTransfer:
@@ -181,17 +182,14 @@ class ReferenceTrainer:
             raise ValueError("Objective constructors must not own trainable parameters; declare trainable transforms as components and bind their outputs into an objective")
         if any(isinstance(term, torch.nn.Module) and list(term.buffers()) for term in self.objectives):
             raise ValueError("Stateful objective buffers are not supported by this reference loop; declare stateful transforms as components")
+        self.program = compile_legacy_program(self.graph, self.prior, config, self.objectives)
         opt = config["optimizer"]
-        groups = [{"params": self.graph.generator_parameters(), "lr": opt["lr"]}]
-        prior_parameters = [p for p in self.prior.parameters() if p.requires_grad]
-        if prior_parameters:
-            groups.append({"params": prior_parameters, "lr": opt["lr"] * opt["prior_lr_mult"], "betas": tuple(opt["prior_betas"])})
-        d_parameters = [p for p in self.graph.models["discriminator"].parameters() if p.requires_grad]
-        if not groups[0]["params"] or not d_parameters:
-            raise ValueError("The reference adversarial loop requires trainable generator and discriminator parameters")
+        groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"]}]
+        if self.program.prior_parameters:
+            groups.append({"params": list(self.program.prior_parameters), "lr": opt["lr"] * opt["prior_lr_mult"], "betas": tuple(opt["prior_betas"])})
         optimizer_options = {'fused': True} if opt['implementation'] == 'torch_fused_adam' else {}
         self.opt_g = DeviceAdam(groups, betas=tuple(opt["betas"]), **optimizer_options)
-        self.opt_d = DeviceAdam(d_parameters, lr=opt["lr"] * opt["d_lr_mult"], betas=tuple(opt["betas"]), **optimizer_options)
+        self.opt_d = DeviceAdam(list(self.program.critic_parameters), lr=opt["lr"] * opt["d_lr_mult"], betas=tuple(opt["betas"]), **optimizer_options)
         self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in (self.opt_g, self.opt_d)]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
@@ -231,79 +229,9 @@ class ReferenceTrainer:
         """Execute one D update followed by G/prior/aux update and matched EMA.
 
         Explicit batch and (latent, indices) enable controlled numerical comparisons.
+        Term routing and parameter membership come from the compiled program.
         """
-        cfg = self.config
-        settings = cfg["training"]
-        independent = settings['phase_draws'] == 'independent'
-        if not independent and (generator_batch is not None or generator_latent_draw is not None):
-            raise ValueError('Explicit generator phase draws require training.phase_draws=independent')
-        step = self.step + 1
-        scale = learning_rate_scale(step - 1, settings["steps"], start=settings["lr_anneal_start"], floor=settings["lr_floor"])
-        for optimizer, rates in zip((self.opt_g, self.opt_d), self.base_lrs):
-            for group, rate in zip(optimizer.param_groups, rates):
-                group["lr"] = rate * scale
-        if independent:
-            with torch.no_grad():
-                batch, ids, context = self._draw(batch, latent_draw)
-        else:
-            batch, ids, context = self._draw(batch, latent_draw)
-        fake, real = context["generated"], batch["real"]
-        critic = lambda x: self.graph.critic(x, context)
-        self.opt_d.zero_grad(set_to_none=True)
-        d_adversarial = self.gan.d_loss(critic(real), critic(fake.detach()))
-        d_penalty = self.penalty(critic, real, fake.detach(), step=step, generator=self.streams["penalty"])
-        d_adversarial_weighted = cfg["adversarial"]["weight"] * d_adversarial
-        d_loss = d_adversarial_weighted + d_penalty
-        d_loss.backward()
-        self._refuse_nonfinite(d_loss, "Nonfinite discriminator loss; run stopped",
-                               [("Nonfinite discriminator gradient; run stopped",
-                                 self.graph.models["discriminator"].parameters())])
-        self.opt_d.step()
-        discriminator = self.graph.models["discriminator"]
-        flags = [p.requires_grad for p in discriminator.parameters()]
-        discriminator.requires_grad_(False)
-        try:
-            if independent:
-                batch, ids, context = self._draw(generator_batch, generator_latent_draw)
-                fake, real = context['generated'], batch['real']
-            self.opt_g.zero_grad(set_to_none=True)
-            g_adversarial = self.gan.g_loss(critic(fake), critic(real).detach())
-            if ids is None:
-                prior_loss = fake.new_zeros(())
-            else:
-                rows = self.prior.z if cfg["prior_regularizer"]["rows"] == "full" else self.prior.z[ids.unique()]
-                prior_loss = self.spread(rows)
-            objective_losses = []
-            for term, objective in zip(cfg["objectives"], self.objectives):
-                inputs = {arg: self.graph.resolve(path, context) for arg, path in term["inputs"].items()}
-                for arg in term["detach"]:
-                    inputs[arg] = detach(inputs[arg])
-                value = objective(**inputs)
-                if not isinstance(value, torch.Tensor) or value.numel() != 1:
-                    raise ValueError("Each objective must return one scalar tensor")
-                objective_losses.append(term["weight"] * value)
-            g_adversarial_weighted = cfg["adversarial"]["weight"] * g_adversarial
-            g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-            g_loss.backward()
-            self._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
-                                   [("Nonfinite generator/auxiliary gradient; run stopped",
-                                     self.graph.generator_parameters()),
-                                    ("Nonfinite prior gradient; run stopped", self.prior.parameters())])
-            self.opt_g.step()
-        finally:
-            for parameter, flag in zip(discriminator.parameters(), flags):
-                parameter.requires_grad_(flag)
-        update_ema(self.ema_graph, self.graph, settings["ema"])
-        update_ema(self.ema_prior, self.prior, settings["ema"])
-        self.step = step
-        values = self._metric_transfer([d_loss, d_adversarial, d_adversarial_weighted,
-            g_adversarial_weighted, g_loss, g_adversarial, prior_loss, d_penalty,
-            *objective_losses])
-        row = dict(zip(('d_loss', 'd_adversarial', 'd_adversarial_weighted',
-                        'g_adversarial_weighted', 'g_loss', 'g_adversarial',
-                        'prior_loss', 'gradient_penalty'), values[:8]))
-        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale)
-        return row, detach(batch)
+        return run_native_program(self, batch, latent_draw, generator_batch, generator_latent_draw)
 
     def _unscale(self, device):
         """A reusable ``inv_scale`` of exactly one per gradient device."""

@@ -8,6 +8,7 @@ from torch import nn
 
 from hypergan.checkpoints import restore_trainer, trainer_state
 from hypergan.config import load_config, resolve_config
+from hypergan.objective_program import compile_legacy_program
 from hypergan.training import ReferenceTrainer
 
 from tests.reference.legacy_native_oracle import legacy_native_update
@@ -192,6 +193,37 @@ def test_zero_weight_objective_still_executes():
     _assert_trainers(produced, reference)
     assert produced.objectives[0].calls == 1
     assert reference.objectives[0].calls == 1
+
+
+def test_program_parameter_order_matches_legacy_optimizer_groups():
+    trainer = ReferenceTrainer(resolve_config({}))
+    assert trainer.program.schedule == "d-then-g-v1"
+    assert tuple(trainer.graph.generator_parameters()) == trainer.program.generator_parameters
+    expected_critic = tuple(parameter for parameter in trainer.graph.models["discriminator"].parameters() if parameter.requires_grad)
+    assert expected_critic == trainer.program.critic_parameters
+    assert tuple(trainer.opt_g.param_groups[0]["params"]) == trainer.program.generator_parameters
+    assert tuple(trainer.opt_d.param_groups[0]["params"]) == trainer.program.critic_parameters
+    assert tuple(trainer.opt_g.param_groups[1]["params"]) == trainer.program.prior_parameters
+
+
+def test_duplicate_generator_parameters_keep_the_first_occurrence():
+    config = resolve_config({"training": {"steps": 1, "batch_size": 4}, "prior": {"args": {"num_particles": 8, "z_dim": 4}}})
+    trainer = ReferenceTrainer(config)
+    original = trainer.graph.generator_parameters
+    parameters = original()
+    trainer.graph.generator_parameters = lambda: [parameters[0], parameters[0], *parameters[1:]]
+    program = compile_legacy_program(trainer.graph, trainer.prior, trainer.config, trainer.objectives)
+    assert program.generator_parameters == tuple(parameters)
+
+
+def test_overlapping_update_groups_are_rejected():
+    config = resolve_config({"training": {"steps": 1, "batch_size": 4}, "prior": {"args": {"num_particles": 8, "z_dim": 4}}})
+    trainer = ReferenceTrainer(config)
+    shared = next(trainer.graph.models["discriminator"].parameters())
+    original = trainer.graph.generator_parameters
+    trainer.graph.generator_parameters = lambda: [shared, *original()]
+    with pytest.raises(ValueError, match="both the critic and generator"):
+        compile_legacy_program(trainer.graph, trainer.prior, trainer.config, trainer.objectives)
 
 
 def test_component_condition_is_detached_while_generator_path_can_train_it():

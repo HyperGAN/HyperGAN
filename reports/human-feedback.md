@@ -9,24 +9,6 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
-### 17. Preview retention: default 128 with thinning instead of keep-all, and fix inherited `preview_keep` (raised 2026-09-20)
-
-Owner: "ok lets fix the preview_keep bug. i think it should be set to idk, 128(?) by default. i also think we'll want to prune the middle when we prune, like go from once every 500 to once every 1000. stuff like that. so it's at most N but prunes when it gets too big in chunks."
-
-Supersedes the keep-everything default shipped for item 8. Item 8 Follow-up 2 (the manifest that inherits the old default of 20) is fixed here as well.
-
-- [ ] Default `--preview-keep` becomes 128. `--preview-keep all` stays available for keep-everything; `--preview-keep N` stays an explicit bound.
-- [ ] Pruning thins the middle instead of dropping the oldest: when a run holds more than N generations, older samples are thinned by halving their density (a run publishing every 500 steps ends up with every 1,000, then every 2,000, ...), in a chunk, so the next prune only happens after many more publications. The first sample of the run is never pruned, and the most recent samples stay dense. Thinning is monotonic: a later prune only ever removes generations, never reorders or "un-thins", and the result is deterministic from the index.
-- [ ] A manifest that recorded `preview_keep` only because it was the default at the time must not pin a resumed run to that stale value. Record whether the bound was explicit; `hypergan train` on an existing run directory and `hypergan resume` behave the same way; an explicit `--preview-keep N` still carries across resume.
-- [ ] Tests: thinning keeps the first and latest samples and halves spacing; repeated publications never exceed N; an old manifest with `preview_keep: 20` and no explicitness marker resumes into the new default; an explicit bound still resumes as explicit.
-- [ ] Docs (`docs/image-previews.md`, README, `docs/recovery.md` if it mentions retention) describe the thinning policy and the default in plain words.
-
-Owner addendum (2026-09-20): "it should be smooth and not interrupt the main workflow, happening in the background with the ui updating after."
-
-- [ ] Pruning never stalls training: the index is rewritten first (readers only ever see retained generations), then the expired directories are deleted by a background worker owned by the run and drained at shutdown. The next publication does not wait on an in-flight prune and never re-indexes a directory pending deletion; a directory left behind by a crash mid-prune is dropped again by the same deterministic policy on the next publication.
-- [ ] The viewer picks up the new retained set after the prune: `preview_count` and the index reflect the post-prune count.
-- [ ] Test: the trainer-side publish call returns without waiting on directory removal, the directories are gone once the worker drains, and the index never references a directory the worker deletes.
-
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 
 Owner: "it seems odd that we use python and node and rust. i think python and rust is a bit sensible. but node seems like an outlier. is that something our users will need to install? gotta think about the onboarding experience."
@@ -44,6 +26,46 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 - [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
 
 ## Done
+
+### 17. Preview retention: default 128 with thinning instead of keep-all, and fix inherited `preview_keep` (raised 2026-09-20)
+
+Owner: "ok lets fix the preview_keep bug. i think it should be set to idk, 128(?) by default. i also think we'll want to prune the middle when we prune, like go from once every 500 to once every 1000. stuff like that. so it's at most N but prunes when it gets too big in chunks."
+
+Supersedes the keep-everything default shipped for item 8. Item 8 Follow-up 2 (the manifest that inherits the old default of 20) is fixed here as well.
+
+**Status:** Implemented in commit e02fbf58, merged to develop in 015a0473. Default
+`--preview-keep` is now 128 (`all` still keeps everything, `N` is an explicit bound).
+Retention is thinning, not drop-the-oldest: `previews.thin` keeps the first sample of
+the run and the latest unconditionally, keeps the newest samples dense inside a window
+that advances in whole 16-sample steps, and retains older samples at a spacing that
+doubles each time the run outgrows the bound (every 500 steps becomes every 1,000, then
+every 2,000). Both the doubling and the window advance only ever remove, so the retained
+set is nested and deterministic from what is on disk; over 1,200 simulated publications
+at 128 there were 76 prune events in chunks of 8 to 64. Pruning is off the training path:
+the index is rewritten first, expired directories are renamed to `.expired-<name>` (the
+reindex scan skips the dot prefix) and deleted by a daemon worker; `drain_pruning()` and
+an atexit hook drain it, and leftovers from a crash are swept on the next publication.
+The manifest records `preview_keep_source: "explicit" | "default"`, and the shared
+`run_controller.resolve_preview_keep` (used by `run_train`/`run_resume` and
+`prepare_train`/`prepare_resume`) inherits a stored bound only when it was explicit; a
+manifest without the marker resumes into the current default. Verified on merged develop:
+703 passed across previews, foundation, core CLI, observation, replicated observer
+acceptance, web and browser suites, with the one known environment failure
+(`test_console_entrypoint`). The viewer bundle is unchanged. Not run: `tests/cuda/`.
+The owner's live run still needs a restart to pick up the new default; generations
+already pruned are gone.
+
+- [x] Default `--preview-keep` becomes 128. `--preview-keep all` stays available for keep-everything; `--preview-keep N` stays an explicit bound.
+- [x] Pruning thins the middle instead of dropping the oldest: when a run holds more than N generations, older samples are thinned by halving their density (a run publishing every 500 steps ends up with every 1,000, then every 2,000, ...), in a chunk, so the next prune only happens after many more publications. The first sample of the run is never pruned, and the most recent samples stay dense. Thinning is monotonic: a later prune only ever removes generations, never reorders or "un-thins", and the result is deterministic from the index.
+- [x] A manifest that recorded `preview_keep` only because it was the default at the time must not pin a resumed run to that stale value. Record whether the bound was explicit; `hypergan train` on an existing run directory and `hypergan resume` behave the same way; an explicit `--preview-keep N` still carries across resume.
+- [x] Tests: thinning keeps the first and latest samples and halves spacing; repeated publications never exceed N; an old manifest with `preview_keep: 20` and no explicitness marker resumes into the new default; an explicit bound still resumes as explicit.
+- [x] Docs (`docs/image-previews.md`, README, `docs/recovery.md` if it mentions retention) describe the thinning policy and the default in plain words.
+
+Owner addendum (2026-09-20): "it should be smooth and not interrupt the main workflow, happening in the background with the ui updating after."
+
+- [x] Pruning never stalls training: the index is rewritten first (readers only ever see retained generations), then the expired directories are deleted by a background worker owned by the run and drained at shutdown. The next publication does not wait on an in-flight prune and never re-indexes a directory pending deletion; a directory left behind by a crash mid-prune is dropped again by the same deterministic policy on the next publication.
+- [x] The viewer picks up the new retained set after the prune: `preview_count` and the index reflect the post-prune count.
+- [x] Test: the trainer-side publish call returns without waiting on directory removal, the directories are gone once the worker drains, and the index never references a directory the worker deletes.
 
 ### 11. Steps per second as a training metric (raised 2026-09-20)
 
@@ -397,9 +419,9 @@ Follow-up 2 (2026-09-20 18:41): the owner restarted training at 18:39 on the new
 
 Owner decision (2026-09-20, after compaction): the default is no longer keep-everything but 128 with thinning; the inheritance fix moved into item 17 with that change. The three boxes below are tracked there.
 
-- [ ] Superseded by item 17: only inherit an explicit `preview_keep`; treat a manifest without an explicitness marker as default.
-- [ ] Superseded by item 17: `hypergan train` on an existing run directory and `hypergan resume` behave the same way.
-- [ ] Superseded by item 17: tests for old-manifest resume and explicit-bound resume.
+- [x] Superseded by item 17: only inherit an explicit `preview_keep`; treat a manifest without an explicitness marker as default.
+- [x] Superseded by item 17: `hypergan train` on an existing run directory and `hypergan resume` behave the same way.
+- [x] Superseded by item 17: tests for old-manifest resume and explicit-bound resume.
 
 ### 9. FID (snapshot evaluations) should be a chart, not a wall of text (raised 2026-09-20)
 

@@ -107,6 +107,79 @@ def test_changed_external_factory_source_still_rejects_resume(tmp_path, monkeypa
     assert files(run) == before
 
 
+FIRST_CARD = '548116b7-9dbe-de58-b3d9-a6e27b0f74ce'
+SECOND_CARD = 'ed080e41-3193-3755-6756-f3d46c433331'
+
+
+def one_of_two_identical_cards(monkeypatch, selected):
+    """Record a synthetic pair of identical GPUs so `selected` names the current one.
+
+    Both cards report the same model and capability; only the physical identity
+    moves, which is what an unpinned CUDA enumeration order does on a restart.
+    """
+    import hypergan.single_execution as single
+    from hypergan.training import runtime_info as original
+
+    def runtime_info(device='cpu'):
+        return dict(original(device),
+                    cuda={'version': '13.0', 'cudnn': 91200, 'name': 'NVIDIA RTX A6000',
+                          'capability': [8, 6], 'uuid': selected[0],
+                          'visible_devices': [selected[0]],
+                          'cudnn_benchmark': False, 'cudnn_deterministic': True,
+                          'cublas_workspace_config': ':4096:8',
+                          'deterministic_warn_only': False, 'matmul_precision': 'highest',
+                          'matmul_allow_tf32': False, 'cudnn_allow_tf32': False})
+
+    monkeypatch.setattr(single, 'runtime_info', runtime_info)
+
+
+def test_resume_on_the_other_identical_card_warns_and_completes(tmp_path, monkeypatch):
+    config = write_default(tmp_path / 'config', device='cpu')
+    baseline, run = tmp_path / 'baseline', tmp_path / 'run'
+    selected = [FIRST_CARD]
+    one_of_two_identical_cards(monkeypatch, selected)
+    train(config, baseline)
+    train(config, run, stop_after_steps=2, checkpoint_every=1)
+    # The restart enumerates the other identical card as device 0.
+    selected[0] = SECOND_CARD
+    with pytest.warns(RuntimeWarning, match='different physical GPU'):
+        result = train(config, run)
+    assert result['status'] == 'complete' and result['steps'] == 5
+    # Resuming onto an equivalent card is a warning, not a different result.
+    equal(read_checkpoint(baseline)[2], read_checkpoint(run)[2])
+    recorded = [warning for warning in result['warnings'] if 'different physical GPU' in warning]
+    assert len(recorded) == 1 and FIRST_CARD in recorded[0] and SECOND_CARD in recorded[0]
+    assert result['resume_warnings'] == recorded
+    events = [json.loads(line) for line in (run / 'events.jsonl').read_text().splitlines()]
+    resumed = next(event for event in events if event['event'] == 'resume')
+    assert resumed['warnings'] == recorded
+
+
+def test_resume_on_a_different_card_model_names_the_rejected_fields(tmp_path, monkeypatch):
+    config = write_default(tmp_path / 'config', device='cpu')
+    run = tmp_path / 'run'
+    selected = [FIRST_CARD]
+    one_of_two_identical_cards(monkeypatch, selected)
+    train(config, run, stop_after_steps=1)
+    import hypergan.single_execution as single
+    replaced = single.runtime_info
+
+    def other_model(device='cpu'):
+        runtime = replaced(device)
+        runtime['cuda'] = dict(runtime['cuda'], uuid=SECOND_CARD, visible_devices=[SECOND_CARD],
+                               name='NVIDIA GeForce RTX 4090', capability=[8, 9])
+        return runtime
+
+    monkeypatch.setattr(single, 'runtime_info', other_model)
+    before = files(run)
+    with pytest.raises(ValueError) as error:
+        train(config, run)
+    message = str(error.value)
+    assert 'cuda.name: saved "NVIDIA RTX A6000", current "NVIDIA GeForce RTX 4090"' in message
+    assert 'cuda.capability: saved [8, 6], current [8, 9]' in message
+    assert files(run) == before
+
+
 @pytest.mark.parametrize('version', [2, True])
 def test_checkpoint_compatibility_rechecked_under_lock_before_numerical_loading(tmp_path, monkeypatch, version):
     import hypergan.run_controller as controller

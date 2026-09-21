@@ -57,6 +57,8 @@ class ObserverError(RuntimeError):
 class Restored:
     checkpoint_path: Path
     step: int
+    # Qualified-but-accepted resume conditions, already warned where detected.
+    warnings: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -320,6 +322,13 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
                 raise ValueError('Resume numerical execution identity differs from the run manifest')
             restored = execution.restore(run_dir, checkpoint, manifest['run_id'], manifest['config_sha256'])
             _apply_execution(manifest, descriptor)
+            # A resume condition the adapter qualified rather than rejected. The
+            # adapter already warned; keep it durable on the run as well.
+            recorded = manifest.setdefault('warnings', [])
+            manifest['resume_warnings'] = list(restored.warnings)
+            for warning in restored.warnings:
+                if warning not in recorded:
+                    recorded.append(warning)
             checkpoint_info = json.loads((Path(restored.checkpoint_path) / 'manifest.json').read_text())
             if checkpoint_info.get('event_boundary') is None:
                 raise ValueError('Controller checkpoint requires a durable event boundary')
@@ -715,6 +724,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         parent = manifest.get('recovery_parent')
         emit('resume' if parent else 'start', config_sha256=fingerprint(config),
              observation_sha256=manifest['observation_sha256'],
+             warnings=list(manifest.get('resume_warnings', [])),
              parent_attempt_id=parent['attempt_id'] if parent else None,
              restored_step=parent['step'] if parent else 0,
              checkpoint_id=parent['checkpoint_id'] if parent else None,

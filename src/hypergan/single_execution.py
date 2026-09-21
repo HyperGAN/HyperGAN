@@ -73,7 +73,9 @@ class SingleProcessExecution:
         if fingerprint(self._config) != info['config_sha256'] or fingerprint(self._config) != config_sha256:
             raise ValueError('Resume configuration differs from checkpoint; total training schedule cannot change')
         apply_backend_policy(self._config)
-        validate_runtime(info['runtime'], runtime_info(self._config['training']['device']))
+        # Warns on stderr as it is detected; the controller also records them on
+        # the run so the owner can read them after the attempt has scrolled past.
+        runtime_warnings = validate_runtime(info['runtime'], runtime_info(self._config['training']['device']))
         self._open()
         contract, reasons = _recovery_contract(self._trainer)
         if reasons:
@@ -86,7 +88,8 @@ class SingleProcessExecution:
         if self._device.type == 'cuda':
             torch.cuda.synchronize(self._device)
         self._ready = True
-        return Restored(checkpoint_path=target, step=self._trainer.step)
+        return Restored(checkpoint_path=target, step=self._trainer.step,
+                        warnings=tuple(runtime_warnings))
 
     def update(self):
         self._boundary()

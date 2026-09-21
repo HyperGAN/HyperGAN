@@ -122,4 +122,3 @@ All diagnostic training processes were stopped for compaction. The implementatio
 and evidence are pushed on `fix/color-collapse`, PR #362 remains a draft, and no
 merge has been claimed. Finish the selected DINO comparison, update the installed
 runtime/launcher with the supported choice, then review and merge to `develop`.
-

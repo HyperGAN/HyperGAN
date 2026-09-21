@@ -1,0 +1,193 @@
+# Experimental conditional particle VAEGAN. See docs/colorization.md.
+# Prepare a dataset manifest and supply local, hash-pinned DINOv3 artifacts.
+schema_version = 1
+name = "images/logos-colorization-256"
+
+[data]
+factory = "hypergan.colorization_data:ColorizationData"
+[data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "train"
+shuffle = true
+
+[components.generator]
+factory = "hypergan.colorization_components:ColorizationGenerator"
+inputs = { z = "components.encoder.latent" }
+[components.generator.args]
+z_dim = 128
+width = 32
+
+[components.discriminator]
+factory = "hypergan.colorization_components:DINOv3Discriminator"
+inputs = { x = "candidate", gray = "batch.gray" }
+[components.discriminator.args]
+source_path = "./dinov3-source"
+source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
+weights_path = "./dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
+weights_sha256 = "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
+width = 32
+
+[components.encoder]
+factory = "hypergan.colorization_components:GrayscaleRoutingEncoder"
+inputs = { gray = "batch.gray", means = "prior.means", sigma = "prior.sigma" }
+[components.encoder.args]
+z_dim = 128
+width = 32
+temperature = 0.125
+
+# Reconstruction trains E through fixed G and detached particle means.
+# Conditional adversarial training updates E, G, and the particle means.
+[components.reconstruction]
+reuse = "generator"
+inputs = { z = "components.encoder.reconstruction_latent" }
+freeze_parameters = true
+
+[[objectives]]
+id = "encoder_reconstruction"
+factory = "mse"
+inputs = { input = "components.reconstruction", target = "batch.real" }
+weight = 1.0
+detach = ["target"]
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 25003
+[prior.args]
+num_particles = 4096
+z_dim = 128
+# Calibrated once at initialization, then fixed and shared by posterior/prior.
+sigma_rel = 0.025
+
+[adversarial]
+loss_type = "logistic"
+mode = "rp"
+weight = 1.0
+
+[gradient_penalty]
+arm = "b_cap"
+coeff = 1.0
+kappa = 1.0
+lazy_k = 8
+
+[prior_regularizer]
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001
+
+[optimizer]
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
+
+[training]
+steps = 200000
+batch_size = 16
+seed = 25002
+device = "cuda"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "independent"
+data_rng_device = "cpu"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+[training.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[sampling]
+count = 8
+seed = 35002
+particle_ids = "components.encoder.ids"
+
+[metrics]
+preset = "standard"
+every_steps = 10
+
+[metrics.custom.chroma]
+factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 5000
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.chroma.args]
+bins = 64
+projections = 8
+[metrics.custom.chroma.evaluation]
+device = "cuda"
+sample_count = 512
+batch_size = 8
+seed = 35002
+[metrics.custom.chroma.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.chroma.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+[metrics.custom.structure]
+factory = "hypergan.colorization_metrics:GrayscaleStructureDistance"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 6000
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.structure.evaluation]
+device = "cuda"
+sample_count = 512
+batch_size = 8
+seed = 35002
+[metrics.custom.structure.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.structure.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+[metrics.custom.diversity]
+factory = "hypergan.colorization_metrics:RepeatedConditionChromaDiversity"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 7000
+on_busy = "skip"
+timeout = 600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.diversity.args]
+repeats = 4
+[metrics.custom.diversity.evaluation]
+device = "cuda"
+sample_count = 512
+batch_size = 8
+seed = 35002
+[metrics.custom.diversity.evaluation.data]
+factory = "hypergan.colorization_data:ColorizationData"
+[metrics.custom.diversity.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "./dataset-manifest.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "heldout"
+shuffle = false
+repeats = 4

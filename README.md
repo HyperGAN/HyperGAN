@@ -10,6 +10,10 @@ target CUDA; CPU execution is explicit for small correctness fixtures. Full imag
 reproduction, actual two-GPU image qualification and real cluster training remain
 release gates. Custom configurations still require their own qualification.
 
+The experimental [256×256 logo colorization demo](docs/colorization.md) pairs a
+grayscale particle encoder with a DINOv3 attention discriminator, held-out color
+and structure metrics, and multiple sampled colorizations.
+
 ## Install the development foundation
 
 Use Python 3.12 for the tested training runtime. Lightweight package checks cover Python 3.10–3.12 on Linux, macOS and Windows; the CPU reference profile is tested on Linux.

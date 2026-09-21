@@ -6,6 +6,11 @@ from pathlib import Path
 import pytest
 
 
+# Heavy: every test here starts real subprocesses or multi-rank jobs and
+# measured at a second or more; see reports/test-durations-2026-09-20.txt.
+pytestmark = pytest.mark.heavy
+
+
 _spec = importlib.util.spec_from_file_location(
     '_replicated_job_fixtures', Path(__file__).with_name('test_replicated_job_acceptance.py'))
 _base = importlib.util.module_from_spec(_spec)

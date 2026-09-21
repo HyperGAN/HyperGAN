@@ -60,6 +60,62 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 
 ## Done
 
+### 20. Gate the heavy tests so a plain `pytest` is fast (raised 2026-09-20)
+
+Owner: "those tests seem pretty heavy we should probably gate them and run them intentionally"
+
+- [x] Measure the default suite per test first, and mark from that evidence rather than from which directory a file happens to sit in.
+- [x] Register a `heavy` marker in `pyproject.toml` with `--strict-markers`, so a typo fails collection instead of quietly selecting nothing.
+- [x] Deselect it by default: `python -m pytest` now runs 759 tests in about 23 seconds instead of 944 in about 19 minutes.
+- [x] Running the gated half stays a deliberate, visible act — `python -m pytest -m heavy` — with no environment variable that changes selection behind your back.
+- [x] Deselected, never skipped. A default run ends "759 passed, 185 deselected"; it does not report the gated tests as passing.
+- [x] CI keeps every test on develop. The heavy half moved to its own jobs rather than disappearing.
+
+**Status:** Merged into develop (`f236af15`, merge `f3b21832`), recorded as item 20 because
+item 19 was taken by the throughput work while this branch was in flight.
+
+The rule is one measured number: a test is `heavy` when it took **one second or
+more**. Every one of the 180 tests over that line starts real operating system
+processes — a second interpreter through the CLI, a worker service, a two-rank
+job or an acceptance driver — so the "spawns subprocesses" and "is slow"
+criteria turned out to name the same set, and the marker does not have to
+choose between them. The marker sits on functions, so 185 tests carry it: the
+extra five are quick parametrisations of a function whose other parametrisations
+are heavy. Twenty modules are marked at module level with `pytestmark` because
+every test in them qualifies; the other nineteen files are marked per test, and
+their fast unit tests stay in the default suite — `tests/foundation/test_cli.py`
+contributes one gated test out of thirteen, `test_bounded_observer.py` three out
+of twenty-two, `test_recovery.py` one out of seventeen.
+
+The measurement is in [test-durations-2026-09-20.txt](test-durations-2026-09-20.txt):
+a full `--durations=0` run plus per-test process counts, taken with the package
+installed into a throwaway venv. That detail matters — against the editable
+checkout, the tests that re-invoke `python -I -m hypergan` abort in
+milliseconds with `No module named hypergan` and look like the cheapest tests in
+the suite, which is exactly backwards. The first two measurement passes made
+that mistake; the numbers in the report do not.
+
+What the split costs and buys, measured on this machine:
+
+| selection | tests | wall clock |
+| --- | --- | --- |
+| `python -m pytest` (default) | 759 | 22.6 s |
+| `python -m pytest -m heavy` | 185 | 19 min 52 s |
+| `python -m pytest -m ""` (both) | 944 | 19 min 29 s |
+
+A command line `-m` replaces the one in `addopts`, so `-m heavy` selects exactly
+the gated tests and `-m ""` runs everything; the three selections were checked
+to be disjoint and to sum to 944.
+
+Where this lives:
+- `pyproject.toml`: `markers = [...]` with the criterion written next to it, and
+  `addopts` as a list ending in `-m`, `not heavy`, plus `--strict-markers`.
+- `.github/workflows/ci.yml`: the existing `lightweight` and `reference` jobs
+  pick up the fast selection from `addopts` without changing a line. Two new
+  jobs, `heavy-lightweight` (the same OS and Python matrix, so the CLI
+  entrypoint tests keep their Windows and macOS coverage) and `heavy-reference`,
+  run `-m heavy`, and both are required by the `foundation` gate.
+- `AGENTS.md` and README: when to run the gated half.
 ### 18. Resume rejected because CUDA enumerated the other identical GPU; say what differs and warn instead of failing (raised 2026-09-20)
 
 Owner: "I think that should probably be a warning, and more specific on what is failing to load."

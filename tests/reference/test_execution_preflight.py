@@ -125,6 +125,7 @@ if __name__ == '__main__':
 '''
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('mode', ['single', 'replicated', 'unsupported', 'expected', 'nonfinite', 'complex', 'threads', 'identity-threads',
                                   'missing-torch', 'missing-numpy', 'missing-particlegan'])
 def test_preflight_runtime_contract(tmp_path, mode):
@@ -166,6 +167,7 @@ def test_forged_resolved_profile_is_rejected_before_launch(monkeypatch):
         runtime.preflight(config, profile)
 
 
+@pytest.mark.heavy
 def test_native_cli_runtime_constructs_cpu_without_forward_or_data_draw(tmp_path):
     from hypergan.config import write_default
     config = write_default(tmp_path / 'project', device='cpu')

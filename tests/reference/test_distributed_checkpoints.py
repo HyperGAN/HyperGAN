@@ -271,6 +271,7 @@ def launch(root, run, mode):
     return [json.loads(path.read_text()) for path in outputs if path.exists()]
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('dataset', ['ordered', 'image'])
 def test_fresh_group_resume_preserves_every_rank_rng_sampler_and_optimizer(tmp_path, dataset):
     root = tmp_path / 'fixture'
@@ -303,6 +304,7 @@ def test_fresh_group_resume_preserves_every_rank_rng_sampler_and_optimizer(tmp_p
     assert all((path / 'rank-00000.pt').is_file() and (path / 'rank-00001.pt').is_file() for path in generations)
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('mode', ['half', 'divergent', 'state-failure', 'identity-type', 'build-disagreement', 'stage-failure', 'metadata-bound', 'missing', 'missing-after-gather'])
 def test_failed_rank_or_staging_never_advances_last_complete_checkpoint(tmp_path, mode):
     results = launch(tmp_path / 'fixture', tmp_path / 'run', mode)
@@ -315,6 +317,7 @@ def test_failed_rank_or_staging_never_advances_last_complete_checkpoint(tmp_path
     assert not list((tmp_path / 'run' / 'distributed-checkpoints' / '.prepared').rglob('command-*'))
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('mode', ['restore-config', 'restore-topology', 'restore-runtime', 'restore-threads', 'restore-poisoned', 'restore-not-ready', 'restore-data', 'restore-missing-rank', 'restore-pointer', 'restore-mutating-hook', 'restore-live-failure', 'restore-version', 'restore-custom-implementation', 'restore-third-party-implementation', 'restore-build-disagreement'])
 def test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation(tmp_path, mode):
     root, run = tmp_path / 'fixture', tmp_path / 'run'
@@ -346,6 +349,7 @@ def test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation(tmp
         assert 'version' in results[0]['error'].lower()
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('legacy', [False, True], ids=['versioned', 'before-contract-version'])
 def test_compatible_hypergan_build_changes_preserve_exact_distributed_continuation(tmp_path, legacy):
     root, run = tmp_path / 'fixture', tmp_path / 'split'

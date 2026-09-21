@@ -21,7 +21,7 @@ Periodic previews operate on copied EMA state on CPU. Inference bundles remain p
 
 # Explicit hardware checks
 
-The regular `python -m pytest` suite selects foundation and CPU numerical tests. Hardware checks are a separate gate and fail if required hardware is missing:
+The regular `python -m pytest` suite selects the fast foundation and CPU numerical tests; the subprocess and multi-rank half is gated behind `-m heavy`. Hardware checks are a separate gate and fail if required hardware is missing:
 
 ```sh
 python -m pytest tests/cuda -q

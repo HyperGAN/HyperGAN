@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
 import torch
 import torch.distributed as dist
 
@@ -111,6 +112,7 @@ def worker(rank, root):
         dist.destroy_process_group()
 
 
+@pytest.mark.heavy
 def test_replicated_factory_mask_and_complete_checkpoint_recovery(tmp_path):
     (tmp_path / 'run').mkdir()
     processes = [subprocess.Popen([sys.executable, str(Path(__file__).resolve()), str(rank), str(tmp_path)],

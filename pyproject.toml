@@ -46,4 +46,17 @@ version = {attr = "hypergan.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests/foundation", "tests/reference"]
-addopts = "--import-mode=importlib -ra"
+# The default selection is the fast suite: everything except `heavy`. A command
+# line `-m` replaces the one below, so `python -m pytest -m heavy` runs exactly
+# the gated tests and `-m ""` runs both halves together.
+addopts = ["--import-mode=importlib", "-ra", "--strict-markers", "-m", "not heavy"]
+markers = [
+    # The criterion is one measured number: a test is heavy when it took a
+    # second or more in reports/test-durations-2026-09-20.txt. Every test over
+    # that line also starts real operating system processes - a CLI run, a
+    # worker service, a two-rank job, an acceptance driver - so the two ways of
+    # saying it pick out the same 180 tests. Nothing is marked for sitting in a
+    # file next to one that is. Heavy tests are deselected by default and never
+    # skipped: a default run reports them as deselected, not as passing.
+    "heavy: starts real subprocesses or multi-rank jobs; a second or more each",
+]

@@ -39,6 +39,7 @@ def test_preview_keep_accepts_a_count_or_the_whole_run():
             parsed('--preview-keep', invalid)
 
 
+@pytest.mark.heavy
 def test_cli_stop_resume_and_json_progress(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
@@ -117,6 +118,7 @@ args = {{ side = 4 }}
 '''
 
 
+@pytest.mark.heavy
 def test_cli_reports_snapshot_metrics_that_have_no_schedule(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     config.write_text(config.read_text() + SNAPSHOT_METRIC.format(trigger='trigger = "manual"\n'))
@@ -152,6 +154,7 @@ def test_cli_reports_snapshot_metrics_that_have_no_schedule(tmp_path):
     assert "fid.evaluation.device" in rejected.stderr and 'trigger = "manual"' in rejected.stderr
 
 
+@pytest.mark.heavy
 def test_manual_snapshot_metrics_hint_at_launch_and_remind_with_progress(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     config.write_text(config.read_text() + SNAPSHOT_METRIC.format(trigger='trigger = "manual"\n'))
@@ -201,6 +204,7 @@ def test_manual_snapshot_metrics_hint_at_launch_and_remind_with_progress(tmp_pat
         assert "step 1" in quiet.stderr
 
 
+@pytest.mark.heavy
 def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
@@ -249,6 +253,7 @@ def test_inference_restores_nonpersistent_registered_buffers(tmp_path):
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
+@pytest.mark.heavy
 def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
     config = write_default(tmp_path / "project", device="cpu")
     run = tmp_path / "run"
@@ -290,6 +295,7 @@ def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
             process.communicate(timeout=10)
 
 
+@pytest.mark.heavy
 def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path):
     """Optional web qualification belongs to the explicitly provisioned web+train job."""
     import importlib.util

@@ -96,6 +96,7 @@ args = { flag = true }
     assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
 
 
+@pytest.mark.heavy
 def test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwrite(tmp_path):
     config = write_default(tmp_path / 'config', device="cpu")
     full = train(config, tmp_path / 'full', checkpoint_every=1)

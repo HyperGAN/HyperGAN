@@ -22,6 +22,11 @@ from hypergan.run_state import run_lock
 from hypergan.distributed_training import ReplicatedCPUTrainer
 from hypergan.distributed_checkpoints import save_distributed_checkpoint, restore_distributed_checkpoint
 
+# Heavy: every test here starts real subprocesses or multi-rank jobs and
+# measured at a second or more; see reports/test-durations-2026-09-20.txt.
+pytestmark = pytest.mark.heavy
+
+
 _FORWARD_LIMIT = None
 _MAX_FORWARD_ROWS = 0
 _BACKWARD_COUNT = 0

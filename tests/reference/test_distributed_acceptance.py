@@ -22,6 +22,11 @@ from hypergan.config import DEFAULT, resolve_config
 from hypergan.training import ReferenceTrainer
 
 
+# Heavy: every test here starts real subprocesses or multi-rank jobs and
+# measured at a second or more; see reports/test-durations-2026-09-20.txt.
+pytestmark = pytest.mark.heavy
+
+
 class ConditionalExperts(nn.Module):
     """Each rank uses one expert; the global oracle uses both parameters."""
     def __init__(self):

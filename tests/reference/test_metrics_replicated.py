@@ -5,9 +5,15 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
 import torch
 
 from hypergan.config import write_default
+
+
+# Heavy: every test here starts real subprocesses or multi-rank jobs and
+# measured at a second or more; see reports/test-durations-2026-09-20.txt.
+pytestmark = pytest.mark.heavy
 
 
 DRIVER = '''

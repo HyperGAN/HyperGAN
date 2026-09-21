@@ -73,6 +73,7 @@ seed = 9
     return path
 
 
+@pytest.mark.heavy
 def test_preview_schedule_retention_and_resume_preserve_complete_state(tmp_path):
     config = stochastic_config(tmp_path / 'config.toml')
     full = train(config, tmp_path / 'full')
@@ -222,6 +223,7 @@ def test_preview_clones_real_conditioning_before_custom_forward(tmp_path):
     equal(before, batch)
 
 
+@pytest.mark.heavy
 def test_resume_refreshes_a_stale_default_preview_bound(tmp_path):
     """A manifest that stored an old default must not pin the run to it."""
     from hypergan.previews import DEFAULT_KEEP
@@ -251,6 +253,7 @@ def test_resume_refreshes_a_stale_default_preview_bound(tmp_path):
     assert len(sequences) <= 3 and sequences[0] == 1
 
 
+@pytest.mark.heavy
 def test_killed_pending_preview_is_cleaned_without_touching_unmanaged_files(tmp_path):
     config = write_default(tmp_path / 'config', device="cpu")
     stopped = train(config, tmp_path / 'run', stop_after_steps=1)
@@ -331,6 +334,7 @@ def test_manual_checkpoint_failure_is_rejected_without_changing_training(tmp_pat
     equal(read_checkpoint(tmp_path / 'full')[2], read_checkpoint(tmp_path / 'run')[2])
 
 
+@pytest.mark.heavy
 def test_corrupt_old_preview_metadata_does_not_accumulate_new_orphans(tmp_path):
     config = write_default(tmp_path / 'config', device="cpu")
     stopped = train(config, tmp_path / 'run', stop_after_steps=1, preview_every=1)

@@ -201,6 +201,7 @@ def test_run_manifest_reports_configured_named_rng_seeds(tmp_path):
     assert result['rng_streams'] == {'data': 46, 'prior': 51, 'penalty': 45, 'sampling': 123}
 
 
+@pytest.mark.heavy
 def test_explicit_backend_policy_is_applied_before_fresh_resume_identity(tmp_path):
     from hypergan.config import write_default
     from hypergan.training import train

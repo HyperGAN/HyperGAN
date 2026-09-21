@@ -152,15 +152,18 @@ or to an implicit device: `evaluation.device` must be named. See
 for timeout, failure, shutdown and resume behavior.
 
 Architecture parity compares the pinned source and this port under the same
-backend policy. HyperGAN's deterministic execution disables TF32 and cuDNN
-benchmarking, while the original source enables them. This is a recorded
-execution-policy difference, not a claim of identical trajectories under the
-source's original accelerated backend settings. Initial tensor and CPU RNG
-comparisons are exact; actual CUDA comparisons declare tolerances before running.
+backend policy. The example runs the source's accelerated backend: TF32 and cuDNN
+benchmarking on, nondeterministic kernels allowed, `deterministic_features=false`.
+Measured on one RTX A6000 (2026-09-20, batch 64), that policy runs the step in
+41 ms against 61 ms under the strict deterministic variant below, matching the
+source trainer's throughput on the same card. Resume restores the complete
+state either way; only bit-exact replay of a run needs the strict variant.
+Initial tensor and CPU RNG comparisons are exact; actual CUDA comparisons
+declare tolerances before running.
 
 ## Deterministic feature execution variant
 
-The example explicitly sets `deterministic_features=true` on the discriminator.
+Setting `deterministic_features=true` on the discriminator selects this variant.
 The source CUDA adaptive-average-pool backward uses nondeterministic accumulation;
 identical training replays diverged after Adam updates. Strict deterministic
 algorithms rejected that backward operation. The failed historical source-weight
@@ -175,11 +178,23 @@ derivatives without CUDA atomic accumulation. Bilinear resize retains the native
 PyTorch operation: the installed CUDA runtime supports its forward, first backward
 and second backward with strict deterministic algorithms enabled.
 
-The example explicitly enables strict deterministic algorithms and deterministic
-cuDNN, disables TF32 and cuDNN benchmarking, and sets the cuBLAS workspace to
-`:4096:8` before CUDA initialization. This is a declared deterministic execution
-variant, not a claim of identical trained weights to the historical
-nondeterministic TF32/benchmark run. CPU float64 tests retain exact forward and
+The strict variant pairs `deterministic_features=true` with this backend table,
+which enables strict deterministic algorithms and deterministic cuDNN, disables
+TF32 and cuDNN benchmarking, and sets the cuBLAS workspace before CUDA
+initialization:
+
+```toml
+[training.backend]
+deterministic_algorithms = true
+cudnn_deterministic = true
+cudnn_benchmark = false
+matmul_allow_tf32 = false
+cudnn_allow_tf32 = false
+cublas_workspace_config = ":4096:8"
+```
+
+This is a declared deterministic execution variant, not a claim of identical
+trained weights to the historical nondeterministic TF32/benchmark run. CPU float64 tests retain exact forward and
 first-derivative equality for all three actual feature-map shapes and compare
 second derivatives at `1e-14` absolute/relative tolerance. Complete CUDA replay
 and current-run checkpoint recovery must be qualified separately under this

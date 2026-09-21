@@ -243,8 +243,71 @@ Where this lives now:
 
 Follow-up (2026-09-20): after the merge the owner moved the `g` slider to the start and still saw only the 20 most recent samples. "i want to be able to slide all the way back to the beginning of time. it may need refactoring to be on-demand depending if the browser is caching."
 
-- [ ] Investigate against the owner's live run: whether the run is still on the pre-change retention (a run started before this change keeps `preview_keep = 20` in its manifest until resumed with `--preview-keep all`), whether already-pruned generations are simply gone, and whether the viewer or API still caps the history it returns.
-- [ ] If the viewer loads the whole history up front, consider loading version metadata eagerly but images on demand as the slider moves, so a long run does not fetch thousands of PNGs.
+- [x] Investigate against the owner's live run: whether the run is still on the pre-change retention (a run started before this change keeps `preview_keep = 20` in its manifest until resumed with `--preview-keep all`), whether already-pruned generations are simply gone, and whether the viewer or API still caps the history it returns.
+- [x] If the viewer loads the whole history up front, consider loading version metadata eagerly but images on demand as the slider moves, so a long run does not fetch thousands of PNGs.
+
+**Follow-up status (2026-09-20):** the live run is still pruning; the shipped
+code is not. `train-develop` was started at 17:41:32 from commit `aa227704`, and
+the retention change was committed at 17:49:35 and merged at 17:50:41 — eight
+minutes later. The package is an editable install, but a running Python process
+does not reload its code, so that process is still the old build and still
+prunes. Its manifest records `preview_keep: 20` with a full 20-entry `previews`
+list and no `preview_count`, which is the pre-change shape, and
+`previews/index.json` says `"keep": 20, "retention": "bounded"` over exactly 20
+entries: sequences 31–50, steps 15500–25000. Twenty generation directories exist
+under `previews/`. Sequences 1–30 (steps 500–15000) were deleted by the old code
+as each new sample was published and cannot be recovered; the slider is showing
+everything that is left on disk. Restarting is not enough on its own: `run_resume`
+reads `preview_keep` back out of the manifest whenever the flag is absent, so a
+plain resume would inherit the stored `20` forever.
+
+The owner should stop the current process and resume with retention turned off,
+from `/home/martyn/dev/hypergan/training-runs`:
+
+```
+hypergan resume train-develop --config ./cifar10-pretrained-20260920/cifar10.toml \
+  --preview-keep all --server --dev --checkpoint-every 1000 --preview-every 500 --progress-every 100
+```
+
+`--preview-keep all` rewrites the manifest to `0`, so every sample from that
+point on is kept and the slider grows to span the rest of the run. The steps
+before 15500 stay gone. `--server` and `--dev` are per-attempt and must be
+restated; the intervals are inherited and are repeated here only to match
+`start.sh`.
+
+No code defect was found, so nothing in `src/` or `frontend/` changed. The whole
+path was checked end to end and carries no residual cap at 20 or 100:
+`previews.py` keeps every generation at the default `keep`, the service accepts
+`MAX_PREVIEWS = 4096` entries under a 16 MiB budget (the owner's index measures
+1,985 bytes per entry, so 4,096 entries is about 8.1 MiB), the `artifacts` SSE
+event carries only a revision digest, `/artifacts` is unpaginated and returns
+every record, and the viewer's slider is `min = 0`, `max = versions - 1` up to
+`MAX_SAMPLE_VERSIONS = 4096`. Two tests now pin that end to end:
+`tests/web/test_web_service.py`
+(`test_default_retention_publishes_a_whole_run_history_to_the_viewer`) publishes
+60 generations through the real `publish_preview_payload` with no `keep`, and
+asserts 60 directories survive and the service lists all 180 records; and
+`tests/browser/test_viewer_integration.py`
+(`test_slider_reaches_the_first_sample_of_a_whole_run_history`) drives the real
+browser over the same 60 and asserts the slider reads `max="59"` and that
+**Home** reaches "Version 1 of 60 · step 500".
+
+Nothing is cached and nothing is prefetched. Every viewer response gets
+`Cache-Control: no-store` — the ASGI wrapper in `web_server.py` adds it to any
+response that did not state its own policy, which covers `/artifacts` and every
+PNG, and `--dev` sets it again on the static assets. The bundle the running
+server hands the browser is the current one: `--dev` was launched from
+`training-runs`, which is not a checkout, so assets fall back to the packaged
+`hypergan.web_assets` — which the editable install resolves to the checkout's
+`src/hypergan/web_assets/app.js`, byte-identical to the committed bundle and
+already carrying the 4096 cap. On-demand loading is already how the viewer
+works: `renderSampleGroup` builds one `<img>` per group and `show()` swaps the
+body as the slider moves, so a 60-version history costs 4 artifact requests, not
+120. The browser test asserts that count, so a future prefetch would fail it.
+The only cost of the blanket `no-store` is that scrubbing back over a sample
+refetches its PNG (about 48 KB each over loopback in this run); making immutable
+digest-addressed artifacts privately cacheable would smooth that, but it is a
+deliberate change to the viewer's cache posture and nobody has asked for it.
 
 ### 9. FID (snapshot evaluations) should be a chart, not a wall of text (raised 2026-09-20)
 

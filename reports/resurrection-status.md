@@ -14,8 +14,14 @@ and eight full-manifest CLI updates pass. Resume reached ten; exact full restore
 matched 948 tensors / 407,302 values, and all three 512-output metrics plus g/x/gray
 viewer PNGs pass. Independent review found no blockers. The verification run and
 viewer are stopped. start-color.sh selects the fresh, unstarted projected run.
-[PR #360](https://github.com/HyperGAN/HyperGAN/pull/360) is open. Next: finish the
-deliberate local heavy suite and GitHub checks, then merge the passing PR.
+[PR #360](https://github.com/HyperGAN/HyperGAN/pull/360) is open. Owner clarified that the full heavy suite is for prereleases; the
+outdated AGENTS.md instruction is corrected. The active suite was stopped at
+121 passing tests / zero failures, with 64 selected tests unfinished; this is
+not a complete heavy pass. The develop gates are fast, focused GPU and GitHub
+checks. Original two-path checkpoint restore also matched 1,050 tensors / 407,414
+values. Normal PR CI at `588a5cc4` passed all required checks; the earlier manual
+run's unchanged browser test timed out, with evidence preserved. Next: merge after
+GitHub checks for the final policy/docs update.
 Evidence: `../resurrection-backups/2026-09-20-colorization-projected/` outside repo.
 
 

@@ -46,9 +46,17 @@ b-cap at step eight, then resumed to ten. Complete-state restoration matched
 sampler and RNG state. All three configured held-out metrics completed their
 512-output protocols; values are execution checks, not trained quality scores.
 The live viewer served all three 768×768 PNG grids (g/x/gray), with verified
-content hashes and source step. The verification train and viewer are stopped.
-The deliberate local heavy regression suite and GitHub checks remain required
-pre-merge gates; their final receipts and PR status are recorded in the ledger.
+content hashes and source step. The verification train and viewer are stopped. Comparing step zero to ten also
+confirmed 192 frozen backbone/projection tensors unchanged while E/G, attention,
+head and particle means updated; sigma stayed fixed. A checkpoint from the old
+two-path experiment also restored exactly under the new installed package:
+1,050 tensors and 407,414 other values.
+The old AGENTS.md required a full heavy suite before training changes merged.
+The owner clarified that heavy tests are for prereleases, so that instruction
+is corrected. The full heavy run was stopped immediately: 121 passed, zero
+failed, 64 selected tests unfinished, in 564.83 seconds. This is partial evidence,
+not a full heavy-suite pass; no heavy suite is required for this develop merge.
+Fast, focused GPU checks and GitHub checks are the merge gates.
 
 A first isolated fast-test invocation could not import the shared pytest; an
 initial heavy attempt similarly could not see user-site training dependencies
@@ -69,3 +77,10 @@ Commands, builds, logs, derivative/state receipts and original launcher copies:
 No owner training allocation, paid compute, release or quality claim is included.
 
 Integration: [PR #360](https://github.com/HyperGAN/HyperGAN/pull/360).
+
+GitHub's first manually dispatched run failed one pre-existing browser test
+waiting for a cancelled metric status (33 passed, one timeout); the affected
+frontend/service sources are unchanged. The normal PR run at `588a5cc4` passed
+all required checks including that browser suite. The failure log remains in
+evidence; its underlying race was not diagnosed. Final integration status is
+recorded in the ledger.

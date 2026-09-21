@@ -17,21 +17,31 @@ straight-through gradient. This is a surrogate gradient, not an unbiased
 categorical estimator. See the original
 [ParticleGAN implementation](https://github.com/255BITS/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/particlegan/autoencoder.py).
 
-This conditional adaptation makes the generated adversarial sample depend on
-the grayscale encoder. Adversarial gradients update the encoder, generator and
-particle centers. As in the CIFAR recipe, the separate reconstruction objective
-updates only the encoder: it reuses the generator with frozen parameters and
-detached particle means, with the same selected center and noise. Particle spread
-regularization and lazy b-cap remain configured separately.
-
-The discriminator receives only RGB: `D(X)` for real images and `D(G(z))` for
-fake images. Both use the same single path:
+GAN training samples the **uniform particle prior**, independently of the encoder.
+This keeps all particles eligible for generator training even if encoder routing
+collapses. The separate reconstruction objective follows the CIFAR recipe's
+encoder-only variant: it updates E through a frozen G and detached particle
+means. Particle spread regularization and lazy b-cap remain configured separately.
 
 ```text
-E(bw(X)) -> particle selection -> z = center + fixed-sigma noise
-G(z) -> Xhat
-D(X) or D(Xhat): frozen DINOv3 -> frozen random projection -> attention/head
-L2 = mean((Xhat - X)^2)  # reconstruction updates E only
+B = BW(X)
+z ~ uniform particle prior + fixed-sigma noise
+D(X), D(G(z))                         # adversarial: update D, G, prior
+B -> E(B) -> selected center + noise -> G -> Xhat
+L2 = mean((BW(Xhat) - B)^2)            # reconstruction: update E only
+```
+
+Grayscale reconstruction asks the encoder to recover structure without requiring
+the original colors. It does not force each colorization to have plausible colors;
+the unconditional GAN learns the overall RGB distribution. RGB reconstruction is
+an available comparison: bind the objective's input to `components.reconstruction`
+and its target to `batch.real`. Neither form constrains aggregate encoder particle
+usage. Hard routing and a moving decoder can still make the encoder collapse.
+
+The discriminator receives only RGB through the same single path for real and fake:
+
+```text
+RGB -> frozen DINOv3 -> frozen random projection -> attention/head
 ```
 
 The projection mixes DINOv3's final 16×16 patch features with fixed random 1×1
@@ -73,8 +83,8 @@ unreadable bytes. Added files do not silently enter an existing inventory.
 
 ## Metrics and samples
 
-Use the held-out split for independent snapshot evaluation. These measurements
-are not training objectives:
+Use the held-out split for independent snapshot evaluation. Chroma and diversity are not directly optimized objectives; the edge measurement
+is a structural diagnostic related to the grayscale reconstruction loss:
 
 - Chroma distribution distance compares generated and reference color
   distributions. Lower is closer, but a good value cannot prove correct spatial
@@ -87,7 +97,12 @@ are not training objectives:
 
 Keep the evaluation seed, count, held-out inventory and sample multiplicity
 fixed when comparing checkpoints. Show grayscale inputs, source RGB and generated
-RGB previews together. A short smoke test establishes execution and recovery,
+RGB previews together. The `comparison` view has one example per row and labelled
+`X | B | X_hat` columns. The separate `random` view shows uniform-prior samples;
+`g` remains the conditional reconstruction. `sampling.generated` explicitly binds
+sampling and paired evaluation to `components.reconstruction`, so changing the GAN
+input does not silently turn conditional metrics into unconditional comparisons.
+A short smoke test establishes execution and recovery,
 not a quality score. Do not select checkpoints solely by one color statistic.
 
 The example evaluates a fixed, content-hash-ordered held-out subset: 512 images
@@ -108,7 +123,7 @@ environment live under `~/dev/hypergan/training-runs/`. Run:
 bash ~/dev/hypergan/training-runs/start-color.sh
 ```
 
-The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-projected` run.
+The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-random` run.
 Interrupt it with Ctrl-C to save a recoverable boundary. Repeating the same
 command resumes the latest complete checkpoint. It does not touch the CIFAR run.
 The default total schedule is 200,000 updates; batch size starts at 16. The fast
@@ -117,6 +132,7 @@ state without promising bitwise-identical future learning trajectories.
 
 Configuration and dataset/component dependency checks remain enforced on resume;
 HyperGAN release hashes remain provenance, not compatibility rejection keys.
-The validation run is separate from `train-color-projected`, leaving it fresh.
-The original environment and config remain available via
-`start-color-original.sh`; the new launcher uses `colorization-projected-env`.
+The validation run is separate from `train-color-random`, leaving it fresh.
+The collapsed projected run and its launcher `start-color-projected.sh` remain
+available. The updated launcher uses `colorization-random-env`; the older
+`start-color-original.sh` is also preserved.

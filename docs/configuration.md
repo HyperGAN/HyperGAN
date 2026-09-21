@@ -88,6 +88,22 @@ The discriminator penalty uses ParticleGAN arm names: `b_cap` is the default; `a
 
 Additional objectives select a loss factory, input bindings and weight. Reconstruction objectives such as MSE or L1 can connect generated output and paired targets. Custom task losses can be imported through the same factory mechanism. The runtime's supported update ownership is explicit; it does not infer a new training algorithm from component names.
 
+The native step runs one compiled program, `d-then-g-v1`: a critic step, then a generator step. The program lists the terms, the gradient policy of each critic input, and the ordered parameter groups. The trainer executes that program. It does not choose routing or optimizer membership by reading component names during the update.
+
+A recipe declares four things. Components and bindings say what each forward reads. Weighted losses include weight 0, which still runs and scales the scalar by zero. Gradient routing says, for each input and phase, whether the value is used and whether gradients flow into it. A frozen module can still pass gradients to its inputs. A detached target cannot. The update schedule names which groups step and in what order. `d-then-g-v1` is the schedule these recipes use. A later method can add another schedule when that method needs it.
+
+Legacy recipes compile into this program. `[adversarial]`, `components.discriminator`, and `[gradient_penalty]` become one adversarial term. `[prior_regularizer]` and each `[[objectives]]` entry become generator terms. Existing files and fingerprints stay as they are. Replicated and accumulated execution keep their own loops until they run this same program.
+
+The compiled adversarial term keeps the current routing:
+
+- The critic step scores the real batch and a detached fake sample. Gradients enter the critic. The penalty uses the coefficient in `[gradient_penalty]`, including when `adversarial.weight` is 0. That weight does not scale the penalty.
+- The generator step scores an attached fake sample. The real score is used and detached, because relativistic losses need the value. `adversarial.weight` scales only the adversarial scalar. Critic parameters are frozen for this step.
+- Every critic input other than `candidate` is conditioning. Conditioning is detached on both steps, whether it comes from the batch or from a component.
+
+Objective forwards run on the generator step even at weight 0. Names in an objective's `detach` list contribute no gradient. `freeze_parameters` on a reused module blocks that module's parameter gradients for the forward and still passes gradients to its inputs.
+
+Parameter groups are ordered sequences with duplicates removed by identity. The same parameter in two groups fails validation. The legacy compiler builds the critic group from the trainable parameters of `discriminator`, in parameter order, and the generator group from `generator_parameters()`, so optimizer checkpoints keep their parameter mapping. The executor then uses those sequences and does not look up the component name again.
+
 Changing objective or regularizer settings may change batch/distributed semantics. No configuration in this checkpoint is approved for multi-GPU or cluster execution. Unsupported device/execution settings must fail rather than silently run a different profile.
 
 ## Validation and qualification

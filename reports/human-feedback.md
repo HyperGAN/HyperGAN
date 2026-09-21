@@ -71,7 +71,7 @@ Owner: "those tests seem pretty heavy we should probably gate them and run them 
 - [x] Deselected, never skipped. A default run ends "759 passed, 185 deselected"; it does not report the gated tests as passing.
 - [x] CI keeps every test on develop. The heavy half moved to its own jobs rather than disappearing.
 
-**Status:** Merged into develop (`f236af15`, merge MERGESHA), recorded as item 20 because
+**Status:** Merged into develop (`f236af15`, merge `f3b21832`), recorded as item 20 because
 item 19 was taken by the throughput work while this branch was in flight.
 
 The rule is one measured number: a test is `heavy` when it took **one second or

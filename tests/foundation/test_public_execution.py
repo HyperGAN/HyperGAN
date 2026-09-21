@@ -194,19 +194,65 @@ def test_explicit_config_supplies_validated_checkpoint_schedule(tmp_path, saved_
 @pytest.mark.parametrize('replicated', [False, True], ids=['native', 'replicated'])
 def test_repeated_train_selects_latest_and_inherits_saved_controls(tmp_path, replicated):
     path, run, checkpoint, manifest = stopped(tmp_path, replicated=replicated)
-    manifest.update(preview_every=2, preview_keep=5)
+    manifest.update(preview_every=2, preview_keep=5, preview_keep_source='explicit')
     (run / 'manifest.json').write_text(json.dumps(manifest))
     before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
     prepared = prepare_train(path, run)
     assert prepared.operation == 'resume'
     assert prepared.checkpoint == checkpoint
     assert prepared.controls == dict(checkpoint_every=7, max_seconds=None, stop_after_steps=None,
-                                     preview_every=2, preview_keep=5, preview_name='g')
+                                     preview_every=2, preview_keep=5,
+                                     preview_keep_source='explicit', preview_name='g')
     if replicated:
         assert prepared.profile['execution'] == manifest['execution']
     else:
         assert prepared.profile is None
     assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+
+
+@pytest.mark.parametrize('entry', ['resume', 'train'])
+def test_resume_inherits_only_an_explicit_preview_bound(tmp_path, entry):
+    """An old manifest recorded the default of its day; it must not pin the run."""
+    from hypergan.previews import DEFAULT_KEEP
+    path, run, checkpoint, manifest = stopped(tmp_path, replicated=False)
+
+    def prepare():
+        if entry == 'train':
+            return prepare_train(path, run)
+        return prepare_resume(run)
+
+    # Written by an older release: a bound with no explicitness marker at all.
+    manifest['preview_keep'] = 20
+    manifest.pop('preview_keep_source', None)
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    prepared = prepare()
+    assert prepared.operation == 'resume'
+    assert prepared.controls['preview_keep'] == DEFAULT_KEEP == 128
+    assert prepared.controls['preview_keep_source'] == 'default'
+
+    # A bound this run recorded as a default is likewise refreshed.
+    manifest['preview_keep_source'] = 'default'
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    assert prepare().controls['preview_keep'] == DEFAULT_KEEP
+
+    # A bound that was asked for carries across.
+    manifest['preview_keep_source'] = 'explicit'
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    prepared = prepare()
+    assert prepared.controls['preview_keep'] == 20
+    assert prepared.controls['preview_keep_source'] == 'explicit'
+
+    # A flag on this attempt is explicit whatever the manifest says, including
+    # 'all', and re-preparing the same controls does not demote it.
+    manifest['preview_keep_source'] = 'default'
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    for requested in (20, 0):
+        prepared = (prepare_train(path, run, preview_keep=requested) if entry == 'train'
+                    else prepare_resume(run, preview_keep=requested))
+        assert prepared.controls['preview_keep'] == requested
+        assert prepared.controls['preview_keep_source'] == 'explicit'
+        again = prepare_resume(run, _repeat_train=entry == 'train', **prepared.controls)
+        assert again.controls == prepared.controls
 
 
 def test_repeated_train_allows_explicit_attempt_controls(tmp_path):
@@ -254,9 +300,11 @@ def test_train_control_defaults_distinguish_omission_from_disable(tmp_path):
     prepared = prepare_train(project(tmp_path), tmp_path / 'run')
     assert prepared.controls['checkpoint_every'] == 100
     assert prepared.controls['preview_every'] == 0
-    # The history slider spans the whole run, so nothing is pruned by default.
-    from hypergan.previews import KEEP_ALL
-    assert prepared.controls['preview_keep'] == KEEP_ALL
+    # A bound nobody asked for is recorded as the default, so a later release can
+    # change it without a run being pinned to the value of the day.
+    from hypergan.previews import DEFAULT_KEEP
+    assert prepared.controls['preview_keep'] == DEFAULT_KEEP == 128
+    assert prepared.controls['preview_keep_source'] == 'default'
     assert prepared.controls['preview_name'] == 'g'
 
 

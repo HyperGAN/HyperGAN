@@ -717,7 +717,7 @@ def test_default_retention_publishes_a_whole_run_history_to_the_viewer(tmp_path)
     """Sixty real publications with the default keep stay listed; none are pruned."""
     import base64
     from hypergan.image_grids import encode_png
-    from hypergan.previews import KEEP_ALL, publish_preview_payload
+    from hypergan.previews import DEFAULT_KEEP, publish_preview_payload
     fixture_run(tmp_path, 1)
     png = encode_png(bytes([255, 0, 0]), 1, 1, 3, {'step': 1})
     real = encode_png(bytes([0, 0, 255]), 1, 1, 3, {'step': 1, 'name': 'x'})
@@ -735,7 +735,8 @@ def test_default_retention_publishes_a_whole_run_history_to_the_viewer(tmp_path)
         # No `keep`: exactly what a default `hypergan train` publishes.
         publish_preview_payload(tmp_path, payload, identity, step)
     index = json.loads((tmp_path / 'previews/index.json').read_text())
-    assert index['keep'] == KEEP_ALL and index['retention'] == 'all'
+    # Sixty publications sit inside the default bound, so nothing is thinned yet.
+    assert index['keep'] == DEFAULT_KEEP == 128 and index['retention'] == 'thinned'
     assert len(index['previews']) == 60
     assert (index['previews'][0]['step'], index['previews'][-1]['step']) == (500, 30000)
     generations = [entry for entry in (tmp_path / 'previews').iterdir() if entry.is_dir()]

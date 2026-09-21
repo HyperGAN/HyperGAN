@@ -23,8 +23,8 @@ requests for non-image tensors fail with an actionable shape error.
 
 Each periodic image generation contains `preview.json`, `grid.png`,
 `manifest.json` and, for image recipes, `real.png`. The directory is published
-atomically and then indexed. Every generation is kept for the life of the run
-unless a retention bound is requested, and a bound removes the whole generation.
+atomically and then indexed. Generations are retained under the thinning policy
+below, and a prune removes the whole generation.
 Numeric JSON retains samples and gains a PNG descriptor recording size, SHA256
 and dimensions. The same digest-checked file is shown in the browser. Final inference bundles, final JSON samples and
 explicitly requested sample files are not pruned by preview retention. Preview
@@ -69,21 +69,41 @@ is the comparable real batch actually used at that boundary, not regenerated or
 rescaled data, and it is skipped when the batch is not a finite RGB/grayscale
 image tensor.
 
-By default a run keeps **every** published preview, so the browser slider scrubs
-from the first sample of the run to the latest. `--preview-keep N` is an explicit
-opt-in that retains only the most recent N generations and deletes the rest,
-tensor payload and PNGs together; `--preview-keep all` restores the default.
-Resume inherits whichever setting the run recorded, so a run created with an
-older release keeps its stored bound until a resume passes `--preview-keep all`.
+A run retains at most **128** published previews by default, and the history it
+keeps still spans the run: the browser slider always scrubs from the first sample
+to the latest. When a run outgrows the bound, the older samples are *thinned*
+rather than dropped from the beginning. Every other one goes, so a run publishing
+a preview every 500 steps is left with one every 1,000, then every 2,000, and so
+on. Thinning happens in one chunk, which drops about half of the older samples at
+once and postpones the next prune by many publications instead of deleting a
+generation on every publication. The first sample of the run is never pruned, the
+latest never is, and the newest 16 sequences stay at full density. Thinning only
+ever removes, so a sample that survives one prune is never reordered and a sample
+that is gone never comes back.
+
+The expired generations are deleted by a background worker: the index is rewritten
+first, so the viewer's picture of the run (and its `preview_count`) updates to the
+retained history immediately, and the directories are then moved aside and removed
+without holding up the next publication or the training loop; anything a crash
+leaves behind is swept by the next publication.
+
+`--preview-keep N` asks for a different bound and `--preview-keep all` keeps every
+generation for the life of the run, tensor payload and PNGs together. A resume
+inherits a bound only when it was asked for explicitly: a run whose manifest
+recorded the bound simply because it was the default of the day resumes into the
+current default instead of being pinned to a stale one. The run manifest records
+that choice as `preview_keep_source`, `"explicit"` or `"default"`; a manifest
+written before this field existed counts as a default. `hypergan train --run-dir`
+on an existing run directory behaves exactly like `hypergan resume`.
 
 Retention is a count, not a disk quota: a retained generation is bounded by 2 MiB
 of JSON plus its PNGs, and the periodic element budget below keeps ordinary grids
 far smaller. A 100,000-step run at `--preview-every 500` publishes 200
-generations; at `--preview-every 100` it publishes 1,000. Ask for a bound when
-grids are large or the disk is small.
+generations; at `--preview-every 100` it publishes 1,000. Ask for a different
+bound when grids are large or the disk is small.
 
 `previews/index.json` lists every retained generation, records the requested
-`keep` (`0` meaning every preview) and a `retention` of `all` or `bounded`, and
+`keep` (`0` meaning every preview) and a `retention` of `all` or `thinned`, and
 is rewritten on each publication from the records it already holds, so a long
 history does not reread every generation manifest. The run manifest repeats only
 the most recent 16 records plus a `preview_count`; the index is the whole

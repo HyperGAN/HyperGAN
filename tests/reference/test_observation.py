@@ -222,6 +222,35 @@ def test_preview_clones_real_conditioning_before_custom_forward(tmp_path):
     equal(before, batch)
 
 
+def test_resume_refreshes_a_stale_default_preview_bound(tmp_path):
+    """A manifest that stored an old default must not pin the run to it."""
+    from hypergan.previews import DEFAULT_KEEP
+    config = write_default(tmp_path / 'config', device='cpu')
+    run = tmp_path / 'run'
+    stopped = train(config, run, preview_every=1, preview_keep=2, stop_after_steps=1)
+    assert stopped['preview_keep'] == 2 and stopped['preview_keep_source'] == 'explicit'
+    manifest = json.loads((run / 'manifest.json').read_text())
+
+    # Rewritten in the shape an older release left behind: a bound of 20 that was
+    # only ever the default of the day, with no marker saying so.
+    manifest['preview_keep'] = 20
+    manifest.pop('preview_keep_source', None)
+    (run / 'manifest.json').write_text(json.dumps(manifest))
+    refreshed = resume(run, preview_every=1, stop_after_steps=1)
+    assert refreshed['preview_keep'] == DEFAULT_KEEP == 128
+    assert refreshed['preview_keep_source'] == 'default'
+
+    # An explicit bound on this attempt is recorded as explicit and inherited.
+    bounded = resume(run, preview_every=1, preview_keep=3, stop_after_steps=1)
+    assert bounded['preview_keep'] == 3 and bounded['preview_keep_source'] == 'explicit'
+    inherited = resume(run, preview_every=1, stop_after_steps=1)
+    assert inherited['preview_keep'] == 3 and inherited['preview_keep_source'] == 'explicit'
+    index = json.loads((run / 'previews/index.json').read_text())
+    assert index['keep'] == 3 and index['retention'] == 'thinned'
+    sequences = [item['identity']['sample_sequence'] for item in index['previews']]
+    assert len(sequences) <= 3 and sequences[0] == 1
+
+
 def test_killed_pending_preview_is_cleaned_without_touching_unmanaged_files(tmp_path):
     config = write_default(tmp_path / 'config', device="cpu")
     stopped = train(config, tmp_path / 'run', stop_after_steps=1)

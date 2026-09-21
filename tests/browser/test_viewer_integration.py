@@ -168,7 +168,7 @@ def test_real_png_grid_loads_and_updates_without_selected_metrics(real_viewer):
 
 
 def test_slider_reaches_the_first_sample_of_a_whole_run_history(real_viewer):
-    """Default retention keeps every sample, so the slider spans the run itself."""
+    """The retained history spans the run, so the slider reaches its first sample."""
     import base64
     from hypergan.image_grids import encode_png
     from hypergan.previews import publish_preview_payload
@@ -186,7 +186,8 @@ def test_slider_reaches_the_first_sample_of_a_whole_run_history(real_viewer):
                                   'png_base64': base64.b64encode(png).decode('ascii')},
                    'real_image_grid': {'width': 2, 'height': 1, 'channels': 3, 'name': 'x',
                                        'png_base64': base64.b64encode(real).decode('ascii')}}
-        # No `keep`: the default retention a plain `hypergan train` publishes with.
+        # No `keep`: the default bound a plain `hypergan train` publishes with,
+        # which sixty publications stay inside.
         publish_preview_payload(experiment.root, payload, identity, step)
     sign_in(page, session, token)
     generated = page.locator('#artifact-items li[data-sample="g"][data-modality="image"]')

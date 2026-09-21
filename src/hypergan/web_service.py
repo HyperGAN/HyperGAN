@@ -24,10 +24,10 @@ MAX_GROUPS = 2048
 MAX_STREAMS = 64
 MAX_ATTEMPTS = 4096
 MAX_BOOTSTRAPS = 8
-# Preview retention defaults to the whole run, so the sample history a viewer
-# scrubs through is long: a 100k-step run at --preview-every 100 publishes a
-# thousand generations. The index stays bounded and validated, with room for
-# several times that before a run must opt into --preview-keep.
+# Preview retention spans the whole run (thinned to --preview-keep, 128 by
+# default), and --preview-keep all keeps every generation: a 100k-step run at
+# --preview-every 100 then publishes a thousand of them. The index stays bounded
+# and validated, with room for several times that.
 MAX_PREVIEWS = 4096
 PREVIEW_INDEX_BYTES = 16 * 1048576
 _HEX = re.compile('[0-9a-f]{64}\\Z')

@@ -18,7 +18,7 @@ def _positive_int(value):
 
 
 def _preview_keep(value):
-    """Opt in to bounded preview retention; 'all' keeps every published sample."""
+    """Bound the retained preview history; 'all' keeps every published sample."""
     from .previews import KEEP_ALL
     if isinstance(value, str) and value.strip().lower() == "all":
         return KEEP_ALL
@@ -87,9 +87,11 @@ def _run_options(parser):
                           help="disable periodic previews for this attempt")
     parser.set_defaults(preview_every=None)
     parser.add_argument("--preview-keep", type=_preview_keep, metavar="N",
-                        help="retain at most N periodic previews, discarding older ones "
-                             "(default: all, so the history slider spans the whole run; "
-                             "pass 'all' to restore that; existing runs inherit)")
+                        help="retain at most N periodic previews; when the run outgrows N "
+                             "the older samples are thinned by doubling their spacing, so "
+                             "the slider still spans the whole run (default: 128; pass "
+                             "'all' to keep every sample; a resume inherits only a bound "
+                             "that was asked for explicitly)")
     parser.add_argument("--preview-name", type=_sample_name,
                         help="short stable name indexing this run's generated samples "
                              "(default: g; the real batch is published as x)")

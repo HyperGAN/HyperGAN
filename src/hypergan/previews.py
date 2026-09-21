@@ -1,11 +1,14 @@
 """Bounded immutable EMA previews, separate from deployable inference bundles."""
+import atexit
 import json
 import base64
 import hashlib
 import os
 from pathlib import Path
+import queue
 import re
 import shutil
+import threading
 import uuid
 
 from .run_state import atomic_json, sync_directory
@@ -13,19 +16,27 @@ from .run_state import atomic_json, sync_directory
 MAX_COUNT = 16
 MAX_ELEMENTS = 65536
 MAX_BYTES = 2 * 1024 * 1024
-# Image history is what a reader scrubs through, so retention is opt-in: the
-# default keeps every published generation for the life of the run and the
-# viewer's slider spans it from the first sample to the last. A caller under
-# disk pressure passes a positive `keep` to prune the oldest generations.
+# Image history is what a reader scrubs through, so a run keeps a bounded but
+# whole-run history rather than only its newest samples. When a run outgrows
+# `keep`, the spacing between the older samples doubles (a run publishing every
+# 500 steps is thinned to every 1,000, then every 2,000), which drops about half
+# of them in one chunk and postpones the next prune by many publications. The
+# first sample of the run and the newest window are never thinned, so the
+# viewer's slider always reaches the beginning of the run. `KEEP_ALL` opts out
+# and keeps every published generation for the life of the run.
 KEEP_ALL = 0
-DEFAULT_KEEP = KEEP_ALL
+DEFAULT_KEEP = 128
+# The newest samples stay at full density inside a window that advances in whole
+# chunks of this many sequences, so a sample leaving the dense window is decided
+# together with its neighbours instead of one generation per publication.
+DENSE_WINDOW = 16
 # Short stable sample names: the EMA generator output is 'g' and the real batch
 # it is compared against is 'x'. Names index a source across steps; they are not
 # unique artifact identities.
 DEFAULT_NAME = 'g'
 REAL_NAME = 'x'
 NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,15}')
-_GENERATION = re.compile(r'(?:\.pending-)?\d{12,}-\d{4,}-[0-9a-f]{32}-step\d{8,}-[0-9a-f]{32}')
+_GENERATION = re.compile(r'(?:\.(?:pending|expired)-)?\d{12,}-\d{4,}-[0-9a-f]{32}-step\d{8,}-[0-9a-f]{32}')
 
 
 def sample_name(value, default=DEFAULT_NAME):
@@ -220,13 +231,112 @@ def _indexed_generations(root, run_id):
     return generations
 
 
-def _publish_preview(run_dir, identity, step, render, keep):
-    """Publish a complete directory, update its index, then prune opted-in retention.
+def thin(sequences, keep):
+    """Choose which monotonic sample sequences a bounded run retains.
 
-    The trainer's run lock serializes producers. `keep` is KEEP_ALL by default, so
-    a run accumulates its whole image history; a positive `keep` prunes the oldest
-    generations. Only this managed preview directory is pruned; final inference
-    bundles and recovery checkpoints are never removed.
+    The first sample of the run and the latest are always retained. The newest
+    samples are retained at full density inside a window that advances in whole
+    `DENSE_WINDOW` steps, and everything older is retained at a spacing that
+    doubles each time the run outgrows `keep`. Both the doubling and the window's
+    advance only ever remove sequences, so retention is nested: a later prune
+    never wants back a sample an earlier one deleted. The answer depends only on
+    the sequences that are on disk, so a history an older release already thinned
+    is bounded from whatever its oldest surviving sample happens to be.
+    """
+    ordered = sorted(sequences)
+    if keep == KEEP_ALL or len(ordered) <= keep:
+        return set(ordered)
+    if keep == 1:
+        return {ordered[-1]}
+    first, latest = ordered[0], ordered[-1]
+    window = max(1, min(DENSE_WINDOW, keep - 1))
+    dense = first + (latest - first) // window * window
+    spacing = 1
+    def retained(spacing):
+        return {seq for seq in ordered if seq >= dense or (seq - first) % spacing == 0}
+    kept = retained(spacing)
+    # Beyond `latest - first` only the first sample satisfies the spacing, which
+    # leaves `window + 1 <= keep` sequences, so this terminates inside the bound.
+    while len(kept) > keep and spacing <= latest - first:
+        spacing *= 2
+        kept = retained(spacing)
+    return kept
+
+
+class _Pruner:
+    """Deletes expired generation directories off the publishing path.
+
+    Retention rewrites the index first and only then renames the generations it
+    dropped, so a reader never holds a record for a directory this worker is
+    about to delete, and the reindex scan skips the renamed ones by their dot
+    prefix. A rename left behind by a crash is swept into the same worker by the
+    next publication, and a generation whose rename never happened is simply
+    rescanned and thinned away again by the same deterministic policy.
+    """
+    def __init__(self):
+        self._queue = queue.SimpleQueue()
+        self._lock = threading.Lock()
+        self._idle = threading.Event()
+        self._idle.set()
+        self._thread = None
+        self._errors = []
+        self._pending = 0
+
+    def submit(self, path):
+        with self._lock:
+            self._pending += 1
+            self._idle.clear()
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._drain_queue, daemon=True,
+                                                name='hypergan-preview-pruner')
+                self._thread.start()
+        self._queue.put(path)
+
+    def _drain_queue(self):
+        while True:
+            path = self._queue.get()
+            try:
+                shutil.rmtree(path, ignore_errors=False)
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                with self._lock:
+                    self._errors = [*self._errors, f'Could not prune preview {path.name}: {error}'][-16:]
+            finally:
+                with self._lock:
+                    self._pending -= 1
+                    if self._pending == 0:
+                        self._idle.set()
+
+    def errors(self):
+        """Report and forget deletions that failed since the last publication."""
+        with self._lock:
+            reported, self._errors = self._errors, []
+        return reported
+
+    def drain(self, timeout=None):
+        """Wait for queued deletions; the sweep recovers whatever does not finish."""
+        return self._idle.wait(timeout)
+
+
+_pruner = _Pruner()
+atexit.register(_pruner.drain, 30)
+
+
+def drain_pruning(timeout=None):
+    """Wait for background preview deletion to settle (shutdown and tests)."""
+    return _pruner.drain(timeout)
+
+
+def _publish_preview(run_dir, identity, step, render, keep):
+    """Publish a complete directory, update its index, then thin the history.
+
+    The trainer's run lock serializes producers. A positive `keep` bounds the
+    retained generations and thins the older ones in chunks (see `thin`);
+    `KEEP_ALL` keeps the whole history. The index is rewritten before anything is
+    removed and the expired directories are deleted by a background worker, so a
+    prune never stalls the next publication. Only this managed preview directory
+    is pruned; final inference bundles and recovery checkpoints are never removed.
     """
     if type(keep) is not int or keep < KEEP_ALL:
         raise ValueError('preview_keep must be a positive integer, '
@@ -236,10 +346,16 @@ def _publish_preview(run_dir, identity, step, render, keep):
         raise ValueError('Managed preview directory must not be a symlink')
     root.mkdir(exist_ok=True)
     sync_directory(root.parent)
-    # No other producer can own a pending directory while the trainer run lock is held.
-    for pending in root.iterdir():
-        if pending.name.startswith('.pending-') and _GENERATION.fullmatch(pending.name) and pending.is_dir() and not pending.is_symlink():
-            shutil.rmtree(pending)
+    # No other producer can own a pending or expired directory while the trainer
+    # run lock is held. An expired one is a prune an earlier process did not
+    # finish; hand it back to the background worker instead of deleting it here.
+    for stale in root.iterdir():
+        if not (_GENERATION.fullmatch(stale.name) and stale.is_dir() and not stale.is_symlink()):
+            continue
+        if stale.name.startswith('.pending-'):
+            shutil.rmtree(stale)
+        elif stale.name.startswith('.expired-'):
+            _pruner.submit(stale)
     name = f"{identity['sample_sequence']:012d}-{identity['attempt_id']}-step{step:08d}-{uuid.uuid4().hex}"
     temporary, target = root / ('.pending-' + name), root / name
     temporary.mkdir()
@@ -266,13 +382,21 @@ def _publish_preview(run_dir, identity, step, render, keep):
         published = _indexed_generations(root, identity['run_id'])
         records = []
         for entry in root.iterdir():
+            # Directories handed to the background pruner carry a dot prefix and
+            # are already absent from the index; skipping them here is what keeps
+            # a prune in flight from being re-indexed.
+            if entry.name.startswith('.'):
+                continue
             if not (entry.is_dir() and not entry.is_symlink() and _GENERATION.fullmatch(entry.name)):
                 continue
             saved = published.get(entry.name)
             if saved is None:
-                if not (entry / 'manifest.json').is_file():
-                    continue
-                saved = json.loads((entry / 'manifest.json').read_text(encoding='utf-8'))
+                try:
+                    if not (entry / 'manifest.json').is_file():
+                        continue
+                    saved = json.loads((entry / 'manifest.json').read_text(encoding='utf-8'))
+                except OSError:
+                    continue  # Tolerate a directory that disappears mid-scan.
                 if (saved.get('kind') != 'ema-preview'
                         or saved.get('identity', {}).get('run_id') != identity['run_id']):
                     continue
@@ -285,9 +409,11 @@ def _publish_preview(run_dir, identity, step, render, keep):
                     saved[field]['path'] = str(entry / filename)
             records.append((saved, entry))
         records.sort(key=lambda pair: pair[0]['identity']['sample_sequence'])
-        retained, expired = (records, []) if keep == KEEP_ALL else (records[-keep:], records[:-keep])
+        kept = thin([saved['identity']['sample_sequence'] for saved, _ in records], keep)
+        retained = [pair for pair in records if pair[0]['identity']['sample_sequence'] in kept]
+        expired = [pair for pair in records if pair[0]['identity']['sample_sequence'] not in kept]
         index = {'schema_version': 1, 'kind': 'ema-preview-index', 'run_id': identity['run_id'],
-                 'keep': keep, 'retention': 'all' if keep == KEEP_ALL else 'bounded',
+                 'keep': keep, 'retention': 'all' if keep == KEEP_ALL else 'thinned',
                  'names': sorted({saved.get('name', DEFAULT_NAME) for saved, _ in retained}),
                  'previews': [saved for saved, _ in retained]}
         try:
@@ -304,12 +430,18 @@ def _publish_preview(run_dir, identity, step, render, keep):
                 shutil.rmtree(target)
                 sync_directory(root)
             raise
-        errors = []
+        # The index above is the reader's view and already excludes these, so the
+        # expensive part is only disk space: rename each one out of the scan (a
+        # single cheap operation) and let the background worker delete it.
+        errors = _pruner.errors()
         for _, entry in expired:
+            retired = entry.parent / ('.expired-' + entry.name)
             try:
-                shutil.rmtree(entry)
+                entry.rename(retired)
             except OSError as exc:
                 errors.append(f'Could not prune preview {entry.name}: {exc}')
+            else:
+                _pruner.submit(retired)
         sync_directory(root)
         completed = True
         return record, index, errors

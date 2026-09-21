@@ -711,3 +711,47 @@ def test_artifact_records_carry_stable_sample_names_within_the_bounded_index(tmp
         finally:
             await service.close()
     asyncio.run(scenario())
+
+
+def test_default_retention_publishes_a_whole_run_history_to_the_viewer(tmp_path):
+    """Sixty real publications with the default keep stay listed; none are pruned."""
+    import base64
+    from hypergan.image_grids import encode_png
+    from hypergan.previews import KEEP_ALL, publish_preview_payload
+    fixture_run(tmp_path, 1)
+    png = encode_png(bytes([255, 0, 0]), 1, 1, 3, {'step': 1})
+    real = encode_png(bytes([0, 0, 255]), 1, 1, 3, {'step': 1, 'name': 'x'})
+    for sequence in range(1, 61):
+        step = sequence * 500
+        identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32,
+                    'sample_sequence': sequence, 'name': 'g'}
+        payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity, 'name': 'g',
+                   'step': step, 'count': 1, 'shape': [1, 3, 1, 1],
+                   'samples': [[[[1]], [[-1]], [[-1]]]],
+                   'image_grid': {'width': 1, 'height': 1, 'channels': 3, 'name': 'g',
+                                  'png_base64': base64.b64encode(png).decode('ascii')},
+                   'real_image_grid': {'width': 1, 'height': 1, 'channels': 3, 'name': 'x',
+                                       'png_base64': base64.b64encode(real).decode('ascii')}}
+        # No `keep`: exactly what a default `hypergan train` publishes.
+        publish_preview_payload(tmp_path, payload, identity, step)
+    index = json.loads((tmp_path / 'previews/index.json').read_text())
+    assert index['keep'] == KEEP_ALL and index['retention'] == 'all'
+    assert len(index['previews']) == 60
+    assert (index['previews'][0]['step'], index['previews'][-1]['step']) == (500, 30000)
+    generations = [entry for entry in (tmp_path / 'previews').iterdir() if entry.is_dir()]
+    assert len(generations) == 60, 'the oldest generations must survive the newest publication'
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            records = service.artifact_index()['artifacts']
+            previews = {key: value for key, value in records.items() if key.startswith('preview-')}
+            # One tensor and two image grids for each of the sixty publications.
+            assert len(previews) == 180
+            steps = sorted({value['provenance']['step'] for value in previews.values()})
+            assert steps == [n * 500 for n in range(1, 61)]
+            generated = [value for value in previews.values()
+                         if value['modality'] == 'image' and value['name'] == 'g']
+            assert len(generated) == 60
+        finally:
+            await service.close()
+    asyncio.run(scenario())

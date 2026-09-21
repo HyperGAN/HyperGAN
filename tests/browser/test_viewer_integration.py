@@ -167,6 +167,47 @@ def test_real_png_grid_loads_and_updates_without_selected_metrics(real_viewer):
     assert not errors
 
 
+def test_slider_reaches_the_first_sample_of_a_whole_run_history(real_viewer):
+    """Default retention keeps every sample, so the slider spans the run itself."""
+    import base64
+    from hypergan.image_grids import encode_png
+    from hypergan.previews import publish_preview_payload
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    png = encode_png(bytes([255, 0, 0, 0, 255, 0]), 2, 1, 3, {'step': 1})
+    real = encode_png(bytes([255, 255, 255, 0, 0, 0]), 2, 1, 3, {'step': 1, 'name': 'x'})
+    for sequence in range(1, 61):
+        step = sequence * 500
+        identity = {'run_id': 'browser-run', 'attempt_id': '0001-' + 'a' * 32,
+                    'sample_sequence': sequence, 'name': 'g'}
+        payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity,
+                   'name': 'g', 'step': step, 'count': 2, 'shape': [2, 3, 1, 1],
+                   'image_grid': {'width': 2, 'height': 1, 'channels': 3, 'name': 'g',
+                                  'png_base64': base64.b64encode(png).decode('ascii')},
+                   'real_image_grid': {'width': 2, 'height': 1, 'channels': 3, 'name': 'x',
+                                       'png_base64': base64.b64encode(real).decode('ascii')}}
+        # No `keep`: the default retention a plain `hypergan train` publishes with.
+        publish_preview_payload(experiment.root, payload, identity, step)
+    sign_in(page, session, token)
+    generated = page.locator('#artifact-items li[data-sample="g"][data-modality="image"]')
+    generated.locator('.sample-position').filter(has_text='Version 60 of 60').wait_for()
+    slider = generated.locator('input[type="range"]')
+    assert (slider.get_attribute('min'), slider.get_attribute('max')) == ('0', '59')
+    # One picture per name at a time, so scrubbing fetches the shown step only
+    # and a long history never downloads itself up front.
+    assert page.locator('img.image-grid').count() == 2
+    fetched = [url for url in requests if '/artifacts/' in url]
+    assert len(fetched) <= 4, fetched
+    slider.focus()
+    page.keyboard.press('Home')
+    page.get_by_role('img', name='Sample g image grid at step 500', exact=True).wait_for()
+    assert 'Version 1 of 60 · step 500' in generated.locator('.sample-position').inner_text()
+    page.keyboard.press('End')
+    generated.locator('.sample-position').filter(has_text='Version 60 of 60').wait_for()
+    assert len([url for url in requests if '/artifacts/' in url]) <= 8
+    assert not errors
+
+
 def test_actual_bootstrap_live_reconnect_and_recovery_lineage(real_viewer, monkeypatch):
     experiment, session, token, page, context, errors, requests = real_viewer
     experiment.create()

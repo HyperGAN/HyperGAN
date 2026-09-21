@@ -168,6 +168,42 @@ def test_repeated_train_replicated_steps_override_and_saved_profile_are_exact(tm
     same_runs(full, split)
 
 
+def test_replicated_constant_lr_step_extension_and_old_checkpoint_replay_are_exact(tmp_path):
+    from hypergan.config import fingerprint
+
+    config, profile = setup(tmp_path)
+    config.write_text(config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0'), encoding='utf-8')
+    full, split = tmp_path / 'full', tmp_path / 'split'
+    common = ('--no-server', '--no-previews', '--checkpoint-every', 1)
+    expected = result(cli(tmp_path, tmp_path / 'full-pids', 'train', config,
+                          '--run-dir', full, '--profile', profile, '--steps', 6, *common)[0])
+    short = result(cli(tmp_path, tmp_path / 'short-pids', 'train', config,
+                       '--run-dir', split, '--profile', profile, '--steps', 3, *common)[0])
+    assert short['status'] == 'complete' and short['steps'] == short['total_steps'] == 3
+    old_checkpoint = Path(short['checkpoint_path'])
+    original = {path.name: path.read_bytes() for path in old_checkpoint.iterdir() if path.is_file()}
+    profile.unlink()
+    extended = result(cli(tmp_path, tmp_path / 'extend-pids', 'train', config,
+                          '--run-dir', split, '--steps', 6, '--no-server')[0])
+    assert expected['status'] == extended['status'] == 'complete'
+    assert extended['steps'] == extended['last_durable_step'] == extended['total_steps'] == 6
+    assert extended['config']['training']['steps'] == 6
+    assert extended['config_sha256'] == fingerprint(extended['config']) == expected['config_sha256']
+    assert extended['config_sha256'] != short['config_sha256']
+    assert extended['run_id'] == short['run_id'] and extended['attempt_index'] == 2
+    assert extended['execution'] == short['execution']
+    same_runs(full, split)
+    # The extended manifest must still admit the older checkpoint's smaller
+    # stopping limit and reproduce the same complete rank states afterward.
+    replayed = result(cli(tmp_path, tmp_path / 'replay-pids', 'resume', split,
+                          '--checkpoint', old_checkpoint, '--no-server')[0])
+    assert replayed['status'] == 'complete' and replayed['steps'] == replayed['total_steps'] == 6
+    assert replayed['attempt_index'] == 3
+    assert replayed['config_sha256'] == extended['config_sha256']
+    same_runs(full, split)
+    assert {path.name: path.read_bytes() for path in old_checkpoint.iterdir() if path.is_file()} == original
+
+
 def test_installed_module_entrypoint_named_profile_and_inference_commands(tmp_path):
     from hypergan.config import write_default
     config = write_default(tmp_path / 'project', device='cpu')

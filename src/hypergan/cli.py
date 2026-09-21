@@ -170,7 +170,7 @@ def _parser():
     train = commands.add_parser("train", help="Create a run or resume its latest checkpoint with the same configuration")
     train.add_argument("config", type=Path)
     train.add_argument("--run-dir", type=Path, required=True, help="new run directory, or an existing run to resume")
-    train.add_argument("--steps", type=_positive_int, help="total training schedule; must match when resuming")
+    train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
     _run_options(train)
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
     resume.add_argument("run_dir", type=Path)

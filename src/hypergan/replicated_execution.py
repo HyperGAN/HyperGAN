@@ -12,7 +12,7 @@ from pathlib import Path
 import tempfile
 
 from .bounded_observer import AsyncBoundedObserver
-from .config import config_values, fingerprint
+from .config import config_values, fingerprint, resume_compatible
 from .metrics import validate_update_scalars
 from .cpu_worker_service import CPUWorkerService
 from .distributed_commit import CheckpointCommitAuthority
@@ -181,7 +181,10 @@ class ReplicatedExecution:
         if str(Path(run_dir).resolve()) != self.context['run_dir'] or run_id != self.context['run_id']:
             raise ValueError('Restore run differs from the configured attempt')
         if fingerprint(self.config) != config_sha256:
-            raise ValueError('Resume configuration differs from the original run')
+            manifest = json.loads((Path(run_dir) / 'manifest.json').read_text())
+            original = manifest.get('config')
+            if not resume_compatible(self.config, original) or fingerprint(original) != config_sha256:
+                raise ValueError('Resume configuration differs from the original run')
         self._open()
         if self.information['recovery_reasons']:
             raise ValueError('Recovery unsupported: ' + '; '.join(self.information['recovery_reasons']))

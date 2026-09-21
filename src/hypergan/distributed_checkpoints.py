@@ -28,7 +28,7 @@ import torch.distributed as dist
 from .checkpoints import capture_rng, file_sha256, restore_rng, restore_trainer, trainer_state
 from .checkpoint_compatibility import (CURRENT_VERSION, validate_checkpoint_compatibility,
                                        validate_implementation, validate_runtime)
-from .config import config_values, fingerprint, numerical_values
+from .config import config_values, fingerprint, numerical_values, resume_compatible
 from .recipes import move_tensors
 from .run_state import atomic_json, sync_directory
 from .training import _implementation, _recovery_contract, runtime_info, source_info
@@ -391,9 +391,16 @@ def _validate_restore_identity(saved, current):
     validate_checkpoint_compatibility(saved)
     validate_runtime(saved.get('runtime'), current['runtime'])
     validate_implementation(saved.get('implementation'), current['implementation'])
+    for identity in (saved, current):
+        if (not isinstance(identity.get('config'), dict)
+                or fingerprint(identity['config']) != identity.get('config_sha256')):
+            raise ValueError('Distributed checkpoint configuration fingerprint differs')
+    if not resume_compatible(current['config'], saved['config']):
+        raise ValueError('Distributed checkpoint config/data/topology identity differs')
     # The helpers checked the runtime, external implementations and contract.
     # Source provenance is recorded but does not decide restore compatibility.
-    excluded = {'hypergan_checkpoint_version', 'runtime', 'implementation', 'source'}
+    excluded = {'hypergan_checkpoint_version', 'runtime', 'implementation', 'source',
+                'config', 'config_sha256'}
     if not _same_json({key: value for key, value in saved.items() if key not in excluded},
                       {key: value for key, value in current.items() if key not in excluded}):
         raise ValueError('Distributed checkpoint config/data/topology identity differs')

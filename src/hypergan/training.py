@@ -417,7 +417,7 @@ def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds
 def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
            max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None, preview_keep=None,
            preview_keep_source=None, preview_name=None, steps=None, require_same_config=False):
-    """Resume a full checkpoint from this run, retaining the original schedule."""
+    """Resume full state, allowing a longer target for constant-rate training."""
     from .run_controller import run_resume
     from .single_execution import SingleProcessExecution
     return run_resume(run_dir, checkpoint, config_path, checkpoint_every=checkpoint_every,

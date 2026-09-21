@@ -12,7 +12,7 @@ from typing import Protocol
 import uuid
 import warnings
 
-from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint
+from .config import config_values, fingerprint, load_config, resolve_config, observation_fingerprint, resume_compatible
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics, Throughput
 from .previews import DEFAULT_KEEP, DEFAULT_NAME, KEEP_ALL, sample_name
 from .metric_plugins import prepare_custom, ScalarMetrics
@@ -310,8 +310,13 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             config = resolve_config(raw)
         if require_same_config:
             original = resolve_config(manifest['config'])
-            if json.dumps(config_values(config), sort_keys=True, allow_nan=False) != json.dumps(config_values(original), sort_keys=True, allow_nan=False):
+            if not resume_compatible(config, original, include_observation=True):
                 raise ValueError('Training configuration differs from the original run; use a new run directory for a different configuration')
+        if fingerprint(config) != manifest['config_sha256']:
+            if (not resume_compatible(config, manifest['config'])
+                    or fingerprint(manifest['config']) != manifest['config_sha256']):
+                raise ValueError('Resume configuration differs from the original run; only an increased '
+                                 'training.steps with unchanged constant learning rate (lr_floor=1) is allowed')
         prepare_custom(config)
         context = _candidate_attempt(run_dir, manifest['run_id'])
         execution = execution_factory(config)
@@ -339,6 +344,8 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
                 'checkpoint_sha256': digest(checkpoint_info),
             }
             manifest['config'] = config_values(config)
+            manifest['config_sha256'] = fingerprint(config)
+            manifest['total_steps'] = config['training']['steps']
             _preserve_initial_source(run_dir, manifest)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
                             preview_keep_source=preview_keep_source, preview_name=preview_name,

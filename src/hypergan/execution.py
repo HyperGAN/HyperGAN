@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
-from .config import config_values, fingerprint, load_config, resolve_config
+from .config import config_values, fingerprint, load_config, resolve_config, resume_compatible
 from .previews import sample_name
 from .execution_profiles import load_execution_profile, resolve_execution_profile
 
@@ -118,8 +118,13 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
     if info.get('run_id') != manifest['run_id']:
         raise ValueError('Checkpoint belongs to a different run')
     identity = info.get('identity', {}) if execution else info
-    if not isinstance(identity, dict) or identity.get('config_sha256') != manifest['config_sha256']:
+    if not isinstance(identity, dict):
         raise ValueError('Resume checkpoint configuration differs from the run manifest')
+    if identity.get('config_sha256') != manifest['config_sha256']:
+        saved_config = identity.get('config')
+        if (not resume_compatible(manifest['config'], saved_config)
+                or fingerprint(saved_config) != identity.get('config_sha256')):
+            raise ValueError('Resume checkpoint configuration differs from the run manifest')
     from .checkpoint_compatibility import validate_checkpoint_compatibility
     validate_checkpoint_compatibility(identity)
     if execution:
@@ -229,7 +234,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     if _repeat_train:
         original = config_values(resolve_config(manifest['config']))
         changed = _differences(config_values(config), original)
-        if changed:
+        if changed and not resume_compatible(config, original, include_observation=True):
             # Resolved defaults are part of the recorded configuration, so a default
             # that changed between releases surfaces here instead of silently applying.
             remedy = ('`hypergan resume RUN --config CONFIG` continues this run with changed '
@@ -238,7 +243,10 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             raise ValueError('Training configuration differs from the original run in '
                              + ', '.join(changed) + '; ' + remedy)
     if fingerprint(config) != manifest['config_sha256']:
-        raise ValueError('Resume configuration differs from the original run; total training schedule cannot change')
+        if (not resume_compatible(config, manifest['config'])
+                or fingerprint(manifest['config']) != manifest['config_sha256']):
+            raise ValueError('Resume configuration differs from the original run; only an increased '
+                             'training.steps with unchanged constant learning rate (lr_floor=1) is allowed')
     saved = manifest.get('execution')
     if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
         raise ValueError('Run has no supported numerical execution identity')
@@ -264,7 +272,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
 
 
 def train(config_path, run_dir, steps=None, *, on_event=None, **options):
-    """Create or resume a run; existing runs require the same resolved configuration."""
+    """Create or resume a run, permitting constant-rate target extensions."""
     return prepare_train(config_path, run_dir, steps, **options).run(on_event=on_event)
 
 

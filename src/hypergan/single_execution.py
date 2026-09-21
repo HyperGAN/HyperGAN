@@ -7,7 +7,7 @@ import torch
 
 from .checkpoints import capture_rng, read_checkpoint, restore_rng, restore_trainer, write_checkpoint
 from .checkpoint_compatibility import CURRENT_VERSION, validate_runtime, validate_implementation
-from .config import config_values, fingerprint
+from .config import config_values, fingerprint, resume_compatible
 from .metrics import validate_update_scalars
 from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, PreviewResult, Restored
 from .training import ReferenceTrainer, _implementation, _recovery_contract, apply_backend_policy, runtime_info, source_info
@@ -70,8 +70,16 @@ class SingleProcessExecution:
         target, info, state = read_checkpoint(run_dir, checkpoint)
         if info['run_id'] != run_id:
             raise ValueError('Checkpoint belongs to a different run')
-        if fingerprint(self._config) != info['config_sha256'] or fingerprint(self._config) != config_sha256:
-            raise ValueError('Resume configuration differs from checkpoint; total training schedule cannot change')
+        if fingerprint(self._config) != config_sha256:
+            import json
+            saved = json.loads((Path(run_dir) / 'manifest.json').read_text())['config']
+            if not resume_compatible(self._config, saved) or fingerprint(saved) != config_sha256:
+                raise ValueError('Resume configuration differs from the run manifest')
+        if fingerprint(self._config) != info['config_sha256']:
+            if (not resume_compatible(self._config, info['config'])
+                    or fingerprint(info['config']) != info['config_sha256']):
+                raise ValueError('Resume configuration differs from checkpoint; only an increased '
+                                 'training.steps with unchanged constant learning rate (lr_floor=1) is allowed')
         apply_backend_policy(self._config)
         # Warns on stderr as it is detected; the controller also records them on
         # the run so the owner can read them after the attempt has scrolled past.

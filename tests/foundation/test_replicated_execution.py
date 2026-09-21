@@ -1,11 +1,12 @@
 """Parent adapter validation without optional numerical dependencies."""
 import copy
+import json
 import subprocess
 import sys
 
 import pytest
 
-from hypergan.config import resolve_config, write_default
+from hypergan.config import config_values, fingerprint, resolve_config, write_default
 from hypergan.replicated_execution import ReplicatedExecution, run_train
 from hypergan.run_controller import AttemptContext, FatalExecutionError
 
@@ -60,6 +61,31 @@ class FakeService:
         return self.result
     def _abort_preserving(self, error):
         self.aborted = True
+
+
+@pytest.mark.parametrize('lr_floor', [1.0, .05])
+def test_restore_extended_steps_checks_manifest_before_starting_workers(tmp_path, monkeypatch, lr_floor):
+    original = resolve_config({'training': {'steps': 4, 'lr_floor': lr_floor}})
+    current = resolve_config({'training': {'steps': 8, 'lr_floor': lr_floor}})
+    (tmp_path / 'manifest.json').write_text(json.dumps({'config': config_values(original)}))
+    execution = ReplicatedExecution(current, PROFILE)
+    execution.configure_attempt(AttemptContext('run', 'attempt', 1, tmp_path, tmp_path / 'attempts/attempt'),
+                                preview_every=0, on_event=None)
+    started = []
+    def opened():
+        started.append(True)
+        execution.information = {'recovery_reasons': []}
+    monkeypatch.setattr(execution, '_open', opened)
+    restored = {'ready': True, 'step': 4, 'saved_step': 4,
+                'inference_available': True, 'checkpoint_path': str(tmp_path / 'checkpoint')}
+    execution.service = FakeService({'results': [restored, copy.deepcopy(restored)]})
+    if lr_floor == 1:
+        assert execution.restore(tmp_path, None, 'run', fingerprint(original)).step == 4
+        assert started == [True]
+    else:
+        with pytest.raises(ValueError, match='configuration differs'):
+            execution.restore(tmp_path, None, 'run', fingerprint(original))
+        assert started == []
 
 
 @pytest.mark.parametrize('metrics_preset', ['standard', 'none'])

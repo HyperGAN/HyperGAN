@@ -347,7 +347,32 @@ def config_values(config):
 
 
 def numerical_values(config):
-    return {key: value for key, value in config_values(config).items() if key != 'metrics'}
+    return {key: deepcopy(config[key]) for key in DEFAULT if key != 'metrics'}
+
+
+def resume_compatible(config, original, *, include_observation=False):
+    """Allow only an increased stopping step when the saved LR is constant.
+
+    Keep fingerprints unchanged: existing checkpoints retain their original
+    identities, and each new checkpoint records the extended configuration.
+    JSON comparison preserves distinctions such as boolean vs integer arguments.
+    Numerical-only distributed checkpoint configurations are accepted too.
+    """
+    try:
+        values = config_values if include_observation else numerical_values
+        current, saved = values(config), values(original)
+        new_steps, old_steps = current['training']['steps'], saved['training']['steps']
+        if new_steps != old_steps:
+            if (type(new_steps) is not int or type(old_steps) is not int
+                    or new_steps < old_steps
+                    or current['training']['lr_floor'] != 1.0
+                    or saved['training']['lr_floor'] != 1.0):
+                return False
+            current['training']['steps'] = old_steps
+        return (json.dumps(current, sort_keys=True, allow_nan=False)
+                == json.dumps(saved, sort_keys=True, allow_nan=False))
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def observation_fingerprint(config):

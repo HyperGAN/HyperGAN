@@ -387,5 +387,32 @@ def test_requires_explicit_initialized_group():
         save_distributed_checkpoint('.', None, None, {})
 
 
+@pytest.mark.parametrize('change', ['extend', 'annealed', 'shorten', 'seed', 'digest', 'topology'])
+def test_distributed_restore_identity_allows_only_constant_lr_step_extension(change):
+    from hypergan.config import fingerprint, numerical_values
+    from hypergan.distributed_checkpoints import _validate_restore_identity
+
+    config = resolve_config({'training': {'steps': 4, 'lr_floor': .05 if change == 'annealed' else 1.0}})
+    saved = {'config': numerical_values(config), 'config_sha256': fingerprint(config),
+             'runtime': {}, 'implementation': {}, 'data_contract': {'dataset': 'fixture'},
+             'topology': {'world_size': 2}}
+    current = copy.deepcopy(saved)
+    current['config']['training']['steps'] = 3 if change == 'shorten' else 8
+    if change == 'seed':
+        current['config']['training']['seed'] += 1
+    if change == 'topology':
+        current['topology']['world_size'] = 4
+    current['config_sha256'] = fingerprint(current['config'])
+    if change == 'digest':
+        saved['config_sha256'] = '0' * 64
+    original = copy.deepcopy(saved)
+    if change == 'extend':
+        _validate_restore_identity(saved, current)
+    else:
+        with pytest.raises(ValueError, match='configuration fingerprint|config/data/topology'):
+            _validate_restore_identity(saved, current)
+    assert saved == original
+
+
 if __name__ == '__main__':
     worker(sys.argv[1], int(sys.argv[2]), *sys.argv[3:])

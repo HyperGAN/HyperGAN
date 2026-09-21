@@ -62,6 +62,58 @@ def test_public_train_repeats_resume_exact_state_and_completed_schedule(tmp_path
     equal(read_checkpoint(full)[2], read_checkpoint(split)[2])
 
 
+@pytest.mark.parametrize('stop_early', [False, True], ids=['completed', 'stopped'])
+def test_constant_lr_target_extension_preserves_exact_state_and_old_checkpoints(tmp_path, stop_early):
+    from hypergan.execution import train as public_train, resume as public_resume, prepare_resume
+
+    config = write_default(tmp_path / 'config', device='cpu')
+    config.write_text(config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0'))
+    full, split = tmp_path / 'full', tmp_path / 'split'
+    public_train(config, full, steps=6, checkpoint_every=1)
+    stopped = public_train(config, split, steps=3, checkpoint_every=1,
+                           stop_after_steps=1 if stop_early else None)
+    old_checkpoint = stopped['checkpoint_path']
+    old_bytes = {p.name: p.read_bytes() for p in Path(old_checkpoint).iterdir() if p.is_file()}
+
+    extended = public_train(config, split, steps=6, stop_after_steps=1)
+    assert extended['steps'] == stopped['steps'] + 1
+    assert extended['total_steps'] == extended['config']['training']['steps'] == 6
+    assert extended['config_sha256'] != stopped['config_sha256']
+    assert read_checkpoint(split)[1]['config_sha256'] == extended['config_sha256']
+    assert prepare_resume(split, checkpoint=old_checkpoint).checkpoint == Path(old_checkpoint)
+    completed = public_resume(split)
+    assert completed['steps'] == 6 and completed['status'] == 'complete'
+    equal(read_checkpoint(full)[2], read_checkpoint(split)[2])
+    # Replay a checkpoint written before the extension using only saved config.
+    replayed = public_resume(split, checkpoint=old_checkpoint)
+    assert replayed['total_steps'] == replayed['steps'] == 6
+    equal(read_checkpoint(full)[2], read_checkpoint(split)[2])
+    assert old_bytes == {p.name: p.read_bytes() for p in Path(old_checkpoint).iterdir() if p.is_file()}
+    assert all(row['metrics']['optimizer/lr_scale'] == 1.0
+               for row in read_events(split, limit=1000) if row['event'] == 'train')
+
+
+def test_constant_lr_extension_rejects_other_changes_before_run_mutation(tmp_path):
+    from hypergan.execution import train as public_train
+
+    config = write_default(tmp_path / 'config', device='cpu')
+    original = config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0')
+    config.write_text(original)
+    run = tmp_path / 'run'
+    public_train(config, run, steps=3, stop_after_steps=1)
+    before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+    for text, target in ((original, 2),
+                         (original.replace('lr_floor = 1.0', 'lr_floor = 0.5'), 6),
+                         (original.replace('lr = 0.0006', 'lr = 0.0007'), 6)):
+        config.write_text(text)
+        with pytest.raises(ValueError, match='configuration differs'):
+            public_train(config, run, steps=target)
+        # The direct Python resume path must enforce the same rule under lock.
+        with pytest.raises(ValueError, match='configuration differs'):
+            resume(run, config_path=config, steps=target)
+        assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
+
+
 def test_repeated_train_checks_metric_argument_types_under_lock_before_factories(tmp_path, monkeypatch):
     from contextlib import contextmanager
     from hypergan.execution import prepare_train

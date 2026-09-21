@@ -300,7 +300,10 @@ def resolve_config(raw):
                    for column in comparison)):
         raise ValueError('sampling.comparison requires two to four labelled image bindings')
     paths = [p for c in components.values() for p in c["inputs"].values()] + [p for t in result["objectives"] for p in t["inputs"].values()]
-    paths += sampling_bindings(sampling, preview=True)
+    # Particle IDs have their own validation below, including their field name
+    # in errors and requiring an output of the selected inference graph.
+    inference_paths = sampling_bindings({k: v for k, v in sampling.items() if k != 'particle_ids'}, preview=True)
+    paths += inference_paths
     for path in paths:
         if not isinstance(path, str) or not path or not all(path.split('.')):
             raise ValueError('I/O bindings must be nonempty dotted paths')
@@ -327,7 +330,7 @@ def resolve_config(raw):
             reachable.add(components[name]['reuse'])
     visit("generator", set())
     training_reachable = set(reachable)
-    for binding in sampling_bindings({k: v for k, v in sampling.items() if k != 'particle_ids'}, preview=True):
+    for binding in inference_paths:
         if binding.startswith('components.'):
             visit(binding.split('.')[1], set())
     if 'particle_ids' in result['sampling']:

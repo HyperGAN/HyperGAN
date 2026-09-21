@@ -192,7 +192,7 @@ def metric_catalog(config):
             definition['formula'] = 'loss/d_total + loss/g_total'
             definition['description'] = 'Diagnostic sum; not a joint optimization objective or quality score.'
         if name == 'throughput/steps_per_second':
-            definition.update(window=THROUGHPUT_WINDOW, direction='up',
+            definition.update(window=THROUGHPUT_WINDOW, direction='maximize',
                               description=f'Trailing average over the last {THROUGHPUT_WINDOW} complete updates. '
                                           'The window is attempt-local and restarts on resume.')
         if name == 'timing/training_seconds':

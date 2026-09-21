@@ -114,13 +114,18 @@ def detach(value):
     return value
 
 
+def generation_output(graph, context, sampling):
+    """Select inference output without changing the adversarial generated binding."""
+    return graph.resolve(sampling.get('generated', 'generated'), context)
+
+
 def generation_particle_ids(graph, context, prior_ids, sampling):
     """Resolve explicitly declared routed IDs without reporting unused prior draws."""
     if 'particle_ids' not in sampling:
         return prior_ids
     ids = graph.resolve(sampling['particle_ids'], context)
     if (not isinstance(ids, torch.Tensor) or ids.ndim != 1
-            or len(ids) != len(context['generated'])
+            or len(ids) != len(generation_output(graph, context, sampling))
             or ids.dtype not in (torch.int32, torch.int64) or (ids < 0).any()):
         raise ValueError('sampling.particle_ids must produce one nonnegative integer per generated sample')
     return ids

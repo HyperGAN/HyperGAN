@@ -98,7 +98,8 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                 raise ValueError('Evaluation backend settings changed between generated batches')
             observed_backend = effective_backend
             runtime['backend'] = effective_backend
-            generated = graph.generate(z, batch, prior=prior)['generated']
+            from .recipes import generation_output
+            generated = generation_output(graph, graph.generate(z, batch, prior=prior), config['sampling'])
             if (not isinstance(generated, torch.Tensor) or generated.ndim < 1 or len(generated) != size
                     or generated.numel() > MAX_BATCH_ELEMENTS or not torch.isfinite(generated).all()
                     or not torch.isfinite(batch['real']).all()):
@@ -109,6 +110,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     protocol = {'schema_version': 1, 'metric_factory': spec['factory'], 'factory_sources': description['factory_sources'],
                 'args': spec['args'], 'inputs': spec['inputs'], 'data_identity': data_identity,
                 'evaluation': evaluation, 'ema': True, 'sources': code,
+                'generated_binding': config['sampling'].get('generated', 'generated'),
                 'runtime': runtime}
     with torch.inference_mode():
         value = instance.evaluate(batches=batches(), context={'sample_count': evaluation['sample_count'],

@@ -164,7 +164,7 @@ def resolve_config(raw):
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
-            allowed = set(result[key]) | ({'particle_ids'} if key == 'sampling' else set())
+            allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
             _keys(value, allowed, key)
             result[key].update(deepcopy(value))
         else:
@@ -279,8 +279,34 @@ def resolve_config(raw):
     for section in ("training", "sampling"):
         _positive(result[section]["seed"], f"{section}.seed", integer=True, zero=True)
     _positive(result["sampling"]["count"], "sampling.count", integer=True)
+    sampling = result['sampling']
+    if 'generated' in sampling and (not isinstance(sampling['generated'], str)
+            or not sampling['generated'].startswith('components.')
+            or len(sampling['generated'].split('.')) < 2):
+        raise ValueError('sampling.generated must bind a component output')
+    views = sampling.get('views', {})
+    from .previews import NAME, MAX_EXTRA_GRIDS
+    if (not isinstance(views, dict) or len(views) > MAX_EXTRA_GRIDS
+            or any(not isinstance(k, str) or NAME.fullmatch(k) is None
+                   or k in {'g', 'x', 'comparison'} or not isinstance(v, str) or not v
+                   for k, v in views.items())):
+        raise ValueError('sampling.views requires at most four uniquely named output bindings')
+    comparison = sampling.get('comparison', [])
+    if (not isinstance(comparison, list) or (comparison and not 2 <= len(comparison) <= 4)
+            or any(not isinstance(column, dict) or set(column) != {'label', 'binding'}
+                   or not isinstance(column['label'], str) or not 1 <= len(column['label']) <= 32
+                   or not column['label'].isascii() or not column['label'].isprintable()
+                   or not isinstance(column['binding'], str) or not column['binding']
+                   for column in comparison)):
+        raise ValueError('sampling.comparison requires two to four labelled image bindings')
     paths = [p for c in components.values() for p in c["inputs"].values()] + [p for t in result["objectives"] for p in t["inputs"].values()]
+    # Particle IDs have their own validation below, including their field name
+    # in errors and requiring an output of the selected inference graph.
+    inference_paths = sampling_bindings({k: v for k, v in sampling.items() if k != 'particle_ids'}, preview=True)
+    paths += inference_paths
     for path in paths:
+        if not isinstance(path, str) or not path or not all(path.split('.')):
+            raise ValueError('I/O bindings must be nonempty dotted paths')
         parts = path.split(".")
         if parts[0] not in {"batch", "latent", "generated", "candidate", "components", "prior"}:
             raise ValueError(f"Unknown binding root: {path}")
@@ -303,13 +329,18 @@ def resolve_config(raw):
         if 'reuse' in components[name]:
             reachable.add(components[name]['reuse'])
     visit("generator", set())
+    training_reachable = set(reachable)
+    for binding in inference_paths:
+        if binding.startswith('components.'):
+            visit(binding.split('.')[1], set())
     if 'particle_ids' in result['sampling']:
         binding = result['sampling']['particle_ids']
         if (not isinstance(binding, str) or len(binding.split('.')) < 3
                 or binding.split('.')[0] != 'components'
                 or binding.split('.')[1] not in reachable
                 or not all(binding.split('.'))):
-            raise ValueError('sampling.particle_ids must bind an output of the generator dependency graph')
+            raise ValueError('sampling.particle_ids must bind an output of the sampling dependency graph')
+    reachable = training_reachable
     g_reachable = set(reachable)
     for term in result["objectives"]:
         for path in term["inputs"].values():
@@ -413,3 +444,12 @@ def write_default(path, *, device="cuda"):
 
 def list_recipes():
     return [{"name": DEFAULT["name"], "scope": "numerical-reference", "description": "CPU 2D Gaussian-grid integration fixture; no image or distributed qualification"}]
+
+
+def sampling_bindings(sampling, *, preview=False):
+    """Declared inference dependencies, including optional preview-only views."""
+    paths = [sampling[key] for key in ('generated', 'particle_ids') if key in sampling]
+    if preview:
+        paths += list(sampling.get('views', {}).values())
+        paths += [column['binding'] for column in sampling.get('comparison', [])]
+    return paths

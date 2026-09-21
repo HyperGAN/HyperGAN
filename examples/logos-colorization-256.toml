@@ -1,7 +1,7 @@
 # Experimental conditional particle VAEGAN. See docs/colorization.md.
 # Prepare a dataset manifest and supply local, hash-pinned DINOv3 artifacts.
 schema_version = 1
-name = "images/logos-colorization-projected-256"
+name = "images/logos-colorization-random-256"
 
 [data]
 factory = "hypergan.colorization_data:ColorizationData"
@@ -14,7 +14,8 @@ shuffle = true
 
 [components.generator]
 factory = "hypergan.colorization_components:ColorizationGenerator"
-inputs = { z = "components.encoder.latent" }
+# Independent, uniformly sampled prior particles drive both GAN phases.
+inputs = { z = "latent" }
 [components.generator.args]
 z_dim = 128
 width = 32
@@ -38,16 +39,22 @@ width = 32
 temperature = 0.125
 
 # Reconstruction trains E through fixed G and detached particle means.
-# Adversarial gradients through unconditional D update E, G, and particle means.
+# Adversarial gradients update G and particle means; E receives only L2.
 [components.reconstruction]
 reuse = "generator"
 inputs = { z = "components.encoder.reconstruction_latent" }
 freeze_parameters = true
 
+[components.reconstruction_gray]
+factory = "hypergan.colorization_components:GrayscaleImage"
+inputs = { x = "components.reconstruction" }
+
 [[objectives]]
 id = "encoder_reconstruction"
 factory = "mse"
-inputs = { input = "components.reconstruction", target = "batch.real" }
+# Preserve the input's luminance without requiring its original color choice.
+# RGB ablation: input="components.reconstruction", target="batch.real".
+inputs = { input = "components.reconstruction_gray", target = "batch.gray" }
 weight = 1.0
 detach = ["target"]
 
@@ -109,7 +116,14 @@ cudnn_allow_tf32 = true
 [sampling]
 count = 8
 seed = 35002
+generated = "components.reconstruction"
 particle_ids = "components.encoder.ids"
+views = { random = "components.generator" }
+comparison = [
+  { label = "X", binding = "batch.real" },
+  { label = "B", binding = "batch.gray" },
+  { label = "X_hat", binding = "components.reconstruction" },
+]
 
 [metrics]
 preset = "standard"

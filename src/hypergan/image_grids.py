@@ -113,3 +113,39 @@ def tensor_grid(values, metadata=None):
     encoded = encode_png(grid.numpy().tobytes(), descriptor['width'], descriptor['height'], channels,
                          dict(metadata or {}, grid=descriptor))
     return encoded, descriptor
+
+
+def comparison_grid(columns, metadata=None):
+    """One source example per row, with labelled aligned image columns."""
+    import torch
+    from PIL import Image, ImageDraw
+    if not 2 <= len(columns) <= 4:
+        raise ValueError('Comparison previews require two to four image columns')
+    first = columns[0][1]
+    if not isinstance(first, torch.Tensor) or first.ndim != 4:
+        raise ValueError('Comparison previews require batched images')
+    count, _, height, width = first.shape
+    header = 24
+    dimensions(width * len(columns), count * height + header, 3)
+    if not 1 <= count <= MAX_COUNT:
+        raise ValueError('Comparison preview exceeds the sample count budget')
+    canvas = Image.new('RGB', (width * len(columns), count * height + header), (24, 24, 24))
+    draw = ImageDraw.Draw(canvas)
+    for column, (label, values) in enumerate(columns):
+        if (not isinstance(values, torch.Tensor) or values.ndim != 4
+                or values.shape[0] != count or values.shape[1] not in (1, 3)
+                or tuple(values.shape[2:]) != (height, width) or not values.is_floating_point()
+                or values.numel() > MAX_ELEMENTS or not torch.isfinite(values).all()):
+            raise ValueError('Comparison columns require matching bounded finite image batches')
+        draw.text((column * width + 4, 5), label, fill=(255, 255, 255))
+        pixels = values.detach().to(device='cpu', dtype=torch.float32).clamp(-1, 1).add(1).mul(127.5).round().to(torch.uint8)
+        for row, value in enumerate(pixels):
+            if value.shape[0] == 1:
+                value = value.expand(3, -1, -1)
+            canvas.paste(Image.fromarray(value.permute(1, 2, 0).numpy()), (column * width, header + row * height))
+    descriptor = {'width': canvas.width, 'height': canvas.height, 'channels': 3,
+                  'rows': count, 'columns': len(columns), 'count': count,
+                  'column_labels': [label for label, _ in columns], 'header_height': header,
+                  'layout': 'one-example-per-row', 'pixel_conversion': 'clamp[-1,1]; round((x+1)*127.5)'}
+    return encode_png(canvas.tobytes(), canvas.width, canvas.height, 3,
+                      dict(metadata or {}, grid=descriptor)), descriptor

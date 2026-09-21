@@ -74,6 +74,10 @@ def capture_snapshot_state(trainer, batch, identity):
                 if binding.startswith('components.'):
                     include(binding.split('.')[1])
         include('generator')
+        from .config import sampling_bindings
+        for binding in sampling_bindings(trainer.config['sampling'], preview=True):
+            if binding.startswith('components.'):
+                include(binding.split('.')[1])
         memo = {id(module): module for module in list(sys.modules.values()) if isinstance(module, ModuleType)}
         needed.update(trainer.config['components'][name]['reuse'] for name in list(needed)
                       if 'reuse' in trainer.config['components'][name])

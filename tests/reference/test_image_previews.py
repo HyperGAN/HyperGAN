@@ -559,3 +559,76 @@ preset = "none"
         assert all(item['name'] == 'gen' for item in finished['previews'])
     finally:
         torch.set_num_threads(old_threads)
+
+
+def test_random_prior_preview_and_paired_reconstruction_keep_distinct_bindings(tmp_path):
+    from hypergan.artifacts import save_bundle
+    from hypergan.checkpoints import capture_rng
+    from hypergan.preview_snapshot import capture_snapshot, renderer_command
+    from hypergan.recipes import generation_output
+    config = recipe()
+    config['components']['encoder'] = dict(factory=__name__ + ':RoutedColorEncoder', args={},
+        inputs={'gray': 'batch.gray'}, trainable=True)
+    config['components']['reconstruction'] = dict(reuse='generator',
+        inputs={'x': 'components.encoder.latent'}, trainable=True, freeze_parameters=True)
+    config['sampling'].update(generated='components.reconstruction',
+        particle_ids='components.encoder.ids', views={'random': 'components.generator'},
+        comparison=[{'label': 'X', 'binding': 'batch.real'}, {'label': 'B', 'binding': 'batch.gray'},
+                    {'label': 'X_hat', 'binding': 'components.reconstruction'}])
+    config['objectives'] = [dict(factory='mse', inputs={'prediction': 'components.reconstruction', 'target': 'batch.real'})]
+    from hypergan.config import config_values
+    trainer = ReferenceTrainer(resolve_config(config_values(config)))
+    batch = {'real': torch.tensor([-1., 0., 1.]).reshape(3, 1, 1, 1).expand(3, 3, 2, 2),
+             'gray': torch.tensor([1., 0., -1.]).reshape(3, 1, 1, 1).expand(3, 1, 2, 2)}
+    context = trainer.ema_graph.generate(torch.zeros(3, 2), batch, prior=trainer.ema_prior)
+    random_output = context['generated'].clone()
+    conditional = generation_output(trainer.ema_graph, context, config['sampling'])
+    assert torch.equal(context['generated'], random_output)
+    assert not torch.equal(conditional, random_output)
+    identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'sample_sequence': 1}
+    before = _digest({'rng': capture_rng(), 'ema': trainer.ema_graph.state_dict()})
+    payload = render_preview(trainer, batch, identity)
+    assert _digest({'rng': capture_rng(), 'ema': trainer.ema_graph.state_dict()}) == before
+    assert payload == render_preview(trainer, batch, identity)
+    assert payload['particle_ids'] == [3, 3, 3]
+    assert payload['routing'] == {'unique_particles': 1, 'top_particle_share': 1.0}
+    assert payload['extra_image_grid_0']['name'] == 'random'
+    assert payload['image_grid']['png_base64'] != payload['extra_image_grid_0']['png_base64']
+    with Image.open(io.BytesIO(base64.b64decode(payload['extra_image_grid_0']['png_base64']))) as image:
+        assert json.loads(image.info['hypergan'])['particle_ids'] is None
+        assert json.loads(image.info['hypergan'])['conditioning'] == 'unconditional'
+    with Image.open(io.BytesIO(base64.b64decode(payload['comparison_image_grid']['png_base64']))) as image:
+        assert image.size == (6, 30)
+        assert json.loads(image.info['hypergan'])['grid']['column_labels'] == ['X', 'B', 'X_hat']
+        for row, value in enumerate([0, 128, 255]):
+            assert image.getpixel((0, 24 + row * 2)) == (value,) * 3
+            assert image.getpixel((2, 24 + row * 2)) == ([255, 128, 0][row],) * 3
+            expected = conditional[row, :, 0, 0].detach().clamp(-1, 1).add(1).mul(127.5).round()
+            assert image.getpixel((4, 24 + row * 2)) == tuple(expected.int().tolist())
+    record, _, _ = publish_preview_payload(tmp_path, payload, identity, trainer.step)
+    assert Path(record['extra_image_grid_0']['path']).is_file()
+    assert Path(record['comparison_image_grid']['path']).is_file()
+    snapshot, output = tmp_path / 'snapshot.pt', tmp_path / 'render.json'
+    receipt = capture_snapshot(trainer, batch, identity, snapshot)
+    renderer_command((str(snapshot), receipt, identity, trainer.step, str(output)), 'render', None)
+    assert json.loads(output.read_text()) == payload
+    save_bundle(tmp_path, trainer, batch)
+    sampled = json.loads(sample(tmp_path, count=3, seed=config['sampling']['seed']).read_text())
+    assert sampled['particle_ids'] == [3, 3, 3]
+    assert torch.equal(torch.tensor(sampled['samples']), conditional)
+
+
+def test_comparison_256_columns_fit_and_preview_budget_caps_tall_layout():
+    from types import SimpleNamespace
+    from hypergan.image_grids import comparison_grid
+    from hypergan.previews import preview_budget
+    real = torch.zeros(16, 3, 256, 256)
+    columns = [{'label': 'X', 'binding': 'batch.real'}, {'label': 'B', 'binding': 'batch.gray'},
+               {'label': 'X_hat', 'binding': 'components.reconstruction'}]
+    config = {'sampling': {'count': 16, 'comparison': columns}}
+    count, _, _, _ = preview_budget(SimpleNamespace(config=config), {'real': real}, {})
+    assert count == 15  # A 24px header must fit below the 4096px image bound.
+    encoded, grid = comparison_grid([('X', real[:8]), ('B', real[:8, :1]), ('X_hat', real[:8])])
+    assert grid['width'] == 768 and grid['height'] == 2072
+    with Image.open(io.BytesIO(encoded)) as image:
+        assert image.size == (768, 2072)

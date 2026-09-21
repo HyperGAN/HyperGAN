@@ -10,8 +10,8 @@ import uuid
 import numpy as np
 import torch
 
-from .config import config_values, resolve_config
-from .recipes import ComponentGraph, generation_particle_ids, make_prior
+from .config import config_values, resolve_config, sampling_bindings
+from .recipes import ComponentGraph, generation_output, generation_particle_ids, make_prior
 from .run_state import sync_directory
 
 
@@ -32,6 +32,9 @@ def bundle_state(trainer, batch):
             if path.startswith("components."):
                 include(path.split(".")[1])
     include("generator")
+    for binding in sampling_bindings(trainer.config['sampling']):
+        if binding.startswith('components.'):
+            include(binding.split('.')[1])
     specs = {name: spec for name, spec in trainer.config["components"].items() if name in needed_components}
     needed = {path.split(".")[1] for name in called_components for path in specs[name]["inputs"].values() if path.startswith("batch.")}
     models = {name: trainer.ema_graph.models[name] for name, spec in specs.items() if 'reuse' not in spec}
@@ -142,7 +145,7 @@ def _sample(run_dir, count, seed, output, *, inputs):
     with torch.inference_mode():
         z, ids = prior.sample(count, generator=rng)
         context = graph.generate(z, normalized, prior=prior)
-        values = context['generated']
+        values = generation_output(graph, context, config['sampling'])
         ids = generation_particle_ids(graph, context, ids, config['sampling'])
     if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
         raise ValueError(f"Generator must return a tensor with {count} samples")

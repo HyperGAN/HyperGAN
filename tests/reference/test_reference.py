@@ -98,7 +98,7 @@ def test_run_and_fresh_process_inference(tmp_path):
 def test_paired_encoder_custom_factory_and_objective_have_effect(tmp_path):
     example = Path(__file__).parents[2] / "examples" / "paired-linear.toml"
     config = load_config(example)
-    config["components"]["encoder"]["factory"] = "torch.nn:Linear"
+    config["components"]["encoder"]["factory"] = "hypergan.hndl_networks:HNDLNetwork"
     config["objectives"][0]["factory"] = "torch.nn:MSELoss"
     trainer = ReferenceTrainer(config)
     old = [p.detach().clone() for p in trainer.graph.models["encoder"].parameters()]
@@ -119,7 +119,7 @@ def test_paired_encoder_custom_factory_and_objective_have_effect(tmp_path):
 def test_invalid_custom_constructor_argument_fails_instead_of_being_ignored():
     raw = copy.deepcopy(DEFAULT)
     raw["components"]["generator"]["args"]["typo"] = 1
-    with pytest.raises(ValueError, match="Invalid constructor"):
+    with pytest.raises(ValueError, match="unknown HNDL arguments"):
         ReferenceTrainer(resolve_config(raw))
 
 
@@ -142,7 +142,8 @@ def test_tampered_bundle_rejected(tmp_path):
 def test_integer_conditioning_survives_native_bundle(tmp_path):
     raw = copy.deepcopy(DEFAULT)
     raw["components"]["encoder"] = {"factory": "torch.nn:Embedding", "args": {"num_embeddings": 4, "embedding_dim": 2}, "inputs": {"input": "batch.condition"}}
-    raw["components"]["generator"]["args"]["input_dim"] = 6
+    raw["components"]["generator"]["args"]["input_shape"] = ["B", 6]
+    raw["components"]["generator"]["args"]["concat_inputs"] = ["x", "condition"]
     raw["components"]["generator"]["inputs"]["condition"] = "components.encoder"
     trainer = ReferenceTrainer(resolve_config(raw))
     batch = {"real": torch.zeros(16, 2), "condition": torch.arange(16) % 4}

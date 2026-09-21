@@ -10,6 +10,7 @@ import sys
 import pytest
 from PIL import Image
 import torch
+from tests.hndl_fixtures import fixture_network
 from torch import nn
 
 from hypergan.artifacts import sample
@@ -24,19 +25,19 @@ from hypergan.config import DEFAULT, resolve_config
 class ImageGenerator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(2, 12)
+        self.network = fixture_network('image_generator', (2,), (3, 2, 2))
 
     def forward(self, x):
-        return self.project(x).tanh().reshape(-1, 3, 2, 2)
+        return self.network(x)
 
 
 class ImageDiscriminator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(12, 1)
+        self.network = fixture_network('image_discriminator', (3, 2, 2), (1,))
 
     def forward(self, x):
-        return self.project(x.flatten(1))
+        return self.network(x)
 
 
 class ImageData:
@@ -47,30 +48,30 @@ class ImageData:
 
 
 class ColorGenerator(nn.Module):
-    def __init__(self):
+    def __init__(self, size=2):
         super().__init__()
-        self.project = nn.Linear(2, 3)
+        self.network = fixture_network('color_generator', (2 + size * size,), (3, size, size), size=size)
 
     def forward(self, x, gray):
-        return (gray + self.project(x)[:, :, None, None]).tanh()
+        return self.network(torch.cat((x, gray.flatten(1)), dim=1))
 
 
 class ColorDiscriminator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(3, 1)
+        self.network = fixture_network('pooled_discriminator', (3, 2, 2), (1,))
 
     def forward(self, x):
-        return self.project(x.mean((2, 3)))
+        return self.network(x)
 
 
 class RoutedColorEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(1, 2)
+        self.network = fixture_network('pooled_discriminator', (1, 2, 2), (2,))
 
     def forward(self, gray):
-        return {'latent': self.project(gray.mean((2, 3))),
+        return {'latent': self.network(gray),
                 'ids': torch.full((len(gray),), 3, dtype=torch.int64, device=gray.device)}
 
 
@@ -98,7 +99,7 @@ def test_color256_snapshot_png_only_named_inputs_and_tensor_budget(tmp_path):
     from hypergan.previews import MAX_BYTES, preview_budget
     config = recipe()
     config['components']['generator'].update(factory=__name__ + ':ColorGenerator',
-        inputs={'x': 'latent', 'gray': 'batch.gray'})
+        inputs={'x': 'latent', 'gray': 'batch.gray'}, args={'size': 256})
     config['components']['discriminator'].update(factory=__name__ + ':ColorDiscriminator')
     config['sampling']['count'] = 8
     trainer = ReferenceTrainer(config)
@@ -256,6 +257,7 @@ preset = "none"
         # Install the trusted fixture factory in the fresh interpreter, then invoke
         # the actual CLI. hypergan itself resolves from the installed distribution.
         script = f'''import importlib.util, sys
+sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r})
 spec = importlib.util.spec_from_file_location({__name__!r}, {str(Path(__file__).resolve())!r})
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module

@@ -13,9 +13,14 @@ import types
 import numpy as np
 import pytest
 import torch
+# Direct worker entry points need the repository fixture package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests.hndl_fixtures import fixture_linear, fixture_network
 import torch.distributed as dist
 
 from hypergan.checkpoints import capture_rng, trainer_state
+from hypergan.checkpoint_compatibility import CURRENT_VERSION
 from hypergan.config import resolve_config
 from hypergan.distributed_checkpoints import (
     save_distributed_checkpoint, restore_distributed_checkpoint,
@@ -62,21 +67,22 @@ class TinyImageGenerator(torch.nn.Module):
     """Original shape/recovery fixture, not a copied or qualified image GAN."""
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(4, 6)
+        self.linear = fixture_linear(4, 6)
+        self.output = fixture_network('image_output', (6,), (1, 2, 3), channels=1, height=2, width=3)
 
     def forward(self, x):
         value = self.linear(x)
         noise = .001 * (torch.rand_like(value) + random.random() + float(np.random.random()))
-        return (value + noise).tanh().reshape(len(x), 1, 2, 3)
+        return self.output(value + noise)
 
 
 class TinyImageDiscriminator(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(6, 1)
+        self.network = fixture_network('image_discriminator', (1, 2, 3), (1,))
 
     def forward(self, x):
-        return self.linear(x.flatten(1))
+        return self.network(x)
 
 
 def config(root):
@@ -336,7 +342,7 @@ def test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation(tmp
         path = generation / 'manifest.json'
         info = json.loads(path.read_text())
         if mode == 'restore-version':
-            info['identity']['hypergan_checkpoint_version'] = 2
+            info['identity']['hypergan_checkpoint_version'] = CURRENT_VERSION + 1
         else:
             prefix = '__main__' if mode == 'restore-custom-implementation' else 'particlegan.'
             implementations = info['identity']['implementation']
@@ -351,14 +357,14 @@ def test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation(tmp
 
 @pytest.mark.heavy
 @pytest.mark.parametrize('legacy', [False, True], ids=['versioned', 'before-contract-version'])
-def test_compatible_hypergan_build_changes_preserve_exact_distributed_continuation(tmp_path, legacy):
+def test_distributed_build_changes_preserve_current_contract_and_reject_legacy(tmp_path, legacy):
     root, run = tmp_path / 'fixture', tmp_path / 'split'
     launch(root, tmp_path / 'full', 'full')
     saved = launch(root, run, 'split')
     manifest_path = Path(saved[0]['checkpoint']) / 'manifest.json'
     info = json.loads(manifest_path.read_text())
     identity = info['identity']
-    assert identity['hypergan_checkpoint_version'] == 1
+    assert identity['hypergan_checkpoint_version'] == CURRENT_VERSION
     assert 'hypergan_commit' in identity['source']
     # A previously published compatible build has different HyperGAN bytes and
     # package metadata. External implementations and every rank payload stay real.
@@ -374,6 +380,10 @@ def test_compatible_hypergan_build_changes_preserve_exact_distributed_continuati
         identity.pop('hypergan_checkpoint_version')
         identity.pop('source')
     manifest_path.write_text(json.dumps(info))
+    if legacy:
+        results = launch(root, run, 'restore-version')
+        assert all('version' in result['error'].lower() for result in results)
+        return
     launch(root, run, 'resume')
     for rank in range(2):
         expected = torch.load(root / f'full-rank{rank}.pt', weights_only=True)

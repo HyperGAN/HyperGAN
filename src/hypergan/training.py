@@ -106,7 +106,7 @@ def _version(name):
 
 def runtime_info(device='cpu'):
     device = execution_device(device)
-    result = {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": 1, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "device": str(device), "dtype": "float32", "world_size": 1, "default_dtype": str(torch.get_default_dtype()), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
+    result = {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": 1, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "hndl": _version("hndl"), "device": str(device), "dtype": "float32", "world_size": 1, "default_dtype": str(torch.get_default_dtype()), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
     if device.type == 'cuda':
         properties = torch.cuda.get_device_properties(device)
         result['cuda'] = {'version': torch.version.cuda, 'cudnn': torch.backends.cudnn.version(),
@@ -125,7 +125,7 @@ def source_info():
     from .provenance import hypergan_source
     result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
     result["distribution_records"] = {}
-    for name in ("hypergan", "particlegan"):
+    for name in ("hypergan", "particlegan", "hndl"):
         try:
             distribution = importlib.metadata.distribution(name)
             record = distribution.read_text("RECORD")

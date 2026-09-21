@@ -1,0 +1,7 @@
+# ResNet18 stem and layer1; loaded exclusively from a verified local artifact.
+conv(64, kernel_size=7, stride=2, padding=3, bias=False, name="conv1")
+batch_norm(name="bn1")
+relu()
+max_pool(3, stride=2, padding=1)
+resblock(64, name="layer1_0")
+resblock(64, name="layer1_1")

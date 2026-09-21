@@ -1,0 +1,6 @@
+e = constant(x, ${embedding})
+h = conv(x, ${width}, kernel_size=3, padding=1, name="input")
+${blocks}
+leaky_relu(h, 0.2)
+flatten()
+linear(1, name="output")

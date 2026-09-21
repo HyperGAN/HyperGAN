@@ -16,7 +16,7 @@ and structure metrics, and multiple sampled colorizations.
 
 ## Install the development foundation
 
-Use Python 3.12 for the tested training runtime. Lightweight package checks cover Python 3.10–3.12 on Linux, macOS and Windows; the CPU reference profile is tested on Linux.
+Use Python 3.12 for the tested training runtime. Lightweight package checks cover Python 3.11–3.13 on Linux, macOS and Windows; the CPU reference profile is tested on Linux.
 
 ```sh
 git clone --branch develop https://github.com/HyperGAN/HyperGAN.git
@@ -80,6 +80,8 @@ For GPU construction checks, use `demo` with `--profile examples/execution/cuda-
 `hypergan new` writes a GPU-first `config.toml`; `--device cpu` explicitly selects CPU. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.
 
 The reference defaults to ParticleGAN's relativistic-paired objective, b-cap discriminator regularization and VICReg prior regularization. Custom configurations remain runnable with an explicit qualification warning. An unknown combination is different from an invalid binding or incompatible tensor shape: actual incompatibilities fail with an error. No custom configuration inherits quality, distributed or deployment approval merely by completing a run.
+
+Networks are defined in HNDL configuration, with source recorded in every resolved run. Edit the TOML or `.hndl` file to change an architecture without rebuilding HyperGAN.
 
 See [configuration and component contracts](docs/configuration.md) and the [paired synthetic example](examples/paired-linear.toml). Custom factories execute Python code from your environment; use implementations you trust. Lightweight validation checks configuration structure without importing those factories; training validates runtime bindings and tensors.
 

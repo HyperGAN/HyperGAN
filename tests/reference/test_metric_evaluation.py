@@ -57,8 +57,8 @@ def setup(tmp_path):
     driver.write_text(DRIVER)
     path=write_default(tmp_path/'config.toml',device='cpu')
     text=path.read_text().replace('steps = 5','steps = 2').replace('num_particles = 20000','num_particles = 32').replace('count = 256','count = 4')
-    text=text.replace('factory = "mlp"','factory = "eval_fixture:RGBGenerator"',1).replace('factory = "mlp"','factory = "eval_fixture:RGBDiscriminator"',1)
-    text=text.replace('output_dim = 2','output_dim = 12').replace('input_dim = 2','input_dim = 12')
+    text=text.replace('factory = "hndl"','factory = "eval_fixture:RGBGenerator"',1).replace('factory = "hndl"','factory = "eval_fixture:RGBDiscriminator"',1)
+    text=text.replace('output_shape = ["B", 2]', 'output_shape = ["B", 12]').replace('input_shape = ["B", 2]', 'input_shape = ["B", 12]')
     text=text.replace('factory = "gaussian_grid"','factory = "eval_fixture:RGBData"').replace('side = 10\nnoise = 0.015\n','')
     text+='\n[training.backend]\ndeterministic_algorithms = true\n'
     for name,factory in [('mean','hypergan.metric_examples:ColorMomentDistance'),('histogram','hypergan.metric_examples:ColorHistogramDifference')]:

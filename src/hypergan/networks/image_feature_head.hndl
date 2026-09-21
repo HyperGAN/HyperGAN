@@ -1,0 +1,8 @@
+conv(64, kernel_size=1, name="project")
+group_norm(8)
+leaky_relu(0.2)
+conv(64, kernel_size=3, padding=1)
+leaky_relu(0.2)
+adaptive_avg_pool(4)
+flatten()
+linear(1)

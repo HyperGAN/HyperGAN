@@ -9,13 +9,14 @@ import pytest
 
 FIXTURES = '''
 import torch
+from hypergan.hndl_networks import build_network
 from torch import nn
 
 class Generator(nn.Module):
     def __init__(self, kind):
         super().__init__()
         self.kind = kind
-        self.project = nn.Linear(4, 2)
+        self.project = build_network('linear()', input_shape=('B', 4), output_shape=('B', 2))
         if kind == 'nonfinite':
             self.register_buffer('sentinel', torch.tensor(float('nan')), persistent=False)
         elif kind == 'complex':
@@ -171,7 +172,7 @@ def test_forged_resolved_profile_is_rejected_before_launch(monkeypatch):
 def test_native_cli_runtime_constructs_cpu_without_forward_or_data_draw(tmp_path):
     from hypergan.config import write_default
     config = write_default(tmp_path / 'project', device='cpu')
-    config.write_text(config.read_text().replace('factory = "mlp"', 'factory = "native_fixture:Generator"', 1).replace('factory = "gaussian_grid"', 'factory = "native_fixture:Data"'))
+    config.write_text(config.read_text().replace('factory = "hndl"', 'factory = "native_fixture:Generator"', 1).replace('factory = "gaussian_grid"', 'factory = "native_fixture:Data"'))
     (tmp_path / 'native_fixture.py').write_text('''
 import torch
 from hypergan.recipes import MLP

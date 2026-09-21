@@ -10,6 +10,10 @@ import time
 
 import pytest
 import torch
+# Direct worker entry points need the repository fixture package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests.hndl_fixtures import fixture_linear, fixture_network
 import torch.distributed as dist
 from torch import nn
 
@@ -22,7 +26,7 @@ from hypergan.training import ReferenceTrainer
 class ConditionalGenerator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = nn.Linear(6, 2, bias=False)
+        self.linear = fixture_linear(6, 2, bias=False)
 
     def forward(self, x, condition):
         return self.linear(torch.cat((x, condition), dim=1))
@@ -31,13 +35,15 @@ class ConditionalGenerator(nn.Module):
 class CubicCritic(nn.Module):
     def __init__(self):
         super().__init__()
-        self.weight = nn.Parameter(torch.tensor([[1.4], [1.1]]))
+        self.network = fixture_network('cubic', (2,), (1,))
+        with torch.no_grad():
+            self.network.nodes.n_projection.weight.copy_(torch.tensor([[1.4, 1.1]]))
 
     def forward(self, x):
         # Trusted custom code can change the ambient device. Every following
         # NCCL metadata exchange must rebind its rank-owned GPU.
         torch.cuda.set_device(1 - dist.get_rank())
-        return (x @ self.weight).pow(3)
+        return self.network(x)
 
 
 def _config(mode):

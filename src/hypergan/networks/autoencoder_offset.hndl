@@ -1,0 +1,1 @@
+linear(${z_dim}, name="offset", init={"weight": 0, "bias": 0})

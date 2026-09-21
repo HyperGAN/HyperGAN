@@ -11,6 +11,7 @@ import threading
 import numpy as np
 import pytest
 import torch
+from tests.hndl_fixtures import fixture_linear
 
 from hypergan.artifacts import sample, save_bundle
 from hypergan.config import resolve_config, write_default
@@ -231,7 +232,7 @@ def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
 class BufferedGenerator(torch.nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(4, 2)
+        self.linear = fixture_linear(4, 2)
         self.register_buffer("offset", torch.zeros(2), persistent=False)
 
     def forward(self, x):

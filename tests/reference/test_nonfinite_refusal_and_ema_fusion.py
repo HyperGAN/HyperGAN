@@ -12,6 +12,7 @@ import copy
 
 import pytest
 import torch
+from tests.hndl_fixtures import fixture_linear, fixture_norm
 
 from hypergan.config import resolve_config
 from hypergan.training import ReferenceTrainer, update_ema
@@ -21,7 +22,7 @@ class Encoder(torch.nn.Module):
     """A small auxiliary component so the generator phase owns more than one model."""
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(2, 4)
+        self.linear = fixture_linear(2, 4)
 
     def forward(self, x, means, sigma):
         return self.linear(x) + sigma * means.detach()[0]
@@ -92,8 +93,8 @@ class Mixed(torch.nn.Module):
     """Parameter and buffer inventory that forces several foreach groups."""
     def __init__(self):
         super().__init__()
-        self.linear = torch.nn.Linear(7, 5)
-        self.norm = torch.nn.BatchNorm2d(3)  # float buffers plus int64 num_batches_tracked
+        self.linear = fixture_linear(7, 5)
+        self.norm = fixture_norm(3, image=True)  # float buffers plus int64 num_batches_tracked
         self.wide = torch.nn.Parameter(torch.randn(129, 17, dtype=torch.float64))
         self.narrow = torch.nn.Parameter(torch.randn(4, 4).half())
         self.register_buffer('counter', torch.tensor([3], dtype=torch.int64))

@@ -252,7 +252,7 @@ def _setup(tmp_path):
     config = write_default(tmp_path / 'project', device="cpu")
     config.write_text(config.read_text().replace('steps = 5', 'steps = 4').replace('batch_size = 16', 'batch_size = 8')
                       .replace('num_particles = 20000', 'num_particles = 32')
-                      .replace('factory = "mlp"', 'factory = "job_fixture:Generator"', 1)
+                      .replace('factory = "hndl"', 'factory = "job_fixture:Generator"', 1)
                       .replace('factory = "gaussian_grid"', 'factory = "job_fixture:Data"')
                       .replace('side = 10\nnoise = 0.015\n', ''), encoding='utf-8')
     return driver, config
@@ -474,7 +474,7 @@ def test_actual_image_folder_whole_job_accumulated_recovery(tmp_path):
     for index in range(5):
         Image.frombytes('L', (2, 1), bytes([index * 40, 255 - index * 30])).save(images / f'{index}.png')
     text = config.read_text().replace('job_fixture:Generator', 'job_fixture:ImageGenerator')
-    text = text.replace('factory = "mlp"', 'factory = "job_fixture:ImageDiscriminator"')
+    text = text.replace('factory = "hndl"', 'factory = "job_fixture:ImageDiscriminator"')
     text = text.replace('factory = "job_fixture:Data"', 'factory = "image_folder"')
     text = text.replace('[data.args]', '[data.args]\nroot = ' + json.dumps(str(images)) + '\nheight = 1\nwidth = 2\nmode = "L"\nshuffle = true')
     config.write_text(text, encoding='utf-8')

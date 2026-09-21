@@ -7,9 +7,8 @@ import math
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
-from .colorization_components import _norm, _positive_integer
+from .colorization_components import _network, _width_parameters, _positive_integer
 
 
 class ParticleAEEncoder256(nn.Module):
@@ -19,22 +18,20 @@ class ParticleAEEncoder256(nn.Module):
     ParticleGAN's tensor routing formula without owning a second prior. Selected
     means receive gradients; query gradients use its soft straight-through rule.
     """
-    def __init__(self, z_dim=128, width=32, temperature=.125):
+    def __init__(self, z_dim=128, width=32, temperature=.125, networks=None):
         super().__init__()
         self.z_dim = _positive_integer(z_dim, 'z_dim')
         _positive_integer(width, 'width')
         if isinstance(temperature, bool) or not math.isfinite(temperature) or temperature <= 0:
             raise ValueError('Routing temperature must be positive and finite')
         self.temperature = temperature
-        channels = [3, width, 2 * width, 4 * width, 8 * width, 8 * width, 8 * width]
-        layers = []
-        for a, b in zip(channels, channels[1:]):
-            layers.extend([nn.Conv2d(a, b, 4, stride=2, padding=1), _norm(b), nn.LeakyReLU(.2)])
-        self.features = nn.Sequential(*layers, nn.Flatten())
-        self.query = nn.Linear(channels[-1] * 16, z_dim)
-        self.offset = nn.Linear(channels[-1] * 16, z_dim)
-        nn.init.zeros_(self.offset.weight)
-        nn.init.zeros_(self.offset.bias)
+        hidden = 8 * width * 16
+        self.features = _network('colorization_encoder_features', (3, 256, 256),
+                                 (hidden,), _width_parameters(width), networks)
+        self.query = _network('colorization_query', (hidden,), (z_dim,),
+                              {'z_dim': z_dim}, networks)
+        self.offset = _network('autoencoder_offset', (hidden,), (z_dim,),
+                               {'z_dim': z_dim}, networks)
 
     def forward(self, x, means, sigma):
         if x.ndim != 4 or tuple(x.shape[1:]) != (3, 256, 256):
@@ -48,7 +45,7 @@ class ParticleAEEncoder256(nn.Module):
         torch._assert_async(torch.isfinite(sigma).all() & (sigma > 0).all(),
                             'AE requires positive finite fixed sigma')
         h = self.features(x)
-        query = F.layer_norm(self.query(h), (self.z_dim,))
+        query = self.query(h)
         fixed = means.detach()
         distance = (query.square().sum(1, keepdim=True) + fixed.square().sum(1)[None]
                     - 2 * query @ fixed.T) / self.z_dim

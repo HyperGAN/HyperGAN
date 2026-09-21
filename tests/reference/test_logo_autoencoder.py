@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from particlegan import get_recipe, particle_ae
 
 from hypergan.autoencoder_components import ParticleAEEncoder256
-from hypergan.config import tomllib
+from hypergan.config import load_config
 from hypergan.recipes import ComponentGraph
 
 
@@ -25,14 +25,14 @@ def test_ae_matches_particle_gan_values_gradients_and_rng():
     prior = get_recipe('ae_gan', num_particles=16, z_dim=8).make_prior()
     encoder = ParticleAEEncoder256(z_dim=8, width=2)
     # Nonzero offsets exercise the bounded local code, not just nearest centers.
-    torch.nn.init.normal_(encoder.offset.weight, std=.2)
+    torch.nn.init.normal_(encoder.offset['offset'].weight, std=.2)
     x = torch.randn(2, 3, 256, 256)
     means = prior.means()
     rng = torch.get_rng_state()
     actual = encoder(x, means, prior.sigma)
     assert torch.equal(torch.get_rng_state(), rng)
     h = encoder.features(x)
-    query = F.layer_norm(encoder.query(h), (8,))
+    query = encoder.query(h)
     expected = particle_ae(query, encoder.offset(h), prior,
                            temperature=.125, distance_reduction='mean')
     torch.testing.assert_close(actual['latent'], expected.codes[:, 0], rtol=0, atol=0)
@@ -51,7 +51,7 @@ def test_ae_matches_particle_gan_values_gradients_and_rng():
 def test_rgb_reconstruction_updates_encoder_generator_and_prior():
     torch.manual_seed(92)
     path = Path(__file__).resolve().parents[2] / 'examples/logos-ae-gan-256.toml'
-    recipe = tomllib.loads(path.read_text())
+    recipe = load_config(path)
     specs = recipe['components']
     specs['discriminator'] = {'factory': 'identity', 'inputs': {'input': 'candidate'}}
     for name in ('generator', 'encoder'):
@@ -68,7 +68,7 @@ def test_rgb_reconstruction_updates_encoder_generator_and_prior():
     assert set(context['components']) == {'generator'}
     context['generated'].square().mean().backward()
     assert means.grad.abs().sum() > 0
-    assert graph.models['generator'].output.weight.grad.abs().sum() > 0
+    assert graph.models['generator'].network['output'].weight.grad.abs().sum() > 0
     assert all(p.grad is None for p in graph.models['encoder'].parameters())
     graph.zero_grad(set_to_none=True)
     means.grad = None
@@ -77,10 +77,10 @@ def test_rgb_reconstruction_updates_encoder_generator_and_prior():
     target = graph.resolve(objective['inputs']['target'], context).detach()
     F.mse_loss(reconstruction, target).backward()
     assert means.grad.abs().sum() > 0
-    assert graph.models['generator'].output.weight.grad.abs().sum() > 0
+    assert graph.models['generator'].network['output'].weight.grad.abs().sum() > 0
     encoder = graph.models['encoder']
-    assert encoder.query.weight.grad.abs().sum() > 0
-    assert encoder.offset.weight.grad.abs().sum() > 0
+    assert encoder.query['query'].weight.grad.abs().sum() > 0
+    assert encoder.offset['offset'].weight.grad.abs().sum() > 0
     selected = context['components']['encoder']['ids']
     unselected = torch.ones(len(means), dtype=torch.bool)
     unselected[selected] = False

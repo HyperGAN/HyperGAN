@@ -9,7 +9,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from hypergan import colorization_components as color
-from hypergan.config import tomllib
+from tests.hndl_fixtures import fixture_network
+from hypergan.config import load_config
 from hypergan.recipes import ComponentGraph
 
 
@@ -58,8 +59,8 @@ def test_reconstruction_gradients_update_only_encoder_through_frozen_decoder():
     output.square().mean().backward()
     assert means.grad is None
     assert all(parameter.grad is None for parameter in generator.parameters())
-    assert encoder.query.weight.grad is not None
-    assert encoder.query.weight.grad.abs().sum() > 0
+    assert encoder.query['query'].weight.grad is not None
+    assert encoder.query['query'].weight.grad.abs().sum() > 0
 
 
 def test_grayscale_reconstruction_matches_data_luminance_and_preserves_gradient():
@@ -76,7 +77,7 @@ def test_random_gan_and_conditional_reconstruction_have_separate_gradient_owners
     """Exercise the actual recipe bindings without pretrained assets or a GPU."""
     torch.manual_seed(97)
     path = Path(__file__).resolve().parents[2] / 'examples/logos-colorization-256.toml'
-    recipe = tomllib.loads(path.read_text())
+    recipe = load_config(path)
     specs = recipe['components']
     specs['discriminator'] = {'factory': 'identity', 'inputs': {'input': 'candidate'}}
     for name in ('generator', 'encoder'):
@@ -93,7 +94,7 @@ def test_random_gan_and_conditional_reconstruction_have_separate_gradient_owners
     assert set(context['components']) == {'generator'}
     context['generated'].square().mean().backward()
     assert means.grad.abs().sum() > 0
-    assert graph.models['generator'].output.weight.grad.abs().sum() > 0
+    assert graph.models['generator'].network['output'].weight.grad.abs().sum() > 0
     assert all(p.grad is None for p in graph.models['encoder'].parameters())
     graph.zero_grad(set_to_none=True)
     means.grad = None
@@ -103,7 +104,7 @@ def test_random_gan_and_conditional_reconstruction_have_separate_gradient_owners
     F.mse_loss(reconstruction, target).backward()
     assert means.grad is None
     assert all(p.grad is None for p in graph.models['generator'].parameters())
-    assert graph.models['encoder'].query.weight.grad.abs().sum() > 0
+    assert graph.models['encoder'].query['query'].weight.grad.abs().sum() > 0
     assert all(p.requires_grad for p in graph.models['generator'].parameters())
 
 
@@ -115,7 +116,7 @@ def test_adversarial_latent_updates_selected_means_and_encoder():
     unselected = torch.ones(len(means), dtype=torch.bool)
     unselected[result['ids']] = False
     assert torch.equal(means.grad[unselected], torch.zeros_like(means.grad[unselected]))
-    assert encoder.query.weight.grad.abs().sum() > 0
+    assert encoder.query['query'].weight.grad.abs().sum() > 0
 
 
 def test_explicit_detached_prior_option():
@@ -123,20 +124,17 @@ def test_explicit_detached_prior_option():
     encoder.detach_means = True
     encoder(gray, means, sigma)['latent'].sum().backward()
     assert means.grad is None
-    assert encoder.query.weight.grad.abs().sum() > 0
+    assert encoder.query['query'].weight.grad.abs().sum() > 0
 
 
 class _TinyBackbone(nn.Module):
     """Actual differentiable attention, with the upstream patch-token contract."""
     def __init__(self):
         super().__init__()
-        self.patch = nn.Conv2d(3, 8, 16, stride=16)
-        self.project = nn.Linear(8, 384)
+        self.network = fixture_network('colorization_backbone', (3, 256, 256), (256, 384))
 
     def forward_features(self, x):
-        h = self.patch(x).flatten(2).transpose(1, 2)[:, None]
-        h = F.scaled_dot_product_attention(h, h, h)[:, 0]
-        return {'x_norm_patchtokens': self.project(h)}
+        return {'x_norm_patchtokens': self.network(x)}
 
 
 def test_discriminator_keeps_features_frozen_but_allows_image_double_backward(monkeypatch):
@@ -154,8 +152,8 @@ def test_discriminator_keeps_features_frozen_but_allows_image_double_backward(mo
     assert torch.isfinite(gradient).all() and gradient.abs().sum() > 0
     gradient.square().sum().backward()
     assert all(parameter.grad is None for parameter in model.backbone.parameters())
-    assert model.attention.query.weight.grad.abs().sum() > 0
-    assert model.pixel.output.weight.grad.abs().sum() > 0
+    assert model.attention.network['attention_query'].weight.grad.abs().sum() > 0
+    assert model.pixel.network['output'].weight.grad.abs().sum() > 0
     assert torch.isfinite(x.grad).all()
     with torch.no_grad():
         assert not torch.equal(model(x.detach(), gray), model(x.detach(), gray + .2))
@@ -179,7 +177,7 @@ def test_projected_discriminator_single_path_frozen_masks_and_double_backward(mo
     assert all(parameter.requires_grad == (name not in frozen)
                for name, parameter in model.named_parameters())
     calls = []
-    hook = model.backbone.patch.register_forward_hook(lambda *_: calls.append(True))
+    hook = model.backbone.network['patch'].register_forward_hook(lambda *_: calls.append(True))
     x = torch.randn(1, 3, 256, 256, requires_grad=True)
     logits = model(x)
     hook.remove()
@@ -190,17 +188,17 @@ def test_projected_discriminator_single_path_frozen_masks_and_double_backward(mo
     assert torch.isfinite(gradient).all() and gradient.abs().sum() > 0
     gradient.square().sum().backward()
     assert torch.isfinite(x.grad).all()
-    assert model.attention.query.weight.grad.abs().sum() > 0
-    assert model.feature_output.weight.grad.abs().sum() > 0
+    assert model.attention.network['attention_query'].weight.grad.abs().sum() > 0
+    assert model.feature_output['output'].weight.grad.abs().sum() > 0
     assert all(parameter.grad is None for name, parameter in model.named_parameters()
                if name in frozen)
     # Even an optimizer over all parameters cannot update the fixed projection.
-    before_head = model.feature_output.weight.detach().clone()
+    before_head = model.feature_output['output'].weight.detach().clone()
     torch.optim.SGD(model.parameters(), lr=.1).step()
     for name, parameter in model.named_parameters():
         if name in frozen:
             torch.testing.assert_close(parameter, frozen[name], rtol=0, atol=0)
-    assert not torch.equal(before_head, model.feature_output.weight)
+    assert not torch.equal(before_head, model.feature_output['output'].weight)
 
 
 def test_projected_discriminator_state_reload_preserves_random_projection(monkeypatch, tmp_path):
@@ -256,13 +254,13 @@ def test_projected_conv_head_trains_with_frozen_features_and_input_double_backwa
     torch.testing.assert_close(restored(x.detach()), model(x.detach()), rtol=0, atol=0)
 
 
-def test_projected_linear_default_keeps_legacy_checkpoint_keys(monkeypatch):
+def test_projected_linear_default_and_explicit_config_share_checkpoint_keys(monkeypatch):
     model = _projected_discriminator(monkeypatch)
     explicit = _projected_discriminator(monkeypatch, head='linear')
     explicit.load_state_dict(model.state_dict(), strict=True)
-    assert isinstance(model.feature_output, nn.Linear)
-    assert 'feature_output.weight' in model.state_dict()
-    assert 'feature_output.bias' in model.state_dict()
+    assert model.feature_output.plan.nodes[-1].op == 'linear@1'
+    assert 'feature_output.nodes.n_output.weight' in model.state_dict()
+    assert 'feature_output.nodes.n_output.bias' in model.state_dict()
 
 
 @pytest.mark.parametrize('head', ['', 'mlp', None, True, 1])

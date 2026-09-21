@@ -1,0 +1,6 @@
+attention_input = identity()
+${attention}
+conv(${w2}, kernel_size=4, stride=2, padding=1, spectral_norm=True)
+leaky_relu(0.2)
+conv(1, kernel_size=4, name="output", spectral_norm=True)
+flatten()

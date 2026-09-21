@@ -5,6 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from hypergan import colorization_components as color
+from tests.hndl_fixtures import fixture_network
 
 
 @pytest.fixture(autouse=True)
@@ -18,15 +19,12 @@ def cpu_threads():
 class _IntermediateBackbone(nn.Module):
     def __init__(self):
         super().__init__()
-        self.patch = nn.Conv2d(3, 8, 16, stride=16)
-        self.project = nn.Linear(8, 384)
+        self.network = fixture_network('colorization_backbone', (3, 256, 256), (256, 384))
         self.calls = []
 
     def get_intermediate_layers(self, x, *, n, reshape, norm):
         self.calls.append((n, reshape, norm))
-        h = self.patch(x).flatten(2).transpose(1, 2)[:, None]
-        h = F.scaled_dot_product_attention(h, h, h)[:, 0]
-        h = self.project(h).transpose(1, 2).reshape(len(x), 384, 16, 16)
+        h = self.network(x).transpose(1, 2).reshape(len(x), 384, 16, 16)
         return tuple(h * (index + 1) / 4 for index in range(4))
 
 
@@ -46,7 +44,8 @@ def test_multiscale_single_backbone_pass_and_each_head_contributes(monkeypatch):
 
     hooks = [head.register_forward_hook(capture_head) for head in model.heads]
     hooks += [module.register_forward_pre_hook(lambda module, inputs: attention_sizes.append(inputs[0].shape[-1]))
-              for module in model.modules() if isinstance(module, color.SAGANAttention)]
+              for head in model.heads for node in head.layers.plan.nodes
+              if node.id == 'attention_query' for module in [head.layers[node.id]]]
     x = torch.randn(2, 3, 256, 256)
     logits = model(x)
     for hook in hooks:
@@ -59,7 +58,7 @@ def test_multiscale_single_backbone_pass_and_each_head_contributes(monkeypatch):
     # Every branch, rather than just the deepest one, receives learning signal.
     logits.sum().backward()
     for head in model.heads:
-        assert head.layers[-1].weight_orig.grad.abs().sum() > 0
+        assert head.layers['output'].parametrizations.weight.original.grad.abs().sum() > 0
 
 
 def test_multiscale_frozen_projection_and_image_double_backward_reload(monkeypatch):
@@ -83,9 +82,9 @@ def test_multiscale_frozen_projection_and_image_double_backward_reload(monkeypat
     assert torch.isfinite(x.grad).all()
     assert all(parameter.grad is not None and torch.isfinite(parameter.grad).all()
                for parameter in model.heads.parameters())
-    before = model.heads[0].layers[-1].weight_orig.detach().clone()
+    before = model.heads[0].layers['output'].parametrizations.weight.original.detach().clone()
     torch.optim.SGD(model.parameters(), lr=.1).step()
-    assert not torch.equal(before, model.heads[0].layers[-1].weight_orig)
+    assert not torch.equal(before, model.heads[0].layers['output'].parametrizations.weight.original)
     for name, parameter in model.named_parameters():
         if name in frozen:
             assert parameter.grad is None

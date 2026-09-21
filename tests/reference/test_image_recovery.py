@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 import pytest
 import torch
+from tests.hndl_fixtures import fixture_network
 from torch import nn
 
 from hypergan.checkpoints import read_checkpoint
@@ -19,24 +20,23 @@ class ImageGenerator(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(4, 12)
-        self.norm = nn.BatchNorm1d(12)
-        self.dropout = nn.Dropout(0.25)
+        self.network = fixture_network('stochastic_features', (4,), (12,), width=12, probability=0.25)
+        self.output = fixture_network('image_output', (12,), (3, 2, 2), channels=3, height=2, width=2)
 
     def forward(self, x):
-        value = self.dropout(self.norm(self.project(x)))
+        value = self.network(x)
         # Also draw in eval mode: previews must isolate all supported global RNGs.
         noise = torch.rand_like(value) + random.random() + float(np.random.random())
-        return (value + 0.001 * noise).tanh().reshape(-1, 3, 2, 2)
+        return self.output(value + 0.001 * noise)
 
 
 class ImageDiscriminator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.score = nn.Linear(12, 1)
+        self.network = fixture_network('image_discriminator', (3, 2, 2), (1,))
 
     def forward(self, x):
-        return self.score(x.flatten(1))
+        return self.network(x)
 
 
 def _image(path, value):

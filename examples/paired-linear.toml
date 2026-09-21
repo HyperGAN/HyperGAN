@@ -12,27 +12,42 @@ offset = 0.25
 # Optional encoder and any other named auxiliaries are ordinary modules.
 # Trainable auxiliaries belong to the generator optimizer and matched EMA.
 [components.encoder]
-factory = "linear"
+factory = "hndl"
 inputs = { input = "batch.condition" }
 [components.encoder.args]
-in_features = 2
-out_features = 2
+input_shape = ["B", 2]
+output_shape = ["B", 2]
+source = "linear()"
 
 [components.generator]
-factory = "mlp"
+factory = "hndl"
 inputs = { x = "latent", condition = "components.encoder" }
 [components.generator.args]
-input_dim = 6
-output_dim = 2
-hidden = [16, 16]
+input_shape = ["B", 6]
+output_shape = ["B", 2]
+concat_inputs = ["x", "condition"]
+source = """
+linear(16)
+leaky_relu(0.2)
+linear(16)
+leaky_relu(0.2)
+linear()
+"""
 
 [components.discriminator]
-factory = "mlp"
+factory = "hndl"
 inputs = { x = "candidate", condition = "batch.condition" }
 [components.discriminator.args]
-input_dim = 4
-output_dim = 1
-hidden = [16, 16]
+input_shape = ["B", 4]
+output_shape = ["B", 1]
+concat_inputs = ["x", "condition"]
+source = """
+linear(16)
+leaky_relu(0.2)
+linear(16)
+leaky_relu(0.2)
+linear()
+"""
 
 [[objectives]]
 factory = "mse"

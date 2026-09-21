@@ -10,6 +10,10 @@ import time
 import numpy as np
 import pytest
 import torch
+# Direct worker entry points need the repository fixture package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tests.hndl_fixtures import fixture_linear
 from torch import nn
 import torch.distributed as dist
 
@@ -26,7 +30,7 @@ pytestmark = pytest.mark.heavy
 class RandomGenerator(nn.Module):
     def __init__(self):
         super().__init__()
-        self.project = nn.Linear(4, 2)
+        self.project = fixture_linear(4, 2)
 
     def forward(self, x):
         return self.project(x) + .01 * (torch.rand(len(x), 2) + random.random() + np.random.random())

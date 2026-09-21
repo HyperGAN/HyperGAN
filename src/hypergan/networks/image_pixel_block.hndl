@@ -1,0 +1,16 @@
+# A preactivation residual block conditioned on the fixed zero embedding.
+${prefix}_h = group_norm(h, ${groups_in}, name="${prefix}_n1")
+${prefix}_h = leaky_relu(${prefix}_h, 0.2)
+${prefix}_h = conv(${prefix}_h, ${channels}, kernel_size=3, padding=1, name="${prefix}_c1")
+${prefix}_q = leaky_relu(e, 0.2)
+${prefix}_q = linear(${prefix}_q, ${channels}, name="${prefix}_cond")
+${prefix}_h = group_norm(${prefix}_h, ${groups_out}, name="${prefix}_n2")
+${prefix}_q = reshape(${prefix}_q, ${channels}, 1, 1)
+${prefix}_h = broadcast_add(${prefix}_h, ${prefix}_q)
+${prefix}_h = leaky_relu(${prefix}_h, 0.2)
+${prefix}_h = conv(${prefix}_h, ${channels}, kernel_size=3, padding=1, name="${prefix}_c2")
+${prefix}_skip = ${skip}
+h = add(${prefix}_skip, ${prefix}_h)
+h = scale(h, 0.7071067811865475)
+h = avg_pool(h, 2)
+${attention}

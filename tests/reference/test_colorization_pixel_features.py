@@ -5,6 +5,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from hypergan import colorization_components as color
+from tests.hndl_fixtures import fixture_network
 
 
 @pytest.fixture(autouse=True)
@@ -18,8 +19,7 @@ def cpu_threads():
 class _Backbone(nn.Module):
     def __init__(self, constant=False):
         super().__init__()
-        self.patch = nn.Conv2d(3, 8, 16, stride=16)
-        self.project = nn.Linear(8, 384)
+        self.network = fixture_network('colorization_backbone', (3, 256, 256), (256, 384))
         self.constant = constant
         self.calls = 0
 
@@ -27,9 +27,7 @@ class _Backbone(nn.Module):
         self.calls += 1
         if self.constant:
             return {'x_norm_patchtokens': x.new_zeros(len(x), 256, 384)}
-        h = self.patch(x).flatten(2).transpose(1, 2)[:, None]
-        h = F.scaled_dot_product_attention(h, h, h)[:, 0]
-        return {'x_norm_patchtokens': self.project(h)}
+        return {'x_norm_patchtokens': self.network(x)}
 
 
 def _model(monkeypatch, pixel_width=2, constant=False):
@@ -58,7 +56,7 @@ def test_pixel_features_supply_image_gradient_when_dino_is_constant(monkeypatch)
     assert torch.isfinite(x.grad).all()
     assert all(p.grad is not None and torch.isfinite(p.grad).all() for p in model.pixel_features.parameters())
     assert model.pixel_features[0].weight.grad.abs().sum() > 0
-    assert model.feature_output[0].weight_orig.grad.abs().sum() > 0
+    assert model.feature_output[0].parametrizations.weight.original.grad.abs().sum() > 0
     assert all(p.grad is None for p in model.backbone.parameters())
     assert all(p.grad is None for p in model.feature_project.parameters())
 
@@ -71,7 +69,7 @@ def test_dino_image_gradient_remains_when_pixel_features_are_disabled(monkeypatc
     assert torch.isfinite(gradient).all() and gradient.abs().sum() > 0
     gradient.square().sum().backward()
     assert torch.isfinite(x.grad).all()
-    assert model.attention.query.weight.grad.abs().sum() > 0
+    assert model.attention.network['attention_query'].weight.grad.abs().sum() > 0
 
 
 def test_pixel_features_freeze_masks_and_checkpoint_reload(monkeypatch):

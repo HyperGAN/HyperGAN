@@ -130,7 +130,7 @@ class Generator(MLP):
     monkeypatch.syspath_prepend(str(tmp_path))
     monkeypatch.setenv('PREVIEW_TEST_MARKER', str(marker))
     config = write_default(tmp_path / 'config', device='cpu')
-    config.write_text(config.read_text().replace('factory = "mlp"', 'factory = "hanging_preview:Generator"', 1))
+    config.write_text(config.read_text().replace('factory = "hndl"', 'factory = "hanging_preview:Generator"', 1))
     original = ReferenceTrainer.update
     failed_at = []
 

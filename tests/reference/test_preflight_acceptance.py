@@ -86,7 +86,7 @@ if __name__ == '__main__':
             from hypergan.cli import main
             config_path = write_default(root / 'project', device="cpu")
             content = config_path.read_text()
-            content = content.replace('factory = "mlp"', 'factory = "acceptance_factories:Generator"', 1)
+            content = content.replace('factory = "hndl"', 'factory = "acceptance_factories:Generator"', 1)
             content = content.replace('[components.generator.args]', '[components.generator.args]\\nroot = ' + json.dumps(str(root)) + '\\nmode = ' + json.dumps(mode))
             content = content.replace('factory = "gaussian_grid"', 'factory = "acceptance_factories:Data"')
             content = content.replace('[data.args]', '[data.args]\\nmode = ' + json.dumps(mode))

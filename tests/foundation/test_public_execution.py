@@ -23,7 +23,7 @@ def stopped(tmp_path, *, replicated=True):
     manifest = {'schema_version': 1, 'run_id': 'fixture', 'config': config_values(config),
                 'config_sha256': fingerprint(config), 'next_sample_sequence': 2,
                 'checkpoint_every': 7, 'preview_every': 0, 'preview_keep': 3}
-    identity = {'config_sha256': fingerprint(config)}
+    identity = {'config_sha256': fingerprint(config), 'hypergan_checkpoint_version': 2}
     if replicated:
         execution = resolve_execution_profile({'schema_version': 1, 'execution': {
             'name': 'cpu-replicated-gloo', 'accumulation_steps': 2}}, config)['execution']
@@ -440,7 +440,7 @@ def test_prepared_new_train_cannot_silently_switch_to_existing_run(tmp_path):
 
 
 @pytest.mark.parametrize('replicated', [False, True], ids=['native', 'replicated'])
-@pytest.mark.parametrize('version', [0, 2, -1, True, 1.0, '1', None, {}])
+@pytest.mark.parametrize('version', [0, 1, 3, -1, True, 1.0, '1', None, {}])
 def test_checkpoint_compatibility_rejects_before_viewer_and_imports(
         tmp_path, monkeypatch, capsys, version, replicated):
     from hypergan import cli
@@ -464,14 +464,14 @@ def test_checkpoint_compatibility_rejects_before_viewer_and_imports(
 
 
 @pytest.mark.parametrize('replicated', [False, True], ids=['native', 'replicated'])
-@pytest.mark.parametrize('explicit', [False, True], ids=['existing-unversioned', 'current-version'])
+@pytest.mark.parametrize('explicit', [True], ids=['current-version'])
 def test_checkpoint_compatibility_accepts_supported_version(tmp_path, explicit, replicated):
     path, run, checkpoint, _ = stopped(tmp_path, replicated=replicated)
     metadata_path = checkpoint / 'manifest.json'
     metadata = json.loads(metadata_path.read_text())
     if explicit:
         identity = metadata['identity'] if replicated else metadata
-        identity['hypergan_checkpoint_version'] = 1
+        identity['hypergan_checkpoint_version'] = 2
         metadata_path.write_text(json.dumps(metadata))
     assert prepare_resume(run).checkpoint == checkpoint
     assert prepare_train(path, run).checkpoint == checkpoint

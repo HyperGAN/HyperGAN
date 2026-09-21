@@ -91,8 +91,13 @@ def validate_custom(specs):
                 raise ValueError(f'{name}.inputs must select evaluation.generated or evaluation.reference')
             evaluation = spec.get('evaluation')
             required = {'data', 'sample_count', 'batch_size', 'seed'}
-            if not isinstance(evaluation, dict) or not required <= set(evaluation) or set(evaluation) - required - {'device'}:
+            if not isinstance(evaluation, dict) or not required <= set(evaluation) or set(evaluation) - required - {'device', 'generated'}:
                 raise ValueError(f'{name}.evaluation requires explicit data, sample_count, batch_size and seed')
+            if 'generated' in evaluation:
+                binding = evaluation['generated']
+                if (not isinstance(binding, str) or (binding != 'generated' and
+                        (not binding.startswith('components.') or not all(binding.split('.'))))):
+                    raise ValueError(f'{name}.evaluation.generated must bind generated or a component output')
             if spec['trigger'] == 'interval' and 'device' not in evaluation:
                 raise ValueError(
                     f'{name}.evaluation.device is required for interval evaluation, which snapshot '

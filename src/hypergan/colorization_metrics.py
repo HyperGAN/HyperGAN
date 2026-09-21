@@ -1,4 +1,4 @@
-"""Held-out diagnostics, independent of the optimized colorization objectives."""
+"""Held-out colorization diagnostics, including distribution and structure checks."""
 import math
 
 
@@ -60,7 +60,7 @@ class GrayscaleStructureDistance:
     def describe(self):
         return {'kind': 'scalar', 'label': 'Held-out grayscale edge discrepancy',
                 'unit': 'normalized_luminance_gradient', 'direction': 'minimize',
-                'description': 'Mean absolute difference of paired horizontal/vertical luminance differences; independent of training RGB reconstruction and sensitive to shape placement.'}
+                'description': 'Mean absolute difference of paired horizontal/vertical luminance differences; sensitive to shape placement and related to the training grayscale reconstruction objective, rather than an independent quality measure.'}
 
     def evaluate(self, *, batches, context):
         total, count = 0., 0

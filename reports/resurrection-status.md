@@ -2,6 +2,20 @@
 
 Authoritative design: [resurrection plan](resurrecting-hypergan-plan-2026-09-18.md). Updated 2026-09-20 (America/Denver).
 
+Colorization discriminator simplification (2026-09-20): owner authorized a single
+unconditional `D(X)` / `D(G(z))` and PR/merge. The new projected DINOv3 path uses
+frozen pretrained features and random channel/local-spatial projections, then
+trainable attention/head; E/G, 4,096 fixed-sigma particles and encoder-only L2
+remain unchanged. Original discriminator/config/environment are preserved.
+[Implementation and validation report](colorization-projected-2026-09-20.md).
+Clean installed source `de11816d` matches all 65 Python files; 858 fast tests pass,
+185 heavy tests deselected. Actual GPU-1 DINO image double backward/frozen masks
+and eight full-manifest CLI updates pass. Independent review found no blockers.
+Next: finish resume/full-state verification and deliberate local heavy suite,
+merge the passing PR, and leave the new owner run unstarted behind start-color.sh.
+Evidence: `../resurrection-backups/2026-09-20-colorization-projected/` outside repo.
+
+
 Resume on the other identical GPU, and the heavy-test gate (2026-09-20): the
 owner restarted `training-runs/start.sh` and resume failed with the bare
 `Resume runtime/topology differs from checkpoint`. Diagnosis: two identical RTX

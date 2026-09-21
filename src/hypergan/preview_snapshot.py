@@ -63,8 +63,9 @@ def capture_snapshot_state(trainer, batch, identity):
         count, _, _, _ = preview_budget(trainer, batch, inputs)
         normalized = {name: value[torch.arange(count) % len(value)].detach().clone() for name, value in inputs.items()}
         # Real rows supply output-shape budgeting and the comparable 'x' grid.
-        normalized['real'] = (real[torch.arange(count) % len(real)].detach().clone()
-                              if 'real' not in normalized else normalized['real'])
+        # Retain the true reference sample count for diversity diagnostics.
+        # Rendering cycles conditioning/display rows separately when necessary.
+        normalized['real'] = real[:count].detach().clone()
         needed = set()
         def include(name):
             if name in needed:

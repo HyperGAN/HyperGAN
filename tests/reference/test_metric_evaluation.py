@@ -12,11 +12,6 @@ from hypergan.metric_examples import ColorMomentDistance, ColorHistogramDifferen
 
 FIXTURE = '''
 import torch
-from hypergan.recipes import MLP
-class RGBGenerator(MLP):
-    def forward(self,x): return super().forward(x).tanh().reshape(-1,3,2,2)
-class RGBDiscriminator(MLP):
-    def forward(self,x): return super().forward(x.flatten(1))
 class RGBData:
     def __call__(self,batch_size,*,generator):
         return {'real': torch.rand(batch_size,3,2,2,generator=generator)*2-1}
@@ -57,8 +52,12 @@ def setup(tmp_path):
     driver.write_text(DRIVER)
     path=write_default(tmp_path/'config.toml',device='cpu')
     text=path.read_text().replace('steps = 5','steps = 2').replace('num_particles = 20000','num_particles = 32').replace('count = 256','count = 4')
-    text=text.replace('factory = "hndl"','factory = "eval_fixture:RGBGenerator"',1).replace('factory = "hndl"','factory = "eval_fixture:RGBDiscriminator"',1)
-    text=text.replace('output_shape = ["B", 2]', 'output_shape = ["B", 12]').replace('input_shape = ["B", 2]', 'input_shape = ["B", 12]')
+    generator, separator, discriminator = text.partition('[components.discriminator]')
+    generator = generator.replace('output_shape = ["B", 2]', 'output_shape = ["B", 3, 2, 2]')
+    generator = generator.replace('linear()\n"""', 'linear(12)\ntanh()\nreshape(3, 2, 2)\n"""')
+    discriminator = discriminator.replace('input_shape = ["B", 2]', 'input_shape = ["B", 3, 2, 2]')
+    discriminator = discriminator.replace('source = """', 'source = """\nflatten()', 1)
+    text = generator + separator + discriminator
     text=text.replace('factory = "gaussian_grid"','factory = "eval_fixture:RGBData"').replace('side = 10\nnoise = 0.015\n','')
     text+='\n[training.backend]\ndeterministic_algorithms = true\n'
     for name,factory in [('mean','hypergan.metric_examples:ColorMomentDistance'),('histogram','hypergan.metric_examples:ColorHistogramDifference')]:

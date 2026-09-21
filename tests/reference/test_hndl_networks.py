@@ -35,7 +35,7 @@ def test_dtype_moves_and_candidate_double_backward():
     assert model[0].weight.grad.abs().sum() > 0
 
 
-def test_default_hndl_trainer_updates_and_restores_exactly():
+def test_default_hndl_trainer_updates_parameters():
     config = resolve_config({})
     trainer = ReferenceTrainer(config)
     before = [p.clone().detach() for p in trainer.graph.parameters()]

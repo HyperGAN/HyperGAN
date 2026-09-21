@@ -42,15 +42,8 @@ class Generator(MLP):
     def forward(self, x):
         if os.environ.get('HG_ACCEPTANCE_MODE') == 'fatal-inference' and not self.training:
             raise RuntimeError('injected required inference failure')
-        return super().forward(x) + torch.randn(len(x), 2) * .01 + (random.random() + float(np.random.random())) * .001
-
-class ImageGenerator(Generator):
-    def forward(self, x):
-        return super().forward(x).reshape(-1, 1, 1, 2)
-
-class ImageDiscriminator(MLP):
-    def forward(self, x):
-        return super().forward(x.flatten(1))
+        value = super().forward(x)
+        return value + torch.randn_like(value) * .01 + (random.random() + float(np.random.random())) * .001
 
 class Data:
     def __init__(self):
@@ -473,8 +466,12 @@ def test_actual_image_folder_whole_job_accumulated_recovery(tmp_path):
     images.mkdir()
     for index in range(5):
         Image.frombytes('L', (2, 1), bytes([index * 40, 255 - index * 30])).save(images / f'{index}.png')
-    text = config.read_text().replace('job_fixture:Generator', 'job_fixture:ImageGenerator')
-    text = text.replace('factory = "hndl"', 'factory = "job_fixture:ImageDiscriminator"')
+    generator, separator, discriminator = config.read_text().partition('[components.discriminator]')
+    generator = generator.replace('output_shape = ["B", 2]', 'output_shape = ["B", 1, 1, 2]')
+    generator = generator.replace('linear()\n"""', 'linear(2)\nreshape(1, 1, 2)\n"""')
+    discriminator = discriminator.replace('input_shape = ["B", 2]', 'input_shape = ["B", 1, 1, 2]')
+    discriminator = discriminator.replace('source = """', 'source = """\nflatten()', 1)
+    text = generator + separator + discriminator
     text = text.replace('factory = "job_fixture:Data"', 'factory = "image_folder"')
     text = text.replace('[data.args]', '[data.args]\nroot = ' + json.dumps(str(images)) + '\nheight = 1\nwidth = 2\nmode = "L"\nshuffle = true')
     config.write_text(text, encoding='utf-8')

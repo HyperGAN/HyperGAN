@@ -157,12 +157,22 @@ Current selected lineage includes ancestor attempts only through the checkpoint
 used by their child, even when the new attempt performs zero updates. Abandoned
 future measurements remain in raw logs. Late evaluation source streams retain the
 evaluated attempt and step; registration does not change them to publish time.
-The initial default chart maps training scalar events; numerical evaluation stream
-production and any additional projection are independent services.
+Learning curves charts the training stream only. Snapshot metrics never appear
+in its metric list, default selection, charts or data table; they belong to the
+**Snapshot evaluations** panel, which loads its own results. Numerical evaluation
+stream production and any additional projection are independent services.
 
-The **Snapshot evaluations** panel lists every configured snapshot metric before
-any result exists, with its cadence, next step and evaluation device taken from
-the catalog `specification` and the run's `evaluation_schedule`.
+The **Snapshot evaluations** panel shows one tile per snapshot metric id --
+configured, published, or both -- and hides itself when a run has none. A tile is
+its label, the metric id only when that differs from the label, one status line,
+the chart, and one collapsed **Details**. The status line is the cadence and the
+schedule state in as few words as they take: `Every 10000 steps · next at 20000`,
+`Manual`, `Every 10000 steps · running since step 10000`, `Manual · last at step
+6`. Cadence comes from the catalog `specification` and the state from the run's
+`evaluation_schedule`. A metric that has published nothing yet replaces the chart
+with one quiet line -- `No evaluations yet · first at step 10000`, or `No
+evaluations yet · run hypergan evaluate` for a manual metric -- so a run at step
+zero is a short list, not a wall of text.
 
 Results are shown by metric, not by stream. Each snapshot metric with completed
 scalar results gets one chart, drawn with the same echarts style as the training
@@ -172,15 +182,16 @@ Results from different definition hashes or protocol digests stay separate serie
 and are never averaged. A new evaluation stream extends the chart in place, in
 step order, and no earlier result is dropped. Failed and cancelled evaluations
 appear as one compact status line each (source step, status and the recorded
-reason) under their metric, never as a text card. Every per-result field --
-source step, value, status, duration, evaluation device, sample count, attempt
-and evaluation ID -- is in a collapsed results list per metric, which also holds
+reason) under their metric, never as a text card. Everything else -- evaluation
+device, the busy policy, skipped counts, the last recorded reason, and the
+per-result source step, value, status, duration, sample count, attempt and
+evaluation ID -- is behind that one **Details** expansion, which also holds
 each result's raw export link, its recorded protocol document and, for histogram
 metrics, its bar plot and exact bin table. The panel reads at most the 64
 registered observation streams the server admits, and builds those tables, plots
 and protocol documents only when a list is expanded. When every one
 of them sets `trigger = "manual"` and the run records no schedule, the panel
-also shows a persistent notice above those cards: it names the manual metrics,
+also shows a persistent notice above those tiles: it names the manual metrics,
 states that no evaluation runs however far training gets, and gives the exact
 edit (remove `trigger = "manual"`, or set `trigger = "interval"` with
 `every_steps`, then `hypergan resume RUN --config CONFIG`). The notice is

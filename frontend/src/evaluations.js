@@ -166,11 +166,23 @@ function resultBlocks(label, records) {
     return block;
   });
 }
-export function evaluationShelf(api, base, changed = () => {}) {
+// One short phrase per schedule state; the source step joins the phrase that
+// needs it so the status line never repeats a step the card already shows.
+const scheduleWords = {running: 'running', complete: 'last', failed: 'failed', skipped: 'skipped',
+  cancelled: 'cancelled', pending: 'pending', disabled: 'disabled'};
+const scheduleSteps = {running: 'since', complete: 'at', failed: 'at', skipped: 'at', cancelled: 'at'};
+function scheduleState(schedule) {
+  const word = scheduleWords[schedule.status];
+  if (!word) return null;
+  return scheduleSteps[schedule.status] && Number.isSafeInteger(schedule.source_step)
+    ? `${word} ${scheduleSteps[schedule.status]} step ${schedule.source_step}` : word;
+}
+export function evaluationShelf(api, base) {
   const records = new Map();
   const cards = new Map();
   let definitions = {}, run = {};
   const ready = () => [...records.values()].filter(entry => entry.status === 'ready');
+  const training = () => ['running', 'training'].includes(run.status);
   // Derived from the catalog specification and the run's schedule, both already
   // fetched; a run with nothing scheduled otherwise looks exactly like one that
   // has simply not reached its first interval yet.
@@ -192,35 +204,14 @@ export function evaluationShelf(api, base, changed = () => {}) {
       + 'configuration, then apply it with: hypergan resume RUN --config CONFIG'));
     target.hidden = false;
   }
-  function renderSchedule() {
-    const snapshots = Object.entries(definitions).filter(([, definition]) => definition.scope === 'snapshot');
-    renderUnscheduled(snapshots);
-    const items = snapshots.map(([id, definition]) => {
-      const spec = definition.specification || {};
-      const schedule = run.evaluation_schedule?.[id] || {};
-      const interval = spec.trigger === 'interval';
-      const card = node('li'); card.dataset.metric = id;
-      card.append(node('h3', definition.label || id), node('p', id, 'quiet'));
-      const states = {running: 'Running', complete: 'Complete', failed: 'Failed', skipped: 'Skipped', cancelled: 'Cancelled', pending: 'Pending', disabled: 'Disabled'};
-      const evaluated = ready().some(({record}) => record.status === 'complete' && record.id === id);
-      const status = states[schedule.status] || (evaluated ? 'Evaluated' : 'Not evaluated');
-      card.append(node('p', `${status} · ${interval ? `every ${spec.every_steps} steps` : 'manual'}`, 'evaluation-schedule-status'));
-      if (Number.isSafeInteger(schedule.source_step)) card.append(node('p', `Source step ${schedule.source_step}`, 'quiet'));
-      if (interval && schedule.status !== 'disabled') {
-        const next = Number.isSafeInteger(schedule.next_step) ? schedule.next_step :
-          Number.isSafeInteger(spec.every_steps) && spec.every_steps > 0 ? (Math.floor((run.steps || 0) / spec.every_steps) + 1) * spec.every_steps : null;
-        if (Number.isSafeInteger(next)) card.append(node('p', `Next evaluation at step ${next}${['running', 'training'].includes(run.status) ? '' : ' when training continues'}`, 'evaluation-next-step'));
-        if (spec.on_busy === 'skip') card.append(node('p', 'If an evaluation is still running, the next scheduled evaluation is skipped.', 'quiet'));
-      }
-      if (spec.evaluation?.device) card.append(node('p', `Evaluation device: ${spec.evaluation.device}`, 'quiet'));
-      if (Number.isSafeInteger(schedule.skipped_busy) && schedule.skipped_busy > 0) {
-        card.append(node('p', `${schedule.skipped_busy} scheduled evaluations skipped while an evaluator was busy${Number.isSafeInteger(schedule.last_skipped_step) ? ` · last skipped step ${schedule.last_skipped_step}` : ''}`, 'evaluation-busy-skips'));
-      }
-      if (schedule.reason) card.append(node('p', schedule.reason === 'worker_busy' ? 'An evaluator was still running at the scheduled step.' : schedule.reason, 'evaluation-schedule-reason'));
-      return card;
-    });
-    document.getElementById('evaluation-schedules').replaceChildren(...items);
-    document.getElementById('evaluations').hidden = items.length === 0 && records.size === 0 && !inventory.some(s => /^evaluation:[0-9a-f]{32}$/.test(s.stream_id));
+  // The manifest reports the next step once a schedule is live; before that it
+  // is the next multiple of the interval the run has not reached yet.
+  function nextStep(spec, schedule) {
+    if (spec.trigger !== 'interval' || schedule.status === 'disabled') return null;
+    if (Number.isSafeInteger(schedule.next_step)) return schedule.next_step;
+    if (Number.isSafeInteger(spec.every_steps) && spec.every_steps > 0)
+      return (Math.floor((run.steps || 0) / spec.every_steps) + 1) * spec.every_steps;
+    return null;
   }
   // One persistent card, chart instance and details element per metric, so new
   // results extend the chart in place and an expanded list stays expanded.
@@ -234,17 +225,21 @@ export function evaluationShelf(api, base, changed = () => {}) {
     const details = node('details', undefined, 'evaluation-results');
     const summary = node('summary'), content = node('div');
     details.append(summary, content);
-    card = {element, canvas, chart: null, details, summary, content, label: id, records: [], signature: null};
+    card = {element, canvas, chart: null, details, summary, content, label: id, records: [], notes: [], signature: null};
     details.addEventListener('toggle', () => {
       content.replaceChildren();
       if (!details.open) return;
-      try { content.append(resultsTable(card.label, card.records), ...resultBlocks(card.label, card.records)); }
-      catch (error) { content.append(node('p', error.message)); }
+      try {
+        content.append(...card.notes.map(text => node('p', text, 'quiet')));
+        if (card.records.length) content.append(resultsTable(card.label, card.records), ...resultBlocks(card.label, card.records));
+      } catch (error) { content.append(node('p', error.message)); }
     });
     cards.set(id, card);
     return card;
   }
-  function renderCard(id, entries) {
+  // One tile per metric: heading, one status line, the chart or a quiet empty
+  // line, the problems that need reading, and everything else behind details.
+  function renderCard(id, entries, catalogued) {
     const card = cardFor(id);
     card.records = entries;
     // Charts are redrawn only when this metric gained a result, not on every
@@ -252,11 +247,25 @@ export function evaluationShelf(api, base, changed = () => {}) {
     const signature = entries.map(record => record.event.evaluation_id).join(',');
     if (card.signature !== signature) { card.signature = signature; card.stale = true; }
     const latest = entries.filter(record => record.status === 'complete').at(-1) || entries.at(-1);
-    const definition = latest.definition, label = definition.label || id;
+    const definition = catalogued || latest?.definition || {};
+    const label = definition.label || id;
     card.label = label;
+    const spec = definition.specification || {};
+    const schedule = run.evaluation_schedule?.[id] || {};
     const complete = entries.filter(record => record.status === 'complete');
     const scalars = complete.filter(record => record.definition.kind === 'scalar');
-    const children = [node('h3', label), node('p', id, 'quiet')];
+    const children = [node('h3', label)];
+    if (label !== id) children.push(node('p', id, 'quiet'));
+    const next = nextStep(spec, schedule);
+    const later = Number.isSafeInteger(next) ? `${next}${training() ? '' : ' when training resumes'}` : null;
+    const state = scheduleState(schedule);
+    const cadence = spec.trigger === 'interval'
+      ? Number.isSafeInteger(spec.every_steps) ? `Every ${spec.every_steps} steps` : 'Scheduled'
+      : spec.trigger === 'manual' ? 'Manual' : null;
+    // The next step belongs to the status line once there is a history, and to
+    // the empty line before that; it is never printed twice.
+    const status = [cadence, state, entries.length && later ? `next at ${later}` : null].filter(Boolean).join(' · ');
+    if (status) children.push(node('p', status, 'evaluation-schedule-status'));
     if (complete.length) {
       const last = complete.at(-1);
       children.push(node('p', finite(last.value) ? `${last.value} ${last.definition.unit || ''}`.trim()
@@ -268,6 +277,10 @@ export function evaluationShelf(api, base, changed = () => {}) {
       children.push(card.canvas, node('p',
         `${scalars.length} completed ${scalars.length === 1 ? 'evaluation' : 'evaluations'}`
         + ' · source step on the horizontal axis · one point per evaluation', 'chart-note'));
+    } else if (!entries.length) {
+      children.push(node('p', ['No evaluations yet', later ? `${state ? 'next' : 'first'} at step ${later}`
+        : spec.trigger === 'manual' ? 'run hypergan evaluate' : null].filter(Boolean).join(' · '),
+        'evaluation-empty'));
     }
     const problems = entries.filter(record => record.status !== 'complete');
     if (problems.length) {
@@ -281,28 +294,44 @@ export function evaluationShelf(api, base, changed = () => {}) {
       }
       children.push(list);
     }
-    card.summary.textContent = `${entries.length} ${entries.length === 1 ? 'result' : 'results'}`
-      + ' · steps, duration, device and protocol';
-    children.push(card.details);
+    const notes = [];
+    if (Number.isSafeInteger(schedule.source_step) && !(state || '').includes('step ')) notes.push(`Source step ${schedule.source_step}`);
+    if (spec.evaluation?.device) notes.push(`Device ${brief(spec.evaluation.device, 64)}`);
+    if (spec.on_busy === 'skip') notes.push('On busy · skip');
+    if (Number.isSafeInteger(schedule.skipped_busy) && schedule.skipped_busy > 0)
+      notes.push(`${schedule.skipped_busy} skipped while busy${Number.isSafeInteger(schedule.last_skipped_step) ? ` · last at step ${schedule.last_skipped_step}` : ''}`);
+    if (schedule.reason) notes.push(schedule.reason === 'worker_busy' ? 'An evaluator was busy' : brief(schedule.reason));
+    card.notes = notes;
+    if (notes.length || entries.length) {
+      card.summary.textContent = entries.length
+        ? `Details · ${entries.length} ${entries.length === 1 ? 'result' : 'results'}` : 'Details';
+      children.push(card.details);
+    }
     card.element.dataset.steps = complete.map(record => record.event.step).join(',');
     card.element.replaceChildren(...children);
     // An expanded list is rebuilt in place; a collapsed one stays unallocated.
     if (card.details.open) card.details.dispatchEvent(new Event('toggle'));
     return {card, scalars};
   }
-  function renderResults() {
+  // Configured snapshot metrics and published results share one list, so a
+  // metric is one tile whether it has a schedule, results, or both.
+  function renderPanel() {
+    const snapshots = Object.entries(definitions).filter(([, definition]) => definition.scope === 'snapshot');
+    renderUnscheduled(snapshots);
+    const catalogued = new Map(snapshots);
     const grouped = new Map();
     for (const entry of ready()) {
       if (!grouped.has(entry.record.id)) grouped.set(entry.record.id, []);
       grouped.get(entry.record.id).push(entry.record);
     }
+    const ids = [...new Set([...catalogued.keys(), ...grouped.keys()])].sort((a, b) => a.localeCompare(b));
     const drawn = [];
-    const items = [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([id, entries]) => {
-      const {card, scalars} = renderCard(id, entries.sort(byStep));
+    const items = ids.map(id => {
+      const {card, scalars} = renderCard(id, (grouped.get(id) || []).sort(byStep), catalogued.get(id));
       if (scalars.length && (card.stale || !card.chart)) drawn.push(card);
       return card.element;
     });
-    for (const [id, card] of cards) if (!grouped.has(id)) { card.chart?.dispose(); cards.delete(id); }
+    for (const [id, card] of cards) if (!catalogued.has(id) && !grouped.has(id)) { card.chart?.dispose(); cards.delete(id); }
     for (const entry of records.values()) {
       if (entry.status === 'ready') continue;
       const element = entry.element || (entry.element = node('li', undefined, 'evaluation-metric'));
@@ -318,11 +347,13 @@ export function evaluationShelf(api, base, changed = () => {}) {
       card.chart.setOption({...chartStyle(false), series: chartSeries(card.records)}, true);
       card.stale = false;
     }
+    document.getElementById('evaluations').hidden = items.length === 0
+      && !inventory.some(s => /^evaluation:[0-9a-f]{32}$/.test(s.stream_id));
   }
   function update(catalog, currentRun) {
     definitions = catalog?.metrics || {};
     run = currentRun || {};
-    renderSchedule();
+    renderPanel();
   }
   let pending = false, again = false, runPath = null, inventory = [];
   const items = document.getElementById('evaluation-items');
@@ -337,15 +368,15 @@ export function evaluationShelf(api, base, changed = () => {}) {
         const path = base();
         if (runPath !== path) {
           for (const card of cards.values()) card.chart?.dispose();
-          cards.clear(); records.clear(); changed([]);
+          cards.clear(); records.clear();
           document.getElementById('evaluation-items').replaceChildren(); runPath = path;
         }
         const selected = (inventory || []).filter(s => /^evaluation:[0-9a-f]{32}$/.test(s.stream_id)).slice(0, 64);
-        renderSchedule();
+        renderPanel();
         for (const stream of selected) {
           let entry = records.get(stream.stream_id);
           if (entry && !entry.retry) continue;
-          if (!entry) { entry = {status: 'loading'}; records.set(stream.stream_id, entry); renderResults(); }
+          if (!entry) { entry = {status: 'loading'}; records.set(stream.stream_id, entry); renderPanel(); }
           entry.retry = false;
           const eventsPath = `${path}/events?${new URLSearchParams({stream_id: stream.stream_id, limit: '2'})}`;
           try {
@@ -357,12 +388,10 @@ export function evaluationShelf(api, base, changed = () => {}) {
             const catalog = (await api(`${path}/metrics/catalog?${new URLSearchParams({revision: event.catalog})}`, {signal: AbortSignal.timeout(15000)})).data;
             if (path !== base()) { again = true; break; }
             Object.assign(entry, {status: 'ready', event, catalog, record: readResult(event, catalog, eventsPath)});
-            renderResults();
-            changed(ready());
-            renderSchedule();
+            renderPanel();
           } catch (error) {
             Object.assign(entry, {status: 'error', retry: true, message: error.message});
-            renderResults();
+            renderPanel();
           }
         }
       } while (again);

@@ -59,14 +59,51 @@ Owner: "we don't need the cli interval controller."
 
 Owner: "We don't want the FID score in learning curves section. It should only be in snapshot evaluations. Also there are tiles in snapshot evaluation that are just really wordy. Like there are two fid_smoke tiles. I like it otherwise. It does need a better initial state when no readings are available."
 
-- [ ] Stop merging evaluation metrics into the Learning curves chart, metric list and default selection; they belong only in Snapshot evaluations.
-- [ ] One tile per metric: fold the schedule card (status, cadence, next step, device, skips) and the result card (chart, collapsed details) into a single card per metric id, with much shorter wording.
-- [ ] Design the empty state: a metric with a schedule but no result yet shows its chart area with "No evaluations yet · next at step N" (or "manual"), not a wall of text; a run with no snapshot metrics keeps hiding the panel.
-- [ ] Update the browser tests for the panel.
+- [x] Stop merging evaluation metrics into the Learning curves chart, metric list and default selection; they belong only in Snapshot evaluations.
+- [x] One tile per metric: fold the schedule card (status, cadence, next step, device, skips) and the result card (chart, collapsed details) into a single card per metric id, with much shorter wording.
+- [x] Design the empty state: a metric with a schedule but no result yet shows its chart area with "No evaluations yet · next at step N" (or "manual"), not a wall of text; a run with no snapshot metrics keeps hiding the panel.
+- [x] Update the browser tests for the panel.
 
-Where this lives today:
-- `frontend/src/app.js` `state.evaluationMetrics` is merged into `metricDefinitions()`, `defaults()` and the selection (lines ~140-160, 538-560, 593).
-- `frontend/src/evaluations.js` renders schedule cards (`renderSchedules`, ~line 197) and per-metric result cards (~line 225) into separate lists.
+**Status:** Implemented on branch `worktree-agent-a6b1bedbcb92a624f`.
+
+Where this lives now:
+
+Learning curves is the training stream and nothing else. `state.evaluationMetrics`
+and `state.evaluationResults` are gone from `frontend/src/app.js` along with the
+callback that filled them, so an evaluation id can no longer reach
+`metricDefinitions()`, `defaults()`, the metric list and its count, the selection
+filter, the chart series, the data table or the coverage line. `evaluationShelf`
+is constructed with no `changed` callback; the evaluations module already loads
+its own results, so nothing was lost by cutting the bridge. The data table's
+summary and caption say "training values" now that no evaluation row reaches it.
+
+Snapshot evaluations is one tile per metric id. `#evaluation-schedules` is gone
+from `src/hypergan/web_assets/index.html`; `frontend/src/evaluations.js` renders a
+single `#evaluation-items` list from the union of the catalog's snapshot
+definitions and the loaded results, so a metric that is configured, published, or
+both is one `li` either way. A tile is its label, the metric id only when it
+differs from the label, one status line, the chart, the compact failure and
+cancellation lines, and one collapsed **Details**. The status line is the cadence
+and the schedule state and nothing more -- `Every 10000 steps · next at 20000`,
+`Manual`, `Every 10000 steps · running since step 10000`, `Manual · last at step
+6`, `Every 10000 steps · disabled`. Device, the busy policy, skipped counts, the
+last recorded reason and the per-result rows moved into Details, which is where
+the export links and protocol documents already were.
+
+A metric with no result yet replaces the chart with one quiet line:
+`No evaluations yet · first at step 10000`, `No evaluations yet · next at step
+30000` once a schedule is live, `... when training resumes` when the run is not
+training, or `No evaluations yet · run hypergan evaluate` for a manual metric.
+The next step is printed in exactly one place: the status line once a metric has
+a history, the empty line before that. A run with no snapshot metrics and no
+evaluation streams keeps the panel hidden, and the all-manual notice above the
+tiles is unchanged.
+
+Tests in `tests/browser/test_viewer_integration.py` assert one `li` per metric,
+the status-line text through running/failed/stopped/disabled, both empty-state
+lines, that device and busy policy are only behind Details, and that "Snapshot
+quality" appears in neither `#metric-list` nor `#charts` while `#metric-count`
+counts training scalars only. The item 9 chart assertions are unchanged.
 
 ### 7. Investigate the Python + Node + Rust stack and its onboarding cost (raised 2026-09-20)
 

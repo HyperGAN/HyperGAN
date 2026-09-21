@@ -764,7 +764,10 @@ footer {
 .evaluation-list p, .evaluation-list summary { font-size: 12px; line-height: 1.6; }
 .evaluation-list details { margin-top: 14px; }
 .evaluation-list summary { cursor: pointer; }
-.evaluation-list .evaluation-value { font-size: 22px; color: #d7bb81; }
+.evaluation-list .evaluation-value { font-size: 22px; color: #d7bb81; margin: 6px 0 0; }
+.evaluation-list .quiet { color: #8ba093; margin: 2px 0 0; }
+.evaluation-list .evaluation-schedule-status { color: #a9bcb1; margin: 4px 0 0; }
+.evaluation-list .evaluation-empty { color: #8ba093; margin: 12px 0 0; font-style: italic; }
 .evaluation-failure { color: #e8ab95; }
 .evaluation-list .evaluation-unscheduled { background: #2a231b; border: 1px solid #6f5a33;
   border-left-width: 4px; border-radius: 7px; padding: 12px 14px; margin: 0 0 12px;

@@ -375,6 +375,12 @@ refetches its PNG (about 48 KB each over loopback in this run); making immutable
 digest-addressed artifacts privately cacheable would smooth that, but it is a
 deliberate change to the viewer's cache posture and nobody has asked for it.
 
+Follow-up 2 (2026-09-20 18:41): the owner restarted training at 18:39 on the new code (manifest `source.hypergan_commit` = aeabd95f) using `start.sh`, i.e. `hypergan train ... --run-dir train-develop` on the existing run directory, and the `g` slider still reads "Version 1 of 20 · step 26,000". Read from the run: `manifest.preview_keep = 20`, `preview_count = 20`, index `keep = 20` with 20 entries (steps 26500–36000), 20 generation directories on disk. So the new code inherits the `20` that the old default wrote into the manifest, and keeps pruning. Owner: "item 0 is supposed to be the beginning of time."
+
+- [ ] A run that recorded the old default (20) without the owner ever asking for it must pick up the new keep-everything default on restart. Record whether `preview_keep` was explicit (for example `preview_keep_source: "explicit" | "default"` in the manifest, treating a manifest without it as default) and only inherit explicit values; `--preview-keep N` stays an explicit opt-in.
+- [ ] Make sure `hypergan train` on an existing run directory and `hypergan resume` behave the same way here.
+- [ ] Test: a manifest written by the old code with `preview_keep: 20` and no source marker resumes into keep-all; an explicit `--preview-keep 20` still prunes after resume.
+
 ### 9. FID (snapshot evaluations) should be a chart, not a wall of text (raised 2026-09-20)
 
 Owner: "on snapshot evaluations FID should be a graph like the metrics, different x tho ofc. right now it's a wall of text. it may be a graph eventually, maybe it's just a graph with one point atm."

@@ -14,7 +14,15 @@ import re
 from .run_state import atomic_json
 from .metric_plugins import DEFAULT_EVALUATION_EVERY_STEPS, validate_custom, enabled_custom
 
-PRESET_VERSION = 'standard/v1'
+PRESET_VERSION = 'standard/v2'
+PREVIEW_METRICS = {
+    'generated_rms': ('Generated sample spread', 'data'),
+    'reference_rms': ('Real sample spread', 'data'),
+    'ratio': ('Generated/real diversity', 'ratio'),
+    'pooled4_generated_rms': ('Generated coarse image spread (4x4)', 'data'),
+    'pooled4_reference_rms': ('Real coarse image spread (4x4)', 'data'),
+    'pooled4_ratio': ('Generated/real coarse diversity (4x4)', 'ratio'),
+}
 DEFAULT_METRICS = {'preset': 'standard', 'disable': [], 'every_steps': 1, 'overrides': {}, 'custom': {}}
 MAX_CATALOG_BYTES = 1024 * 1024
 # Completed updates averaged by the published throughput metric. A short
@@ -79,7 +87,16 @@ def _available(config):
     for term in config['objectives']:
         name = objective_id(term)
         specs['loss/objectives/' + name] = ('objective:' + name, name + ' contribution', 'loss')
+    for name, (label, unit) in PREVIEW_METRICS.items():
+        specs['diversity/' + name] = ('preview:' + name, label, unit)
     return specs
+
+
+def preview_metrics_enabled(config):
+    spec = config['metrics']
+    return any(spec['overrides'].get('diversity/' + name, {}).get('enabled',
+                   spec['preset'] == 'standard') and 'diversity/' + name not in spec['disable']
+               for name in PREVIEW_METRICS)
 
 
 def validate_metrics(config):
@@ -191,6 +208,17 @@ def metric_catalog(config):
         if name == 'loss/total':
             definition['formula'] = 'loss/d_total + loss/g_total'
             definition['description'] = 'Diagnostic sum; not a joint optimization objective or quality score.'
+        if source.startswith('preview:'):
+            definition.update(scope='preview', owner='generator', view={'panel': 'Diversity'},
+                formula=('generated_rms / reference_rms' if name.endswith('ratio') else
+                         'sqrt(2 * mean(unbiased variance across samples))'),
+                description='Distinct-pair RMS spread across the bounded EMA preview batch, before image quantization. '
+                            + ('NCHW images average-pooled to 4x4. ' if 'pooled4_' in name else '')
+                            + 'Real samples come from the last completed local batch (rank zero in distributed runs) without cycling. '
+                            'Zero generated spread means identical outputs; ratio one matches real spread. '
+                            'Not image quality or semantic coverage: noise can score highly and varying '
+                            'conditions can hide ignored latent inputs. Published at preview cadence, '
+                            'independent of metrics.every_steps; no value when previews are disabled.')
         if name == 'throughput/steps_per_second':
             definition.update(window=THROUGHPUT_WINDOW, direction='maximize',
                               description=f'Trailing average over the last {THROUGHPUT_WINDOW} complete updates. '
@@ -288,7 +316,7 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
     metrics, statuses = {}, {}
     for name, definition in catalog['metrics'].items():
         source = definition['source']
-        if source.startswith('custom:'):
+        if source.startswith(('custom:', 'preview:')):
             continue
         if source not in values:
             statuses[name] = {'status': 'unavailable', 'reason': 'Execution did not provide this scalar'}
@@ -303,6 +331,26 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
             statuses[name] = {'status': 'available', 'applied': applied,
                               'effective_coefficient': penalty['coeff'] * penalty['lazy_k'] if applied else 0.0}
     return metrics, statuses, 'sampled' if metrics or statuses else 'disabled'
+
+
+def select_preview_metrics(catalog, record):
+    """Publish already computed preview diagnostics at their original source step."""
+    diversity = record.get('diversity', {})
+    measured, unavailable = diversity.get('metrics', {}), diversity.get('unavailable', {})
+    metrics, statuses = {}, {}
+    for name, definition in catalog['metrics'].items():
+        if not definition['source'].startswith('preview:'):
+            continue
+        key = definition['source'].split(':', 1)[1]
+        if key in measured:
+            value = measured[key]
+            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+                raise ValueError(f'Invalid finite preview diversity metric: {name}')
+            metrics[name] = value
+        else:
+            statuses[name] = {'status': 'unavailable',
+                              'reason': unavailable.get(key, 'Preview did not provide this diagnostic')}
+    return metrics, statuses
 
 
 def validate_update_scalars(row, objective_count):

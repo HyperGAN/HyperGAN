@@ -180,6 +180,19 @@ def render_preview(trainer, batch, identity):
             _, frequencies = ids.unique(return_counts=True)
             payload['routing'] = {'unique_particles': len(frequencies),
                                   'top_particle_share': float(frequencies.max().item() / len(ids))}
+        from .metrics import preview_metrics_enabled
+        if preview_metrics_enabled(trainer.config):
+            from .diversity_metrics import batch_diversity
+            # Unlike the display grid, never cycle a short real batch: repeated
+            # rows would bias the unbiased sample variance and hide N=1.
+            reference = real[:count].detach().cpu()
+            diversity = batch_diversity(values, reference)
+            coarse = batch_diversity(values, reference, pool_size=4)
+            for field in ('metrics', 'unavailable'):
+                diversity[field].update({'pooled4_' + key: value for key, value in coarse[field].items()})
+            payload['diversity'] = dict(diversity, schema_version=1,
+                generated_count=count, reference_count=len(reference),
+                generated_binding=trainer.config['sampling'].get('generated', 'generated'))
         if (views or comparison) and not _image(values):
             raise ValueError('Additional preview views and comparisons require image output')
         if payload['name'] in views or (comparison and payload['name'] == 'comparison'):
@@ -486,6 +499,8 @@ def _publish_preview(run_dir, identity, step, render, keep):
                   'count': payload['count'], 'shape': payload['shape'],
                   'representation': payload.get('representation', 'tensor')}
         record.update(grids)
+        if 'diversity' in payload:
+            record['diversity'] = payload['diversity']
         atomic_json(temporary / 'manifest.json', record)
         sync_directory(temporary)
         temporary.rename(target)

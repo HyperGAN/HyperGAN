@@ -578,6 +578,9 @@ function defaults() {
     "loss/d_total",
     "loss/gradient_penalty",
     "loss/prior_regularizer",
+    "diversity/generated_rms",
+    "diversity/ratio",
+    "diversity/pooled4_ratio",
     "throughput/steps_per_second",
   ];
   return preferred.filter((id) => id in state.catalog.metrics).slice(0, 8);
@@ -591,6 +594,7 @@ function renderCatalog() {
     if (!`${id} ${definition.label}`.toLowerCase().includes(search)) continue;
     const label = document.createElement("label");
     label.className = "metric-option";
+    label.title = definition.description || "";
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = state.selected.has(id);

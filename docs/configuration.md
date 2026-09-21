@@ -377,3 +377,61 @@ registration was interrupted, without recomputing that result.
 Partial evaluation-job resume remains unsupported. No dataset or weight downloads
 occur implicitly. The Inception FID adapter requires pinned local weights and an
 explicit preprocessing/sample protocol; see the [CIFAR recipe](cifar-recipe.md).
+
+### Sample diversity and collapse monitoring
+
+The `standard` metrics preset includes diversity observations at **preview cadence**
+(`--preview-every`), using the existing CPU-rendered EMA samples. No additional
+training forward pass or GPU evaluator is needed. Enable previews to collect these
+metrics; `metrics.every_steps` still controls update scalars, not previews.
+
+- `diversity/generated_rms` and `diversity/reference_rms`: RMS distance across
+  distinct sample pairs, computed as `sqrt(2 * mean(unbiased sample variance))`.
+  These work with real floating-point vectors, images and other batched tensors.
+- `diversity/ratio`: generated spread divided by real spread. Zero means identical
+  generated outputs, and one matches the reference spread.
+- `diversity/pooled4_generated_rms`, `diversity/pooled4_reference_rms`, and
+  `diversity/pooled4_ratio`: the same statistics after averaging NCHW images down
+  to 4x4, reducing the influence of fine texture on the diversity comparison.
+
+The viewer selects generated spread and both ratios by default. Previews record sample counts and the
+selected `sampling.generated` binding. Real spread uses the first available real
+samples from the completed local batch (rank zero in distributed runs), without
+repeating rows to fill the display grid.
+Fewer than two samples, incompatible shapes, unsupported pooling, or zero reference
+spread produce explicit unavailable statuses where applicable, not fabricated
+zeros or infinities. Disable an individual metric with `metrics.disable`, or all
+of them with `metrics.preset = "none"`.
+
+These are collapse diagnostics, not quality scores or counts of semantic modes.
+Noise can have large variance; compare coarse and full-resolution spread together.
+A preview is a small sample (at most 16 outputs), and conditioning variation can
+hide a generator that ignores its latent input. Conditional applications should
+also evaluate repeated identical conditions when latent diversity matters.
+
+For larger scheduled or manual evaluations, use the general snapshot factory
+`hypergan.diversity_metrics:SampleDiversity` with the existing snapshot protocol:
+
+```toml
+[metrics.custom.sample_diversity]
+factory = "hypergan.diversity_metrics:SampleDiversity"
+mode = "snapshot"
+every_steps = 1000
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.sample_diversity.args]
+statistic = "ratio" # alternatively "generated_rms" or "reference_rms"
+pool_size = 4       # omit for full-resolution images or non-image tensors
+[metrics.custom.sample_diversity.evaluation]
+device = "cpu"
+sample_count = 256
+batch_size = 16
+seed = 123
+[metrics.custom.sample_diversity.evaluation.data]
+factory = "my_project.data:EvaluationData"
+args = { split = "validation" }
+```
+
+This factory merges centered moments across the whole evaluation, including
+between-batch differences; changing evaluation batch size does not average away
+collapse or inflate spread. It requires no pretrained metric model. Choose the
+evaluation device and sample count to fit the generator's inference cost.

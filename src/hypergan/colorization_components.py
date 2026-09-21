@@ -218,3 +218,66 @@ class DINOv3Discriminator(nn.Module):
         pooled = features.reshape(len(x), features.shape[1], 4, 4, 4, 4).mean((3, 5))
         logits = self.feature_output(pooled.flatten(1))
         return (self.pixel(x, gray) + logits) / math.sqrt(2)
+
+
+class DINOv3ProjectedDiscriminator(nn.Module):
+    """One unconditional frozen-feature path with random projection and attention.
+
+    Candidate RGB -> frozen DINOv3 -> frozen random 1x1 channel mixing and
+    3x3 local spatial mixing -> trainable attention -> trainable scalar head.
+    This follows Projected GAN's fixed random feature-projection principle
+    (https://github.com/autonomousvision/projected-gan/blob/main/pg_modules/projector.py).
+    It is a single final-feature-map adaptation: the 3x3 convolution mixes
+    neighboring patches, not multiple feature scales. It does not reproduce
+    the paper's multiscale cross-scale mixing or separate scale discriminators.
+
+    Projection initialization uses Torch's checkpointed global RNG, and all
+    frozen weights are included in the module state. Image derivatives remain
+    enabled through both frozen modules; math SDPA permits b-cap double backward.
+    The original two-path DINOv3Discriminator remains available for prior runs.
+    """
+    def __init__(self, source_path, source_commit, weights_path, weights_sha256,
+                 feature_width=64):
+        super().__init__()
+        _positive_integer(feature_width, 'feature_width')
+        self.backbone = _load_dinov3(source_path, source_commit, weights_path, weights_sha256)
+        self.backbone.eval().requires_grad_(False)
+        self.feature_project = nn.Sequential(
+            nn.Conv2d(384, feature_width, 1),
+            nn.Conv2d(feature_width, feature_width, 3, padding=1))
+        self.feature_project.eval().requires_grad_(False)
+        self.attention = SAGANAttention(feature_width)
+        self.feature_output = nn.Linear(feature_width * 16, 1)
+        self.register_buffer('mean', torch.tensor([.485, .456, .406])[None, :, None, None])
+        self.register_buffer('std', torch.tensor([.229, .224, .225])[None, :, None, None])
+        self.pretrained_metadata = {'architecture': 'dinov3_vits16', 'pretraining': 'LVD-1689M',
+                                    'source_commit': source_commit, 'weights_sha256': weights_sha256,
+                                    'input_size': 256, 'sdpa_backend': 'math',
+                                    'projection': 'frozen_random_1x1_channel_3x3_spatial',
+                                    'feature_scales': 1}
+
+    def train(self, mode=True):
+        super().train(mode)
+        self.backbone.eval()
+        self.feature_project.eval()
+        return self
+
+    def requires_grad_(self, requires_grad=True):
+        super().requires_grad_(requires_grad)
+        self.backbone.requires_grad_(False)
+        self.feature_project.requires_grad_(False)
+        return self
+
+    def forward(self, x):
+        if x.ndim != 4 or tuple(x.shape[1:]) != (3, 256, 256):
+            raise ValueError('Discriminator requires x [batch,3,256,256] in [-1,1]')
+        normalized = (x * .5 + .5 - self.mean) / self.std
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+            tokens = self.backbone.forward_features(normalized)['x_norm_patchtokens']
+        if tokens.shape != (len(x), 256, 384):
+            raise ValueError('DINOv3 ViT-S/16 must return 256 patch tokens of width 384')
+        features = tokens.transpose(1, 2).reshape(len(x), 384, 16, 16)
+        features = self.attention(self.feature_project(features))
+        # Nonoverlapping reduction avoids adaptive-pool CUDA backward atomics.
+        pooled = features.reshape(len(x), features.shape[1], 4, 4, 4, 4).mean((3, 5))
+        return self.feature_output(pooled.flatten(1))

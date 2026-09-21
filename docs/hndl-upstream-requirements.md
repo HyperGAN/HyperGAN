@@ -1,7 +1,7 @@
-# Native HNDL 0.2.1 integration
+# Native HNDL 0.3.0 integration
 
 HyperGAN's image architecture is defined in `src/hypergan/networks/*.hndl`
-and recorded in resolved run configurations. HNDL 0.2.1 supplies the native
+and recorded in resolved run configurations. HNDL 0.3.0 supplies the native
 operators, dtype tracking, and pretrained readouts required by this migration. The image integration uses
 the released PyPI wheel directly; `image_hndl_ops.py` has been removed. There
 are no local implementations of matrix multiplication, constants, channel-bias
@@ -57,15 +57,16 @@ custom HNDL operators or runtime patches are needed.
 
 ## Runtime and plan compatibility
 
-Validation uses the released HNDL 0.2.1 PyPI wheel. Native HNDL owns network
+Current validation uses the released HNDL 0.3.0 PyPI wheel. Native HNDL owns network
 construction, execution, copying, and dtype checks. `.double()` and `.to(dtype=...)`
 now retarget floating runtime checks; integer embedding inputs keep their dtype.
 Casting a deep copy does not change the original network.
 
 HyperGAN stores HNDL source in resolved recipes and resolves it at construction.
-It does not load serialized HNDL plans. An independently saved 0.2.0 plan with a
-pretrained node must be re-resolved from source with 0.2.1 because `readout`
-participates in the semantic digest. Training state predating the HNDL migration
+It does not load serialized HNDL plans. An independently saved 0.2.x plan with a
+pretrained node must be re-resolved from source with 0.3.0 because pretrained
+arguments participate in the semantic digest. Plans without pretrained nodes
+are unaffected. Training state predating the HNDL migration
 is rejected by checkpoint contract version 2: parameter names and initialization
 order changed, so optimizer state cannot be silently reused.
 
@@ -119,27 +120,56 @@ buffers in a different order from a loaded module state and omits
 `num_batches_tracked`; the loader follows PyTorch's zero-counter compatibility
 behavior for that older format.
 
-## Follow-up: one pretrained backbone, multiple feature maps
+## One pretrained backbone, multiple feature maps
 
-The logos collapse investigation motivates expressing the pixel-plus-multiscale
-critic entirely in a single `.hndl` file. HNDL 0.2.1 already provides all its
-pixel/attention/head operations, branching and score joins. The missing efficient
-primitive is multiple native-resolution intermediate outputs from one shared
-pretrained node, for example (proposed syntax, not supported in 0.2.1):
+HNDL 0.3.0 provides native multiple intermediate outputs from one shared
+pretrained node. The pixel-plus-multiscale 128px example uses:
 
 ```hndl
-f1, f2, f3 = pretrained(x, "/local/resnet18.pth",
-    provider="torchvision_resnet18", sha256="...",
+f1, f2, f3 = pretrained(normalized, ${weights_path},
+    provider="torchvision_resnet18", sha256=${weights_sha256},
     layers=("layer1", "layer2", "layer3"), trainable=False)
 ```
 
-The operator should load one model, execute one forward, infer each output shape,
-retain input gradients and second derivatives, and keep frozen parameters and
-BatchNorm state frozen through parent train/eval calls. Selected layers and
-checkpoint identity belong in the plan digest. Multi-output named provider
-readouts would also cover the DINO intermediate-map case without Python packing.
+One model executes one forward, stopping after the last selected layer. Each map
+keeps its native shape and supports input gradients and second derivatives.
+HNDL clones captured hook outputs to preserve values across subsequent in-place
+operations. HyperGAN's torchvision provider still uses non-in-place ReLU for
+higher-order autograd compatibility. Frozen parameters and BatchNorm state remain
+frozen through parent train/eval calls.
 
-A CPU proof using three separate 0.2.1 `pretrained(..., layer=...)` nodes passed
-first- and second-derivative checks, but allocated three independent ResNets
-(35,068,536 frozen parameters) and recomputed shared prefixes. It is not adopted as
-a workaround. No other operator additions are required for the proposed critic.
+`layers=` is mutually exclusive with `layer=` and `readout=` and applies to
+provider checkpoints. A single requested layer still returns a one-tuple, which
+must be bound explicitly before chaining the next operator. A submodule invoked
+more than once before the forward stops is rejected; select its enclosing block.
+The three-independent-ResNet workaround is unnecessary and is not used.
+
+## Requested: batch-axis concatenation and equal splitting
+
+The exact CIFAR-style feature heads concatenate candidate maps with the frozen
+features of a fixed zero-image context. Preserve this operation in HNDL instead
+of omitting it from a new recipe or assembling it in Python.
+
+Required semantics (the `chunk` name below is proposed):
+
+```hndl
+context = constant(x, 3, 128, 128)
+combined = concat(x, context, axis=0)  # [B,3,H,W] + [B,3,H,W] -> [2*B,3,H,W]
+# Apply ImageNet normalization to combined, then:
+f1, f2, f3 = pretrained(normalized, ${weights_path},
+    provider="torchvision_resnet18", sha256=${weights_sha256},
+    layers=("layer1", "layer2", "layer3"), trainable=False)
+a1, c1 = chunk(f1, 2, dim=0)
+a2, c2 = chunk(f2, 2, dim=0)
+a3, c3 = chunk(f3, 2, dim=0)
+head1_input = concat(a1, c1)  # channel concatenation; batch B restored
+```
+
+Each intermediate contract must track symbolic `2*B` separately from `B` and
+return two equal `[B,...]` outputs, preserving input gradients and second
+derivatives. Validate dynamic batch sizes 1, 3 and 64, and reject uneven splits
+rather than truncating or returning unequal chunks. One shared frozen model
+must run once, with BatchNorm statistics unchanged. The zero-context branch
+remains constant with respect to the candidate. This request completes the
+remaining missing operation for the full configuration-owned critic; the
+candidate-only draft is not adopted as a substitute.

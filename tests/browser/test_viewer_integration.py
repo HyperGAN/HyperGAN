@@ -494,6 +494,63 @@ def test_snapshot_chart_draws_one_point_and_extends_across_steps(real_viewer):
     assert not errors
 
 
+def test_snapshot_discovery_keeps_new_stream_when_views_responses_arrive_out_of_order(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    experiment.create(2)
+    publish_evaluation(experiment, '1' * 32, 'scalar', 42.5, step=10000)
+    sign_in(page, session, token)
+    card = page.locator('#evaluation-items li[data-metric="quality"]')
+    card.filter(has_text='42.5 distance').wait_for()
+    # Hold result 2 while two overlapping discovery responses arrive. Deliver
+    # inventory [1,2,3,4] before [1,2,3], then let the result loader continue.
+    # These are real server responses; only their delivery order is controlled.
+    page.evaluate("""() => {
+      const fetch = window.fetch.bind(window);
+      const race = window.discoveryRace = {};
+      window.fetch = async (...args) => {
+        const response = await fetch(...args);
+        const url = new URL(args[0], location.href);
+        if (url.pathname.endsWith('/events') &&
+            url.searchParams.get('stream_id') === 'evaluation:' + '2'.repeat(32)) {
+          race.resultHeld = true;
+          await new Promise(resolve => { race.releaseResult = resolve; });
+        }
+        if (url.pathname.endsWith('/views')) {
+          const data = await response.clone().json();
+          const ids = data.streams.map(stream => stream.stream_id);
+          let delivered;
+          if (ids.includes('evaluation:' + '4'.repeat(32))) delivered = 'newestConsumed';
+          else if (ids.includes('evaluation:' + '3'.repeat(32))) {
+            race.olderHeld = true;
+            await new Promise(resolve => { race.releaseOlder = resolve; });
+            delivered = 'olderConsumed';
+          }
+          if (delivered) {
+            const json = response.json.bind(response);
+            response.json = async () => {
+              const value = await json();
+              race[delivered] = true;
+              return value;
+            };
+          }
+        }
+        return response;
+      };
+    }""")
+    publish_evaluation(experiment, '2' * 32, 'scalar', 21.5, step=30000)
+    page.wait_for_function('() => window.discoveryRace.resultHeld')
+    publish_evaluation(experiment, '3' * 32, 'scalar', 30.5, step=20000)
+    page.wait_for_function('() => window.discoveryRace.olderHeld')
+    publish_evaluation(experiment, '4' * 32, 'scalar', cancelled=True, step=40000)
+    page.wait_for_function('() => window.discoveryRace.newestConsumed')
+    page.evaluate('() => window.discoveryRace.releaseOlder()')
+    page.wait_for_function('() => window.discoveryRace.olderConsumed')
+    page.evaluate('() => window.discoveryRace.releaseResult()')
+    card.locator('.evaluation-status li').filter(has_text='Cancelled').wait_for(timeout=10000)
+    page.locator('#evaluation-items li[data-steps="10000,20000,30000"]').wait_for()
+    assert page.locator('#evaluation-items > li').count() == 1
+    assert not errors
+
 def test_single_measurement_has_a_visible_chart_mark(real_viewer):
     experiment, session, token, page, context, errors, requests = real_viewer
     experiment.create(1)

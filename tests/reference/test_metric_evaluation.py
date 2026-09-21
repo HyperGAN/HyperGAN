@@ -128,6 +128,7 @@ def test_histogram_detaches_and_preserves_strict_backend_policy(monkeypatch):
         torch.use_deterministic_algorithms(enabled, warn_only=warn_only)
 
 
+@pytest.mark.heavy
 def test_snapshot_is_pinned_repeatable_and_publishes_independent_late_stream(tmp_path):
     driver=setup(tmp_path)
     result=run(driver,'train')
@@ -161,6 +162,7 @@ def test_snapshot_is_pinned_repeatable_and_publishes_independent_late_stream(tmp
     assert all(path.read_bytes()==data for path,data in checkpoints.items())
 
 
+@pytest.mark.heavy
 def test_partial_sample_consumption_fails_with_visible_receipt(tmp_path):
     driver=setup(tmp_path)
     result=run(driver,'train')

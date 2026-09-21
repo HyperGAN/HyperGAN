@@ -93,6 +93,7 @@ if __name__ == '__main__':
 '''
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize('mode', ['preserve-state', 'capture-failure'])
 def test_two_rank_evaluation_snapshot_preserves_state_or_propagates_failure(tmp_path, mode):
     (tmp_path / '.evaluation-test').mkdir()

@@ -14,6 +14,11 @@ from hypergan.run_state import validate_event_boundary
 from .test_checkpoint_event_commit import equal
 
 
+# Heavy: every test here starts real subprocesses or multi-rank jobs and
+# measured at a second or more; see reports/test-durations-2026-09-20.txt.
+pytestmark = pytest.mark.heavy
+
+
 SCRIPT = '''
 import os, signal, sys
 from hypergan.cli import main

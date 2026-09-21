@@ -17,6 +17,11 @@ from hypergan.distributed_training import ReplicatedCPUTrainer
 from hypergan.training import ReferenceTrainer
 
 
+# Heavy: every test here starts real subprocesses or multi-rank jobs and
+# measured at a second or more; see reports/test-durations-2026-09-20.txt.
+pytestmark = pytest.mark.heavy
+
+
 class CubicCritic(nn.Module):
     def __init__(self):
         super().__init__()

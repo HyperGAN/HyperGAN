@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 
+import pytest
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -15,6 +16,11 @@ import torch.distributed as dist
 from hypergan.checkpoints import capture_rng
 from hypergan.config import DEFAULT, resolve_config
 from hypergan.recipes import GaussianGrid
+
+
+# Heavy: every test here starts real subprocesses or multi-rank jobs and
+# measured at a second or more; see reports/test-durations-2026-09-20.txt.
+pytestmark = pytest.mark.heavy
 
 
 class DescriptorRngData(GaussianGrid):

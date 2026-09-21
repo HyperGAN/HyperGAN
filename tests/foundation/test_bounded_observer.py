@@ -89,6 +89,7 @@ def test_callback_error_disables_once_and_reaps(callbacks):
     assert pids == [observer.broker_pid, *observer.worker_pids]
 
 
+@pytest.mark.heavy
 def test_hang_bounded_and_reaped(tmp_path, callbacks):
     # The total deadline includes two Windows spawn operations. Leave enough
     # time to enter the callback before testing its deliberate hang.
@@ -152,6 +153,7 @@ def test_module_import_is_torch_free():
     subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), '-c', code], check=True, timeout=10)
 
 
+@pytest.mark.heavy
 def test_blocked_output_is_bounded(tmp_path):
     driver = tmp_path / 'blocked_output.py'
     driver.write_text('''
@@ -262,6 +264,7 @@ if __name__ == '__main__':
     assert Path(str(driver) + '.done').read_text() == 'reaped'
 
 
+@pytest.mark.heavy
 def test_async_observer_drops_busy_events_without_waiting_and_cancels(tmp_path, callbacks):
     observer = AsyncBoundedObserver(callbacks.hang, timeout=30)
     observer.start()

@@ -1,5 +1,6 @@
-e = constant(x, ${embedding})
-h = conv(x, ${width}, kernel_size=3, padding=1, name="input")
+pixels = concat(image, context)
+e = constant(pixels, ${embedding})
+h = conv(pixels, ${width}, kernel_size=3, padding=1, name="input")
 ${blocks}
 leaky_relu(h, 0.2)
 flatten()

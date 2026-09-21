@@ -1,5 +1,5 @@
 # Pixel score plus three equally weighted feature scores.
-pixel, features = split(1)
+features = concat(feature1, feature2, feature3)
 features = sum(features, 1, keepdim=True)
 features = scale(features, 0.5773502691896258)
 score = add(pixel, features)

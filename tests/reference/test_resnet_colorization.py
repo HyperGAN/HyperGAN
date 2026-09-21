@@ -80,7 +80,7 @@ def test_256_native_maps_attention_and_frozen_backbone_double_backward(pinned_ba
     for module in (model.critic.pixel, model.critic.project):
         assert all(parameter.grad is not None and torch.isfinite(parameter.grad).all()
                    for parameter in module.parameters())
-    assert model.critic.project[0][0].weight.grad.abs().sum() > 0
+    assert model.critic.project[0]['project'].weight.grad.abs().sum() > 0
     assert model.critic.pixel.input.weight.grad.abs().sum() > 0
     assert all(parameter.grad is None for parameter in model.critic.features.parameters())
     for name, value in model.critic.features.state_dict().items():

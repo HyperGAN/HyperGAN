@@ -111,8 +111,9 @@ class _PixelDiscriminator(nn.Module):
                 skip=skip, attention=attention))
         source = _source('image_pixel', networks, embedding=4 * width,
                          width=width, blocks='\n'.join(blocks))
-        self.network = build_network(source, input_shape=('B', 6, image_size, image_size),
-                                     output_shape=('B', 1))
+        self.network = build_network(source,
+            input_shape={name: ('B', 3, image_size, image_size) for name in ('image', 'context')},
+            output_shape=('B', 1))
         self.block_count = len(blocks)
         with torch.random.fork_rng(devices=[]):
             torch.random.default_generator.manual_seed(attention_seed)
@@ -133,7 +134,7 @@ class _PixelDiscriminator(nn.Module):
         return self.network['attention_query']
 
     def forward(self, x, xt):
-        return self.network(torch.cat([x, xt], 1))
+        return self.network(image=x, context=xt)
 
 
 def _legacy_feature_name(name):
@@ -200,11 +201,13 @@ class _FeatureCritic(nn.Module):
         self.pixel = _PixelDiscriminator(width, image_size, attention_seed, networks)
         self.project = nn.ModuleList([
             build_network(_source('image_feature_head', networks),
-                input_shape=('B', 2 * ch, feature_size // divisor, feature_size // divisor),
+                input_shape={name: ('B', ch, feature_size // divisor, feature_size // divisor)
+                             for name in ('candidate', 'condition')},
                 output_shape=('B', 1))
             for ch, divisor in ((64, 4), (128, 8), (256, 16))])
         self.combine = build_network(_source('image_critic_score', networks),
-            input_shape=('B', 4), output_shape=('B', 1))
+            input_shape={name: ('B', 1) for name in ('pixel', 'feature1', 'feature2', 'feature3')},
+            output_shape=('B', 1))
         self.register_buffer('mean', torch.tensor([.485, .456, .406])[None, :, None, None])
         self.register_buffer('std', torch.tensor([.229, .224, .225])[None, :, None, None])
         self.features.eval().requires_grad_(False)
@@ -237,8 +240,9 @@ class _FeatureCritic(nn.Module):
         feature_logits = []
         for i, (block, head) in enumerate(zip(self.features, self.project)):
             h = block(h)
-            feature_logits.append(head(torch.cat([h, condition_features[i]], 1)))
-        logits = self.combine(torch.cat([logits, *feature_logits], dim=1))
+            feature_logits.append(head(candidate=h, condition=condition_features[i]))
+        logits = self.combine(pixel=logits, **{f'feature{i + 1}': score
+                                             for i, score in enumerate(feature_logits)})
         labels = torch.zeros(len(x), device=x.device, dtype=torch.long)
         return ucd_scores(logits, labels, torch.ones_like(labels), num_classes=1,
                           target='time_class', num_steps=1, validate_args=False)

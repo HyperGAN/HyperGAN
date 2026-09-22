@@ -1,7 +1,9 @@
-"""Matched online DINO feature diagnostics for the 128px multidepth testbed.
+"""Matched online DINO feature diagnostics for declared multidepth testbeds.
 
 This is a research helper, not standard Inception KID or a quality/convergence
-certificate. The fixed feature extractor also participates in the trained
+certificate. Only two square edges are accepted: 128px images on an 8x8 patch
+grid, and 64px images on a 4x4 patch grid. The measurement records which
+protocol ran. The fixed feature extractor also participates in the trained
 critic. A single small bank gives a noisy distribution-distance estimate;
 negative unbiased MMD estimates are valid and are deliberately not clamped.
 Use an exclusively owned trainer and explicit inputs, never a live trainer
@@ -14,6 +16,34 @@ import torch
 from hypergan.objective_program import _bound_scores
 from hypergan.signal_structure import _hash
 from hypergan.startup_dynamics import _protected, _restore, _snapshot
+
+# ViT-S/16 native grids. Other edges, including other multiples of 16, are rejected.
+_DECLARED_GRIDS = {128: 8, 64: 4}
+_PROTOCOLS = {
+    128: 'online_dinov3_block11_spatial_mean_candidate_only_poly3',
+    64: 'online_dinov3_block11_spatial_mean_candidate_only_poly3_64px_4x4',
+}
+
+
+def _spatial_size(value):
+    if isinstance(value, torch.Tensor) and value.ndim >= 2:
+        return f'{int(value.shape[-2])}x{int(value.shape[-1])}'
+    return 'unavailable'
+
+
+def _declared_rgb(value):
+    return (isinstance(value, torch.Tensor) and value.ndim == 4 and int(value.shape[1]) == 3
+            and int(value.shape[-2]) == int(value.shape[-1])
+            and int(value.shape[-1]) in _DECLARED_GRIDS)
+
+
+def _matched_edge(fake, real):
+    if not _declared_rgb(fake) or not _declared_rgb(real) or fake.shape != real.shape or len(fake) < 2:
+        failed = fake if not _declared_rgb(fake) else real
+        raise ValueError(
+            'Frozen-feature probe requires at least two matched RGB images at a declared '
+            f'square edge (64 or 128); rejected spatial size {_spatial_size(failed)}')
+    return int(fake.shape[-1])
 
 
 def polynomial_mmd2_unbiased(real, fake):
@@ -104,9 +134,13 @@ def measure_frozen_features(trainer, bank):
             raise ValueError('Expected exactly one fake and one real backbone invocation')
         candidate = expected_images[index]
         count = len(candidate)
+        edge = int(candidate.shape[-1])
+        grid = _DECLARED_GRIDS[edge]
         value = args[0]
-        if tuple(value.shape) != (2 * count, 3, 128, 128):
-            raise ValueError('Expected 128px candidate-first/gray-context-second backbone input')
+        if tuple(value.shape) != (2 * count, 3, edge, edge):
+            raise ValueError(
+                'Expected candidate-first/gray-context-second RGB backbone input at the declared '
+                f'image edge; rejected spatial size {_spatial_size(value)}')
         mean = value.new_tensor([.485, .456, .406]).reshape(1, 3, 1, 1)
         std = value.new_tensor([.229, .224, .225]).reshape(1, 3, 1, 1)
         expected = (candidate.to(value) * .5 + .5 - mean) / std
@@ -114,8 +148,12 @@ def measure_frozen_features(trainer, bank):
         if (not torch.allclose(value[:count], expected, rtol=2e-5, atol=2e-6)
                 or not torch.allclose(value[count:], gray, rtol=2e-5, atol=2e-6)):
             raise ValueError('DINO input ordering, normalization or fixed-gray context changed')
-        if not isinstance(output, torch.Tensor) or tuple(output.shape) != (2 * count, 1536, 8, 8):
-            raise ValueError('Expected four 384-channel DINO depth maps on an 8x8 patch grid')
+        expected_shape = (2 * count, 1536, grid, grid)
+        if not isinstance(output, torch.Tensor) or tuple(output.shape) != expected_shape:
+            actual = tuple(output.shape) if isinstance(output, torch.Tensor) else type(output).__name__
+            raise ValueError(
+                f'Expected four 384-channel DINO depth maps on a {grid}x{grid} patch grid '
+                f'{expected_shape}; rejected shape {actual}; rejected spatial size {_spatial_size(output)}')
         # Exclude the constant context half and the first three feature depths.
         features = output[:count, -384:].detach().double().mean(dim=(-2, -1)).cpu()
         if not torch.isfinite(features).all():
@@ -127,8 +165,7 @@ def measure_frozen_features(trainer, bank):
             batch, _, context = trainer._draw(*bank)
             fake = context['generated']
             real = batch['real']
-            if tuple(fake.shape[1:]) != (3, 128, 128) or fake.shape != real.shape or len(fake) < 2:
-                raise ValueError('Frozen-feature probe requires at least two matched 128px RGB images')
+            edge = _matched_edge(fake, real)
             expected_images.extend((fake, real))
             handle = backbone.register_forward_hook(capture)
             _, _, real_score, fake_score = _bound_scores(
@@ -145,9 +182,12 @@ def measure_frozen_features(trainer, bank):
             if not math.isfinite(g_loss) or not math.isfinite(d_loss):
                 raise ValueError('Matched adversarial losses must be finite')
             result = {
-                'protocol': 'online_dinov3_block11_spatial_mean_candidate_only_poly3',
+                'protocol': _PROTOCOLS[edge],
                 'backbone_path': backbone_name,
                 'samples': len(real), 'feature_width': 384,
+                'image_edge': edge,
+                'patch_grid_edge': _DECLARED_GRIDS[edge],
+                'patch_size': 16,
                 'dino_poly3_mmd2_unbiased': polynomial_mmd2_unbiased(real_features, fake_features),
                 'dino_feature_mean_distance_rms': float((real_features.mean(0) - fake_features.mean(0)).square().mean().sqrt()),
                 'dino_real_feature_spread': real_spread,

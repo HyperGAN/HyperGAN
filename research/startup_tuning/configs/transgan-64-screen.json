@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "name": "TransGAN 64 learning-to-learn startup baseline",
+  "config": "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-64-init-v2/transgan-dinov3-multidepth.toml",
+  "baseline": "source",
+  "evaluation": {
+    "steps": 32,
+    "observation_steps": [0, 1, 8, 16, 32],
+    "features": true,
+    "direction": false,
+    "crossed": false
+  },
+  "cases": [
+    "solutions/source.json",
+    "solutions/half-rates.json"
+  ]
+}

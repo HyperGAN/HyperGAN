@@ -61,27 +61,30 @@ def test_architecture_accepts_native_real_score_stop_gradient():
 
 
 class FakeBackbone(torch.nn.Module):
-    def __init__(self, mutate=False):
+    def __init__(self, mutate=False, grid=None, channels=1536):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.ones(()), requires_grad=False)
         self.register_buffer('counter', torch.zeros(()))
         self.mutate = mutate
+        self.grid = grid
+        self.channels = channels
 
     def forward(self, value):
         if self.mutate:
             self.counter.add_(1)
         pooled = value[:, :1].mean((-2, -1), keepdim=True)
-        depths = torch.arange(1536, device=value.device)[None, :, None, None] / 1000
-        return (pooled + depths).expand(-1, -1, 8, 8)
+        depths = torch.arange(self.channels, device=value.device)[None, :, None, None] / 1000
+        # Default grid follows the image under test. An explicit grid can disagree.
+        grid = self.grid if self.grid is not None else {128: 8, 64: 4}[int(value.shape[-1])]
+        return (pooled + depths).expand(-1, -1, grid, grid)
 
 
-@pytest.mark.parametrize('failure', [None, 'normalization', 'protected_mutation'])
-def test_measure_restores_full_native_state_and_removes_hook_even_on_failure(monkeypatch, failure):
+def _prepare(monkeypatch, *, edge, grid=None, channels=1536, failure=None):
     trainer = ReferenceTrainer(resolve_config({'training': {'steps': 32, 'batch_size': 2}}))
-    backbone = FakeBackbone(mutate=failure == 'protected_mutation')
+    backbone = FakeBackbone(mutate=failure == 'protected_mutation', grid=grid, channels=channels)
     trainer.graph.add_module('feature_test', backbone)
-    fake = torch.stack((torch.zeros(3, 128, 128), torch.ones(3, 128, 128) * .25))
-    real = torch.stack((torch.ones(3, 128, 128) * -.25, torch.ones(3, 128, 128) * .5))
+    fake = torch.stack((torch.zeros(3, edge, edge), torch.ones(3, edge, edge) * .25))
+    real = torch.stack((torch.ones(3, edge, edge) * -.25, torch.ones(3, edge, edge) * .5))
     bank = ({'real': real}, (torch.zeros(2, 2), None))
     term = SimpleNamespace(weight=1., generator_phase=None, gan=SimpleNamespace(
         g_loss=lambda f, r: (f - r).square().mean(),
@@ -110,7 +113,17 @@ def test_measure_restores_full_native_state_and_removes_hook_even_on_failure(mon
         return real, fake, outputs[1], outputs[0]
 
     monkeypatch.setattr(probe, '_bound_scores', scores)
-    before = _snapshot(trainer)
+    return trainer, backbone, bank, _snapshot(trainer)
+
+
+def _assert_restored(backbone, before, trainer):
+    assert not backbone._forward_hooks
+    assert _same_state(before['state'], trainer_state(trainer, None))
+
+
+@pytest.mark.parametrize('failure', [None, 'normalization', 'protected_mutation'])
+def test_measure_restores_full_native_state_and_removes_hook_even_on_failure(monkeypatch, failure):
+    trainer, backbone, bank, before = _prepare(monkeypatch, edge=128, failure=failure)
     if failure:
         with pytest.raises((ValueError, RuntimeError), match='context changed|mutated protected'):
             probe.measure_frozen_features(trainer, bank)
@@ -118,10 +131,48 @@ def test_measure_restores_full_native_state_and_removes_hook_even_on_failure(mon
         result = probe.measure_frozen_features(trainer, bank)
         assert result['samples'] == 2
         assert result['feature_width'] == 384
+        assert result['protocol'] == 'online_dinov3_block11_spatial_mean_candidate_only_poly3'
+        assert result['image_edge'] == 128
+        assert result['patch_grid_edge'] == 8
+        assert result['patch_size'] == 16
         assert result['pretrained_images_including_gray_context'] == 8
         # Constant context rows were excluded: fake spread comes from the two
         # actual candidates, not four rows diluted by duplicated gray images.
         assert result['dino_fake_feature_spread'] == pytest.approx(.25 * .5 / .229 / 2, rel=1e-6)
         assert all(value is None or isinstance(value, (str, int, float, bool)) for value in result.values())
-    assert not backbone._forward_hooks
-    assert _same_state(before['state'], trainer_state(trainer, None))
+    _assert_restored(backbone, before, trainer)
+
+
+def test_measure_accepts_declared_64px_grid_with_distinct_protocol(monkeypatch):
+    trainer, backbone, bank, before = _prepare(monkeypatch, edge=64)
+    result = probe.measure_frozen_features(trainer, bank)
+    assert result['protocol'] == 'online_dinov3_block11_spatial_mean_candidate_only_poly3_64px_4x4'
+    assert result['image_edge'] == 64
+    assert result['patch_grid_edge'] == 4
+    assert result['patch_size'] == 16
+    assert result['feature_width'] == 384
+    assert all(value is None or isinstance(value, (str, int, float, bool)) for value in result.values())
+    _assert_restored(backbone, before, trainer)
+
+
+@pytest.mark.parametrize('edge,grid,size', [(64, 8, '8x8'), (128, 4, '4x4')])
+def test_measure_rejects_declared_image_with_the_other_grid(monkeypatch, edge, grid, size):
+    trainer, backbone, bank, before = _prepare(monkeypatch, edge=edge, grid=grid)
+    with pytest.raises(ValueError, match=f'rejected spatial size {size}'):
+        probe.measure_frozen_features(trainer, bank)
+    _assert_restored(backbone, before, trainer)
+
+
+@pytest.mark.parametrize('edge', [32, 96, 256])
+def test_measure_rejects_undeclared_square_edges(monkeypatch, edge):
+    trainer, backbone, bank, before = _prepare(monkeypatch, edge=edge)
+    with pytest.raises(ValueError, match=rf'rejected spatial size {edge}x{edge}'):
+        probe.measure_frozen_features(trainer, bank)
+    _assert_restored(backbone, before, trainer)
+
+
+def test_measure_rejects_matching_image_with_wrong_channel_count(monkeypatch):
+    trainer, backbone, bank, before = _prepare(monkeypatch, edge=64, channels=768)
+    with pytest.raises(ValueError, match=r'rejected shape \(4, 768, 4, 4\)'):
+        probe.measure_frozen_features(trainer, bank)
+    _assert_restored(backbone, before, trainer)

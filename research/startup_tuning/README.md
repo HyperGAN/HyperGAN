@@ -10,12 +10,21 @@ Both original and half-rate controls failed the 32-update screen.
 
 A [64px counterpart](testbeds/transgan64/README.md) is ready for a manual
 resolution comparison with the same training hyperparameters. It has passed
-a compatibility smoke test; it has not been evaluated on the leaderboard.
+a compatibility smoke test. `configs/transgan-64-screen.json` is a separate
+manifest for that screen; write its results to a separate output root. The
+64px feature protocol
+`online_dinov3_block11_spatial_mean_candidate_only_poly3_64px_4x4` is distinct
+from the 128px protocol, so a 64px row is not a matched row against the 128px
+leaderboard. The 64px screen has not been measured.
 
 ## Layout
 
 - `configs/transgan-128-screen.json`: shared training-config reference, fixed
   evaluation horizon, observation steps, and an explicit finite list of solutions.
+- `configs/transgan-64-screen.json`: the same solution files and horizon, pointed
+  at the 64px training config. Keep its output root separate. Its feature
+  protocol does not match the 128px leaderboard, and the screen has not been
+  measured.
 - `configs/solutions/*.json`: one versioned tuning solution per file. These are
   not training configs: they specify an algorithm and its options/evidence.
 - `algorithms/`: local Python algorithms exposing `propose(context) -> dict`.

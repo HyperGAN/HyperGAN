@@ -135,7 +135,10 @@ can make finite updates and still learn undesirable samples. Two probe batches
 do not provide a precise uncertainty estimate.
 
 The [update-response research memo](../reports/update-response-research-2026-09-21.md)
-explains the motivation and limits. Earlier [startup drift](../reports/startup-signal-drift-2026-09-21.md),
+explains the motivation and limits. The [first measured-update testbed](../reports/measured-update-testbed-2026-09-21.md)
+completed safely but rejected its proposed pair: held-out losses decreased while
+the coupled replay still lost output variation and transmission. It did not fix
+that configuration. Earlier [startup drift](../reports/startup-signal-drift-2026-09-21.md),
 [automatic tuning](../reports/startup-dynamics-autotune-2026-09-21.md), and
 [warmup drift](../reports/startup-warmup-drift-2026-09-21.md) reports describe older
 pipelines. Their measurements remain evidence about those implementations,

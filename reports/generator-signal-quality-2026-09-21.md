@@ -13,6 +13,10 @@ is **improvement in a declared independent distribution/task metric after one
 generator update**, evaluated on held-out inputs. It is relative to that metric,
 and sometimes too noisy to resolve in one step.
 
+The follow-up [initialization and config-search proposal](generator-signal-initialization-2026-09-21.md)
+addresses whether we can calibrate this before training and whether it stays
+healthy as G and D change.
+
 The user's distinction between the beginning and end of the generator is
 essential. Forward execution starts at the latent/conditioning inputs and ends
 at the generated sample. The adversarial gradient travels in the reverse
@@ -318,7 +322,7 @@ model selection needs a separate audit bank to avoid overfitting the evaluator.
 
 Run `python3 scripts/generator_signal_proof.py` to print the complete calculation,
 or add `--output reports/generator-signal-proof-2026-09-21.json` to write it.
-The committed [JSON](generator-signal-proof-2026-09-21.json) contains 12 cases,
+The committed [JSON](generator-signal-proof-2026-09-21.json) contains 14 cases,
 runtime versions, and analytic checks. The
 [script](../scripts/generator_signal_proof.py) uses explicit CPU float64 tensors;
 it performs no RNG draws, image inspection, dataset loading, or training runs.
@@ -335,6 +339,8 @@ it performs no RNG draws, image inspection, dataset loading, or training runs.
 | Critic rewards contraction at an already matched distribution | Critic loss falls; variance falls 0.625→0.549316; W2 squared rises 0→0.00244141 | Critic progress and agreement can accompany loss of coverage |
 | Dead ReLU gate | Output derivative RMS=1, parameter gradient=0 | Strong critic signal can be blocked completely |
 | Exhaustive IID gradient-pair enumeration | Expected debiased squared signal=1 and covariance trace=1; opposing pair gives negative signal estimate | Moment estimates need unresolved/zero handling |
+| Initially unit-gain chain, 64 layers | Moving each gain to 0.95 changes end-to-input gain from 1 to about 0.0375 | Initial transmission need not persist; this is a constructed parameter path, not measured training drift |
+| Fixed G, critic direction rotates between two axes | Equal output gradient norm; parameter gradient norm changes 1000x | Monitoring just the initial critic direction misses weak directions |
 
 These are constructed counterexamples and formula checks, not evidence that a
 particular HyperGAN run has one of these failures. No production GPU overhead,

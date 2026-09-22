@@ -169,6 +169,38 @@ def blocked_case():
             "gradient_cosine": None, "status": "zero_gradient"}
 
 
+def initialization_drift_case():
+    # A possible parameter path, not a simulated training trajectory.
+    # A scalar chain has exact gain product(w); no singular-vector ambiguity.
+    depth = 64
+    rows = []
+    for gain in (1.0, 0.99, 0.95, 1.05):
+        start = tensor(1.0, grad=True)
+        end = start
+        for _ in range(depth):
+            end = end * gain
+        transmitted, = torch.autograd.grad(-end, (start,))
+        close(abs(float(transmitted)), gain ** depth)
+        rows.append({"per_layer_gain": gain, "depth": depth,
+                     "input_to_output_gradient_ratio": abs(float(transmitted))})
+    return {"kind": "constructed_parameter_path_not_training", "states": rows}
+
+
+def critic_direction_drift_case():
+    # Identical G Jacobian, different unit output cotangents.
+    rows = []
+    for direction in ([1.0, 0.0], [0.0, 1.0]):
+        theta = tensor([1.0, 1.0], grad=True)
+        x = theta * tensor([1.0, 0.001])
+        loss = -(x * tensor(direction)).sum()
+        q, g = torch.autograd.grad(loss, (x, theta))
+        rows.append({"critic_direction": direction, "output_gradient_norm": float(q.norm()),
+                     "parameter_gradient_norm": float(g.norm())})
+    close(rows[0]["output_gradient_norm"], rows[1]["output_gradient_norm"])
+    close(rows[0]["parameter_gradient_norm"] / rows[1]["parameter_gradient_norm"], 1000.0)
+    return {"generator_jacobian_diagonal": [1.0, 0.001], "states": rows}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
@@ -184,6 +216,8 @@ def main():
         "loss_rescaled_same_update": translation_case(1.0, step_size=0.0001, loss_scale=1000.0),
         "collapse_despite_agreement": collapse_case(),
         "noise_estimator": noise_estimator_case(), "blocked_generator": blocked_case(),
+        "initialization_drift": initialization_drift_case(),
+        "critic_direction_drift": critic_direction_drift_case(),
     }
     close(cases["critic_helpful"]["oracle_progress"], 0.39)
     close(cases["critic_harmful"]["oracle_progress"], -0.41)

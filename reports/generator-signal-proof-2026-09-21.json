@@ -205,6 +205,55 @@
       "parameter_gradient_rms": 0.0,
       "gradient_cosine": null,
       "status": "zero_gradient"
+    },
+    "initialization_drift": {
+      "kind": "constructed_parameter_path_not_training",
+      "states": [
+        {
+          "per_layer_gain": 1.0,
+          "depth": 64,
+          "input_to_output_gradient_ratio": 1.0
+        },
+        {
+          "per_layer_gain": 0.99,
+          "depth": 64,
+          "input_to_output_gradient_ratio": 0.525596487525562
+        },
+        {
+          "per_layer_gain": 0.95,
+          "depth": 64,
+          "input_to_output_gradient_ratio": 0.03752413921111601
+        },
+        {
+          "per_layer_gain": 1.05,
+          "depth": 64,
+          "input_to_output_gradient_ratio": 22.704667199218342
+        }
+      ]
+    },
+    "critic_direction_drift": {
+      "generator_jacobian_diagonal": [
+        1.0,
+        0.001
+      ],
+      "states": [
+        {
+          "critic_direction": [
+            1.0,
+            0.0
+          ],
+          "output_gradient_norm": 1.0,
+          "parameter_gradient_norm": 1.0
+        },
+        {
+          "critic_direction": [
+            0.0,
+            1.0
+          ],
+          "output_gradient_norm": 1.0,
+          "parameter_gradient_norm": 0.001
+        }
+      ]
     }
   }
 }

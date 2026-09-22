@@ -2,6 +2,7 @@
 import argparse
 from collections import defaultdict
 import json
+import math
 from pathlib import Path
 import time
 
@@ -18,6 +19,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('config')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--gradient-field', action='store_true')
     args = parser.parse_args()
     destination = Path(args.output)
     if destination.exists():
@@ -37,6 +39,13 @@ def main():
         trainer.update()
         trainer._update_response_observer = None
         anchor = observer.anchors['generator']
+        if args.gradient_field:
+            from hypergan.startup_response_probe import capture_adam_denominators
+            denominators = capture_adam_denominators(trainer, 'generator')
+            theta_norm = math.sqrt(sum(float(value.double().square().sum()) for value in anchor['before']))
+            delta_norm = math.sqrt(sum(float(value.double().square().sum()) for value in anchor['delta']))
+            h = min(.1, math.sqrt(torch.finfo(torch.float32).eps) * max(theta_norm, delta_norm) / delta_norm)
+            report['h'] = h
         # Reserve two fresh draws after the first training update, but materialize
         # latent coordinates under the actual first-G prior.
         batches = [_cpu_clone(trainer.batch()) for _ in range(2)]
@@ -47,6 +56,11 @@ def main():
             banks = [(batch, _cpu_clone(trainer.prior.sample(
                 trainer.config['training']['batch_size'], generator=trainer.streams['prior']))) for batch in batches]
         for index, bank in enumerate(banks):
+            if args.gradient_field:
+                print(f'bank {index}, gradient field h={h}', flush=True)
+                report['banks'].append(probes.gradient_change(anchor, 'generator', bank, h,
+                                                              adam_denominators=denominators))
+                continue
             rows = []
             # Fixed diagnostic locations resolve local derivative versus the
             # existing full-update loss stencil. No best-point selection.

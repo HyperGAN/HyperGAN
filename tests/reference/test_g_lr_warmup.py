@@ -19,6 +19,9 @@ def _fixture(d_factor=None):
     baseline = deepcopy(trainer.base_lrs)
     override = (generator_lr_override(config, .3) if d_factor is None
                 else optimizer_lr_override(config, .3, d_factor))
+    if d_factor is not None:
+        # Historical paired-rate checkpoints predate the schema-three writer.
+        override['schema_version'] = 2
     warmup = {'steps': 5, 'start_g_lr': override['effective_g_lr'],
               'target_g_lr': override['baseline_g_lr']}
     trainer.g_lr_warmup = deepcopy(warmup)

@@ -385,3 +385,110 @@ def test_direction_audit_exception_restores_caller_and_removes_all_hooks(monkeyp
             observer.anchors['generator'], 'generator', banks['generator'], .01, gradient=True)
     assert _same_state(expected, trainer_state(trainer, None))
     assert all(not item._forward_hooks for item in trainer.graph.modules())
+
+
+def test_captured_adam_metric_uses_post_step_bias_corrected_moments_without_mutation():
+    from hypergan.startup_response_probe import capture_adam_denominators
+    trainer = make_trainer()
+    assert capture_adam_denominators(trainer, 'generator')['status'] == 'unsupported'
+    trainer.update()
+    expected = deepcopy(trainer_state(trainer, None))
+    metric = capture_adam_denominators(trainer, 'generator')
+    assert metric['status'] == 'measured'
+    assert metric['steps'] == [1] * len(trainer.program.generator_parameters)
+    group = trainer.opt_g.param_groups[0]
+    for parameter, denominator in zip(trainer.program.generator_parameters, metric['denominators']):
+        moment = trainer.opt_g.state[parameter]['exp_avg_sq'].double()
+        expected_denominator = (moment / (1. - group['betas'][1])).sqrt() + group['eps']
+        torch.testing.assert_close(denominator, expected_denominator, rtol=0, atol=0)
+        assert denominator.device.type == 'cpu'
+    assert _same_state(expected, trainer_state(trainer, None))
+    group['amsgrad'] = True
+    assert capture_adam_denominators(trainer, 'generator')['status'] == 'unsupported'
+
+
+@pytest.mark.parametrize('sign', [1., -1.])
+def test_gradient_field_matches_analytic_quadratic_in_euclidean_and_adam_metrics(monkeypatch, sign):
+    import hypergan.startup_response_probe as module
+    config = resolve_config({})
+    config['components']['generator']['args']['source'] = 'linear(2)'
+    config['prior']['args']['num_particles'] = 32
+    trainer = ReferenceTrainer(config)
+    owned = trainer.program.generator_parameters
+    coefficients, delta, denominators = [], [], []
+    with torch.no_grad():
+        for index, parameter in enumerate(owned):
+            parameter.fill_(.5)
+            coefficients.append(torch.full_like(parameter, sign * (index + 1)))
+            delta.append(torch.full_like(parameter, -.25 * (index + 1)))
+            denominators.append(torch.full_like(parameter, 2. + index, dtype=torch.float64))
+    anchor = {'snapshot': _snapshot(trainer), 'step': 1,
+              'before': [parameter.detach().clone() for parameter in owned], 'delta': delta}
+    def quadratic(*args, **kwargs):
+        return sum(.5 * (coefficient * parameter.square()).sum()
+                   for coefficient, parameter in zip(coefficients, owned))
+    monkeypatch.setattr(module, 'phase_loss', quadratic)
+    paths = {id(parameter): path for path, parameter in module._registered_parameters(trainer)}
+    metric = {'status': 'measured', 'player': 'generator', 'parameter_paths': [paths[id(parameter)] for parameter in owned],
+              'denominators': denominators}
+    for parameter in owned:
+        parameter.grad = torch.ones_like(parameter)
+    expected_state = deepcopy(trainer_state(trainer, None))
+    original_gradients = [parameter.grad for parameter in owned]
+    budget = defaultdict(int)
+    report = PhaseProbes(trainer, _restore, [], _hash([]), budget).gradient_change(
+        anchor, 'generator', (None, None), .1, adam_denominators=metric)
+    vector = torch.cat([value.double().reshape(-1) for value in delta])
+    diagonal = torch.cat([value.double().reshape(-1) for value in coefficients])
+    denominator = torch.cat([value.reshape(-1) for value in denominators])
+    derivative = diagonal * vector
+    expected_slope = float((diagonal * .5 * vector).sum())
+    expected_signed_curvature = float((vector * derivative).sum())
+    expected_cauchy = float(vector.norm() * derivative.norm())
+    expected_metric = float((vector.square() * denominator).sum().sqrt()
+                            * (derivative.square() / denominator).sum().sqrt())
+    assert report['status'] == 'finite'
+    assert report['slope0'] == pytest.approx(expected_slope)
+    assert report['directional_secant_curvature'] == pytest.approx(expected_signed_curvature, rel=1e-5)
+    assert report['unweighted_cauchy_curvature'] == pytest.approx(expected_cauchy, rel=1e-5)
+    assert report['adam_metric']['cauchy_curvature'] == pytest.approx(expected_metric, rel=1e-5)
+    assert report['adam_metric']['gradient0_dual_norm'] > 0
+    assert report['realized_parameter_perturbation_norm'] == pytest.approx(float(.1 * vector.norm()), rel=1e-5)
+    assert budget['gradient_field_phase_loss_evaluations'] == budget['gradient_field_player_gradient_evaluations'] == 2
+    assert _same_state(expected_state, trainer_state(trainer, None))
+    assert all(parameter.grad is original for parameter, original in zip(owned, original_gradients))
+
+
+def test_gradient_field_second_probe_exception_restores_full_callers_state(monkeypatch):
+    import hypergan.startup_response_probe as module
+    trainer = make_trainer()
+    observer, banks, _, budget = capture_update(trainer, step=1)
+    expected = deepcopy(trainer_state(trainer, None))
+    calls = []
+    original = module.phase_loss
+    def fail_second(*args, **kwargs):
+        calls.append(True)
+        if len(calls) == 2:
+            torch.rand(2, generator=trainer.streams['prior'])
+            with torch.no_grad():
+                trainer.program.critic_parameters[0].add_(1.)
+            raise RuntimeError('second gradient probe failed')
+        return original(*args, **kwargs)
+    monkeypatch.setattr(module, 'phase_loss', fail_second)
+    with pytest.raises(RuntimeError, match='second gradient probe failed'):
+        PhaseProbes(trainer, _restore, [], _hash([]), budget).gradient_change(
+            observer.anchors['generator'], 'generator', banks['generator'], .1)
+    assert len(calls) == 2
+    assert _same_state(expected, trainer_state(trainer, None))
+
+
+def test_gradient_field_zero_realized_perturbation_is_unresolved():
+    trainer = make_trainer()
+    observer, banks, _, budget = capture_update(trainer, step=1)
+    anchor = observer.anchors['generator']
+    anchor['delta'] = [torch.zeros_like(value) for value in anchor['delta']]
+    report = PhaseProbes(trainer, _restore, [], _hash([]), budget).gradient_change(
+        anchor, 'generator', banks['generator'], .1)
+    assert report['status'] == 'unresolved'
+    assert report['realized_parameter_perturbation_norm'] == 0.
+    assert report['adam_metric']['status'] == 'not_supplied'

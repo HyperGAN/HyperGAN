@@ -1,0 +1,703 @@
+{
+  "source": {
+    "integration_reference": {
+      "repository": "https://github.com/255BITS/ParticleGAN",
+      "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181"
+    },
+    "particlegan_distribution_version": "0.5.0",
+    "particlegan_distribution_commit": null,
+    "hypergan_commit": "d75230de53727cb4da96a361b0c0af79a6c0abd1",
+    "hypergan_dirty": false,
+    "hypergan_provenance": "git",
+    "distribution_records": {
+      "hypergan": {
+        "record_sha256": null
+      },
+      "particlegan": {
+        "record_sha256": "3532c31cfe2ac7713909aa8298de42e0f1a7785fed6678b272a22dedc8256511"
+      },
+      "hndl": {
+        "record_sha256": "15964f79378a6c701fd2a26b66dbe910ea0c376007c79e020c8d656943cac955"
+      }
+    }
+  },
+  "config": "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-128-init-v2/transgan-dinov3-multidepth.toml",
+  "purpose": "first-update model validity, not a candidate search",
+  "banks": [
+    [
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 0.0,
+        "loss": 0.9693634510040283,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": -0.46108996004864095,
+        "gradient_dot_delta_absolute_sum": 0.9486826013172148,
+        "gradient_status": "finite",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "gradient_parameter_tensors": 109,
+        "disconnected_parameter_tensors": 0,
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.6218994169376649,
+          "std": 0.5997306701890345,
+          "absolute_max": 0.999984085559845,
+          "absolute_above_0_99_fraction": 0.00978247324625651
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 0.9959721811139948,
+            "std": 0.9575975058071259,
+            "absolute_max": 5.871504783630371,
+            "absolute_above_0_99_fraction": 0.3119322458902995,
+            "tanh_response": {
+              "mean_derivative": 0.6132411143915888,
+              "minimum_derivative": 3.177816639277076e-05,
+              "derivative_below_0_01_fraction": 0.0038061141967773438,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 0.01,
+        "loss": 0.9648439884185791,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": -0.46881996440517126,
+        "gradient_dot_delta_absolute_sum": 0.7813585665043776,
+        "gradient_status": "finite",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "gradient_parameter_tensors": 109,
+        "disconnected_parameter_tensors": 0,
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.6218905726741882,
+          "std": 0.6002026511482901,
+          "absolute_max": 0.9999834895133972,
+          "absolute_above_0_99_fraction": 0.009601910909016928
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 0.9949531164563618,
+            "std": 0.9575750335908454,
+            "absolute_max": 5.852468490600586,
+            "absolute_above_0_99_fraction": 0.311916987101237,
+            "tanh_response": {
+              "mean_derivative": 0.6132521148037579,
+              "minimum_derivative": 3.301134967892416e-05,
+              "derivative_below_0_01_fraction": 0.0037024815877278647,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 0.1,
+        "loss": 0.9168546795845032,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": -0.5775352623759364,
+        "gradient_dot_delta_absolute_sum": 0.8096734566040998,
+        "gradient_status": "finite",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "gradient_parameter_tensors": 109,
+        "disconnected_parameter_tensors": 0,
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.6346999231012458,
+          "std": 0.6188491401661309,
+          "absolute_max": 0.9999762773513794,
+          "absolute_above_0_99_fraction": 0.011182149251302084
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 1.031821635189905,
+            "std": 1.0042373421388784,
+            "absolute_max": 5.671731472015381,
+            "absolute_above_0_99_fraction": 0.3335123062133789,
+            "tanh_response": {
+              "mean_derivative": 0.5971560068387423,
+              "minimum_derivative": 4.738559510786278e-05,
+              "derivative_below_0_01_fraction": 0.0042324066162109375,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 0.5,
+        "loss": 0.7368109822273254,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": null,
+        "gradient_dot_delta_absolute_sum": null,
+        "gradient_status": "not_requested",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.7549466506305736,
+          "std": 0.7549428146154213,
+          "absolute_max": 0.9999992847442627,
+          "absolute_above_0_99_fraction": 0.1152356465657552
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 1.6556539090364015,
+            "std": 1.6548573984727766,
+            "absolute_max": 7.404991149902344,
+            "absolute_above_0_99_fraction": 0.5428571701049805,
+            "tanh_response": {
+              "mean_derivative": 0.430055553906796,
+              "minimum_derivative": 1.4796741276690284e-06,
+              "derivative_below_0_01_fraction": 0.07551956176757812,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 1.0,
+        "loss": 0.6911830902099609,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": null,
+        "gradient_dot_delta_absolute_sum": null,
+        "gradient_status": "not_requested",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.828170188739404,
+          "std": 0.8220379709831374,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.2617117563883464
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 2.370102744399779,
+            "std": 2.363955685589967,
+            "absolute_max": 9.425021171569824,
+            "absolute_above_0_99_fraction": 0.6779425938924154,
+            "tanh_response": {
+              "mean_derivative": 0.3141341378051264,
+              "minimum_derivative": 2.603698012748623e-08,
+              "derivative_below_0_01_fraction": 0.20763619740804037,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      }
+    ],
+    [
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 0.0,
+        "loss": 0.9531941413879395,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": -0.4442067520253563,
+        "gradient_dot_delta_absolute_sum": 0.6960872477840241,
+        "gradient_status": "finite",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "gradient_parameter_tensors": 109,
+        "disconnected_parameter_tensors": 0,
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.6235242050785144,
+          "std": 0.6024230911142764,
+          "absolute_max": 0.999998927116394,
+          "absolute_above_0_99_fraction": 0.010256767272949219
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 1.0018814128010711,
+            "std": 0.9651700704033875,
+            "absolute_max": 7.221325874328613,
+            "absolute_above_0_99_fraction": 0.3146476745605469,
+            "tanh_response": {
+              "mean_derivative": 0.6112175648758448,
+              "minimum_derivative": 2.1364639493093307e-06,
+              "derivative_below_0_01_fraction": 0.004047393798828125,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 0.01,
+        "loss": 0.9486523866653442,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": -0.4699569242835667,
+        "gradient_dot_delta_absolute_sum": 0.6775072395650261,
+        "gradient_status": "finite",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "gradient_parameter_tensors": 109,
+        "disconnected_parameter_tensors": 0,
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.6235775738846998,
+          "std": 0.6029533091372394,
+          "absolute_max": 0.999998927116394,
+          "absolute_above_0_99_fraction": 0.010059038798014322
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 1.0010618000291867,
+            "std": 0.9653280713044755,
+            "absolute_max": 7.232295513153076,
+            "absolute_above_0_99_fraction": 0.31484190622965497,
+            "tanh_response": {
+              "mean_derivative": 0.611151008523703,
+              "minimum_derivative": 2.090101956286894e-06,
+              "derivative_below_0_01_fraction": 0.003950436909993489,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 0.1,
+        "loss": 0.9019782543182373,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": -0.5362387599257917,
+        "gradient_dot_delta_absolute_sum": 1.101685172260471,
+        "gradient_status": "finite",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "gradient_parameter_tensors": 109,
+        "disconnected_parameter_tensors": 0,
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.6364097555359246,
+          "std": 0.6214082670015955,
+          "absolute_max": 0.9999991655349731,
+          "absolute_above_0_99_fraction": 0.011596043904622396
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 1.0381003850208428,
+            "std": 1.0118223666207333,
+            "absolute_max": 7.330153942108154,
+            "absolute_above_0_99_fraction": 0.3362375895182292,
+            "tanh_response": {
+              "mean_derivative": 0.5949826222622945,
+              "minimum_derivative": 1.7185762314353425e-06,
+              "derivative_below_0_01_fraction": 0.00446319580078125,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 0.5,
+        "loss": 0.7298622131347656,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": null,
+        "gradient_dot_delta_absolute_sum": null,
+        "gradient_status": "not_requested",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.754362875406279,
+          "std": 0.7543604160179501,
+          "absolute_max": 0.9999996423721313,
+          "absolute_above_0_99_fraction": 0.11428197224934895
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 1.6510463180092745,
+            "std": 1.6502879723401231,
+            "absolute_max": 7.769893646240234,
+            "absolute_above_0_99_fraction": 0.542048454284668,
+            "tanh_response": {
+              "mean_derivative": 0.43093665143161913,
+              "minimum_derivative": 7.132076048632641e-07,
+              "derivative_below_0_01_fraction": 0.07477664947509766,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      {
+        "player": "generator",
+        "step": 1,
+        "factor": 1.0,
+        "loss": 0.6859775185585022,
+        "epsilon": 1.1920928955078125e-07,
+        "gradient_dot_delta": null,
+        "gradient_dot_delta_absolute_sum": null,
+        "gradient_status": "not_requested",
+        "derivative_definition": "d/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank",
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.8274020521265427,
+          "std": 0.821335992816868,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.2605396906534831
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 2.3618315360559454,
+            "std": 2.355790720654806,
+            "absolute_max": 9.545001029968262,
+            "absolute_above_0_99_fraction": 0.676640510559082,
+            "tanh_response": {
+              "mean_derivative": 0.3154058434526951,
+              "minimum_derivative": 2.0482239126984325e-08,
+              "derivative_below_0_01_fraction": 0.20636399586995444,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      }
+    ]
+  ],
+  "observations": [
+    {
+      "step": 1,
+      "player": "discriminator",
+      "optimizer_motion": {
+        "elements": 1622693,
+        "finite": true,
+        "changed": true,
+        "delta_rms": 0.00019532282321695941,
+        "initial_rms": 0.036925398064576835,
+        "relative_delta_l2": 0.0052896605982519105,
+        "training_gradient_dot_delta": -0.5728316621728057,
+        "measurement": "one_actual_optimizer_update"
+      }
+    },
+    {
+      "step": 1,
+      "player": "generator",
+      "optimizer_motion": {
+        "elements": 61662491,
+        "finite": true,
+        "changed": true,
+        "delta_rms": 0.0001994721254207008,
+        "initial_rms": 0.024432588577589308,
+        "relative_delta_l2": 0.00816418304541279,
+        "training_gradient_dot_delta": -0.6818715426000493,
+        "measurement": "one_actual_optimizer_update"
+      },
+      "prior_optimizer_motion": {
+        "elements": 524288,
+        "finite": true,
+        "changed": true,
+        "delta_rms": 0.001953918160858059,
+        "initial_rms": 1.0012292887985703,
+        "relative_delta_l2": 0.001951519180189657,
+        "training_gradient_dot_delta": -0.0018361053601740555,
+        "measurement": "one_actual_optimizer_update"
+      },
+      "generator_output_response": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.6208814575665423,
+          "after_rms": 0.8293978749106119,
+          "change_rms": 0.908222541382582,
+          "relative_change": 1.4627954021082101,
+          "norm_ratio": 1.33583933744989,
+          "cosine": 0.24130759177972272,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.5914546579149369,
+          "after_rms": 0.5333347488265147,
+          "change_rms": 0.5551162406494504,
+          "relative_change": 0.9385609416052436,
+          "norm_ratio": 0.9017339565921872,
+          "cosine": 0.5169082746352214,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.18887872312650628,
+          "after_rms": 0.6351809819223336,
+          "change_rms": 0.7188283143252484,
+          "relative_change": 3.805766485639545,
+          "norm_ratio": 3.3629038327250083,
+          "cosine": -0.32334203760123503,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.19454056657037172,
+          "after_rms": 0.6356530649648281,
+          "change_rms": 0.7197429551117371,
+          "relative_change": 3.6997062761785595,
+          "norm_ratio": 3.267457662794929,
+          "cosine": -0.3078153046544816,
+          "relative_status": "resolved"
+        }
+      },
+      "generator_final_affine_response": {
+        "status": "measured",
+        "path": "generator.network.nodes.n_output_projection",
+        "measurement": "final_owned_affine_activation_displacement",
+        "relationship_to_output": "pre_tanh",
+        "downstream_operations": [
+          "permute",
+          "reshape",
+          "tanh"
+        ],
+        "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+        "shape": [
+          64,
+          16384,
+          3
+        ],
+        "response": {
+          "status": "finite",
+          "before_rms": 0.9931821020493913,
+          "after_rms": 2.3881135879805977,
+          "change_rms": 2.292849287342592,
+          "relative_change": 2.3085890116338077,
+          "norm_ratio": 2.4045072731907084,
+          "cosine": 0.30194793302968737,
+          "relative_status": "resolved"
+        }
+      },
+      "input_control": "fixed_latent_values; prior output response not included"
+    }
+  ],
+  "protected_after": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+  "protected_before": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+  "restored": true,
+  "budget": {
+    "g_response_forwards": 2,
+    "direction_audit_phase_loss_evaluations": 10,
+    "direction_audit_player_gradient_evaluations": 6
+  },
+  "elapsed_seconds": 43.87344432300597
+}

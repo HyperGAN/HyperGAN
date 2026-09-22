@@ -1,0 +1,506 @@
+{
+  "run_id": "cdd17c6d9fba4d5c9e683999228a86ae",
+  "run_dir": "/mnt/ml7tb/hypergan-signal-research/transgan-tuned-warmup-1000-live",
+  "observed_status": "running",
+  "observed_step": 1145,
+  "selected_g_lr": 2e-05,
+  "g_lr_warmup": {
+    "start_g_lr": 2e-05,
+    "steps": 1000,
+    "target_g_lr": 0.0002
+  },
+  "artifacts": {
+    "/mnt/ml7tb/hypergan-signal-research/transgan-tuned-warmup-1000-live-preview-audit.json": "a2960aac395192634c6fa095e9ded7472948b1e90d5ba9826247a624f4564938",
+    "/mnt/ml7tb/hypergan-signal-research/transgan-tuned-warmup-1000-live-parameter-drift.json": "52d43fe97be44fa1bdc7bad3250ae7285facb7ad255c3a23a17277110036f9cc"
+  },
+  "preview_rows": [
+    {
+      "step": 0,
+      "g_lr": null,
+      "g_adversarial": null,
+      "d_adversarial": null,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.0016301472981770833,
+        "absolute_value_above_0_99_fraction": 0.000518798828125,
+        "sample_diversity_rms": 0.44171980645074166,
+        "spatial_per_channel_std_rms": 0.48903732292596114,
+        "mean_color_share_of_between_sample_variance": 0.001719892359637986,
+        "mean_color_removed_sample_diversity_rms": 0.44133978772249005
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.2386322021484375,
+        "absolute_value_above_0_99_fraction": 0.2117792765299479,
+        "sample_diversity_rms": 0.6810359079026831,
+        "spatial_per_channel_std_rms": 0.4525534211577386,
+        "mean_color_share_of_between_sample_variance": 0.5892737267653513,
+        "mean_color_removed_sample_diversity_rms": 0.436461813841398
+      },
+      "preview_manifest_sha256": "6f5919d690f0138f20f87f02f3eee80b0d53cdd3682393a8d9a8889ae26c28ea"
+    },
+    {
+      "step": 100,
+      "g_lr": 3.783783783783784e-05,
+      "g_adversarial": 10.109109878540039,
+      "d_adversarial": 0.017749302089214325,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.007671356201171875,
+        "absolute_value_above_0_99_fraction": 0.0030733744303385415,
+        "sample_diversity_rms": 0.3870039120755535,
+        "spatial_per_channel_std_rms": 0.5446753304583157,
+        "mean_color_share_of_between_sample_variance": 0.003061946977515092,
+        "mean_color_removed_sample_diversity_rms": 0.38641096510509243
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.25729624430338544,
+        "absolute_value_above_0_99_fraction": 0.2375310262044271,
+        "sample_diversity_rms": 0.6966913743389715,
+        "spatial_per_channel_std_rms": 0.553192069392361,
+        "mean_color_share_of_between_sample_variance": 0.41280951155889267,
+        "mean_color_removed_sample_diversity_rms": 0.5338631438744288
+      },
+      "preview_manifest_sha256": "20b64fe46caaa6617523f911bfa607ac3e6ffe9ebd395f18cf16e6dc31162c40"
+    },
+    {
+      "step": 200,
+      "g_lr": 5.585585585585586e-05,
+      "g_adversarial": 1.5834496021270752,
+      "d_adversarial": 0.34706029295921326,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.18369674682617188,
+        "absolute_value_above_0_99_fraction": 0.11545562744140625,
+        "sample_diversity_rms": 0.19359658058385204,
+        "spatial_per_channel_std_rms": 0.26524629373126307,
+        "mean_color_share_of_between_sample_variance": 0.011685784061826562,
+        "mean_color_removed_sample_diversity_rms": 0.19246209258081762
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.2574615478515625,
+        "absolute_value_above_0_99_fraction": 0.24099222819010416,
+        "sample_diversity_rms": 0.6923615767717003,
+        "spatial_per_channel_std_rms": 0.5687123263679911,
+        "mean_color_share_of_between_sample_variance": 0.38644338204505463,
+        "mean_color_removed_sample_diversity_rms": 0.5423258189501291
+      },
+      "preview_manifest_sha256": "96d697400ffa28cd2f675a20d3be79ebf6d825219632706c32927a5a5db11068"
+    },
+    {
+      "step": 300,
+      "g_lr": 7.387387387387389e-05,
+      "g_adversarial": 1.5699570178985596,
+      "d_adversarial": 0.3690144419670105,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.048381805419921875,
+        "absolute_value_above_0_99_fraction": 0.029568990071614582,
+        "sample_diversity_rms": 0.45261047151692074,
+        "spatial_per_channel_std_rms": 0.5608500761505794,
+        "mean_color_share_of_between_sample_variance": 0.010676788011208091,
+        "mean_color_removed_sample_diversity_rms": 0.450187774479689
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.20079549153645834,
+        "absolute_value_above_0_99_fraction": 0.17988459269205728,
+        "sample_diversity_rms": 0.6756480666173346,
+        "spatial_per_channel_std_rms": 0.581838054958594,
+        "mean_color_share_of_between_sample_variance": 0.31198624712273165,
+        "mean_color_removed_sample_diversity_rms": 0.5604270616416535
+      },
+      "preview_manifest_sha256": "5ab7004e88c7131dc8204f65192063539b38ec0971dbdc09cb55c197f2b35327"
+    },
+    {
+      "step": 400,
+      "g_lr": 9.189189189189189e-05,
+      "g_adversarial": 4.784541130065918,
+      "d_adversarial": 0.06820042431354523,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.2652842203776042,
+        "absolute_value_above_0_99_fraction": 0.20235315958658853,
+        "sample_diversity_rms": 0.764380902014706,
+        "spatial_per_channel_std_rms": 0.7821590014753074,
+        "mean_color_share_of_between_sample_variance": 0.05771203033586942,
+        "mean_color_removed_sample_diversity_rms": 0.7419961484240475
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.19719314575195312,
+        "absolute_value_above_0_99_fraction": 0.1821161905924479,
+        "sample_diversity_rms": 0.6810962952353871,
+        "spatial_per_channel_std_rms": 0.5762443908313691,
+        "mean_color_share_of_between_sample_variance": 0.33567909049585626,
+        "mean_color_removed_sample_diversity_rms": 0.5551335550034031
+      },
+      "preview_manifest_sha256": "9596f7f11e6dc8ef07c608580c60d95915447d838e83e1d6b46d74bbfd878b68"
+    },
+    {
+      "step": 500,
+      "g_lr": 0.00010990990990990992,
+      "g_adversarial": 3.29352068901062,
+      "d_adversarial": 0.09882963448762894,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.7539927164713541,
+        "absolute_value_above_0_99_fraction": 0.7211023966471354,
+        "sample_diversity_rms": 0.7383891713401265,
+        "spatial_per_channel_std_rms": 0.7008884233470126,
+        "mean_color_share_of_between_sample_variance": 0.18442147775237522,
+        "mean_color_removed_sample_diversity_rms": 0.666834727858998
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.22432963053385416,
+        "absolute_value_above_0_99_fraction": 0.2048365275065104,
+        "sample_diversity_rms": 0.6995435123897152,
+        "spatial_per_channel_std_rms": 0.5481271788196403,
+        "mean_color_share_of_between_sample_variance": 0.4427140260786952,
+        "mean_color_removed_sample_diversity_rms": 0.5222203476979439
+      },
+      "preview_manifest_sha256": "f7ad5f8a5747e77a6c7688b752398c0b11b80b5ff4e48ce208a6d2f9b57eadc8"
+    },
+    {
+      "step": 600,
+      "g_lr": 0.00012792792792792795,
+      "g_adversarial": 9.970230102539062,
+      "d_adversarial": 0.010877851396799088,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.9632822672526041,
+        "absolute_value_above_0_99_fraction": 0.956762949625651,
+        "sample_diversity_rms": 0.9321119437283278,
+        "spatial_per_channel_std_rms": 0.7674664468304544,
+        "mean_color_share_of_between_sample_variance": 0.38147430651170006,
+        "mean_color_removed_sample_diversity_rms": 0.7330725293080802
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.24394734700520834,
+        "absolute_value_above_0_99_fraction": 0.23282623291015625,
+        "sample_diversity_rms": 0.6702093074461671,
+        "spatial_per_channel_std_rms": 0.5690370986423987,
+        "mean_color_share_of_between_sample_variance": 0.33400509118914895,
+        "mean_color_removed_sample_diversity_rms": 0.5469478372308594
+      },
+      "preview_manifest_sha256": "b49735642d883390d1d27bbcb5700564579e673aa7cd6fb732804e304528b492"
+    },
+    {
+      "step": 700,
+      "g_lr": 0.00014594594594594595,
+      "g_adversarial": 8.612386703491211,
+      "d_adversarial": 0.004349197261035442,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.9614054361979166,
+        "absolute_value_above_0_99_fraction": 0.956750233968099,
+        "sample_diversity_rms": 0.9611466175083315,
+        "spatial_per_channel_std_rms": 0.5686426443539545,
+        "mean_color_share_of_between_sample_variance": 0.6756109755621887,
+        "mean_color_removed_sample_diversity_rms": 0.5474225933093121
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.3122266133626302,
+        "absolute_value_above_0_99_fraction": 0.29446665445963544,
+        "sample_diversity_rms": 0.7395517959363854,
+        "spatial_per_channel_std_rms": 0.630464939150829,
+        "mean_color_share_of_between_sample_variance": 0.3223532089723904,
+        "mean_color_removed_sample_diversity_rms": 0.6087938955918052
+      },
+      "preview_manifest_sha256": "1221dd9f35e5252f64bb4ad765e669b4dcfbbec041a7fec2de5f2136a9fb7f22"
+    },
+    {
+      "step": 800,
+      "g_lr": 0.00016396396396396395,
+      "g_adversarial": 12.493902206420898,
+      "d_adversarial": 0.001695917802862823,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.9491195678710938,
+        "absolute_value_above_0_99_fraction": 0.943854014078776,
+        "sample_diversity_rms": 0.8868817686107088,
+        "spatial_per_channel_std_rms": 0.5477242850493941,
+        "mean_color_share_of_between_sample_variance": 0.6574546958065473,
+        "mean_color_removed_sample_diversity_rms": 0.5190685743908161
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.30011876424153644,
+        "absolute_value_above_0_99_fraction": 0.2743377685546875,
+        "sample_diversity_rms": 0.699407061453126,
+        "spatial_per_channel_std_rms": 0.5147962095575268,
+        "mean_color_share_of_between_sample_variance": 0.48706338671891053,
+        "mean_color_removed_sample_diversity_rms": 0.5009124923555507
+      },
+      "preview_manifest_sha256": "4aa8a1087e87341180f2623938ac96f0de245cd7e0fd4b2da1375e436760c26f"
+    },
+    {
+      "step": 900,
+      "g_lr": 0.000181981981981982,
+      "g_adversarial": 10.947088241577148,
+      "d_adversarial": 0.0005954395164735615,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.986480712890625,
+        "absolute_value_above_0_99_fraction": 0.9846343994140625,
+        "sample_diversity_rms": 0.9919460986505262,
+        "spatial_per_channel_std_rms": 0.3267854425647154,
+        "mean_color_share_of_between_sample_variance": 0.8991847540383684,
+        "mean_color_removed_sample_diversity_rms": 0.3149569387781878
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.20715459187825522,
+        "absolute_value_above_0_99_fraction": 0.1834691365559896,
+        "sample_diversity_rms": 0.7324366206858319,
+        "spatial_per_channel_std_rms": 0.54000020956422,
+        "mean_color_share_of_between_sample_variance": 0.47948559633826027,
+        "mean_color_removed_sample_diversity_rms": 0.5284287354661705
+      },
+      "preview_manifest_sha256": "f220c7d0dab79b66e69c748195c5900ead54e50c32229a14a1089754d02c8a8d"
+    },
+    {
+      "step": 1000,
+      "g_lr": 0.0002,
+      "g_adversarial": 12.952838897705078,
+      "d_adversarial": 0.0001875082089100033,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.9711138407389323,
+        "absolute_value_above_0_99_fraction": 0.9677988688151041,
+        "sample_diversity_rms": 0.9874654934842056,
+        "spatial_per_channel_std_rms": 0.2824911808182365,
+        "mean_color_share_of_between_sample_variance": 0.9277510967728655,
+        "mean_color_removed_sample_diversity_rms": 0.2654223913580401
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.18190383911132812,
+        "absolute_value_above_0_99_fraction": 0.1684290568033854,
+        "sample_diversity_rms": 0.6798302392835254,
+        "spatial_per_channel_std_rms": 0.5614066868573596,
+        "mean_color_share_of_between_sample_variance": 0.35879502294701854,
+        "mean_color_removed_sample_diversity_rms": 0.544375938062872
+      },
+      "preview_manifest_sha256": "14849949353a5b8435c2ace25348446cdf1eb7cee82ac1607e8e43c5fc148404"
+    },
+    {
+      "step": 1100,
+      "g_lr": 0.0002,
+      "g_adversarial": 10.796773910522461,
+      "d_adversarial": 0.0001256296964129433,
+      "generated": {
+        "absolute_value_at_least_0_98_fraction": 0.9778874715169271,
+        "absolute_value_above_0_99_fraction": 0.9754435221354166,
+        "sample_diversity_rms": 0.9279088270831864,
+        "spatial_per_channel_std_rms": 0.5134908908384851,
+        "mean_color_share_of_between_sample_variance": 0.8079076808018577,
+        "mean_color_removed_sample_diversity_rms": 0.406687014963444
+      },
+      "real": {
+        "absolute_value_at_least_0_98_fraction": 0.24511210123697916,
+        "absolute_value_above_0_99_fraction": 0.23465855916341147,
+        "sample_diversity_rms": 0.6700735500828098,
+        "spatial_per_channel_std_rms": 0.5335682538780291,
+        "mean_color_share_of_between_sample_variance": 0.4062069003683393,
+        "mean_color_removed_sample_diversity_rms": 0.516345086322389
+      },
+      "preview_manifest_sha256": "b1126537cafe386ff257a5aa71ad80ef2ba99b0cde668880e2923749c9b1bcd7"
+    }
+  ],
+  "parameter_drift": [
+    {
+      "step": 250,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 61.17171604118457,
+          "initial_square_sum": 36807.04368585594,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.04076710421901722,
+          "delta_rms": 0.0009960125241275754
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 11.480664305222982,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.08022065577939917,
+          "delta_rms": 0.00300250114690194
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 2.4189926088964997,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.07513329286229581,
+          "delta_rms": 0.002632010487393113
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 5757.24334838201,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.1046619420646334,
+          "delta_rms": 0.10479060181765007
+        }
+      }
+    },
+    {
+      "step": 500,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 405.6956266610685,
+          "initial_square_sum": 36807.04368585594,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.10498679906014773,
+          "delta_rms": 0.002565013354154129
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 18.231355911926137,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.1010909280236897,
+          "delta_rms": 0.003783634331875603
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 7.124311007481963,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.12893967980281995,
+          "delta_rms": 0.004516913561929596
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 7600.772338375146,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.1202569979269921,
+          "delta_rms": 0.12040482850749344
+        }
+      }
+    },
+    {
+      "step": 750,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 1028.036918839678,
+          "initial_square_sum": 36807.04368585594,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.1671240252805407,
+          "delta_rms": 0.004083135789281354
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 20.12039066621034,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.10619911635871426,
+          "delta_rms": 0.003974823760402328
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 8.933098235691714,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.14438304851170944,
+          "delta_rms": 0.005057913521521062
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 10593.606177820977,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.1419722311915525,
+          "delta_rms": 0.1421467560650643
+        }
+      }
+    },
+    {
+      "step": 1000,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 1478.5225084276851,
+          "initial_square_sum": 36807.04368585594,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.2004234353644001,
+          "delta_rms": 0.004896699325984859
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 21.150468194410163,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.10888365516443879,
+          "delta_rms": 0.004075300760556203
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 17.9400812529466,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.20461023548475787,
+          "delta_rms": 0.007167745018322114
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 10836.837876314865,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.1435928395663159,
+          "delta_rms": 0.14376935663554968
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Quantized saved EMA previews; not online generator tensors or gradients.",
+    "Fractions count scalar color-channel values, not whole RGB pixels.",
+    "Population variances decompose exactly into sample mean-color and spatial-residual terms.",
+    "Preview particles/seed are recorded; the learned prior and EMA evolve, and real batches differ.",
+    "Large output spread does not imply useful or semantic diversity.",
+    "A single changing-rate run cannot establish a causal rate threshold or validate a fixed-rate alternative.",
+    "Parameter audit checks saved backbone parameters, not buffers; no online gradient probes were run in this investigation.",
+    "Read-only CPU analysis while the user-owned GPU run continued. No training launched or modified."
+  ]
+}

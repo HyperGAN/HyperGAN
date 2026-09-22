@@ -127,8 +127,10 @@ The optional branch attribution on the earlier unsuffixed attempt rejected a
 .001 limit. That incomplete attempt is excluded from the comparison; the
 complete intervention analysis uses the standard G/D boundary diagnostics
 without the optional branch decomposition. Baseline branch claims above use
-only its successful bounded-error probes. No failed branch value was silently
-accepted by relaxing its limit.
+only its successful bounded-error probes. No failed intervention branch value
+was accepted by relaxing its limit. The baseline's earlier coordinatewise
+acceptance check was replaced by the documented aggregate relative-L2 check
+before its complete v2 probe; that change is covered by the analytic tests.
 
 The practical implication for a future automatic tuner is to evaluate the
 response to a short sequence of actual optimizer updates, with an independently

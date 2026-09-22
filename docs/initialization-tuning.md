@@ -158,8 +158,13 @@ useful gradient directions, long-term stability, or convergence. Both players
 can make finite updates and still learn undesirable samples. Two probe batches
 do not provide a precise uncertainty estimate.
 
+The [gradient-response testbed](../reports/gradient-response-startup-2026-09-22.md)
+passed startup retention checks with G LR about 9.75e-7 and configured D LR
+0.0002. Its conservative rate still needs longer evaluation for learning speed,
+evolving-prior samples, and the previous 350–500-step failure window.
+
 The [update-response research memo](../reports/update-response-research-2026-09-21.md)
-explains the motivation and limits. The [first measured-update testbed](../reports/measured-update-testbed-2026-09-21.md)
+explains the earlier motivation and limits. The [first measured-update testbed](../reports/measured-update-testbed-2026-09-21.md)
 completed safely but rejected its proposed pair: held-out losses decreased while
 the coupled replay still lost output variation and transmission. It did not fix
 that configuration. The [first-update calibration follow-up](../reports/first-update-calibration-2026-09-22.md)

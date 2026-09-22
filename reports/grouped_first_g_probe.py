@@ -69,15 +69,16 @@ def adam_group_record(pairs, *, lr, eps, step, weight_decay, amsgrad):
         contaminated += float(slope[gradient.abs() <= 1000 * eps].sum())
         elements += int(delta.numel())
     relative = fraction = None
-    if finite and squared_delta > 0 and mass > 0 and elements:
+    comparable = finite and squared_delta > 0 and mass > 0 and elements
+    if comparable:
         relative = math.sqrt(squared_residual / squared_delta)
         fraction = contaminated / mass
-        finite = math.isfinite(relative) and math.isfinite(fraction)
-    return {'relative_rms': relative if finite else None,
-            'contaminated_slope_fraction': fraction if finite else None,
+        comparable = math.isfinite(relative) and math.isfinite(fraction)
+    return {'relative_rms': relative if comparable else None,
+            'contaminated_slope_fraction': fraction if comparable else None,
             'elements': elements, 'step': step, 'weight_decay': weight_decay,
             'amsgrad': amsgrad, 'eps': eps, 'lr': lr,
-            'status': 'measured' if finite else 'nonfinite'}
+            'status': 'measured' if comparable else 'nonfinite'}
 
 
 def _owned_names(trainer):
@@ -147,20 +148,22 @@ def _capture_loss(trainer, anchor, names, factors, bank):
 
 
 def _group_slope(names, gradients, deltas, group):
+    if gradients is None:
+        return None, 'missing'
     selected = set(group)
     total = 0.
     for name, gradient, delta in zip(names, gradients, deltas):
         if name not in selected:
             continue
         if gradient is None:
-            return None, True
+            return None, 'missing'
         product = gradient.detach().cpu().double() * delta.double()
         if not bool(torch.isfinite(product).all()):
-            return None, True
+            return None, 'nonfinite'
         total += float(product.sum())
     if not math.isfinite(total):
-        return None, True
-    return total, False
+        return None, 'nonfinite'
+    return total, None
 
 
 def _output_summary(images):
@@ -208,10 +211,25 @@ def _adam_from_update(trainer, names, anchor):
     return records
 
 
+def _json_ready(value, replaced):
+    if isinstance(value, float) and not math.isfinite(value):
+        replaced.append(True)
+        return None
+    if isinstance(value, dict):
+        return {key: _json_ready(item, replaced) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_ready(item, replaced) for item in value]
+    return value
+
+
 def _write(destination, report, started):
     report['elapsed_seconds'] = time.monotonic() - started
+    replaced = []
+    ready = _json_ready(report, replaced)
+    if replaced:
+        ready['contained_nonfinite'] = True
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
+    destination.write_text(json.dumps(ready, indent=2, allow_nan=False) + '\n')
 
 
 def run_probe(config_path, *, device, output):
@@ -227,7 +245,7 @@ def run_probe(config_path, *, device, output):
     report = {'schema_version': 1, 'kind': 'grouped-first-g-probe', 'status': 'running',
               'source': source_info(), 'config': str(source), 'group_a': list(GROUP_A),
               'rates': {'g_lr': learning_rate, 'd_lr': discriminator_rate},
-              'budget': {'native_updates': None, 'loss_evaluations': 0,
+              'budget': {'native_updates': 0, 'loss_evaluations': 0,
                          'projection_backwards': 0, 'output_forwards': 0}}
     if learning_rate != 2e-4 or discriminator_rate != 2e-4:
         report.update(status='failed', failure={'stage': 'rates', 'message': 'Contract requires source rates 2e-4'})
@@ -253,9 +271,9 @@ def run_probe(config_path, *, device, output):
                   'fitting_0': _identity_hash(fitting[0]),
                   'fitting_1': _identity_hash(fitting[1])}
         report['bank_hashes'] = hashes
-        if hashes['monitor'] in (hashes['fitting_0'], hashes['fitting_1']):
+        if len(set(hashes.values())) < 3:
             report.update(status='failed', failure={'stage': 'bank_identity',
-                                                    'message': 'A fitting bank matches the monitor bank'})
+                                                    'message': 'Monitor and fitting bank hashes are not all distinct'})
             return report
         trainer.base_lrs[0][0] = trainer.opt_g.param_groups[0]['lr'] = 2e-4
         trainer.base_lrs[1][0] = trainer.opt_d.param_groups[0]['lr'] = 2e-4
@@ -274,7 +292,15 @@ def run_probe(config_path, *, device, output):
         from function_space_probe import measure_function_space
         banks = []
         for batch, latent in fitting:
-            measured = measure_function_space(trainer, anchor, 'generator', (batch, latent), projections=4)
+            try:
+                measured = measure_function_space(trainer, anchor, 'generator', (batch, latent), projections=4)
+            except FloatingPointError as error:
+                banks.append({'nonfinite': True, 'error': str(error)})
+                report['banks'] = banks
+                report['contained_nonfinite'] = True
+                report['stencil_ran'] = False
+                report['status'] = 'complete'
+                return report
             report['budget']['projection_backwards'] += measured['projection_backwards']
             report['budget']['output_forwards'] += measured['output_forwards']
             banks.append({'parameters': [{'path': item['path'], 'projections': item['projections']}
@@ -290,17 +316,30 @@ def run_probe(config_path, *, device, output):
             for name, factors in _POINTS.items():
                 value, image, slopes = _capture_loss(trainer, anchor, names, factors, (batch, latent))
                 report['budget']['loss_evaluations'] += 1
+                if not math.isfinite(value):
+                    bank['nonfinite'] = True
+                    report['contained_nonfinite'] = True
+                    value = None
                 losses[name] = value
                 if name in _OUTPUT_POINTS:
                     images[name] = image
                 if factors == (0., 0.):
                     origin_slopes = slopes
                 del slopes
-            slope_a, missing_a = _group_slope(names, origin_slopes, anchor['delta'], GROUP_A)
-            slope_b, missing_b = _group_slope(names, origin_slopes, anchor['delta'], report['group_b'])
-            bank.update(losses=losses, exact_slopes={'A': slope_a, 'B': slope_b,
-                                                     'missing_gradient': missing_a or missing_b},
-                        output=_output_summary(images))
+            slope_a, problem_a = _group_slope(names, origin_slopes, anchor['delta'], GROUP_A)
+            slope_b, problem_b = _group_slope(names, origin_slopes, anchor['delta'], report['group_b'])
+            if 'nonfinite' in (problem_a, problem_b):
+                report['contained_nonfinite'] = True
+            summary = _output_summary(images)
+            if any(not math.isfinite(item) for item in summary.values()):
+                report['contained_nonfinite'] = True
+                bank['nonfinite'] = True
+                summary = {name: None for name in summary}
+            bank.update(losses=losses, exact_slopes={
+                'A': slope_a, 'B': slope_b,
+                'missing_gradient': 'missing' in (problem_a, problem_b),
+                'nonfinite': 'nonfinite' in (problem_a, problem_b) or bank.get('nonfinite') is True,
+            }, output=summary)
             del images, origin_slopes
         report['stencil_ran'] = True
         report['status'] = 'complete'

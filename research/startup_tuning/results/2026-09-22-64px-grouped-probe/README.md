@@ -49,6 +49,10 @@ only banks used for ranking and the stencil. State was restored. Protected
 pretrained weights and buffers stayed
 `01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c`.
 
+A later check of the decision code corrected gate order and failure labels.
+Reapplying that decider to this same probe still abstains at curvature, because
+both fitting banks fail that gate. The recorded losses were not refit.
+
 The raw report is [probe.json](probe.json). The same file remains at
 `/mnt/ml7tb/hypergan-signal-research/grouped-first-g-64-v1.json`. This is not
 a leaderboard row: the leaderboard is the two failed 64px controls. The

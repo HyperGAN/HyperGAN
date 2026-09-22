@@ -134,6 +134,36 @@ def test_missing_cost_is_null_and_blocks_a_proposal():
     assert proposal['evidence']['loss_evaluations'] is None
 
 
+def test_earlier_gate_on_the_other_bank_wins_and_duplicate_banks_abstain():
+    report = _probe()
+    report['banks'][0]['losses'] = _losses(a_a=-2)
+    report['banks'][0]['exact_slopes']['A'] = -2
+    report['banks'][1]['losses'] = _losses(k_a=-0.8)
+    assert decision.decide(report)['evidence']['failed_gate'] == 'curvature'
+    report = _probe()
+    report['bank_hashes'] = {'monitor': 'm', 'fitting_0': 'same', 'fitting_1': 'same'}
+    for bank in report['banks']:
+        bank['losses'] = {'origin': 0.0, 'A_minus': 1.5, 'A_plus': -0.5, 'B_minus': 1.5,
+                          'B_plus': -0.5, 'full_step': -1.0, 'opposite_mix': 1.0}
+        bank['exact_slopes'] = {'A': -1.0, 'B': -1.0, 'missing_gradient': False}
+    assert decision.decide(report)['evidence']['failed_gate'] == 'bank_identity'
+    stopped = {'failure': {'stage': 'bank_identity'}, 'budget': {'native_updates': 0, 'loss_evaluations': 0,
+               'projection_backwards': 0, 'output_forwards': 0}, 'elapsed_seconds': 1}
+    assert decision.decide(stopped)['evidence']['failed_gate'] == 'bank_identity'
+    assert decision.decide(stopped)['evidence']['native_updates'] == 0
+
+
+def test_nonfinite_measurements_and_unresolved_adam_keep_their_gates():
+    report = _probe()
+    report['banks'][0]['losses']['origin'] = None
+    assert decision.decide(report)['evidence']['failed_gate'] == 'nonfinite'
+    report = _probe()
+    report['adam']['A']['relative_rms'] = None
+    report['adam']['A']['contaminated_slope_fraction'] = None
+    report['adam']['A']['status'] = 'nonfinite'
+    assert decision.decide(report)['evidence']['failed_gate'] == 'adam_step_not_proportional'
+
+
 def test_adam_record_accepts_a_proportional_step_and_rejects_a_floor():
     gradient = torch.tensor([1., -2., 1e-8])
     eps = 1e-8

@@ -228,12 +228,14 @@ def _cleanup_validation_failure(execution):
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
           stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
           preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None, tune=False,
-          tune_warmup_steps=0):
+          tune_warmup_steps=None):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
     if execution_factory is None:
         raise TypeError('run_train requires an execution_factory')
     if type(tune) is not bool:
         raise ValueError('tune must be a boolean')
+    if tune_warmup_steps is None:
+        tune_warmup_steps = 1000 if tune else 0
     if type(tune_warmup_steps) is not int or tune_warmup_steps < 0 or tune_warmup_steps == 1:
         raise ValueError('tune_warmup_steps must be zero or an integer of at least 2')
     if tune_warmup_steps and not tune:

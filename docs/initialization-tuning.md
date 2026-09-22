@@ -32,13 +32,13 @@ quality across recipes, so tuning remains off by default.
 Native CPU and single-GPU execution are supported; replicated execution with
 `--tune` is rejected before creating a run.
 
-## Optional learning-rate warmup after tuning
+## Learning-rate warmup after tuning
 
-To test whether the smaller G rate is needed only at startup, request a ramp:
+New runs with `--tune` default to a 1,000-update G learning-rate ramp:
 
 ```sh
 hypergan train config.toml --run-dir runs/tuned-warmup \
-  --tune --tune-warmup-steps 1000
+  --tune
 ```
 
 The first retained update uses the G rate selected by tuning. A linear ramp
@@ -48,14 +48,16 @@ follow their original schedules. Warmup takes place during normal training,
 after all tuning trials have been discarded; it adds no search or trial updates.
 The console and dashboard show its progress and current G learning rate.
 
-This option is experimental: eight startup trial updates do not establish that
-returning to the original rate later will remain stable. Without the option,
-`--tune` keeps the selected rate as its base rate. If tuning retains the original
+The ramp is experimental: eight startup trial updates do not establish that
+returning to the original rate later will remain stable. Pass
+`--tune-warmup-steps 0` to keep the selected rate as its base rate. If tuning retains the original
 rate, both ramp endpoints are equal and the option does not change that rate.
-Use zero to disable the ramp, or an integer of at least two to enable it.
+Use `--tune-warmup-steps N` with an integer of at least two to change its duration.
+Untuned runs have no ramp.
 
 The run's tuning artifacts and checkpoints record the ramp. Resume automatically
 continues from the saved training step without restarting tuning or warmup.
+The new default does not add a ramp to existing runs that saved none.
 Use `hypergan resume runs/tuned-warmup` to continue it.
 
 ## What it does

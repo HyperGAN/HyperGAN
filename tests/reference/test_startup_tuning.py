@@ -36,14 +36,19 @@ def _candidate(trainer, *, progress=None):
             'transformations': [{'path': name, 'factor': .75}]}
 
 
-def test_tuned_initial_checkpoint_contains_exact_parameters_and_resume_does_not_retune(tmp_path, monkeypatch):
+@pytest.mark.parametrize('warmup_steps', [None, 0])
+def test_tuned_initial_checkpoint_contains_exact_parameters_and_resume_does_not_retune(tmp_path, monkeypatch, warmup_steps):
     import hypergan.initialization_tuning as numerical
     monkeypatch.setattr(numerical, 'tune_initialization', _candidate)
     config = write_default(tmp_path / 'project', device='cpu')
     original = config.read_bytes()
     root = tmp_path / 'run'
-    result = train(config, root, steps=2, tune=True, stop_after_steps=1)
+    result = train(config, root, steps=2, tune=True, tune_warmup_steps=warmup_steps, stop_after_steps=1)
     provenance = result['initialization_tuning']
+    if warmup_steps is None:
+        assert provenance['g_lr_warmup']['steps'] == 1000
+    else:
+        assert 'g_lr_warmup' not in provenance
     report = json.loads((root / 'tuning/report.json').read_text())
     assert len(report['ema_synchronized_parameters']) == 1
     assert report['initialization_optimizer_steps'] == report['retained_training_updates'] == 0
@@ -64,6 +69,7 @@ def test_tuned_initial_checkpoint_contains_exact_parameters_and_resume_does_not_
     with pytest.warns(RuntimeWarning, match='tuning is skipped'):
         result = train(config, root, steps=2, tune=True)
     assert result['status'] == 'complete'
+    assert result['initialization_tuning'] == provenance
     assert config.read_bytes() == original
     final_state = read_checkpoint(root)[2]
     assert final_state['base_lrs'][0][0] == baseline.base_lrs[0][0] * .3

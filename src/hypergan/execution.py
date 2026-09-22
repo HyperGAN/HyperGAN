@@ -186,12 +186,12 @@ class PreparedExecution:
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                   preview_every=None, preview_keep=None, preview_keep_source=None,
-                  preview_name=None, tune=False, tune_warmup_steps=0):
+                  preview_name=None, tune=False, tune_warmup_steps=None):
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
     if type(tune) is not bool:
         raise ValueError("tune must be a boolean")
-    if type(tune_warmup_steps) is not int or tune_warmup_steps < 0 or tune_warmup_steps == 1:
+    if tune_warmup_steps is not None and (type(tune_warmup_steps) is not int or tune_warmup_steps < 0 or tune_warmup_steps == 1):
         raise ValueError('tune_warmup_steps must be zero or an integer of at least 2')
     if tune_warmup_steps and not tune:
         raise ValueError('--tune-warmup-steps requires --tune on a new run')
@@ -206,6 +206,8 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
             max_seconds=max_seconds, stop_after_steps=stop_after_steps,
             preview_every=preview_every, preview_keep=preview_keep,
             preview_keep_source=preview_keep_source, preview_name=preview_name)
+    if tune_warmup_steps is None:
+        tune_warmup_steps = 1000 if tune else 0
     checkpoint_every = 100 if checkpoint_every is None else checkpoint_every
     preview_every = 0 if preview_every is None else preview_every
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
@@ -226,7 +228,6 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
                     preview_name=preview_name)
     if tune:
         controls['tune'] = True
-    if tune_warmup_steps:
         controls['tune_warmup_steps'] = tune_warmup_steps
     return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls)
 

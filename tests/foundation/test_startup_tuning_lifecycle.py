@@ -18,6 +18,9 @@ def test_tune_options_validate_before_any_run_write(tmp_path):
         prepare_train(config, root, tune=1)
     assert not root.exists()
     assert prepare_train(config, root, tune=True).controls['tune'] is True
+    assert prepare_train(config, root, tune=True).controls['tune_warmup_steps'] == 1000
+    assert prepare_train(config, root, tune=True, tune_warmup_steps=0).controls['tune_warmup_steps'] == 0
+    assert 'tune_warmup_steps' not in prepare_train(config, root).controls
     assert 'tune' not in prepare_train(config, root).controls
 
 
@@ -30,7 +33,7 @@ def test_repeat_train_with_tune_visibly_skips_search(tmp_path):
     assert 'tune' not in prepared.controls
 
 
-@pytest.mark.parametrize('value', [-1, 1, True, 2.5, None])
+@pytest.mark.parametrize('value', [-1, 1, True, 2.5])
 def test_warmup_rejects_invalid_length_before_run_creation(tmp_path, value):
     path = project(tmp_path)
     root = tmp_path / 'run'
@@ -57,8 +60,9 @@ def test_tune_precedes_checkpoint_and_update_and_never_repeats_on_resume(tmp_pat
     events = []
 
     class Tunable(NativeExecution):
-        def tune(self, run_dir, on_event=None):
+        def tune(self, run_dir, on_event=None, *, warmup_steps=0):
             assert self.step == 0
+            assert warmup_steps == 1000
             manifest = json.loads((run_dir / 'manifest.json').read_text())
             assert manifest['status'] == 'tuning'
             assert manifest['initialization_tuning']['status'] == 'running'
@@ -91,7 +95,7 @@ def test_failed_tuning_never_checkpoints_or_trains_partial_weights(tmp_path):
     path, root, _, options, trace, _ = setup(tmp_path, native=True)
 
     class Failing(NativeExecution):
-        def tune(self, run_dir, on_event=None):
+        def tune(self, run_dir, on_event=None, *, warmup_steps=0):
             raise ValueError('calibration failed')
 
         def checkpoint(self, *args, **kwargs):
@@ -117,7 +121,7 @@ def test_initial_preview_follows_tuning_and_checkpoint_before_updates(tmp_path, 
     sequence = []
 
     class InitialPreview(NativeExecution):
-        def tune(self, run_dir, on_event=None):
+        def tune(self, run_dir, on_event=None, *, warmup_steps=0):
             sequence.append('tune')
             return {'outcome': 'selected'}
 
@@ -160,7 +164,7 @@ def test_train_tuning_flags_are_explicit_and_mutually_exclusive():
     assert parser.parse_args(arguments).tune is False
     assert parser.parse_args([*arguments, '--tune']).tune is True
     assert parser.parse_args([*arguments, '--no-tune']).tune is False
-    assert parser.parse_args(arguments).tune_warmup_steps == 0
+    assert parser.parse_args(arguments).tune_warmup_steps is None
     assert parser.parse_args([*arguments, '--tune', '--tune-warmup-steps', '12']).tune_warmup_steps == 12
     with pytest.raises(SystemExit):
         parser.parse_args([*arguments, '--tune', '--no-tune'])

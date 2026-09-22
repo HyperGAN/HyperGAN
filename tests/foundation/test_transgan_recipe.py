@@ -37,9 +37,11 @@ def test_cifar_transgan_preserves_discriminator_encoder_and_training_recipe():
     assert right['prior']['args']['z_dim'] == right['components']['encoder']['args']['z_dim'] == 64
     assert right['components']['reconstruction']['reuse'] == 'generator'
     assert right['components']['reconstruction']['freeze_parameters']
-    # Existing adapters snapshot their editable HNDL networks, including the
-    # pretrained stages, rather than hiding a second architecture in the recipe.
-    discriminator = right['components']['discriminator']['args']['networks']
-    assert {'image_pixel', 'image_feature_head', 'image_resnet_stage1',
-            'image_resnet_stage2', 'image_resnet_stage3', 'image_critic_score'} <= discriminator.keys()
+    discriminator = right['components']['discriminator']
+    assert discriminator['factory'] == 'hndl'
+    assert discriminator['inputs'] == {'x': 'candidate'}
+    assert set(discriminator['args']) == {'source', 'input_shape', 'output_shape', 'parameters'}
+    assert discriminator['args']['input_shape'] == ['B', 3, 32, 32]
+    assert discriminator['args']['output_shape'] == ['B', 1]
+    assert discriminator['args']['source'] == (examples / 'networks/cifar-discriminator-32.hndl').read_text()
     assert right['components']['encoder']['args']['networks']['image_encoder'].strip()

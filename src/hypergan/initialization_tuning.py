@@ -185,10 +185,13 @@ def tune_initialization(trainer, *, objective='adversarial', progress=None, max_
     def evaluate(batch, latent):
         restore_rng(probe_rng)
         parameter_tensors = [(name, value) for name, value, _ in saved if '.parameter.' in name]
-        parameter_before = _hash(parameter_tensors)
+        parameter_before = {name: _hash([(name, value)]) for name, value in parameter_tensors}
         structural = _structural(trainer, batch, latent, layers)
-        if _hash(parameter_tensors) != parameter_before:
-            raise ValueError('Initialization probe changed model parameters; restoring baseline')
+        changed = [name for name, value in parameter_tensors
+                   if _hash([(name, value)]) != parameter_before[name]]
+        if changed:
+            raise ValueError('Initialization probe changed model parameters; restoring baseline: '
+                             + ', '.join(changed[:5]))
         if _hash(pretrained) != pretrained_before:
             raise ValueError('Initialization probe changed pretrained state; restoring baseline')
         restore_buffers()

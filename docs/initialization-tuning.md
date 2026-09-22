@@ -32,6 +32,32 @@ quality across recipes, so tuning remains off by default.
 Native CPU and single-GPU execution are supported; replicated execution with
 `--tune` is rejected before creating a run.
 
+## Optional learning-rate warmup after tuning
+
+To test whether the smaller G rate is needed only at startup, request a ramp:
+
+```sh
+hypergan train config.toml --run-dir runs/tuned-warmup \
+  --tune --tune-warmup-steps 1000
+```
+
+The first retained update uses the G rate selected by tuning. A linear ramp
+reaches the original config's G rate on update 1,000, then holds that rate.
+The existing configured annealing multiplier still applies. D and prior rates
+follow their original schedules. Warmup takes place during normal training,
+after all tuning trials have been discarded; it adds no search or trial updates.
+The console and dashboard show its progress and current G learning rate.
+
+This option is experimental: eight startup trial updates do not establish that
+returning to the original rate later will remain stable. Without the option,
+`--tune` keeps the selected rate as its base rate. If tuning retains the original
+rate, both ramp endpoints are equal and the option does not change that rate.
+Use zero to disable the ramp, or an integer of at least two to enable it.
+
+The run's tuning artifacts and checkpoints record the ramp. Resume automatically
+continues from the saved training step without restarting tuning or warmup.
+Use `hypergan resume runs/tuned-warmup` to continue it.
+
 ## What it does
 
 First, a bounded initialization search measures the configured adversarial
@@ -114,7 +140,8 @@ replayed on resume.
 
 Repeating `train` on that run directory resumes the saved checkpoint. Keeping
 `--tune` on the command prints a reminder that tuning is skipped for an existing
-run. Resume keeps its saved weights and selected learning rate. To compare
+run. The warmup option is only accepted for a new run; omit it when resuming.
+Resume keeps its saved weights and selected learning-rate schedule. To compare
 baseline and tuned startup, use distinct run directories
 with the same config and seed. Do not point a calibration comparison at an
 existing training run and expect it to reinitialize the model.

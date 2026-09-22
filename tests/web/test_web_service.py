@@ -78,7 +78,9 @@ def test_initialization_tuning_progress_is_public_and_updates_live(tmp_path):
             assert service.public_manifest()['initialization_tuning'] == progress
             subscriber, _ = service.subscribe('*')
             result = {'status': 'complete', 'outcome': 'kept_baseline'}
-            manifest.update(status='running', initialization_tuning=result)
+            warmup = {'steps': 4, 'completed_steps': 2, 'status': 'running', 'progress': 1 / 3,
+                      'g_lr': .00008, 'start_g_lr': .00002, 'target_g_lr': .0002}
+            manifest.update(status='running', initialization_tuning=result, g_lr_warmup=warmup)
             atomic_json(tmp_path / 'manifest.json', manifest)
             for _ in range(300):
                 message = await asyncio.wait_for(subscriber.get(), timeout=3)
@@ -88,6 +90,8 @@ def test_initialization_tuning_progress_is_public_and_updates_live(tmp_path):
                 raise AssertionError('Tuning completion was not published')
             assert service.public_manifest()['status'] == 'running'
             assert service.public_manifest()['initialization_tuning'] == result
+            assert service.public_manifest()['g_lr_warmup'] == warmup
+            assert b'g_lr_warmup' in message
         finally:
             await service.close()
     asyncio.run(scenario())

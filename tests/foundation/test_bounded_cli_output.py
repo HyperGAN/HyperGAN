@@ -343,6 +343,27 @@ def test_json_progress_rows_carry_the_same_training_metrics(capsys):
     assert row['steps_per_second'] == 12.5 and row['training_seconds'] == 1.25 and row['samples_seen'] == 96
 
 
+def test_warmup_progress_reports_actual_rate_and_forces_start_and_end(capsys):
+    with training_output(progress_every=3) as output:
+        for step in range(1, 6):
+            output.progress({'event': 'train', 'step': step, 'g_lr_warmup': {
+                'steps': 4, 'completed_steps': min(step, 4),
+                'status': 'complete' if step >= 4 else 'running', 'g_lr': step * .00001}})
+    assert capsys.readouterr().err.splitlines() == [
+        'step 1 | G LR warmup 1/4 | G LR 1e-05',
+        'step 3 | G LR warmup 3/4 | G LR 3e-05',
+        'step 4 | G LR warmup complete | G LR 4e-05',
+    ]
+
+
+def test_warmup_boundaries_remain_structured_in_json_output(capsys):
+    event = {'event': 'train', 'step': 1, 'g_lr_warmup': {
+        'steps': 4, 'completed_steps': 1, 'status': 'running', 'progress': 0., 'g_lr': .00001}}
+    with training_output(progress_json=True, progress_every=1000) as output:
+        output.progress(event)
+    assert json.loads(capsys.readouterr().out) == event
+
+
 def test_tuning_phase_and_outcomes_are_always_visible(capsys):
     with training_output(progress_every=1000) as output:
         for tuning in ({'status': 'running'},

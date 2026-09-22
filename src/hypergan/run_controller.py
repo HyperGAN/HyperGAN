@@ -227,12 +227,17 @@ def _cleanup_validation_failure(execution):
 
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
           stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
-          preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None, tune=False):
+          preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None, tune=False,
+          tune_warmup_steps=0):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
     if execution_factory is None:
         raise TypeError('run_train requires an execution_factory')
     if type(tune) is not bool:
         raise ValueError('tune must be a boolean')
+    if type(tune_warmup_steps) is not int or tune_warmup_steps < 0 or tune_warmup_steps == 1:
+        raise ValueError('tune_warmup_steps must be zero or an integer of at least 2')
+    if tune_warmup_steps and not tune:
+        raise ValueError('--tune-warmup-steps requires --tune on a new run')
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     config = load_config(config_path)
@@ -272,6 +277,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
                     ('prior', config['training']['prior_seed_offset']), ('penalty', 3)]}}
         if tune:
             manifest['initialization_tuning'] = {'status': 'pending'}
+            if tune_warmup_steps:
+                manifest['initialization_tuning']['warmup_steps_requested'] = tune_warmup_steps
         manifest['rng_streams']['sampling'] = config['sampling']['seed']
         _apply_execution(manifest, descriptor)
         with run_lock(run_dir):
@@ -424,6 +431,19 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
 
     def training_seconds(now=None):
         return training_baseline + max(0.0, (time.monotonic() if now is None else now) - started)
+
+    def warmup_progress(step):
+        descriptor = manifest.get('initialization_tuning', {}).get('g_lr_warmup')
+        if descriptor is None:
+            manifest.pop('g_lr_warmup', None)
+            return None
+        steps = descriptor['steps']
+        result = dict(descriptor, completed_steps=min(step, steps),
+                      progress=max(0., min(1., (step - 1) / (steps - 1))),
+                      status='complete' if step >= steps else 'running',
+                      g_lr=execution.current_generator_lr())
+        manifest['g_lr_warmup'] = result
+        return result
 
     manifest.update(metrics_catalog=catalog_revision, observation_sha256=observation_fingerprint(config))
     manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
@@ -610,7 +630,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 publish()
                 emit('tuning', tuning=dict(tuning))
             try:
-                result = _json_value(execution.tune(run_dir, on_event=tuning_progress))
+                warmup_options = {'warmup_steps': tuning['warmup_steps_requested']} if tuning.get('warmup_steps_requested') else {}
+                result = _json_value(execution.tune(run_dir, on_event=tuning_progress, **warmup_options))
                 if not isinstance(result, dict):
                     raise ValueError('Tuning result must be a JSON object')
             except BaseException as error:
@@ -622,6 +643,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             manifest['status'] = 'running'
             publish()
             emit('tuning', tuning=dict(tuning))
+        warmup_progress(info.step)
         manifest['qualification']['resume'] = False
         manifest['qualification']['recovery_scope'] = 'Full-state protocol on the recorded execution device; custom hidden state is author responsibility'
         for reason in reasons:
@@ -829,6 +851,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             # examples the step drew.
             batch = row['global_batch_size'] if type(row.get('global_batch_size')) is int and row['global_batch_size'] > 0 else global_batch_size
             progress = {'samples_seen': completed.step * batch, 'training_seconds': training_seconds()}
+            warmup = warmup_progress(completed.step)
+            if warmup is not None:
+                progress['g_lr_warmup'] = warmup
             rate = throughput.observe(step_seconds)
             if rate is not None:
                 progress['steps_per_second'] = rate

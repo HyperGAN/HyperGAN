@@ -30,6 +30,27 @@ def test_repeat_train_with_tune_visibly_skips_search(tmp_path):
     assert 'tune' not in prepared.controls
 
 
+@pytest.mark.parametrize('value', [-1, 1, True, 2.5, None])
+def test_warmup_rejects_invalid_length_before_run_creation(tmp_path, value):
+    path = project(tmp_path)
+    root = tmp_path / 'run'
+    with pytest.raises(ValueError, match='at least 2'):
+        prepare_train(path, root, tune=True, tune_warmup_steps=value)
+    assert not root.exists()
+
+
+def test_warmup_requires_tuning_and_a_new_run(tmp_path):
+    path = project(tmp_path)
+    root = tmp_path / 'run'
+    with pytest.raises(ValueError, match='requires --tune'):
+        prepare_train(path, root, tune_warmup_steps=4)
+    assert not root.exists()
+    assert prepare_train(path, root, tune=True, tune_warmup_steps=4).controls['tune_warmup_steps'] == 4
+    root.mkdir()
+    with pytest.raises(ValueError, match='requires a new run'):
+        prepare_train(path, root, tune=True, tune_warmup_steps=4)
+
+
 def test_tune_precedes_checkpoint_and_update_and_never_repeats_on_resume(tmp_path):
     path, root, _, options, trace, _ = setup(tmp_path, native=True)
     sequence = []
@@ -139,5 +160,7 @@ def test_train_tuning_flags_are_explicit_and_mutually_exclusive():
     assert parser.parse_args(arguments).tune is False
     assert parser.parse_args([*arguments, '--tune']).tune is True
     assert parser.parse_args([*arguments, '--no-tune']).tune is False
+    assert parser.parse_args(arguments).tune_warmup_steps == 0
+    assert parser.parse_args([*arguments, '--tune', '--tune-warmup-steps', '12']).tune_warmup_steps == 12
     with pytest.raises(SystemExit):
         parser.parse_args([*arguments, '--tune', '--no-tune'])

@@ -65,6 +65,8 @@ def viewer():
                     run.update(steps_per_second=12.5,training_seconds=5025.4,samples_seen=control['step']*32,global_batch_size=32)
                 if 'initialization_tuning' in control:
                     run['initialization_tuning'] = control['initialization_tuning']
+                if 'g_lr_warmup' in control:
+                    run['g_lr_warmup'] = control['g_lr_warmup']
                 return self.send(200,run)
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
             if '/artifacts/' in path:
@@ -231,6 +233,30 @@ def test_startup_dynamics_progress_and_decision_are_distinct_from_training(viewe
     assert panel.get_attribute('data-outcome')==outcome
     assert 'Trial step' not in panel.text_content()
     assert page.locator('#run-status').text_content()=='Training'
+    assert not errors
+
+
+def test_warmup_progress_arrives_live_during_retained_training(viewer):
+    page, control, condition, errors = viewer
+    tuning = {'status': 'complete', 'outcome': 'kept_baseline',
+              'dynamics_outcome': 'selected', 'selected_g_lr_factor': .1}
+    warmup = {'steps': 4, 'completed_steps': 2, 'progress': 1 / 3, 'status': 'running',
+              'g_lr': .00008, 'start_g_lr': .00002, 'target_g_lr': .0002}
+    control.update(initialization_tuning=tuning, g_lr_warmup=warmup)
+    login(page)
+    panel = page.locator('#initialization-tuning')
+    assert 'G learning-rate warmup · Update 2 of 4' in panel.text_content()
+    assert 'Current G learning rate 0.00008' in panel.text_content()
+    assert 'Configured target 0.0002 before annealing' in panel.text_content()
+    assert page.locator('#run-status').text_content() == 'Training'
+    with condition:
+        control['run_update'] = {'run_id': RUN, 'status': 'running', 'steps': 4,
+            'initialization_tuning': tuning, 'g_lr_warmup': dict(warmup,
+                completed_steps=4, progress=1., status='complete', g_lr=.0002)}
+        condition.notify_all()
+    panel.filter(has_text='G learning-rate warmup complete').wait_for()
+    assert 'Current G learning rate 0.0002' in panel.text_content()
+    assert page.locator('#step').text_content() == '4'
     assert not errors
 
 

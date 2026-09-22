@@ -99,16 +99,21 @@ class SingleProcessExecution:
         return Restored(checkpoint_path=target, step=self._trainer.step,
                         warnings=tuple(runtime_warnings))
 
-    def tune(self, run_dir, on_event=None):
+    def tune(self, run_dir, on_event=None, *, warmup_steps=0):
         """Calibrate owned initialization at step zero, before any optimizer update."""
         from .startup_tuning import tune_initialized
         self._boundary()
         if self._trainer.step != 0:
             raise ValueError('Startup tuning cannot modify a trained checkpoint')
         self._ready = False
-        result = tune_initialized(self._trainer, run_dir, on_event=on_event)
+        result = tune_initialized(self._trainer, run_dir, on_event=on_event, warmup_steps=warmup_steps)
         self._ready = True
         return result
+
+    def current_generator_lr(self):
+        """Actual rate at the current complete update boundary, including annealing."""
+        self._boundary()
+        return self._trainer.opt_g.param_groups[0]['lr']
 
     def update(self):
         self._boundary()

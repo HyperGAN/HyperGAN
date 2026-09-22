@@ -48,6 +48,13 @@ def _progress_details(event):
     samples = event.get('samples_seen')
     if type(samples) is int and samples >= 0:
         yield f'{samples:,} samples'
+    warmup = event.get('g_lr_warmup')
+    if isinstance(warmup, dict):
+        step, steps, rate = warmup.get('completed_steps'), warmup.get('steps'), warmup.get('g_lr')
+        if type(step) is int and type(steps) is int and steps >= 2 and 0 <= step <= steps:
+            yield 'G LR warmup complete' if warmup.get('status') == 'complete' else f'G LR warmup {step}/{steps}'
+            if type(rate) in (int, float) and math.isfinite(rate) and rate >= 0:
+                yield f'G LR {rate:.6g}'
 
 
 def _tuning_message(tuning):
@@ -89,6 +96,9 @@ def _tuning_message(tuning):
         reason = tuning.get('dynamics_reason')
         if isinstance(reason, str) and reason.strip():
             parts.append(brief(reason))
+        warmup = tuning.get('g_lr_warmup')
+        if isinstance(warmup, dict) and type(warmup.get('steps')) is int and warmup['steps'] >= 2:
+            parts.append(f"G learning-rate warmup enabled for {warmup['steps']} retained updates")
     message = tuning.get('message')
     if isinstance(message, str) and message.strip():
         parts.append(brief(message))
@@ -378,7 +388,9 @@ class CLIProgress:
 
     def __call__(self, event):
         self.output.policy.refresh(self.output.stderr)
-        if event.get('event') == 'train' and event['step'] % self.output.policy.every:
+        warmup = event.get('g_lr_warmup', {})
+        warmup_boundary = isinstance(warmup, dict) and bool(warmup) and event.get('step') in (1, warmup.get('steps'))
+        if event.get('event') == 'train' and event['step'] % self.output.policy.every and not warmup_boundary:
             return
         reminder = None
         if event.get('event') == 'train' and self.output.evaluation_reminder:

@@ -182,7 +182,7 @@ function duration(seconds) {
   if (total < 3600) return `${Math.floor(total / 60)}m ${pad(total % 60)}s`;
   return `${Math.floor(total / 3600)}h ${pad(Math.floor((total % 3600) / 60))}m`;
 }
-function updateInitializationTuning(tuning) {
+function updateInitializationTuning(tuning, warmup) {
   const panel = $("initialization-tuning");
   const labels = {pending: "Preparing startup tuning", running: "Tuning startup", complete: "Startup tuning complete",
     failed: "Startup tuning failed"};
@@ -219,6 +219,14 @@ function updateInitializationTuning(tuning) {
   }
   if (typeof tuning.message === "string" && tuning.message.trim())
     parts.push(tuning.message.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240));
+  if (tuning.status === "complete" && Number.isSafeInteger(warmup?.steps) && warmup.steps >= 2
+      && Number.isSafeInteger(warmup.completed_steps) && warmup.completed_steps >= 0
+      && warmup.completed_steps <= warmup.steps) {
+    parts.push(warmup.status === "complete" ? "G learning-rate warmup complete"
+      : `G learning-rate warmup · Update ${warmup.completed_steps} of ${warmup.steps}`);
+    if (factor(warmup.g_lr)) parts.push(`Current G learning rate ${factor(warmup.g_lr)}`);
+    if (factor(warmup.target_g_lr)) parts.push(`Configured target ${factor(warmup.target_g_lr)} before annealing`);
+  }
   panel.textContent = parts.join(" · ");
 }
 function updateRun(run) {
@@ -232,7 +240,7 @@ function updateRun(run) {
   }
   $("run-status").textContent = statusLabel(run.status);
   $("run-status").dataset.status = run.status || "unknown";
-  updateInitializationTuning(run.initialization_tuning);
+  updateInitializationTuning(run.initialization_tuning, run.g_lr_warmup);
   $("step").textContent = fmt(run.steps);
   $("steps-per-second").textContent = rate(run.steps_per_second);
   $("training-time").textContent = duration(run.training_seconds);

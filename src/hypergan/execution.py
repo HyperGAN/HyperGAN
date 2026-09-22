@@ -186,13 +186,19 @@ class PreparedExecution:
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                   preview_every=None, preview_keep=None, preview_keep_source=None,
-                  preview_name=None, tune=False):
+                  preview_name=None, tune=False, tune_warmup_steps=0):
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
     if type(tune) is not bool:
         raise ValueError("tune must be a boolean")
+    if type(tune_warmup_steps) is not int or tune_warmup_steps < 0 or tune_warmup_steps == 1:
+        raise ValueError('tune_warmup_steps must be zero or an integer of at least 2')
+    if tune_warmup_steps and not tune:
+        raise ValueError('--tune-warmup-steps requires --tune on a new run')
     run_dir = Path(run_dir).resolve()
     if run_dir.exists():
+        if tune_warmup_steps:
+            raise ValueError('--tune-warmup-steps requires a new run; resume keeps the saved warmup')
         if tune:
             warnings.warn("Startup tuning is skipped on an existing run; restoring its saved checkpoint", RuntimeWarning)
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
@@ -220,6 +226,8 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
                     preview_name=preview_name)
     if tune:
         controls['tune'] = True
+    if tune_warmup_steps:
+        controls['tune_warmup_steps'] = tune_warmup_steps
     return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls)
 
 

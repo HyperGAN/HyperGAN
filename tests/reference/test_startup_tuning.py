@@ -174,3 +174,118 @@ def test_tuned_rate_split_resume_matches_uninterrupted_training(tmp_path, monkey
     with pytest.warns(RuntimeWarning, match='tuning is skipped'):
         train(config, split, steps=4, tune=True)
     equal(read_checkpoint(whole)[2], read_checkpoint(split)[2])
+
+
+def test_generator_warmup_is_persisted_at_step_zero_without_changing_source(tmp_path, monkeypatch):
+    import hypergan.initialization_tuning as numerical
+    monkeypatch.setattr(numerical, 'tune_initialization', _candidate)
+    config = write_default(tmp_path / 'project', device='cpu')
+    source = config.read_bytes()
+    baseline_rate = load_config(config)['optimizer']['lr']
+    root = tmp_path / 'run'
+    result = train(config, root, steps=6, tune=True, tune_warmup_steps=4,
+                   checkpoint_every=1, stop_after_steps=1)
+    expected = {'steps': 4, 'start_g_lr': baseline_rate * .3, 'target_g_lr': baseline_rate}
+    assert result['initialization_tuning']['g_lr_warmup'] == expected
+    report = json.loads((root / 'tuning/report.json').read_text())
+    overrides = json.loads((root / 'tuning/overrides.json').read_text())
+    assert report['g_lr_warmup'] == overrides['g_lr_warmup'] == expected
+    initial = next(path for path in (root / 'checkpoints').glob('*-step-*')
+                   if json.loads((path / 'manifest.json').read_text())['step'] == 0)
+    _, metadata, state = read_checkpoint(root, initial)
+    assert metadata['initialization_tuning']['g_lr_warmup'] == expected
+    assert state['base_lrs'][0][0] == expected['start_g_lr']
+    assert state['optimizers'][0]['param_groups'][0]['lr'] == expected['start_g_lr']
+    assert not state['optimizers'][0]['state'] and not state['optimizers'][1]['state']
+    assert config.read_bytes() == source
+    latest = read_checkpoint(root)[2]
+    assert latest['step'] == 1
+    assert latest['optimizers'][0]['param_groups'][0]['lr'] == expected['start_g_lr']
+
+
+@pytest.mark.parametrize('split_step', [2, 5], ids=['during_ramp', 'after_ramp'])
+def test_warmup_split_resume_matches_uninterrupted_training(tmp_path, monkeypatch, dynamics, split_step):
+    import hypergan.initialization_tuning as numerical
+    from .test_recovery import equal
+    monkeypatch.setattr(numerical, 'tune_initialization', _candidate)
+    config = write_default(tmp_path / 'project', device='cpu')
+    source = config.read_bytes()
+    baseline = load_config(config)
+    whole, split = tmp_path / 'whole', tmp_path / 'split'
+    train(config, whole, steps=6, tune=True, tune_warmup_steps=4, checkpoint_every=1)
+    train(config, split, steps=6, tune=True, tune_warmup_steps=4,
+          checkpoint_every=1, stop_after_steps=split_step)
+    partial = read_checkpoint(split)[2]
+    g_rate = partial['optimizers'][0]['param_groups'][0]['lr']
+    target = baseline['optimizer']['lr']
+    from particlegan import learning_rate_scale
+    def anneal(step):
+        return learning_rate_scale(step - 1, 6, start=baseline['training']['lr_anneal_start'],
+                                   floor=baseline['training']['lr_floor'])
+    if split_step < 4:
+        assert target * .3 * anneal(split_step) < g_rate < target * anneal(split_step)
+    else:
+        assert g_rate == target * anneal(split_step)
+    monkeypatch.setattr(numerical, 'tune_initialization', lambda *a, **k: pytest.fail('resume reinitialized'))
+    monkeypatch.setattr(dynamics, 'tune_startup_dynamics', lambda *a, **k: pytest.fail('resume reran disposable trials'))
+    # No warmup or tune option is needed on resume: the stored schedule continues.
+    result = train(config, split, steps=6, checkpoint_every=1)
+    equal(read_checkpoint(whole)[2], read_checkpoint(split)[2])
+    state = read_checkpoint(split)[2]
+    assert state['optimizers'][0]['param_groups'][0]['lr'] == target * anneal(6)
+    assert state['base_lrs'][0][0] == target * .3
+    assert result['initialization_tuning']['g_lr_warmup']['steps'] == 4
+    assert config.read_bytes() == source
+
+
+def test_requested_warmup_is_installed_only_after_disposable_dynamics(tmp_path, monkeypatch, dynamics):
+    import hypergan.initialization_tuning as numerical
+    from hypergan.startup_tuning import tune_initialized
+    monkeypatch.setattr(numerical, 'tune_initialization', _candidate)
+    config = load_config(write_default(tmp_path / 'project', device='cpu'))
+    trainer = ReferenceTrainer(config)
+    before_rates = deepcopy(trainer.base_lrs)
+    calls = []
+    def select(current, *, progress=None):
+        calls.append(True)
+        assert getattr(current, 'g_lr_warmup', None) is None
+        assert current.base_lrs == before_rates
+        assert current.opt_g.param_groups[0]['lr'] == before_rates[0][0]
+        return {'outcome': 'selected', 'selected_g_lr_factor': .3, 'reason': 'confirmed'}
+    monkeypatch.setattr(dynamics, 'tune_startup_dynamics', select)
+    root = tmp_path / 'run'
+    root.mkdir()
+    result = tune_initialized(trainer, root, warmup_steps=4)
+    assert calls == [True]
+    assert trainer.g_lr_warmup == result['g_lr_warmup']
+    assert trainer.g_lr_warmup == {'steps': 4, 'start_g_lr': before_rates[0][0] * .3,
+                                  'target_g_lr': before_rates[0][0]}
+
+
+def test_warmup_artifact_failure_restores_rate_schedule_parameters_and_ema(tmp_path, monkeypatch):
+    import hypergan.initialization_tuning as numerical
+    import hypergan.startup_tuning as persistence
+    monkeypatch.setattr(numerical, 'tune_initialization', _candidate)
+    trainer = ReferenceTrainer(load_config(write_default(tmp_path / 'project', device='cpu')))
+    original_graph = deepcopy(trainer.graph.state_dict())
+    original_ema = deepcopy(trainer.ema_graph.state_dict())
+    original_rates = deepcopy(trainer.base_lrs)
+    assert getattr(trainer, 'g_lr_warmup', None) is None
+    atomic = persistence.atomic_json
+    def fail_after_schedule_is_installed(path, value):
+        if path.name == 'report.json':
+            assert trainer.g_lr_warmup['steps'] == 4
+            raise OSError('warmup report storage failed')
+        return atomic(path, value)
+    monkeypatch.setattr(persistence, 'atomic_json', fail_after_schedule_is_installed)
+    root = tmp_path / 'run'
+    root.mkdir()
+    with pytest.raises(OSError, match='warmup report storage failed'):
+        persistence.tune_initialized(trainer, root, warmup_steps=4)
+    assert trainer.g_lr_warmup is None
+    assert trainer.base_lrs == original_rates
+    assert [[group['lr'] for group in opt.param_groups] for opt in (trainer.opt_g, trainer.opt_d)] == original_rates
+    for name, value in trainer.graph.state_dict().items():
+        assert torch.equal(value, original_graph[name])
+    for name, value in trainer.ema_graph.state_dict().items():
+        assert torch.equal(value, original_ema[name])

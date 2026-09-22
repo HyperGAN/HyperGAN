@@ -20,16 +20,17 @@ z_dim = 64
 width = 32
 attention_seed = 124003
 
+# Complete discriminator graph; architecture changes require a fresh run.
 [components.discriminator]
-factory = "hypergan.image_components:CIFARDiscriminator"
+factory = "hndl"
 inputs = { x = "candidate" }
 [components.discriminator.args]
-width = 32
+input_shape = ["B", 3, 32, 32]
+output_shape = ["B", 1]
+file = "networks/cifar-discriminator-32.hndl"
+[components.discriminator.args.parameters]
 weights_path = "~/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
 weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
-deterministic_features = false
-feature_state_sha256 = "5de287ab28d569dfc53a5bca4a646d4416621da29e71e80859e6117c7f90b0ac"
-attention_seed = 124003
 
 [components.encoder]
 factory = "hypergan.image_components:CIFARRoutingEncoder"
@@ -176,17 +177,6 @@ horizontal_flip = false
 [components.generator.args.network_files]
 image_generator = "../src/hypergan/networks/image_generator.hndl"
 image_attention = "../src/hypergan/networks/image_attention.hndl"
-
-# Editable HNDL architecture sources, resolved relative to this recipe.
-[components.discriminator.args.network_files]
-image_pixel = "../src/hypergan/networks/image_pixel.hndl"
-image_pixel_block = "../src/hypergan/networks/image_pixel_block.hndl"
-image_attention = "../src/hypergan/networks/image_attention.hndl"
-image_feature_head = "../src/hypergan/networks/image_feature_head.hndl"
-image_resnet_stage1 = "../src/hypergan/networks/image_resnet_stage1.hndl"
-image_resnet_stage2 = "../src/hypergan/networks/image_resnet_stage2.hndl"
-image_resnet_stage3 = "../src/hypergan/networks/image_resnet_stage3.hndl"
-image_critic_score = "../src/hypergan/networks/image_critic_score.hndl"
 
 # Editable HNDL architecture sources, resolved relative to this recipe.
 [components.encoder.args.network_files]

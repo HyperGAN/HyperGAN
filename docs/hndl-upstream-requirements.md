@@ -28,7 +28,7 @@ residual-add nodes. Query/key width is `max(1,C//8)` and value width is
 
 ## Pretrained features
 
-The ResNet18 stages use native HNDL convolution, batch-normalization, pooling,
+The legacy Python adapter's ResNet18 stages use native HNDL convolution, batch-normalization, pooling,
 and residual-block operators. A Python artifact adapter verifies local weights
 and copies checkpoint tensors into those nodes. It does not construct a
 separate torchvision network or download artifacts. The original canonical
@@ -179,3 +179,26 @@ than a zero tensor in normalized space. Frozen BatchNorm prevents candidate and
 context samples from affecting each other's statistics. Context features are
 recomputed in the shared forward; no Python cache or network implementation is
 needed. There are no outstanding HNDL feature requests for this discriminator.
+
+## Single-file CIFAR discriminator
+
+Both `cifar-pretrained-sagan.toml` and `cifar-transgan.toml` now select
+[`cifar-discriminator-32.hndl`](../examples/networks/cifar-discriminator-32.hndl)
+through `factory = "hndl"` and one `file` argument. The old eight-entry
+discriminator `network_files` table is no longer needed. The file explicitly
+defines three pixel residual blocks (32→64→128→128 channels), attention after
+the first downsample at 16px, and the frozen ResNet18's three trainable heads.
+Native `upsample(2, mode="bilinear", align_corners=False)` preserves the
+32→64px feature preprocessing before ImageNet normalization. Candidate and raw
+zero-image context share one pretrained forward, with native feature maps of
+16px, 8px and 4px. The final weighting remains
+`(pixel + (head1 + head2 + head3) / sqrt(3)) / sqrt(2)`.
+
+The graph has 805,540 trainable parameters, matching the Python adapter. Tests
+compare matched-weight scores, first/second input derivatives and parameter
+gradients, exercise an actual b-cap optimizer step, and check frozen backbone
+state, generator gradients and strict state reload. Native initialization and
+parameter names differ from the adapter (including its attention seed override),
+so the new configuration starts a fresh run. The existing configuration identity
+check rejects resuming its checkpoints with the old recipe or vice versa.
+The legacy class remains available for saved configurations and the 256px recipe.

@@ -1,6 +1,6 @@
 # CIFAR with a frozen pretrained critic
 
-The ordinary Python components in `hypergan.image_components` port Martyn
+The CIFAR recipe ports Martyn
 Garcia's ParticleGAN experiment at commit
 `9e9ce96c96948197e21e1171c8394e3819bb0013`, branch
 `feat/cifar-ae-gan-pretrained-encoder`. The source files are
@@ -25,17 +25,36 @@ Set the example's data root and weight path to existing local files before
 running it. There are no automatic downloads. The ResNet18 weight file is
 `resnet18-f37072fd.pth`, SHA256
 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`.
-The constructed frozen feature state must also match
-`5de287ab28d569dfc53a5bca4a646d4416621da29e71e80859e6117c7f90b0ac`.
-Missing files, changed bytes and mismatched feature states fail explicitly.
+The native HNDL pretrained node verifies that artifact digest and loads the
+checkpoint into one frozen ResNet18. Missing files and changed bytes fail
+explicitly. The older Python adapter additionally checked a derived feature-state
+digest; the single-file recipe relies on the complete checkpoint's SHA256.
 Weights and dataset bytes are not included in the package.
+
+Both CIFAR examples define the complete discriminator in
+[`networks/cifar-discriminator-32.hndl`](../examples/networks/cifar-discriminator-32.hndl)
+with `factory = "hndl"`. Its three pixel residual blocks, 16px attention,
+64px bilinear feature resize, ImageNet normalization, fixed zero-image context,
+three pretrained feature heads and final score combination all live in that
+file. No discriminator `network_files` table or Python architecture assembler
+is used. The encoder still uses its existing routing adapter.
+
+This migration changes parameter names, initialization order, and the
+discriminator's former independent attention initialization stream. Start a
+fresh run with the new recipe; old training checkpoints are not compatible with
+it. Numerical parity tests copy identical trainable weights and compare scores,
+first and second input derivatives, and parameter gradients. They do not claim
+identical initialization or a reproduced training trajectory. The older adapter
+remains available for saved recipes and the separate 256px configuration.
 
 
 ## CLI walkthrough
 
 From the repository checkout, install the optional dependencies into your chosen
 CUDA environment with `python -m pip install '.[train,cifar,web,fid]'`.
-Copy `examples/cifar-pretrained-sagan.toml` to `cifar.toml`. Put the already
+Copy `examples/cifar-pretrained-sagan.toml` to `cifar.toml`, keeping its relative
+HNDL file references valid (copy the referenced files and adjust their paths if
+moving the recipe). Put the already
 obtained official Python-format CIFAR batches under `./data/cifar-10-batches-py/`,
 or edit all three `root` entries to their existing location. Paths are relative
 to the command's working directory; use absolute paths if you run commands from
@@ -98,15 +117,14 @@ standard deviation, without clamping. Frozen feature parameters and BatchNorm
 statistics remain fixed, while input gradients and the penalty's double
 backward pass through the feature extractor.
 
-Constructor order is generator, discriminator, encoder. The source consumes
-initialization draws for a discarded residual generator, then builds the actual
-generator inside a CPU RNG fork. The port preserves that ordering deliberately,
-including the private attention seed `124003`. The prior initializes on CPU
-with seed `24003`, then transfers to the execution device. These details preserve
-the source experiment's initial state; they do not provide historical checkpoint
-compatibility. Runtime recovery uses HyperGAN's complete current-run checkpoints.
-The critic's constant-context feature cache is derived from frozen weights and
-is cleared on device/dtype transfers and state restoration.
+Constructor order is generator, discriminator, encoder. The native HNDL
+discriminator uses the caller's initialization RNG; it does not reproduce the
+historical Python adapter's private attention stream. The prior initializes on
+CPU with seed `24003`, then transfers to the execution device. Runtime recovery
+uses HyperGAN's complete current-run checkpoints. The discriminator concatenates
+candidate and context along the batch axis, evaluates one shared frozen backbone,
+then splits the feature maps. Context features are recomputed each forward instead
+of held in a Python cache; frozen BatchNorm keeps the two halves independent.
 
 Training uses independent real and prior draws for D and G. CIFAR sampling draws
 indices with replacement, converts uint8 NCHW bytes using `float()/127.5-1`, and
@@ -151,19 +169,24 @@ or to an implicit device: `evaluation.device` must be named. See
 [snapshot scheduling](configuration.md#custom-metrics-and-explicit-snapshot-evaluation)
 for timeout, failure, shutdown and resume behavior.
 
-Architecture parity compares the pinned source and this port under the same
-backend policy. The example runs the source's accelerated backend: TF32 and cuDNN
-benchmarking on, nondeterministic kernels allowed, `deterministic_features=false`.
-Measured on one RTX A6000 (2026-09-20, batch 64), that policy runs the step in
+Architecture parity compares matched weights under the same backend policy.
+The example runs the source's accelerated backend: TF32 and cuDNN
+benchmarking on, nondeterministic kernels allowed.
+Measured on the earlier Python-adapter recipe on one RTX A6000
+(2026-09-20, batch 64), that policy runs the step in
 41 ms against 61 ms under the strict deterministic variant below, matching the
 source trainer's throughput on the same card. Resume restores the complete
 state either way; only bit-exact replay of a run needs the strict variant.
-Initial tensor and CPU RNG comparisons are exact; actual CUDA comparisons
-declare tolerances before running.
+Those historical timings do not measure the new single-file graph, which also
+recomputes context features. The migration tests compare matched-weight CPU
+outputs and derivatives within explicit floating-point tolerances.
 
-## Deterministic feature execution variant
+## Historical deterministic feature execution variant
 
-Setting `deterministic_features=true` on the discriminator selects this variant.
+The original Python recipe exposed `deterministic_features=true` to select this
+variant. Current native HNDL feature heads use deterministic adaptive pooling
+directly; the single-file discriminator has no `deterministic_features` argument.
+The following records the earlier implementation and validation.
 The source CUDA adaptive-average-pool backward uses nondeterministic accumulation;
 identical training replays diverged after Adam updates. Strict deterministic
 algorithms rejected that backward operation. The failed historical source-weight

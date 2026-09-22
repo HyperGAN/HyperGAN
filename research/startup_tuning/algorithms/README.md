@@ -25,3 +25,7 @@ their cost free. The current contract accepts offline probes, not live nested
 training or an unbounded search. Record actual formula, assumptions and sanity
 checks in the returned `evidence`. Do not consume the benchmark monitor bank
 to fit the proposal and then present it as independent validation.
+
+`grouped_first_g.py` implements [the grouped first-generator contract](grouped-first-g-contract.md).
+It abstains unless every predeclared gate passes. It does not choose a replacement
+group or a rate floor.

@@ -31,13 +31,20 @@ layers or replace weights. It runs at most **eight disposable baseline updates**
 with the configured losses, Adam updates, learned prior, and D/G update order.
 The actual phase-local optimizer displacement is the measurement direction,
 rather than a raw gradient or cumulative movement over the whole trial.
+G is anchored at its **first update**, after the first D update and before G or
+the learned prior have moved. D is anchored at **update eight**, including the penalty if its configured
+schedule activates it (as with `lazy_k=8` on the TransGAN testbed). Normal training retains the configured lazy schedule.
+The first G anchor avoids fitting only after an early saturation transient.
 
 After the baseline, tuning measures both players even if the baseline passes
 the startup guards. It evaluates each player's loss along its own recorded update while
 holding the opponent and other parameter groups fixed. A predetermined stencil
 at displacement factors `0`, `0.5`, and `1` on two fitting banks estimates a
 local quadratic. The phase loss includes its configured auxiliary terms and
-the penalty when that update's lazy schedule activates it:
+the penalty when that update's lazy schedule activates it. Four real batches
+are reserved after the baseline. Their fixed latent tensors are materialized
+under each player's phase-local prior using the same reserved sampling RNG.
+Startup guards use the G anchor's initial-prior latent values throughout:
 
 ```text
 phi(s) = loss(parameters + s * actual_optimizer_displacement)
@@ -67,6 +74,13 @@ parameter movement, and the declared output-variation/transmission guards.
 A proposal that fails validation or replay is rejected as a whole, without
 searching another combination. There is no rate grid, fixed D-half fallback,
 or G-retention formula selecting an alternative rate.
+
+The report also measures the first and eighth G update at fixed latent values.
+When the native output path identifies a final owned affine layer through layout
+operations and optional tanh, it records that layer's activation displacement
+using the same forwards. On TransGAN this exposes pre-tanh changes that saturated
+pixels can hide. Unsupported output paths are explicitly skipped. This is an
+observation, not a response threshold used to select learning rates.
 
 The hard training-update budget is **eight baseline plus eight replay updates**.
 This excludes the additional loss evaluations, signal probes, model snapshots,

@@ -82,8 +82,9 @@ def test_actual_adam_delta_and_post_discriminator_anchor_replay(monkeypatch):
     import hypergan.startup_response_probe as module
     trainer = make_trainer()
     original_critic = [value.detach().clone() for value in trainer.program.critic_parameters]
-    observer, banks, row, budget = capture_update(trainer)
+    observer, banks, row, budget = capture_update(trainer, step=1)
     anchor = observer.anchors['generator']
+    assert anchor['step'] == 1
     # The captured displacement reconstructs the actual optimizer result.
     for value, before, delta in zip(trainer.program.generator_parameters, anchor['before'], anchor['delta']):
         torch.testing.assert_close(before + delta, value.detach().cpu(), rtol=0, atol=0)
@@ -92,7 +93,7 @@ def test_actual_adam_delta_and_post_discriminator_anchor_replay(monkeypatch):
     _restore(trainer, anchor['snapshot'])
     assert all(torch.equal(old, new) for old, new in zip(after_critic, trainer.program.critic_parameters))
     assert all(not value.requires_grad for value in trainer.program.critic_parameters)
-    value = phase_loss(trainer, 'generator', *banks['generator'], step=8)
+    value = phase_loss(trainer, 'generator', *banks['generator'], step=1)
     assert float(value.detach()) == pytest.approx(row['g_loss'], rel=1e-6, abs=1e-7)
     _restore(trainer, anchor['snapshot'])
     prior = deepcopy(trainer.prior.state_dict())
@@ -182,7 +183,7 @@ def test_protected_buffer_write_is_detected_before_restore(monkeypatch):
     trainer = make_trainer()
     trainer.graph.register_buffer('_protected_probe_marker', torch.tensor(0.))
     protected = [('marker', trainer.graph._protected_probe_marker)]
-    observer, banks, _, budget = capture_update(trainer, protected=protected)
+    observer, banks, _, budget = capture_update(trainer, step=1, protected=protected)
     anchor = observer.anchors['generator']
     original = module.phase_loss
 
@@ -219,3 +220,95 @@ def test_exception_during_phase_probe_restores_parameters_rng_and_existing_gradi
     for parameter, original, saved in anchor['snapshot']['gradients']:
         assert parameter.grad is original
         assert saved is None or _same_state(saved, parameter.grad)
+
+
+def test_generator_anchor_keeps_first_update_while_discriminator_uses_eighth():
+    trainer = make_trainer()
+    observer = UpdateObserver(trainer, _snapshot, (), _hash(()), defaultdict(int))
+    trainer._update_response_observer = observer
+    try:
+        trainer.update()
+        first = observer.anchors['generator']
+        saved_first = deepcopy(first['before'])
+        assert 'discriminator' not in observer.anchors
+        for _ in range(7):
+            trainer.update()
+    finally:
+        del trainer._update_response_observer
+    assert observer.anchors['generator'] is first
+    assert first['step'] == 1 and first['snapshot']['state']['step'] == 0
+    assert _same_state(first['before'], saved_first)
+    assert observer.anchors['discriminator']['step'] == 8
+    assert observer.anchors['discriminator']['snapshot']['state']['step'] == 7
+    assert [row['step'] for row in observer.observations if row['player'] == 'generator'] == [1, 8]
+
+
+@pytest.mark.parametrize('step', [1, 8])
+def test_final_affine_response_exposes_motion_hidden_by_tanh_without_extra_forwards(step):
+    config = resolve_config({})
+    config['components']['generator']['args']['source'] = 'linear(2)\ntanh()'
+    config['prior']['args']['num_particles'] = 32
+    trainer = ReferenceTrainer(config)
+    affine = next(module for module in trainer.graph.models['generator'].modules() if isinstance(module, torch.nn.Linear))
+    with torch.no_grad():
+        affine.weight.zero_()
+        affine.bias.fill_(3.)
+    batch, ids, context = trainer._draw(None, None)
+    budget = defaultdict(int)
+    observer = UpdateObserver(trainer, _snapshot, (), _hash(()), budget, capture_anchors=False)
+    observer('before_g', step=step, batch=batch, ids=ids, context=context)
+    with torch.no_grad():
+        affine.bias.add_(1.)
+    # A known parameter displacement lets this test compare the observation to
+    # analytic activations; no extra training candidate or randomized trial.
+    expected = deepcopy(trainer_state(trainer, None))
+    observer('after_g', step=step, batch=batch, ids=ids, context=context)
+    row = observer.observations[0]
+    activation = row['generator_final_affine_response']
+    assert activation['status'] == 'measured'
+    assert activation['relationship_to_output'] == 'pre_tanh'
+    assert activation['downstream_operations'] == ['tanh']
+    assert activation['response']['before_rms'] == pytest.approx(3.)
+    assert activation['response']['after_rms'] == pytest.approx(4.)
+    assert activation['response']['change_rms'] == pytest.approx(1.)
+    expected_output_change = float(torch.tanh(torch.tensor(4.)) - torch.tanh(torch.tensor(3.)))
+    assert row['generator_output_response']['full']['change_rms'] == pytest.approx(expected_output_change)
+    assert budget['g_response_forwards'] == 2
+    assert not affine._forward_hooks
+    assert _same_state(expected, trainer_state(trainer, None))
+
+
+def test_final_affine_response_follows_layout_path_and_skips_unsupported_tail():
+    from hypergan.startup_response_probe import _final_owned_affine
+    config = resolve_config({})
+    config['prior']['args']['num_particles'] = 32
+    config['components']['generator']['args']['source'] = 'linear(2)\nreshape(1, 2)\npermute(2, 1)\nreshape(2)\ntanh()'
+    trainer = ReferenceTrainer(config)
+    module, description = _final_owned_affine(trainer)
+    assert isinstance(module, torch.nn.Linear)
+    assert description['relationship_to_output'] == 'pre_tanh'
+    assert description['downstream_operations'] == ['reshape', 'permute', 'reshape', 'tanh']
+    config['components']['generator']['args']['source'] = 'linear(2)\nleaky_relu(0.2)'
+    trainer = ReferenceTrainer(config)
+    module, description = _final_owned_affine(trainer)
+    assert module is None and description['status'] == 'skipped'
+
+
+def test_final_affine_hook_is_removed_and_forward_fence_restored_on_exception(monkeypatch):
+    trainer = make_trainer()
+    batch, ids, context = trainer._draw(None, None)
+    observer = UpdateObserver(trainer, _snapshot, (), _hash(()), defaultdict(int), capture_anchors=False)
+    assert observer.affine_module is not None
+    observer('before_g', step=1, batch=batch, ids=ids, context=context)
+    with torch.no_grad():
+        trainer.program.generator_parameters[0].add_(.01)
+    expected = deepcopy(trainer_state(trainer, None))
+    def fail(*args, **kwargs):
+        torch.rand(3)
+        torch.rand(3, generator=trainer.streams['prior'])
+        raise RuntimeError('matched forward failed')
+    monkeypatch.setattr(trainer.graph, 'generate', fail)
+    with pytest.raises(RuntimeError, match='matched forward failed'):
+        observer('after_g', step=1, batch=batch, ids=ids, context=context)
+    assert not observer.affine_module._forward_hooks
+    assert _same_state(expected, trainer_state(trainer, None))

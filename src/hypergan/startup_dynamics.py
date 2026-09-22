@@ -258,7 +258,7 @@ def _candidate_guards(before, after, motion):
     return reasons, comparisons
 
 def tune_startup_dynamics(trainer, *, progress=None):
-    """Fit actual update-eight directions and verify at most one paired replay.
+    """Fit the first G and eighth D directions; verify one paired replay.
 
     All optimizer trials, objective probes and reserved draws are discarded.
     Phase-local objectives include the configured penalty schedule and auxiliary
@@ -276,6 +276,7 @@ def tune_startup_dynamics(trainer, *, progress=None):
               'fit_bank_gradient_evaluations': 0}
     result = {'schema_version': 2, 'kind': 'startup-dynamics', 'method': 'measured-update-response',
               'trial_steps': TRIAL_STEPS, 'maximum_disposable_updates': 16,
+              'anchor_steps': {'generator': 1, 'discriminator': 8},
               'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
               'outcome': 'skipped' if exclusion else 'unresolved', 'selected_candidate': None,
               'reason': exclusion, 'candidates': [], 'probe_budget': budget,
@@ -286,7 +287,7 @@ def tune_startup_dynamics(trainer, *, progress=None):
                          'finite_nonzero_generator_objective_signal': True,
                          'finite_nonzero_generator_and_discriminator_optimizer_displacement': True},
               'interpretation': [
-                  'Actual optimizer displacements include moments and the configured lazy penalty; phase-eight probes preserve the real penalty step.',
+                  'G uses its first actual optimizer displacement before the startup transient; D uses update eight with the configured penalty schedule.',
                   'Fixed-latent G response isolates generator motion; learned-prior displacement is reported separately and its rate remains configured.',
                   'Fitting-bank slopes come from the stencil; training-gradient dot displacement is a separate diagnostic, not a fitting-bank slope check.',
                   'Each player is measured against its phase-local frozen opponent; only a coupled replay can test the proposed pair.',
@@ -340,19 +341,27 @@ def tune_startup_dynamics(trainer, *, progress=None):
             raise ValueError('Configured update did not expose both phase-local optimizer anchors')
         baseline_motion = _optimizer_motion(trainer, initial)
         baseline_final = _snapshot(trainer)
-        # These are additional draws after all baseline training draws. Replays
-        # use the same banks, never new candidates or replacement validation.
+        # Real draws are reserved after the baseline. Reuse the same tail
+        # sampling RNG under each phase's prior, rather than fitting initial G
+        # against latent values produced by an already updated learned prior.
         with torch.no_grad():
-            banks = []
-            for _ in range(4):
-                batch = _cpu_clone(trainer.batch())
-                latent = _cpu_clone(trainer.prior.sample(trainer.config['training']['batch_size'],
-                                     generator=trainer.streams['prior']))
-                banks.append((batch, latent))
-        fit_banks, validation_banks = banks[:2], banks[2:]
+            batches = [_cpu_clone(trainer.batch()) for _ in range(4)]
+            prior_rng = trainer.streams['prior'].get_state().clone()
+            role_banks = {}
+            for role in ('generator', 'discriminator'):
+                _restore(trainer, observer.anchors[role]['snapshot'])
+                trainer.streams['prior'].set_state(prior_rng)
+                role_banks[role] = [(batch, _cpu_clone(trainer.prior.sample(
+                    trainer.config['training']['batch_size'], generator=trainer.streams['prior'])))
+                    for batch in batches]
+                if _hash(protected) != protected_hash:
+                    raise ValueError('Reserved prior draws changed protected frozen/pretrained state')
+        validation_banks = role_banks['generator'][2:]
         probe_rng = capture_rng()
         result['bank_control'] = {'fit_draws': [0, 1], 'validation_draws': [2, 3],
-                                  'origin': 'four reserved draws after baseline; fixed baseline-tail latent tensors',
+                                  'origin': 'four reserved real draws after baseline; phase-local prior latent tensors from the same tail sampling RNG',
+                                  'latent_prior_steps': {'generator': 0, 'discriminator': 7},
+                                  'guard_latents': 'fixed generator-anchor prior values',
                                   'replacement_sampling_may_repeat_dataset_items': True}
         _restore(trainer, initial)
         before = measure(validation_banks, probe_rng)
@@ -365,18 +374,18 @@ def tune_startup_dynamics(trainer, *, progress=None):
                                      'comparisons': comparisons, 'after': baseline_after,
                                      'trial_losses': baseline_losses, 'optimizer_motion': baseline_motion,
                                      'update_response': observer.observations})
-        event('fit', message='Fitting phase-eight optimizer directions on two reserved banks')
+        event('fit', message='Fitting the first generator update and eighth discriminator update')
         proposals = {}
         for role in ('generator', 'discriminator'):
             fits = []
-            for bank in fit_banks:
+            for bank in role_banks[role][:2]:
                 measured = [probes.evaluate(observer.anchors[role], role, bank, factor,
                             category='fit_phase_loss_evaluations') for factor in (0., .5, 1.)]
                 fits.append(fit_directional_quadratic(*(value for value, _ in measured),
                                                      epsilon=max(epsilon for _, epsilon in measured)))
             proposals[role] = aggregate_proposals(fits)
         result['directional_proposals'] = proposals
-        result['d_signal_response'] = probes.d_signal_response(observer.anchors['discriminator'], fit_banks)
+        result['d_signal_response'] = probes.d_signal_response(observer.anchors['discriminator'], role_banks['discriminator'][:2])
         g_factor, d_factor = proposals['generator']['factor'], proposals['discriminator']['factor']
         if g_factor == d_factor == 1.:
             if all(proposal['status'] == 'unchanged' for proposal in proposals.values()) and not baseline_failures:
@@ -391,7 +400,7 @@ def tune_startup_dynamics(trainer, *, progress=None):
         for role, factor in (('generator', g_factor), ('discriminator', d_factor)):
             losses, epsilon = [], torch.finfo(torch.float32).eps
             if factor != 1.:
-                for bank in validation_banks:
+                for bank in role_banks[role][2:]:
                     pair = [probes.evaluate(observer.anchors[role], role, bank, point,
                             category='validation_phase_loss_evaluations') for point in (0., factor)]
                     losses.append(tuple(value for value, _ in pair))

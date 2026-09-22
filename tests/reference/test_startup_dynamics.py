@@ -183,6 +183,74 @@ def test_reserved_banks_clone_reused_data_storage_and_restore_cursor(monkeypatch
     assert_restored(trainer, state)
 
 
+def test_first_generator_and_eighth_critic_fit_their_own_prior_and_actual_update(monkeypatch):
+    """A learned prior's tail coordinates must not leak into the first G fit."""
+    import hypergan.startup_dynamics as dynamics
+    import hypergan.startup_response_probe as probes
+    controlled_proposal(monkeypatch)
+    monkeypatch.setattr(dynamics, '_candidate_guards', lambda *args: ([], []))
+    trainer = make_trainer()
+    initial = copy.deepcopy(trainer_state(trainer, None))
+    first_generator_after = []
+    original_update = trainer.update
+
+    def observe_update():
+        row = original_update()
+        if trainer.step == 1 and not first_generator_after:
+            first_generator_after.extend(parameter.detach().clone() for parameter in trainer.program.generator_parameters)
+        return row
+
+    trainer.update = observe_update
+    observed = []
+    original_evaluate = probes.PhaseProbes.evaluate
+
+    def evaluate(self, anchor, role, bank, factor, *, category):
+        observed.append((role, category, factor, anchor, copy.deepcopy(bank)))
+        return original_evaluate(self, anchor, role, bank, factor, category=category)
+
+    monkeypatch.setattr(probes.PhaseProbes, 'evaluate', evaluate)
+    guard_banks = []
+    original_measure = dynamics._measure
+
+    def measure(trainer, banks, *args):
+        guard_banks.append(copy.deepcopy(banks))
+        return original_measure(trainer, banks, *args)
+
+    monkeypatch.setattr(dynamics, '_measure', measure)
+    report = tune_startup_dynamics(trainer)
+    assert report['outcome'] == 'selected'
+    assert report['disposable_completed_updates'] == 16
+    assert report['anchor_steps'] == {'generator': 1, 'discriminator': 8}
+    assert report['bank_control']['latent_prior_steps'] == {'generator': 0, 'discriminator': 7}
+    g_rows = [row for row in observed if row[0] == 'generator']
+    d_rows = [row for row in observed if row[0] == 'discriminator']
+    assert g_rows and d_rows
+    assert all(row[3]['step'] == 1 for row in g_rows)
+    assert all(row[3]['step'] == 8 for row in d_rows)
+    g_anchor, d_anchor = g_rows[0][3], d_rows[0][3]
+    assert not g_anchor['snapshot']['state']['optimizers'][0]['state']
+    assert all(float(value['step']) == 1 for value in g_anchor['snapshot']['state']['optimizers'][1]['state'].values())
+    assert all(float(value['step']) == 7 for value in d_anchor['snapshot']['state']['optimizers'][0]['state'].values())
+    for before, delta, after in zip(g_anchor['before'], g_anchor['delta'], first_generator_after):
+        torch.testing.assert_close(before + delta, after, rtol=0, atol=0)
+    assert _same_state(g_anchor['snapshot']['state']['prior'], initial['prior'])
+    assert not _same_state(d_anchor['snapshot']['state']['prior'], initial['prior'])
+    # The fixture is a particle table: sampled coordinates must equal the
+    # selected rows of the corresponding phase's frozen prior, not tail values.
+    for role, category, factor, anchor, bank in observed:
+        latent, ids = bank[1]
+        assert torch.equal(latent, anchor['snapshot']['state']['prior']['z'][ids])
+    for g_row, d_row in zip(g_rows, d_rows):
+        assert g_row[1:3] == d_row[1:3]
+        assert _same_state(g_row[4][0], d_row[4][0])
+        assert torch.equal(g_row[4][1][1], d_row[4][1][1])
+    assert any(not torch.equal(g_row[4][1][0], d_row[4][1][0]) for g_row, d_row in zip(g_rows, d_rows))
+    validation = [row[4] for row in g_rows if row[1] == 'validation_phase_loss_evaluations' and row[2] == 0.]
+    assert len(validation) == 2 and len(guard_banks) == 3
+    assert all(_same_state(validation, banks) for banks in guard_banks)
+    assert_restored(trainer, initial)
+
+
 def test_trainable_pretrained_is_skipped_before_any_optimizer_update():
     from hndl.operators.pretrained import Pretrained
     trainer = make_trainer()

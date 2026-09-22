@@ -5,7 +5,7 @@ import torch
 
 from .checkpoints import capture_rng, restore_rng
 from .objective_program import _bound_scores, _generator_tail, _sum_tensors, score_candidate
-from .signal_structure import _hash
+from .signal_structure import _hash, _inventory
 from .update_response import tensor_change
 
 
@@ -86,32 +86,69 @@ def _image_response(before, after):
     return result
 
 
+def _final_owned_affine(trainer):
+    """Identify an unambiguous output affine through layout changes and tanh.
+
+    Registration order alone does not establish a final layer in a branched
+    graph. Follow the native output dependency instead, and abstain on unknown
+    transformations or ownership rather than labeling an arbitrary activation.
+    """
+    generator = trainer.graph.models['generator']
+    network = getattr(generator, 'network', None)
+    plan = getattr(network, 'plan', None)
+    if plan is None or not isinstance(getattr(plan, 'output_ref', None), str):
+        return None, {'status': 'skipped', 'reason': 'No single native HNDL output dependency is available'}
+    owned, reason = _inventory(trainer)
+    by_module = {id(module): name for name, module in owned}
+    nodes = {f'node:{node.id}/{port}': node for node in plan.nodes for port in node.outputs}
+    reference, downstream, visited = plan.output_ref, [], set()
+    while reference in nodes and reference not in visited:
+        visited.add(reference)
+        node = nodes[reference]
+        module = network.nodes['n_' + node.id]
+        if id(module) in by_module:
+            return module, {'status': 'measured', 'path': 'generator.' + by_module[id(module)],
+                            'measurement': 'final_owned_affine_activation_displacement',
+                            'relationship_to_output': 'pre_tanh' if 'tanh' in downstream else 'output_up_to_layout',
+                            'downstream_operations': list(reversed(downstream)),
+                            'interpretation': 'Matched fixed-latent observation only; no threshold or tuning decision uses this displacement'}
+        operation = node.op.split('@', 1)[0]
+        if (operation not in ('reshape', 'permute', 'transpose', 'flatten', 'identity', 'contiguous', 'tanh')
+                or len(node.inputs) != 1 or len(node.outputs) != 1 or (operation == 'tanh' and 'tanh' in downstream)):
+            return None, {'status': 'skipped', 'reason': reason or 'Output path has no unambiguous owned affine through supported layout operations and optional tanh'}
+        downstream.append(operation)
+        reference = next(iter(node.inputs.values()))
+    return None, {'status': 'skipped', 'reason': reason or 'Output dependency does not reach a safely owned affine layer'}
+
+
 class UpdateObserver:
-    """Observe only updates one/eight; save phase-eight anchors, never graphs."""
+    """Observe updates one/eight; anchor first G and eighth D, never graphs."""
     def __init__(self, trainer, snapshot, protected, protected_hash, budget, *, capture_anchors=True):
         self.trainer, self.snapshot = trainer, snapshot
         self.protected, self.protected_hash, self.budget = protected, protected_hash, budget
         self.anchors, self.observations, self.pending = {}, [], {}
         self.capture_anchors = capture_anchors
+        self.affine_module, self.affine_description = _final_owned_affine(trainer)
 
     def __call__(self, event, *, step, batch, ids, context):
         if step not in (1, 8):
             return
         role = 'discriminator' if event.endswith('_d') else 'generator'
+        anchor_step = 1 if role == 'generator' else 8
         parameters = _parameters(self.trainer, role)
         if event.startswith('before'):
             entry = {'before': _values(parameters)}
             if role == 'generator':
                 entry['prior_before'] = _values(_parameters(self.trainer, 'prior'))
                 entry['latent'] = context['latent'].detach().clone()
-            if step == 8 and self.capture_anchors:
+            if step == anchor_step and self.capture_anchors:
                 entry['snapshot'] = self.snapshot(self.trainer)
             self.pending[role] = entry
             return
         entry = self.pending.pop(role)
         deltas, motion = displacement(parameters, entry['before'])
         row = {'step': step, 'player': role, 'optimizer_motion': motion}
-        if step == 8 and self.capture_anchors:
+        if step == anchor_step and self.capture_anchors:
             self.anchors[role] = {'snapshot': entry['snapshot'], 'before': entry['before'],
                                   'delta': deltas, 'step': step}
         if role == 'generator':
@@ -120,9 +157,17 @@ class UpdateObserver:
             # can be reused. Fixed latent values deliberately exclude prior motion.
             after = _values(parameters)
             fence = _ephemeral(self.trainer)
+            affine_values = []
+            handle = None
             try:
+                if self.affine_module is not None:
+                    def observe_affine(module, args, output):
+                        affine_values.append(output.detach().cpu().clone() if isinstance(output, torch.Tensor) else None)
+                    handle = self.affine_module.register_forward_hook(observe_affine)
                 outputs = []
+                affine_pairs = []
                 for values in (entry['before'], after):
+                    affine_values.clear()
                     _copy(parameters, values)
                     _restore_ephemeral(self.trainer, fence)
                     expected = _hash(_registered_parameters(self.trainer))
@@ -134,9 +179,20 @@ class UpdateObserver:
                     if _hash(self.protected) != self.protected_hash:
                         raise ValueError('Update response changed protected frozen/pretrained state')
                     outputs.append(output.detach().cpu())
+                    affine_pairs.append(affine_values[0] if len(affine_values) == 1 else None)
                 row['generator_output_response'] = _image_response(*outputs)
+                affine_report = dict(self.affine_description)
+                if self.affine_module is not None:
+                    if any(value is None for value in affine_pairs) or affine_pairs[0].shape != affine_pairs[1].shape:
+                        affine_report.update(status='skipped', reason='Final owned affine was not invoked exactly once with matching tensor outputs')
+                    else:
+                        affine_report.update(shape=list(affine_pairs[0].shape),
+                                             response=tensor_change(*affine_pairs))
+                row['generator_final_affine_response'] = affine_report
                 row['input_control'] = 'fixed_latent_values; prior output response not included'
             finally:
+                if handle is not None:
+                    handle.remove()
                 _copy(parameters, after)
                 _restore_ephemeral(self.trainer, fence)
         self.observations.append(row)

@@ -1,0 +1,412 @@
+{
+  "kind": "gradient-response-long-run-review",
+  "run_dir": "/mnt/ml7tb/hypergan-signal-research/transgan-gradient-response-startup-v1",
+  "observed_step": 519,
+  "observed_status": "running",
+  "sources": [
+    {
+      "path": "/mnt/ml7tb/hypergan-signal-research/gradient-response-long-run-review-v1.json",
+      "sha256": "0f56c86a8b87caedf5d1c61b6800c6893cf9f10ee18bebbb023e52bdc7969527"
+    },
+    {
+      "path": "/mnt/ml7tb/hypergan-signal-research/gradient-response-parameter-review-v1.json",
+      "sha256": "351b4ce9359ce9a280597eb85e9dbce7c87b4eb1df9a3ca1a5fab9f8d85d6357"
+    }
+  ],
+  "previews": [
+    {
+      "step": 100,
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.017604827880859375,
+        "absolute_value_above_0_99_fraction": 0.008745829264322916,
+        "sample_diversity_rms": 0.5455579270208782,
+        "spatial_per_channel_std_rms": 0.6042547588605843,
+        "mean_color_share_of_between_sample_variance": 0.001895115255649442,
+        "mean_color_removed_sample_diversity_rms": 0.5450407342945505
+      },
+      "metrics": {
+        "loss/d_total": 4.217852256260812e-05,
+        "loss/g_total": 11.302629470825195,
+        "loss/total": 11.302671649347758,
+        "loss/d_adversarial": 4.217852256260812e-05,
+        "loss/g_adversarial": 11.295387268066406,
+        "loss/d_adversarial_raw": 4.217852256260812e-05,
+        "loss/g_adversarial_raw": 11.295387268066406,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.007242514751851559,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.718549097990035,
+        "timing/training_seconds": 345.03124515901436,
+        "throughput/steps_per_second": 0.5404353681225842,
+        "progress/samples_seen": 6400
+      }
+    },
+    {
+      "step": 200,
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.023867289225260418,
+        "absolute_value_above_0_99_fraction": 0.012210845947265625,
+        "sample_diversity_rms": 0.522710604579242,
+        "spatial_per_channel_std_rms": 0.5783905743980494,
+        "mean_color_share_of_between_sample_variance": 0.004255207098312255,
+        "mean_color_removed_sample_diversity_rms": 0.5215972980416994
+      },
+      "metrics": {
+        "loss/d_total": 4.02905516239116e-06,
+        "loss/g_total": 13.66525650024414,
+        "loss/total": 13.665260529299303,
+        "loss/d_adversarial": 4.02905516239116e-06,
+        "loss/g_adversarial": 13.66110610961914,
+        "loss/d_adversarial_raw": 4.02905516239116e-06,
+        "loss/g_adversarial_raw": 13.66110610961914,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.004150373861193657,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 2.6794712499977322,
+        "timing/training_seconds": 535.7787571490044,
+        "throughput/steps_per_second": 0.5402642359910685,
+        "progress/samples_seen": 12800
+      }
+    },
+    {
+      "step": 300,
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.05919011433919271,
+        "absolute_value_above_0_99_fraction": 0.033702850341796875,
+        "sample_diversity_rms": 0.4500934782724186,
+        "spatial_per_channel_std_rms": 0.49578868726916925,
+        "mean_color_share_of_between_sample_variance": 0.008386738325981852,
+        "mean_color_removed_sample_diversity_rms": 0.44820209617876566
+      },
+      "metrics": {
+        "loss/d_total": 3.6259577882447047e-06,
+        "loss/g_total": 13.99051284790039,
+        "loss/total": 13.990516473858179,
+        "loss/d_adversarial": 3.6259577882447047e-06,
+        "loss/g_adversarial": 13.987707138061523,
+        "loss/d_adversarial_raw": 3.6259577882447047e-06,
+        "loss/g_adversarial_raw": 13.987707138061523,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.0028052530251443386,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.736923193995608,
+        "timing/training_seconds": 724.2242398660019,
+        "throughput/steps_per_second": 0.555221032770605,
+        "progress/samples_seen": 19200
+      }
+    },
+    {
+      "step": 400,
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.16913604736328125,
+        "absolute_value_above_0_99_fraction": 0.10810470581054688,
+        "sample_diversity_rms": 0.3112829486848923,
+        "spatial_per_channel_std_rms": 0.33484445168989196,
+        "mean_color_share_of_between_sample_variance": 0.015540719731560902,
+        "mean_color_removed_sample_diversity_rms": 0.3088546970177287
+      },
+      "metrics": {
+        "loss/d_total": 0.03622964397072792,
+        "loss/g_total": 16.129077911376953,
+        "loss/total": 16.16530755534768,
+        "loss/d_adversarial": 0.010401428677141666,
+        "loss/g_adversarial": 16.127012252807617,
+        "loss/d_adversarial_raw": 0.010401428677141666,
+        "loss/g_adversarial_raw": 16.127012252807617,
+        "loss/gradient_penalty": 0.02582821436226368,
+        "loss/prior_regularizer": 0.002066169399768114,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 2.6467158589948667,
+        "timing/training_seconds": 913.9758831510117,
+        "throughput/steps_per_second": 0.5384157787557103,
+        "progress/samples_seen": 25600
+      }
+    },
+    {
+      "step": 500,
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.3010050455729167,
+        "absolute_value_above_0_99_fraction": 0.21596145629882812,
+        "sample_diversity_rms": 0.2326562050922986,
+        "spatial_per_channel_std_rms": 0.2473618733590663,
+        "mean_color_share_of_between_sample_variance": 0.01822619284853207,
+        "mean_color_removed_sample_diversity_rms": 0.23052623672770567
+      },
+      "metrics": {
+        "loss/d_total": 0.0005834820913150907,
+        "loss/g_total": 8.633761405944824,
+        "loss/total": 8.63434488803614,
+        "loss/d_adversarial": 0.0005834820913150907,
+        "loss/g_adversarial": 8.632427215576172,
+        "loss/d_adversarial_raw": 0.0005834820913150907,
+        "loss/g_adversarial_raw": 8.632427215576172,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.0013342252932488918,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.7317227470048238,
+        "timing/training_seconds": 1102.8608326290123,
+        "throughput/steps_per_second": 0.5491996226624063,
+        "progress/samples_seen": 32000
+      }
+    }
+  ],
+  "parameter_changes": [
+    {
+      "step": 100,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 0.16489309832673615,
+          "initial_square_sum": 36809.509380442796,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.0021165143860819614,
+          "delta_rms": 5.171192521368958e-05
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 2.33160145371708,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.036151794315060826,
+          "delta_rms": 0.0013530904582982472
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 1.236025272276029,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.05370674447222085,
+          "delta_rms": 0.001881412477870573
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 5815.738766862069,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.10519229758795774,
+          "delta_rms": 0.10532160930107848
+        }
+      }
+    },
+    {
+      "step": 200,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 0.2698915713833524,
+          "initial_square_sum": 36809.509380442796,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.002707787920318505,
+          "delta_rms": 6.615826821250822e-05
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 3.9073941661095377,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.046800049301616936,
+          "delta_rms": 0.0017516336701308454
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 1.8139221423393554,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.06506156017793015,
+          "delta_rms": 0.0022791854608092805
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 9153.687504097978,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.13197131275046983,
+          "delta_rms": 0.1321335436069666
+        }
+      }
+    },
+    {
+      "step": 300,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 0.5495590622402058,
+          "initial_square_sum": 36809.509380442796,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.0038639115156064593,
+          "delta_rms": 9.440536036102217e-05
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 4.265418671727872,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.048897148291654806,
+          "delta_rms": 0.0018301239549780627
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 2.6400516640964664,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.07849127165816994,
+          "delta_rms": 0.0027496445623881108
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 13277.007712263301,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.15893941107971116,
+          "delta_rms": 0.1591347935174028
+        }
+      }
+    },
+    {
+      "step": 400,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 0.7381197743031297,
+          "initial_square_sum": 36809.509380442796,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.004477992951659808,
+          "delta_rms": 0.00010940895944124887
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 4.35577149964149,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.049412319758348464,
+          "delta_rms": 0.0018494058083183352
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 3.9875078040562433,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.09646414634187334,
+          "delta_rms": 0.0033792561879934153
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 15952.914706450563,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.17422140723242865,
+          "delta_rms": 0.17443557565681064
+        }
+      }
+    },
+    {
+      "step": 500,
+      "groups": {
+        "generator": {
+          "count": 61662491,
+          "delta_square_sum": 0.7478622467167143,
+          "initial_square_sum": 36809.509380442796,
+          "changed_tensors": 109,
+          "tensors": 109,
+          "relative_l2_change": 0.0045074486774682255,
+          "delta_rms": 0.0001101286390711802
+        },
+        "discriminator_pixel_and_other": {
+          "count": 1273505,
+          "delta_square_sum": 8.85996622307193,
+          "initial_square_sum": 1783.998983493851,
+          "changed_tensors": 56,
+          "tensors": 62,
+          "relative_l2_change": 0.0704723464170771,
+          "delta_rms": 0.002637641127292834
+        },
+        "pretrained_backbone": {
+          "count": 21601152,
+          "delta_square_sum": 0.0,
+          "initial_square_sum": 375653.83221061004,
+          "changed_tensors": 0,
+          "tensors": 175,
+          "relative_l2_change": 0.0,
+          "delta_rms": 0.0
+        },
+        "discriminator_feature_heads": {
+          "count": 349188,
+          "delta_square_sum": 4.064510503595203,
+          "initial_square_sum": 428.5186176794843,
+          "changed_tensors": 28,
+          "tensors": 32,
+          "relative_l2_change": 0.09739110143160672,
+          "delta_rms": 0.003411728550438547
+        },
+        "prior": {
+          "count": 524288,
+          "delta_square_sum": 16204.527510337248,
+          "initial_square_sum": 525577.795009559,
+          "changed_tensors": 1,
+          "tensors": 1,
+          "relative_l2_change": 0.17558996082767073,
+          "delta_rms": 0.17580581159965758
+        }
+      }
+    }
+  ],
+  "decision": "startup pass did not validate useful training; rate selector remains unvalidated",
+  "limitations": [
+    "Saved EMA PNG statistics with evolving learned prior; no online gradient inference.",
+    "Cumulative parameter norms do not establish functional movement or causal attribution across parameter groups.",
+    "Parameter equality check covers pretrained parameters, not buffers.",
+    "Read-only review; running experiment was not modified or stopped."
+  ]
+}

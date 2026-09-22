@@ -1,5 +1,8 @@
 # Gradient-response calibration: accepted startup, ready for a longer test
 
+**Follow-up:** [The longer test failed validation](gradient-response-long-run-review-2026-09-22.md).
+The startup pass below did not establish a useful learning rate.
+
 Implementation: `d0469c0b`. PR #382 remains open and unmerged; auto-merge is off.
 [Condensed evidence](gradient-response-startup-2026-09-22.json) records the full
 report path, SHA-256, clean implementation revision, and all proposal decisions.

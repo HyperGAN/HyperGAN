@@ -160,8 +160,10 @@ do not provide a precise uncertainty estimate.
 
 The [gradient-response testbed](../reports/gradient-response-startup-2026-09-22.md)
 passed startup retention checks with G LR about 9.75e-7 and configured D LR
-0.0002. Its conservative rate still needs longer evaluation for learning speed,
-evolving-prior samples, and the previous 350–500-step failure window.
+0.0002. Its [longer test](../reports/gradient-response-long-run-review-2026-09-22.md)
+subsequently lost sample variation and developed saturation by step 500. The
+startup pass did not establish a useful learning rate; this selector remains
+unvalidated for the testbed.
 
 The [update-response research memo](../reports/update-response-research-2026-09-21.md)
 explains the earlier motivation and limits. The [first measured-update testbed](../reports/measured-update-testbed-2026-09-21.md)

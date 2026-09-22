@@ -36,6 +36,7 @@ decision, retained rates, measurements and protected-state verification.
 The selected factor was **0.11775735815588224**, changing G's rate from
 0.0002 to 0.00002355147163117645. D remained at 0.0002 and the prior at 0.002.
 The dynamics phase took **62.815 seconds** and discarded sixteen updates.
+The complete tuning event span, including initialization checks, was **93.241 seconds**.
 Complete trial state was verified restored to step zero; protected tensor hashes
 matched before, during and after the trials. This is one testbed timing, not a
 hardware-independent startup-cost guarantee.
@@ -43,7 +44,51 @@ hardware-independent startup-cost guarantee.
 The step-zero G/D graph, prior, EMA graph, random streams and global RNG are
 bitwise equal to the earlier initialization-only baseline. Normal CLI resume
 restored the selected optimizer rates without recalibration or compounding the
-factor. Its newly written step-one checkpoint preserves those exact rates.
+factor. Its newly written step-one checkpoint preserves those exact rates. Resume
+completed 100 additional updates, stopping at step 101, with checkpoints at
+steps 20 and 100 available for the matched drift comparison.
+
+A subsequent **normal CLI** startup on commit `afd03e77`, with the enhanced
+audit diagnostics and previews enabled, also completed both phases. It selected
+factor **0.11579168882558553**, restored all sixteen trial updates, saved the
+step-zero checkpoint and published its step-zero preview and metric. Total
+tuning time was **93.925 seconds**, including **62.763 seconds** for dynamics.
+This validates the normal command path on this testbed; the earlier intermittent
+audit failures below still have no identified cause. This execution check used
+the original seed and was not a seed sweep.
+
+## Matched checkpoint outcome
+
+The automatically selected 0.117757x run was probed at steps 0, 20 and 100
+using the existing read-only research script. All six probes passed state
+verification. Real-image bank hashes match the earlier initialization-only and
+manual 0.1x comparisons; frozen/pretrained hashes match across all three runs
+and all checkpoints. Initial generated-output statistics also match exactly.
+
+| Online measurement | Init-only, step 20 | Auto, step 20 | Init-only, step 100 | Auto, step 100 |
+| --- | ---: | ---: | ---: | ---: |
+| Fraction of output values with abs(value) > .99 | 97.41% | 15.82% | 93.31% | 12.31% |
+| Across-sample output standard-deviation RMS | .02923 | .23689 | .06931 | .28993 |
+| Across-sample spread after 4x4 pooling | .001968 | .01936 | .004954 | .08641 |
+| First observed G layer / image gradient RMS | .03584 | .32874 | .07179 | 2.96670 |
+
+These measurements fix particle IDs and Gaussian noise. The fixed-latent control
+also shows the improvement: automatic step-100 saturation is 12.32% and output
+spread is .28991, so evolving prior coordinates do not explain the result.
+The 100-step follow-up supports improvement of the measured early saturation
+and attenuation, beyond the eight-update selection window. It is still the same
+testbed and matched bank, not independent quality evaluation.
+
+The earlier manual 0.1x run has step-100 saturation 26.85% and output spread
+.77892. Automatic tuning lowers saturation further but has less output spread
+than that manual trial. Neither statistic determines sample quality, so these
+results do not establish that the automatic rate is better than the manual one.
+The later normal CLI run validates startup and the preview path only; it was
+stopped at step one and is not the source of these 100-step measurements.
+
+Probe artifacts: `/mnt/ml7tb/hypergan-signal-research/transgan-auto-dynamics-probes`.
+The companion JSON includes both latent controls, baseline comparisons and
+state hashes. No images were used to select the rate or evaluate this result.
 
 ## Audit failures and limits
 

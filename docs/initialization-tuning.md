@@ -76,6 +76,11 @@ rate reduced that failure. The [matched checkpoint investigation](../reports/sta
 documents that controlled comparison and its limits. The dynamics phase derives
 and checks one bounded rate adjustment on each new run rather than applying a
 fixed testbed factor or searching a grid of rates.
+The [automatic startup test](../reports/startup-dynamics-autotune-2026-09-21.md)
+records about 94 seconds of total tuning on this testbed, including about
+63 seconds for dynamics. Cost depends on the model and hardware; the fixed
+update budget also includes snapshot and probe overhead. The report records
+successful command validation and the earlier unresolved state-audit failures.
 
 Only eligible newly initialized layers of a native HNDL generator can be rescaled.
 Pretrained nodes and their descendants, frozen parameters, shared storage,

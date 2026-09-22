@@ -89,5 +89,417 @@
         }
       ]
     }
-  ]
+  ],
+  "baseline_initial_state_comparison": {
+    "baseline_run": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100",
+    "graph_bitwise_equal": true,
+    "prior_bitwise_equal": true,
+    "ema_graph_bitwise_equal": true,
+    "streams_bitwise_equal": true,
+    "global_rng_bitwise_equal": true
+  },
+  "resume_verification": {
+    "command": "hypergan resume RUN --no-server --no-previews --checkpoint-every 20 --progress-every 20 --stop-after-steps 100",
+    "from_step": 1,
+    "final_step": 101,
+    "retuned": false,
+    "base_lrs_before_and_after": [
+      [
+        2.355147163117645e-05,
+        0.002
+      ],
+      [
+        0.0002
+      ]
+    ]
+  },
+  "total_tuning_event_seconds": 93.24148099399463,
+  "normal_cli_startup": {
+    "run": "/mnt/ml7tb/hypergan-signal-research/transgan-auto-dynamics-audited",
+    "source_commit": {
+      "hypergan_commit": "afd03e77c97852d40bfcd316f733bcc38202d2de",
+      "hypergan_dirty": true,
+      "hypergan_provenance": "git"
+    },
+    "total_tuning_event_seconds": 93.92540532599378,
+    "dynamics": {
+      "outcome": "selected",
+      "selected_g_lr_factor": 0.11579168882558553,
+      "elapsed_seconds": 62.76264717399317,
+      "disposable_completed_updates": 16,
+      "all_trial_state_restored": true,
+      "protected_state_verification": {
+        "before_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+        "after_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+        "unchanged_during_trials": true,
+        "after_restore_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c"
+      }
+    },
+    "comparisons": [
+      {
+        "name": "g_lr_1",
+        "lr_factor": 1.0,
+        "accepted": false,
+        "comparisons": [
+          {
+            "bank": 0,
+            "sample_diversity_retention": 0.22493784088104074,
+            "first_relative_cotangent_gain_retention": 0.11579168882558553
+          },
+          {
+            "bank": 1,
+            "sample_diversity_retention": 0.22495534861696945,
+            "first_relative_cotangent_gain_retention": 0.11700041532427805
+          }
+        ]
+      },
+      {
+        "name": "derived_g_lr",
+        "lr_factor": 0.11579168882558553,
+        "accepted": true,
+        "comparisons": [
+          {
+            "bank": 0,
+            "sample_diversity_retention": 0.7132071864942584,
+            "first_relative_cotangent_gain_retention": 0.5033543238271597
+          },
+          {
+            "bank": 1,
+            "sample_diversity_retention": 0.7188004252407391,
+            "first_relative_cotangent_gain_retention": 0.5109826569172871
+          }
+        ]
+      }
+    ]
+  },
+  "matched_checkpoints": {
+    "same_real_bank_across_variants": true,
+    "all_frozen_hashes_equal": true,
+    "rows": [
+      {
+        "variant": "initialization_only",
+        "step": 0,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000000-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+          "output_rms": 0.5159794688224792,
+          "sample_diversity_rms": 0.45532137155532837,
+          "mean_within_sample_std": 0.49672242999076843,
+          "min_within_sample_std": 0.4727421998977661,
+          "absolute_output_above_0_99_fraction": 0.00037320455885492265
+        },
+        "first_to_image_gradient_rms_ratio": 0.6981118875275204,
+        "image_gradient_rms": 3.5100044897262705e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "initialization_only",
+        "step": 0,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000000-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+          "output_rms": 0.5159794688224792,
+          "sample_diversity_rms": 0.45532137155532837,
+          "mean_within_sample_std": 0.49672242999076843,
+          "min_within_sample_std": 0.4727421998977661,
+          "absolute_output_above_0_99_fraction": 0.00037320455885492265
+        },
+        "first_to_image_gradient_rms_ratio": 0.6981122761999727,
+        "image_gradient_rms": 3.5100044897262705e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "initialization_only",
+        "step": 20,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000020-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.0019681307021528482,
+          "output_rms": 0.9965608716011047,
+          "sample_diversity_rms": 0.02922951430082321,
+          "mean_within_sample_std": 0.9261108636856079,
+          "min_within_sample_std": 0.9250935316085815,
+          "absolute_output_above_0_99_fraction": 0.9741182327270508
+        },
+        "first_to_image_gradient_rms_ratio": 0.03583678210035944,
+        "image_gradient_rms": 7.162084330047946e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "initialization_only",
+        "step": 20,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000020-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.0019706382881850004,
+          "output_rms": 0.9965599179267883,
+          "sample_diversity_rms": 0.029260050505399704,
+          "mean_within_sample_std": 0.9261090755462646,
+          "min_within_sample_std": 0.9250912070274353,
+          "absolute_output_above_0_99_fraction": 0.9741157293319702
+        },
+        "first_to_image_gradient_rms_ratio": 0.05620127868027301,
+        "image_gradient_rms": 4.226331384415971e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "initialization_only",
+        "step": 100,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000100-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.004954418167471886,
+          "output_rms": 0.9859049916267395,
+          "sample_diversity_rms": 0.0693088099360466,
+          "mean_within_sample_std": 0.9169260263442993,
+          "min_within_sample_std": 0.9154926538467407,
+          "absolute_output_above_0_99_fraction": 0.9330991506576538
+        },
+        "first_to_image_gradient_rms_ratio": 0.07179112006801877,
+        "image_gradient_rms": 1.5166186130954884e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "initialization_only",
+        "step": 100,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000100-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.004954180680215359,
+          "output_rms": 0.9859078526496887,
+          "sample_diversity_rms": 0.06928294897079468,
+          "mean_within_sample_std": 0.9169350862503052,
+          "min_within_sample_std": 0.9155634045600891,
+          "absolute_output_above_0_99_fraction": 0.9331251978874207
+        },
+        "first_to_image_gradient_rms_ratio": 0.10387786346549066,
+        "image_gradient_rms": 1.034139859257266e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "manual_g_factor_0p1",
+        "step": 0,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000000-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+          "output_rms": 0.5159794688224792,
+          "sample_diversity_rms": 0.45532137155532837,
+          "mean_within_sample_std": 0.49672242999076843,
+          "min_within_sample_std": 0.4727421998977661,
+          "absolute_output_above_0_99_fraction": 0.00037320455885492265
+        },
+        "first_to_image_gradient_rms_ratio": 0.6980973580956313,
+        "image_gradient_rms": 3.510399665174191e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "manual_g_factor_0p1",
+        "step": 0,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000000-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+          "output_rms": 0.5159794688224792,
+          "sample_diversity_rms": 0.45532137155532837,
+          "mean_within_sample_std": 0.49672242999076843,
+          "min_within_sample_std": 0.4727421998977661,
+          "absolute_output_above_0_99_fraction": 0.00037320455885492265
+        },
+        "first_to_image_gradient_rms_ratio": 0.6980980058101286,
+        "image_gradient_rms": 3.510399665174191e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "manual_g_factor_0p1",
+        "step": 20,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000020-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.02067626640200615,
+          "output_rms": 0.8274196982383728,
+          "sample_diversity_rms": 0.23321308195590973,
+          "mean_within_sample_std": 0.7281177639961243,
+          "min_within_sample_std": 0.7156932950019836,
+          "absolute_output_above_0_99_fraction": 0.13921038806438446
+        },
+        "first_to_image_gradient_rms_ratio": 0.3680202616518923,
+        "image_gradient_rms": 1.5006606190581806e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "manual_g_factor_0p1",
+        "step": 20,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000020-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.020762598142027855,
+          "output_rms": 0.8274844884872437,
+          "sample_diversity_rms": 0.23311863839626312,
+          "mean_within_sample_std": 0.7281503677368164,
+          "min_within_sample_std": 0.7151540517807007,
+          "absolute_output_above_0_99_fraction": 0.13936933875083923
+        },
+        "first_to_image_gradient_rms_ratio": 0.3730736917247546,
+        "image_gradient_rms": 9.188569492835086e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "manual_g_factor_0p1",
+        "step": 100,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000100-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.4518919587135315,
+          "output_rms": 0.8514938950538635,
+          "sample_diversity_rms": 0.7789229154586792,
+          "mean_within_sample_std": 0.8257111310958862,
+          "min_within_sample_std": 0.7535712122917175,
+          "absolute_output_above_0_99_fraction": 0.26854801177978516
+        },
+        "first_to_image_gradient_rms_ratio": 1.795998701522445,
+        "image_gradient_rms": 1.5594408978358842e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "manual_g_factor_0p1",
+        "step": 100,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000100-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.4508008658885956,
+          "output_rms": 0.8516489863395691,
+          "sample_diversity_rms": 0.7779751420021057,
+          "mean_within_sample_std": 0.8251599073410034,
+          "min_within_sample_std": 0.7519709467887878,
+          "absolute_output_above_0_99_fraction": 0.2690509259700775
+        },
+        "first_to_image_gradient_rms_ratio": 1.1252046687580128,
+        "image_gradient_rms": 2.712347668420989e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "automatic_g_factor_0p117757",
+        "step": 0,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-auto-dynamics-probes/step-00000000-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+          "output_rms": 0.5159794688224792,
+          "sample_diversity_rms": 0.45532137155532837,
+          "mean_within_sample_std": 0.49672242999076843,
+          "min_within_sample_std": 0.4727421998977661,
+          "absolute_output_above_0_99_fraction": 0.00037320455885492265
+        },
+        "first_to_image_gradient_rms_ratio": 0.6980976171814302,
+        "image_gradient_rms": 3.510399665174191e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "automatic_g_factor_0p117757",
+        "step": 0,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-auto-dynamics-probes/step-00000000-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+          "output_rms": 0.5159794688224792,
+          "sample_diversity_rms": 0.45532137155532837,
+          "mean_within_sample_std": 0.49672242999076843,
+          "min_within_sample_std": 0.4727421998977661,
+          "absolute_output_above_0_99_fraction": 0.00037320455885492265
+        },
+        "first_to_image_gradient_rms_ratio": 0.6980980058101286,
+        "image_gradient_rms": 3.510399665174191e-06,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "automatic_g_factor_0p117757",
+        "step": 20,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-auto-dynamics-probes/step-00000020-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.019362764433026314,
+          "output_rms": 0.8255524039268494,
+          "sample_diversity_rms": 0.2368890941143036,
+          "mean_within_sample_std": 0.7650715112686157,
+          "min_within_sample_std": 0.7486314177513123,
+          "absolute_output_above_0_99_fraction": 0.15818342566490173
+        },
+        "first_to_image_gradient_rms_ratio": 0.3287440799984162,
+        "image_gradient_rms": 4.869712938671e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "automatic_g_factor_0p117757",
+        "step": 20,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-auto-dynamics-probes/step-00000020-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.019375650212168694,
+          "output_rms": 0.8255786299705505,
+          "sample_diversity_rms": 0.2368612438440323,
+          "mean_within_sample_std": 0.7650931477546692,
+          "min_within_sample_std": 0.7485871315002441,
+          "absolute_output_above_0_99_fraction": 0.1581777036190033
+        },
+        "first_to_image_gradient_rms_ratio": 0.37279171567086866,
+        "image_gradient_rms": 2.027473419730086e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "automatic_g_factor_0p117757",
+        "step": 100,
+        "input_mode": "fixed_ids_noise",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-auto-dynamics-probes/step-00000100-fixed_ids_noise.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.08640560507774353,
+          "output_rms": 0.817060649394989,
+          "sample_diversity_rms": 0.2899286150932312,
+          "mean_within_sample_std": 0.41332268714904785,
+          "min_within_sample_std": 0.3298497498035431,
+          "absolute_output_above_0_99_fraction": 0.12309106439352036
+        },
+        "first_to_image_gradient_rms_ratio": 2.9666992574291706,
+        "image_gradient_rms": 6.041947199264541e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      },
+      {
+        "variant": "automatic_g_factor_0p117757",
+        "step": 100,
+        "input_mode": "fixed_latent_tensor",
+        "report": "/mnt/ml7tb/hypergan-signal-research/transgan-auto-dynamics-probes/step-00000100-fixed_latent_tensor.json",
+        "generated_statistics": {
+          "coarse_4x4_sample_diversity_rms": 0.08671566098928452,
+          "output_rms": 0.8170381784439087,
+          "sample_diversity_rms": 0.2899065315723419,
+          "mean_within_sample_std": 0.4133667051792145,
+          "min_within_sample_std": 0.32907038927078247,
+          "absolute_output_above_0_99_fraction": 0.12324746698141098
+        },
+        "first_to_image_gradient_rms_ratio": 3.9452747348130606,
+        "image_gradient_rms": 4.643933061743155e-05,
+        "online_state_unchanged": true,
+        "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32"
+      }
+    ]
+  }
 }

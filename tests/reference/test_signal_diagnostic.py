@@ -76,6 +76,20 @@ class FrozenFeatures(Chain):
         return self.features(super().forward(x))
 
 
+class MutatingChain(Chain):
+    def forward(self, x):
+        with torch.no_grad():
+            self.layers[0].weight.add_(0.01)
+        return super().forward(x)
+
+
+class MutatingFrozenFeatures(FrozenFeatures):
+    def forward(self, x):
+        with torch.no_grad():
+            self.features.running_mean.add_(0.01)
+        return super().forward(x)
+
+
 def _trainer(factory='Chain', critic='Critic', **args):
     config = resolve_config({
         'components': {
@@ -130,6 +144,57 @@ def test_hook_and_requires_grad_cleanup_after_failed_forward():
     assert all(p.requires_grad == flag for p, flag in before)
     assert all(not module._forward_hooks for module in trainer.graph.modules())
     assert all(not module._forward_pre_hooks for module in trainer.graph.modules())
+
+
+@pytest.mark.parametrize(('factory', 'path'), [
+    ('MutatingChain', 'graph.parameter.models.generator.layers.0.weight'),
+    ('MutatingFrozenFeatures', 'graph.buffer.models.generator.features.running_mean'),
+])
+def test_state_audit_refuses_mutation_and_identifies_registered_tensor(factory, path):
+    trainer = _trainer(factory)
+    batch, latent = _draw()
+    flags = [(parameter, parameter.requires_grad) for parameter in trainer.graph.parameters()]
+    buffers = [(value, value.clone()) for value in trainer.graph.buffers()]
+    with pytest.raises(ValueError, match='report refused') as failure:
+        _probe(trainer, 'adversarial', batch=batch, latent_draw=latent)
+    assert path in str(failure.value)
+    assert all(parameter.requires_grad == flag for parameter, flag in flags)
+    assert all(torch.equal(value, saved) for value, saved in buffers)
+    assert all(not module._forward_hooks for module in trainer.graph.modules())
+    assert all(not module._forward_pre_hooks for module in trainer.graph.modules())
+    assert trainer.step == 0
+    assert not trainer.opt_g.state and not trainer.opt_d.state
+
+
+def test_entry_hashes_do_not_override_aggregate_failure(monkeypatch):
+    import hypergan.signal_diagnostic as diagnostic
+    trainer = _trainer()
+    batch, latent = _draw()
+    calls = 0
+
+    def inconsistent_aggregate(modules, *, entries=None):
+        nonlocal calls
+        digest = _digest_state(modules, entries=entries)
+        calls += 1
+        return digest if calls == 1 else 'different-aggregate'
+
+    monkeypatch.setattr(diagnostic, '_digest_state', inconsistent_aggregate)
+    with pytest.raises(ValueError, match='none identified; aggregate mismatch remains fatal'):
+        _probe(trainer, 'adversarial', batch=batch, latent_draw=latent)
+
+
+def test_optional_entry_hashes_preserve_existing_aggregate():
+    module = nn.Linear(2, 2)
+    module.register_buffer('scalar', torch.tensor(1.0), persistent=False)
+    entries = {}
+    before = _digest_state((('test', module),))
+    assert _digest_state((('test', module),), entries=entries) == before
+    assert set(entries) == {'test.parameter.weight', 'test.parameter.bias', 'test.buffer.scalar'}
+    with torch.no_grad():
+        module.scalar.add_(1.)
+    changed = {}
+    assert _digest_state((('test', module),), entries=changed) != before
+    assert {name for name in entries if entries[name] != changed[name]} == {'test.buffer.scalar'}
 
 
 def test_total_objective_matches_adversarial_without_auxiliary_terms():

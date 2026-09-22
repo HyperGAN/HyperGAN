@@ -60,16 +60,25 @@ def _tensors(value, suffix=''):
             yield from _tensors(item, suffix + f'[{key}]')
 
 
-def _digest_state(modules):
-    """Hash registered tensors, including nonpersistent buffers, one at a time."""
+def _digest_state(modules, *, entries=None):
+    """Hash registered tensors, optionally recording diagnostic hashes by path.
+
+    Both digests share one CPU copy per tensor. The aggregate byte sequence is
+    unchanged; entry hashes explain failures and never replace that guard.
+    """
     digest = hashlib.sha256()
     for prefix, module in modules:
         for kind, values in (('parameter', module.named_parameters()), ('buffer', module.named_buffers())):
             for name, value in values:
                 descriptor = (prefix, kind, name, tuple(value.shape), str(value.dtype))
-                digest.update(json.dumps(descriptor).encode())
-                raw = value.detach().cpu().contiguous().reshape(-1).view(torch.uint8).numpy()
-                digest.update(raw.tobytes())
+                description = json.dumps(descriptor).encode()
+                raw = value.detach().cpu().contiguous().reshape(-1).view(torch.uint8).numpy().tobytes()
+                digest.update(description)
+                digest.update(raw)
+                if entries is not None:
+                    entry = hashlib.sha256(description)
+                    entry.update(raw)
+                    entries[f'{prefix}.{kind}.{name}'] = entry.hexdigest()
     return digest.hexdigest()
 
 
@@ -170,8 +179,10 @@ def _probe(trainer, objective, *, batch=None, latent_draw=None):
     """Audit an exclusively owned disposable trainer; restore flags and buffers."""
     graph, prior, program = trainer.graph, trainer.prior, trainer.program
     modules = (('graph', graph), ('prior', prior))
-    before = _digest_state(modules)
-    buffers = [(value, value.detach().clone()) for _, module in modules for value in module.buffers()]
+    before_entries = {}
+    before = _digest_state(modules, entries=before_entries)
+    buffers = [(f'{prefix}.buffer.{name}', value, value.detach().clone())
+               for prefix, module in modules for name, value in module.named_buffers()]
     flags = [(p, p.requires_grad) for _, module in modules for p in module.parameters()]
     modes = {name: module.training for name, module in graph.named_modules()}
     generator_ids = {id(p) for p in program.generator_parameters}
@@ -187,7 +198,7 @@ def _probe(trainer, objective, *, batch=None, latent_draw=None):
             parameters = tuple(module.parameters())
             if parameters and all(not original_flags[id(p)] for p in parameters):
                 protected_buffers.update(id(value) for value in module.buffers())
-    protected_buffers_changed = False
+    protected_buffers_changed = []
     audit = _ActivationAudit(graph.models['generator'])
     critic_audits, critic_budget = [], [0]
     try:
@@ -297,17 +308,24 @@ def _probe(trainer, objective, *, batch=None, latent_draw=None):
         for _, _, critic_audit in critic_audits:
             critic_audit.close()
         with torch.no_grad():
-            for value, saved in buffers:
+            for path, value, saved in buffers:
                 if id(value) in protected_buffers and not torch.equal(value, saved):
-                    protected_buffers_changed = True
+                    protected_buffers_changed.append(path)
                 value.copy_(saved)
         for parameter, flag in flags:
             parameter.requires_grad_(flag)
     if protected_buffers_changed:
-        raise ValueError('Frozen module buffers changed during the signal probe; report refused')
-    after = _digest_state(modules)
+        raise ValueError('Frozen module buffers changed during the signal probe; report refused; '
+                         'changed registered tensors: ' + ', '.join(protected_buffers_changed))
+    after_entries = {}
+    after = _digest_state(modules, entries=after_entries)
     if after != before:
-        raise ValueError('Signal probe changed registered model state; report refused')
+        changed = sorted(path for path in before_entries.keys() | after_entries.keys()
+                         if before_entries.get(path) != after_entries.get(path))
+        paths = ', '.join(changed) or '(none identified; aggregate mismatch remains fatal)'
+        raise ValueError('Signal probe changed registered model state; report refused; '
+                         f'changed registered tensors: {paths}; '
+                         f'before_sha256={before}; after_sha256={after}')
     result['state_verification'] = {'before_sha256': before, 'after_sha256': after,
                                    'parameters_and_restored_buffers_unchanged': True,
                                    'frozen_module_buffers_unchanged_during_probe': True,

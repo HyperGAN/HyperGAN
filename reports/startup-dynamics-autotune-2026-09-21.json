@@ -1,0 +1,93 @@
+{
+  "config": "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-128-init-v2/transgan-dinov3-multidepth.toml",
+  "run": "/mnt/ml7tb/hypergan-signal-research/transgan-auto-debug-state",
+  "instrumentation": "Initial CLI used per-tensor diagnostic hashes in addition to the exact aggregate state digest. Resume uses normal CLI. Instrumentation did not disable any guard.",
+  "initialization_transformations": [
+    {
+      "path": "models.generator.network.nodes.n_output_projection.weight",
+      "factor": 0.7010369379909743
+    },
+    {
+      "path": "models.generator.network.nodes.n_output_projection.bias",
+      "factor": 0.7010369379909743
+    }
+  ],
+  "optimizer_override": {
+    "schema_version": 1,
+    "scope": "generator-main-group",
+    "factor": 0.11775735815588224,
+    "baseline_g_lr": 0.0002,
+    "effective_g_lr": 2.355147163117645e-05,
+    "optimizer_config_sha256": "9f2bd863ce908baf266e7d61e1258bb8c83534cc0cb2e7d2f190cc3d7b8425fa"
+  },
+  "dynamics": {
+    "trial_steps": 8,
+    "maximum_disposable_updates": 16,
+    "selected_g_lr_factor": 0.11775735815588224,
+    "outcome": "selected",
+    "reason": "One drift-derived smaller generator learning rate passed both reserved-bank startup retention guards",
+    "rate_formula": "clip(minimum_retention, 0.1, 0.5), only after finite nonnegative baseline retention falls below 0.25",
+    "guards": {
+      "minimum_diversity_retention": 0.25,
+      "minimum_first_cotangent_gain_retention": 0.25,
+      "finite_nonzero_generator_objective_signal": true
+    },
+    "derived_rate": {
+      "minimum_retention": 0.11775735815588224,
+      "proposed_g_lr_factor": 0.11775735815588224
+    },
+    "disposable_completed_updates": 16,
+    "restored_step": 0,
+    "all_trial_state_restored": true,
+    "elapsed_seconds": 62.81521895600599,
+    "protected_state_verification": {
+      "before_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+      "after_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+      "unchanged_during_trials": true,
+      "after_restore_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c"
+    }
+  },
+  "candidates": [
+    {
+      "name": "g_lr_1",
+      "lr_factor": 1.0,
+      "accepted": false,
+      "rejection_reasons": [
+        "bank_0_sample_diversity_retention_below_0.25",
+        "bank_0_first_relative_cotangent_gain_retention_below_0.25",
+        "bank_1_sample_diversity_retention_below_0.25",
+        "bank_1_first_relative_cotangent_gain_retention_below_0.25"
+      ],
+      "comparisons": [
+        {
+          "bank": 0,
+          "sample_diversity_retention": 0.2302432463168994,
+          "first_relative_cotangent_gain_retention": 0.11775735815588224
+        },
+        {
+          "bank": 1,
+          "sample_diversity_retention": 0.23219323913002907,
+          "first_relative_cotangent_gain_retention": 0.11899387018365118
+        }
+      ]
+    },
+    {
+      "name": "derived_g_lr",
+      "lr_factor": 0.11775735815588224,
+      "accepted": true,
+      "rejection_reasons": [],
+      "comparisons": [
+        {
+          "bank": 0,
+          "sample_diversity_retention": 0.7138606482760139,
+          "first_relative_cotangent_gain_retention": 0.5059128710457552
+        },
+        {
+          "bank": 1,
+          "sample_diversity_retention": 0.7195872337522904,
+          "first_relative_cotangent_gain_retention": 0.5132668985809404
+        }
+      ]
+    }
+  ]
+}

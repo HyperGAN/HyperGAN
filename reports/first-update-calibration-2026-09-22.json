@@ -1,0 +1,1183 @@
+{
+  "kind": "first-update-calibration-testbed",
+  "run_dir": "/mnt/ml7tb/hypergan-signal-research/transgan-first-update-response-smoke-v1",
+  "full_report_path": "/mnt/ml7tb/hypergan-signal-research/transgan-first-update-response-smoke-v1/tuning/report.json",
+  "full_report_sha256": "e161d3c8162cab7a8d4dc5421afc7e45129e0fc8e63d9f0f4085711df09b2d45",
+  "source": {
+    "hypergan_commit": "c14faa859b3bcd4f3406691bb54d555c5bbe09e6",
+    "hypergan_dirty": false,
+    "hypergan_provenance": "git"
+  },
+  "optimizer_override": {
+    "schema_version": 2,
+    "scope": "generator-and-discriminator-main-groups",
+    "factor": 1.0,
+    "baseline_g_lr": 0.0002,
+    "effective_g_lr": 0.0002,
+    "optimizer_config_sha256": "9f2bd863ce908baf266e7d61e1258bb8c83534cc0cb2e7d2f190cc3d7b8425fa",
+    "d_factor": 1.0,
+    "baseline_d_lr": 0.0002,
+    "effective_d_lr": 0.0002
+  },
+  "retained_updates": 1,
+  "seed": 25002,
+  "prior_initialization_seed": 25003,
+  "gpu_uuid": "GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce",
+  "outcome": "unresolved",
+  "reason": "The one coupled replay failed startup guards; the whole pair was rejected",
+  "elapsed_seconds": 121.8469112469902,
+  "anchor_steps": {
+    "generator": 1,
+    "discriminator": 8
+  },
+  "bank_control": {
+    "fit_draws": [
+      0,
+      1
+    ],
+    "validation_draws": [
+      2,
+      3
+    ],
+    "origin": "four reserved real draws after baseline; phase-local prior latent tensors from the same tail sampling RNG",
+    "latent_prior_steps": {
+      "generator": 0,
+      "discriminator": 7
+    },
+    "guard_latents": "fixed generator-anchor prior values",
+    "replacement_sampling_may_repeat_dataset_items": true
+  },
+  "probe_budget": {
+    "training_updates": 16,
+    "fit_phase_loss_evaluations": 12,
+    "validation_phase_loss_evaluations": 8,
+    "g_response_forwards": 8,
+    "q_image_forwards": 2,
+    "d_signal_input_backwards": 4,
+    "guard_structural_evaluations": 6,
+    "guard_signal_evaluations": 6,
+    "fit_bank_gradient_evaluations": 0
+  },
+  "directional_proposals": {
+    "generator": {
+      "status": "selected",
+      "reason": null,
+      "factor": 0.8654537809730865,
+      "banks": [
+        {
+          "status": "valid",
+          "reason": null,
+          "losses": [
+            0.970708966255188,
+            0.7375874519348145,
+            0.693855881690979
+          ],
+          "a": -0.6556329727172852,
+          "k": 0.7575597763061523,
+          "slope_resolution": 6.25260599917965e-06,
+          "curvature_resolution": 1.1977156646025833e-05,
+          "supplied_slope": null,
+          "unconstrained_factor": 0.8654537809730865,
+          "selected_factor": 0.8654537809730865
+        },
+        {
+          "status": "valid",
+          "reason": null,
+          "losses": [
+            0.9710198640823364,
+            0.7412655353546143,
+            0.6966043710708618
+          ],
+          "a": -0.6446018218994141,
+          "k": 0.7403726577758789,
+          "slope_resolution": 6.2701474234927446e-06,
+          "curvature_resolution": 1.2016888831567485e-05,
+          "supplied_slope": null,
+          "unconstrained_factor": 0.8706450935611725,
+          "selected_factor": 0.8706450935611725
+        }
+      ]
+    },
+    "discriminator": {
+      "status": "selected",
+      "reason": null,
+      "factor": 0.4729655386061616,
+      "banks": [
+        {
+          "status": "valid",
+          "reason": null,
+          "losses": [
+            0.05787169560790062,
+            0.03789738938212395,
+            0.029174258932471275
+          ],
+          "a": -0.051199788227677345,
+          "k": 0.045004703104496,
+          "slope_resolution": 3.379620583388032e-07,
+          "curvature_resolution": 6.21188100069503e-07,
+          "supplied_slope": null,
+          "unconstrained_factor": 1.137654171582846,
+          "selected_factor": 1.0
+        },
+        {
+          "status": "valid",
+          "reason": null,
+          "losses": [
+            2.5271716117858887,
+            2.427644968032837,
+            2.55130672454834
+          ],
+          "a": -0.4222416877746582,
+          "k": 0.8927536010742188,
+          "slope_resolution": 1.8924142295873025e-05,
+          "curvature_resolution": 3.789431866607629e-05,
+          "supplied_slope": null,
+          "unconstrained_factor": 0.4729655386061616,
+          "selected_factor": 0.4729655386061616
+        }
+      ]
+    }
+  },
+  "heldout_validation": {
+    "generator": {
+      "accepted": true,
+      "status": "accepted",
+      "reason": null,
+      "banks": [
+        {
+          "accepted": true,
+          "reason": null,
+          "before": 0.9667403697967529,
+          "after": 0.6995831727981567,
+          "decrease": 0.2671571969985962,
+          "resolution": 1.5891299653958413e-06
+        },
+        {
+          "accepted": true,
+          "reason": null,
+          "before": 0.9782936573028564,
+          "after": 0.7056110501289368,
+          "decrease": 0.2726826071739197,
+          "resolution": 1.6058966707532818e-06
+        }
+      ]
+    },
+    "discriminator": {
+      "accepted": true,
+      "status": "accepted",
+      "reason": null,
+      "banks": [
+        {
+          "accepted": true,
+          "reason": null,
+          "before": 0.04883783310651779,
+          "after": 0.03180001303553581,
+          "decrease": 0.01703782007098198,
+          "resolution": 7.690224279599533e-08
+        },
+        {
+          "accepted": true,
+          "reason": null,
+          "before": 0.06059790402650833,
+          "after": 0.0369214192032814,
+          "decrease": 0.02367648482322693,
+          "resolution": 9.300167391756986e-08
+        }
+      ]
+    }
+  },
+  "d_signal_response": {
+    "status": "measured",
+    "objective": "configured_adversarial",
+    "step": 8,
+    "input_control": "identical_detached_image_real_context_and_scoring_randomness_before_after_D",
+    "banks": [
+      {
+        "status": "finite",
+        "before_rms": 4.504423937833064e-06,
+        "after_rms": 1.1466350911236189e-05,
+        "change_rms": 1.1538848813834955e-05,
+        "relative_change": 2.5616702541959073,
+        "norm_ratio": 2.5455754319501924,
+        "cosine": 0.18027353992276002,
+        "relative_status": "resolved"
+      },
+      {
+        "status": "finite",
+        "before_rms": 5.174201213961245e-06,
+        "after_rms": 4.101754287465733e-06,
+        "change_rms": 7.443440903863646e-06,
+        "relative_change": 1.4385681182593837,
+        "norm_ratio": 0.7927318861118522,
+        "cosine": -0.27818635489565563,
+        "relative_status": "resolved"
+      }
+    ]
+  },
+  "selected_g_lr_factor": 1.0,
+  "selected_d_lr_factor": 1.0,
+  "protected_state_verification": {
+    "before_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+    "after_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+    "unchanged_during_trials": true,
+    "after_restore_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c"
+  },
+  "all_trial_state_restored": true,
+  "restored_step": 0,
+  "before": [
+    {
+      "transmission": {
+        "score": 0.031121025903443907,
+        "output_rms": 0.6227203607559204,
+        "output_std": 0.6006484627723694,
+        "sample_diversity_rms": 0.5527874827384949,
+        "nonfinite_output_fraction": 0.0,
+        "absolute_output_above_0_99_fraction": 0.010115623474121094
+      },
+      "first_relative_cotangent_gain": 1.0465708066805064,
+      "signal_loss": 0.6882477402687073,
+      "signal_summary": {
+        "generated_output_gradient_rms": 6.8417789407249074e-06,
+        "generated_output_gradient_rms_times_batch_size": 0.0004378738522063941,
+        "first_observed_module": "generator.network.nodes.n_input_projection",
+        "first_observed_to_output_rms_ratio": 0.8120858363690129,
+        "zero_gradient_activation_records": 0,
+        "unused_activation_records": 0,
+        "nonfinite_activation_records": 0,
+        "discriminator_profiles": [
+          {
+            "term_id": "adversarial",
+            "weight": 1.0,
+            "fake_binding": {
+              "path": "generated",
+              "detach_sample": false,
+              "detach_score": false
+            },
+            "real_binding": {
+              "path": "batch.real",
+              "detach_sample": false,
+              "detach_score": true
+            },
+            "fake_score_activation": {
+              "rms": 0.17495094239711761,
+              "mean": -0.17443475127220154,
+              "std": 0.013429459184408188,
+              "abs_max": 0.21035580337047577,
+              "zero_fraction": 0.0,
+              "nonfinite_fraction": 0.0
+            },
+            "fake_score_gradient_rms": 0.007774168625473976,
+            "fake_score_status": "measured",
+            "fake_input_gradients": [
+              {
+                "path": "discriminator[adversarial].input[kwargs][x]",
+                "status": "measured",
+                "gradient_rms": 6.8417789407249074e-06,
+                "gradient_to_score_rms_ratio": 0.0008800656726567694
+              }
+            ],
+            "nonfinite_activation_records": 0,
+            "zero_gradient_activation_records": 0
+          }
+        ]
+      }
+    },
+    {
+      "transmission": {
+        "score": 0.030509471015220613,
+        "output_rms": 0.6219401955604553,
+        "output_std": 0.599338710308075,
+        "sample_diversity_rms": 0.5517347455024719,
+        "nonfinite_output_fraction": 0.0,
+        "absolute_output_above_0_99_fraction": 0.009717623703181744
+      },
+      "first_relative_cotangent_gain": 1.0445790612196448,
+      "signal_loss": 0.6927875280380249,
+      "signal_summary": {
+        "generated_output_gradient_rms": 3.721693246916402e-06,
+        "generated_output_gradient_rms_times_batch_size": 0.00023818836780264974,
+        "first_observed_module": "generator.network.nodes.n_input_projection",
+        "first_observed_to_output_rms_ratio": 0.878726162591076,
+        "zero_gradient_activation_records": 0,
+        "unused_activation_records": 0,
+        "nonfinite_activation_records": 0,
+        "discriminator_profiles": [
+          {
+            "term_id": "adversarial",
+            "weight": 1.0,
+            "fake_binding": {
+              "path": "generated",
+              "detach_sample": false,
+              "detach_score": false
+            },
+            "real_binding": {
+              "path": "batch.real",
+              "detach_sample": false,
+              "detach_score": true
+            },
+            "fake_score_activation": {
+              "rms": 0.17689165472984314,
+              "mean": -0.1760455071926117,
+              "std": 0.0172810647636652,
+              "abs_max": 0.22307495772838593,
+              "zero_fraction": 0.0,
+              "nonfinite_fraction": 0.0
+            },
+            "fake_score_gradient_rms": 0.007809683680534363,
+            "fake_score_status": "measured",
+            "fake_input_gradients": [
+              {
+                "path": "discriminator[adversarial].input[kwargs][x]",
+                "status": "measured",
+                "gradient_rms": 3.721693246916402e-06,
+                "gradient_to_score_rms_ratio": 0.0004765485260552515
+              }
+            ],
+            "nonfinite_activation_records": 0,
+            "zero_gradient_activation_records": 0
+          }
+        ]
+      }
+    }
+  ],
+  "candidates": [
+    {
+      "name": "baseline",
+      "lr_factor": 1.0,
+      "d_lr_factor": 1.0,
+      "accepted": false,
+      "rejection_reasons": [
+        "bank_0_first_relative_cotangent_gain_retention_below_0.25",
+        "bank_1_first_relative_cotangent_gain_retention_below_0.25"
+      ],
+      "comparisons": [
+        {
+          "bank": 0,
+          "sample_diversity_retention": 0.3352276764606461,
+          "first_relative_cotangent_gain_retention": 0.2119813745469264
+        },
+        {
+          "bank": 1,
+          "sample_diversity_retention": 0.33437320701732703,
+          "first_relative_cotangent_gain_retention": 0.21015276675333497
+        }
+      ],
+      "trial_losses": [
+        {
+          "g_loss": 0.9658088684082031,
+          "d_loss": 0.7046488523483276
+        },
+        {
+          "g_loss": 0.9866565465927124,
+          "d_loss": 0.7334590554237366
+        },
+        {
+          "g_loss": 1.3086446523666382,
+          "d_loss": 0.5211458802223206
+        },
+        {
+          "g_loss": 1.807137370109558,
+          "d_loss": 0.3734234571456909
+        },
+        {
+          "g_loss": 2.5125505924224854,
+          "d_loss": 0.21796011924743652
+        },
+        {
+          "g_loss": 2.8852169513702393,
+          "d_loss": 0.13687792420387268
+        },
+        {
+          "g_loss": 3.573648691177368,
+          "d_loss": 0.0705161988735199
+        },
+        {
+          "g_loss": 4.189599514007568,
+          "d_loss": 0.11770700663328171
+        }
+      ],
+      "optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0005565585831433344,
+          "measurement": "cumulative_eight_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.022779353950806318
+        },
+        "discriminator": {
+          "elements": 1622693,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0006655248359934047,
+          "measurement": "cumulative_eight_update_parameter_displacement",
+          "initial_rms": 0.036925398064576835,
+          "relative_delta_l2": 0.01802349794115975
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.013983907632635259,
+          "measurement": "cumulative_eight_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.013966738477472342
+        }
+      },
+      "update_response": [
+        {
+          "step": 1,
+          "player": "discriminator",
+          "optimizer_motion": {
+            "elements": 1622693,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.00019532282473440878,
+            "initial_rms": 0.036925398064576835,
+            "relative_delta_l2": 0.005289660639346914,
+            "training_gradient_dot_delta": -0.5728315280675804,
+            "measurement": "one_actual_optimizer_update"
+          }
+        },
+        {
+          "step": 1,
+          "player": "generator",
+          "optimizer_motion": {
+            "elements": 61662491,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.00019947206158079666,
+            "initial_rms": 0.024432588577589308,
+            "relative_delta_l2": 0.008164180432513057,
+            "training_gradient_dot_delta": -0.6816986515794843,
+            "measurement": "one_actual_optimizer_update"
+          },
+          "prior_optimizer_motion": {
+            "elements": 524288,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.0019539165603250325,
+            "initial_rms": 1.0012292887985703,
+            "relative_delta_l2": 0.001951517581621732,
+            "training_gradient_dot_delta": -0.0018360751746612346,
+            "measurement": "one_actual_optimizer_update"
+          },
+          "generator_output_response": {
+            "full": {
+              "status": "finite",
+              "before_rms": 0.6208814575665423,
+              "after_rms": 0.8293786062737478,
+              "change_rms": 0.9081851305798941,
+              "relative_change": 1.4627351477678174,
+              "norm_ratio": 1.3358083031250132,
+              "cosine": 0.24134814429347326,
+              "relative_status": "resolved"
+            },
+            "per_image_mean_removed": {
+              "status": "finite",
+              "before_rms": 0.5914546579149369,
+              "after_rms": 0.5333871889113898,
+              "change_rms": 0.5551415830714499,
+              "relative_change": 0.938603789221135,
+              "norm_ratio": 0.9018226194916562,
+              "cosine": 0.5169015190657476,
+              "relative_status": "resolved"
+            },
+            "spatial_channel_means": {
+              "status": "finite",
+              "before_rms": 0.18887872312650628,
+              "after_rms": 0.6351117810907005,
+              "change_rms": 0.7187614703750153,
+              "relative_change": 3.805412586856629,
+              "norm_ratio": 3.362537455663116,
+              "cosine": -0.32334313656599134,
+              "relative_status": "resolved"
+            },
+            "pooled_4x4": {
+              "status": "finite",
+              "before_rms": 0.19454056657037172,
+              "after_rms": 0.6355839842587696,
+              "change_rms": 0.7196761440950723,
+              "relative_change": 3.6993628464361534,
+              "norm_ratio": 3.267102566131666,
+              "cosine": -0.3078149906921197,
+              "relative_status": "resolved"
+            }
+          },
+          "generator_final_affine_response": {
+            "status": "measured",
+            "path": "generator.network.nodes.n_output_projection",
+            "measurement": "final_owned_affine_activation_displacement",
+            "relationship_to_output": "pre_tanh",
+            "downstream_operations": [
+              "permute",
+              "reshape",
+              "tanh"
+            ],
+            "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "response": {
+              "status": "finite",
+              "before_rms": 0.9931821020493913,
+              "after_rms": 2.3880559452623804,
+              "change_rms": 2.292788613263308,
+              "relative_change": 2.3085279210451244,
+              "norm_ratio": 2.4044492347724784,
+              "cosine": 0.3019558365700421,
+              "relative_status": "resolved"
+            }
+          },
+          "input_control": "fixed_latent_values; prior output response not included"
+        },
+        {
+          "step": 8,
+          "player": "discriminator",
+          "optimizer_motion": {
+            "elements": 1622693,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.00011490833192249394,
+            "initial_rms": 0.03693318183223159,
+            "relative_delta_l2": 0.0031112491862862854,
+            "training_gradient_dot_delta": -0.582981070692235,
+            "measurement": "one_actual_optimizer_update"
+          }
+        },
+        {
+          "step": 8,
+          "player": "generator",
+          "optimizer_motion": {
+            "elements": 61662491,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.00011874433693696357,
+            "initial_rms": 0.024437355646515415,
+            "relative_delta_l2": 0.00485913200489414,
+            "training_gradient_dot_delta": -0.7731211436913208,
+            "measurement": "one_actual_optimizer_update"
+          },
+          "prior_optimizer_motion": {
+            "elements": 524288,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.0017362958487432902,
+            "initial_rms": 1.0031660502781474,
+            "relative_delta_l2": 0.0017308159982705436,
+            "training_gradient_dot_delta": -0.0011829771803225516,
+            "measurement": "one_actual_optimizer_update"
+          },
+          "generator_output_response": {
+            "full": {
+              "status": "finite",
+              "before_rms": 0.9624549116812832,
+              "after_rms": 0.9378263711043858,
+              "change_rms": 0.7225613231453786,
+              "relative_change": 0.750748231813954,
+              "norm_ratio": 0.9744107071635444,
+              "cosine": 0.711123814873857,
+              "relative_status": "resolved"
+            },
+            "per_image_mean_removed": {
+              "status": "finite",
+              "before_rms": 0.9142750172763423,
+              "after_rms": 0.8765532956797832,
+              "change_rms": 0.632488435045847,
+              "relative_change": 0.6917923197005343,
+              "norm_ratio": 0.9587413842839834,
+              "cosine": 0.7513018901429965,
+              "relative_status": "resolved"
+            },
+            "spatial_channel_means": {
+              "status": "finite",
+              "before_rms": 0.3007002668659546,
+              "after_rms": 0.33342559202041444,
+              "change_rms": 0.34936119770135454,
+              "relative_change": 1.1618253663110047,
+              "norm_ratio": 1.1088303828112267,
+              "cosine": 0.3966642011609409,
+              "relative_status": "resolved"
+            },
+            "pooled_4x4": {
+              "status": "finite",
+              "before_rms": 0.30083284079527683,
+              "after_rms": 0.3336474161415593,
+              "change_rms": 0.34962522333818624,
+              "relative_change": 1.1621910108415114,
+              "norm_ratio": 1.109079099407945,
+              "cosine": 0.3964408415649333,
+              "relative_status": "resolved"
+            }
+          },
+          "generator_final_affine_response": {
+            "status": "measured",
+            "path": "generator.network.nodes.n_output_projection",
+            "measurement": "final_owned_affine_activation_displacement",
+            "relationship_to_output": "pre_tanh",
+            "downstream_operations": [
+              "permute",
+              "reshape",
+              "tanh"
+            ],
+            "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "response": {
+              "status": "finite",
+              "before_rms": 6.243610991874157,
+              "after_rms": 6.039336090989369,
+              "change_rms": 3.367459865608653,
+              "relative_change": 0.5393449191487563,
+              "norm_ratio": 0.9672825707510214,
+              "cosine": 0.8501872563411035,
+              "relative_status": "resolved"
+            }
+          },
+          "input_control": "fixed_latent_values; prior output response not included"
+        }
+      ],
+      "after": [
+        {
+          "transmission": {
+            "score": 0.4552880781051586,
+            "output_rms": 0.9382089972496033,
+            "output_std": 0.9037261605262756,
+            "sample_diversity_rms": 0.18530966341495514,
+            "nonfinite_output_fraction": 0.0,
+            "absolute_output_above_0_99_fraction": 0.6675252914428711
+          },
+          "first_relative_cotangent_gain": 0.22185351816081933,
+          "signal_loss": 2.176661491394043,
+          "signal_summary": {
+            "generated_output_gradient_rms": 1.3477503671310842e-05,
+            "generated_output_gradient_rms_times_batch_size": 0.0008625602349638939,
+            "first_observed_module": "generator.network.nodes.n_input_projection",
+            "first_observed_to_output_rms_ratio": 0.5558048656451806,
+            "zero_gradient_activation_records": 0,
+            "unused_activation_records": 0,
+            "nonfinite_activation_records": 0,
+            "discriminator_profiles": [
+              {
+                "term_id": "adversarial",
+                "weight": 1.0,
+                "fake_binding": {
+                  "path": "generated",
+                  "detach_sample": false,
+                  "detach_score": false
+                },
+                "real_binding": {
+                  "path": "batch.real",
+                  "detach_sample": false,
+                  "detach_score": true
+                },
+                "fake_score_activation": {
+                  "rms": 0.6539464592933655,
+                  "mean": -0.6482155323028564,
+                  "std": 0.08638593554496765,
+                  "abs_max": 0.8548466563224792,
+                  "zero_fraction": 0.0,
+                  "nonfinite_fraction": 0.0
+                },
+                "fake_score_gradient_rms": 0.013694736175239086,
+                "fake_score_status": "measured",
+                "fake_input_gradients": [
+                  {
+                    "path": "discriminator[adversarial].input[kwargs][x]",
+                    "status": "measured",
+                    "gradient_rms": 1.3477503671310842e-05,
+                    "gradient_to_score_rms_ratio": 0.0009841375181567197
+                  }
+                ],
+                "nonfinite_activation_records": 0,
+                "zero_gradient_activation_records": 0
+              }
+            ]
+          }
+        },
+        {
+          "transmission": {
+            "score": 0.45812172642149124,
+            "output_rms": 0.9379235506057739,
+            "output_std": 0.9035367965698242,
+            "sample_diversity_rms": 0.1844853162765503,
+            "nonfinite_output_fraction": 0.0,
+            "absolute_output_above_0_99_fraction": 0.6668030619621277
+          },
+          "first_relative_cotangent_gain": 0.21952117980790964,
+          "signal_loss": 2.066481113433838,
+          "signal_summary": {
+            "generated_output_gradient_rms": 2.4853996364981867e-05,
+            "generated_output_gradient_rms_times_batch_size": 0.0015906557673588395,
+            "first_observed_module": "generator.network.nodes.n_input_projection",
+            "first_observed_to_output_rms_ratio": 0.40759987701656714,
+            "zero_gradient_activation_records": 0,
+            "unused_activation_records": 0,
+            "nonfinite_activation_records": 0,
+            "discriminator_profiles": [
+              {
+                "term_id": "adversarial",
+                "weight": 1.0,
+                "fake_binding": {
+                  "path": "generated",
+                  "detach_sample": false,
+                  "detach_score": false
+                },
+                "real_binding": {
+                  "path": "batch.real",
+                  "detach_sample": false,
+                  "detach_score": true
+                },
+                "fake_score_activation": {
+                  "rms": 0.6293771266937256,
+                  "mean": -0.6241663694381714,
+                  "std": 0.08082010596990585,
+                  "abs_max": 0.7988697290420532,
+                  "zero_fraction": 0.0,
+                  "nonfinite_fraction": 0.0
+                },
+                "fake_score_gradient_rms": 0.013437751680612564,
+                "fake_score_status": "measured",
+                "fake_input_gradients": [
+                  {
+                    "path": "discriminator[adversarial].input[kwargs][x]",
+                    "status": "measured",
+                    "gradient_rms": 2.4853996364981867e-05,
+                    "gradient_to_score_rms_ratio": 0.0018495650876508003
+                  }
+                ],
+                "nonfinite_activation_records": 0,
+                "zero_gradient_activation_records": 0
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "measured_update_pair",
+      "lr_factor": 0.8654537809730865,
+      "d_lr_factor": 0.4729655386061616,
+      "accepted": false,
+      "rejection_reasons": [
+        "bank_0_first_relative_cotangent_gain_retention_below_0.25",
+        "bank_1_first_relative_cotangent_gain_retention_below_0.25"
+      ],
+      "comparisons": [
+        {
+          "bank": 0,
+          "sample_diversity_retention": 0.3011186906521131,
+          "first_relative_cotangent_gain_retention": 0.18860262208311723
+        },
+        {
+          "bank": 1,
+          "sample_diversity_retention": 0.29846712708904255,
+          "first_relative_cotangent_gain_retention": 0.18713648495132737
+        }
+      ],
+      "trial_losses": [
+        {
+          "g_loss": 0.891618549823761,
+          "d_loss": 0.7046488523483276
+        },
+        {
+          "g_loss": 0.8707133531570435,
+          "d_loss": 0.7219229340553284
+        },
+        {
+          "g_loss": 1.0688120126724243,
+          "d_loss": 0.5953686237335205
+        },
+        {
+          "g_loss": 1.372309684753418,
+          "d_loss": 0.4536953270435333
+        },
+        {
+          "g_loss": 1.59602689743042,
+          "d_loss": 0.3699723482131958
+        },
+        {
+          "g_loss": 2.03899884223938,
+          "d_loss": 0.24257917702198029
+        },
+        {
+          "g_loss": 2.3637375831604004,
+          "d_loss": 0.16711002588272095
+        },
+        {
+          "g_loss": 2.6933820247650146,
+          "d_loss": 0.12689045071601868
+        }
+      ],
+      "optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0004692674366585086,
+          "measurement": "cumulative_eight_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.01920661968208077
+        },
+        "discriminator": {
+          "elements": 1622693,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.00037254142226422315,
+          "measurement": "cumulative_eight_update_parameter_displacement",
+          "initial_rms": 0.036925398064576835,
+          "relative_delta_l2": 0.010089029280407637
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.01397505115339946,
+          "measurement": "cumulative_eight_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.013957892872040217
+        }
+      },
+      "update_response": [
+        {
+          "step": 1,
+          "player": "discriminator",
+          "optimizer_motion": {
+            "elements": 1622693,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 9.238093683200792e-05,
+            "initial_rms": 0.036925398064576835,
+            "relative_delta_l2": 0.0025018264304273144,
+            "training_gradient_dot_delta": -0.2709291870089191,
+            "measurement": "one_actual_optimizer_update"
+          }
+        },
+        {
+          "step": 1,
+          "player": "generator",
+          "optimizer_motion": {
+            "elements": 61662491,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.00017261730103773358,
+            "initial_rms": 0.024432588577589308,
+            "relative_delta_l2": 0.007065043496703664,
+            "training_gradient_dot_delta": -0.47608248956168064,
+            "measurement": "one_actual_optimizer_update"
+          },
+          "prior_optimizer_motion": {
+            "elements": 524288,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.0019541284894441222,
+            "initial_rms": 1.0012292887985703,
+            "relative_delta_l2": 0.0019517292505385933,
+            "training_gradient_dot_delta": -0.0018178435934539155,
+            "measurement": "one_actual_optimizer_update"
+          },
+          "generator_output_response": {
+            "full": {
+              "status": "finite",
+              "before_rms": 0.6208814575665423,
+              "after_rms": 0.7979745332515242,
+              "change_rms": 0.8045933748759273,
+              "relative_change": 1.295888877128684,
+              "norm_ratio": 1.285228482066566,
+              "cosine": 0.378331278375188,
+              "relative_status": "resolved"
+            },
+            "per_image_mean_removed": {
+              "status": "finite",
+              "before_rms": 0.5914546579149369,
+              "after_rms": 0.5973904183761387,
+              "change_rms": 0.5551247268809205,
+              "relative_change": 0.9385752896729382,
+              "norm_ratio": 1.0100358673006773,
+              "cosine": 0.5639645658789463,
+              "relative_status": "resolved"
+            },
+            "spatial_channel_means": {
+              "status": "finite",
+              "before_rms": 0.18887872312650628,
+              "after_rms": 0.5290444683719353,
+              "change_rms": 0.5824148398340495,
+              "relative_change": 3.08353863364463,
+              "norm_ratio": 2.8009744010054245,
+              "cosine": -0.11830756287051328,
+              "relative_status": "resolved"
+            },
+            "pooled_4x4": {
+              "status": "finite",
+              "before_rms": 0.19454056657037172,
+              "after_rms": 0.5297750930239559,
+              "change_rms": 0.5833773690284819,
+              "relative_change": 2.9987440630664306,
+              "norm_ratio": 2.7232114224994755,
+              "cosine": -0.10586499075699946,
+              "relative_status": "resolved"
+            }
+          },
+          "generator_final_affine_response": {
+            "status": "measured",
+            "path": "generator.network.nodes.n_output_projection",
+            "measurement": "final_owned_affine_activation_displacement",
+            "relationship_to_output": "pre_tanh",
+            "downstream_operations": [
+              "permute",
+              "reshape",
+              "tanh"
+            ],
+            "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "response": {
+              "status": "finite",
+              "before_rms": 0.9931821020493913,
+              "after_rms": 2.1124856303916997,
+              "change_rms": 1.9273587743256737,
+              "relative_change": 1.9405895156071042,
+              "norm_ratio": 2.1269872121463633,
+              "cosine": 0.4133045376363305,
+              "relative_status": "resolved"
+            }
+          },
+          "input_control": "fixed_latent_values; prior output response not included"
+        },
+        {
+          "step": 8,
+          "player": "discriminator",
+          "optimizer_motion": {
+            "elements": 1622693,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 5.490351777867652e-05,
+            "initial_rms": 0.036928098650711554,
+            "relative_delta_l2": 0.001486768065098272,
+            "training_gradient_dot_delta": -0.13151905127779887,
+            "measurement": "one_actual_optimizer_update"
+          }
+        },
+        {
+          "step": 8,
+          "player": "generator",
+          "optimizer_motion": {
+            "elements": 61662491,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 8.733684756680041e-05,
+            "initial_rms": 0.024436465040935232,
+            "relative_delta_l2": 0.0035740377104665644,
+            "training_gradient_dot_delta": -0.23177372683845188,
+            "measurement": "one_actual_optimizer_update"
+          },
+          "prior_optimizer_motion": {
+            "elements": 524288,
+            "finite": true,
+            "changed": true,
+            "delta_rms": 0.001740152667357228,
+            "initial_rms": 1.0030889036634234,
+            "relative_delta_l2": 0.0017347940556434658,
+            "training_gradient_dot_delta": -0.0012116993722829975,
+            "measurement": "one_actual_optimizer_update"
+          },
+          "generator_output_response": {
+            "full": {
+              "status": "finite",
+              "before_rms": 0.9528510282780872,
+              "after_rms": 0.9516971776031249,
+              "change_rms": 0.5674370720305124,
+              "relative_change": 0.5955149915259443,
+              "norm_ratio": 0.9987890544894017,
+              "cosine": 0.8224666974728954,
+              "relative_status": "resolved"
+            },
+            "per_image_mean_removed": {
+              "status": "finite",
+              "before_rms": 0.9166795979873397,
+              "after_rms": 0.8906289196947204,
+              "change_rms": 0.528553914550332,
+              "relative_change": 0.5765961364372286,
+              "norm_ratio": 0.9715814791233315,
+              "cosine": 0.829321832829924,
+              "relative_status": "resolved"
+            },
+            "spatial_channel_means": {
+              "status": "finite",
+              "before_rms": 0.2600453745466018,
+              "after_rms": 0.3354215976360118,
+              "change_rms": 0.206435438555233,
+              "relative_change": 0.7938439163363716,
+              "norm_ratio": 1.2898579650602557,
+              "cosine": 0.7882826875554934,
+              "relative_status": "resolved"
+            },
+            "pooled_4x4": {
+              "status": "finite",
+              "before_rms": 0.260262865389922,
+              "after_rms": 0.3355887137103103,
+              "change_rms": 0.20681912605356595,
+              "relative_change": 0.7946547646884337,
+              "norm_ratio": 1.2894221893989226,
+              "cosine": 0.7876137870789703,
+              "relative_status": "resolved"
+            }
+          },
+          "generator_final_affine_response": {
+            "status": "measured",
+            "path": "generator.network.nodes.n_output_projection",
+            "measurement": "final_owned_affine_activation_displacement",
+            "relationship_to_output": "pre_tanh",
+            "downstream_operations": [
+              "permute",
+              "reshape",
+              "tanh"
+            ],
+            "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "response": {
+              "status": "finite",
+              "before_rms": 4.907619428662292,
+              "after_rms": 5.120561001998917,
+              "change_rms": 2.4311779500882533,
+              "relative_change": 0.4953884435067,
+              "norm_ratio": 1.0433899931386221,
+              "cosine": 0.8833000986892174,
+              "relative_status": "resolved"
+            }
+          },
+          "input_control": "fixed_latent_values; prior output response not included"
+        }
+      ],
+      "after": [
+        {
+          "transmission": {
+            "score": 0.4085316775871723,
+            "output_rms": 0.9515439867973328,
+            "output_std": 0.9381548762321472,
+            "sample_diversity_rms": 0.16645464301109314,
+            "nonfinite_output_fraction": 0.0,
+            "absolute_output_above_0_99_fraction": 0.7011970281600952
+          },
+          "first_relative_cotangent_gain": 0.1973859983355867,
+          "signal_loss": 1.7078375816345215,
+          "signal_summary": {
+            "generated_output_gradient_rms": 6.47867545922054e-06,
+            "generated_output_gradient_rms_times_batch_size": 0.00041463522939011455,
+            "first_observed_module": "generator.network.nodes.n_input_projection",
+            "first_observed_to_output_rms_ratio": 0.6959498434661415,
+            "zero_gradient_activation_records": 0,
+            "unused_activation_records": 0,
+            "nonfinite_activation_records": 0,
+            "discriminator_profiles": [
+              {
+                "term_id": "adversarial",
+                "weight": 1.0,
+                "fake_binding": {
+                  "path": "generated",
+                  "detach_sample": false,
+                  "detach_score": false
+                },
+                "real_binding": {
+                  "path": "batch.real",
+                  "detach_sample": false,
+                  "detach_score": true
+                },
+                "fake_score_activation": {
+                  "rms": 0.7251905798912048,
+                  "mean": -0.7219473719596863,
+                  "std": 0.06850820034742355,
+                  "abs_max": 0.9406453371047974,
+                  "zero_fraction": 0.0,
+                  "nonfinite_fraction": 0.0
+                },
+                "fake_score_gradient_rms": 0.012741059996187687,
+                "fake_score_status": "measured",
+                "fake_input_gradients": [
+                  {
+                    "path": "discriminator[adversarial].input[kwargs][x]",
+                    "status": "measured",
+                    "gradient_rms": 6.47867545922054e-06,
+                    "gradient_to_score_rms_ratio": 0.0005084879485034255
+                  }
+                ],
+                "nonfinite_activation_records": 0,
+                "zero_gradient_activation_records": 0
+              }
+            ]
+          }
+        },
+        {
+          "transmission": {
+            "score": 0.410427183502283,
+            "output_rms": 0.9516340494155884,
+            "output_std": 0.9383061528205872,
+            "sample_diversity_rms": 0.16467468440532684,
+            "nonfinite_output_fraction": 0.0,
+            "absolute_output_above_0_99_fraction": 0.7005342245101929
+          },
+          "first_relative_cotangent_gain": 0.19547885377040172,
+          "signal_loss": 1.657015085220337,
+          "signal_summary": {
+            "generated_output_gradient_rms": 6.4405016928503755e-06,
+            "generated_output_gradient_rms_times_batch_size": 0.00041219210834242404,
+            "first_observed_module": "generator.network.nodes.n_input_projection",
+            "first_observed_to_output_rms_ratio": 0.6963619444809446,
+            "zero_gradient_activation_records": 0,
+            "unused_activation_records": 0,
+            "nonfinite_activation_records": 0,
+            "discriminator_profiles": [
+              {
+                "term_id": "adversarial",
+                "weight": 1.0,
+                "fake_binding": {
+                  "path": "generated",
+                  "detach_sample": false,
+                  "detach_score": false
+                },
+                "real_binding": {
+                  "path": "batch.real",
+                  "detach_sample": false,
+                  "detach_score": true
+                },
+                "fake_score_activation": {
+                  "rms": 0.7140699028968811,
+                  "mean": -0.7116762399673462,
+                  "std": 0.05841899663209915,
+                  "abs_max": 0.8347104787826538,
+                  "zero_fraction": 0.0,
+                  "nonfinite_fraction": 0.0
+                },
+                "fake_score_gradient_rms": 0.012580657377839088,
+                "fake_score_status": "measured",
+                "fake_input_gradients": [
+                  {
+                    "path": "discriminator[adversarial].input[kwargs][x]",
+                    "status": "measured",
+                    "gradient_rms": 6.4405016928503755e-06,
+                    "gradient_to_score_rms_ratio": 0.0005119368169262253
+                  }
+                ],
+                "nonfinite_activation_records": 0,
+                "zero_gradient_activation_records": 0
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

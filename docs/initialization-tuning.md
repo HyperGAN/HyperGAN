@@ -152,7 +152,10 @@ The [update-response research memo](../reports/update-response-research-2026-09-
 explains the motivation and limits. The [first measured-update testbed](../reports/measured-update-testbed-2026-09-21.md)
 completed safely but rejected its proposed pair: held-out losses decreased while
 the coupled replay still lost output variation and transmission. It did not fix
-that configuration. Earlier [startup drift](../reports/startup-signal-drift-2026-09-21.md),
+that configuration. The [first-update calibration follow-up](../reports/first-update-calibration-2026-09-22.md)
+fixes the G anchor and its prior inputs, but its G ×0.86545 / D ×0.47297 pair
+also failed the coupled transmission guard. This remains experimental.
+Earlier [startup drift](../reports/startup-signal-drift-2026-09-21.md),
 [automatic tuning](../reports/startup-dynamics-autotune-2026-09-21.md), and
 [warmup drift](../reports/startup-warmup-drift-2026-09-21.md) reports describe older
 pipelines. Their measurements remain evidence about those implementations,

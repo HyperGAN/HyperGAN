@@ -105,3 +105,23 @@ def test_missing_named_branch_rejects_before_probe():
     with pytest.raises(ValueError, match='n_feature4_score'):
         probe_branches(trainer, *_inputs())
     assert _state(trainer) == before
+
+
+@pytest.mark.parametrize('scale', [0., 1e-12])
+def test_zero_and_tiny_branch_gradients_report_finite_statistics(scale):
+    import json
+    trainer = _trainer()
+    with torch.no_grad():
+        for value in trainer.graph.models['discriminator'].parameters():
+            value.mul_(scale)
+    result = probe_branches(trainer, *_inputs())
+    json.dumps(result, allow_nan=False)
+    assert result['gradient_reconstruction']['relative_l2_error'] < 1e-6
+    if scale == 0:
+        assert result['total_image_gradient']['rms'] == 0
+        assert result['cancellation_fraction'] is None
+        assert all(row['norm_ratio_to_total_image_gradient'] is None for row in result['branches'].values())
+    else:
+        assert 0 < result['total_image_gradient']['rms'] < 1e-12
+        assert result['cancellation_fraction'] == pytest.approx(.6, abs=1e-6)
+        assert result['branches']['pixel_score']['norm_ratio_to_total_image_gradient'] == pytest.approx(1, rel=1e-6)

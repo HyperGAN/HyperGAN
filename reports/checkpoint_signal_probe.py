@@ -217,7 +217,8 @@ def main():
         for mode in modes:
             print(f'Probing completed step {step}: {mode}', flush=True)
             report = evaluate(trainer, batch, bank, rng, mode, args.branches)
-            report.update(step=step, phase='saved-online-models-after-complete-training-update',
+            report.update(step=step, phase=('saved-online-initialization-before-updates' if step == 0
+                                           else 'saved-online-models-after-complete-training-update'),
                           checkpoint=str(checkpoint), checkpoint_sha256=info['state_sha256'],
                           pretrained_and_frozen_sha256=initial_frozen,
                           batch_real_sha256=tensor_sha256(batch['real']))

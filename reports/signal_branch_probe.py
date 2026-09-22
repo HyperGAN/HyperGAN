@@ -148,7 +148,10 @@ def probe_branches(trainer, batch, latent_draw):
         residual = reconstructed - total
         total_norm = _norm(total)
         relative_error = _norm(residual) / max(total_norm, 1e-30)
-        if not torch.allclose(reconstructed, total, rtol=1e-3, atol=1e-7):
+        # Separate branch VJPs reorder floating-point accumulation (including
+        # configured TF32 kernels). Bound aggregate reconstruction error; a
+        # coordinatewise relative check is unstable at cancellation zeros.
+        if relative_error > 1e-3:
             raise ValueError(f'Branch image gradients do not reconstruct the actual image gradient ({relative_error:g})')
         norms = {name: _norm(value) for name, value in contributions.items()}
         norm_sum = sum(norms.values())
@@ -174,7 +177,8 @@ def probe_branches(trainer, batch, latent_draw):
                 {'left': left, 'right': right, 'cosine': _cosine(contributions[left], contributions[right])}
                 for index, left in enumerate(names) for right in names[index + 1:]],
             'cancellation_fraction': 1 - total_norm / norm_sum if norm_sum else None,
-            'gradient_reconstruction': {'relative_l2_error': relative_error, 'absolute_max_error': float(residual.abs().max())},
+            'gradient_reconstruction': {'relative_l2_error': relative_error,
+                'maximum_relative_l2_error': 1e-3, 'absolute_max_error': float(residual.abs().max())},
             'interpretation': [
                 'Exact local additive branch decomposition of the configured adversarial image gradient, not a quality score.',
                 'Norm fractions use the sum of branch norms; branch gradients can cancel and norm ratios to total can exceed one.',

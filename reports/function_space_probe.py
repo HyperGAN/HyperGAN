@@ -35,7 +35,7 @@ def measure_gen_stencil(trainer, anchor, role, bank):
     entry = _snapshot(trainer)
     protected = _protected(trainer)
     original_hash = _hash(protected)
-    points, slope, absolute_sum = {}, None, None
+    points, slope, absolute_sum, parameter_slopes = {}, None, None, []
     try:
         owned = _parameters(trainer, role)
         for factor in (-1., 0., 1., .5):
@@ -47,6 +47,11 @@ def measure_gen_stencil(trainer, anchor, role, bank):
             points[factor] = float(loss.detach())
             if factor == 0:
                 gradients = torch.autograd.grad(loss, owned, allow_unused=True)
+                names = {id(value): name for name, value in _registered_parameters(trainer)}
+                parameter_slopes = [
+                    {'path': names[id(parameter)],
+                     'gradient_dot_delta': None if g is None else float((g.detach().cpu().double() * delta.double()).sum())}
+                    for parameter, g, delta in zip(owned, gradients, anchor['delta'])]
                 products = [g.detach().cpu().double() * delta.double()
                             for g, delta in zip(gradients, anchor['delta']) if g is not None]
                 slope = sum(float(value.sum()) for value in products)
@@ -60,6 +65,7 @@ def measure_gen_stencil(trainer, anchor, role, bank):
         return {'player': role, 'anchor_step': anchor['step'],
                 'points': [{'factor': x, 'loss': y} for x, y in points.items()],
                 'gradient_dot_delta_absolute_sum': absolute_sum,
+                'parameter_slopes': parameter_slopes,
                 'model': symmetric_model(points, slope),
                 'phase_loss_evaluations': 4, 'player_gradient_evaluations': 1}
     finally:

@@ -41,6 +41,12 @@ The report separates the heuristic from the actual adversarial gradient.
 Initialization can drift during training. These limits are why `--tune` is an
 explicit experiment rather than the default for every recipe.
 
+In the 128px DINOv3 testbed, startup calibration passed but G saturated during
+the first 20 updates. A separate controlled trial with a smaller G learning
+rate reduced that failure. The [matched checkpoint investigation](../reports/startup-signal-drift-2026-09-21.md)
+documents the measurements and research scripts. The current `--tune` does not
+perform this optimizer search or automatically apply the trial's learning rate.
+
 Only eligible newly initialized layers of a native HNDL generator can change.
 Pretrained nodes and their descendants, frozen parameters, shared storage,
 critic weights, normalization state, and the prior are excluded. A custom

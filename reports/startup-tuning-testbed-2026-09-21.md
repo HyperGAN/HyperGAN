@@ -102,3 +102,10 @@ The user requested a step-zero sample for comparison. New runs with previews
 enabled will capture a baseline after calibration and before optimizer updates,
 in addition to their regular preview cadence. Existing processes keep the code
 they started with and are not retroactively modified.
+
+The subsequent [matched startup investigation](startup-signal-drift-2026-09-21.md)
+located near-complete online G tanh saturation by step 20 despite a stronger
+image gradient from D. A controlled 0.1x G learning-rate trial, keeping D/prior
+rates and all initial weights/RNG states equal, substantially reduced that
+failure through step 100. This is a tested recipe candidate, not a change to
+the current initialization-only `--tune` or evidence of final image quality.

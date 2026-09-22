@@ -68,3 +68,8 @@ Original config bytes were unchanged. No training checkpoint was saved.
 CUDA kernels are nondeterministic under the configured backend. These rows
 are not a matched comparison with the 128px screen: the image size, patch
 grid, feature protocol, parameter shapes, and initial-parameter hash differ.
+
+The follow-up grouped probe revalidated the four early FFN down-projections
+and then abstained on negative curvature. It is recorded in
+[the grouped-probe note](../2026-09-22-64px-grouped-probe/README.md), not as
+another row of this screen.

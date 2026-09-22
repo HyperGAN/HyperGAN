@@ -15,7 +15,8 @@ schedule at lower resolution. Its screen is
 separate. The 64px feature protocol
 `online_dinov3_block11_spatial_mean_candidate_only_poly3_64px_4x4` is distinct
 from the 128px protocol, so a 64px row is not a matched row against the 128px
-leaderboard.
+leaderboard. The grouped first-step probe on that screen abstained:
+[2026-09-22 64px grouped probe](results/2026-09-22-64px-grouped-probe/README.md).
 
 ## Layout
 

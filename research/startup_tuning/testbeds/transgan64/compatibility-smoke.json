@@ -1,0 +1,65 @@
+{
+  "purpose": "64px compatibility smoke test, not a matched quality benchmark",
+  "config": "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-64-init-v2/transgan-dinov3-multidepth.toml",
+  "updates": 8,
+  "seed": 25002,
+  "batch_size": 64,
+  "protected_unchanged": true,
+  "protected_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+  "elapsed_seconds": 17.56582955698832,
+  "rows": [
+    {
+      "step": 1,
+      "g_loss": 0.9674599170684814,
+      "d_loss": 0.694489598274231,
+      "gradient_penalty": 0.0
+    },
+    {
+      "step": 2,
+      "g_loss": 1.1556724309921265,
+      "d_loss": 0.6538441181182861,
+      "gradient_penalty": 0.0
+    },
+    {
+      "step": 3,
+      "g_loss": 1.5448004007339478,
+      "d_loss": 0.4790925979614258,
+      "gradient_penalty": 0.0
+    },
+    {
+      "step": 4,
+      "g_loss": 2.4302515983581543,
+      "d_loss": 0.26798832416534424,
+      "gradient_penalty": 0.0
+    },
+    {
+      "step": 5,
+      "g_loss": 2.473985195159912,
+      "d_loss": 0.38070717453956604,
+      "gradient_penalty": 0.0
+    },
+    {
+      "step": 6,
+      "g_loss": 3.2331960201263428,
+      "d_loss": 0.11880034953355789,
+      "gradient_penalty": 0.0
+    },
+    {
+      "step": 7,
+      "g_loss": 3.843090057373047,
+      "d_loss": 0.06029389426112175,
+      "gradient_penalty": 0.0
+    },
+    {
+      "step": 8,
+      "g_loss": 4.3381452560424805,
+      "d_loss": 0.09674122929573059,
+      "gradient_penalty": 0.07225365936756134
+    }
+  ],
+  "artifacts": {
+    "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-64-init-v2/transgan-dinov3-multidepth.toml": "9b70e9f9a449f5744d6517124557dfb26a230b61ede8621a94a062d50e115f61",
+    "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-64-init-v2/generator.hndl": "4e0dfc260cfd2d447aef4bbce29d5654a7e757dec18bee3227187cb8dfa56f84",
+    "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-64-init-v2/discriminator.hndl": "82d95dafd5668951d7edb5616353420b3ef605cbc47cb2a94730b5247eb3abfa"
+  }
+}

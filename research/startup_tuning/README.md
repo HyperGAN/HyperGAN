@@ -8,6 +8,10 @@ install a solution into training.
 Latest: [2026-09-22 baseline results](results/2026-09-22-baseline/README.md).
 Both original and half-rate controls failed the 32-update screen.
 
+A [64px counterpart](testbeds/transgan64/README.md) is ready for a manual
+resolution comparison with the same training hyperparameters. It has passed
+a compatibility smoke test; it has not been evaluated on the leaderboard.
+
 ## Layout
 
 - `configs/transgan-128-screen.json`: shared training-config reference, fixed

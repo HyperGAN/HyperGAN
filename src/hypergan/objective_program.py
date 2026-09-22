@@ -287,6 +287,7 @@ def _generator_tail(trainer, program, context, ids, fake):
 def run_native_program(trainer, batch, latent_draw, generator_batch, generator_latent_draw):
     """Execute ``d-then-g-v1`` from the compiled program."""
     from .training import update_ema
+    from .tuning_overrides import scheduled_generator_lr
     program = trainer.program
     if program.schedule != "d-then-g-v1":
         raise ValueError(f"Unsupported native schedule {program.schedule}")
@@ -296,8 +297,10 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         raise ValueError("Explicit generator phase draws require training.phase_draws=independent")
     step = trainer.step + 1
     scale = learning_rate_scale(step - 1, settings["steps"], start=settings["lr_anneal_start"], floor=settings["lr_floor"])
-    for optimizer, rates in zip((trainer.opt_g, trainer.opt_d), trainer.base_lrs):
-        for group, rate in zip(optimizer.param_groups, rates):
+    for optimizer_index, (optimizer, rates) in enumerate(zip((trainer.opt_g, trainer.opt_d), trainer.base_lrs)):
+        for group_index, (group, rate) in enumerate(zip(optimizer.param_groups, rates)):
+            if optimizer_index == group_index == 0:
+                rate = scheduled_generator_lr(rate, getattr(trainer, 'g_lr_warmup', None), step)
             group["lr"] = rate * scale
     if independent:
         with torch.no_grad():

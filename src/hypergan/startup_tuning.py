@@ -7,7 +7,7 @@ from .config import config_values, fingerprint
 from .run_state import atomic_json, sync_directory
 
 
-def tune_initialized(trainer, run_dir, on_event=None):
+def tune_initialized(trainer, run_dir, on_event=None, *, warmup_steps=0):
     """Publish run-local provenance and synchronize only changed owned EMA weights.
 
     The normal step-zero training checkpoint stores the selected tensors and all
@@ -20,8 +20,13 @@ def tune_initialized(trainer, run_dir, on_event=None):
     from .tuning_overrides import generator_lr_override
     from .provenance import hypergan_source
 
+    if type(warmup_steps) is not int or warmup_steps < 0 or warmup_steps == 1:
+        raise ValueError('Generator warmup steps must be zero or an integer of at least 2')
     if trainer.step != 0 or trainer.opt_g.state or trainer.opt_d.state:
         raise ValueError('Startup tuning requires untouched initialization and empty optimizer state')
+    original_warmup = copy.deepcopy(getattr(trainer, 'g_lr_warmup', None))
+    if original_warmup is not None:
+        raise ValueError('Startup tuning requires initialization without an existing warmup schedule')
     root = Path(run_dir) / 'tuning'
     root.mkdir(exist_ok=False)
     sync_directory(root.parent)
@@ -63,6 +68,11 @@ def tune_initialized(trainer, run_dir, on_event=None):
         report['disposable_trial_updates'] = dynamics.get('disposable_completed_updates', 0)
         report['dynamics'] = dynamics
         report['optimizer_override'] = override
+        warmup = ({'steps': warmup_steps, 'start_g_lr': override['effective_g_lr'],
+                   'target_g_lr': override['baseline_g_lr']} if warmup_steps else None)
+        warmup_metadata = {'g_lr_warmup': warmup} if warmup is not None else {}
+        trainer.g_lr_warmup = warmup
+        report.update(warmup_metadata)
         selected_digest = hashlib.sha256()
         for name, parameter in sorted(parameters.items()):
             value = parameter.detach().cpu().contiguous()
@@ -77,6 +87,7 @@ def tune_initialized(trainer, run_dir, on_event=None):
             'selected_candidate': report['selected_candidate'],
             'transformations': report['transformations'],
             'optimizer_override': override,
+            **warmup_metadata,
             'recovery': 'Selected tensors are stored in the initial full training checkpoint; never replay on resume.',
         }
         atomic_json(root / 'overrides.json', overrides)
@@ -91,6 +102,7 @@ def tune_initialized(trainer, run_dir, on_event=None):
             'dynamics_reason': dynamics.get('reason'),
             'selected_g_lr_factor': override['factor'],
             'optimizer_override': override,
+            **warmup_metadata,
             'message': ({'selected': f"Startup checks selected generator learning rate x{override['factor']:g}",
                          'kept_baseline': 'Startup checks passed; configured generator learning rate retained',
                          'unresolved': 'Startup checks unresolved; configured generator learning rate retained',
@@ -110,6 +122,7 @@ def tune_initialized(trainer, run_dir, on_event=None):
                 parameter.copy_(originals[name])
                 ema[name].copy_(ema_originals[name])
         trainer.base_lrs = original_base_lrs
+        trainer.g_lr_warmup = original_warmup
         for optimizer, rates in zip((trainer.opt_g, trainer.opt_d), original_lrs):
             for group, rate in zip(optimizer.param_groups, rates):
                 group['lr'] = rate

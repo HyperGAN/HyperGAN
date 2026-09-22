@@ -140,8 +140,9 @@ def _restore_trainer(trainer, state, metadata=None):
         for actual, prior in zip(optimizer.param_groups, saved['param_groups']):
             if len(actual['params']) != len(prior['params']):
                 raise ValueError('Checkpoint optimizer parameter inventory differs from trainer')
-    from .tuning_overrides import checkpoint_base_lrs
+    from .tuning_overrides import checkpoint_base_lrs, checkpoint_g_lr_warmup, scheduled_generator_lr
     expected_rates, overridden = checkpoint_base_lrs(trainer, metadata)
+    warmup = checkpoint_g_lr_warmup(trainer, metadata)
     if state['base_lrs'] != expected_rates:
         raise ValueError('Checkpoint base learning rates differ from original configuration or validated startup override')
     if overridden:
@@ -150,8 +151,10 @@ def _restore_trainer(trainer, state, metadata=None):
         scale = (learning_rate_scale(state['step'] - 1, settings['steps'],
                                     start=settings['lr_anneal_start'], floor=settings['lr_floor'])
                  if state['step'] else 1.0)
-        for saved, rates in zip(state['optimizers'], expected_rates):
-            for group, rate in zip(saved['param_groups'], rates):
+        for optimizer_index, (saved, rates) in enumerate(zip(state['optimizers'], expected_rates)):
+            for group_index, (group, rate) in enumerate(zip(saved['param_groups'], rates)):
+                if optimizer_index == group_index == 0:
+                    rate = scheduled_generator_lr(rate, warmup, state['step'])
                 if type(group.get('lr')) not in (int, float) or group['lr'] != rate * scale:
                     raise ValueError('Checkpoint optimizer learning rate differs from validated startup schedule')
     for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
@@ -167,6 +170,7 @@ def _restore_trainer(trainer, state, metadata=None):
     for optimizer, saved in zip((trainer.opt_g, trainer.opt_d), state['optimizers']):
         optimizer.load_state_dict(saved)
     trainer.base_lrs = state['base_lrs']
+    trainer.g_lr_warmup = warmup
     trainer.step = state['step']
     for name, stream in trainer.streams.items():
         stream.set_state(state['streams'][name])

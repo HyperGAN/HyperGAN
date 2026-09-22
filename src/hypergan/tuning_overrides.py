@@ -26,6 +26,39 @@ def generator_lr_override(config, factor):
             'optimizer_config_sha256': optimizer_fingerprint(config)}
 
 
+def scheduled_generator_lr(base_lr, warmup, step):
+    """Unannealed G-main rate: update one starts low, update N reaches target.
+
+    ``step=0`` describes the saved initialization. The selected base rate stays
+    constant in checkpoint identity even after this optional ramp completes.
+    """
+    if warmup is None:
+        return base_lr
+    if step <= 1:
+        return warmup['start_g_lr']
+    if step >= warmup['steps']:
+        return warmup['target_g_lr']
+    fraction = (step - 1) / (warmup['steps'] - 1)
+    return warmup['start_g_lr'] + (warmup['target_g_lr'] - warmup['start_g_lr']) * fraction
+
+
+def checkpoint_g_lr_warmup(trainer, metadata):
+    """Validate the optional schedule against the original config and override."""
+    expected, overridden = checkpoint_base_lrs(trainer, metadata)
+    tuning = metadata.get('initialization_tuning') if metadata is not None else None
+    if not isinstance(tuning, dict) or 'g_lr_warmup' not in tuning:
+        return None
+    warmup = tuning['g_lr_warmup']
+    if (not overridden or not isinstance(warmup, dict)
+            or set(warmup) != {'steps', 'start_g_lr', 'target_g_lr'}
+            or type(warmup['steps']) is not int or warmup['steps'] < 2
+            or not _positive(warmup['start_g_lr']) or not _positive(warmup['target_g_lr'])
+            or warmup['start_g_lr'] != expected[0][0]
+            or warmup['target_g_lr'] != trainer.config['optimizer']['lr']):
+        raise ValueError('Invalid startup generator learning-rate warmup metadata')
+    return dict(warmup)
+
+
 def checkpoint_base_lrs(trainer, metadata):
     """Return expected rates, permitting only the explicitly recorded G override.
 
@@ -38,6 +71,8 @@ def checkpoint_base_lrs(trainer, metadata):
         return expected, False
     tuning = metadata.get('initialization_tuning')
     if not isinstance(tuning, dict) or 'optimizer_override' not in tuning:
+        if isinstance(tuning, dict) and 'g_lr_warmup' in tuning:
+            raise ValueError('Startup generator learning-rate warmup requires a validated optimizer override')
         return expected, False
     override = tuning['optimizer_override']
     if (tuning.get('status') != 'complete' or not isinstance(override, dict) or set(override) != _FIELDS

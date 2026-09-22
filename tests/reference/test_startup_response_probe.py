@@ -312,3 +312,76 @@ def test_final_affine_hook_is_removed_and_forward_fence_restored_on_exception(mo
         observer('after_g', step=1, batch=batch, ids=ids, context=context)
     assert not observer.affine_module._forward_hooks
     assert _same_state(expected, trainer_state(trainer, None))
+
+
+def test_direction_audit_matches_local_loss_derivative_and_preserves_callers_state_and_gradients():
+    trainer = make_trainer()
+    observer, banks, _, budget = capture_update(trainer, step=1)
+    anchor = observer.anchors['generator']
+    # The caller is already after its real update; the audit must restore that
+    # state, not leave it at the earlier supplied phase anchor.
+    for parameter in trainer.program.generator_parameters:
+        parameter.grad = torch.ones_like(parameter)
+    expected = deepcopy(trainer_state(trainer, None))
+    gradients = [(parameter, parameter.grad) for parameter in trainer.graph.parameters()]
+    probes = PhaseProbes(trainer, _restore, [], _hash([]), budget)
+    rows = [probes.measure_direction(anchor, 'generator', banks['generator'], factor, gradient=factor == .1)
+            for factor in (0., .1, .2)]
+    central_difference = (rows[2]['loss'] - rows[0]['loss']) / .2
+    assert rows[1]['gradient_status'] == 'finite'
+    assert rows[1]['gradient_dot_delta_absolute_sum'] >= abs(rows[1]['gradient_dot_delta'])
+    assert rows[1]['gradient_dot_delta'] == pytest.approx(central_difference, rel=.02, abs=1e-5)
+    assert rows[0]['gradient_status'] == 'not_requested'
+    assert budget['direction_audit_phase_loss_evaluations'] == 3
+    assert budget['direction_audit_player_gradient_evaluations'] == 1
+    assert all(row['output']['status'] == 'finite' and row['final_affine']['status'] == 'measured' for row in rows)
+    assert _same_state(expected, trainer_state(trainer, None))
+    assert all(parameter.grad is original for parameter, original in gradients)
+    assert all(not module._forward_hooks for module in trainer.graph.modules())
+
+
+def test_direction_audit_reports_tanh_saturation_at_known_stencil_point():
+    config = resolve_config({})
+    config['components']['generator']['args']['source'] = 'linear(2)\ntanh()'
+    config['prior']['args']['num_particles'] = 32
+    trainer = ReferenceTrainer(config)
+    affine = next(module for module in trainer.graph.models['generator'].modules() if isinstance(module, torch.nn.Linear))
+    with torch.no_grad():
+        affine.weight.zero_()
+        affine.bias.fill_(3.)
+    snapshot = _snapshot(trainer)
+    anchor = {'snapshot': snapshot, 'step': 1,
+              'before': [parameter.detach().clone() for parameter in trainer.program.generator_parameters],
+              'delta': [torch.zeros_like(parameter) if parameter is affine.weight else torch.ones_like(parameter)
+                        for parameter in trainer.program.generator_parameters]}
+    with torch.no_grad():
+        batch, ids, context = trainer._draw(None, None)
+    bank = frozen_bank(batch, ids, context)
+    budget = defaultdict(int)
+    report = PhaseProbes(trainer, _restore, [], _hash([]), budget).measure_direction(
+        anchor, 'generator', bank, 1., gradient=True)
+    pre_tanh = report['final_affine']['activation']
+    assert pre_tanh['rms'] == pytest.approx(4.)
+    assert pre_tanh['tanh_response']['mean_derivative'] == pytest.approx(1. - torch.tensor(4., dtype=torch.float64).tanh().item() ** 2)
+    assert pre_tanh['tanh_response']['derivative_below_0_01_fraction'] == 1.
+    assert report['output']['absolute_above_0_99_fraction'] == 1.
+    assert report['gradient_status'] == 'finite'
+
+
+def test_direction_audit_exception_restores_caller_and_removes_all_hooks(monkeypatch):
+    import hypergan.startup_response_probe as module
+    trainer = make_trainer()
+    observer, banks, _, budget = capture_update(trainer, step=1)
+    expected = deepcopy(trainer_state(trainer, None))
+    def fail(*args, **kwargs):
+        torch.rand(2)
+        torch.rand(2, generator=trainer.streams['data'])
+        with torch.no_grad():
+            trainer.program.critic_parameters[0].add_(1.)
+        raise RuntimeError('audit objective failed')
+    monkeypatch.setattr(module, 'phase_loss', fail)
+    with pytest.raises(RuntimeError, match='audit objective failed'):
+        PhaseProbes(trainer, _restore, [], _hash([]), budget).measure_direction(
+            observer.anchors['generator'], 'generator', banks['generator'], .01, gradient=True)
+    assert _same_state(expected, trainer_state(trainer, None))
+    assert all(not item._forward_hooks for item in trainer.graph.modules())

@@ -121,6 +121,26 @@ def _final_owned_affine(trainer):
     return None, {'status': 'skipped', 'reason': reason or 'Output dependency does not reach a safely owned affine layer'}
 
 
+def _activation_scalars(value, *, pre_tanh=False):
+    """Descriptive scalar observations, never acceptance thresholds."""
+    value = value.detach().to(device='cpu', dtype=torch.float64)
+    finite = bool(torch.isfinite(value).all())
+    report = {'status': 'finite' if finite else 'nonfinite', 'shape': list(value.shape),
+              'rms': None, 'std': None, 'absolute_max': None, 'absolute_above_0_99_fraction': None}
+    if not finite or not value.numel():
+        return report
+    report.update(rms=float(value.square().mean().sqrt()), std=float(value.std(unbiased=False)),
+                  absolute_max=float(value.abs().max()),
+                  absolute_above_0_99_fraction=float((value.abs() > .99).double().mean()))
+    if pre_tanh:
+        derivative = 1. - value.tanh().square()
+        report['tanh_response'] = {'mean_derivative': float(derivative.mean()),
+                                   'minimum_derivative': float(derivative.min()),
+                                   'derivative_below_0_01_fraction': float((derivative < .01).double().mean()),
+                                   'interpretation': 'Descriptive tanh saturation; no tuning threshold is applied'}
+    return report
+
+
 class UpdateObserver:
     """Observe updates one/eight; anchor first G and eighth D, never graphs."""
     def __init__(self, trainer, snapshot, protected, protected_hash, budget, *, capture_anchors=True):
@@ -246,6 +266,90 @@ class PhaseProbes:
             return value, epsilon
         finally:
             self.restore(trainer, anchor['snapshot'])
+
+    def measure_direction(self, anchor, role, bank, factor, *, gradient=False):
+        """Read-only loss/activation/optional exact directional-derivative audit.
+
+        Every point uses the anchor's same opponent, prior, buffers and random
+        draws. The derivative is evaluated on this bank at this factor, along
+        the signed actual optimizer displacement. No parameter ``.grad`` is
+        populated and no optimizer runs. Unlike ``evaluate``, this diagnostic
+        restores its caller's complete trainer state, even on failure.
+        """
+        from .startup_dynamics import _snapshot
+        if role not in ('generator', 'discriminator'):
+            raise ValueError('Direction audit requires generator or discriminator ownership')
+        if type(factor) not in (int, float) or not math.isfinite(factor) or factor < 0:
+            raise ValueError('Direction audit factor must be finite and nonnegative')
+        trainer = self.trainer
+        entry = _snapshot(trainer)
+        handles = []
+        try:
+            self.restore(trainer, anchor['snapshot'])
+            owned = _parameters(trainer, role)
+            _copy(owned, [before + factor * delta for before, delta in zip(anchor['before'], anchor['delta'])])
+            parameters = _registered_parameters(trainer)
+            expected = _hash(parameters)
+            outputs, affine_outputs = [], []
+            affine, description = _final_owned_affine(trainer)
+            def capture(target):
+                def observe(module, args, output):
+                    target.append(output.detach().cpu().clone() if isinstance(output, torch.Tensor) else None)
+                return observe
+            handles.append(trainer.graph.models['generator'].register_forward_hook(capture(outputs)))
+            if affine is not None:
+                handles.append(affine.register_forward_hook(capture(affine_outputs)))
+            category = 'direction_audit_phase_loss_evaluations'
+            self.budget[category] = self.budget.get(category, 0) + 1
+            loss = phase_loss(trainer, role, *bank, step=anchor['step'])
+            loss_value = float(loss.detach())
+            report = {'player': role, 'step': anchor['step'], 'factor': float(factor),
+                      'loss': loss_value if math.isfinite(loss_value) else None,
+                      'epsilon': torch.finfo(loss.dtype).eps, 'gradient_dot_delta': None,
+                      'gradient_dot_delta_absolute_sum': None,
+                      'gradient_status': 'not_requested',
+                      'derivative_definition': 'd/ds L(w+s*actual_optimizer_delta) evaluated at the requested factor on this bank'}
+            if gradient:
+                targets = [(parameter, delta) for parameter, delta in zip(owned, anchor['delta'])
+                           if parameter.requires_grad]
+                if loss.requires_grad and targets:
+                    category = 'direction_audit_player_gradient_evaluations'
+                    self.budget[category] = self.budget.get(category, 0) + 1
+                    gradients = torch.autograd.grad(loss, [parameter for parameter, _ in targets], allow_unused=True)
+                    slope, absolute_sum = 0., 0.
+                    for value, (_, delta) in zip(gradients, targets):
+                        if value is not None:
+                            products = value.detach().cpu().double() * delta.double()
+                            slope += float(products.sum())
+                            absolute_sum += float(products.abs().sum())
+                    connected = sum(value is not None for value in gradients)
+                    report.update(gradient_dot_delta=slope if math.isfinite(slope) else None,
+                                  gradient_dot_delta_absolute_sum=absolute_sum if math.isfinite(absolute_sum) else None,
+                                  gradient_status=('disconnected' if not connected else
+                                                   'finite' if math.isfinite(slope) else 'nonfinite'),
+                                  gradient_parameter_tensors=connected,
+                                  disconnected_parameter_tensors=len(targets) - connected)
+                else:
+                    report['gradient_status'] = 'disconnected'
+            report['output'] = (_activation_scalars(outputs[0]) if len(outputs) == 1 and outputs[0] is not None else
+                                {'status': 'skipped', 'reason': 'Generator did not produce exactly one tensor output'})
+            if affine is not None:
+                if len(affine_outputs) == 1 and affine_outputs[0] is not None:
+                    description = {**description, 'activation': _activation_scalars(
+                        affine_outputs[0], pre_tanh=description['relationship_to_output'] == 'pre_tanh')}
+                else:
+                    description = {**description, 'status': 'skipped',
+                                   'reason': 'Final owned affine did not produce exactly one tensor output'}
+            report['final_affine'] = description
+            if _hash(parameters) != expected:
+                raise ValueError('Direction audit changed registered parameters')
+            if _hash(self.protected) != self.protected_hash:
+                raise ValueError('Direction audit changed protected frozen/pretrained state')
+            return report
+        finally:
+            for handle in handles:
+                handle.remove()
+            self.restore(trainer, entry)
 
     def d_signal_response(self, anchor, banks):
         trainer = self.trainer

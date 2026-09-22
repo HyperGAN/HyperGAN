@@ -192,7 +192,6 @@ def test_relative_position_attention_matches_2d_oracle_and_learns():
 
 
 def test_configured_projection_biases_and_position_initialization(generator):
-    qkv_ids = set()
     for side in (8, 16, 32, 64, 128):
         grid = min(side, 32) if side < 64 else 16
         absolute = generator[f'stage{side}_position'].weight
@@ -209,18 +208,54 @@ def test_configured_projection_biases_and_position_initialization(generator):
             assert attention.relative_position_index.dtype == torch.int64
             for projection in (attention.q_proj, attention.k_proj, attention.v_proj):
                 assert projection.bias is None
-                qkv_ids.add(id(projection))
             assert attention.o_proj.bias is not None
-    # Xavier limits reflect the configured combined-QKV fan scale. Every
-    # ordinary linear bias, including both FFN projections, must start at zero.
+    # Official Linear layers retain PyTorch's fan-in initialization; only the
+    # convolution-equivalent RGB readout uses Xavier weights. Biases retain
+    # their fan-in uniform initialization, including the RGB bias.
     for module in generator.modules():
         if isinstance(module, torch.nn.Linear):
-            gain = 2 ** -.5 if id(module) in qkv_ids else 1
-            bound = gain * math.sqrt(6 / (module.in_features + module.out_features))
+            bias_bound = 1 / math.sqrt(module.in_features)
+            bound = (math.sqrt(6 / (module.in_features + module.out_features))
+                     if module is generator['output_projection'] else bias_bound)
             assert torch.isfinite(module.weight).all() and module.weight.abs().max() <= bound + 1e-7
             assert module.weight.count_nonzero() > 0
             if module.bias is not None:
-                assert module.bias.count_nonzero() == 0
+                assert torch.isfinite(module.bias).all() and module.bias.abs().max() <= bias_bound + 1e-7
+                assert module.bias.count_nonzero() > 0
+
+
+def test_stem_and_first_residual_branches_keep_fan_in_activation_scale(generator):
+    """Catch a tiny Xavier stem feeding much larger residual branches.
+
+    This checks the initialization mechanism behind saturation, without
+    asserting that untrained image diversity predicts eventual training quality.
+    """
+    generator.eval()
+    stem = generator['input_projection']
+    expected_variance = 1 / (3 * stem.in_features)
+    # Over eight million entries make this analytic distribution check stable;
+    # the previous fan-in+fan-out initializer had about 1/85 of this variance.
+    assert stem.weight.detach().var(unbiased=False).item() == pytest.approx(expected_variance, rel=.02)
+    captured = {}
+    def capture(name):
+        def record(module, inputs, output):
+            captured[name] = output.detach().square().mean().sqrt().item()
+        return record
+    names = ('input_projection', 'stage8_block0_attention', 'stage8_block0_ffn')
+    handles = [generator[name].register_forward_hook(capture(name)) for name in names]
+    z = latents(3)
+    try:
+        with torch.no_grad():
+            generator(z)
+    finally:
+        for handle in handles:
+            handle.remove()
+    # Independent uniform weights and bias imply E[(Wz+b)^2] =
+    # (||z||^2 + 1)/(3*fan_in), averaged over the fixed supplied examples.
+    expected_rms = math.sqrt((z.square().sum(1).mean().item() + 1) * expected_variance)
+    assert captured['input_projection'] == pytest.approx(expected_rms, rel=.1)
+    for name in names[1:]:
+        assert 0 < captured[name] < 2 * captured['input_projection']
 
 
 def test_deepcopy_state_restoration_and_ema_preserve_independent_weights(generator):

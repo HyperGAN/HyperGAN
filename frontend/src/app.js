@@ -193,7 +193,7 @@ function updateInitializationTuning(tuning, warmup) {
   const parts = [tuning.status === "complete" && tuning.dynamics_outcome === "unresolved"
     ? "Startup tuning unresolved" : labels[tuning.status]];
   const factor = value => Number.isFinite(value) && value > 0 ? Number(value.toPrecision(4)).toString() : null;
-  const stages = {measure: "Measuring optimizer updates", fit: "Fitting directional curvature",
+  const stages = {measure: "Measuring optimizer updates", fit: "Measuring gradient response",
     validate: "Validating held-out response", replay: "Replaying proposed rates"};
   const measured = tuning.method === "measured-update-response" || Boolean(stages[tuning.stage]);
   if (tuning.status === "running") {

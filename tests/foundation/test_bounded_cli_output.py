@@ -411,7 +411,7 @@ def test_generator_and_discriminator_trial_rates_and_decisions_are_visible(capsy
 
 @pytest.mark.parametrize('stage,label,has_step', [
     ('measure', 'Measuring optimizer updates', True),
-    ('fit', 'Fitting directional curvature', False),
+    ('fit', 'Measuring gradient response', False),
     ('validate', 'Validating held-out response', False),
     ('replay', 'Replaying proposed rates', True),
 ])

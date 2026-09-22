@@ -79,7 +79,7 @@ For GPU construction checks, use `demo` with `--profile examples/execution/cuda-
 
 For a new native run, `hypergan train CONFIG --run-dir RUN --tune` performs an
 opt-in [startup calibration](docs/initialization-tuning.md) before training.
-It measures actual optimizer updates, fits directional loss curvature for G and D,
+It measures actual optimizer updates and the resulting G/D gradient response in Adam's metric,
 and checks a bounded rate proposal on held-out data and a coupled replay. The
 viewer and console show each stage. At most 16 training updates are discarded,
 with additional measurement and state-verification overhead. Failed checks keep

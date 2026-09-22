@@ -26,8 +26,9 @@ def assert_restored(trainer, state):
 
 def controlled_proposal(monkeypatch):
     """Exercise orchestration branches independently of the numeric fit tests."""
+    import hypergan.gradient_response as response
     import hypergan.update_response as numerical
-    monkeypatch.setattr(numerical, 'aggregate_proposals', lambda fits: {
+    monkeypatch.setattr(response, 'aggregate_gradient_response', lambda fits: {
         'status': 'selected', 'reason': None, 'factor': .5, 'banks': fits})
     monkeypatch.setattr(numerical, 'verify_player_validation', lambda banks, **kw: {
         'accepted': True, 'status': 'accepted', 'reason': None, 'banks': list(banks)})
@@ -49,9 +50,9 @@ def test_native_measured_baseline_records_real_updates_and_restores_every_state(
     assert report['outcome'] in ('kept_baseline', 'unresolved', 'selected')
     assert report['disposable_completed_updates'] in (8, 16)
     assert report['maximum_disposable_updates'] == 16
-    assert report['probe_budget']['fit_phase_loss_evaluations'] == 12
+    assert report['probe_budget']['gradient_field_phase_loss_evaluations'] == 8
     assert report['probe_budget']['validation_phase_loss_evaluations'] <= 8
-    assert report['probe_budget']['fit_bank_gradient_evaluations'] == 0
+    assert report['probe_budget']['gradient_field_player_gradient_evaluations'] == 8
     assert report['probe_budget']['d_signal_input_backwards'] == 4
     assert report['probe_budget']['q_image_forwards'] == 2
     assert report['all_trial_state_restored']
@@ -86,7 +87,7 @@ def test_single_coupled_replay_changes_both_player_rates_but_not_prior_or_draws(
     assert report['selected_candidate'] == 'measured_update_pair'
     assert len(calls) == report['disposable_completed_updates'] == 16
     assert len(report['candidates']) == 2
-    assert report['probe_budget']['fit_phase_loss_evaluations'] == 12
+    assert report['probe_budget']['gradient_field_phase_loss_evaluations'] == 8
     assert report['probe_budget']['validation_phase_loss_evaluations'] == 8
     assert report['probe_budget']['g_response_forwards'] == 8
     for first, second in zip(calls[:8], calls[8:]):
@@ -169,13 +170,18 @@ def test_reserved_banks_clone_reused_data_storage_and_restore_cursor(monkeypatch
     state = copy.deepcopy(trainer_state(trainer, None))
     observed = []
     original = probes.PhaseProbes.evaluate
+    original_field = probes.PhaseProbes.gradient_change
+    def field(self, anchor, role, bank, h, **kwargs):
+        observed.append(('gradient_field', float(bank[0]['real'][0, 0])))
+        return original_field(self, anchor, role, bank, h, **kwargs)
+    monkeypatch.setattr(probes.PhaseProbes, 'gradient_change', field)
     def evaluate(self, anchor, role, bank, factor, *, category):
         observed.append((category, float(bank[0]['real'][0, 0])))
         return original(self, anchor, role, bank, factor, category=category)
     monkeypatch.setattr(probes.PhaseProbes, 'evaluate', evaluate)
     controlled_proposal(monkeypatch)
     tune_startup_dynamics(trainer)
-    fitting = {value for category, value in observed if category == 'fit_phase_loss_evaluations'}
+    fitting = {value for category, value in observed if category == 'gradient_field'}
     validation = {value for category, value in observed if category == 'validation_phase_loss_evaluations'}
     assert len(fitting) == len(validation) == 2
     assert not fitting & validation
@@ -203,6 +209,13 @@ def test_first_generator_and_eighth_critic_fit_their_own_prior_and_actual_update
     trainer.update = observe_update
     observed = []
     original_evaluate = probes.PhaseProbes.evaluate
+    original_field = probes.PhaseProbes.gradient_change
+
+    def field(self, anchor, role, bank, h, **kwargs):
+        observed.append((role, 'gradient_field', None, anchor, copy.deepcopy(bank)))
+        return original_field(self, anchor, role, bank, h, **kwargs)
+
+    monkeypatch.setattr(probes.PhaseProbes, 'gradient_change', field)
 
     def evaluate(self, anchor, role, bank, factor, *, category):
         observed.append((role, category, factor, anchor, copy.deepcopy(bank)))

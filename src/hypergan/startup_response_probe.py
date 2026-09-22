@@ -30,7 +30,7 @@ def _copy(parameters, values):
             parameter.copy_(value)
 
 
-def capture_adam_denominators(trainer, role):
+def capture_adam_denominators(trainer, role, *, observation_step=None):
     """Capture sqrt(v_hat)+eps from the current, already completed Adam step.
 
     CPU tensors in this private descriptor are inputs to ``gradient_change``,
@@ -39,9 +39,13 @@ def capture_adam_denominators(trainer, role):
     from .training import DeviceAdam
     if role not in ('generator', 'discriminator'):
         raise ValueError('Adam metric requires generator or discriminator ownership')
+    if observation_step is not None and (type(observation_step) is not int or observation_step < 1):
+        raise ValueError('Adam metric observation step must be a positive integer')
     optimizer = trainer.opt_g if role == 'generator' else trainer.opt_d
     report = {'status': 'unsupported', 'reason': None, 'kind': 'bias_corrected_adam_denominator',
               'player': role, 'parameter_paths': [], 'steps': [], 'denominators': []}
+    if observation_step is not None:
+        report['observation_step'] = observation_step
     if type(optimizer) not in (torch.optim.Adam, DeviceAdam):
         report['reason'] = 'Only native Adam and DeviceAdam metrics are supported'
         return report
@@ -214,7 +218,9 @@ class UpdateObserver:
         row = {'step': step, 'player': role, 'optimizer_motion': motion}
         if step == anchor_step and self.capture_anchors:
             self.anchors[role] = {'snapshot': entry['snapshot'], 'before': entry['before'],
-                                  'delta': deltas, 'step': step}
+                                  'delta': deltas, 'step': step, 'optimizer_motion': dict(motion),
+                                  'adam_denominators': capture_adam_denominators(
+                                      self.trainer, role, observation_step=step)}
         if role == 'generator':
             _, row['prior_optimizer_motion'] = displacement(_parameters(self.trainer, 'prior'), entry['prior_before'])
             # Two replay forwards avoid assuming the original stochastic forward
@@ -412,7 +418,13 @@ class PhaseProbes:
         denominators = None
         metric = {'status': 'not_supplied', 'reason': None}
         if adam_denominators is not None:
+            if ('observation_step' in adam_denominators
+                    and (type(adam_denominators['observation_step']) is not int
+                         or adam_denominators['observation_step'] != anchor['step'])):
+                raise ValueError('Adam metric observation step does not match the captured update anchor')
             metric = {'status': adam_denominators['status'], 'reason': adam_denominators.get('reason')}
+            metric['provenance'] = ('captured_after_matching_observed_update' if 'observation_step' in adam_denominators
+                                    else 'caller_provided; matching post-update capture is the caller responsibility')
             if metric['status'] == 'measured':
                 names = {id(parameter): path for path, parameter in _registered_parameters(trainer)}
                 denominators = adam_denominators['denominators']

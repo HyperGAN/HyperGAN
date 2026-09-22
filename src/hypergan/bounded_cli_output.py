@@ -65,7 +65,7 @@ def _tuning_message(tuning):
         return f'{value:.4g}' if type(value) in (float, int) and math.isfinite(value) and value > 0 else None
     def brief(value):
         return ''.join(char if char.isprintable() else ' ' for char in value).strip()[:240]
-    stages = {'measure': 'Measuring optimizer updates', 'fit': 'Fitting directional curvature',
+    stages = {'measure': 'Measuring optimizer updates', 'fit': 'Measuring gradient response',
               'validate': 'Validating held-out response', 'replay': 'Replaying proposed rates'}
     measured = tuning.get('method') == 'measured-update-response' or tuning.get('stage') in stages
     if status == 'running':

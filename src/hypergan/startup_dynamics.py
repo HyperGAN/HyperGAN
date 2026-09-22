@@ -265,22 +265,24 @@ def tune_startup_dynamics(trainer, *, progress=None):
     terms. Prior rates and pretrained state are never calibration variables.
     """
     from .startup_response_probe import UpdateObserver, PhaseProbes
-    from .update_response import aggregate_proposals, fit_directional_quadratic, verify_player_validation
+    from .gradient_response import aggregate_gradient_response, differentiation_interval, fit_gradient_response
+    from .update_response import verify_player_validation
     started = time.monotonic()
     progress = progress or (lambda row: None)
     exclusion = _eligibility(trainer)
-    budget = {'training_updates': 0, 'fit_phase_loss_evaluations': 0,
+    budget = {'training_updates': 0, 'gradient_field_phase_loss_evaluations': 0,
+              'gradient_field_player_gradient_evaluations': 0,
               'validation_phase_loss_evaluations': 0, 'g_response_forwards': 0,
               'q_image_forwards': 0, 'd_signal_input_backwards': 0,
-              'guard_structural_evaluations': 0, 'guard_signal_evaluations': 0,
-              'fit_bank_gradient_evaluations': 0}
+              'guard_structural_evaluations': 0, 'guard_signal_evaluations': 0}
     result = {'schema_version': 2, 'kind': 'startup-dynamics', 'method': 'measured-update-response',
               'trial_steps': TRIAL_STEPS, 'maximum_disposable_updates': 16,
               'anchor_steps': {'generator': 1, 'discriminator': 8},
               'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
               'outcome': 'skipped' if exclusion else 'unresolved', 'selected_candidate': None,
               'reason': exclusion, 'candidates': [], 'probe_budget': budget,
-              'rate_formula': 'phi(s)=phi(0)+a*s+k*s^2/2 on s=(0,.5,1); min(1,-a/k) only for resolved a<0,k>0 and factor>=.1',
+              'rate_formula': 'min(1, -g0.dot(delta)/(2*C)); C=norm_M(delta)*norm_inverse_M(gh-g0)/h, with frozen post-update Adam denominator M',
+              'proposal_method': 'adam-metric-gradient-response',
               'selection_policy': 'Two fit banks per player, two separate strict-decrease validation banks, then at most one coupled eight-update replay.',
               'guards': {'minimum_diversity_retention': RETENTION,
                          'minimum_first_cotangent_gain_retention': RETENTION,
@@ -289,7 +291,8 @@ def tune_startup_dynamics(trainer, *, progress=None):
               'interpretation': [
                   'G uses its first actual optimizer displacement before the startup transient; D uses update eight with the configured penalty schedule.',
                   'Fixed-latent G response isolates generator motion; learned-prior displacement is reported separately and its rate remains configured.',
-                  'Fitting-bank slopes come from the stencil; training-gradient dot displacement is a separate diagnostic, not a fitting-bank slope check.',
+                  'Matching-bank gradients at factors zero and h measure change in magnitude and direction; signed loss curvature need not be positive.',
+                  'The observed secant and numerical differentiation interval are estimates, not certified smoothness bounds or universal ideal signal targets.',
                   'Each player is measured against its phase-local frozen opponent; only a coupled replay can test the proposed pair.',
                   'Input-gradient changes and retention guards describe local training behavior, not semantic quality or long-term stability.']}
     if exclusion:
@@ -374,23 +377,31 @@ def tune_startup_dynamics(trainer, *, progress=None):
                                      'comparisons': comparisons, 'after': baseline_after,
                                      'trial_losses': baseline_losses, 'optimizer_motion': baseline_motion,
                                      'update_response': observer.observations})
-        event('fit', message='Fitting the first generator update and eighth discriminator update')
+        event('fit', message='Measuring first-G and eighth-D gradient response in their Adam metrics')
         proposals = {}
         for role in ('generator', 'discriminator'):
-            fits = []
+            anchor = observer.anchors[role]
+            motion = anchor['optimizer_motion']
+            size = math.sqrt(motion['elements'])
+            interval = differentiation_interval(motion['initial_rms'] * size, motion['delta_rms'] * size)
+            fits, measurements = [], []
             for bank in role_banks[role][:2]:
-                measured = [probes.evaluate(observer.anchors[role], role, bank, factor,
-                            category='fit_phase_loss_evaluations') for factor in (0., .5, 1.)]
-                fits.append(fit_directional_quadratic(*(value for value, _ in measured),
-                                                     epsilon=max(epsilon for _, epsilon in measured)))
-            proposals[role] = aggregate_proposals(fits)
+                if interval['status'] == 'valid':
+                    measurement = probes.gradient_change(anchor, role, bank, interval['h'],
+                                                         adam_denominators=anchor['adam_denominators'])
+                else:
+                    measurement = {'status': 'unresolved', 'reason': interval['reason']}
+                measurements.append(measurement)
+                fits.append(fit_gradient_response(measurement))
+            proposals[role] = {**aggregate_gradient_response(fits), 'banks': fits,
+                               'measurements': measurements, 'differentiation_interval': interval}
         result['directional_proposals'] = proposals
         result['d_signal_response'] = probes.d_signal_response(observer.anchors['discriminator'], role_banks['discriminator'][:2])
         g_factor, d_factor = proposals['generator']['factor'], proposals['discriminator']['factor']
         if g_factor == d_factor == 1.:
             if all(proposal['status'] == 'unchanged' for proposal in proposals.values()) and not baseline_failures:
                 result.update(outcome='kept_baseline', selected_candidate='baseline',
-                              reason='Both players resolved no reduction within the allowed range and the baseline passed startup guards')
+                              reason='Both gradient-response estimates resolved no reduction and the baseline passed startup guards')
             else:
                 result['reason'] = 'Neither player supplied a resolved reduction across both fitting banks; configured rates retained'
             return result

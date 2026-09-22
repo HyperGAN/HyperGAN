@@ -270,7 +270,7 @@ def test_measured_update_stages_and_unresolved_decision_arrive_live(viewer):
     panel = page.locator('#initialization-tuning')
     assert 'Measuring optimizer updates' in panel.text_content()
     assert 'Trial step 8 of 8' in panel.text_content()
-    for stage, label in [('fit', 'Fitting directional curvature'),
+    for stage, label in [('fit', 'Measuring gradient response'),
                          ('validate', 'Validating held-out response'),
                          ('replay', 'Replaying proposed rates')]:
         with condition:

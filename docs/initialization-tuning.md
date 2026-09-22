@@ -9,7 +9,7 @@ hypergan train config.toml --run-dir runs/tuned --tune
 Tuning measures how the actual optimizer updates affect G and D, derives a
 bounded learning-rate proposal, and checks it before training starts. The
 console and dashboard show **Tuning startup**, with stages shown as needed: measuring
-optimizer updates, fitting directional curvature, validating held-out response,
+optimizer updates, measuring gradient response, validating held-out response,
 and replaying proposed rates. They display the current G/D factors and the
 update counter during disposable baseline and replay updates.
 
@@ -37,34 +37,44 @@ schedule activates it (as with `lazy_k=8` on the TransGAN testbed). Normal train
 The first G anchor avoids fitting only after an early saturation transient.
 
 After the baseline, tuning measures both players even if the baseline passes
-the startup guards. It evaluates each player's loss along its own recorded update while
-holding the opponent and other parameter groups fixed. A predetermined stencil
-at displacement factors `0`, `0.5`, and `1` on two fitting banks estimates a
-local quadratic. The phase loss includes its configured auxiliary terms and
-the penalty when that update's lazy schedule activates it. Four real batches
-are reserved after the baseline. Their fixed latent tensors are materialized
-under each player's phase-local prior using the same reserved sampling RNG.
-Startup guards use the G anchor's initial-prior latent values throughout:
+the startup guards. Each player is measured on two reserved banks with its
+opponent, prior, buffers, randomness, and post-update Adam diagonal held fixed.
+The complete phase loss includes auxiliary terms and the penalty when that
+update's lazy schedule activates it. Four real batches are reserved after the
+baseline; phase-local prior values are drawn with matching sampling randomness.
+Startup guards reuse the G anchor's initial-prior validation latents.
+
+Instead of fitting a quadratic across a full update, tuning measures two exact
+parameter gradients separated by a small displacement along the actual Adam
+update. It measures gradient rotation as well as magnitude change:
 
 ```text
-phi(s) = loss(parameters + s * actual_optimizer_displacement)
-a = 4 * phi(0.5) - phi(1) - 3 * phi(0)
-k = 4 * (phi(1) - 2 * phi(0.5) + phi(0))
-proposed factor = -a / k
+delta = actual optimizer parameter displacement
+M = sqrt(bias-corrected Adam second moment) + optimizer epsilon
+h = min(0.1, sqrt(machine epsilon) * max(norm(parameters), norm(delta)) / norm(delta))
+g0 = gradient of phase loss at parameters
+gh = gradient of phase loss at parameters + h * delta
+C = norm_M(delta) * norm_inverse_M(gh - g0) / h
+proposed factor = min(1, -(g0 dot delta) / (2 * C))
 ```
 
-A proposal requires resolved descent and positive directional curvature.
-Output-variation and transmission guards may reject a proposal; they neither
-derive its rate factors nor decide whether to measure curvature.
-Flat, negative, inconsistent, or numerically unresolved curvature does not
-justify inventing a smaller rate. G and D are measured separately; an unresolved
-player keeps its configured factor. If both players have resolved fits calling
-for no reduction and the baseline passes its guards, the configured rates are
-kept. Otherwise, no resolved reduction means an unresolved result. Passing
-baseline guards does not turn an unresolved fit into a successful calibration.
-The factors are restricted to the declared reduction-only range of 0.1 to 1.
-A computed factor below 0.1 is unresolved; it is not rounded up. These are directional loss measurements, not an estimate
-of the largest Hessian eigenvalue or an optimal GAN learning rate.
+Both banks must resolve descent and a nonzero gradient response. The smaller
+factor is proposed. Signed directional curvature may be negative: the measured
+vector response still captures rotation that a scalar loss curve misses. The
+finite difference interval is a numerical heuristic, not an ideal signal target.
+The factor is strictly positive and reduction-only; there is no 0.1 floor that
+would round a derived smaller rate upward. Unrepresentable perturbations,
+unresolved differences, missing Adam state, or non-descent measurements abstain.
+An unresolved player retains its configured factor; the coupled replay must still
+accept the whole pair. If both resolved proposals call for no reduction and the
+baseline passes its guards, configured rates are kept.
+
+This is an empirical local estimate, not a bound on smoothness elsewhere or a
+universal optimal learning rate. The factor of one-half reproduces the gradient
+secant term of [Adaptive Gradient Descent without Descent](https://proceedings.mlr.press/v119/malitsky20a.html)
+in the ordinary gradient-descent special case. This startup adaptation to Adam
+and GANs does not inherit that algorithm's convergence guarantees. Output and
+transmission guards can reject a proposal, but do not generate the rate.
 
 Two separate validation banks check the proposed changes before a single **eight-update
 coupled replay** from the original state. Changing D changes G's subsequent
@@ -140,9 +150,9 @@ Use separate run directories to compare substantive configuration changes.
 
 ## What passing means
 
-This is an experimental, local check of numerical update response. Three stencil
-points always fit a quadratic; an exact fit is not independent evidence that
-its curvature predicts other points. Held-out loss checks and coupled replay
+This is an experimental, local check of numerical update response. A gradient
+secant measures only the chosen direction and interval; it does not bound an
+entire neighborhood or the full coupled game. Held-out loss checks and coupled replay
 provide separate tests, but do not certify image quality, semantic diversity,
 useful gradient directions, long-term stability, or convergence. Both players
 can make finite updates and still learn undesirable samples. Two probe batches

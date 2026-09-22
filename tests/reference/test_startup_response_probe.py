@@ -85,6 +85,14 @@ def test_actual_adam_delta_and_post_discriminator_anchor_replay(monkeypatch):
     observer, banks, row, budget = capture_update(trainer, step=1)
     anchor = observer.anchors['generator']
     assert anchor['step'] == 1
+    metric = anchor['adam_denominators']
+    assert metric['status'] == 'measured' and metric['observation_step'] == 1
+    assert metric['steps'] == [1] * len(trainer.program.generator_parameters)
+    assert not anchor['snapshot']['state']['optimizers'][0]['state']
+    assert len(metric['denominators']) == len(trainer.program.generator_parameters)
+    assert all(path.startswith('graph.models.generator.') for path in metric['parameter_paths'])
+    assert anchor['optimizer_motion']['measurement'] == 'one_actual_optimizer_update'
+    assert anchor['optimizer_motion']['changed']
     # The captured displacement reconstructs the actual optimizer result.
     for value, before, delta in zip(trainer.program.generator_parameters, anchor['before'], anchor['delta']):
         torch.testing.assert_close(before + delta, value.detach().cpu(), rtol=0, atol=0)
@@ -240,6 +248,11 @@ def test_generator_anchor_keeps_first_update_while_discriminator_uses_eighth():
     assert _same_state(first['before'], saved_first)
     assert observer.anchors['discriminator']['step'] == 8
     assert observer.anchors['discriminator']['snapshot']['state']['step'] == 7
+    d_metric = observer.anchors['discriminator']['adam_denominators']
+    assert d_metric['status'] == 'measured' and d_metric['observation_step'] == 8
+    assert d_metric['steps'] == [8] * len(trainer.program.critic_parameters)
+    assert all(path.startswith('graph.models.discriminator.') for path in d_metric['parameter_paths'])
+    assert first['adam_denominators']['steps'] == [1] * len(trainer.program.generator_parameters)
     assert [row['step'] for row in observer.observations if row['player'] == 'generator'] == [1, 8]
 
 
@@ -492,3 +505,29 @@ def test_gradient_field_zero_realized_perturbation_is_unresolved():
     assert report['status'] == 'unresolved'
     assert report['realized_parameter_perturbation_norm'] == 0.
     assert report['adam_metric']['status'] == 'not_supplied'
+
+
+def test_gradient_field_rejects_metric_from_different_observation_step_before_mutation():
+    trainer = make_trainer()
+    observer, banks, _, budget = capture_update(trainer, step=1)
+    anchor = observer.anchors['generator']
+    metric = dict(anchor['adam_denominators'], observation_step=8)
+    expected = deepcopy(trainer_state(trainer, None))
+    with pytest.raises(ValueError, match='observation step'):
+        PhaseProbes(trainer, _restore, [], _hash([]), budget).gradient_change(
+            anchor, 'generator', banks['generator'], .1, adam_denominators=metric)
+    assert _same_state(expected, trainer_state(trainer, None))
+    assert budget['gradient_field_phase_loss_evaluations'] == 0
+
+
+def test_gradient_field_accepts_matching_captured_metric_and_labels_its_provenance():
+    trainer = make_trainer()
+    observer, banks, _, budget = capture_update(trainer, step=1)
+    anchor = observer.anchors['generator']
+    metric = anchor['adam_denominators']
+    expected = deepcopy(trainer_state(trainer, None))
+    report = PhaseProbes(trainer, _restore, [], _hash([]), budget).gradient_change(
+        anchor, 'generator', banks['generator'], .1, adam_denominators=metric)
+    assert report['adam_metric']['status'] == 'measured'
+    assert report['adam_metric']['provenance'] == 'captured_after_matching_observed_update'
+    assert _same_state(expected, trainer_state(trainer, None))

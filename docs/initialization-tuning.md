@@ -1,5 +1,11 @@
 # Startup tuning
 
+**Experimental:** the current selector failed longer-run validation on the
+TransGAN/DINO testbed. A subsequent explicit G=D=1e-4 control also deteriorated
+within 32 updates. New research probes measure layer contributions and GeN
+model accuracy; they do not yet replace the selector or install layer-specific
+rates. See the [joint-rate and layer-response report](../reports/joint-rate-layer-response-2026-09-22.md).
+
 For a **new run**, add `--tune` to the normal training command:
 
 ```sh

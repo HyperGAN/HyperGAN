@@ -201,6 +201,31 @@ def critic_direction_drift_case():
     return {"generator_jacobian_diagonal": [1.0, 0.001], "states": rows}
 
 
+def frozen_module_case():
+    # Explicit stand-in for imported state, not a real pretrained model.
+    class FrozenTransform(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(tensor([2.0, 4.0]), requires_grad=False)
+            self.register_buffer("offset", tensor([0.25, -0.25]))
+
+        def forward(self, value):
+            return self.weight * value + self.offset
+
+    frozen = FrozenTransform().eval()
+    before = {key: value.clone() for key, value in frozen.state_dict().items()}
+    owned_input = tensor([0.5, 1.0], grad=True)
+    (-frozen(owned_input).mean()).backward()
+    close(float(owned_input.grad.norm()), math.sqrt(5.0))
+    unchanged = all(torch.equal(before[key], value) for key, value in frozen.state_dict().items())
+    if not unchanged or frozen.weight.grad is not None:
+        raise AssertionError("Frozen module state or parameter gradients changed")
+    return {"input_gradient_norm": float(owned_input.grad.norm()),
+            "parameter_gradient_present": frozen.weight.grad is not None,
+            "parameters_and_buffers_unchanged": unchanged,
+            "calibratable_pretrained_parameters": 0}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
@@ -218,6 +243,7 @@ def main():
         "noise_estimator": noise_estimator_case(), "blocked_generator": blocked_case(),
         "initialization_drift": initialization_drift_case(),
         "critic_direction_drift": critic_direction_drift_case(),
+        "frozen_module_transmits_signal": frozen_module_case(),
     }
     close(cases["critic_helpful"]["oracle_progress"], 0.39)
     close(cases["critic_harmful"]["oracle_progress"], -0.41)

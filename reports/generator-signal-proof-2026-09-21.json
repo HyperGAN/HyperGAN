@@ -254,6 +254,12 @@
           "parameter_gradient_norm": 0.001
         }
       ]
+    },
+    "frozen_module_transmits_signal": {
+      "input_gradient_norm": 2.23606797749979,
+      "parameter_gradient_present": false,
+      "parameters_and_buffers_unchanged": true,
+      "calibratable_pretrained_parameters": 0
     }
   }
 }

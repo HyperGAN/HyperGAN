@@ -16,6 +16,47 @@ to receive instructions before we can establish that this particular critic's
 instructions are useful. Even excellent conditioning cannot supply information
 the critic has not learned.
 
+## Ownership is a hard calibration boundary
+
+The user explicitly excludes pretrained networks from calibration. Treat their
+learned state as immutable throughout candidate construction, calibration,
+shadow updates, and candidate comparison. This includes pretrained generators,
+critics, encoders, feature backbones, embeddings, and evaluation networks, not
+just the most obvious backbone.
+
+Maintain an explicit ownership inventory for parameters and buffers:
+
+| Ownership | Permitted in this proposal |
+| --- | --- |
+| Pretrained/imported state | Read-only forward/backward observation; no initialization, rescaling, parameter updates, or changes to saved running statistics |
+| Newly initialized, explicitly owned state | Eligible for declared calibration and candidate optimizer updates |
+| New adapter/head attached to a pretrained network | Only its own newly initialized parameters are eligible; preserve the pretrained dependency |
+| Shared/tied state or unknown provenance | Excluded until ownership is resolved; imported ownership takes precedence over an owned alias |
+
+Do not infer permission from `requires_grad=True`, membership in an optimizer,
+or the module name. Resolve aliases by parameter/storage identity so an owned
+wrapper cannot accidentally mutate tied pretrained weights. A recursive model
+initializer or blanket `model.train()` is unsuitable: BatchNorm buffers and
+other stateful behavior also need protection. Preserve the pretrained module's
+declared operating mode, verify parameters and buffers against their source
+state before and after each candidate, and reject a candidate that changes
+them. Calibration must not trigger data-dependent recalibration of pretrained
+normalization statistics. Any later intentional fine-tuning is a separate
+explicit scope, not something this search loop may infer.
+
+Freezing parameters does **not** mean blocking input derivatives. Keep autograd
+through a pretrained operation when its input depends on our trainable layers;
+do not put that path in `no_grad()` or detach it. Its input/output signal can be
+measured without updating its weights. The deterministic proof includes a frozen
+module with nonzero input gradients and unchanged parameter/buffer state.
+
+If an entire generator is pretrained, the set of calibratable G layers may be
+empty. Return that fact and observe it; do not invent eligibility to make the
+search run. Where an owned adapter or head exists, evaluate whether calibrating
+it helps while preserving the pretrained interface, including input scaling and
+conditioning semantics. A mismatch at that interface does not justify modifying
+the pretrained weights.
+
 ## Existing methods that make this plausible
 
 | Method | What it contributes | Applicability limit |
@@ -34,7 +75,7 @@ Sources: [Mishkin and Matas, LSUV](https://arxiv.org/abs/1511.06422),
 These are research directions to evaluate for the network family in use. They
 do not establish that one initializer solves signal quality for every GAN.
 
-An automatic initialization pass could first apply a suitable known recipe,
+An automatic initialization pass on eligible owned layers could first apply a suitable known recipe,
 then use observed forward/backward statistics to adjust a small set of gains.
 It need not add a regularizer or change the training objective. However, it
 does change the initialized model, so it belongs to model construction and
@@ -130,7 +171,7 @@ Suggested stages (future work; not commands supported by today's CLI):
 
 1. **Declare the search.** Freeze the base recipe, initial tensor/randomness
    source, calibration bank, separate validation bank, evaluator, compute
-   budget, and editable fields. Save each candidate as its own resolved config
+   budget, ownership exclusions, and editable fields. Save each candidate as its own resolved config
    and artifact rather than changing an active run's config in place.
 2. **Use a small search space.** Start with generator initialization family,
    grouped block gains, residual-branch scale, and output-head scale only where
@@ -148,7 +189,7 @@ Suggested stages (future work; not commands supported by today's CLI):
    gradient normalization is inadequate because Adam's moment normalization
    changes how scale maps to updates.
 5. **Validate finalists.** Only a few surviving candidates receive equal-budget
-   short GAN training runs and independent quality/coverage evaluation, from
+   short GAN training runs on eligible owned parameters and independent quality/coverage evaluation, from
    the same declared initial source and data sequence. Choose the horizon in
    advance. No same-configuration/different-seed runs; a changed initialization
    method or gain is a substantive candidate, not a seed sweep. Statistical
@@ -171,7 +212,7 @@ This is more practical than exposing every weight as an independent search
 variable. Layerwise gains can be automated, but their search objective should
 remain constrained by output behavior and update utility. Architecture changes
 such as adding residual paths are a later, separately attributed intervention.
-Do not reinitialize pretrained components during calibration.
+Pretrained state remains outside every calibration and candidate-update action.
 
 For HyperGAN, the initializer options must be inventoried per component/HNDL
 definition before any runner writes configurations. Existing factory arguments

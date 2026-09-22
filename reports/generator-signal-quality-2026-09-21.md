@@ -5,6 +5,12 @@ Scope: observation and evaluation only. No loss, regularizer, optimizer, recipe,
 or training behavior changes. The accompanying calculation runs no training
 experiments and uses no random seeds.
 
+Ownership constraint: pretrained networks are observed but never calibrated.
+Their weights and saved statistics are immutable during proposed calibration
+and candidate-update evaluation; only explicitly owned, newly initialized
+layers are eligible. Input gradients may still pass through frozen pretrained
+modules. See the companion proposal's ownership contract.
+
 **Recommendation:** measure the signal at the generator output, its passage back
 to the first blocks, the resulting optimizer updates, and independent progress.
 There is no defensible single gradient magnitude, signal-to-noise ratio, or
@@ -322,7 +328,7 @@ model selection needs a separate audit bank to avoid overfitting the evaluator.
 
 Run `python3 scripts/generator_signal_proof.py` to print the complete calculation,
 or add `--output reports/generator-signal-proof-2026-09-21.json` to write it.
-The committed [JSON](generator-signal-proof-2026-09-21.json) contains 14 cases,
+The committed [JSON](generator-signal-proof-2026-09-21.json) contains 15 cases,
 runtime versions, and analytic checks. The
 [script](../scripts/generator_signal_proof.py) uses explicit CPU float64 tensors;
 it performs no RNG draws, image inspection, dataset loading, or training runs.
@@ -341,6 +347,7 @@ it performs no RNG draws, image inspection, dataset loading, or training runs.
 | Exhaustive IID gradient-pair enumeration | Expected debiased squared signal=1 and covariance trace=1; opposing pair gives negative signal estimate | Moment estimates need unresolved/zero handling |
 | Initially unit-gain chain, 64 layers | Moving each gain to 0.95 changes end-to-input gain from 1 to about 0.0375 | Initial transmission need not persist; this is a constructed parameter path, not measured training drift |
 | Fixed G, critic direction rotates between two axes | Equal output gradient norm; parameter gradient norm changes 1000x | Monitoring just the initial critic direction misses weak directions |
+| Frozen module with explicit imported-state stand-in | Input gradient norm=sqrt(5), no parameter gradients, identical parameter/buffer state | Frozen pretrained operations can transmit gradients without being calibrated |
 
 These are constructed counterexamples and formula checks, not evidence that a
 particular HyperGAN run has one of these failures. No production GPU overhead,

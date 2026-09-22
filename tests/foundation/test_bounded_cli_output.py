@@ -390,6 +390,25 @@ def test_json_progress_preserves_tuning_event_without_step_throttling(capsys):
     assert captured.err == ''
 
 
+@pytest.mark.parametrize('outcome,g_factor,d_factor,decision', [
+    ('selected', 1., .5, 'Selected G learning rate × 1 | Selected D learning rate × 0.5'),
+    ('selected', .2, 1., 'Selected G learning rate × 0.2 | Selected D learning rate × 1'),
+    ('kept_baseline', 1., 1., 'Configured G and D learning rates passed'),
+    ('unresolved', 1., 1., 'No rate candidate passed; kept configured G and D learning rates'),
+])
+def test_generator_and_discriminator_trial_rates_and_decisions_are_visible(capsys, outcome, g_factor, d_factor, decision):
+    with training_output(progress_every=1000) as output:
+        output.progress({'event': 'tuning', 'step': 0, 'tuning': {
+            'status': 'running', 'phase': 'dynamics', 'trial_step': 2, 'trial_steps': 8,
+            'g_lr_factor': 1., 'd_lr_factor': .5}})
+        output.progress({'event': 'tuning', 'step': 0, 'tuning': {
+            'status': 'complete', 'dynamics_outcome': outcome,
+            'selected_g_lr_factor': g_factor, 'selected_d_lr_factor': d_factor}})
+    lines = capsys.readouterr().err.splitlines()
+    assert lines[0] == 'Tuning startup | Trial updates | Trial step 2 of 8 | G learning rate × 1 | D learning rate × 0.5'
+    assert decision in lines[1]
+
+
 @pytest.mark.parametrize('outcome,factor,expected',[
     ('selected',.246,'Startup tuning complete | Selected G learning rate × 0.246'),
     ('kept_baseline',1.,'Startup tuning complete | Configured G learning rate passed'),

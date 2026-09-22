@@ -1,6 +1,6 @@
 """Disposable, configured D/G/prior update trials for startup stability.
 
-The only proposed override is the owned generator optimizer group's LR. Every
+Proposals change either the owned generator LR or halve the owned critic LR. Every
 trial is rolled back; selection preserves relative diversity/transmission on two
 reserved input banks rather than maximizing a gradient norm or claiming quality.
 """
@@ -16,7 +16,7 @@ from .initialization_tuning import _hash, _inventory, _storage, _structural
 from .signal_diagnostic import _probe
 
 TRIAL_STEPS = 8
-MAX_TRIALS = 2
+MAX_TRIALS = 3
 RETENTION = .25
 
 
@@ -113,6 +113,14 @@ def _eligibility(trainer):
     group = {id(p) for p in trainer.opt_g.param_groups[0]['params']}
     if group != generator or group != owned:
         return 'The generator optimizer group also contains auxiliary or uncertain ownership'
+    if len(trainer.opt_d.param_groups) != 1:
+        return 'Dynamics discriminator tuning requires one native critic optimizer group'
+    critics = {id(p) for p in trainer.program.critic_parameters}
+    critic_group = {id(p) for group in trainer.opt_d.param_groups for p in group['params']}
+    declared_critics = {id(p) for term in trainer.program.adversarial_terms
+                        for p in term.module.parameters() if p.requires_grad}
+    if critics != critic_group or critics != declared_critics or critics & (owned | {id(p) for p in trainer.prior.parameters()}):
+        return 'The discriminator optimizer contains uncertain or overlapping ownership'
     return None
 
 
@@ -192,8 +200,53 @@ def _guards(before, after):
     return reasons, comparisons
 
 
+
+def _optimizer_motion(trainer, initial):
+    """Actual parameter displacement, including Adam/moments and configured LR.
+
+    Positive displacement only proves an optimizer moved a player, not that the
+    update was useful. No candidate is ranked by displacement or gradient size.
+    """
+    originals = {}
+    for root_name in ('graph', 'prior'):
+        root = getattr(trainer, root_name)
+        for name, parameter in root.named_parameters():
+            originals[id(parameter)] = initial['state'][root_name][name]
+    roles = {'generator': trainer.program.generator_parameters,
+             'discriminator': trainer.program.critic_parameters,
+             'prior': trainer.program.prior_parameters}
+    report = {}
+    for role, parameters in roles.items():
+        squared_delta, squared_initial, elements, finite = 0., 0., 0, True
+        for parameter in parameters:
+            current = parameter.detach().cpu().to(torch.float64)
+            old = originals[id(parameter)].to(torch.float64)
+            elements += current.numel()
+            finite = finite and bool(torch.isfinite(current).all())
+            squared_delta += float((current - old).square().sum())
+            squared_initial += float(old.square().sum())
+        valid = finite and math.isfinite(squared_delta) and math.isfinite(squared_initial)
+        report[role] = {'elements': elements, 'finite': valid,
+                        'changed': valid and squared_delta > 0,
+                        'delta_rms': math.sqrt(squared_delta / elements) if valid and elements else None,
+                        'measurement': 'cumulative_eight_update_parameter_displacement',
+                        'initial_rms': math.sqrt(squared_initial / elements) if valid and elements else None,
+                        'relative_delta_l2': math.sqrt(squared_delta / squared_initial)
+                            if valid and squared_initial > 0 else None}
+    return report
+
+
+def _candidate_guards(before, after, motion):
+    reasons, comparisons = _guards(before, after)
+    for role in ('generator', 'discriminator'):
+        if not motion[role]['finite']:
+            reasons.append(role + '_optimizer_displacement_nonfinite')
+        elif not motion[role]['changed']:
+            reasons.append(role + '_optimizer_did_not_move')
+    return reasons, comparisons
+
 def tune_startup_dynamics(trainer, *, progress=None):
-    """Return a proposed G LR factor, leaving the trainer exactly at its input state.
+    """Propose G/D LR factors, leaving the trainer exactly at its input state.
 
     The baseline really runs first. Two data banks are reserved from its next
     draws; matching latent draws use the initial prior and the post-trial stream
@@ -205,14 +258,18 @@ def tune_startup_dynamics(trainer, *, progress=None):
     exclusion = _eligibility(trainer)
     result = {'schema_version': 1, 'kind': 'startup-dynamics', 'trial_steps': TRIAL_STEPS,
               'maximum_disposable_updates': MAX_TRIALS * TRIAL_STEPS,
-              'selected_g_lr_factor': 1.0, 'outcome': 'skipped' if exclusion else 'unresolved',
+              'selected_g_lr_factor': 1.0, 'selected_d_lr_factor': 1.0, 'outcome': 'skipped' if exclusion else 'unresolved',
               'selected_candidate': None, 'reason': exclusion,
-              'rate_formula': 'clip(minimum_retention, 0.1, 0.5), only after finite nonnegative baseline retention falls below 0.25',
+              'rate_formula': 'G: clip(minimum_baseline_retention, 0.1, 0.5) after retention falls below 0.25; D: one fixed 0.5 sensitivity trial',
+              'selection_policy': 'Keep a passing baseline; otherwise try D-only half rate first, then a baseline-derived G-only correction; stop at first passing candidate.',
               'candidates': [], 'guards': {'minimum_diversity_retention': RETENTION,
                                           'minimum_first_cotangent_gain_retention': RETENTION,
-                                          'finite_nonzero_generator_objective_signal': True},
-              'interpretation': ['Eight configured D/G/prior updates measure baseline drift; at most one derived-rate confirmation repeats those eight updates.',
-                                 'Only the owned generator optimizer learning rate is proposed; discriminator/prior rates stay configured.',
+                                          'finite_nonzero_generator_objective_signal': True,
+                                          'finite_nonzero_generator_and_discriminator_optimizer_displacement': True},
+              'interpretation': ['Eight updates measure baseline drift; at most one D-only half-rate trial and one derived G-only trial repeat the same eight updates.',
+                                 'Each correction changes one owned player learning rate; prior rates remain configured and no combined G/D correction is searched.',
+                                 'D halving is a bounded sensitivity test, not an inferred optimal discriminator rate.',
+                                 'Finite nonzero optimizer displacement rules out a stationary-player pass, but does not establish useful learning.',
                                  'Two matched banks are reserved after the baseline trial draw positions, with initial-prior latent tensors held fixed.',
                                  'Retention thresholds are startup-collapse heuristics, not image quality or a universal optimum.',
                                  'This finite-horizon check cannot certify long-term stability or detect every form of collapse.']}
@@ -226,15 +283,18 @@ def tune_startup_dynamics(trainer, *, progress=None):
     result['protected_state_verification'] = {'before_sha256': protected_hash}
     completed_updates = 0
 
-    def run_trial(factor, index):
+    def run_trial(g_factor, d_factor, index):
         nonlocal completed_updates
-        trainer.base_lrs[0][0] = initial['state']['base_lrs'][0][0] * factor
-        trainer.opt_g.param_groups[0]['lr'] = initial['state']['optimizers'][0]['param_groups'][0]['lr'] * factor
+        trainer.base_lrs[0][0] = initial['state']['base_lrs'][0][0] * g_factor
+        trainer.opt_g.param_groups[0]['lr'] = initial['state']['optimizers'][0]['param_groups'][0]['lr'] * g_factor
+        trainer.base_lrs[1][0] = initial['state']['base_lrs'][1][0] * d_factor
+        trainer.opt_d.param_groups[0]['lr'] = initial['state']['optimizers'][1]['param_groups'][0]['lr'] * d_factor
         losses = []
         for step in range(1, TRIAL_STEPS + 1):
             progress({'phase': 'dynamics', 'candidate': index, 'total_candidates': MAX_TRIALS,
-                      'trial_step': step, 'trial_steps': TRIAL_STEPS, 'lr_factor': factor,
-                      'message': f'Testing generator LR ×{factor:g}: update {step}/{TRIAL_STEPS}'})
+                      'trial_step': step, 'trial_steps': TRIAL_STEPS, 'lr_factor': g_factor,
+                      'g_lr_factor': g_factor, 'd_lr_factor': d_factor,
+                      'message': f'Testing G LR ×{g_factor:g}, D LR ×{d_factor:g}: update {step}/{TRIAL_STEPS}'})
             row, _ = trainer.update()
             completed_updates += 1
             if _hash(protected) != protected_hash:
@@ -246,15 +306,16 @@ def tune_startup_dynamics(trainer, *, progress=None):
 
     try:
         try:
-            baseline_losses = run_trial(1.0, 1)
+            baseline_losses = run_trial(1.0, 1.0, 1)
         except (FloatingPointError, ValueError) as error:
             # A partial D/G failure has no common full-horizon tail input bank.
             # Refuse to invent one or declare that shrinking G LR fixes D/prior.
             if 'nonfinite' not in str(error).lower():
                 raise
             result.update(reason='Baseline trial became nonfinite before a full held-out comparison: ' + str(error))
-            result['candidates'].append({'lr_factor': 1., 'accepted': False, 'failure': str(error)})
+            result['candidates'].append({'lr_factor': 1., 'd_lr_factor': 1., 'accepted': False, 'failure': str(error)})
             return result
+        baseline_motion = _optimizer_motion(trainer, initial)
         baseline_final = _snapshot(trainer)
         tail_prior_state = trainer.streams['prior'].get_state().clone()
         real_banks = [trainer.batch(), trainer.batch()]
@@ -268,43 +329,53 @@ def tune_startup_dynamics(trainer, *, progress=None):
         result['before'] = before
         _restore(trainer, baseline_final)
         after = _measure(trainer, banks, probe_rng, protected, protected_hash)
-        reasons, comparisons = _guards(before, after)
-        result['candidates'].append({'name': 'g_lr_1', 'lr_factor': 1., 'accepted': not reasons,
-                                     'rejection_reasons': reasons, 'comparisons': comparisons,
-                                     'after': after, 'trial_losses': baseline_losses})
+        reasons, baseline_comparisons = _candidate_guards(before, after, baseline_motion)
+        result['candidates'].append({'name': 'g_lr_1', 'lr_factor': 1., 'd_lr_factor': 1., 'accepted': not reasons,
+                                     'rejection_reasons': reasons, 'comparisons': baseline_comparisons,
+                                     'after': after, 'trial_losses': baseline_losses, 'optimizer_motion': baseline_motion})
         del baseline_final
         if not reasons:
             result.update(outcome='kept_baseline', selected_candidate='g_lr_1',
-                          reason='Configured generator learning rate passed both reserved-bank startup retention guards')
+                          reason='Configured generator and discriminator rates passed both reserved-bank startup retention guards')
             return result
-        retentions = [value for row in comparisons for key, value in row.items() if key.endswith('_retention')]
+        def evaluate_correction(name, g_factor, d_factor, index):
+            _restore(trainer, initial)
+            try:
+                losses = run_trial(g_factor, d_factor, index)
+                motion = _optimizer_motion(trainer, initial)
+                measured = _measure(trainer, banks, probe_rng, protected, protected_hash)
+                failures, measured_comparisons = _candidate_guards(before, measured, motion)
+            except (FloatingPointError, ValueError) as error:
+                if 'nonfinite' not in str(error).lower():
+                    raise
+                result['candidates'].append({'name': name, 'lr_factor': g_factor, 'd_lr_factor': d_factor,
+                                             'accepted': False, 'failure': str(error)})
+                return False
+            result['candidates'].append({'name': name, 'lr_factor': g_factor, 'd_lr_factor': d_factor,
+                                         'accepted': not failures, 'rejection_reasons': failures,
+                                         'comparisons': measured_comparisons, 'after': measured,
+                                         'trial_losses': losses, 'optimizer_motion': motion})
+            if failures:
+                return False
+            result.update(outcome='selected', selected_g_lr_factor=g_factor,
+                          selected_d_lr_factor=d_factor, selected_candidate=name,
+                          reason=('One discriminator-only half-rate sensitivity trial passed both reserved-bank startup guards'
+                                  if d_factor != 1 else 'One drift-derived generator-only rate correction passed both reserved-bank startup guards'))
+            return True
+
+        if evaluate_correction('d_lr_half', 1.0, .5, 2):
+            return result
+        retentions = [value for row in baseline_comparisons for key, value in row.items() if key.endswith('_retention')]
         valid = retentions and all(value is not None and math.isfinite(value) and value >= 0 for value in retentions)
         if not valid or min(retentions) >= RETENTION:
-            result['reason'] = 'Startup guards failed without finite nonnegative retention drift from which to derive a rate correction'
+            result['reason'] = 'D-only half rate failed; baseline has no finite retention failure from which to derive a G correction'
             return result
         minimum_retention = min(retentions)
         factor = max(.1, min(.5, minimum_retention))
         result['derived_rate'] = {'minimum_retention': minimum_retention, 'proposed_g_lr_factor': factor}
-        _restore(trainer, initial)
-        try:
-            losses = run_trial(factor, 2)
-            after = _measure(trainer, banks, probe_rng, protected, protected_hash)
-            reasons, comparisons = _guards(before, after)
-        except (FloatingPointError, ValueError) as error:
-            if 'nonfinite' not in str(error).lower():
-                raise
-            result['candidates'].append({'name': 'derived_g_lr', 'lr_factor': factor,
-                                         'accepted': False, 'failure': str(error)})
-            result['reason'] = 'Derived-rate confirmation became nonfinite; baseline rate remains unchanged'
+        if evaluate_correction('derived_g_lr', factor, 1.0, 3):
             return result
-        result['candidates'].append({'name': 'derived_g_lr', 'lr_factor': factor,
-                                     'accepted': not reasons, 'rejection_reasons': reasons,
-                                     'comparisons': comparisons, 'after': after, 'trial_losses': losses})
-        if not reasons:
-            result.update(outcome='selected', selected_g_lr_factor=factor, selected_candidate='derived_g_lr',
-                          reason='One drift-derived smaller generator learning rate passed both reserved-bank startup retention guards')
-            return result
-        result['reason'] = 'The single derived-rate confirmation failed startup retention guards; baseline rate remains unchanged'
+        result['reason'] = 'Neither the D-only half-rate trial nor the derived G-only trial passed; configured rates remain unchanged'
         return result
     finally:
         protected_after = _hash(protected)

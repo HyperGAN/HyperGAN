@@ -236,6 +236,30 @@ def test_startup_dynamics_progress_and_decision_are_distinct_from_training(viewe
     assert not errors
 
 
+@pytest.mark.parametrize('outcome,g_factor,d_factor,expected', [
+    ('selected', 1., .5, 'Selected G learning rate × 1 · Selected D learning rate × 0.5'),
+    ('selected', .2, 1., 'Selected G learning rate × 0.2 · Selected D learning rate × 1'),
+    ('kept_baseline', 1., 1., 'Configured G and D learning rates passed'),
+    ('unresolved', 1., 1., 'No rate candidate passed; kept configured G and D learning rates'),
+])
+def test_generator_and_discriminator_rate_decisions_arrive_live(viewer, outcome, g_factor, d_factor, expected):
+    page, control, condition, errors = viewer
+    control.update(status='tuning', initialization_tuning={
+        'status': 'running', 'phase': 'dynamics', 'trial_step': 2, 'trial_steps': 8,
+        'g_lr_factor': 1., 'd_lr_factor': .5})
+    login(page)
+    panel = page.locator('#initialization-tuning')
+    assert 'G learning rate × 1 · D learning rate × 0.5' in panel.text_content()
+    with condition:
+        control['run_update'] = {'run_id': RUN, 'status': 'running', 'steps': 2, 'initialization_tuning': {
+            'status': 'complete', 'dynamics_outcome': outcome,
+            'selected_g_lr_factor': g_factor, 'selected_d_lr_factor': d_factor}}
+        condition.notify_all()
+    panel.filter(has_text=expected).wait_for()
+    assert page.locator('#run-status').text_content() == 'Training'
+    assert not errors
+
+
 def test_warmup_progress_arrives_live_during_retained_training(viewer):
     page, control, condition, errors = viewer
     tuning = {'status': 'complete', 'outcome': 'kept_baseline',

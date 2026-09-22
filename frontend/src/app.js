@@ -204,15 +204,21 @@ function updateInitializationTuning(tuning, warmup) {
     if (Number.isSafeInteger(tuning.trial_step) && tuning.trial_step >= 0
         && Number.isSafeInteger(tuning.trial_steps) && tuning.trial_steps > 0 && tuning.trial_step <= tuning.trial_steps)
       parts.push(`Trial step ${tuning.trial_step} of ${tuning.trial_steps}`);
-    if (factor(tuning.lr_factor)) parts.push(`G learning rate × ${factor(tuning.lr_factor)}`);
+    const gFactor = tuning.g_lr_factor ?? tuning.lr_factor;
+    if (factor(gFactor)) parts.push(`G learning rate × ${factor(gFactor)}`);
+    if (factor(tuning.d_lr_factor)) parts.push(`D learning rate × ${factor(tuning.d_lr_factor)}`);
   }
   if (tuning.status === "complete") {
     if (tuning.outcome === "kept_baseline") parts.push("Kept baseline initialization");
     else if (tuning.outcome === "selected") parts.push("Applied tuned initialization");
-    if (tuning.dynamics_outcome === "selected" && factor(tuning.selected_g_lr_factor))
-      parts.push(`Selected G learning rate × ${factor(tuning.selected_g_lr_factor)}`);
-    else if (tuning.dynamics_outcome === "kept_baseline") parts.push("Configured G learning rate passed");
-    else if (tuning.dynamics_outcome === "unresolved") parts.push("No rate candidate passed; kept configured G learning rate");
+    if (tuning.dynamics_outcome === "selected") {
+      if (factor(tuning.selected_g_lr_factor)) parts.push(`Selected G learning rate × ${factor(tuning.selected_g_lr_factor)}`);
+      if (factor(tuning.selected_d_lr_factor)) parts.push(`Selected D learning rate × ${factor(tuning.selected_d_lr_factor)}`);
+    }
+    else if (tuning.dynamics_outcome === "kept_baseline") parts.push(factor(tuning.selected_d_lr_factor)
+      ? "Configured G and D learning rates passed" : "Configured G learning rate passed");
+    else if (tuning.dynamics_outcome === "unresolved") parts.push(factor(tuning.selected_d_lr_factor)
+      ? "No rate candidate passed; kept configured G and D learning rates" : "No rate candidate passed; kept configured G learning rate");
     else if (tuning.dynamics_outcome === "skipped") parts.push("Dynamics check skipped");
     if (typeof tuning.dynamics_reason === "string" && tuning.dynamics_reason.trim())
       parts.push(tuning.dynamics_reason.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240));

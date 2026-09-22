@@ -8,14 +8,14 @@ hypergan train config.toml --run-dir runs/tuned --tune
 
 The dashboard and console show **Tuning startup**, first during initialization
 calibration and then during short trial runs. They show the candidate, trial
-step out of 8, and generator learning-rate factor. Progress remains visible
+step out of 8, and both generator and discriminator learning-rate factors. Progress remains visible
 even when ordinary training progress is printed less frequently. Trial updates
 are discarded; the actual run still starts at step zero.
 
 The final summary distinguishes the initialization decision from the learning
-rate decision: a selected factor, a passing configured rate, or **Startup tuning
+rate decision: selected G/D factors, passing configured rates, or **Startup tuning
 unresolved** when no candidate passes. An unresolved result retains the configured
-G learning rate; it does not certify that the startup problem was fixed. A
+G and D learning rates; it does not certify that the startup problem was fixed. A
 skipped dynamics check includes its reason.
 
 With previews enabled, a new run also captures a **step 0** preview after tuning
@@ -43,8 +43,9 @@ hypergan train config.toml --run-dir runs/tuned-warmup \
 
 The first retained update uses the G rate selected by tuning. A linear ramp
 reaches the original config's G rate on update 1,000, then holds that rate.
-The existing configured annealing multiplier still applies. D and prior rates
-follow their original schedules. Warmup takes place during normal training,
+The existing configured annealing multiplier still applies. D keeps its selected
+base rate, with its configured annealing schedule; the prior keeps its original
+rate and schedule. Warmup takes place during normal training,
 after all tuning trials have been discarded; it adds no search or trial updates.
 The console and dashboard show its progress and current G learning rate.
 
@@ -71,43 +72,59 @@ checks the selected candidate before it is accepted. No discriminator or
 generator optimizer updates are taken during this initialization phase.
 
 Next, a dynamics check runs **8 configured training updates** at the configured
-generator learning rate. If that baseline fails its checks, a formula uses the
-measured startup response to propose **one smaller factor between 0.1 and 0.5**.
-The experimental formula is `clip(minimum_retention, 0.1, 0.5)`, using the lowest
-finite, nonnegative diversity or first-layer transmission retention across both
-probe batches when it falls below 0.25. These constants are heuristic guards.
-One additional eight-update trial checks that proposal. Each trial starts
-from the same selected initialization, optimizer state, data state and RNG state.
-D and learned-prior absolute learning rates stay at their configured values.
-The trial uses the configured losses and normal D/G/prior update sequence.
-Two matched probe batches check output variation and signal transmission after
-the trial. A passing configured rate is kept immediately. Otherwise the proposed
-rate is selected only if its confirmation passes. If that confirmation fails,
-the configured rate is retained and the result is explicitly unresolved.
+G and D learning rates. Two matched probe batches check output variation and
+first-layer signal transmission, alongside finite generator-objective signal.
+The trial also records cumulative G, D, and prior parameter displacement over
+the eight updates; G and D must both have finite, nonzero net movement. This
+includes the optimizer's effect, but is not a per-step update norm or proof of
+useful learning. Passing the baseline keeps
+both configured rates immediately.
 
-The hard budget is **two trials and 16 discarded training updates**, plus signal
+If the completed baseline fails its guards, an eight-update sensitivity trial halves **only D's
+learning rate**, keeping G at its configured rate. That measured trial is
+accepted only if both probe batches and the update checks pass. Halving D is a
+bounded sensitivity test, not a formula for an optimal discriminator rate.
+
+If the D-only trial fails, one final eight-update trial may reduce **only G's
+learning rate**, restoring D's configured rate. Its experimental formula is
+`clip(minimum_retention, 0.1, 0.5)`, using the lowest finite, nonnegative baseline
+diversity or first-layer transmission retention across both probe batches when
+it falls below 0.25. These constants are heuristic guards. If the baseline does
+not provide that finite retention evidence, no G factor is invented.
+
+Each trial starts from the same selected initialization, optimizer state, data
+state and RNG state, and uses the configured losses and D/G/prior update sequence.
+The first passing trial is selected; there is no grid, combined G/D candidate,
+or maximization of a gradient norm. If none passes, both configured rates are
+retained and the result is explicitly unresolved. The prior's absolute learning
+rate stays configured throughout every trial.
+If the baseline becomes nonfinite before completing its trial, tuning reports
+an unresolved result without inventing a matched comparison from partial updates.
+
+The hard budget is **three trials and 24 discarded training updates**, plus signal
 probes; a passing baseline takes only eight trial updates. Trials
 can move owned G, D and prior parameters, but none of those trial weights,
 optimizer moments, counters or RNG/data advances become the actual run's
-starting state. Only the selected initialization and G learning-rate factor
+starting state. Only the selected initialization and G/D learning-rate factors
 are retained. Unsupported trial ownership or recovery conditions cause the
 dynamics check to be skipped with a recorded reason.
 
-This search does not change architectures, loss weights, or the absolute D/prior
-learning rates. Its checks are short-run guards against measured startup
+This search does not change architectures, loss weights, or the prior's absolute
+learning rate. Its checks are short-run guards against measured startup
 failures, not proof of useful gradient directions, desirable samples, semantic
 diversity or convergence. A passing startup can still drift later in training.
 
 In the 128px DINOv3 testbed, startup calibration passed but G saturated during
 the first 20 updates. A separate controlled trial with a smaller G learning
 rate reduced that failure. The [matched checkpoint investigation](../reports/startup-signal-drift-2026-09-21.md)
-documents that controlled comparison and its limits. The dynamics phase derives
-and checks one bounded rate adjustment on each new run rather than applying a
-fixed testbed factor or searching a grid of rates.
-The [automatic startup test](../reports/startup-dynamics-autotune-2026-09-21.md)
-records about 94 seconds of total tuning on this testbed, including about
-63 seconds for dynamics. Cost depends on the model and hardware; the fixed
-update budget also includes snapshot and probe overhead. The report records
+documents that controlled comparison and its limits. The current dynamics phase
+checks D sensitivity before a possible G adjustment; that ordering and the
+D trial have not been validated for image quality on this testbed.
+The earlier [automatic startup test](../reports/startup-dynamics-autotune-2026-09-21.md)
+used the previous G-only, 16-update budget and recorded about 94 seconds of total
+tuning, including about 63 seconds for dynamics. It does not measure the cost or
+effectiveness of the new D trial. Cost depends on the model and hardware; the fixed
+update budget also includes snapshot and probe overhead. That report records
 successful command validation and the earlier unresolved state-audit failures.
 
 Only eligible newly initialized layers of a native HNDL generator can be rescaled.
@@ -131,7 +148,7 @@ applied overrides in its own folder:
 
 ```text
 runs/tuned/tuning/config.base.json  resolved baseline recipe
-runs/tuned/tuning/overrides.json    selected initialization and G learning-rate overrides
+runs/tuned/tuning/overrides.json    selected initialization and G/D learning-rate overrides
 runs/tuned/tuning/report.json       measurements, decisions, and state verification
 ```
 

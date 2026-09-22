@@ -175,7 +175,7 @@ def _parser():
     train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
     tuning = train.add_mutually_exclusive_group()
     tuning.add_argument("--tune", dest="tune", action="store_true",
-                        help="tune owned generator initialization and learning rate with discarded startup trials; resumes keep saved tuning")
+                        help="tune owned generator initialization and G/D learning rates with discarded startup trials; resumes keep saved tuning")
     tuning.add_argument("--no-tune", dest="tune", action="store_false",
                         help="use configured initialization and learning rates without startup tuning (default)")
     train.set_defaults(tune=False)

@@ -76,21 +76,29 @@ def _tuning_message(tuning):
         step, steps = tuning.get('trial_step'), tuning.get('trial_steps')
         if type(step) is int and type(steps) is int and 0 <= step <= steps and steps > 0:
             parts.append(f'Trial step {step} of {steps}')
-        if factor(tuning.get('lr_factor')):
-            parts.append('G learning rate × ' + factor(tuning['lr_factor']))
+        g_factor = tuning.get('g_lr_factor', tuning.get('lr_factor'))
+        if factor(g_factor):
+            parts.append('G learning rate × ' + factor(g_factor))
+        if factor(tuning.get('d_lr_factor')):
+            parts.append('D learning rate × ' + factor(tuning['d_lr_factor']))
     if status == 'complete':
         outcome = {'selected': 'Applied tuned initialization',
                    'kept_baseline': 'Kept baseline initialization'}.get(tuning.get('outcome'))
         if outcome:
             parts.append(outcome)
         dynamics = tuning.get('dynamics_outcome')
-        if dynamics == 'selected' and factor(tuning.get('selected_g_lr_factor')):
-            parts.append('Selected G learning rate × ' + factor(tuning['selected_g_lr_factor']))
+        if dynamics == 'selected':
+            if factor(tuning.get('selected_g_lr_factor')):
+                parts.append('Selected G learning rate × ' + factor(tuning['selected_g_lr_factor']))
+            if factor(tuning.get('selected_d_lr_factor')):
+                parts.append('Selected D learning rate × ' + factor(tuning['selected_d_lr_factor']))
         elif dynamics == 'kept_baseline':
-            parts.append('Configured G learning rate passed')
+            parts.append('Configured G and D learning rates passed' if factor(tuning.get('selected_d_lr_factor'))
+                         else 'Configured G learning rate passed')
         elif dynamics == 'unresolved':
             parts[0] = 'Startup tuning unresolved'
-            parts.append('No rate candidate passed; kept configured G learning rate')
+            parts.append('No rate candidate passed; kept configured G and D learning rates' if factor(tuning.get('selected_d_lr_factor'))
+                         else 'No rate candidate passed; kept configured G learning rate')
         elif dynamics == 'skipped':
             parts.append('Dynamics check skipped')
         reason = tuning.get('dynamics_reason')

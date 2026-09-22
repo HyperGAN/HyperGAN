@@ -114,12 +114,31 @@ def run_case(manifest_path, manifest, case, output_root, device):
     config = load_config(config_path)
     (destination / 'training-config.toml').write_bytes(config_path.read_bytes())
     (destination / 'resolved-training-config.json').write_text(json.dumps(config, indent=2, allow_nan=False) + '\n')
-    plan, algorithm = proposal_for(case, config, manifest_path)
     request = {'manifest': manifest, 'manifest_path': str(manifest_path),
                'manifest_sha256': sha256(manifest_path), 'case': case['id'],
-               'algorithm': algorithm, 'proposal': plan}
+               'algorithm': {'name': case.get('algorithm', 'source'),
+                             'solution_path': case['_solution_path'],
+                             'solution_sha256': case['_solution_sha256']}}
     (destination / 'request.json').write_text(json.dumps(request, indent=2, allow_nan=False) + '\n')
     (destination / 'solution.json').write_text(Path(case['_solution_path']).read_text())
+    began = time.monotonic()
+    try:
+        plan, algorithm = proposal_for(case, config, manifest_path)
+    except Exception as failure:
+        # A failed formula is still an experiment outcome. No trainer has been
+        # constructed at this point; do not fabricate restoration/quality data.
+        report = {'schema_version': 2, 'kind': 'disposable-explicit-joint-rate-rollout',
+                  'status': 'failed', 'completed_updates': 0,
+                  'requested_updates': manifest.get('evaluation', {}).get('steps', 32),
+                  'observations': [], 'per_step': [], 'budget': {'completed_native_training_updates': 0},
+                  'proposal': {'case': case['id'], 'algorithm': request['algorithm']},
+                  'failure': {'stage': 'proposal', 'type': type(failure).__name__, 'message': str(failure)},
+                  'elapsed_seconds': time.monotonic() - began,
+                  'interpretation': ['Proposal creation failed before constructing a trainer; no quality or state audit measurements.']}
+        (destination / 'report.json').write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
+        raise
+    request.update(algorithm=algorithm, proposal=plan)
+    (destination / 'request.json').write_text(json.dumps(request, indent=2, allow_nan=False) + '\n')
     if algorithm.get('path'):
         (destination / 'algorithm.py').write_bytes(Path(algorithm['path']).read_bytes())
 

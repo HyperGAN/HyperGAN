@@ -5,6 +5,9 @@ HyperGAN training configurations. Establish controls before adding algorithms.
 Production `--tune` is still experimental; this harness does not promote or
 install a solution into training.
 
+Latest: [2026-09-22 baseline results](results/2026-09-22-baseline/README.md).
+Both original and half-rate controls failed the 32-update screen.
+
 ## Layout
 
 - `configs/transgan-128-screen.json`: shared training-config reference, fixed
@@ -115,3 +118,10 @@ Current measurement is one small **monitor bank**, possibly overlapping
 training. DINO also participates in the critic. Its signed polynomial MMD² is
 a noisy progress proxy, not independent sample-quality validation. Reproducible
 inputs/provenance do not promise bitwise deterministic CUDA execution.
+Comparison checks cover recorded conditions and the monitor-bank contents,
+not every training-data pixel. For clean recorded commits available in Git,
+the leaderboard derives a hash of evaluator/training source blobs: adding only
+an algorithm or solution config does not invalidate an unchanged evaluator.
+Changing evaluator code does require a new matched baseline. Full revision and
+dependency provenance remain recorded; unavailable or dirty revisions use
+strict source matching.

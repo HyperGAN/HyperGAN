@@ -2,7 +2,7 @@
 """Baseline-first descriptive comparison of explicit joint-rate research reports.
 
 Example:
-  python reports/startup_leaderboard.py --baseline baseline.json candidate.json \
+  python research/startup_tuning/leaderboard.py --baseline baseline.json candidate.json \
       --json leaderboard.json --markdown leaderboard.md
 
 This script needs only Python's standard library. It never trains, changes a
@@ -14,6 +14,16 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
+import subprocess
+
+
+_REPOSITORY = Path(__file__).resolve().parents[2]
+_MEASUREMENT_FILES = (
+    'reports/joint_rate_probe.py', 'reports/function_space_probe.py',
+    'reports/frozen_feature_probe.py', 'research/startup_tuning/proposals.py',
+    'research/startup_tuning/benchmark.py',
+)
 
 
 CAVEATS = [
@@ -24,6 +34,7 @@ CAVEATS = [
     'Total wall time includes setup, measurements and optional diagnostics. It is not training-only throughput or time to learn.',
     'Rollout elapsed time includes applying the proposal but excludes computing it. Proposal computation is recorded separately; producing prior evidence reports is an additional, generally unaccounted cost. Neither number is full research cost.',
     'Matching seed alone does not establish matching evaluation data. Missing protocol or evaluation-bank identity makes comparison unverified; different horizons remain separate.',
+    'Clean recorded Git commits may differ when their training/evaluator trees match. That digest is derived from the recorded commit, never current working files; dependency provenance remains part of comparison identity. Dirty or unavailable commits retain strict source identity.',
 ]
 
 
@@ -49,6 +60,41 @@ def _difference(after, before):
 
 def _reject_constant(value):
     raise ValueError('Non-finite JSON number: ' + value)
+
+
+def _source_identity(source, *, repository=None):
+    """Match recorded evaluator blobs while preserving all dependency metadata."""
+    evidence = {'status': 'strict_recorded_source', 'recorded_commit': None,
+                'tree_sha256': None, 'paths': ['src/hypergan', *_MEASUREMENT_FILES]}
+    if not isinstance(source, dict):
+        evidence['reason'] = 'Source provenance is unavailable'
+        return source, evidence
+    commit = source.get('hypergan_commit')
+    evidence['recorded_commit'] = commit
+    if (source.get('hypergan_dirty') is not False or source.get('hypergan_provenance') != 'git'
+            or not isinstance(commit, str) or re.fullmatch('[0-9a-f]{40}', commit) is None):
+        evidence['reason'] = 'Requires an explicitly clean Git source with a full recorded commit'
+        return source, evidence
+    try:
+        listing = subprocess.run(
+            ['git', '-C', str(repository or _REPOSITORY), 'ls-tree', '-r', commit,
+             '--', *evidence['paths']], check=True, capture_output=True, timeout=5).stdout
+        entries = {}
+        for line in listing.decode('utf-8').splitlines():
+            metadata, path = line.split('\t', 1)
+            mode, kind, blob = metadata.split()
+            if kind != 'blob' or mode not in ('100644', '100755') or re.fullmatch('[0-9a-f]{40}', blob) is None:
+                raise ValueError('Evaluator tree contains unsupported file entries')
+            entries[path] = blob
+        if not set(_MEASUREMENT_FILES).issubset(entries) or not any(path.startswith('src/hypergan/') for path in entries):
+            raise ValueError('Recorded commit omits required evaluator files')
+    except (OSError, subprocess.SubprocessError, UnicodeError, ValueError) as error:
+        evidence['reason'] = str(error)
+        return source, evidence
+    evidence.update(status='derived_from_recorded_git_commit', tree_sha256=_sha(listing))
+    comparison = {key: value for key, value in source.items() if key != 'hypergan_commit'}
+    comparison['hypergan_evaluator_tree_sha256'] = evidence['tree_sha256']
+    return comparison, evidence
 
 
 def load_report(path):
@@ -135,6 +181,7 @@ def _identity(report, observations):
     """Require explicit bank/protocol identity; do not fabricate it for old rows."""
     evaluation = report.get('evaluation', {})
     first_feature = observations[0].get('frozen_features_evolving_prior', {}) if observations else {}
+    source, source_evidence = _source_identity(report.get('source'))
     identity = {
         'kind': report.get('kind'),
         'schema_version': report.get('schema_version'),
@@ -145,7 +192,7 @@ def _identity(report, observations):
         'seed': report.get('seed'),
         'initial_parameters_sha256': report.get('initial_parameters_sha256'),
         'device': report.get('device'),
-        'source': report.get('source'),
+        'source': source,
         'requested_updates': report.get('requested_updates'),
         'observation_steps': report.get('observation_steps'),
         'recorded_observation_steps': [value.get('step') for value in observations],
@@ -166,7 +213,7 @@ def _identity(report, observations):
     if any(any(value.get('frozen_features_evolving_prior', {}).get(key) != first_feature.get(key)
                for key in feature_keys) for value in observations):
         missing.append('consistent_feature_measurements')
-    return identity, sorted(set(missing))
+    return identity, sorted(set(missing)), source_evidence
 
 
 def summarize(report, raw_report, *, baseline=False):
@@ -202,7 +249,7 @@ def summarize(report, raw_report, *, baseline=False):
         changes[metric + '_retention'] = _ratio(final.get(metric), initial.get(metric)) if initial_at_zero else None
     saturations = [value['saturation_fraction'] for value in series if value['saturation_fraction'] is not None]
     changes['observed_peak_saturation_fraction'] = max(saturations) if saturations else None
-    identity, missing = _identity(report, observations)
+    identity, missing, source_evidence = _identity(report, observations)
     proposal = report.get('proposal') if isinstance(report.get('proposal'), dict) else {}
     case = report.get('case') or proposal.get('case')
     algorithm = report.get('algorithm') or proposal.get('algorithm')
@@ -214,6 +261,7 @@ def summarize(report, raw_report, *, baseline=False):
         'config': report.get('config'), 'config_sha256': report.get('config_sha256'),
         'original_config_fingerprint': report.get('original_config_fingerprint'),
         'source': report.get('source'), 'seed': report.get('seed'), 'device': report.get('device'),
+        'evaluator_source': source_evidence,
         'rates': {'g_lr': report.get('g_lr'), 'd_lr': report.get('d_lr'),
                   'prior_base_lrs': report.get('prior_base_lrs'),
                   'initial_actual_lrs': report.get('per_step', [{}])[0].get('actual_lrs') if report.get('per_step') else None,
@@ -285,7 +333,7 @@ def _cell(value):
 
 def markdown(board):
     lines = ['# Startup measurements', '', board['ordering'] + '.', '',
-             '| Run | G / D / prior LR | Updates | Saturation initial → final | Output diversity retention | DINO MMD Δ | Feature spread retention | Sustained proxy step | Rollout seconds | Proposal seconds | Compared with baseline |',
+             '| Run | G / D / prior LR | Updates | Saturation initial → final | Output diversity initial → final (retention) | DINO MMD initial → final (Δ) | Feature spread retention | Sustained proxy step | Rollout seconds | Proposal seconds | Compared with baseline |',
              '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |']
     for row in board['rows']:
         initial, final = row['initial'] or {}, row['final'] or {}
@@ -297,8 +345,8 @@ def markdown(board):
                   _format(rates['g_lr']) + ' / ' + _format(rates['d_lr']) + ' / ' + prior,
                   f"{row['completed_updates']}/{row['requested_updates']}",
                   _format(initial.get('saturation_fraction'), percent=True) + ' → ' + _format(final.get('saturation_fraction'), percent=True),
-                  _format(changes['sample_diversity_rms_retention']),
-                  _format(changes['dino_poly3_mmd2_unbiased_signed_change'], signed=True),
+                  _format(initial.get('sample_diversity_rms')) + ' → ' + _format(final.get('sample_diversity_rms')) + ' (' + _format(changes['sample_diversity_rms_retention']) + ')',
+                  _format(initial.get('dino_poly3_mmd2_unbiased')) + ' → ' + _format(final.get('dino_poly3_mmd2_unbiased')) + ' (' + _format(changes['dino_poly3_mmd2_unbiased_signed_change'], signed=True) + ')',
                   _format(changes['dino_fake_feature_spread_retention']), proxy_text,
                   _format(row['elapsed_seconds']), _format(row['proposal_seconds']), row['comparison_to_baseline']['status']]
         lines.append('| ' + ' | '.join(_cell(value) for value in fields) + ' |')
@@ -307,6 +355,9 @@ def markdown(board):
         lines.extend([f"- **{_cell(row['label'])}**: seed `{row['seed']}`, config SHA256 `{row['config_sha256']}`, group `{row['comparison_group']}`, audit {'passed' if row['state_audit']['passed'] else 'failed or unavailable'}.",
                       f"  Raw report: `{row['raw_report']['path']}`; SHA256 `{row['raw_report']['sha256']}`."])
         lines.append('  Budget: `' + json.dumps(row['budget'], sort_keys=True) + '`.')
+        evaluator = row['evaluator_source']
+        if evaluator['tree_sha256']:
+            lines.append(f"  Evaluator tree SHA256 `{evaluator['tree_sha256']}`, derived from recorded Git commit `{evaluator['recorded_commit']}`.")
         if row['timings']:
             lines.append('  Recorded timing components (seconds): `' + json.dumps(row['timings'], sort_keys=True) + '`.')
         algorithm = row['algorithm'] if isinstance(row['algorithm'], dict) else {}

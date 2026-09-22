@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "id": "source",
+  "algorithm": "source",
+  "description": "Original configuration, no startup calibration"
+}

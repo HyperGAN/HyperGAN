@@ -1,0 +1,54 @@
+{
+  "manifest": {
+    "schema_version": 1,
+    "name": "TransGAN 128 learning-to-learn startup baseline",
+    "config": "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-128-init-v2/transgan-dinov3-multidepth.toml",
+    "baseline": "source",
+    "evaluation": {
+      "steps": 32,
+      "observation_steps": [
+        0,
+        1,
+        8,
+        16,
+        32
+      ],
+      "features": true,
+      "direction": false,
+      "crossed": false
+    },
+    "cases": [
+      {
+        "id": "source",
+        "algorithm": "source",
+        "description": "Original configuration, no startup calibration",
+        "_solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/source.json",
+        "_solution_sha256": "0f845ad59d71fa5aee1555de8dd88cb6e56c457b8e83810ac5c167ccd4029afe"
+      },
+      {
+        "id": "half-rates",
+        "algorithm": "fixed",
+        "options": {
+          "g_lr": 0.0001,
+          "d_lr": 0.0001
+        },
+        "description": "Both owned player rates halved; prior unchanged",
+        "_solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/half-rates.json",
+        "_solution_sha256": "bd18990348aec32f57bfb70648578a1333649e802aacd0ee02e6b99521341795"
+      }
+    ]
+  },
+  "manifest_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/transgan-128-screen.json",
+  "manifest_sha256": "bcaec45d6d825891847a2a1a7632dc75722f4710729d46d34ffa8c8b46beca50",
+  "case": "source",
+  "algorithm": {
+    "name": "source",
+    "evidence": [],
+    "solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/source.json",
+    "solution_sha256": "0f845ad59d71fa5aee1555de8dd88cb6e56c457b8e83810ac5c167ccd4029afe",
+    "proposal_seconds": 1.0370989912189543e-05
+  },
+  "proposal": {
+    "schema_version": 1
+  }
+}

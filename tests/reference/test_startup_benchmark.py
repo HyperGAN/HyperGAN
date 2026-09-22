@@ -92,6 +92,20 @@ def test_source_and_explicit_solution_run_through_identical_evaluator(harness, t
         harness.run_case(path, manifest, manifest['cases'][0], tmp_path / 'results', 'cpu')
 
 
+def test_failed_proposal_preserves_solution_request_and_failure(harness, tmp_path):
+    (tmp_path / 'broken.py').write_text('def propose(context):\n    raise ValueError("unresolved probe")\n')
+    manifest_file, _ = make_manifest(tmp_path, [{'id': 'broken', 'algorithm': 'broken.py'}])
+    path, manifest = harness.load_manifest(manifest_file)
+    with pytest.raises(ValueError, match='unresolved probe'):
+        harness.run_case(path, manifest, manifest['cases'][0], tmp_path / 'results', 'cpu')
+    result = tmp_path / 'results/broken'
+    assert (result / 'solution.json').exists() and (result / 'request.json').exists()
+    report = json.loads((result / 'report.json').read_text())
+    assert report['status'] == 'failed' and report['completed_updates'] == 0
+    assert report['failure']['stage'] == 'proposal'
+    assert 'restored' not in report
+
+
 def test_custom_proposal_gets_copied_inputs_and_records_evidence_hashes(harness, tmp_path):
     evidence = write_json(tmp_path / 'evidence.json', {'recommended': .00015, 'description': 'one supplied measurement'})
     algorithm = tmp_path / 'custom.py'

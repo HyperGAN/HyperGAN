@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -170,3 +171,85 @@ def test_nested_case_provenance_cost_and_observation_timing(tmp_path):
     assert 'solution-hash' in rendered and 'evidence-hash' in rendered
     assert 'recorded creation seconds: 32' in rendered
     assert 'excludes computing it' in rendered
+
+
+def _git(repository, *args):
+    return subprocess.run(['git', '-C', str(repository), '-c', 'user.name=Research test',
+                           '-c', 'user.email=research-test@example.invalid', *args],
+                          check=True, capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture
+def evaluator_repository(tmp_path, monkeypatch):
+    repository = tmp_path / 'repository'
+    repository.mkdir()
+    _git(repository, 'init', '-q')
+    for name in ('src/hypergan/core.py', *board._MEASUREMENT_FILES):
+        path = repository / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('# stable evaluator\n')
+    _git(repository, 'add', '.')
+    _git(repository, 'commit', '-qm', 'Original evaluator')
+    initial = _git(repository, 'rev-parse', 'HEAD')
+    (repository / 'README.md').write_text('Documentation-only addition\n')
+    _git(repository, 'add', '.')
+    _git(repository, 'commit', '-qm', 'Document the experiment')
+    documentation = _git(repository, 'rev-parse', 'HEAD')
+    monkeypatch.setattr(board, '_REPOSITORY', repository)
+    return repository, initial, documentation
+
+
+def _source(commit, *, dirty=False):
+    return {'hypergan_commit': commit, 'hypergan_dirty': dirty, 'hypergan_provenance': 'git',
+            'distribution_records': {'hndl': {'record_sha256': 'hndl-dependency'}},
+            'particlegan_distribution_version': '0.5.0'}
+
+
+def test_same_evaluator_across_clean_commits_matches_and_preserves_provenance(tmp_path, evaluator_repository):
+    repository, initial, documentation = evaluator_repository
+    baseline, candidate = report(), report()
+    baseline['source'], candidate['source'] = _source(initial), _source(documentation)
+    # Dirty current files must never influence a digest of recorded clean code.
+    (repository / 'src/hypergan/core.py').write_text('# uncommitted unrelated current state\n')
+    result = board.build_leaderboard(write(tmp_path, 'baseline.json', baseline),
+                                     [write(tmp_path, 'candidate.json', candidate)])
+    rows = result['rows']
+    assert rows[1]['comparison_to_baseline']['comparable'] is True
+    assert rows[0]['comparison_group'] == rows[1]['comparison_group']
+    assert rows[0]['source']['hypergan_commit'] == initial
+    assert rows[1]['source']['hypergan_commit'] == documentation
+    assert rows[1]['evaluator_source']['status'] == 'derived_from_recorded_git_commit'
+    assert rows[1]['evaluator_source']['tree_sha256'] == rows[0]['evaluator_source']['tree_sha256']
+    assert rows[1]['comparison_identity']['source']['distribution_records'] == candidate['source']['distribution_records']
+    text = board.markdown(result)
+    assert '1 → 0.25 (0.25)' in text
+    assert '0.5 → 0.2 (-0.3)' in text
+    assert 'derived from recorded Git commit' in text
+
+
+@pytest.mark.parametrize('change', ['engine', 'missing_file', 'missing_object', 'dirty', 'dependency'])
+def test_changed_or_unverifiable_evaluator_never_matches(tmp_path, evaluator_repository, change):
+    repository, initial, documentation = evaluator_repository
+    baseline, candidate = report(), report()
+    baseline['source'], candidate['source'] = _source(initial), _source(documentation)
+    if change in ('engine', 'missing_file'):
+        if change == 'engine':
+            (repository / 'src/hypergan/core.py').write_text('# changed training implementation\n')
+        else:
+            (repository / 'reports/frozen_feature_probe.py').unlink()
+        _git(repository, 'add', '-A')
+        _git(repository, 'commit', '-qm', 'Change evaluator')
+        candidate['source'] = _source(_git(repository, 'rev-parse', 'HEAD'))
+    elif change == 'missing_object':
+        candidate['source'] = _source('f' * 40)
+    elif change == 'dirty':
+        candidate['source']['hypergan_dirty'] = True
+    else:
+        candidate['source']['distribution_records']['hndl']['record_sha256'] = 'changed-dependency'
+    rows = board.build_leaderboard(write(tmp_path, 'baseline.json', baseline),
+                                  [write(tmp_path, 'candidate.json', candidate)])['rows']
+    assert rows[1]['comparison_to_baseline']['comparable'] is False
+    assert rows[0]['comparison_group'] != rows[1]['comparison_group']
+    if change in ('missing_file', 'missing_object', 'dirty'):
+        assert rows[1]['evaluator_source']['status'] == 'strict_recorded_source'
+        assert rows[1]['comparison_identity']['source'] == candidate['source']

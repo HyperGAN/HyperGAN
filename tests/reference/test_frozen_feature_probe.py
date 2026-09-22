@@ -1,5 +1,6 @@
 """Research-only feature estimator and read-only probe failure contracts."""
 import importlib.util
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,6 +36,28 @@ def test_polynomial_mmd_is_unbiased_and_does_not_clamp_negative_estimates():
 def test_polynomial_mmd_rejects_invalid_inputs(real, fake):
     with pytest.raises(ValueError):
         probe.polynomial_mmd2_unbiased(real, fake)
+
+
+def test_architecture_accepts_native_real_score_stop_gradient():
+    from hndl.operators.pretrained import Pretrained
+    from hypergan.pretrained_providers import _dinov3_multidepth
+
+    trainer = ReferenceTrainer(resolve_config({'training': {'steps': 32, 'batch_size': 2}}))
+    native_term = trainer.program.adversarial_terms[0]
+    assert native_term.generator_phase.real.detach_score is True
+    # Construct only the native wrapper identity/metadata needed by the guard;
+    # no pretrained artifact is loaded, downloaded or executed in this test.
+    backbone = Pretrained.__new__(Pretrained)
+    torch.nn.Module.__init__(backbone)
+    backbone.readout = 'multidepth'
+    backbone.provider = SimpleNamespace(read=_dinov3_multidepth)
+    backbone.source = SimpleNamespace(config={'provider': 'dinov3_vits16'})
+    backbone.model = torch.nn.Linear(2, 2).requires_grad_(False).eval()
+    critic = torch.nn.Module()
+    critic.add_module('n_backbone', backbone)
+    term = replace(native_term, module=critic)
+    guarded_trainer = SimpleNamespace(program=SimpleNamespace(adversarial_terms=(term,)))
+    assert probe._architecture(guarded_trainer) == (term, 'n_backbone', backbone)
 
 
 class FakeBackbone(torch.nn.Module):

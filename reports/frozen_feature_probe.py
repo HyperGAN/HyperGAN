@@ -46,8 +46,9 @@ def _architecture(trainer):
         raise ValueError('Frozen-feature probe requires one multidepth discriminator objective')
     term = terms[0]
     phase = term.generator_phase
+    # Native generator phases stop the real-score gradient. Detach policies
+    # preserve numerical values and are harmless for this entirely no-grad read.
     if (phase.fake.path != 'generated' or phase.real.path != 'batch.real'
-            or phase.fake.detach_sample or phase.fake.detach_score or phase.real.detach_score
             or len(term.routes) != 1 or term.routes[0].path != 'candidate'):
         raise ValueError('Frozen-feature probe requires generated/real image bindings and one candidate-only critic route')
     found = [(name, module) for name, module in term.module.named_modules()

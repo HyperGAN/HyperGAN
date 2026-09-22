@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "kind": "deterministic-generator-signal-counterexamples",
+  "runtime": {
+    "python": "3.14.7",
+    "torch": "2.14.0+cu130",
+    "device": "cpu",
+    "dtype": "float64"
+  },
+  "uses_rng": false,
+  "training_runs": 0,
+  "checks": "passed",
+  "cases": {
+    "depth_identity": {
+      "gain": 1.0,
+      "depth": 16,
+      "activation_gradient_rms_batch_normalized": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "first_to_output_gradient_ratio": 1.0,
+      "first_weight_gradient_abs": 0.625,
+      "last_weight_gradient_abs": 0.625,
+      "first_bias_gradient_abs": 1.0,
+      "last_bias_gradient_abs": 1.0
+    },
+    "depth_attenuation": {
+      "gain": 0.5,
+      "depth": 16,
+      "activation_gradient_rms_batch_normalized": [
+        3.0517578125e-05,
+        6.103515625e-05,
+        0.0001220703125,
+        0.000244140625,
+        0.00048828125,
+        0.0009765625,
+        0.001953125,
+        0.00390625,
+        0.0078125,
+        0.015625,
+        0.03125,
+        0.0625,
+        0.125,
+        0.25,
+        0.5,
+        1.0
+      ],
+      "first_to_output_gradient_ratio": 3.0517578125e-05,
+      "first_weight_gradient_abs": 1.9073486328125e-05,
+      "last_weight_gradient_abs": 1.9073486328125e-05,
+      "first_bias_gradient_abs": 3.0517578125e-05,
+      "last_bias_gradient_abs": 1.0
+    },
+    "output_saturation": {
+      "output_gradient_rms": 1.0,
+      "pre_tanh_gradient_rms": 0.0006705879777636504,
+      "mean_tanh_derivative": 0.0003414964039108459
+    },
+    "coordinates_original": {
+      "hidden_scale": 1.0,
+      "output": [
+        0.25,
+        0.5,
+        0.75,
+        1.0
+      ],
+      "hidden_gradient_rms": 1.0,
+      "activation_rms_times_gradient_rms": 0.6846531968814576,
+      "parameter_gradient_norm": 0.8838834764831844
+    },
+    "coordinates_rescaled": {
+      "hidden_scale": 1000.0,
+      "output": [
+        0.25,
+        0.5,
+        0.75,
+        1.0
+      ],
+      "hidden_gradient_rms": 0.001,
+      "activation_rms_times_gradient_rms": 0.6846531968814576,
+      "parameter_gradient_norm": 625.0000000003125
+    },
+    "critic_helpful": {
+      "critic_sign": 1.0,
+      "loss_scale": 1.0,
+      "step_size": 0.1,
+      "output_gradient_rms": 1.0,
+      "parameter_gradient_abs": 1.0,
+      "per_sample_gradient_variance": 0.0,
+      "batch_gradient_cosine": 1.0,
+      "update": 0.1,
+      "oracle_update_cosine": 1.0,
+      "w2_squared_before": 4.0,
+      "w2_squared_after": 3.61,
+      "oracle_progress": 0.3900000000000001
+    },
+    "critic_harmful": {
+      "critic_sign": -1.0,
+      "loss_scale": 1.0,
+      "step_size": 0.1,
+      "output_gradient_rms": 1.0,
+      "parameter_gradient_abs": 1.0,
+      "per_sample_gradient_variance": 0.0,
+      "batch_gradient_cosine": 1.0,
+      "update": -0.1,
+      "oracle_update_cosine": -1.0,
+      "w2_squared_before": 4.0,
+      "w2_squared_after": 4.41,
+      "oracle_progress": -0.41000000000000014
+    },
+    "helpful_direction_overshoot": {
+      "critic_sign": 1.0,
+      "loss_scale": 1.0,
+      "step_size": 5.0,
+      "output_gradient_rms": 1.0,
+      "parameter_gradient_abs": 1.0,
+      "per_sample_gradient_variance": 0.0,
+      "batch_gradient_cosine": 1.0,
+      "update": 5.0,
+      "oracle_update_cosine": 1.0,
+      "w2_squared_before": 4.0,
+      "w2_squared_after": 9.0,
+      "oracle_progress": -5.0
+    },
+    "loss_rescaled_same_update": {
+      "critic_sign": 1.0,
+      "loss_scale": 1000.0,
+      "step_size": 0.0001,
+      "output_gradient_rms": 1000.0,
+      "parameter_gradient_abs": 1000.0,
+      "per_sample_gradient_variance": 0.0,
+      "batch_gradient_cosine": 1.0,
+      "update": 0.1,
+      "oracle_update_cosine": 1.0,
+      "w2_squared_before": 4.0,
+      "w2_squared_after": 3.61,
+      "oracle_progress": 0.3900000000000001
+    },
+    "collapse_despite_agreement": {
+      "parameter_gradient": 0.625,
+      "batch_gradient_cosine": 1.0,
+      "critic_loss_before": 0.3125,
+      "critic_loss_after": 0.274658203125,
+      "w2_squared_before": 0.0,
+      "w2_squared_after": 0.00244140625,
+      "generated_variance_before": 0.625,
+      "generated_variance_after": 0.54931640625
+    },
+    "noise_estimator": {
+      "iid_pair_enumeration": [
+        {
+          "draw": [
+            0.0,
+            0.0
+          ],
+          "signal_squared": 0.0,
+          "batch_covariance_trace": 0.0
+        },
+        {
+          "draw": [
+            0.0,
+            2.0
+          ],
+          "signal_squared": 0.0,
+          "batch_covariance_trace": 2.0
+        },
+        {
+          "draw": [
+            2.0,
+            0.0
+          ],
+          "signal_squared": 0.0,
+          "batch_covariance_trace": 2.0
+        },
+        {
+          "draw": [
+            2.0,
+            2.0
+          ],
+          "signal_squared": 4.0,
+          "batch_covariance_trace": 0.0
+        }
+      ],
+      "expected_signal_squared": 1.0,
+      "expected_batch_covariance_trace": 1.0,
+      "opposing_pair_signal_squared": -1.0,
+      "opposing_pair_snr_status": "unresolved_signal"
+    },
+    "blocked_generator": {
+      "output_gradient_rms": 1.0,
+      "parameter_gradient_rms": 0.0,
+      "gradient_cosine": null,
+      "status": "zero_gradient"
+    },
+    "initialization_drift": {
+      "kind": "constructed_parameter_path_not_training",
+      "states": [
+        {
+          "per_layer_gain": 1.0,
+          "depth": 64,
+          "input_to_output_gradient_ratio": 1.0
+        },
+        {
+          "per_layer_gain": 0.99,
+          "depth": 64,
+          "input_to_output_gradient_ratio": 0.525596487525562
+        },
+        {
+          "per_layer_gain": 0.95,
+          "depth": 64,
+          "input_to_output_gradient_ratio": 0.03752413921111601
+        },
+        {
+          "per_layer_gain": 1.05,
+          "depth": 64,
+          "input_to_output_gradient_ratio": 22.704667199218342
+        }
+      ]
+    },
+    "critic_direction_drift": {
+      "generator_jacobian_diagonal": [
+        1.0,
+        0.001
+      ],
+      "states": [
+        {
+          "critic_direction": [
+            1.0,
+            0.0
+          ],
+          "output_gradient_norm": 1.0,
+          "parameter_gradient_norm": 1.0
+        },
+        {
+          "critic_direction": [
+            0.0,
+            1.0
+          ],
+          "output_gradient_norm": 1.0,
+          "parameter_gradient_norm": 0.001
+        }
+      ]
+    },
+    "frozen_module_transmits_signal": {
+      "input_gradient_norm": 2.23606797749979,
+      "parameter_gradient_present": false,
+      "parameters_and_buffers_unchanged": true,
+      "calibratable_pretrained_parameters": 0
+    }
+  }
+}

@@ -201,3 +201,37 @@ and current-run checkpoint recovery must be qualified separately under this
 strict policy. `deterministic_features=false` retains historical adaptive pooling
 for source comparisons and carries no CUDA recovery qualification. Neither
 variant changes the pinned pretrained weights.
+
+## Compact TransGAN generator comparison
+
+[The CIFAR TransGAN recipe](../examples/cifar-transgan.toml) replaces only the
+baseline generator and run name. It retains the multiscale frozen ResNet18 plus
+pixel discriminator, routing encoder, encoder-only reconstruction, 16,384
+particles in 64 dimensions, fixed sigma, batch 64, optimizer settings, and FID
+protocol. The discriminator and encoder still load their declared HNDL sources.
+Changing G changes the initialization RNG draws before D and E are built, so
+this preserves their architecture and settings, not their initial tensor values.
+
+Edit [transgan-generator-32.hndl](../examples/networks/transgan-generator-32.hndl)
+to change the generator. It projects the existing 64-dimensional latent to an
+8×8 grid with 256 channels, then uses pixel shuffle for 16×16/64 channels and
+32×32/16 channels. Each stage has two PixelNorm/attention/MLP blocks, four
+attention heads, and learned absolute and relative positions. Linear layers use
+the corrected explicit default initialization; the final RGB projection uses
+Xavier weights and tanh. It has 2,836,747 parameters versus 61,662,491 in the
+128px variant. No extra noise is introduced. This compact adaptation
+is intended for faster iteration, not as an exact reproduction of the TransGAN
+paper or a claimed solution to collapse.
+
+Use the same local data and checkpoint paths as the baseline. Start a new run:
+
+```sh
+hypergan validate examples/cifar-transgan.toml
+hypergan train examples/cifar-transgan.toml --run-dir runs/cifar-transgan \
+  --preview-every 100 --checkpoint-every 1000
+```
+
+Each preview publishes within-batch diversity and pooled 4×4 diversity relative
+to the real batch. FID remains scheduled every 10,000 steps. These measurements
+help separate loss of sample variation from slow improvement in sample quality;
+finite adversarial losses alone do not show that a collapsed run is recovering.

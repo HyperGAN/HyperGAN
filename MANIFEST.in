@@ -13,6 +13,7 @@ include examples/transgan-dinov3-multidepth-128.toml
 recursive-include examples/networks *.hndl
 include examples/logos-ae-gan-256.toml
 include examples/cifar-pretrained-sagan.toml
+include examples/cifar-transgan.toml
 include examples/logos-colorization-256.toml
 include examples/execution/*.toml
 prune worktrees

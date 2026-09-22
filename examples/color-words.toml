@@ -1,0 +1,164 @@
+# Eight noisy colors, one generator, one particle codebook. See docs/color-words.md.
+# No CLIP, no second image generator, no token decoder.
+schema_version = 1
+name = "images/color-words"
+
+[data]
+factory = "hypergan.color_words:ColorWords"
+[data.args]
+noise = 0.05
+
+[components.generator]
+factory = "hypergan.color_words:ColorGenerator"
+inputs = { latent = "latent" }
+[components.generator.args]
+z_dim = 16
+width = 8
+
+# Legacy image marginal: D(real) and D(G(z)). Penalty below applies to this term only.
+[components.discriminator]
+factory = "hypergan.color_words:ImageCritic"
+inputs = { candidate = "candidate" }
+[components.discriminator.args]
+width = 8
+
+[components.image_encoder]
+factory = "hypergan.color_words:ImageEncoder"
+inputs = { image = "batch.real", means = "prior.means", sigma = "prior.sigma" }
+[components.image_encoder.args]
+z_dim = 16
+width = 8
+temperature = 0.125
+
+[components.reconstruction]
+reuse = "generator"
+inputs = { latent = "components.image_encoder.latent" }
+
+[components.text_encoder]
+factory = "hypergan.color_words:TextEncoder"
+inputs = { label = "batch.label", means = "prior.means", sigma = "prior.sigma" }
+[components.text_encoder.args]
+z_dim = 16
+embed_dim = 16
+temperature = 0.125
+
+[components.text_image]
+reuse = "generator"
+inputs = { latent = "components.text_encoder.latent" }
+
+[components.z_embedding]
+factory = "hypergan.color_words:ZEmbedding"
+inputs = { latent = "latent" }
+[components.z_embedding.args]
+z_dim = 16
+embed_dim = 16
+
+[components.text_critic]
+factory = "hypergan.color_words:TextCritic"
+inputs = { candidate = "candidate" }
+[components.text_critic.args]
+embed_dim = 16
+width = 16
+
+[components.joint_critic]
+factory = "hypergan.color_words:JointCritic"
+inputs = { candidate = "candidate", embedding = "components.text_encoder.embedding" }
+[components.joint_critic.args]
+embed_dim = 16
+width = 8
+
+[[objectives]]
+id = "rgb-image"
+factory = "mse"
+inputs = { input = "components.reconstruction", target = "batch.real" }
+weight = 1.0
+detach = ["target"]
+
+[[objectives]]
+id = "rgb-text"
+factory = "mse"
+inputs = { input = "components.text_image", target = "batch.real" }
+weight = 1.0
+detach = ["target"]
+
+[[objectives]]
+id = "latent-text"
+factory = "mse"
+inputs = { input = "components.text_encoder.latent", target = "components.image_encoder.latent" }
+weight = 1.0
+detach = ["target"]
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 25021
+fixed_sigma = 0.05
+[prior.args]
+num_particles = 64
+z_dim = 16
+
+[adversarial]
+loss_type = "logistic"
+mode = "vanilla"
+weight = 1.0
+
+[gradient_penalty]
+arm = "b_cap"
+coeff = 1.0
+kappa = 1.0
+lazy_k = 1
+
+[prior_regularizer]
+rows = "sampled_unique"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001
+
+# image-from-text reuses the image critic and must not add a second penalty.
+[[adversarial_terms]]
+id = "image-from-text"
+component = "discriminator"
+real = "batch.real"
+fake = "components.text_image"
+penalty = false
+
+[[adversarial_terms]]
+id = "text-marginal"
+component = "text_critic"
+real = "components.text_encoder.embedding"
+fake = "components.z_embedding"
+penalty = true
+penalty_coeff = 0.1
+
+[[adversarial_terms]]
+id = "joint"
+component = "joint_critic"
+real = "batch.real"
+fake = "components.text_image"
+penalty = true
+penalty_coeff = 0.1
+
+[optimizer]
+implementation = "device_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
+
+[training]
+steps = 200
+batch_size = 16
+seed = 25021
+device = "cpu"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "shared"
+data_rng_device = "cpu"
+data_seed_offset = 1
+prior_seed_offset = 2
+
+[sampling]
+count = 8
+seed = 35021

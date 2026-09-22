@@ -175,13 +175,68 @@ def _spec(value, location, objectives=False):
             raise ValueError(f'{location}: reuse inherits trainability; use freeze_parameters for a frozen forward')
 
 
+_TERM_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}")
+_ADVERSARIAL_TERM_FIELDS = {"id", "component", "weight", "loss_type", "mode", "penalty", "penalty_coeff", "real", "fake", "inputs"}
+
+
+def _resolve_adversarial_terms(result):
+    """Normalize optional extra terms. Absent means the key is not stored.
+
+    ``[adversarial]`` stays the implicit legacy term. These tables are further
+    terms only, so they are not part of ``DEFAULT`` and do not change a legacy fingerprint.
+    """
+    if "adversarial_terms" not in result:
+        return
+    terms = result["adversarial_terms"]
+    if not isinstance(terms, list) or not terms or any(not isinstance(term, dict) for term in terms):
+        raise ValueError("adversarial_terms must be a non-empty list of tables")
+    components = result["components"]
+    seen = set()
+    for index, term in enumerate(terms):
+        location = f"adversarial_terms[{index}]"
+        _keys(term, _ADVERSARIAL_TERM_FIELDS, location)
+        ident = term.get("id")
+        if not isinstance(ident, str) or _TERM_ID.fullmatch(ident) is None:
+            raise ValueError(f"{location}.id must be 1–128 letters, digits, dots, underscores or hyphens")
+        if ident in seen:
+            raise ValueError(f"Adversarial term ids must be unique; {ident} is repeated")
+        seen.add(ident)
+        component = term.get("component")
+        if not isinstance(component, str) or component not in components or "reuse" in components[component]:
+            raise ValueError(f"{location}.component must name an existing non-reuse component")
+        term.setdefault("weight", 1.0)
+        _positive(term["weight"], f"{location}.weight", zero=True)
+        for key in ("loss_type", "mode"):
+            term.setdefault(key, result["adversarial"][key])
+        if term["mode"] not in {"vanilla", "rp", "ra"} or term["loss_type"] not in {"hinge", "logistic", "wasserstein", "lsgan"}:
+            raise ValueError(f"Unsupported {location} loss_type or mode")
+        term.setdefault("penalty", False)
+        if type(term["penalty"]) is not bool:
+            raise ValueError(f"{location}.penalty must be boolean")
+        term.setdefault("penalty_coeff", result["gradient_penalty"]["coeff"])
+        _positive(term["penalty_coeff"], f"{location}.penalty_coeff", zero=True)
+        for key in ("real", "fake"):
+            if not isinstance(term.get(key), str) or not term[key]:
+                raise ValueError(f"{location}.{key} must be a binding path")
+        if "inputs" not in term:
+            term["inputs"] = deepcopy(components[component]["inputs"])
+        inputs = term["inputs"]
+        if not isinstance(inputs, dict) or not inputs or not all(isinstance(k, str) and isinstance(v, str) and v for k, v in inputs.items()):
+            raise ValueError(f"{location}.inputs must bind argument names to context paths")
+        if sum(path == "candidate" for path in inputs.values()) != 1:
+            raise ValueError(f"{location} must bind exactly one input to 'candidate'")
+    result["adversarial_terms"] = terms
+
+
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
-    _keys(raw, DEFAULT, "configuration")
+    _keys(raw, set(DEFAULT) | {"adversarial_terms"}, "configuration")
     result = deepcopy(DEFAULT)
     for key, value in raw.items():
         if key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
+            result[key] = deepcopy(value)
+        elif key == "adversarial_terms":
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
             allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
@@ -261,7 +316,7 @@ def resolve_config(raw):
         _spec(term, f"objectives[{i}]", objectives=True)
     objective_ids = []
     for term in result["objectives"]:
-        if 'id' in term and (not isinstance(term['id'], str) or re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}', term['id']) is None):
+        if 'id' in term and (not isinstance(term['id'], str) or _TERM_ID.fullmatch(term['id']) is None):
             raise ValueError('Objective id must be 1–128 letters, digits, dots, underscores or hyphens')
         objective_ids.append(objective_id(term))
     if len(set(objective_ids)) != len(objective_ids):
@@ -320,7 +375,10 @@ def resolve_config(raw):
                    or not isinstance(column['binding'], str) or not column['binding']
                    for column in comparison)):
         raise ValueError('sampling.comparison requires two to four labelled image bindings')
+    _resolve_adversarial_terms(result)
     paths = [p for c in components.values() for p in c["inputs"].values()] + [p for t in result["objectives"] for p in t["inputs"].values()]
+    for term in result.get("adversarial_terms", ()):
+        paths.extend((term["real"], term["fake"], *term["inputs"].values()))
     # Particle IDs have their own validation below, including their field name
     # in errors and requiring an output of the selected inference graph.
     inference_paths = sampling_bindings({k: v for k, v in sampling.items() if k != 'particle_ids'}, preview=True)
@@ -367,11 +425,24 @@ def resolve_config(raw):
         for path in term["inputs"].values():
             if path.startswith("components."):
                 visit(path.split(".")[1], set())
+    for term in result.get("adversarial_terms", ()):
+        for path in (term["real"], term["fake"]):
+            if path.startswith("components."):
+                visit(path.split(".")[1], set())
     g_reachable.update(reachable)
     visit("discriminator", set())
+    critic_components = {"discriminator"}
+    for term in result.get("adversarial_terms", ()):
+        # The scoring module is reachable, like the discriminator. Its non-candidate
+        # inputs are detached conditioning and do not make that producer generator-reachable.
+        critic_components.add(term["component"])
+        reachable.add(term["component"])
+        for path in term["inputs"].values():
+            if path != "candidate" and path.startswith("components."):
+                visit(path.split(".")[1], set())
     if set(components) - reachable:
         raise ValueError(f"Disconnected components have no effect: {sorted(set(components) - reachable)}")
-    for name in reachable - g_reachable - {"discriminator"}:
+    for name in reachable - g_reachable - critic_components:
         if components[name]["trainable"]:
             raise ValueError(f"Component {name} is only discriminator conditioning, which is detached; mark it trainable=false or bind it into a generator objective")
     warnings = []
@@ -394,12 +465,25 @@ def resolve_config(raw):
     return result
 
 
+def _listed_values(config, keys):
+    """Copy listed keys. Include extra adversarial terms only when that list is non-empty.
+
+    A legacy resolved config and an old checkpoint both lack the key. Looking it
+    up with ``get`` keeps those hashes identical and does not KeyError.
+    """
+    values = {key: deepcopy(config[key]) for key in keys}
+    terms = config.get("adversarial_terms")
+    if terms:
+        values["adversarial_terms"] = deepcopy(terms)
+    return values
+
+
 def config_values(config):
-    return {key: deepcopy(config[key]) for key in DEFAULT}
+    return _listed_values(config, DEFAULT)
 
 
 def numerical_values(config):
-    return {key: deepcopy(config[key]) for key in DEFAULT if key != 'metrics'}
+    return _listed_values(config, (key for key in DEFAULT if key != "metrics"))
 
 
 def resume_compatible(config, original, *, include_observation=False):

@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
-train = ["hndl>=0.5.0", "particlegan==0.5.0", "torch>=2.6,<3", "numpy>=1.26,<3"]
+train = ["hndl>=0.6.0", "particlegan==0.5.0", "torch>=2.6,<3", "numpy>=1.26,<3"]
 image = ["Pillow>=11,<13"]
 cifar = ["torchvision>=0.21,<1"]
 fid = ["torch-fidelity==0.3.0", "torchvision>=0.21,<1", "scipy>=1.10,<1.18"]

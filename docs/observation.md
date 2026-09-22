@@ -84,7 +84,7 @@ For native training, the update boundary freezes owned CPU tensors and plain
 containers under the training RNG fence. Snapshot directory creation,
 serialization, fsync and content hashing run on the preview supervisor thread;
 that thread never reads a live trainer or executes custom serialization hooks.
-Only one snapshot is retained, capped at 256 MiB of captured payload and 256 MiB
+Only one snapshot is retained, capped at 512 MiB of captured payload and 512 MiB
 on disk. The same preview deadline covers persistence and CPU rendering, with
 bounded cleanup grace. Cancellation is checked between storage operations;
 uninterruptible OS writes cannot be force-cancelled inside a thread and surface

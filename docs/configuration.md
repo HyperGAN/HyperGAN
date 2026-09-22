@@ -42,7 +42,7 @@ The image and particle-routing adapters load their architectures from [`src/hype
 
 Legacy `mlp` and `linear` factory arguments remain readable through HNDL adapters. They no longer construct handwritten PyTorch networks. New examples and generated projects use explicit HNDL source.
 
-HNDL 0.5.0 or newer is part of the `train` extra. Configuration loading and ordinary CLI validation stay Torch-free. HNDL parses and resolves the architecture at model construction; invalid operators and shape constraints fail before training updates. Custom factories execute trusted Python and must construct a `torch.nn.Module`.
+HNDL 0.6.0 or newer is part of the `train` extra. Configuration loading and ordinary CLI validation stay Torch-free. HNDL parses and resolves the architecture at model construction; invalid operators and shape constraints fail before training updates. Custom factories execute trusted Python and must construct a `torch.nn.Module`.
 
 Bindings refer to `latent`, `batch.<field>`, `components.<name>` and their nested outputs. Generator output is available as `generated`; discriminator candidate input is `candidate`. Auxiliary components execute when an input or objective requires them. Cyclic or missing bindings fail. Dictionary/list outputs can be selected through dotted keys/indices.
 
@@ -178,7 +178,8 @@ the next three use pixel shuffle. A per-token linear RGB projection and `tanh`
 produce images in `[-1, 1]`. There are no generator convolutions or extra noise.
 
 Each scale adds learned absolute positions and has two residual attention/MLP
-blocks. Native `rms_norm(eps=1e-8, affine=False)` implements per-token PixelNorm;
+blocks with learned 2D relative-position bias in every attention layer. Native
+`rms_norm(eps=1e-8, affine=False)` implements per-token PixelNorm;
 attention has four heads and the GELU MLP expands channels by four. Global
 attention runs through 32px. At 64px and 128px, native `chunk` and batch `concat`
 form 16×16 windows, processed by shared attention/MLP weights. Reversing those
@@ -187,11 +188,14 @@ normalization, residuals, and all trainable layers are visible in HNDL.
 
 This adapts the [paper's 128px architecture](https://arxiv.org/html/2102.07074v4#A2.T6):
 two blocks per scale replace depths 5/4/4/4/4, the latent remains 128-dimensional,
-and native HNDL initialization and biased attention projections are used.
-Learned absolute positions replace the paper's learned 2D relative-position
-bias, which HNDL 0.5 does not provide. Exact reproduction would additionally
-need that attention bias, separate QKV/output bias controls, and selectable
-initializers. The existing DINOv3 discriminator, loss, prior, optimizer,
+and the output uses `tanh` for this recipe's RGB contract. HNDL 0.6 supplies
+relative-position bias, unbiased Q/K/V projections and biased output projections.
+All linear weights use explicit Xavier-uniform initialization, with Q/K/V gain
+`1/sqrt(2)` to match the fan calculation of a combined QKV projection. Biases
+start at zero; absolute position and relative-bias tables use truncated normal
+initialization with standard deviation 0.02. These settings are declared directly
+in the HNDL file; no custom operators are registered. The existing DINOv3
+discriminator, loss, prior, optimizer,
 batch size 64, and diversity observations are retained. No quality improvement
 is assumed; compare FID and diversity metrics during training.
 

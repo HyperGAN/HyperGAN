@@ -21,7 +21,8 @@ from .checkpoints import _portable, capture_rng, restore_rng
 from .previews import MAX_RENDER_BYTES, _inputs, _write_bounded, preview_budget, render_preview
 from .recipes import ComponentGraph, make_prior
 
-MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
+# Large transformer generators include position buffers as well as parameters.
+MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
 
 
 class _BoundedWriter:

@@ -1,24 +1,44 @@
 # Reduced-depth TransGAN-style 128px generator; one latent [B,128], no extra noise.
 # Two transformer blocks per stage instead of depths 5/4/4/4/4.
-# Parameter-free PixelNorm via RMS normalization; native parameter initialization.
-# No learned 2D relative-position bias. This reduced-depth recipe is an adaptation.
+# Parameter-free PixelNorm and learned 2D relative-position bias via native HNDL.
+# Xavier-uniform projections with zero biases; position tables use native
+# truncated_normal(std=0.02), with its default absolute bounds [-2,2].
+# Separate Q/K/V use Xavier gain=1/sqrt(2), matching the fan-in/fan-out scale
+# of the official combined [3*D,D] matrix; random draw layout is not identical.
+# Reduced depth, latent size, and the surrounding training recipe are adaptations.
 # Reference architecture: https://arxiv.org/html/2102.07074v4#A2.T6
 # Learned absolute positions precede grid partitioning at 64px and 128px.
 # Global attention at 8/16/32px; shared 16x16-window attention at 64/128px.
-h = linear(x, 65536, name="input_projection")
+h = linear(x, 65536, name="input_projection", init={"weight": xavier_uniform(), "bias": 0})
 h = reshape(h, 64, 1024)
-h = pos_embed(h, 64, name="stage8_position")
+h = pos_embed(h, 64, name="stage8_position", init={"weight": truncated_normal(std=0.02)})
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block0_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage8_block0_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(8, 8), name="stage8_block0_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage8_block0_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block0_norm2")
-branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage8_block0_ffn")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage8_block0_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage8_block0")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block1_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage8_block1_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(8, 8), name="stage8_block1_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage8_block1_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block1_norm2")
-branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage8_block1_ffn")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage8_block1_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage8_block1")
 
 # Bicubic enlargement preserves 1024 channels, 8px -> 16px.
@@ -27,18 +47,34 @@ h = reshape(h, 1024, 8, 8)
 h = upsample(h, 2, mode="bicubic", align_corners=False, name="stage16_upsample")
 h = reshape(h, 1024, 256)
 h = transpose(h, 1, 2)
-h = pos_embed(h, 256, name="stage16_position")
+h = pos_embed(h, 256, name="stage16_position", init={"weight": truncated_normal(std=0.02)})
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block0_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage16_block0_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage16_block0_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage16_block0_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block0_norm2")
-branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage16_block0_ffn")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage16_block0_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage16_block0")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block1_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage16_block1_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage16_block1_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage16_block1_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block1_norm2")
-branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage16_block1_ffn")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage16_block1_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage16_block1")
 
 # Pixel shuffle: 16px/1024 channels -> 32px/256 channels.
@@ -47,18 +83,34 @@ h = reshape(h, 1024, 16, 16)
 h = pixel_shuffle(h, 2, name="stage32_upsample")
 h = reshape(h, 256, 1024)
 h = transpose(h, 1, 2)
-h = pos_embed(h, 1024, name="stage32_position")
+h = pos_embed(h, 1024, name="stage32_position", init={"weight": truncated_normal(std=0.02)})
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block0_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage32_block0_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(32, 32), name="stage32_block0_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage32_block0_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block0_norm2")
-branch = feed_forward(branch, 1024, activation="gelu", dropout=0.0, name="stage32_block0_ffn")
+branch = feed_forward(branch, 1024, activation="gelu", dropout=0.0, name="stage32_block0_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage32_block0")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block1_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage32_block1_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(32, 32), name="stage32_block1_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage32_block1_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block1_norm2")
-branch = feed_forward(branch, 1024, activation="gelu", dropout=0.0, name="stage32_block1_ffn")
+branch = feed_forward(branch, 1024, activation="gelu", dropout=0.0, name="stage32_block1_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage32_block1")
 
 h = transpose(h, 1, 2)
@@ -68,7 +120,7 @@ h = reshape(h, 256, 32, 32)
 h = pixel_shuffle(h, 2, name="stage64_upsample")
 h = reshape(h, 64, 4096)
 h = transpose(h, 1, 2)
-h = pos_embed(h, 4096, name="stage64_position")
+h = pos_embed(h, 4096, name="stage64_position", init={"weight": truncated_normal(std=0.02)})
 h = transpose(h, 1, 2)
 h = reshape(h, 64, 64, 64, name="stage64_grid")
 
@@ -83,16 +135,32 @@ h = concat(column0, column1, column2, column3, axis=0, name="stage64_windows")
 h = reshape(h, 64, 256)
 h = transpose(h, 1, 2)
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage64_block0_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage64_block0_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage64_block0_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage64_block0_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage64_block0_norm2")
-branch = feed_forward(branch, 256, activation="gelu", dropout=0.0, name="stage64_block0_ffn")
+branch = feed_forward(branch, 256, activation="gelu", dropout=0.0, name="stage64_block0_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage64_block0")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage64_block1_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage64_block1_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage64_block1_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage64_block1_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage64_block1_norm2")
-branch = feed_forward(branch, 256, activation="gelu", dropout=0.0, name="stage64_block1_ffn")
+branch = feed_forward(branch, 256, activation="gelu", dropout=0.0, name="stage64_block1_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage64_block1")
 h = transpose(h, 1, 2)
 h = reshape(h, 64, 16, 16, name="stage64_processed_windows")
@@ -109,7 +177,7 @@ h = concat(row0, row1, row2, row3, axis=2, name="stage64_unwindows")
 h = pixel_shuffle(h, 2, name="stage128_upsample")
 h = reshape(h, 16, 16384)
 h = transpose(h, 1, 2)
-h = pos_embed(h, 16384, name="stage128_position")
+h = pos_embed(h, 16384, name="stage128_position", init={"weight": truncated_normal(std=0.02)})
 h = transpose(h, 1, 2)
 h = reshape(h, 16, 128, 128, name="stage128_grid")
 
@@ -124,16 +192,32 @@ h = concat(column0, column1, column2, column3, column4, column5, column6, column
 h = reshape(h, 16, 256)
 h = transpose(h, 1, 2)
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage128_block0_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage128_block0_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage128_block0_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage128_block0_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage128_block0_norm2")
-branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage128_block0_ffn")
+branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage128_block0_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage128_block0")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage128_block1_norm1")
-branch = attention(branch, 4, dropout=0.0, name="stage128_block1_attention")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage128_block1_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476),
+          "o_proj.weight": xavier_uniform(), "o_proj.bias": 0,
+          "relative_position_bias_table": truncated_normal(std=0.02)})
 h = add(h, branch, name="stage128_block1_attention_residual")
 branch = rms_norm(h, eps=1e-8, affine=False, name="stage128_block1_norm2")
-branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage128_block1_ffn")
+branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage128_block1_ffn",
+    init={"up.weight": xavier_uniform(), "up.bias": 0,
+          "down.weight": xavier_uniform(), "down.bias": 0})
 h = add(h, branch, name="stage128_block1")
 h = transpose(h, 1, 2)
 h = reshape(h, 16, 16, 16, name="stage128_processed_windows")
@@ -149,7 +233,7 @@ h = concat(row0, row1, row2, row3, row4, row5, row6, row7, axis=2, name="stage12
 # Shared tokenwise RGB projection; permute explicitly declares the sequence rank.
 h = reshape(h, 16, 16384)
 h = permute(h, 2, 1)
-h = linear(h, 3, name="output_projection")
+h = linear(h, 3, name="output_projection", init={"weight": xavier_uniform(), "bias": 0})
 h = permute(h, 2, 1)
 h = reshape(h, 3, 128, 128)
 out = tanh(h)

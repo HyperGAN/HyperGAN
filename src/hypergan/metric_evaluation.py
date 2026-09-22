@@ -18,7 +18,8 @@ from .metric_plugins import enabled_custom, finite_json, prepare_custom
 from .metrics import digest, metric_catalog
 from .run_state import atomic_json, run_lock, sync_directory
 
-MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
+# Large transformer generators include position buffers as well as parameters.
+MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
 
 
 def _sha256(path):
@@ -88,7 +89,7 @@ def evaluate(run_dir, metric_id, *, config_path=None, bundle=None):
         if candidate != path or not path.is_relative_to(root / 'attempts') or not path.is_file():
             raise ValueError('Select an immutable EMA model.pt bundle inside this run attempts directory')
         if not 0 < path.stat().st_size <= MAX_SNAPSHOT_BYTES:
-            raise ValueError('Evaluation snapshot exceeds the 256 MiB limit')
+            raise ValueError('Evaluation snapshot exceeds the 512 MiB limit')
         checksum = path.parent / 'model.sha256'
         if checksum.is_symlink() or not checksum.is_file() or checksum.stat().st_size > 128:
             raise ValueError('EMA bundle checksum must be a bounded ordinary file')
@@ -273,5 +274,5 @@ def _copy_snapshot(source, destination):
             return copied
         copied += len(block)
         if copied > MAX_SNAPSHOT_BYTES:
-            raise ValueError('Evaluation snapshot grew beyond the 256 MiB copy budget')
+            raise ValueError('Evaluation snapshot grew beyond the 512 MiB copy budget')
         destination.write(block)

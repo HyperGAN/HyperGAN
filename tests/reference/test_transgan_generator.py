@@ -1,6 +1,7 @@
 """CPU behavior of the editable TransGAN generator and native grid attention."""
 import copy
 import gc
+import math
 from pathlib import Path
 import random
 
@@ -146,6 +147,82 @@ def test_grid_blocks_share_weights_preserve_locality_and_use_pixelnorm(side, cha
     torch.testing.assert_close(changed[:, :, :16, 16:], output[:, :, :16, 16:], rtol=0, atol=0)
 
 
+def test_relative_position_attention_matches_2d_oracle_and_learns():
+    # Reuse an actual configured attention operation at a small channel width.
+    # Its native 8x8 token geometry, projection bias flags and init stay intact.
+    full_source = SOURCE_PATH.read_text()
+    start = full_source.index('branch = attention(')
+    end = full_source.index('\nh = add(', start)
+    source = 'branch = x\n' + full_source[start:end]
+    model = build_network(source, input_shape=('B', 64, 8), output_shape=('B', 64, 8)).double().eval()
+    attention = model['stage8_block0_attention']
+    table = attention.relative_position_bias_table
+    expected_index = torch.tensor([
+        [(query_row - key_row + 7) * 15 + query_column - key_column + 7
+         for key_row in range(8) for key_column in range(8)]
+        for query_row in range(8) for query_column in range(8)], dtype=torch.int64)
+    torch.testing.assert_close(attention.relative_position_index, expected_index, rtol=0, atol=0)
+    assert attention.relative_position_index.dtype == torch.int64
+    assert attention.q_proj.bias is attention.k_proj.bias is attention.v_proj.bias is None
+    assert attention.o_proj.bias is not None
+    # Deliberately asymmetric offsets expose swapped axes or reversed q/k.
+    with torch.no_grad():
+        table.copy_(torch.arange(table.numel(), dtype=torch.float64).sin().reshape_as(table) * .1)
+    x = torch.arange(2 * 64 * 8, dtype=torch.float64).cos().reshape(2, 64, 8)
+    q, k, v = [projection(x).reshape(2, 64, 4, 2).transpose(1, 2)
+               for projection in (attention.q_proj, attention.k_proj, attention.v_proj)]
+    bias = table[expected_index].permute(2, 0, 1)
+    probabilities = (q @ k.transpose(-2, -1) / math.sqrt(2) + bias).softmax(-1)
+    expected = attention.o_proj((probabilities @ v).transpose(1, 2).reshape(2, 64, 8))
+    actual = model(x)
+    torch.testing.assert_close(actual, expected, rtol=1e-12, atol=1e-12)
+    before = table.detach().clone()
+    actual.square().mean().backward()
+    assert table.grad is not None and torch.isfinite(table.grad).all() and table.grad.abs().sum() > 0
+    torch.optim.Adam([table], lr=.01).step()
+    assert not torch.equal(table, before)
+    with torch.no_grad():
+        updated = model(x)
+        assert torch.isfinite(updated).all() and not torch.equal(updated, actual)
+    restored = build_network(source, input_shape=('B', 64, 8), output_shape=('B', 64, 8)).double().eval()
+    restored.load_state_dict(model.state_dict(), strict=True)
+    torch.testing.assert_close(restored['stage8_block0_attention'].relative_position_index, expected_index, rtol=0, atol=0)
+    with torch.no_grad():
+        torch.testing.assert_close(restored(x), updated, rtol=0, atol=0)
+
+
+def test_configured_projection_biases_and_position_initialization(generator):
+    qkv_ids = set()
+    for side in (8, 16, 32, 64, 128):
+        grid = min(side, 32) if side < 64 else 16
+        absolute = generator[f'stage{side}_position'].weight
+        assert torch.isfinite(absolute).all() and absolute.abs().max() <= 2
+        assert absolute.count_nonzero() > 0
+        for block in (0, 1):
+            attention = generator[f'stage{side}_block{block}_attention']
+            assert attention.spatial_shape == (grid, grid)
+            assert attention.relative_position_bias
+            table = attention.relative_position_bias_table
+            assert table.shape == ((2 * grid - 1) ** 2, 4)
+            assert torch.isfinite(table).all() and table.abs().max() <= 2
+            assert table.count_nonzero() > 0
+            assert attention.relative_position_index.dtype == torch.int64
+            for projection in (attention.q_proj, attention.k_proj, attention.v_proj):
+                assert projection.bias is None
+                qkv_ids.add(id(projection))
+            assert attention.o_proj.bias is not None
+    # Xavier limits reflect the configured combined-QKV fan scale. Every
+    # ordinary linear bias, including both FFN projections, must start at zero.
+    for module in generator.modules():
+        if isinstance(module, torch.nn.Linear):
+            gain = 2 ** -.5 if id(module) in qkv_ids else 1
+            bound = gain * math.sqrt(6 / (module.in_features + module.out_features))
+            assert torch.isfinite(module.weight).all() and module.weight.abs().max() <= bound + 1e-7
+            assert module.weight.count_nonzero() > 0
+            if module.bias is not None:
+                assert module.bias.count_nonzero() == 0
+
+
 def test_deepcopy_state_restoration_and_ema_preserve_independent_weights(generator):
     generator.eval()
     z = latents(1)
@@ -157,6 +234,9 @@ def test_deepcopy_state_restoration_and_ema_preserve_independent_weights(generat
     for live, copied in zip(generator.parameters(), average.parameters()):
         assert live.data_ptr() != copied.data_ptr()
         torch.testing.assert_close(live, copied, rtol=0, atol=0)
+    for live, copied in zip(generator.buffers(), average.buffers()):
+        assert live.dtype == copied.dtype and live.data_ptr() != copied.data_ptr()
+        torch.testing.assert_close(live, copied, rtol=0, atol=0)
     with torch.no_grad():
         torch.testing.assert_close(average(z), before, rtol=0, atol=0)
     live, copied = next(generator.parameters()), next(average.parameters())
@@ -167,6 +247,8 @@ def test_deepcopy_state_restoration_and_ema_preserve_independent_weights(generat
         assert copied.flatten()[0].item() == original
         update_ema(average, generator, .75)
         assert copied.flatten()[0].item() == pytest.approx(original + .0625, abs=1e-7)
+        for name, buffer in average.named_buffers():
+            torch.testing.assert_close(buffer, dict(generator.named_buffers())[name], rtol=0, atol=0)
         with torch.no_grad():
             assert torch.isfinite(average(z)).all()
     finally:

@@ -63,6 +63,8 @@ def viewer():
                 run={'run_id':RUN,'status':control['status'],'steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}}
                 if control.get('progress',True):
                     run.update(steps_per_second=12.5,training_seconds=5025.4,samples_seen=control['step']*32,global_batch_size=32)
+                if 'initialization_tuning' in control:
+                    run['initialization_tuning'] = control['initialization_tuning']
                 return self.send(200,run)
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
             if '/artifacts/' in path:
@@ -95,11 +97,15 @@ def viewer():
                     deadline=time.monotonic()+15
                     sent_ready=False
                     published=control['artifact_revision']
+                    published_run_update=None
                     while time.monotonic()<deadline:
                         with condition:condition.wait(.03)
                         if path=='/api/v1/stream':
                             if not control.get('waiting'):emit('metadata',{'run_id':RUN});return
                             continue
+                        if control.get('run_update') and control['run_update'] != published_run_update:
+                            published_run_update=control['run_update']
+                            emit('heartbeat', {'run': published_run_update})
                         if control['artifact_revision']!=published:
                             published=control['artifact_revision'];emit('artifacts',{'revision':f'{published:064x}'})
                         if control['release'] and not sent_ready:emit('bootstrap_ready',{});sent_ready=True
@@ -149,7 +155,7 @@ def test_login_plots_live_ack_reconnect_and_exact_table(viewer,tmp_path):
     assert not errors
 
 
-@pytest.mark.parametrize('status,label',[('running','Training'),('failed','Failed'),('quiesced','Quiesced')])
+@pytest.mark.parametrize('status,label',[('running','Training'),('tuning','Tuning initialization'),('failed','Failed'),('quiesced','Quiesced')])
 def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,status,label):
     page,control,condition,errors=viewer
     control['status']=status;login(page)
@@ -163,6 +169,33 @@ def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,statu
     # Either the clipboard took it, or the id was selected for a keystroke.
     page.locator('#run-id-status:not(:empty)').wait_for()
     assert 'opy' in page.locator('#run-id-status').text_content()
+    assert not errors
+
+
+@pytest.mark.parametrize('terminal,outcome,expected',[
+    ('complete','selected','Applied tuned initialization'),
+    ('complete','kept_baseline','Kept baseline initialization'),
+    ('failed',None,'Initialization tuning failed'),
+])
+def test_initialization_tuning_progress_and_outcome_arrive_live(viewer,terminal,outcome,expected):
+    page,control,condition,errors=viewer
+    control.update(status='tuning', initialization_tuning={
+        'status':'running', 'candidate':2, 'total_candidates':5})
+    login(page)
+    panel=page.locator('#initialization-tuning')
+    assert panel.is_visible()
+    assert panel.text_content()=='Tuning initialization · Candidate 2 of 5'
+    result={'status':terminal, 'message':'<script>not markup</script>'}
+    if outcome: result['outcome']=outcome
+    with condition:
+        control['run_update']={'run_id':RUN, 'status':'failed' if terminal=='failed' else 'running',
+            'steps':2, 'initialization_tuning':result}
+        condition.notify_all()
+    panel.filter(has_text=expected).wait_for()
+    assert panel.get_attribute('data-status')==terminal
+    assert panel.locator('script').count()==0
+    assert '<script>not markup</script>' in panel.text_content()
+    assert page.locator('#run-status').text_content()==('Failed' if terminal=='failed' else 'Training')
     assert not errors
 
 

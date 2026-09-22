@@ -161,6 +161,8 @@ def _parser():
     stop_server.add_argument("run_dir", type=Path)
     from .evaluation_cli import add_evaluate_parser
     add_evaluate_parser(commands)
+    from .signal_diagnostic_cli import add_signal_parser
+    add_signal_parser(commands, _positive_int)
     checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
     checkpoint.add_argument("run_dir", type=Path)
     operation = checkpoint.add_mutually_exclusive_group()
@@ -171,6 +173,12 @@ def _parser():
     train.add_argument("config", type=Path)
     train.add_argument("--run-dir", type=Path, required=True, help="new run directory, or an existing run to resume")
     train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
+    tuning = train.add_mutually_exclusive_group()
+    tuning.add_argument("--tune", dest="tune", action="store_true",
+                        help="calibrate owned generator initialization once before the first update; resumes keep saved weights")
+    tuning.add_argument("--no-tune", dest="tune", action="store_false",
+                        help="use the configured initialization without calibration (default)")
+    train.set_defaults(tune=False)
     _run_options(train)
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
     resume.add_argument("run_dir", type=Path)
@@ -248,6 +256,10 @@ def _dispatch(args, *, output=None):
             from .evaluation_cli import run_evaluate
 
             _print_json(run_evaluate(args))
+        elif args.command == "diagnose-signal":
+            from .signal_diagnostic_cli import run_signal
+
+            _print_json(run_signal(args))
         elif args.command == "serve":
             from .web_dev import enable
             from .web_launch import serve
@@ -367,7 +379,7 @@ def _dispatch(args, *, output=None):
                            preview_every=args.preview_every, preview_keep=args.preview_keep,
                            preview_name=args.preview_name)
             if args.command == "train":
-                prepared = prepare_train(args.config, args.run_dir, args.steps, **options)
+                prepared = prepare_train(args.config, args.run_dir, args.steps, tune=args.tune, **options)
             else:
                 prepared = prepare_resume(args.run_dir, args.checkpoint, args.config, **options)
             _warnings(prepared.config)

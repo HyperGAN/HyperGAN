@@ -176,6 +176,20 @@ h3 {
   align-items: center;
   gap: 20px;
 }
+.initialization-tuning {
+  padding: 12px 16px;
+  margin: 0 0 20px;
+  border: 1px solid #425747;
+  border-radius: 6px;
+  color: #b4cfba;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.initialization-tuning[data-status="failed"] {
+  border-color: #765746;
+  color: #e9b892;
+}
 .secondary {
   background: #242a2a;
   color: #e2dfd6;

@@ -24,3 +24,12 @@ def test_signal_wont_overwrite_before_constructing_models(tmp_path):
 def test_signal_batch_must_be_positive():
     with pytest.raises(SystemExit):
         _parser().parse_args(['diagnose-signal', 'x', '--output', 'y', '--batch-size', '0'])
+
+
+def test_signal_checkpoint_source_and_selection():
+    from pathlib import Path
+    args = _parser().parse_args(['diagnose-signal', 'existing-run', '--checkpoint', 'saved-step',
+                                 '--device', 'cuda:1', '--output', 'checkpoint-signal.json'])
+    assert args.config == Path('existing-run')
+    assert args.checkpoint == Path('saved-step')
+    assert args.device == 'cuda:1'

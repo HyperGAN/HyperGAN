@@ -77,6 +77,12 @@ For GPU construction checks, use `demo` with `--profile examples/execution/cuda-
 
 ## Configure the recipe
 
+For a new native run, `hypergan train CONFIG --run-dir RUN --tune` performs an
+opt-in [startup initialization search](docs/initialization-tuning.md) before
+training and shows progress in the viewer. It only adjusts eligible owned
+generator layers, preserves pretrained state, and saves overrides in the run
+folder. Resume never retunes; `--no-tune` explicitly keeps the default initializer.
+
 `hypergan new` writes a GPU-first `config.toml`; `--device cpu` explicitly selects CPU. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.
 
 The reference defaults to ParticleGAN's relativistic-paired objective, b-cap discriminator regularization and VICReg prior regularization. Custom configurations remain runnable with an explicit qualification warning. An unknown combination is different from an invalid binding or incompatible tensor shape: actual incompatibilities fail with an error. No custom configuration inherits quality, distributed or deployment approval merely by completing a run.

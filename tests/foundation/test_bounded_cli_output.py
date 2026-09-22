@@ -341,3 +341,29 @@ def test_json_progress_rows_carry_the_same_training_metrics(capsys):
                          'training_seconds': 1.25, 'samples_seen': 96})
     row = json.loads(capsys.readouterr().out)
     assert row['steps_per_second'] == 12.5 and row['training_seconds'] == 1.25 and row['samples_seen'] == 96
+
+
+def test_tuning_phase_and_outcomes_are_always_visible(capsys):
+    with training_output(progress_every=1000) as output:
+        for tuning in ({'status': 'running'},
+                       {'status': 'running', 'candidate': 2, 'total_candidates': 5},
+                       {'status': 'complete', 'outcome': 'selected'},
+                       {'status': 'complete', 'outcome': 'kept_baseline'},
+                       {'status': 'failed', 'message': 'Invalid\ninitialization'}):
+            output.progress({'event': 'tuning', 'step': 0, 'tuning': tuning})
+    assert capsys.readouterr().err.splitlines() == [
+        'Tuning initialization', 'Tuning initialization | Candidate 2 of 5',
+        'Initialization tuning complete | Applied tuned initialization',
+        'Initialization tuning complete | Kept baseline initialization',
+        'Initialization tuning failed | Invalid initialization',
+    ]
+
+
+def test_json_progress_preserves_tuning_event_without_step_throttling(capsys):
+    event = {'event': 'tuning', 'step': 0, 'tuning': {
+        'status': 'complete', 'outcome': 'kept_baseline', 'report_path': 'tuning/report.json'}}
+    with training_output(progress_json=True, progress_every=1000) as output:
+        output.progress(event)
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == event
+    assert captured.err == ''

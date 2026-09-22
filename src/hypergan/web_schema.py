@@ -83,6 +83,11 @@ def schemas():
                              'description': 'Trailing average over the last completed updates of the current attempt.'},
         'samples_seen': {**SAFE_INTEGER, 'description': 'Completed updates times the global batch size.'},
         'global_batch_size': SAFE_INTEGER,
+        'initialization_tuning': object_schema({
+            'status': {'enum': ['pending', 'running', 'complete', 'failed']},
+            'outcome': {'enum': ['selected', 'kept_baseline']},
+            'candidate': SAFE_INTEGER, 'total_candidates': SAFE_INTEGER,
+            'message': {'type': 'string'}, 'selected_candidate': {'type': 'string'}}, ('status',)),
         'evaluation_schedule': {'type': 'object', 'additionalProperties': object_schema({
             'status': {'enum': ['running', 'complete', 'failed', 'skipped', 'cancelled', 'pending', 'disabled']},
             'source_step': SAFE_INTEGER, 'next_step': {'oneOf': [SAFE_INTEGER, {'type': 'null'}]},

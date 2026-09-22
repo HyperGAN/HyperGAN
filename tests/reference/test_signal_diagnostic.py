@@ -37,6 +37,36 @@ class Critic(nn.Module):
         return x @ self.weight
 
 
+class SaturatingCritic(Critic):
+    def __init__(self):
+        super().__init__()
+        self.saturation = nn.Tanh()
+
+    def forward(self, x):
+        return self.saturation(64 * (x @ self.weight))
+
+
+class PretrainedCritic(Critic):
+    def __init__(self):
+        from hndl.operators.pretrained import Pretrained
+        class LocalPretrained(Pretrained):
+            def __init__(self):
+                nn.Module.__init__(self)
+                self.model = nn.Sequential(nn.Linear(2, 2), nn.BatchNorm1d(2))
+                with torch.no_grad():
+                    self.model[0].weight.copy_(torch.eye(2))
+                    self.model[0].bias.zero_()
+                self.eval().requires_grad_(False)
+
+            def forward(self, x):
+                return self.model(x)
+        super().__init__()
+        self.features = LocalPretrained()
+
+    def forward(self, x):
+        return self.features(x) @ self.weight
+
+
 class FrozenFeatures(Chain):
     def __init__(self):
         super().__init__()
@@ -46,11 +76,11 @@ class FrozenFeatures(Chain):
         return self.features(super().forward(x))
 
 
-def _trainer(factory='Chain', **args):
+def _trainer(factory='Chain', critic='Critic', **args):
     config = resolve_config({
         'components': {
             'generator': {'factory': f'{__name__}:{factory}', 'args': args, 'inputs': {'x': 'latent'}},
-            'discriminator': {'factory': f'{__name__}:Critic', 'inputs': {'x': 'candidate'}}},
+            'discriminator': {'factory': f'{__name__}:{critic}', 'inputs': {'x': 'candidate'}}},
         'prior': {'kind': 'gaussian', 'args': {'z_dim': 2}},
         'prior_regularizer': {'weight': 0.0},
         'training': {'batch_size': 4, 'device': 'cpu'},
@@ -99,6 +129,7 @@ def test_hook_and_requires_grad_cleanup_after_failed_forward():
         _probe(trainer, 'adversarial', batch=batch, latent_draw=latent)
     assert all(p.requires_grad == flag for p, flag in before)
     assert all(not module._forward_hooks for module in trainer.graph.modules())
+    assert all(not module._forward_pre_hooks for module in trainer.graph.modules())
 
 
 def test_total_objective_matches_adversarial_without_auxiliary_terms():
@@ -108,3 +139,46 @@ def test_total_objective_matches_adversarial_without_auxiliary_terms():
     total = _probe(trainer, 'total', batch=batch, latent_draw=latent)
     assert adv['loss'] == total['loss']
     assert adv['parameters'] == total['parameters']
+
+
+def test_saturating_critic_blocks_signal_despite_healthy_generator_transmission():
+    from hypergan.initialization_tuning import _structural
+    trainer = _trainer(gain=1., critic='SaturatingCritic')
+    batch, latent = _draw()
+    before = _digest_state((('graph', trainer.graph), ('prior', trainer.prior)))
+    layers = [(name, module) for name, module in trainer.graph.models['generator'].named_modules()
+              if isinstance(module, nn.Linear)]
+    structural = _structural(trainer, batch, latent, layers)
+    assert structural['score'] == pytest.approx(0.)
+    result = _probe(trainer, 'adversarial', batch=batch, latent_draw=latent)
+    profile = result['summary']['discriminator_profiles'][0]
+    # The default relativistic loss has sigmoid(0) / batch at equal scores.
+    assert profile['fake_score_gradient_rms'] == pytest.approx(.5 / len(batch['real']))
+    assert profile['fake_input_gradients'][0]['gradient_rms'] == 0.
+    assert profile['fake_input_gradients'][0]['gradient_to_score_rms_ratio'] == 0.
+    assert result['summary']['generated_output_gradient_rms'] == 0.
+    rows = result['discriminator_activations']
+    assert {row['sample'] for row in rows} == {'fake', 'real'}
+    assert all(row['gradient'] is None for row in rows if row['sample'] == 'real')
+    assert all(row['critic_invocation'] == (0 if row['sample'] == 'fake' else 1) for row in rows)
+    assert _digest_state((('graph', trainer.graph), ('prior', trainer.prior))) == before
+    assert all(parameter.grad is None for parameter in trainer.graph.parameters())
+    assert result['state_verification']['parameters_and_restored_buffers_unchanged']
+
+
+def test_pretrained_critic_interfaces_pass_gradients_without_instrumenting_internals():
+    trainer = _trainer(gain=1., critic='PretrainedCritic')
+    batch, latent = _draw()
+    features = trainer.graph.models['discriminator'].features
+    before = copy.deepcopy(features.state_dict())
+    result = _probe(trainer, 'adversarial', batch=batch, latent_draw=latent)
+    rows = result['discriminator_activations']
+    assert not any('.features.model' in row['path'] for row in rows)
+    boundaries = [row for row in rows if '.features' in row['path'] and row['sample'] == 'fake']
+    assert {row['boundary'] for row in boundaries} == {'input', 'output'}
+    assert all(row['gradient']['rms'] > 0 for row in boundaries)
+    assert result['summary']['discriminator_profiles'][0]['fake_input_gradients'][0]['gradient_rms'] > 0
+    for name, value in features.state_dict().items():
+        assert torch.equal(value, before[name])
+    assert all(not parameter.requires_grad and parameter.grad is None for parameter in features.parameters())
+    assert not features.training

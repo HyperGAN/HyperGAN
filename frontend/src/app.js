@@ -141,6 +141,7 @@ const RUN_STATUS_LABELS = {
   initializing: "Starting",
   pending: "Starting",
   starting: "Starting",
+  tuning: "Tuning initialization",
   running: "Training",
   training: "Training",
   complete: "Complete",
@@ -181,6 +182,25 @@ function duration(seconds) {
   if (total < 3600) return `${Math.floor(total / 60)}m ${pad(total % 60)}s`;
   return `${Math.floor(total / 3600)}h ${pad(Math.floor((total % 3600) / 60))}m`;
 }
+function updateInitializationTuning(tuning) {
+  const panel = $("initialization-tuning");
+  const labels = {pending: "Preparing initialization tuning", running: "Tuning initialization", complete: "Initialization tuning complete",
+    failed: "Initialization tuning failed"};
+  panel.hidden = !labels[tuning?.status];
+  if (panel.hidden) { panel.textContent = ""; return; }
+  panel.dataset.status = tuning.status;
+  const parts = [labels[tuning.status]];
+  if (tuning.status === "running" && Number.isSafeInteger(tuning.candidate) && tuning.candidate > 0
+      && Number.isSafeInteger(tuning.total_candidates) && tuning.total_candidates >= tuning.candidate)
+    parts.push(`Candidate ${tuning.candidate} of ${tuning.total_candidates}`);
+  if (tuning.status === "complete") {
+    if (tuning.outcome === "kept_baseline") parts.push("Kept baseline initialization");
+    else if (tuning.outcome === "selected") parts.push("Applied tuned initialization");
+  }
+  if (typeof tuning.message === "string" && tuning.message.trim())
+    parts.push(tuning.message.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240));
+  panel.textContent = parts.join(" · ");
+}
 function updateRun(run) {
   state.run = run;
   evaluations.update(state.catalog, run);
@@ -192,6 +212,7 @@ function updateRun(run) {
   }
   $("run-status").textContent = statusLabel(run.status);
   $("run-status").dataset.status = run.status || "unknown";
+  updateInitializationTuning(run.initialization_tuning);
   $("step").textContent = fmt(run.steps);
   $("steps-per-second").textContent = rate(run.steps_per_second);
   $("training-time").textContent = duration(run.training_seconds);

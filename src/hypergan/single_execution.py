@@ -99,6 +99,17 @@ class SingleProcessExecution:
         return Restored(checkpoint_path=target, step=self._trainer.step,
                         warnings=tuple(runtime_warnings))
 
+    def tune(self, run_dir, on_event=None):
+        """Calibrate owned initialization at step zero, before any optimizer update."""
+        from .startup_tuning import tune_initialized
+        self._boundary()
+        if self._trainer.step != 0:
+            raise ValueError('Startup tuning cannot modify a trained checkpoint')
+        self._ready = False
+        result = tune_initialized(self._trainer, run_dir, on_event=on_event)
+        self._ready = True
+        return result
+
     def update(self):
         self._boundary()
         self._ready = False

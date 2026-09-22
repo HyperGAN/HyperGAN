@@ -50,6 +50,24 @@ def _progress_details(event):
         yield f'{samples:,} samples'
 
 
+def _tuning_message(tuning):
+    status = tuning.get('status')
+    parts = [{'running': 'Tuning initialization', 'complete': 'Initialization tuning complete',
+              'failed': 'Initialization tuning failed'}.get(status, 'Tuning initialization')]
+    candidate, total = tuning.get('candidate'), tuning.get('total_candidates')
+    if status == 'running' and type(candidate) is int and type(total) is int and 0 < candidate <= total:
+        parts.append(f'Candidate {candidate} of {total}')
+    if status == 'complete':
+        outcome = {'selected': 'Applied tuned initialization',
+                   'kept_baseline': 'Kept baseline initialization'}.get(tuning.get('outcome'))
+        if outcome:
+            parts.append(outcome)
+    message = tuning.get('message')
+    if isinstance(message, str) and message.strip():
+        parts.append(''.join(char if char.isprintable() else ' ' for char in message).strip()[:240])
+    return ' | '.join(parts)
+
+
 def _put_latest(pending, value):
     try:
         pending.put_nowait(value)
@@ -344,6 +362,8 @@ class CLIProgress:
             # An added field only; existing progress keys and their meaning are unchanged.
             row = dict(event, evaluation_reminder=reminder) if reminder else event
             self.output.stdout.write(json.dumps(row, allow_nan=False) + '\n')
+        elif event.get('event') == 'tuning':
+            self.output.stderr.write(_tuning_message(event.get('tuning', {})) + '\n')
         elif event.get('event') == 'train':
             metrics = event.get('metrics', {})
             values = ' '.join(f'{label}={metrics[key]:.6g}' for key, label in

@@ -63,6 +63,6 @@ were finite, the step-8 lazy penalty executed, and the hash of protected
 parameters and buffers stayed identical. No training checkpoint was retained.
 The launcher passed `bash -n`; the unchanged training settings were checked
 against the original TOML. This is a compatibility check, not evidence of
-learning quality. The frozen-feature probe now accepts only the declared
-64px/4×4 and 128px/8×8 protocols and records which one ran. It is still not
-a leaderboard result.
+learning quality. The frozen-feature probe accepts only the declared
+64px/4×4 and 128px/8×8 protocols and records which one ran. The 32-update
+screen is recorded separately from the 128px leaderboard.

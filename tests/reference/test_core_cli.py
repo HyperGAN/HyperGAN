@@ -61,9 +61,10 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     assert before["steps_per_second"] > 0
     previews = json.loads((run / "previews" / "index.json").read_text())
     first_steps = [record["step"] for record in previews["previews"]]
-    assert first_steps == sorted(set(first_steps)) and first_steps[0] == 1
-    assert set(first_steps) <= {1, 2}
-    assert len(first_steps) + before.get("skipped_previews_busy", 0) == 2
+    assert first_steps == sorted(set(first_steps)) and first_steps[0] == 0
+    assert set(first_steps) <= {0, 1, 2}
+    first_published = [row["step"] for row in rows if row["event"] == "preview"]
+    assert len(first_published) + before.get("skipped_previews_busy", 0) == 3
     assert not before["observation_errors"]
     assert all(record["identity"]["attempt_id"] == before["attempt_id"] for record in previews["previews"])
     old_sample = Path(before["sample_path"])
@@ -87,7 +88,7 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     assert len(resumed_steps) + skipped == 3
     assert not after["observation_errors"]
     # A bound of two thins to the beginning of the run and its latest sample.
-    published = first_steps + resumed_steps
+    published = first_published + resumed_steps
     assert [record["step"] for record in previews["previews"]] == sorted({published[0], published[-1]})
     for record in previews["previews"]:
         payload = json.loads(Path(record["path"]).read_text())

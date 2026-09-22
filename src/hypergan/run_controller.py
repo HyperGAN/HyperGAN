@@ -796,6 +796,11 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             checkpoint_now()
         publish()
         poll_requests(force=True)
+        if (manifest['steps'] == 0 and not manifest.get('recovery_parent')
+                and manifest['preview_every'] and not (stop is not None and stop.reason)):
+            # Capture the actual initialization (including startup calibration)
+            # before any update. Rendering still uses the normal async worker.
+            preview_now()
         custom_metrics.start()
         attempt_steps = 0
         while manifest['steps'] < config['training']['steps']:

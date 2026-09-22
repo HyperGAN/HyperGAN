@@ -81,3 +81,24 @@ signal loss; arbitrarily increasing discriminator magnitude would not establish
 better guidance. Longer user testing is needed to assess drift and training
 outcomes before changing defaults. This implementation PR is intentionally left
 unmerged for that testing.
+
+## User training follow-up
+
+The user's separate `train-transgan-dinov3-multidepth-128-init-v2-tuned` run
+successfully applied calibration but **has not resolved the reported training
+problem**. Reported losses were D=0.00190275/G=6.38079 at step20,
+D=0.000084597/G=9.35966 at step100, and D=0.0225799/G=9.81009 at step120.
+The user explicitly reported that it was not fixed. Passing the startup
+transmission heuristic must not be presented as fixing training behavior.
+
+Next investigation: compare generator and discriminator boundary measurements
+at initialization and later checkpoints, using matched probe inputs where
+possible, to locate changes in signal transmission and distinguish them from
+loss magnitude. Do not assume the losses alone prove vanishing gradients.
+The active user run should continue undisturbed; GPU1 is now occupied by it.
+Pretrained weights remain protected; no seed experiments, no automatic PR merge.
+
+The user requested a step-zero sample for comparison. New runs with previews
+enabled will capture a baseline after calibration and before optimizer updates,
+in addition to their regular preview cadence. Existing processes keep the code
+they started with and are not retroactively modified.

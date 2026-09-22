@@ -89,6 +89,42 @@ def test_failed_tuning_never_checkpoints_or_trains_partial_weights(tmp_path):
     assert not (root / 'fixture-checkpoints').exists()
 
 
+@pytest.mark.parametrize('tune', [False, True])
+@pytest.mark.parametrize('preview_every', [0, 100])
+def test_initial_preview_follows_tuning_and_checkpoint_before_updates(tmp_path, tune, preview_every):
+    path, root, _, options, trace, _ = setup(tmp_path, native=True)
+    sequence = []
+
+    class InitialPreview(NativeExecution):
+        def tune(self, run_dir, on_event=None):
+            sequence.append('tune')
+            return {'outcome': 'selected'}
+
+        def checkpoint(self, run_dir, metadata):
+            sequence.append('checkpoint')
+            return super().checkpoint(run_dir, metadata)
+
+        def preview(self, run_dir, identity, *, keep):
+            assert self.step == 0
+            sequence.append('preview')
+
+        def update(self):
+            sequence.append('update')
+            return super().update()
+
+    factory = lambda config: InitialPreview(config, root, options, trace)
+    run_train(path, root, steps=2, stop_after_steps=1, tune=tune,
+              preview_every=preview_every, execution_factory=factory)
+    expected = (['tune'] if tune else []) + ['checkpoint'] + (['preview'] if preview_every else []) + ['update']
+    assert sequence[:len(expected)] == expected
+    initial_preview_count = sequence.count('preview')
+    # Restoring the saved step-zero checkpoint also must not repeat startup work.
+    checkpoint = next((root / 'fixture-checkpoints').iterdir())
+    run_resume(root, checkpoint=checkpoint, execution_factory=factory, stop_after_steps=1)
+    assert sequence.count('preview') == initial_preview_count
+    assert sequence.count('tune') == int(tune)
+
+
 def test_unsupported_adapter_rejected_before_directory_creation(tmp_path):
     path, root, factory, _, _, _ = setup(tmp_path, native=True)
     with pytest.raises(ValueError, match='unsupported'):

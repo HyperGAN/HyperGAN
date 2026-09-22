@@ -11,6 +11,13 @@ begin, followed by **Applied tuned initialization** or **Kept baseline
 initialization**. Candidate progress is shown even when ordinary training
 progress is printed less frequently.
 
+With previews enabled, a new run also captures a **step 0** preview after tuning
+and before the first optimizer update. Its EMA weights match the selected
+initialization. Rendering runs in the normal preview worker, so publication can
+arrive after training starts while still showing the saved step-zero state.
+Untuned new runs also get this baseline preview. `--no-previews` disables it,
+and resume does not repeat it.
+
 Tuning is currently opt-in. `--no-tune` explicitly selects the existing
 initialization. A better gradient measurement has not yet established better
 training quality across recipes, so the default initialization is unchanged.

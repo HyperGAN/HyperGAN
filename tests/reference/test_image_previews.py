@@ -247,6 +247,7 @@ preset = "none"
         train(config, tmp_path / 'plain', checkpoint_every=1)
         stopped = train(config, tmp_path / 'viewed', preview_every=1, preview_keep=4,
                         checkpoint_every=1, stop_after_steps=2)
+        assert stopped['previews'][0]['step'] == 0
         old_grid = Path(stopped['previews'][0]['image_grid']['path'])
         old_bytes = old_grid.read_bytes()
         finished = resume(tmp_path / 'viewed')
@@ -551,6 +552,7 @@ preset = "none"
                         preview_name='gen', checkpoint_every=1, stop_after_steps=2)
         assert stopped['preview_name'] == 'gen' and stopped['preview_keep'] == 4
         assert stopped['previews'] and not stopped['observation_errors']
+        assert stopped['previews'][0]['step'] == 0
         for preview in stopped['previews']:
             assert preview['name'] == preview['identity']['name'] == 'gen'
             assert preview['image_grid']['name'] == 'gen'

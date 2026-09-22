@@ -190,11 +190,20 @@ This adapts the [paper's 128px architecture](https://arxiv.org/html/2102.07074v4
 two blocks per scale replace depths 5/4/4/4/4, the latent remains 128-dimensional,
 and the output uses `tanh` for this recipe's RGB contract. HNDL 0.6 supplies
 relative-position bias, unbiased Q/K/V projections and biased output projections.
-All linear weights use explicit Xavier-uniform initialization, with Q/K/V gain
-`1/sqrt(2)` to match the fan calculation of a combined QKV projection. Biases
-start at zero; absolute position and relative-bias tables use truncated normal
-initialization with standard deviation 0.02. These settings are declared directly
-in the HNDL file; no custom operators are registered. The existing DINOv3
+The stem and transformer linears use explicit PyTorch-default initialization:
+`kaiming_uniform(a=2.23606797749979)` weights and uniform biases bounded by
+`1/sqrt(fan_in)`. The RGB projection retains Xavier-uniform weights, matching
+the upstream output convolution, with its default uniform bias. Absolute
+position and relative-bias tables use truncated normal with standard deviation
+0.02. These settings are declared directly in the HNDL file.
+
+The earlier all-Xavier variant collapsed. Review found that its unusually wide
+latent projection started too small while residual branches started too large;
+the saved checkpoints also showed saturation of the final `tanh`. The corrected initialization removes that mismatch;
+it is not yet a long-run quality result. Start a new run when changing init;
+loading an existing checkpoint restores its old weights. See the
+[initialization review](../reports/transgan-initialization-review-2026-09-21.md).
+The existing DINOv3
 discriminator, loss, prior, optimizer,
 batch size 64, and diversity observations are retained. No quality improvement
 is assumed; compare FID and diversity metrics during training.

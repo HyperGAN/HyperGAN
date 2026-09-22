@@ -52,19 +52,46 @@ def _progress_details(event):
 
 def _tuning_message(tuning):
     status = tuning.get('status')
-    parts = [{'running': 'Tuning initialization', 'complete': 'Initialization tuning complete',
-              'failed': 'Initialization tuning failed'}.get(status, 'Tuning initialization')]
+    parts = [{'pending': 'Preparing startup tuning', 'running': 'Tuning startup', 'complete': 'Startup tuning complete',
+              'failed': 'Startup tuning failed'}.get(status, 'Tuning startup')]
+    def factor(value):
+        return f'{value:.4g}' if type(value) in (float, int) and math.isfinite(value) and value > 0 else None
+    def brief(value):
+        return ''.join(char if char.isprintable() else ' ' for char in value).strip()[:240]
+    if status == 'running':
+        phase = {'initialization': 'Initialization', 'dynamics': 'Trial updates'}.get(tuning.get('phase'))
+        if phase:
+            parts.append(phase)
     candidate, total = tuning.get('candidate'), tuning.get('total_candidates')
     if status == 'running' and type(candidate) is int and type(total) is int and 0 < candidate <= total:
         parts.append(f'Candidate {candidate} of {total}')
+    if status == 'running' and tuning.get('phase') == 'dynamics':
+        step, steps = tuning.get('trial_step'), tuning.get('trial_steps')
+        if type(step) is int and type(steps) is int and 0 <= step <= steps and steps > 0:
+            parts.append(f'Trial step {step} of {steps}')
+        if factor(tuning.get('lr_factor')):
+            parts.append('G learning rate × ' + factor(tuning['lr_factor']))
     if status == 'complete':
         outcome = {'selected': 'Applied tuned initialization',
                    'kept_baseline': 'Kept baseline initialization'}.get(tuning.get('outcome'))
         if outcome:
             parts.append(outcome)
+        dynamics = tuning.get('dynamics_outcome')
+        if dynamics == 'selected' and factor(tuning.get('selected_g_lr_factor')):
+            parts.append('Selected G learning rate × ' + factor(tuning['selected_g_lr_factor']))
+        elif dynamics == 'kept_baseline':
+            parts.append('Configured G learning rate passed')
+        elif dynamics == 'unresolved':
+            parts[0] = 'Startup tuning unresolved'
+            parts.append('No rate candidate passed; kept configured G learning rate')
+        elif dynamics == 'skipped':
+            parts.append('Dynamics check skipped')
+        reason = tuning.get('dynamics_reason')
+        if isinstance(reason, str) and reason.strip():
+            parts.append(brief(reason))
     message = tuning.get('message')
     if isinstance(message, str) and message.strip():
-        parts.append(''.join(char if char.isprintable() else ' ' for char in message).strip()[:240])
+        parts.append(brief(message))
     return ' | '.join(parts)
 
 

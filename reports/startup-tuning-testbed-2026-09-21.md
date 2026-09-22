@@ -107,5 +107,6 @@ The subsequent [matched startup investigation](startup-signal-drift-2026-09-21.m
 located near-complete online G tanh saturation by step 20 despite a stronger
 image gradient from D. A controlled 0.1x G learning-rate trial, keeping D/prior
 rates and all initial weights/RNG states equal, substantially reduced that
-failure through step 100. This is a tested recipe candidate, not a change to
-the current initialization-only `--tune` or evidence of final image quality.
+failure through step 100. That controlled recipe trial did not establish final
+image quality. A subsequent bounded dynamics phase now checks one formula-derived
+G-rate adjustment automatically; see the current startup tuning documentation.

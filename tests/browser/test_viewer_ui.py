@@ -155,7 +155,7 @@ def test_login_plots_live_ack_reconnect_and_exact_table(viewer,tmp_path):
     assert not errors
 
 
-@pytest.mark.parametrize('status,label',[('running','Training'),('tuning','Tuning initialization'),('failed','Failed'),('quiesced','Quiesced')])
+@pytest.mark.parametrize('status,label',[('running','Training'),('tuning','Tuning startup'),('failed','Failed'),('quiesced','Quiesced')])
 def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,status,label):
     page,control,condition,errors=viewer
     control['status']=status;login(page)
@@ -175,7 +175,7 @@ def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,statu
 @pytest.mark.parametrize('terminal,outcome,expected',[
     ('complete','selected','Applied tuned initialization'),
     ('complete','kept_baseline','Kept baseline initialization'),
-    ('failed',None,'Initialization tuning failed'),
+    ('failed',None,'Startup tuning failed'),
 ])
 def test_initialization_tuning_progress_and_outcome_arrive_live(viewer,terminal,outcome,expected):
     page,control,condition,errors=viewer
@@ -184,7 +184,7 @@ def test_initialization_tuning_progress_and_outcome_arrive_live(viewer,terminal,
     login(page)
     panel=page.locator('#initialization-tuning')
     assert panel.is_visible()
-    assert panel.text_content()=='Tuning initialization · Candidate 2 of 5'
+    assert panel.text_content()=='Tuning startup · Candidate 2 of 5'
     result={'status':terminal, 'message':'<script>not markup</script>'}
     if outcome: result['outcome']=outcome
     with condition:
@@ -196,6 +196,41 @@ def test_initialization_tuning_progress_and_outcome_arrive_live(viewer,terminal,
     assert panel.locator('script').count()==0
     assert '<script>not markup</script>' in panel.text_content()
     assert page.locator('#run-status').text_content()==('Failed' if terminal=='failed' else 'Training')
+    assert not errors
+
+
+@pytest.mark.parametrize('outcome,factor,expected',[
+    ('selected',.246,'Selected G learning rate × 0.246'),
+    ('kept_baseline',1.,'Configured G learning rate passed'),
+    ('unresolved',1.,'Startup tuning unresolved'),
+    ('skipped',1.,'Dynamics check skipped'),
+])
+def test_startup_dynamics_progress_and_decision_are_distinct_from_training(viewer,outcome,factor,expected):
+    page,control,condition,errors=viewer
+    control.update(status='tuning', initialization_tuning={
+        'status':'running', 'phase':'initialization', 'candidate':1, 'total_candidates':3})
+    login(page)
+    panel=page.locator('#initialization-tuning')
+    assert panel.text_content()=='Tuning startup · Initialization · Candidate 1 of 3'
+    with condition:
+        control['run_update']={'run_id':RUN, 'status':'tuning', 'steps':2, 'initialization_tuning':{
+            'status':'running', 'phase':'dynamics', 'candidate':2, 'total_candidates':2,
+            'trial_step':4, 'trial_steps':8, 'lr_factor':.246}}
+        condition.notify_all()
+    panel.filter(has_text='Trial step 4 of 8').wait_for()
+    assert panel.text_content()=='Tuning startup · Trial updates · Candidate 2 of 2 · Trial step 4 of 8 · G learning rate × 0.246'
+    assert page.locator('#step').text_content()=='2'
+    with condition:
+        control['run_update']={'run_id':RUN, 'status':'running', 'steps':2, 'initialization_tuning':{
+            'status':'complete', 'outcome':'selected', 'dynamics_outcome':outcome,
+            'selected_g_lr_factor':factor, 'dynamics_reason':'Recorded trial decision'}}
+        condition.notify_all()
+    panel.filter(has_text=expected).wait_for()
+    assert 'Applied tuned initialization' in panel.text_content()
+    assert 'Recorded trial decision' in panel.text_content()
+    assert panel.get_attribute('data-outcome')==outcome
+    assert 'Trial step' not in panel.text_content()
+    assert page.locator('#run-status').text_content()=='Training'
     assert not errors
 
 

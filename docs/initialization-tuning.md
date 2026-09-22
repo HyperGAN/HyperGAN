@@ -1,4 +1,4 @@
-# Startup initialization tuning
+# Startup tuning
 
 For a **new run**, add `--tune` to the normal training command:
 
@@ -6,58 +6,90 @@ For a **new run**, add `--tune` to the normal training command:
 hypergan train config.toml --run-dir runs/tuned --tune
 ```
 
-The dashboard and console show **Tuning initialization** before training updates
-begin, followed by **Applied tuned initialization** or **Kept baseline
-initialization**. Candidate progress is shown even when ordinary training
-progress is printed less frequently.
+The dashboard and console show **Tuning startup**, first during initialization
+calibration and then during short trial runs. They show the candidate, trial
+step out of 8, and generator learning-rate factor. Progress remains visible
+even when ordinary training progress is printed less frequently. Trial updates
+are discarded; the actual run still starts at step zero.
+
+The final summary distinguishes the initialization decision from the learning
+rate decision: a selected factor, a passing configured rate, or **Startup tuning
+unresolved** when no candidate passes. An unresolved result retains the configured
+G learning rate; it does not certify that the startup problem was fixed. A
+skipped dynamics check includes its reason.
 
 With previews enabled, a new run also captures a **step 0** preview after tuning
-and before the first optimizer update. Its EMA weights match the selected
-initialization. Rendering runs in the normal preview worker, so publication can
+and before the first retained optimizer update. Its EMA weights match the selected
+initialization, after all trial state has been discarded. Rendering runs in the
+normal preview worker, so publication can
 arrive after training starts while still showing the saved step-zero state.
 Untuned new runs also get this baseline preview. `--no-previews` disables it,
 and resume does not repeat it.
 
-Tuning is currently opt-in. `--no-tune` explicitly selects the existing
-initialization. A better gradient measurement has not yet established better
-training quality across recipes, so the default initialization is unchanged.
+Tuning is currently opt-in. `--no-tune` uses the configured initialization and
+learning rates. Passing the startup checks has not established better training
+quality across recipes, so tuning remains off by default.
 Native CPU and single-GPU execution are supported; replicated execution with
 `--tune` is rejected before creating a run.
 
 ## What it does
 
-At step zero, a bounded search measures the configured adversarial gradient and
-the generator's response to a fixed output-gradient probe. It tries at most
+First, a bounded initialization search measures the configured adversarial
+gradient and the generator's response to a fixed output-gradient probe. It tries at most
 three bounded scale changes to eligible first/final affine generator layers.
 Candidates must improve the declared transmission heuristic, keep finite
 gradients, and pass output-scale and sample-diversity checks. A separate batch
 checks the selected candidate before it is accepted. No discriminator or
-generator optimizer updates are taken during this search.
+generator optimizer updates are taken during this initialization phase.
 
-This first version calibrates boundary-layer initialization. It does not search
-architectures, tune every attention layer, change loss weights or learning
-rates, or establish that the critic's gradient points toward better samples.
-The report separates the heuristic from the actual adversarial gradient.
-Initialization can drift during training. These limits are why `--tune` is an
-explicit experiment rather than the default for every recipe.
+Next, a dynamics check runs **8 configured training updates** at the configured
+generator learning rate. If that baseline fails its checks, a formula uses the
+measured startup response to propose **one smaller factor between 0.1 and 0.5**.
+The experimental formula is `clip(minimum_retention, 0.1, 0.5)`, using the lowest
+finite, nonnegative diversity or first-layer transmission retention across both
+probe batches when it falls below 0.25. These constants are heuristic guards.
+One additional eight-update trial checks that proposal. Each trial starts
+from the same selected initialization, optimizer state, data state and RNG state.
+D and learned-prior absolute learning rates stay at their configured values.
+The trial uses the configured losses and normal D/G/prior update sequence.
+Two matched probe batches check output variation and signal transmission after
+the trial. A passing configured rate is kept immediately. Otherwise the proposed
+rate is selected only if its confirmation passes. If that confirmation fails,
+the configured rate is retained and the result is explicitly unresolved.
+
+The hard budget is **two trials and 16 discarded training updates**, plus signal
+probes; a passing baseline takes only eight trial updates. Trials
+can move owned G, D and prior parameters, but none of those trial weights,
+optimizer moments, counters or RNG/data advances become the actual run's
+starting state. Only the selected initialization and G learning-rate factor
+are retained. Unsupported trial ownership or recovery conditions cause the
+dynamics check to be skipped with a recorded reason.
+
+This search does not change architectures, loss weights, or the absolute D/prior
+learning rates. Its checks are short-run guards against measured startup
+failures, not proof of useful gradient directions, desirable samples, semantic
+diversity or convergence. A passing startup can still drift later in training.
 
 In the 128px DINOv3 testbed, startup calibration passed but G saturated during
 the first 20 updates. A separate controlled trial with a smaller G learning
 rate reduced that failure. The [matched checkpoint investigation](../reports/startup-signal-drift-2026-09-21.md)
-documents the measurements and research scripts. The current `--tune` does not
-perform this optimizer search or automatically apply the trial's learning rate.
+documents that controlled comparison and its limits. The dynamics phase derives
+and checks one bounded rate adjustment on each new run rather than applying a
+fixed testbed factor or searching a grid of rates.
 
-Only eligible newly initialized layers of a native HNDL generator can change.
+Only eligible newly initialized layers of a native HNDL generator can be rescaled.
 Pretrained nodes and their descendants, frozen parameters, shared storage,
-critic weights, normalization state, and the prior are excluded. A custom
-generator with uncertain ownership keeps its baseline. Gradients can still flow
-through frozen pretrained operations. DINOv3 and other pretrained models are
+critic weights, normalization state, and the prior are excluded from initialization
+calibration. A custom generator with uncertain ownership keeps its baseline.
+Pretrained weights and buffers also stay protected throughout discarded trials.
+Gradients can still flow through frozen pretrained operations. DINOv3 and other pretrained models are
 never reinitialized or rescaled.
 
 Search probes replay fixed inputs and restore training RNG streams, data state,
-model buffers, and module modes. This compares substantive initialization
-changes, not different random seeds. Failed searches restore the baseline and
-stop startup; they do not continue with a partially applied candidate.
+model buffers, and module modes. This compares substantive initialization/rate
+changes, not different random seeds. Execution or persistence errors roll back
+the search and stop startup; they do not continue with a partially applied
+candidate. A completed but unresolved search is reported separately from an error.
 
 ## Saved overrides and resume
 
@@ -66,18 +98,19 @@ applied overrides in its own folder:
 
 ```text
 runs/tuned/tuning/config.base.json  resolved baseline recipe
-runs/tuned/tuning/overrides.json    selected parameter paths and scale factors
+runs/tuned/tuning/overrides.json    selected initialization and G learning-rate overrides
 runs/tuned/tuning/report.json       measurements, decisions, and state verification
 ```
 
 The initial full training checkpoint stores the exact selected weights, matching
-EMA initialization, and restored training state. Its tuning metadata refers to
-the artifact hashes. The JSON override file explains the changes; it is not
+EMA initialization, selected optimizer rates, and restored training state. Its
+tuning metadata refers to the artifact hashes. The JSON override file explains the changes; it is not
 replayed on resume.
 
 Repeating `train` on that run directory resumes the saved checkpoint. Keeping
 `--tune` on the command prints a reminder that tuning is skipped for an existing
-run. To compare baseline and tuned initialization, use distinct run directories
+run. Resume keeps its saved weights and selected learning rate. To compare
+baseline and tuned startup, use distinct run directories
 with the same config and seed. Do not point a calibration comparison at an
 existing training run and expect it to reinitialize the model.
 

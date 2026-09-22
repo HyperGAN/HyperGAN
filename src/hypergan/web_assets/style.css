@@ -186,7 +186,8 @@ h3 {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.initialization-tuning[data-status="failed"] {
+.initialization-tuning[data-status="failed"],
+.initialization-tuning[data-outcome="unresolved"] {
   border-color: #765746;
   color: #e9b892;
 }

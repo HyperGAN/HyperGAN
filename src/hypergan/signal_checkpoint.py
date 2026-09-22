@@ -105,7 +105,7 @@ def load_signal_checkpoint(run_dir, checkpoint=None, *, device=None, batch_size=
                 torch.cuda.manual_seed(config['training']['seed'])
             cuda_rng = 'reset-from-config-backend-incompatible'
     protocol = {'weights': 'online-generator-and-discriminator', 'optimizer_state_loaded': False,
-                'optimizer_steps': 0,
+                'optimizer_steps': 0, 'checkpoint_base_lrs': copy.deepcopy(state['base_lrs']),
                 'probe_draw': 'next saved checkpoint draw where RNG backends are compatible; configuration initialization otherwise',
                 'data_state': 'restored' if contract['stateful'] else 'stateless',
                 'named_rng_streams': streams, 'global_cpu_rng': 'restored', 'global_cuda_rng': cuda_rng,

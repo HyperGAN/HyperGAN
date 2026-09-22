@@ -135,8 +135,11 @@ before its complete v2 probe; that change is covered by the analytic tests.
 The practical implication for a future automatic tuner is to evaluate the
 response to a short sequence of actual optimizer updates, with an independently
 checked batch, and include owned optimizer step sizes among the bounded
-candidates. That search is not implemented by these research scripts. The
-current `--tune` still changes only generator boundary initialization.
+candidates. That search is not implemented by these research scripts. At the
+time of this investigation `--tune` changed only boundary initialization. The
+subsequent [startup calibration implementation](../docs/initialization-tuning.md)
+adds an eight-update baseline and at most one eight-update confirmation of a
+formula-derived G rate, with all trial state discarded.
 
 ## Reproduce and interpret
 

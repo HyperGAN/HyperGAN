@@ -175,9 +175,9 @@ def _parser():
     train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
     tuning = train.add_mutually_exclusive_group()
     tuning.add_argument("--tune", dest="tune", action="store_true",
-                        help="calibrate owned generator initialization once before the first update; resumes keep saved weights")
+                        help="tune owned generator initialization and learning rate with discarded startup trials; resumes keep saved tuning")
     tuning.add_argument("--no-tune", dest="tune", action="store_false",
-                        help="use the configured initialization without calibration (default)")
+                        help="use configured initialization and learning rates without startup tuning (default)")
     train.set_defaults(tune=False)
     _run_options(train)
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")

@@ -78,10 +78,12 @@ For GPU construction checks, use `demo` with `--profile examples/execution/cuda-
 ## Configure the recipe
 
 For a new native run, `hypergan train CONFIG --run-dir RUN --tune` performs an
-opt-in [startup initialization search](docs/initialization-tuning.md) before
-training and shows progress in the viewer. It only adjusts eligible owned
-generator layers, preserves pretrained state, and saves overrides in the run
-folder. Resume never retunes; `--no-tune` explicitly keeps the default initializer.
+opt-in [startup calibration](docs/initialization-tuning.md) before training and
+shows progress in the viewer. It checks eligible owned generator initialization,
+then uses at most 16 discarded training updates to check one proposed generator
+learning-rate adjustment. Pretrained state stays protected, and selected overrides
+are saved in the run folder. Resume never retunes; `--no-tune` keeps the configured
+initialization and rates.
 
 `hypergan new` writes a GPU-first `config.toml`; `--device cpu` explicitly selects CPU. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.
 

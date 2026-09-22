@@ -87,6 +87,13 @@ def schemas():
             'status': {'enum': ['pending', 'running', 'complete', 'failed']},
             'outcome': {'enum': ['selected', 'kept_baseline']},
             'candidate': SAFE_INTEGER, 'total_candidates': SAFE_INTEGER,
+            'phase': {'enum': ['initialization', 'dynamics']},
+            'trial_step': SAFE_INTEGER, 'trial_steps': SAFE_INTEGER,
+            'retained_training_updates': SAFE_INTEGER, 'disposable_trial_updates': SAFE_INTEGER,
+            'lr_factor': {'type': 'number', 'exclusiveMinimum': 0},
+            'dynamics_outcome': {'enum': ['selected', 'kept_baseline', 'unresolved', 'skipped']},
+            'selected_g_lr_factor': {'type': 'number', 'exclusiveMinimum': 0},
+            'dynamics_reason': {'oneOf': [{'type': 'string'}, {'type': 'null'}]},
             'message': {'type': 'string'}, 'selected_candidate': {'type': 'string'}}, ('status',)),
         'evaluation_schedule': {'type': 'object', 'additionalProperties': object_schema({
             'status': {'enum': ['running', 'complete', 'failed', 'skipped', 'cancelled', 'pending', 'disabled']},

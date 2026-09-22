@@ -92,7 +92,7 @@ class SingleProcessExecution:
             raise ValueError('Resume data identity or state protocol differs from checkpoint')
         validate_implementation(info['implementation'], _implementation(self._trainer))
         self._ready = False
-        self._last_batch = restore_trainer(self._trainer, state)
+        self._last_batch = restore_trainer(self._trainer, state, metadata=info)
         if self._device.type == 'cuda':
             torch.cuda.synchronize(self._device)
         self._ready = True

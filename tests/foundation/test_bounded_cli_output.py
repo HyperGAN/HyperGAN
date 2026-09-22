@@ -352,10 +352,10 @@ def test_tuning_phase_and_outcomes_are_always_visible(capsys):
                        {'status': 'failed', 'message': 'Invalid\ninitialization'}):
             output.progress({'event': 'tuning', 'step': 0, 'tuning': tuning})
     assert capsys.readouterr().err.splitlines() == [
-        'Tuning initialization', 'Tuning initialization | Candidate 2 of 5',
-        'Initialization tuning complete | Applied tuned initialization',
-        'Initialization tuning complete | Kept baseline initialization',
-        'Initialization tuning failed | Invalid initialization',
+        'Tuning startup', 'Tuning startup | Candidate 2 of 5',
+        'Startup tuning complete | Applied tuned initialization',
+        'Startup tuning complete | Kept baseline initialization',
+        'Startup tuning failed | Invalid initialization',
     ]
 
 
@@ -367,3 +367,23 @@ def test_json_progress_preserves_tuning_event_without_step_throttling(capsys):
     captured = capsys.readouterr()
     assert json.loads(captured.out) == event
     assert captured.err == ''
+
+
+@pytest.mark.parametrize('outcome,factor,expected',[
+    ('selected',.246,'Startup tuning complete | Selected G learning rate × 0.246'),
+    ('kept_baseline',1.,'Startup tuning complete | Configured G learning rate passed'),
+    ('unresolved',1.,'Startup tuning unresolved | No rate candidate passed; kept configured G learning rate'),
+    ('skipped',1.,'Startup tuning complete | Dynamics check skipped'),
+])
+def test_discarded_dynamics_trials_report_progress_and_honest_outcome(capsys,outcome,factor,expected):
+    with training_output(progress_every=1000) as output:
+        output.progress({'event':'tuning', 'step':0, 'tuning':{
+            'status':'running', 'phase':'dynamics', 'candidate':2, 'total_candidates':2,
+            'trial_step':4, 'trial_steps':8, 'lr_factor':.246}})
+        output.progress({'event':'tuning', 'step':0, 'tuning':{
+            'status':'complete', 'dynamics_outcome':outcome, 'selected_g_lr_factor':factor,
+            'dynamics_reason':'Recorded\ntrial decision'}})
+    assert capsys.readouterr().err.splitlines()==[
+        'Tuning startup | Trial updates | Candidate 2 of 2 | Trial step 4 of 8 | G learning rate × 0.246',
+        expected+' | Recorded trial decision',
+    ]

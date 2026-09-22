@@ -96,7 +96,7 @@ def trainer_state(trainer, last_batch):
         restore_rng(rng)
 
 
-def _restore_trainer(trainer, state):
+def _restore_trainer(trainer, state, metadata=None):
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
     if not isinstance(state, dict) or set(state) != required:
@@ -140,8 +140,20 @@ def _restore_trainer(trainer, state):
         for actual, prior in zip(optimizer.param_groups, saved['param_groups']):
             if len(actual['params']) != len(prior['params']):
                 raise ValueError('Checkpoint optimizer parameter inventory differs from trainer')
-    if state['base_lrs'] != trainer.base_lrs:
-        raise ValueError('Checkpoint base learning rates differ from original configuration')
+    from .tuning_overrides import checkpoint_base_lrs
+    expected_rates, overridden = checkpoint_base_lrs(trainer, metadata)
+    if state['base_lrs'] != expected_rates:
+        raise ValueError('Checkpoint base learning rates differ from original configuration or validated startup override')
+    if overridden:
+        from particlegan import learning_rate_scale
+        settings = trainer.config['training']
+        scale = (learning_rate_scale(state['step'] - 1, settings['steps'],
+                                    start=settings['lr_anneal_start'], floor=settings['lr_floor'])
+                 if state['step'] else 1.0)
+        for saved, rates in zip(state['optimizers'], expected_rates):
+            for group, rate in zip(saved['param_groups'], rates):
+                if type(group.get('lr')) not in (int, float) or group['lr'] != rate * scale:
+                    raise ValueError('Checkpoint optimizer learning rate differs from validated startup schedule')
     for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
         module = getattr(trainer, name)
         module.load_state_dict(state[name], strict=True)
@@ -166,9 +178,9 @@ def _restore_trainer(trainer, state):
     return move_tensors(state['last_batch'], getattr(trainer, 'device', 'cpu'))
 
 
-def restore_trainer(trainer, state):
+def restore_trainer(trainer, state, *, metadata=None):
     try:
-        return _restore_trainer(trainer, state)
+        return _restore_trainer(trainer, state, metadata)
     except (KeyError, TypeError, AttributeError, IndexError, RuntimeError) as exc:
         raise ValueError(f'Invalid training checkpoint state: {exc}') from exc
 

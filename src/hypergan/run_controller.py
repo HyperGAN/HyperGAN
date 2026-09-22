@@ -227,19 +227,12 @@ def _cleanup_validation_failure(execution):
 
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
           stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
-          preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None, tune=False,
-          tune_warmup_steps=None):
+          preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None, tune=False):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
     if execution_factory is None:
         raise TypeError('run_train requires an execution_factory')
     if type(tune) is not bool:
         raise ValueError('tune must be a boolean')
-    if tune_warmup_steps is None:
-        tune_warmup_steps = 1000 if tune else 0
-    if type(tune_warmup_steps) is not int or tune_warmup_steps < 0 or tune_warmup_steps == 1:
-        raise ValueError('tune_warmup_steps must be zero or an integer of at least 2')
-    if tune_warmup_steps and not tune:
-        raise ValueError('--tune-warmup-steps requires --tune on a new run')
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     config = load_config(config_path)
@@ -278,9 +271,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
                     ('data', config['training']['data_seed_offset']),
                     ('prior', config['training']['prior_seed_offset']), ('penalty', 3)]}}
         if tune:
-            manifest['initialization_tuning'] = {'status': 'pending'}
-            if tune_warmup_steps:
-                manifest['initialization_tuning']['warmup_steps_requested'] = tune_warmup_steps
+            manifest['initialization_tuning'] = {'status': 'pending', 'method': 'measured-update-response'}
         manifest['rng_streams']['sampling'] = config['sampling']['seed']
         _apply_execution(manifest, descriptor)
         with run_lock(run_dir):
@@ -620,7 +611,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if reasons:
                 raise ValueError('Startup tuning requires full checkpoint support: ' + '; '.join(reasons))
             manifest['status'] = 'tuning'
-            tuning.update(status='running', message='Measuring generator initialization')
+            tuning.update(status='running', message='Measuring configured G and D optimizer updates')
             begin_lifecycle()
             publish()
             emit('tuning', tuning=dict(tuning))
@@ -632,8 +623,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 publish()
                 emit('tuning', tuning=dict(tuning))
             try:
-                warmup_options = {'warmup_steps': tuning['warmup_steps_requested']} if tuning.get('warmup_steps_requested') else {}
-                result = _json_value(execution.tune(run_dir, on_event=tuning_progress, **warmup_options))
+                result = _json_value(execution.tune(run_dir, on_event=tuning_progress))
                 if not isinstance(result, dict):
                     raise ValueError('Tuning result must be a JSON object')
             except BaseException as error:

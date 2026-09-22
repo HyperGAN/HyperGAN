@@ -78,18 +78,17 @@ For GPU construction checks, use `demo` with `--profile examples/execution/cuda-
 ## Configure the recipe
 
 For a new native run, `hypergan train CONFIG --run-dir RUN --tune` performs an
-opt-in [startup calibration](docs/initialization-tuning.md) before training and
-shows progress in the viewer. It checks eligible owned generator initialization,
-then uses at most 24 discarded training updates to check the configured rates,
-a half-rate discriminator candidate, and if needed one measured generator-rate
-correction. The first candidate passing the startup guards is kept; failing all
-candidates leaves the configured rates with an unresolved result. Pretrained state stays protected, and selected overrides
-are saved in the run folder. Resume never retunes; `--no-tune` keeps the configured
-initialization and rates.
-Tuned runs default to a 1,000-step G rate ramp back to the configured G rate;
-`--tune-warmup-steps 0` holds the selected G rate. D keeps its selected base rate.
-Both still follow configured annealing. Short startup checks do not establish
-long-term stability or sample quality.
+opt-in [startup calibration](docs/initialization-tuning.md) before training.
+It measures actual optimizer updates, fits directional loss curvature for G and D,
+and checks a bounded rate proposal on held-out data and a coupled replay. The
+viewer and console show each stage. At most 16 training updates are discarded,
+with additional measurement and state-verification overhead. Failed checks keep
+the configured rates and report an unresolved result. Initialization and
+pretrained state stay unchanged; accepted rate overrides are saved in the run
+folder. Selected G/D base rates remain in effect with configured annealing,
+without an automatic ramp back to source rates. Resume never retunes and preserves
+historical checkpoint schedules. `--no-tune` uses configured rates directly.
+These short startup checks do not establish long-term stability or sample quality.
 
 `hypergan new` writes a GPU-first `config.toml`; `--device cpu` explicitly selects CPU. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.
 

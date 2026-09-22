@@ -175,12 +175,10 @@ def _parser():
     train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
     tuning = train.add_mutually_exclusive_group()
     tuning.add_argument("--tune", dest="tune", action="store_true",
-                        help="tune owned generator initialization and G/D learning rates with discarded startup trials; resumes keep saved tuning")
+                        help="calibrate G/D learning rates from measured optimizer updates; resumes keep saved tuning")
     tuning.add_argument("--no-tune", dest="tune", action="store_false",
-                        help="use configured initialization and learning rates without startup tuning (default)")
+                        help="use configured learning rates without startup tuning (default)")
     train.set_defaults(tune=False)
-    train.add_argument('--tune-warmup-steps', type=int, default=None, metavar='N',
-                       help='with --tune on a new run, ramp selected G learning rate back to its configured rate over N retained updates (default: 1000 with --tune; N >= 2; 0 disables)')
     _run_options(train)
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
     resume.add_argument("run_dir", type=Path)
@@ -382,7 +380,7 @@ def _dispatch(args, *, output=None):
                            preview_name=args.preview_name)
             if args.command == "train":
                 prepared = prepare_train(args.config, args.run_dir, args.steps, tune=args.tune,
-                                         tune_warmup_steps=args.tune_warmup_steps, **options)
+                                         **options)
             else:
                 prepared = prepare_resume(args.run_dir, args.checkpoint, args.config, **options)
             _warnings(prepared.config)

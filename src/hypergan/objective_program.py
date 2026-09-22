@@ -308,7 +308,10 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     else:
         batch, ids, context = trainer._draw(batch, latent_draw)
     terms = program.adversarial_terms
+    observer = getattr(trainer, '_update_response_observer', None)
     trainer.opt_d.zero_grad(set_to_none=True)
+    if observer is not None:
+        observer('before_d', step=step, batch=batch, ids=ids, context=context)
     if len(terms) == 1:
         term = terms[0]
         real, fake, real_score, fake_score = _bound_scores(
@@ -356,6 +359,8 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     trainer._refuse_nonfinite(d_loss, "Nonfinite discriminator loss; run stopped",
                               [("Nonfinite discriminator gradient; run stopped", critic_checked)])
     trainer.opt_d.step()
+    if observer is not None:
+        observer('after_d', step=step, batch=batch, ids=ids, context=context)
     saved_flags = []
     seen_modules = set()
     for term in terms:
@@ -369,6 +374,8 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         if independent:
             batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
         trainer.opt_g.zero_grad(set_to_none=True)
+        if observer is not None:
+            observer('before_g', step=step, batch=batch, ids=ids, context=context)
         if len(terms) == 1:
             term = terms[0]
             real, fake, real_score, fake_score = _bound_scores(
@@ -395,6 +402,8 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                                   [("Nonfinite generator/auxiliary gradient; run stopped", program.generator_parameters),
                                    ("Nonfinite prior gradient; run stopped", program.prior_checked)])
         trainer.opt_g.step()
+        if observer is not None:
+            observer('after_g', step=step, batch=batch, ids=ids, context=context)
     finally:
         for module, flags in saved_flags:
             for parameter, flag in zip(module.parameters(), flags):

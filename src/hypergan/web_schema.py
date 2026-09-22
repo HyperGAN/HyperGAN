@@ -85,9 +85,11 @@ def schemas():
         'global_batch_size': SAFE_INTEGER,
         'initialization_tuning': object_schema({
             'status': {'enum': ['pending', 'running', 'complete', 'failed']},
-            'outcome': {'enum': ['selected', 'kept_baseline']},
+            'outcome': {'enum': ['selected', 'kept_baseline', 'unresolved', 'skipped']},
             'candidate': SAFE_INTEGER, 'total_candidates': SAFE_INTEGER,
             'phase': {'enum': ['initialization', 'dynamics']},
+            'method': {'type': 'string'},
+            'stage': {'enum': ['measure', 'fit', 'validate', 'replay']},
             'trial_step': SAFE_INTEGER, 'trial_steps': SAFE_INTEGER,
             'retained_training_updates': SAFE_INTEGER, 'disposable_trial_updates': SAFE_INTEGER,
             'lr_factor': {'type': 'number', 'exclusiveMinimum': 0},

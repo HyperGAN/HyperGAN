@@ -207,7 +207,7 @@ def test_total_objective_matches_adversarial_without_auxiliary_terms():
 
 
 def test_saturating_critic_blocks_signal_despite_healthy_generator_transmission():
-    from hypergan.initialization_tuning import _structural
+    from hypergan.signal_structure import _structural
     trainer = _trainer(gain=1., critic='SaturatingCritic')
     batch, latent = _draw()
     before = _digest_state((('graph', trainer.graph), ('prior', trainer.prior)))

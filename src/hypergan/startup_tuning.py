@@ -1,60 +1,47 @@
-"""Persist an owned initialization search before the first durable checkpoint."""
-import hashlib
+"""Persist measured startup learning rates before the first durable checkpoint."""
 import copy
+import hashlib
 from pathlib import Path
 
 from .config import config_values, fingerprint
 from .run_state import atomic_json, sync_directory
 
+METHOD = 'measured-update-response'
 
-def tune_initialized(trainer, run_dir, on_event=None, *, warmup_steps=0):
-    """Publish run-local provenance and synchronize only changed owned EMA weights.
 
-    The normal step-zero training checkpoint stores the selected tensors and all
-    RNG/data state. These JSON artifacts explain that checkpoint; they are never
-    replayed on resume and the user's source configuration stays the baseline.
+def tune_initialized(trainer, run_dir, on_event=None):
+    """Publish rate overrides after disposable trials have restored step zero.
+
+    The source config and initialized weights are unchanged. The first full
+    checkpoint stores the selected rates; resume never repeats calibration.
+    The historical metadata key ``initialization_tuning`` remains readable.
     """
-    import torch
-    from .initialization_tuning import tune_initialization
     from .startup_dynamics import tune_startup_dynamics
     from .tuning_overrides import optimizer_lr_override
     from .provenance import hypergan_source
 
-    if type(warmup_steps) is not int or warmup_steps < 0 or warmup_steps == 1:
-        raise ValueError('Generator warmup steps must be zero or an integer of at least 2')
     if trainer.step != 0 or trainer.opt_g.state or trainer.opt_d.state:
         raise ValueError('Startup tuning requires untouched initialization and empty optimizer state')
-    original_warmup = copy.deepcopy(getattr(trainer, 'g_lr_warmup', None))
-    if original_warmup is not None:
+    if getattr(trainer, 'g_lr_warmup', None) is not None:
         raise ValueError('Startup tuning requires initialization without an existing warmup schedule')
     root = Path(run_dir) / 'tuning'
     root.mkdir(exist_ok=False)
     sync_directory(root.parent)
-    baseline = config_values(trainer.config)
-    atomic_json(root / 'config.base.json', baseline)
-    owned = {id(parameter) for parameter in trainer.program.generator_parameters}
-    parameters = {name: parameter for name, parameter in trainer.graph.named_parameters()
-                  if id(parameter) in owned}
-    ema = dict(trainer.ema_graph.named_parameters())
-    originals = {name: parameter.detach().cpu().clone() for name, parameter in parameters.items()}
-    ema_originals = {name: ema[name].detach().cpu().clone() for name in parameters}
+    atomic_json(root / 'config.base.json', config_values(trainer.config))
     original_base_lrs = copy.deepcopy(trainer.base_lrs)
-    original_lrs = [[group['lr'] for group in optimizer.param_groups] for optimizer in (trainer.opt_g, trainer.opt_d)]
-    def progress(phase):
-        return (lambda value: on_event(dict(value, phase=phase))) if on_event is not None else None
+    original_lrs = [[group['lr'] for group in optimizer.param_groups]
+                    for optimizer in (trainer.opt_g, trainer.opt_d)]
+
+    def progress(value):
+        if on_event is not None:
+            on_event(dict(value, phase='dynamics', method=METHOD))
+
     try:
-        report = tune_initialization(trainer, progress=progress('initialization'))
-        changed = []
-        with torch.no_grad():
-            for name, parameter in parameters.items():
-                if not torch.equal(parameter.detach().cpu(), originals[name]):
-                    ema[name].copy_(parameter)
-                    changed.append(name)
-        report['ema_synchronized_parameters'] = changed
-        dynamics = tune_startup_dynamics(trainer, progress=progress('dynamics'))
+        dynamics = tune_startup_dynamics(trainer, progress=progress)
         if (trainer.step != 0 or trainer.opt_g.state or trainer.opt_d.state
                 or trainer.base_lrs != original_base_lrs
-                or [[group['lr'] for group in optimizer.param_groups] for optimizer in (trainer.opt_g, trainer.opt_d)] != original_lrs):
+                or [[group['lr'] for group in optimizer.param_groups]
+                    for optimizer in (trainer.opt_g, trainer.opt_d)] != original_lrs):
             raise ValueError('Startup dynamics trials did not restore the original training boundary')
         override = optimizer_lr_override(trainer.config, dynamics['selected_g_lr_factor'],
                                          dynamics.get('selected_d_lr_factor', 1.0))
@@ -66,51 +53,32 @@ def tune_initialized(trainer, run_dir, on_event=None, *, warmup_steps=0):
         trainer.base_lrs[0][0] = override['effective_g_lr']
         trainer.opt_d.param_groups[0]['lr'] = override['effective_d_lr']
         trainer.base_lrs[1][0] = override['effective_d_lr']
-        report['initialization_optimizer_steps'] = report.pop('optimizer_steps', 0)
-        report['retained_training_updates'] = 0
-        report['disposable_trial_updates'] = dynamics.get('disposable_completed_updates', 0)
-        report['dynamics'] = dynamics
-        report['optimizer_override'] = override
-        warmup = ({'steps': warmup_steps, 'start_g_lr': override['effective_g_lr'],
-                   'target_g_lr': override['baseline_g_lr']} if warmup_steps else None)
-        warmup_metadata = {'g_lr_warmup': warmup} if warmup is not None else {}
-        trainer.g_lr_warmup = warmup
-        report.update(warmup_metadata)
-        selected_digest = hashlib.sha256()
-        for name, parameter in sorted(parameters.items()):
-            value = parameter.detach().cpu().contiguous()
-            selected_digest.update(f'{name}:{value.dtype}:{tuple(value.shape)}:'.encode())
-            selected_digest.update(value.reshape(-1).view(torch.uint8).numpy().tobytes())
-        report['selected_parameters_sha256'] = selected_digest.hexdigest()
-        report['source'] = hypergan_source()
+        report = {
+            'schema_version': 2, 'kind': 'hypergan-startup-rate-tuning', 'method': METHOD,
+            'outcome': outcome, 'retained_training_updates': 0,
+            'disposable_trial_updates': dynamics.get('disposable_completed_updates', 0),
+            'dynamics': dynamics, 'optimizer_override': override, 'source': hypergan_source(),
+            'schedule': 'Selected base rates follow the configured annealing schedule; no startup ramp back to source rates.',
+        }
         overrides = {
-            'schema_version': 1,
-            'kind': 'hypergan-startup-initialization-overrides',
-            'base_config_sha256': fingerprint(trainer.config),
-            'selected_candidate': report['selected_candidate'],
-            'transformations': report['transformations'],
-            'optimizer_override': override,
-            **warmup_metadata,
-            'recovery': 'Selected tensors are stored in the initial full training checkpoint; never replay on resume.',
+            'schema_version': 2, 'kind': 'hypergan-startup-rate-overrides', 'method': METHOD,
+            'base_config_sha256': fingerprint(trainer.config), 'optimizer_override': override,
+            'recovery': 'Selected rates are stored in the initial full training checkpoint; never replay on resume.',
         }
         atomic_json(root / 'overrides.json', overrides)
         atomic_json(root / 'report.json', report)
         return {
-            'selected_parameters_sha256': report['selected_parameters_sha256'],
-            'outcome': report['outcome'],
-            'selected_candidate': report['selected_candidate'],
-            'retained_training_updates': 0,
+            'method': METHOD, 'outcome': outcome, 'retained_training_updates': 0,
             'disposable_trial_updates': report['disposable_trial_updates'],
-            'dynamics_outcome': outcome,
-            'dynamics_reason': dynamics.get('reason'),
-            'selected_g_lr_factor': override['factor'],
-            'selected_d_lr_factor': override['d_factor'],
+            'dynamics_outcome': outcome, 'dynamics_reason': dynamics.get('reason'),
+            'selected_g_lr_factor': override['factor'], 'selected_d_lr_factor': override['d_factor'],
             'optimizer_override': override,
-            **warmup_metadata,
-            'message': ({'selected': f"Startup checks selected learning rates G x{override['factor']:g}, D x{override['d_factor']:g}",
-                         'kept_baseline': 'Startup checks passed; configured G and D learning rates retained',
-                         'unresolved': 'Startup checks unresolved; configured G and D learning rates retained',
-                         'skipped': 'Startup initialization checked; dynamics calibration skipped'}[outcome]),
+            'message': ({
+                'selected': f"Measured updates selected learning rates G x{override['factor']:g}, D x{override['d_factor']:g}",
+                'kept_baseline': 'Measured startup checks retained configured G and D learning rates',
+                'unresolved': 'Startup calibration unresolved; configured G and D learning rates retained',
+                'skipped': 'Startup rate calibration skipped: ' + str(dynamics.get('reason', 'unsupported configuration')),
+            }[outcome]),
             'base_config_path': str(root / 'config.base.json'),
             'base_config_sha256': fingerprint(trainer.config),
             'overrides_path': str(root / 'overrides.json'),
@@ -119,14 +87,9 @@ def tune_initialized(trainer, run_dir, on_event=None, *, warmup_steps=0):
             'report_sha256': hashlib.sha256((root / 'report.json').read_bytes()).hexdigest(),
         }
     except BaseException:
-        # Includes artifact I/O failure after a candidate was selected. Never
-        # leave a partially applied initialization available to the trainer.
-        with torch.no_grad():
-            for name, parameter in parameters.items():
-                parameter.copy_(originals[name])
-                ema[name].copy_(ema_originals[name])
+        # Trial rollback is owned by the tuner. Persistence may fail after rates
+        # are installed; never leave those partially published rates applied.
         trainer.base_lrs = original_base_lrs
-        trainer.g_lr_warmup = original_warmup
         for optimizer, rates in zip((trainer.opt_g, trainer.opt_d), original_lrs):
             for group, rate in zip(optimizer.param_groups, rates):
                 group['lr'] = rate

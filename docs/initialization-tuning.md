@@ -6,164 +6,140 @@ For a **new run**, add `--tune` to the normal training command:
 hypergan train config.toml --run-dir runs/tuned --tune
 ```
 
-The dashboard and console show **Tuning startup**, first during initialization
-calibration and then during short trial runs. They show the candidate, trial
-step out of 8, and both generator and discriminator learning-rate factors. Progress remains visible
-even when ordinary training progress is printed less frequently. Trial updates
-are discarded; the actual run still starts at step zero.
+Tuning measures how the actual optimizer updates affect G and D, derives a
+bounded learning-rate proposal, and checks it before training starts. The
+console and dashboard show **Tuning startup**, with stages shown as needed: measuring
+optimizer updates, fitting directional curvature, validating held-out response,
+and replaying proposed rates. They display the current G/D factors and the
+update counter during disposable baseline and replay updates.
 
-The final summary distinguishes the initialization decision from the learning
-rate decision: selected G/D factors, passing configured rates, or **Startup tuning
-unresolved** when no candidate passes. An unresolved result retains the configured
-G and D learning rates; it does not certify that the startup problem was fixed. A
-skipped dynamics check includes its reason.
+The result reports selected G/D rates or **Startup tuning unresolved**.
+Unresolved tuning keeps the configured rates
+and records why no measured adjustment was accepted. Unsupported ownership or
+measurement contracts are skipped with a reason. Neither result means the
+startup problem was fixed. Progress remains visible independently of the normal
+training print interval.
 
-With previews enabled, a new run also captures a **step 0** preview after tuning
-and before the first retained optimizer update. Its EMA weights match the selected
-initialization, after all trial state has been discarded. Rendering runs in the
-normal preview worker, so publication can
-arrive after training starts while still showing the saved step-zero state.
-Untuned new runs also get this baseline preview. `--no-previews` disables it,
-and resume does not repeat it.
+Tuning is opt-in; `--no-tune` uses configured rates directly. Native CPU and
+single-GPU execution are supported. Replicated execution with `--tune` is rejected
+before creating a run.
 
-Tuning is currently opt-in. `--no-tune` uses the configured initialization and
-learning rates. Passing the startup checks has not established better training
-quality across recipes, so tuning remains off by default.
-Native CPU and single-GPU execution are supported; replicated execution with
-`--tune` is rejected before creating a run.
+## One measured-update pipeline
 
-## Learning-rate warmup after tuning
+The pipeline starts from the configured initialization. It does not rescale
+layers or replace weights. It runs at most **eight disposable baseline updates**
+with the configured losses, Adam updates, learned prior, and D/G update order.
+The actual phase-local optimizer displacement is the measurement direction,
+rather than a raw gradient or cumulative movement over the whole trial.
 
-New runs with `--tune` default to a 1,000-update G learning-rate ramp:
+After the baseline, tuning measures both players even if the baseline passes
+the startup guards. It evaluates each player's loss along its own recorded update while
+holding the opponent and other parameter groups fixed. A predetermined stencil
+at displacement factors `0`, `0.5`, and `1` on two fitting banks estimates a
+local quadratic. The phase loss includes its configured auxiliary terms and
+the penalty when that update's lazy schedule activates it:
 
-```sh
-hypergan train config.toml --run-dir runs/tuned-warmup \
-  --tune
+```text
+phi(s) = loss(parameters + s * actual_optimizer_displacement)
+a = 4 * phi(0.5) - phi(1) - 3 * phi(0)
+k = 4 * (phi(1) - 2 * phi(0.5) + phi(0))
+proposed factor = -a / k
 ```
 
-The first retained update uses the G rate selected by tuning. A linear ramp
-reaches the original config's G rate on update 1,000, then holds that rate.
-The existing configured annealing multiplier still applies. D keeps its selected
-base rate, with its configured annealing schedule; the prior keeps its original
-rate and schedule. Warmup takes place during normal training,
-after all tuning trials have been discarded; it adds no search or trial updates.
-The console and dashboard show its progress and current G learning rate.
+A proposal requires resolved descent and positive directional curvature.
+Output-variation and transmission guards may reject a proposal; they neither
+derive its rate factors nor decide whether to measure curvature.
+Flat, negative, inconsistent, or numerically unresolved curvature does not
+justify inventing a smaller rate. G and D are measured separately; an unresolved
+player keeps its configured factor. If both players have resolved fits calling
+for no reduction and the baseline passes its guards, the configured rates are
+kept. Otherwise, no resolved reduction means an unresolved result. Passing
+baseline guards does not turn an unresolved fit into a successful calibration.
+The factors are restricted to the declared reduction-only range of 0.1 to 1.
+A computed factor below 0.1 is unresolved; it is not rounded up. These are directional loss measurements, not an estimate
+of the largest Hessian eigenvalue or an optimal GAN learning rate.
 
-The ramp is experimental: eight startup trial updates do not establish that
-returning to the original rate later will remain stable. Pass
-`--tune-warmup-steps 0` to keep the selected rate as its base rate. If tuning retains the original
-rate, both ramp endpoints are equal and the option does not change that rate.
-Use `--tune-warmup-steps N` with an integer of at least two to change its duration.
-Untuned runs have no ramp.
+Two separate validation banks check the proposed changes before a single **eight-update
+coupled replay** from the original state. Changing D changes G's subsequent
+optimizer direction, so independently favorable player measurements are not
+accepted without that replay. The replay checks finite learning signals,
+parameter movement, and the declared output-variation/transmission guards.
+A proposal that fails validation or replay is rejected as a whole, without
+searching another combination. There is no rate grid, fixed D-half fallback,
+or G-retention formula selecting an alternative rate.
 
-The run's tuning artifacts and checkpoints record the ramp. Resume automatically
-continues from the saved training step without restarting tuning or warmup.
-The new default does not add a ramp to existing runs that saved none.
-Use `hypergan resume runs/tuned-warmup` to continue it.
+The hard training-update budget is **eight baseline plus eight replay updates**.
+This excludes the additional loss evaluations, signal probes, model snapshots,
+and state verification; it is not a wall-time guarantee. The report records
+measurements and decisions. Historical timing from earlier tuners does not
+establish the cost of this pipeline.
 
-## What it does
+All disposable weights, optimizer moments, EMA, counters, gradient fields,
+RNG streams, data state, and model buffers are restored before real step zero.
+Only accepted G/D learning-rate factors are retained. The learned prior's
+absolute rate stays configured. Pretrained weights and buffers, frozen tensors,
+and protected storage aliases are excluded from mutation; frozen operations
+can still transmit gradients. Unknown ownership is not treated as permission
+to calibrate external weights. Audit or persistence failures roll back and stop
+startup instead of training with partially applied changes.
 
-First, a bounded initialization search measures the configured adversarial
-gradient and the generator's response to a fixed output-gradient probe. It tries at most
-three bounded scale changes to eligible first/final affine generator layers.
-Candidates must improve the declared transmission heuristic, keep finite
-gradients, and pass output-scale and sample-diversity checks. A separate batch
-checks the selected candidate before it is accepted. No discriminator or
-generator optimizer updates are taken during this initialization phase.
+## Selected rates and normal training
 
-Next, a dynamics check runs **8 configured training updates** at the configured
-G and D learning rates. Two matched probe batches check output variation and
-first-layer signal transmission, alongside finite generator-objective signal.
-The trial also records cumulative G, D, and prior parameter displacement over
-the eight updates; G and D must both have finite, nonzero net movement. This
-includes the optimizer's effect, but is not a per-step update norm or proof of
-useful learning. Passing the baseline keeps
-both configured rates immediately.
+Fresh tuned runs keep the selected G and D base learning rates. The configured
+annealing schedule still applies. There is no automatic ramp back to the
+original source rates and no warmup option for new tuning runs.
 
-If the completed baseline fails its guards, an eight-update sensitivity trial halves **only D's
-learning rate**, keeping G at its configured rate. That measured trial is
-accepted only if both probe batches and the update checks pass. Halving D is a
-bounded sensitivity test, not a formula for an optimal discriminator rate.
+With previews enabled, fresh runs capture a **step 0** preview after all tuning
+state has been restored and before the first retained optimizer update. The
+initial weights and EMA remain at their configured initialization. Preview
+rendering uses the normal worker, so the saved step-zero result may appear
+after training starts. Untuned new runs also get this preview; `--no-previews`
+disables it, and resume does not repeat it.
 
-If the D-only trial fails, one final eight-update trial may reduce **only G's
-learning rate**, restoring D's configured rate. Its experimental formula is
-`clip(minimum_retention, 0.1, 0.5)`, using the lowest finite, nonnegative baseline
-diversity or first-layer transmission retention across both probe batches when
-it falls below 0.25. These constants are heuristic guards. If the baseline does
-not provide that finite retention evidence, no G factor is invented.
-
-Each trial starts from the same selected initialization, optimizer state, data
-state and RNG state, and uses the configured losses and D/G/prior update sequence.
-The first passing trial is selected; there is no grid, combined G/D candidate,
-or maximization of a gradient norm. If none passes, both configured rates are
-retained and the result is explicitly unresolved. The prior's absolute learning
-rate stays configured throughout every trial.
-If the baseline becomes nonfinite before completing its trial, tuning reports
-an unresolved result without inventing a matched comparison from partial updates.
-
-The hard budget is **three trials and 24 discarded training updates**, plus signal
-probes; a passing baseline takes only eight trial updates. Trials
-can move owned G, D and prior parameters, but none of those trial weights,
-optimizer moments, counters or RNG/data advances become the actual run's
-starting state. Only the selected initialization and G/D learning-rate factors
-are retained. Unsupported trial ownership or recovery conditions cause the
-dynamics check to be skipped with a recorded reason.
-
-This search does not change architectures, loss weights, or the prior's absolute
-learning rate. Its checks are short-run guards against measured startup
-failures, not proof of useful gradient directions, desirable samples, semantic
-diversity or convergence. A passing startup can still drift later in training.
-
-In the 128px DINOv3 testbed, startup calibration passed but G saturated during
-the first 20 updates. A separate controlled trial with a smaller G learning
-rate reduced that failure. The [matched checkpoint investigation](../reports/startup-signal-drift-2026-09-21.md)
-documents that controlled comparison and its limits. The current dynamics phase
-checks D sensitivity before a possible G adjustment; that ordering and the
-D trial have not been validated for image quality on this testbed.
-The earlier [automatic startup test](../reports/startup-dynamics-autotune-2026-09-21.md)
-used the previous G-only, 16-update budget and recorded about 94 seconds of total
-tuning, including about 63 seconds for dynamics. It does not measure the cost or
-effectiveness of the new D trial. Cost depends on the model and hardware; the fixed
-update budget also includes snapshot and probe overhead. That report records
-successful command validation and the earlier unresolved state-audit failures.
-
-Only eligible newly initialized layers of a native HNDL generator can be rescaled.
-Pretrained nodes and their descendants, frozen parameters, shared storage,
-critic weights, normalization state, and the prior are excluded from initialization
-calibration. A custom generator with uncertain ownership keeps its baseline.
-Pretrained weights and buffers also stay protected throughout discarded trials.
-Gradients can still flow through frozen pretrained operations. DINOv3 and other pretrained models are
-never reinitialized or rescaled.
-
-Search probes replay fixed inputs and restore training RNG streams, data state,
-model buffers, and module modes. This compares substantive initialization/rate
-changes, not different random seeds. Execution or persistence errors roll back
-the search and stop startup; they do not continue with a partially applied
-candidate. A completed but unresolved search is reported separately from an error.
+Older checkpoints that already recorded a G warmup retain their saved schedule
+on resume. The dashboard and console continue to display that historical warmup.
+The new pipeline does not rewrite old checkpoint schedules.
 
 ## Saved overrides and resume
 
-Your source config and `.hndl` files remain the baseline. Each run records its
-applied overrides in its own folder:
+Source config and `.hndl` files remain unchanged. Each run records its own
+baseline, proposed changes, and measurements:
 
 ```text
 runs/tuned/tuning/config.base.json  resolved baseline recipe
-runs/tuned/tuning/overrides.json    selected initialization and G/D learning-rate overrides
+runs/tuned/tuning/overrides.json    selected G/D learning-rate overrides
 runs/tuned/tuning/report.json       measurements, decisions, and state verification
 ```
 
-The initial full training checkpoint stores the exact selected weights, matching
-EMA initialization, selected optimizer rates, and restored training state. Its
-tuning metadata refers to the artifact hashes. The JSON override file explains the changes; it is not
-replayed on resume.
+The initial full checkpoint stores the unchanged initial tensors, selected
+optimizer rates, and restored training state. Metadata records the tuning
+artifact hashes. Override JSON explains the checkpoint; it is not replayed.
 
-Repeating `train` on that run directory resumes the saved checkpoint. Keeping
-`--tune` on the command prints a reminder that tuning is skipped for an existing
-run. The warmup option is only accepted for a new run; omit it when resuming.
-Resume keeps its saved weights and selected learning-rate schedule. To compare
-baseline and tuned startup, use distinct run directories
-with the same config and seed. Do not point a calibration comparison at an
-existing training run and expect it to reinitialize the model.
+```sh
+hypergan resume runs/tuned
+```
+
+Resume restores saved rates and continues from the saved step. It never repeats
+tuning or multiplies the factors again. Repeating `train` on an existing run
+also resumes it; `--tune` prints a reminder that startup tuning is skipped.
+Use separate run directories to compare substantive configuration changes.
+
+## What passing means
+
+This is an experimental, local check of numerical update response. Three stencil
+points always fit a quadratic; an exact fit is not independent evidence that
+its curvature predicts other points. Held-out loss checks and coupled replay
+provide separate tests, but do not certify image quality, semantic diversity,
+useful gradient directions, long-term stability, or convergence. Both players
+can make finite updates and still learn undesirable samples. Two probe batches
+do not provide a precise uncertainty estimate.
+
+The [update-response research memo](../reports/update-response-research-2026-09-21.md)
+explains the motivation and limits. Earlier [startup drift](../reports/startup-signal-drift-2026-09-21.md),
+[automatic tuning](../reports/startup-dynamics-autotune-2026-09-21.md), and
+[warmup drift](../reports/startup-warmup-drift-2026-09-21.md) reports describe older
+pipelines. Their measurements remain evidence about those implementations,
+not validation of the new selector.
 
 ## Inspect without changing initialization
 

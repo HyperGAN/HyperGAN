@@ -1,9 +1,4 @@
-"""Disposable, configured D/G/prior update trials for startup stability.
-
-Proposals change either the owned generator LR or halve the owned critic LR. Every
-trial is rolled back; selection preserves relative diversity/transmission on two
-reserved input banks rather than maximizing a gradient norm or claiming quality.
-"""
+"""Measured optimizer-direction proposals, verified by one disposable coupled replay."""
 import copy
 import json
 import math
@@ -12,11 +7,11 @@ import time
 import torch
 
 from .checkpoints import capture_rng, data_contract, restore_rng, restore_trainer, trainer_state
-from .initialization_tuning import _hash, _inventory, _storage, _structural
+from .signal_structure import _hash, _inventory, _storage, _structural
 from .signal_diagnostic import _probe
 
 TRIAL_STEPS = 8
-MAX_TRIALS = 3
+MAX_TRIALS = 2
 RETENTION = .25
 
 
@@ -41,7 +36,12 @@ def _snapshot(trainer):
                               None if parameter.grad is None else parameter.grad.detach().cpu().clone()))
     return {'state': _cpu_clone(trainer_state(trainer, None)), 'gradients': gradients,
             'metric_transfer': copy.deepcopy(trainer._metric_transfer),
-            'unscale_scalars': copy.deepcopy(trainer._unscale_scalars)}
+            'unscale_scalars': copy.deepcopy(trainer._unscale_scalars),
+            'warmup_present': hasattr(trainer, 'g_lr_warmup'),
+            'warmup': copy.deepcopy(getattr(trainer, 'g_lr_warmup', None)),
+            'compiled_caches': [(module, module._compiled) for name in roots
+                                for module in getattr(trainer, name).modules()
+                                if type(module).__module__ == 'hndl.torch' and hasattr(module, '_compiled')]}
 
 
 def _restore(trainer, snapshot):
@@ -61,6 +61,12 @@ def _restore(trainer, snapshot):
             parameter.grad = original
     trainer._metric_transfer = copy.deepcopy(snapshot['metric_transfer'])
     trainer._unscale_scalars = copy.deepcopy(snapshot['unscale_scalars'])
+    if snapshot['warmup_present']:
+        trainer.g_lr_warmup = copy.deepcopy(snapshot['warmup'])
+    elif hasattr(trainer, 'g_lr_warmup'):
+        del trainer.g_lr_warmup
+    for module, compiled in snapshot['compiled_caches']:
+        module._compiled = compiled
 
 
 
@@ -121,6 +127,12 @@ def _eligibility(trainer):
                         for p in term.module.parameters() if p.requires_grad}
     if critics != critic_group or critics != declared_critics or critics & (owned | {id(p) for p in trainer.prior.parameters()}):
         return 'The discriminator optimizer contains uncertain or overlapping ownership'
+    role_storages = [{_storage(parameter) for parameter in parameters} for parameters in
+                     (trainer.program.generator_parameters, trainer.program.critic_parameters,
+                      trainer.program.prior_parameters)]
+    if any(first & second for index, first in enumerate(role_storages)
+           for second in role_storages[index + 1:]):
+        return 'Generator, discriminator and prior optimizer groups share tensor storage; fixed-player probes are prohibited'
     return None
 
 
@@ -246,141 +258,181 @@ def _candidate_guards(before, after, motion):
     return reasons, comparisons
 
 def tune_startup_dynamics(trainer, *, progress=None):
-    """Propose G/D LR factors, leaving the trainer exactly at its input state.
+    """Fit actual update-eight directions and verify at most one paired replay.
 
-    The baseline really runs first. Two data banks are reserved from its next
-    draws; matching latent draws use the initial prior and the post-trial stream
-    position. Dataset identities may repeat under sampling with replacement.
-    Every rate candidate starts from the same original trainer and RNG state.
+    All optimizer trials, objective probes and reserved draws are discarded.
+    Phase-local objectives include the configured penalty schedule and auxiliary
+    terms. Prior rates and pretrained state are never calibration variables.
     """
+    from .startup_response_probe import UpdateObserver, PhaseProbes
+    from .update_response import aggregate_proposals, fit_directional_quadratic, verify_player_validation
     started = time.monotonic()
     progress = progress or (lambda row: None)
     exclusion = _eligibility(trainer)
-    result = {'schema_version': 1, 'kind': 'startup-dynamics', 'trial_steps': TRIAL_STEPS,
-              'maximum_disposable_updates': MAX_TRIALS * TRIAL_STEPS,
-              'selected_g_lr_factor': 1.0, 'selected_d_lr_factor': 1.0, 'outcome': 'skipped' if exclusion else 'unresolved',
-              'selected_candidate': None, 'reason': exclusion,
-              'rate_formula': 'G: clip(minimum_baseline_retention, 0.1, 0.5) after retention falls below 0.25; D: one fixed 0.5 sensitivity trial',
-              'selection_policy': 'Keep a passing baseline; otherwise try D-only half rate first, then a baseline-derived G-only correction; stop at first passing candidate.',
-              'candidates': [], 'guards': {'minimum_diversity_retention': RETENTION,
-                                          'minimum_first_cotangent_gain_retention': RETENTION,
-                                          'finite_nonzero_generator_objective_signal': True,
-                                          'finite_nonzero_generator_and_discriminator_optimizer_displacement': True},
-              'interpretation': ['Eight updates measure baseline drift; at most one D-only half-rate trial and one derived G-only trial repeat the same eight updates.',
-                                 'Each correction changes one owned player learning rate; prior rates remain configured and no combined G/D correction is searched.',
-                                 'D halving is a bounded sensitivity test, not an inferred optimal discriminator rate.',
-                                 'Finite nonzero optimizer displacement rules out a stationary-player pass, but does not establish useful learning.',
-                                 'Two matched banks are reserved after the baseline trial draw positions, with initial-prior latent tensors held fixed.',
-                                 'Retention thresholds are startup-collapse heuristics, not image quality or a universal optimum.',
-                                 'This finite-horizon check cannot certify long-term stability or detect every form of collapse.']}
+    budget = {'training_updates': 0, 'fit_phase_loss_evaluations': 0,
+              'validation_phase_loss_evaluations': 0, 'g_response_forwards': 0,
+              'q_image_forwards': 0, 'd_signal_input_backwards': 0,
+              'guard_structural_evaluations': 0, 'guard_signal_evaluations': 0,
+              'fit_bank_gradient_evaluations': 0}
+    result = {'schema_version': 2, 'kind': 'startup-dynamics', 'method': 'measured-update-response',
+              'trial_steps': TRIAL_STEPS, 'maximum_disposable_updates': 16,
+              'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
+              'outcome': 'skipped' if exclusion else 'unresolved', 'selected_candidate': None,
+              'reason': exclusion, 'candidates': [], 'probe_budget': budget,
+              'rate_formula': 'phi(s)=phi(0)+a*s+k*s^2/2 on s=(0,.5,1); min(1,-a/k) only for resolved a<0,k>0 and factor>=.1',
+              'selection_policy': 'Two fit banks per player, two separate strict-decrease validation banks, then at most one coupled eight-update replay.',
+              'guards': {'minimum_diversity_retention': RETENTION,
+                         'minimum_first_cotangent_gain_retention': RETENTION,
+                         'finite_nonzero_generator_objective_signal': True,
+                         'finite_nonzero_generator_and_discriminator_optimizer_displacement': True},
+              'interpretation': [
+                  'Actual optimizer displacements include moments and the configured lazy penalty; phase-eight probes preserve the real penalty step.',
+                  'Fixed-latent G response isolates generator motion; learned-prior displacement is reported separately and its rate remains configured.',
+                  'Fitting-bank slopes come from the stencil; training-gradient dot displacement is a separate diagnostic, not a fitting-bank slope check.',
+                  'Each player is measured against its phase-local frozen opponent; only a coupled replay can test the proposed pair.',
+                  'Input-gradient changes and retention guards describe local training behavior, not semantic quality or long-term stability.']}
     if exclusion:
-        result['elapsed_seconds'] = time.monotonic() - started
-        result['disposable_completed_updates'] = 0
+        result.update(elapsed_seconds=time.monotonic() - started, disposable_completed_updates=0)
         return result
     initial = _snapshot(trainer)
     protected = _protected(trainer)
     protected_hash = _hash(protected)
     result['protected_state_verification'] = {'before_sha256': protected_hash}
-    completed_updates = 0
+    previous_observer = getattr(trainer, '_update_response_observer', None)
+    observer_present = hasattr(trainer, '_update_response_observer')
+    observer = UpdateObserver(trainer, _snapshot, protected, protected_hash, budget)
+    probes = PhaseProbes(trainer, _restore, protected, protected_hash, budget)
 
-    def run_trial(g_factor, d_factor, index):
-        nonlocal completed_updates
+    def event(stage, *, step=8, g_factor=1., d_factor=1., message):
+        progress({'phase': 'dynamics', 'stage': stage, 'candidate': 2 if stage == 'replay' else 1,
+                  'total_candidates': MAX_TRIALS, 'trial_step': step, 'trial_steps': TRIAL_STEPS,
+                  'lr_factor': g_factor, 'g_lr_factor': g_factor, 'd_lr_factor': d_factor,
+                  'message': message})
+
+    def run_trial(g_factor, d_factor, *, stage, observer):
         trainer.base_lrs[0][0] = initial['state']['base_lrs'][0][0] * g_factor
         trainer.opt_g.param_groups[0]['lr'] = initial['state']['optimizers'][0]['param_groups'][0]['lr'] * g_factor
         trainer.base_lrs[1][0] = initial['state']['base_lrs'][1][0] * d_factor
         trainer.opt_d.param_groups[0]['lr'] = initial['state']['optimizers'][1]['param_groups'][0]['lr'] * d_factor
+        trainer._update_response_observer = observer
         losses = []
         for step in range(1, TRIAL_STEPS + 1):
-            progress({'phase': 'dynamics', 'candidate': index, 'total_candidates': MAX_TRIALS,
-                      'trial_step': step, 'trial_steps': TRIAL_STEPS, 'lr_factor': g_factor,
-                      'g_lr_factor': g_factor, 'd_lr_factor': d_factor,
-                      'message': f'Testing G LR ×{g_factor:g}, D LR ×{d_factor:g}: update {step}/{TRIAL_STEPS}'})
+            event(stage, step=step, g_factor=g_factor, d_factor=d_factor,
+                  message=f'{"Measuring configured updates" if stage == "measure" else "Verifying coupled proposal"}: {step}/{TRIAL_STEPS}')
             row, _ = trainer.update()
-            completed_updates += 1
+            budget['training_updates'] += 1
             if _hash(protected) != protected_hash:
                 raise ValueError('Dynamics trial changed protected frozen/pretrained state')
             losses.append({key: float(row[key]) for key in ('g_loss', 'd_loss')})
             if any(not math.isfinite(value) for value in losses[-1].values()):
                 raise FloatingPointError('Nonfinite loss during disposable dynamics trial')
+        trainer._update_response_observer = None
         return losses
 
+    def measure(banks, rng):
+        budget['guard_structural_evaluations'] += len(banks)
+        budget['guard_signal_evaluations'] += len(banks)
+        return _measure(trainer, banks, rng, protected, protected_hash)
+
     try:
-        try:
-            baseline_losses = run_trial(1.0, 1.0, 1)
-        except (FloatingPointError, ValueError) as error:
-            # A partial D/G failure has no common full-horizon tail input bank.
-            # Refuse to invent one or declare that shrinking G LR fixes D/prior.
-            if 'nonfinite' not in str(error).lower():
-                raise
-            result.update(reason='Baseline trial became nonfinite before a full held-out comparison: ' + str(error))
-            result['candidates'].append({'lr_factor': 1., 'd_lr_factor': 1., 'accepted': False, 'failure': str(error)})
-            return result
+        baseline_losses = run_trial(1., 1., stage='measure', observer=observer)
+        if set(observer.anchors) != {'generator', 'discriminator'}:
+            raise ValueError('Configured update did not expose both phase-local optimizer anchors')
         baseline_motion = _optimizer_motion(trainer, initial)
         baseline_final = _snapshot(trainer)
-        tail_prior_state = trainer.streams['prior'].get_state().clone()
-        real_banks = [trainer.batch(), trainer.batch()]
-        _restore(trainer, initial)
-        local_prior = torch.Generator(device=trainer.device)
-        local_prior.set_state(tail_prior_state)
+        # These are additional draws after all baseline training draws. Replays
+        # use the same banks, never new candidates or replacement validation.
         with torch.no_grad():
-            banks = [(batch, trainer.prior.sample(len(batch['real']), generator=local_prior)) for batch in real_banks]
+            banks = []
+            for _ in range(4):
+                batch = _cpu_clone(trainer.batch())
+                latent = _cpu_clone(trainer.prior.sample(trainer.config['training']['batch_size'],
+                                     generator=trainer.streams['prior']))
+                banks.append((batch, latent))
+        fit_banks, validation_banks = banks[:2], banks[2:]
         probe_rng = capture_rng()
-        before = _measure(trainer, banks, probe_rng, protected, protected_hash)
+        result['bank_control'] = {'fit_draws': [0, 1], 'validation_draws': [2, 3],
+                                  'origin': 'four reserved draws after baseline; fixed baseline-tail latent tensors',
+                                  'replacement_sampling_may_repeat_dataset_items': True}
+        _restore(trainer, initial)
+        before = measure(validation_banks, probe_rng)
         result['before'] = before
         _restore(trainer, baseline_final)
-        after = _measure(trainer, banks, probe_rng, protected, protected_hash)
-        reasons, baseline_comparisons = _candidate_guards(before, after, baseline_motion)
-        result['candidates'].append({'name': 'g_lr_1', 'lr_factor': 1., 'd_lr_factor': 1., 'accepted': not reasons,
-                                     'rejection_reasons': reasons, 'comparisons': baseline_comparisons,
-                                     'after': after, 'trial_losses': baseline_losses, 'optimizer_motion': baseline_motion})
-        del baseline_final
-        if not reasons:
-            result.update(outcome='kept_baseline', selected_candidate='g_lr_1',
-                          reason='Configured generator and discriminator rates passed both reserved-bank startup retention guards')
+        baseline_after = measure(validation_banks, probe_rng)
+        baseline_failures, comparisons = _candidate_guards(before, baseline_after, baseline_motion)
+        result['candidates'].append({'name': 'baseline', 'lr_factor': 1., 'd_lr_factor': 1.,
+                                     'accepted': not baseline_failures, 'rejection_reasons': baseline_failures,
+                                     'comparisons': comparisons, 'after': baseline_after,
+                                     'trial_losses': baseline_losses, 'optimizer_motion': baseline_motion,
+                                     'update_response': observer.observations})
+        event('fit', message='Fitting phase-eight optimizer directions on two reserved banks')
+        proposals = {}
+        for role in ('generator', 'discriminator'):
+            fits = []
+            for bank in fit_banks:
+                measured = [probes.evaluate(observer.anchors[role], role, bank, factor,
+                            category='fit_phase_loss_evaluations') for factor in (0., .5, 1.)]
+                fits.append(fit_directional_quadratic(*(value for value, _ in measured),
+                                                     epsilon=max(epsilon for _, epsilon in measured)))
+            proposals[role] = aggregate_proposals(fits)
+        result['directional_proposals'] = proposals
+        result['d_signal_response'] = probes.d_signal_response(observer.anchors['discriminator'], fit_banks)
+        g_factor, d_factor = proposals['generator']['factor'], proposals['discriminator']['factor']
+        if g_factor == d_factor == 1.:
+            if all(proposal['status'] == 'unchanged' for proposal in proposals.values()) and not baseline_failures:
+                result.update(outcome='kept_baseline', selected_candidate='baseline',
+                              reason='Both players resolved no reduction within the allowed range and the baseline passed startup guards')
+            else:
+                result['reason'] = 'Neither player supplied a resolved reduction across both fitting banks; configured rates retained'
             return result
-        def evaluate_correction(name, g_factor, d_factor, index):
-            _restore(trainer, initial)
-            try:
-                losses = run_trial(g_factor, d_factor, index)
-                motion = _optimizer_motion(trainer, initial)
-                measured = _measure(trainer, banks, probe_rng, protected, protected_hash)
-                failures, measured_comparisons = _candidate_guards(before, measured, motion)
-            except (FloatingPointError, ValueError) as error:
-                if 'nonfinite' not in str(error).lower():
-                    raise
-                result['candidates'].append({'name': name, 'lr_factor': g_factor, 'd_lr_factor': d_factor,
-                                             'accepted': False, 'failure': str(error)})
-                return False
-            result['candidates'].append({'name': name, 'lr_factor': g_factor, 'd_lr_factor': d_factor,
-                                         'accepted': not failures, 'rejection_reasons': failures,
-                                         'comparisons': measured_comparisons, 'after': measured,
-                                         'trial_losses': losses, 'optimizer_motion': motion})
-            if failures:
-                return False
-            result.update(outcome='selected', selected_g_lr_factor=g_factor,
-                          selected_d_lr_factor=d_factor, selected_candidate=name,
-                          reason=('One discriminator-only half-rate sensitivity trial passed both reserved-bank startup guards'
-                                  if d_factor != 1 else 'One drift-derived generator-only rate correction passed both reserved-bank startup guards'))
-            return True
-
-        if evaluate_correction('d_lr_half', 1.0, .5, 2):
+        event('validate', g_factor=g_factor, d_factor=d_factor,
+              message='Checking the proposed pair on two separate validation banks')
+        validations = {}
+        for role, factor in (('generator', g_factor), ('discriminator', d_factor)):
+            losses, epsilon = [], torch.finfo(torch.float32).eps
+            if factor != 1.:
+                for bank in validation_banks:
+                    pair = [probes.evaluate(observer.anchors[role], role, bank, point,
+                            category='validation_phase_loss_evaluations') for point in (0., factor)]
+                    losses.append(tuple(value for value, _ in pair))
+                    epsilon = max(epsilon, *(precision for _, precision in pair))
+            validations[role] = verify_player_validation(losses, changed=factor != 1., epsilon=epsilon)
+        result['heldout_validation'] = validations
+        if not all(value['accepted'] for value in validations.values()):
+            result['reason'] = 'A changed player failed strict held-out decrease; the whole pair was rejected without another proposal'
             return result
-        retentions = [value for row in baseline_comparisons for key, value in row.items() if key.endswith('_retention')]
-        valid = retentions and all(value is not None and math.isfinite(value) and value >= 0 for value in retentions)
-        if not valid or min(retentions) >= RETENTION:
-            result['reason'] = 'D-only half rate failed; baseline has no finite retention failure from which to derive a G correction'
-            return result
-        minimum_retention = min(retentions)
-        factor = max(.1, min(.5, minimum_retention))
-        result['derived_rate'] = {'minimum_retention': minimum_retention, 'proposed_g_lr_factor': factor}
-        if evaluate_correction('derived_g_lr', factor, 1.0, 3):
-            return result
-        result['reason'] = 'Neither the D-only half-rate trial nor the derived G-only trial passed; configured rates remain unchanged'
+        _restore(trainer, initial)
+        replay_observer = UpdateObserver(trainer, _snapshot, protected, protected_hash, budget,
+                                         capture_anchors=False)
+        losses = run_trial(g_factor, d_factor, stage='replay', observer=replay_observer)
+        motion = _optimizer_motion(trainer, initial)
+        measured = measure(validation_banks, probe_rng)
+        failures, comparisons = _candidate_guards(before, measured, motion)
+        result['candidates'].append({'name': 'measured_update_pair', 'lr_factor': g_factor,
+                                     'd_lr_factor': d_factor, 'accepted': not failures,
+                                     'rejection_reasons': failures, 'comparisons': comparisons,
+                                     'after': measured, 'trial_losses': losses, 'optimizer_motion': motion,
+                                     'update_response': replay_observer.observations})
+        if failures:
+            result['reason'] = 'The one coupled replay failed startup guards; the whole pair was rejected'
+        else:
+            result.update(outcome='selected', selected_g_lr_factor=g_factor, selected_d_lr_factor=d_factor,
+                          selected_candidate='measured_update_pair',
+                          reason='The measured pair passed separate held-out loss checks and one coupled replay')
+        return result
+    except (FloatingPointError, ValueError) as error:
+        if not isinstance(error, FloatingPointError) and not str(error).startswith('Nonfinite '):
+            raise
+        result['reason'] = 'Nonfinite disposable measurement or update; configured rates retained: ' + str(error)
         return result
     finally:
         protected_after = _hash(protected)
         _restore(trainer, initial)
-        result['disposable_completed_updates'] = completed_updates
+        if observer_present:
+            trainer._update_response_observer = previous_observer
+        elif hasattr(trainer, '_update_response_observer'):
+            del trainer._update_response_observer
+        result['disposable_completed_updates'] = budget['training_updates']
         result['restored_step'] = trainer.step
         result['protected_state_verification'].update(after_sha256=protected_after,
                                                       unchanged_during_trials=protected_after == protected_hash,

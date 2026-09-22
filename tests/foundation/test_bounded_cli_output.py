@@ -409,6 +409,37 @@ def test_generator_and_discriminator_trial_rates_and_decisions_are_visible(capsy
     assert decision in lines[1]
 
 
+@pytest.mark.parametrize('stage,label,has_step', [
+    ('measure', 'Measuring optimizer updates', True),
+    ('fit', 'Fitting directional curvature', False),
+    ('validate', 'Validating held-out response', False),
+    ('replay', 'Replaying proposed rates', True),
+])
+def test_measured_update_stages_replace_candidate_search_labels(capsys, stage, label, has_step):
+    with training_output(progress_every=1000) as output:
+        output.progress({'event': 'tuning', 'step': 0, 'tuning': {
+            'status': 'running', 'method': 'measured-update-response', 'phase': 'dynamics',
+            'stage': stage, 'candidate': 2, 'total_candidates': 2, 'trial_step': 8, 'trial_steps': 8,
+            'g_lr_factor': .25, 'd_lr_factor': .75}})
+    text = capsys.readouterr().err
+    assert label in text
+    assert ('Trial step 8 of 8' in text) is has_step
+    assert 'Candidate' not in text and 'initialization' not in text
+
+
+def test_measured_update_completion_does_not_claim_layer_calibration(capsys):
+    with training_output(progress_every=1000) as output:
+        output.progress({'event': 'tuning', 'step': 0, 'tuning': {
+            'status': 'complete', 'method': 'measured-update-response', 'outcome': 'kept_baseline',
+            'dynamics_outcome': 'unresolved', 'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
+            'dynamics_reason': 'Directional curvature unresolved'}})
+    text = capsys.readouterr().err
+    assert 'Startup tuning unresolved' in text
+    assert 'No measured adjustment accepted; kept configured G and D learning rates' in text
+    assert 'Directional curvature unresolved' in text
+    assert 'initialization' not in text and 'warmup' not in text
+
+
 @pytest.mark.parametrize('outcome,factor,expected',[
     ('selected',.246,'Startup tuning complete | Selected G learning rate × 0.246'),
     ('kept_baseline',1.,'Startup tuning complete | Configured G learning rate passed'),

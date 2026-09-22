@@ -193,15 +193,20 @@ function updateInitializationTuning(tuning, warmup) {
   const parts = [tuning.status === "complete" && tuning.dynamics_outcome === "unresolved"
     ? "Startup tuning unresolved" : labels[tuning.status]];
   const factor = value => Number.isFinite(value) && value > 0 ? Number(value.toPrecision(4)).toString() : null;
+  const stages = {measure: "Measuring optimizer updates", fit: "Fitting directional curvature",
+    validate: "Validating held-out response", replay: "Replaying proposed rates"};
+  const measured = tuning.method === "measured-update-response" || Boolean(stages[tuning.stage]);
   if (tuning.status === "running") {
-    if (tuning.phase === "initialization") parts.push("Initialization");
+    if (stages[tuning.stage]) parts.push(stages[tuning.stage]);
+    else if (tuning.phase === "initialization") parts.push("Initialization");
     else if (tuning.phase === "dynamics") parts.push("Trial updates");
   }
-  if (tuning.status === "running" && Number.isSafeInteger(tuning.candidate) && tuning.candidate > 0
+  if (tuning.status === "running" && !measured && Number.isSafeInteger(tuning.candidate) && tuning.candidate > 0
       && Number.isSafeInteger(tuning.total_candidates) && tuning.total_candidates >= tuning.candidate)
     parts.push(`Candidate ${tuning.candidate} of ${tuning.total_candidates}`);
   if (tuning.status === "running" && tuning.phase === "dynamics") {
-    if (Number.isSafeInteger(tuning.trial_step) && tuning.trial_step >= 0
+    if ((!measured || ["measure", "replay"].includes(tuning.stage))
+        && Number.isSafeInteger(tuning.trial_step) && tuning.trial_step >= 0
         && Number.isSafeInteger(tuning.trial_steps) && tuning.trial_steps > 0 && tuning.trial_step <= tuning.trial_steps)
       parts.push(`Trial step ${tuning.trial_step} of ${tuning.trial_steps}`);
     const gFactor = tuning.g_lr_factor ?? tuning.lr_factor;
@@ -209,17 +214,19 @@ function updateInitializationTuning(tuning, warmup) {
     if (factor(tuning.d_lr_factor)) parts.push(`D learning rate × ${factor(tuning.d_lr_factor)}`);
   }
   if (tuning.status === "complete") {
-    if (tuning.outcome === "kept_baseline") parts.push("Kept baseline initialization");
-    else if (tuning.outcome === "selected") parts.push("Applied tuned initialization");
+    if (!measured && tuning.outcome === "kept_baseline") parts.push("Kept baseline initialization");
+    else if (!measured && tuning.outcome === "selected") parts.push("Applied tuned initialization");
     if (tuning.dynamics_outcome === "selected") {
       if (factor(tuning.selected_g_lr_factor)) parts.push(`Selected G learning rate × ${factor(tuning.selected_g_lr_factor)}`);
       if (factor(tuning.selected_d_lr_factor)) parts.push(`Selected D learning rate × ${factor(tuning.selected_d_lr_factor)}`);
     }
-    else if (tuning.dynamics_outcome === "kept_baseline") parts.push(factor(tuning.selected_d_lr_factor)
+    else if (tuning.dynamics_outcome === "kept_baseline") parts.push(measured
+      ? "Kept configured G and D learning rates" : factor(tuning.selected_d_lr_factor)
       ? "Configured G and D learning rates passed" : "Configured G learning rate passed");
-    else if (tuning.dynamics_outcome === "unresolved") parts.push(factor(tuning.selected_d_lr_factor)
+    else if (tuning.dynamics_outcome === "unresolved") parts.push(measured
+      ? "No measured adjustment accepted; kept configured G and D learning rates" : factor(tuning.selected_d_lr_factor)
       ? "No rate candidate passed; kept configured G and D learning rates" : "No rate candidate passed; kept configured G learning rate");
-    else if (tuning.dynamics_outcome === "skipped") parts.push("Dynamics check skipped");
+    else if (tuning.dynamics_outcome === "skipped") parts.push(measured ? "Measured update tuning skipped" : "Dynamics check skipped");
     if (typeof tuning.dynamics_reason === "string" && tuning.dynamics_reason.trim())
       parts.push(tuning.dynamics_reason.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240));
   }

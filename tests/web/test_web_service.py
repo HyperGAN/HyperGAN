@@ -829,8 +829,10 @@ def test_real_tuned_run_establishes_viewer_lineage_before_tuning(tmp_path):
             return ExecutionInfo(0, {}, [], {})
 
         def tune(self, run_dir, on_event=None):
-            on_event({'candidate': 1, 'total_candidates': 1})
-            return {'outcome': 'kept_baseline', 'selected_candidate': 'baseline'}
+            on_event({'phase': 'dynamics', 'stage': 'measure', 'trial_step': 1, 'trial_steps': 8})
+            return {'method': 'measured-update-response', 'outcome': 'unresolved',
+                    'dynamics_outcome': 'unresolved', 'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
+                    'dynamics_reason': 'Directional curvature unresolved'}
 
         def checkpoint(self, run_dir, metadata):
             target = run_dir / f'checkpoint-{self.step}'
@@ -866,6 +868,7 @@ def test_real_tuned_run_establishes_viewer_lineage_before_tuning(tmp_path):
             bootstrap = await get_bootstrap(service)
             assert bootstrap['lineage'] == [{'attempt_id': result['attempt_id'], 'through_step': None}]
             assert service.public_manifest()['initialization_tuning']['status'] == 'complete'
+            assert service.public_manifest()['initialization_tuning']['dynamics_outcome'] == 'unresolved'
         finally:
             await service.close()
     asyncio.run(scenario())

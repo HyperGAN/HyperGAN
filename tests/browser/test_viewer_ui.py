@@ -260,6 +260,39 @@ def test_generator_and_discriminator_rate_decisions_arrive_live(viewer, outcome,
     assert not errors
 
 
+def test_measured_update_stages_and_unresolved_decision_arrive_live(viewer):
+    page, control, condition, errors = viewer
+    tuning = {'status': 'running', 'method': 'measured-update-response', 'phase': 'dynamics',
+              'stage': 'measure', 'trial_step': 8, 'trial_steps': 8, 'candidate': 1, 'total_candidates': 2,
+              'g_lr_factor': 1., 'd_lr_factor': 1.}
+    control.update(status='tuning', initialization_tuning=tuning)
+    login(page)
+    panel = page.locator('#initialization-tuning')
+    assert 'Measuring optimizer updates' in panel.text_content()
+    assert 'Trial step 8 of 8' in panel.text_content()
+    for stage, label in [('fit', 'Fitting directional curvature'),
+                         ('validate', 'Validating held-out response'),
+                         ('replay', 'Replaying proposed rates')]:
+        with condition:
+            control['run_update'] = {'run_id': RUN, 'status': 'tuning', 'steps': 0,
+                'initialization_tuning': dict(tuning, stage=stage, candidate=2)}
+            condition.notify_all()
+        panel.filter(has_text=label).wait_for()
+        assert ('Trial step' in panel.text_content()) is (stage == 'replay')
+        assert 'Candidate' not in panel.text_content()
+    with condition:
+        control['run_update'] = {'run_id': RUN, 'status': 'running', 'steps': 0, 'initialization_tuning': {
+            'status': 'complete', 'method': 'measured-update-response', 'outcome': 'kept_baseline',
+            'dynamics_outcome': 'unresolved', 'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
+            'dynamics_reason': 'Directional curvature unresolved'}}
+        condition.notify_all()
+    panel.filter(has_text='No measured adjustment accepted').wait_for()
+    assert 'Startup tuning unresolved' in panel.text_content()
+    assert 'Directional curvature unresolved' in panel.text_content()
+    assert 'initialization' not in panel.text_content() and 'warmup' not in panel.text_content()
+    assert not errors
+
+
 def test_warmup_progress_arrives_live_during_retained_training(viewer):
     page, control, condition, errors = viewer
     tuning = {'status': 'complete', 'outcome': 'kept_baseline',

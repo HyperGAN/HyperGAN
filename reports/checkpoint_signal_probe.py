@@ -21,7 +21,7 @@ import torch
 
 from hypergan.checkpoints import capture_rng, read_checkpoint, restore_rng
 from hypergan.config import resolve_config
-from hypergan.initialization_tuning import _inventory, _structural
+from hypergan.signal_structure import _inventory, _structural
 from hypergan.signal_diagnostic import _digest_state, _probe
 from hypergan.training import ReferenceTrainer
 

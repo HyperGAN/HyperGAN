@@ -77,7 +77,8 @@ def test_tuned_initial_checkpoint_contains_exact_parameters_and_resume_does_not_
     assert final_state['base_lrs'][1] == baseline.base_lrs[1]
 
 
-def test_artifact_failure_restores_owned_parameters_and_ema(tmp_path, monkeypatch):
+@pytest.mark.parametrize('selected_player', ['generator', 'discriminator'])
+def test_artifact_failure_restores_owned_parameters_and_ema(tmp_path, monkeypatch, dynamics, selected_player):
     import hypergan.initialization_tuning as numerical
     import hypergan.startup_tuning as persistence
     config = write_default(tmp_path / 'project', device='cpu')
@@ -88,6 +89,10 @@ def test_artifact_failure_restores_owned_parameters_and_ema(tmp_path, monkeypatc
     original = {name: p.detach().clone() for name, p in trainer.graph.named_parameters()}
     ema = {name: p.detach().clone() for name, p in trainer.ema_graph.named_parameters()}
     monkeypatch.setattr(numerical, 'tune_initialization', _candidate)
+    if selected_player == 'discriminator':
+        monkeypatch.setattr(dynamics, 'tune_startup_dynamics', lambda *a, **k: {
+            'outcome': 'selected', 'selected_g_lr_factor': 1., 'selected_d_lr_factor': .5,
+            'reason': 'fixture discriminator confirmation passed'})
     atomic = persistence.atomic_json
     def failing(path, value):
         if path.name == 'report.json':
@@ -102,6 +107,41 @@ def test_artifact_failure_restores_owned_parameters_and_ema(tmp_path, monkeypatc
         assert torch.equal(parameter, original[name])
     for name, parameter in trainer.ema_graph.named_parameters():
         assert torch.equal(parameter, ema[name])
+
+
+@pytest.mark.parametrize('warmup_steps', [0, 4])
+def test_discriminator_rate_selection_persists_and_resumes_without_changing_g_or_prior(
+        tmp_path, monkeypatch, dynamics, warmup_steps):
+    import hypergan.initialization_tuning as numerical
+    from .test_recovery import equal
+    monkeypatch.setattr(numerical, 'tune_initialization', _candidate)
+    monkeypatch.setattr(dynamics, 'tune_startup_dynamics', lambda *a, **k: {
+        'outcome': 'selected', 'selected_g_lr_factor': 1., 'selected_d_lr_factor': .5,
+        'reason': 'fixture discriminator confirmation passed', 'disposable_completed_updates': 16})
+    config = write_default(tmp_path / 'project', device='cpu')
+    original = config.read_bytes()
+    whole, split = tmp_path / 'whole', tmp_path / 'split'
+    train(config, whole, steps=6, tune=True, tune_warmup_steps=warmup_steps)
+    result = train(config, split, steps=6, tune=True, tune_warmup_steps=warmup_steps, stop_after_steps=2)
+    tuning = result['initialization_tuning']
+    assert tuning['selected_g_lr_factor'] == 1
+    assert tuning['selected_d_lr_factor'] == .5
+    assert tuning['optimizer_override']['schema_version'] == 2
+    initial = next(p for p in (split / 'checkpoints').glob('*-step-*')
+                   if json.loads((p / 'manifest.json').read_text())['step'] == 0)
+    _, metadata, state = read_checkpoint(split, initial)
+    baseline = ReferenceTrainer(load_config(config)).base_lrs
+    assert state['base_lrs'][0] == baseline[0]
+    assert state['base_lrs'][1] == [baseline[1][0] * .5]
+    assert metadata['initialization_tuning'] == tuning
+    report = json.loads((split / 'tuning/report.json').read_text())
+    override = json.loads((split / 'tuning/overrides.json').read_text())
+    assert report['optimizer_override'] == override['optimizer_override'] == tuning['optimizer_override']
+    monkeypatch.setattr(dynamics, 'tune_startup_dynamics', lambda *a, **k: pytest.fail('resume retuned'))
+    result = train(config, split, steps=6)
+    assert result['initialization_tuning'] == tuning
+    equal(read_checkpoint(whole)[2], read_checkpoint(split)[2])
+    assert config.read_bytes() == original
 
 
 def test_tuning_provenance_supports_scalar_owned_parameters(tmp_path, monkeypatch):

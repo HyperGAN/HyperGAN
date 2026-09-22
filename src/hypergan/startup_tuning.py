@@ -17,7 +17,7 @@ def tune_initialized(trainer, run_dir, on_event=None, *, warmup_steps=0):
     import torch
     from .initialization_tuning import tune_initialization
     from .startup_dynamics import tune_startup_dynamics
-    from .tuning_overrides import generator_lr_override
+    from .tuning_overrides import optimizer_lr_override
     from .provenance import hypergan_source
 
     if type(warmup_steps) is not int or warmup_steps < 0 or warmup_steps == 1:
@@ -56,13 +56,16 @@ def tune_initialized(trainer, run_dir, on_event=None, *, warmup_steps=0):
                 or trainer.base_lrs != original_base_lrs
                 or [[group['lr'] for group in optimizer.param_groups] for optimizer in (trainer.opt_g, trainer.opt_d)] != original_lrs):
             raise ValueError('Startup dynamics trials did not restore the original training boundary')
-        override = generator_lr_override(trainer.config, dynamics['selected_g_lr_factor'])
+        override = optimizer_lr_override(trainer.config, dynamics['selected_g_lr_factor'],
+                                         dynamics.get('selected_d_lr_factor', 1.0))
         outcome = dynamics['outcome']
         if (outcome not in ('selected', 'kept_baseline', 'unresolved', 'skipped')
-                or (override['factor'] != 1) != (outcome == 'selected')):
+                or (override['factor'] != 1 or override['d_factor'] != 1) != (outcome == 'selected')):
             raise ValueError('Startup dynamics factor differs from its recorded selection outcome')
         trainer.opt_g.param_groups[0]['lr'] = override['effective_g_lr']
         trainer.base_lrs[0][0] = override['effective_g_lr']
+        trainer.opt_d.param_groups[0]['lr'] = override['effective_d_lr']
+        trainer.base_lrs[1][0] = override['effective_d_lr']
         report['initialization_optimizer_steps'] = report.pop('optimizer_steps', 0)
         report['retained_training_updates'] = 0
         report['disposable_trial_updates'] = dynamics.get('disposable_completed_updates', 0)
@@ -101,11 +104,12 @@ def tune_initialized(trainer, run_dir, on_event=None, *, warmup_steps=0):
             'dynamics_outcome': outcome,
             'dynamics_reason': dynamics.get('reason'),
             'selected_g_lr_factor': override['factor'],
+            'selected_d_lr_factor': override['d_factor'],
             'optimizer_override': override,
             **warmup_metadata,
-            'message': ({'selected': f"Startup checks selected generator learning rate x{override['factor']:g}",
-                         'kept_baseline': 'Startup checks passed; configured generator learning rate retained',
-                         'unresolved': 'Startup checks unresolved; configured generator learning rate retained',
+            'message': ({'selected': f"Startup checks selected learning rates G x{override['factor']:g}, D x{override['d_factor']:g}",
+                         'kept_baseline': 'Startup checks passed; configured G and D learning rates retained',
+                         'unresolved': 'Startup checks unresolved; configured G and D learning rates retained',
                          'skipped': 'Startup initialization checked; dynamics calibration skipped'}[outcome]),
             'base_config_path': str(root / 'config.base.json'),
             'base_config_sha256': fingerprint(trainer.config),

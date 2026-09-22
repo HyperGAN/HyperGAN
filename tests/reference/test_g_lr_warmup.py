@@ -7,24 +7,29 @@ from particlegan import learning_rate_scale
 from hypergan.checkpoints import restore_trainer, trainer_state
 from hypergan.config import resolve_config
 from hypergan.training import ReferenceTrainer
-from hypergan.tuning_overrides import generator_lr_override, scheduled_generator_lr
+from hypergan.tuning_overrides import generator_lr_override, optimizer_lr_override, scheduled_generator_lr
 from .test_recovery import equal
 
 
-def _fixture():
+def _fixture(d_factor=None):
     config = resolve_config({'training': {'device': 'cpu', 'steps': 10, 'lr_anneal_start': .2,
                                          'lr_floor': .5},
                              'prior': {'args': {'num_particles': 32, 'z_dim': 4}}})
     trainer = ReferenceTrainer(config)
     baseline = deepcopy(trainer.base_lrs)
-    override = generator_lr_override(config, .3)
+    override = (generator_lr_override(config, .3) if d_factor is None
+                else optimizer_lr_override(config, .3, d_factor))
     warmup = {'steps': 5, 'start_g_lr': override['effective_g_lr'],
               'target_g_lr': override['baseline_g_lr']}
     trainer.g_lr_warmup = deepcopy(warmup)
     trainer.base_lrs[0][0] = trainer.opt_g.param_groups[0]['lr'] = warmup['start_g_lr']
+    if d_factor is not None:
+        trainer.base_lrs[1][0] = trainer.opt_d.param_groups[0]['lr'] = override['effective_d_lr']
     metadata = {'initialization_tuning': {'status': 'complete', 'dynamics_outcome': 'selected',
                                          'selected_g_lr_factor': .3, 'optimizer_override': override,
                                          'g_lr_warmup': warmup}}
+    if d_factor is not None:
+        metadata['initialization_tuning']['selected_d_lr_factor'] = d_factor
     return trainer, baseline, metadata
 
 
@@ -46,8 +51,9 @@ def test_ramp_starts_on_first_update_reaches_target_and_changes_only_g_main_rate
 
 
 @pytest.mark.parametrize('split', [0, 1, 3, 5, 6])
-def test_resume_continues_identical_ramp_and_training_without_reapplying_factor(split):
-    uninterrupted, _, metadata = _fixture()
+@pytest.mark.parametrize('d_factor', [None, .5])
+def test_resume_continues_identical_ramp_and_training_without_reapplying_factor(split, d_factor):
+    uninterrupted, baseline, metadata = _fixture(d_factor)
     batch = None
     for _ in range(split):
         _, batch = uninterrupted.update()
@@ -62,6 +68,8 @@ def test_resume_continues_identical_ramp_and_training_without_reapplying_factor(
     for _ in range(7 - split):
         _, batch = resumed.update()
     equal(trainer_state(resumed, batch), expected)
+    assert resumed.base_lrs[1] == [rate * (d_factor or 1.) for rate in baseline[1]]
+    assert resumed.base_lrs[0][1:] == baseline[0][1:]
 
 
 @pytest.mark.parametrize('change', ['missing-override', 'steps-small', 'steps-bool', 'steps-float',

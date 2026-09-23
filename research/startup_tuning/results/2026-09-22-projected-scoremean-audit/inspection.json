@@ -1,0 +1,434 @@
+{
+  "run_dir": "/home/martyn/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean",
+  "run_id": "826e2b789a854910827bee2a6892987c",
+  "observed_status": "running",
+  "observed_step": 535,
+  "tuning": null,
+  "rows": [
+    {
+      "step": 0,
+      "preview_manifest": "/home/martyn/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean/previews/000000000001-0001-053766906d3c4a499e2ac8de800064c6-step00000000-6eccbe10a8624475aecd368570d712f6/preview.json",
+      "preview_manifest_sha256": "89c9f0780fe42c3c237f6395d6a23d03168fddc487dda5da7152fc4670b27da8",
+      "preview_seed": 35002,
+      "particle_ids": [
+        3880,
+        3626,
+        3529,
+        3040,
+        1526,
+        3942,
+        1049,
+        1181,
+        3030,
+        2500,
+        1734,
+        3598,
+        2605,
+        206,
+        541,
+        3541
+      ],
+      "recorded_diversity": {
+        "metrics": {
+          "generated_rms": 0.7820887250145803,
+          "reference_rms": 0.9947166173560502,
+          "ratio": 0.7862427462942829,
+          "pooled4_generated_rms": 0.06842460728830925,
+          "pooled4_reference_rms": 0.837828839404614,
+          "pooled4_ratio": 0.08166895679663379
+        },
+        "unavailable": {},
+        "schema_version": 1,
+        "generated_count": 16,
+        "reference_count": 16,
+        "generated_binding": "generated"
+      },
+      "g_lr_warmup": null,
+      "training_metrics": {},
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.023110707600911457,
+        "absolute_value_above_0_99_fraction": 0.011994679768880209,
+        "sample_diversity_rms": 0.5354622788375254,
+        "spatial_per_channel_std_rms": 0.5915290638249147,
+        "mean_color_share_of_between_sample_variance": 0.0016650776654799936,
+        "mean_color_removed_sample_diversity_rms": 0.53501629997222
+      },
+      "real_image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.2386322021484375,
+        "absolute_value_above_0_99_fraction": 0.2117792765299479,
+        "sample_diversity_rms": 0.6810359079026831,
+        "spatial_per_channel_std_rms": 0.4525534211577386,
+        "mean_color_share_of_between_sample_variance": 0.5892737267653513,
+        "mean_color_removed_sample_diversity_rms": 0.436461813841398
+      }
+    },
+    {
+      "step": 100,
+      "preview_manifest": "/home/martyn/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean/previews/000000000002-0001-053766906d3c4a499e2ac8de800064c6-step00000100-b0e5a65f26604a8f887c4b4bb985f7f7/preview.json",
+      "preview_manifest_sha256": "34072c80ea9a8872ecbdec06a9c3cf30b4f69ad958a63aa2a650f6f8380f878b",
+      "preview_seed": 35002,
+      "particle_ids": [
+        3880,
+        3626,
+        3529,
+        3040,
+        1526,
+        3942,
+        1049,
+        1181,
+        3030,
+        2500,
+        1734,
+        3598,
+        2605,
+        206,
+        541,
+        3541
+      ],
+      "recorded_diversity": {
+        "metrics": {
+          "generated_rms": 0.24491211889580064,
+          "reference_rms": 1.0175828901382884,
+          "ratio": 0.2406802642510207,
+          "pooled4_generated_rms": 0.017581504961151295,
+          "pooled4_reference_rms": 0.7708483824667449,
+          "pooled4_ratio": 0.022807993583497953
+        },
+        "unavailable": {},
+        "schema_version": 1,
+        "generated_count": 16,
+        "reference_count": 16,
+        "generated_binding": "generated"
+      },
+      "g_lr_warmup": null,
+      "training_metrics": {
+        "loss/d_total": 0.2069759964942932,
+        "loss/g_total": 2.150646686553955,
+        "loss/total": 2.3576226830482483,
+        "loss/d_adversarial": 0.2069759964942932,
+        "loss/g_adversarial": 2.1500909328460693,
+        "loss/d_adversarial_raw": 0.2069759964942932,
+        "loss/g_adversarial_raw": 2.1500909328460693,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.0005557851400226355,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.329252517025452,
+        "timing/training_seconds": 145.91471427099896,
+        "throughput/steps_per_second": 0.7221631414791205,
+        "progress/samples_seen": 6400
+      },
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.7274042765299479,
+        "absolute_value_above_0_99_fraction": 0.6836446126302084,
+        "sample_diversity_rms": 0.16769976830345978,
+        "spatial_per_channel_std_rms": 0.9217781993589947,
+        "mean_color_share_of_between_sample_variance": 0.0009393750985358016,
+        "mean_color_removed_sample_diversity_rms": 0.16762098330375866
+      },
+      "real_image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.25729624430338544,
+        "absolute_value_above_0_99_fraction": 0.2375310262044271,
+        "sample_diversity_rms": 0.6966913743389715,
+        "spatial_per_channel_std_rms": 0.553192069392361,
+        "mean_color_share_of_between_sample_variance": 0.41280951155889267,
+        "mean_color_removed_sample_diversity_rms": 0.5338631438744288
+      }
+    },
+    {
+      "step": 200,
+      "preview_manifest": "/home/martyn/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean/previews/000000000003-0001-053766906d3c4a499e2ac8de800064c6-step00000200-74280f7a0006455cb2737394fa523752/preview.json",
+      "preview_manifest_sha256": "691444c7d4d3de19eced147aad52fb7d875f1a102e1e14d7cb70402d632f541d",
+      "preview_seed": 35002,
+      "particle_ids": [
+        3880,
+        3626,
+        3529,
+        3040,
+        1526,
+        3942,
+        1049,
+        1181,
+        3030,
+        2500,
+        1734,
+        3598,
+        2605,
+        206,
+        541,
+        3541
+      ],
+      "recorded_diversity": {
+        "metrics": {
+          "generated_rms": 0.11054502419364844,
+          "reference_rms": 1.0112588201411714,
+          "ratio": 0.10931427443887845,
+          "pooled4_generated_rms": 0.007451286254317415,
+          "pooled4_reference_rms": 0.7695048135249964,
+          "pooled4_ratio": 0.00968322240920637
+        },
+        "unavailable": {},
+        "schema_version": 1,
+        "generated_count": 16,
+        "reference_count": 16,
+        "generated_binding": "generated"
+      },
+      "g_lr_warmup": null,
+      "training_metrics": {
+        "loss/d_total": 1.4247803688049316,
+        "loss/g_total": 1.693008542060852,
+        "loss/total": 3.1177889108657837,
+        "loss/d_adversarial": 0.2754696011543274,
+        "loss/g_adversarial": 1.693007469177246,
+        "loss/d_adversarial_raw": 0.2754696011543274,
+        "loss/g_adversarial_raw": 1.693007469177246,
+        "loss/gradient_penalty": 1.149310827255249,
+        "loss/prior_regularizer": 1.096958612833987e-06,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.628748577000806,
+        "timing/training_seconds": 285.75157219698303,
+        "throughput/steps_per_second": 0.7221419002984774,
+        "progress/samples_seen": 12800
+      },
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.9566230773925781,
+        "absolute_value_above_0_99_fraction": 0.9511515299479166,
+        "sample_diversity_rms": 0.07569095535218347,
+        "spatial_per_channel_std_rms": 0.956058377890552,
+        "mean_color_share_of_between_sample_variance": 0.0008598669130430337,
+        "mean_color_removed_sample_diversity_rms": 0.07565840627964909
+      },
+      "real_image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.2574615478515625,
+        "absolute_value_above_0_99_fraction": 0.24099222819010416,
+        "sample_diversity_rms": 0.6923615767717003,
+        "spatial_per_channel_std_rms": 0.5687123263679911,
+        "mean_color_share_of_between_sample_variance": 0.38644338204505463,
+        "mean_color_removed_sample_diversity_rms": 0.5423258189501291
+      }
+    },
+    {
+      "step": 300,
+      "preview_manifest": "/home/martyn/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean/previews/000000000004-0001-053766906d3c4a499e2ac8de800064c6-step00000300-12f2c576bb49456b97448d4c5c035b70/preview.json",
+      "preview_manifest_sha256": "11caf61b5a50fede16cbd7c7a3bc4b36eda36feb3b1d273d7f3febc93a30bd34",
+      "preview_seed": 35002,
+      "particle_ids": [
+        3880,
+        3626,
+        3529,
+        3040,
+        1526,
+        3942,
+        1049,
+        1181,
+        3030,
+        2500,
+        1734,
+        3598,
+        2605,
+        206,
+        541,
+        3541
+      ],
+      "recorded_diversity": {
+        "metrics": {
+          "generated_rms": 0.05340721016518083,
+          "reference_rms": 0.9868471747464455,
+          "ratio": 0.05411902828713368,
+          "pooled4_generated_rms": 0.0036120871495218727,
+          "pooled4_reference_rms": 0.7112914422457455,
+          "pooled4_ratio": 0.0050782097674583375
+        },
+        "unavailable": {},
+        "schema_version": 1,
+        "generated_count": 16,
+        "reference_count": 16,
+        "generated_binding": "generated"
+      },
+      "g_lr_warmup": null,
+      "training_metrics": {
+        "loss/d_total": 0.20484310388565063,
+        "loss/g_total": 1.9138495922088623,
+        "loss/total": 2.118692696094513,
+        "loss/d_adversarial": 0.20484310388565063,
+        "loss/g_adversarial": 1.9138495922088623,
+        "loss/d_adversarial_raw": 0.20484310388565063,
+        "loss/g_adversarial_raw": 1.9138495922088623,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 3.443151042059611e-10,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3613811690011062,
+        "timing/training_seconds": 425.06269500998314,
+        "throughput/steps_per_second": 0.7308731098440833,
+        "progress/samples_seen": 19200
+      },
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.9887135823567709,
+        "absolute_value_above_0_99_fraction": 0.9856758117675781,
+        "sample_diversity_rms": 0.03657109113475958,
+        "spatial_per_channel_std_rms": 0.9666752029951753,
+        "mean_color_share_of_between_sample_variance": 0.0006891023832875097,
+        "mean_color_removed_sample_diversity_rms": 0.036558488350203
+      },
+      "real_image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.20079549153645834,
+        "absolute_value_above_0_99_fraction": 0.17988459269205728,
+        "sample_diversity_rms": 0.6756480666173346,
+        "spatial_per_channel_std_rms": 0.581838054958594,
+        "mean_color_share_of_between_sample_variance": 0.31198624712273165,
+        "mean_color_removed_sample_diversity_rms": 0.5604270616416535
+      }
+    },
+    {
+      "step": 400,
+      "preview_manifest": "/home/martyn/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean/previews/000000000005-0001-053766906d3c4a499e2ac8de800064c6-step00000400-b709d13e67a345a9b9e8bca88c08f18c/preview.json",
+      "preview_manifest_sha256": "f24cb536c3461555de254d5bc58780cc3b46e6d4b93933642f2fd627369f5b2e",
+      "preview_seed": 35002,
+      "particle_ids": [
+        3880,
+        3626,
+        3529,
+        3040,
+        1526,
+        3942,
+        1049,
+        1181,
+        3030,
+        2500,
+        1734,
+        3598,
+        2605,
+        206,
+        541,
+        3541
+      ],
+      "recorded_diversity": {
+        "metrics": {
+          "generated_rms": 0.01294544454051921,
+          "reference_rms": 0.9948048236802044,
+          "ratio": 0.013013049627793849,
+          "pooled4_generated_rms": 0.0008036462797151438,
+          "pooled4_reference_rms": 0.7083101232698283,
+          "pooled4_ratio": 0.0011345966312117743
+        },
+        "unavailable": {},
+        "schema_version": 1,
+        "generated_count": 16,
+        "reference_count": 16,
+        "generated_binding": "generated"
+      },
+      "g_lr_warmup": null,
+      "training_metrics": {
+        "loss/d_total": 0.29776492714881897,
+        "loss/g_total": 2.000427722930908,
+        "loss/total": 2.298192650079727,
+        "loss/d_adversarial": 0.19137316942214966,
+        "loss/g_adversarial": 2.000427722930908,
+        "loss/d_adversarial_raw": 0.19137316942214966,
+        "loss/g_adversarial_raw": 2.000427722930908,
+        "loss/gradient_penalty": 0.10639175772666931,
+        "loss/prior_regularizer": 9.190580241291713e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.6157459050009493,
+        "timing/training_seconds": 565.0017702440091,
+        "throughput/steps_per_second": 0.7166524191265229,
+        "progress/samples_seen": 25600
+      },
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.9969774881998698,
+        "absolute_value_above_0_99_fraction": 0.9962666829427084,
+        "sample_diversity_rms": 0.008863189315011573,
+        "spatial_per_channel_std_rms": 0.9684111386929684,
+        "mean_color_share_of_between_sample_variance": 0.0004423971958734707,
+        "mean_color_removed_sample_diversity_rms": 0.008861228573081173
+      },
+      "real_image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.19719314575195312,
+        "absolute_value_above_0_99_fraction": 0.1821161905924479,
+        "sample_diversity_rms": 0.6810962952353871,
+        "spatial_per_channel_std_rms": 0.5762443908313691,
+        "mean_color_share_of_between_sample_variance": 0.33567909049585626,
+        "mean_color_removed_sample_diversity_rms": 0.5551335550034031
+      }
+    },
+    {
+      "step": 500,
+      "preview_manifest": "/home/martyn/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean/previews/000000000006-0001-053766906d3c4a499e2ac8de800064c6-step00000500-08d9dea54b2040248816ed85db9a6489/preview.json",
+      "preview_manifest_sha256": "a05e2b0c30b7c9fab46002b2e1e82f085b60e4fb874823ffbf52e49e4fd3765c",
+      "preview_seed": 35002,
+      "particle_ids": [
+        3880,
+        3626,
+        3529,
+        3040,
+        1526,
+        3942,
+        1049,
+        1181,
+        3030,
+        2500,
+        1734,
+        3598,
+        2605,
+        206,
+        541,
+        3541
+      ],
+      "recorded_diversity": {
+        "metrics": {
+          "generated_rms": 0.000725948837639512,
+          "reference_rms": 1.0217487070812548,
+          "ratio": 0.0007104964582859812,
+          "pooled4_generated_rms": 4.084836748761844e-05,
+          "pooled4_reference_rms": 0.7969909170024926,
+          "pooled4_ratio": 5.1253240929332554e-05
+        },
+        "unavailable": {},
+        "schema_version": 1,
+        "generated_count": 16,
+        "reference_count": 16,
+        "generated_binding": "generated"
+      },
+      "g_lr_warmup": null,
+      "training_metrics": {
+        "loss/d_total": 0.3061571419239044,
+        "loss/g_total": 1.4986145496368408,
+        "loss/total": 1.8047716915607452,
+        "loss/d_adversarial": 0.3061571419239044,
+        "loss/g_adversarial": 1.4986145496368408,
+        "loss/d_adversarial_raw": 0.3061571419239044,
+        "loss/g_adversarial_raw": 1.4986145496368408,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.69218177937492e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.383675190008944,
+        "timing/training_seconds": 704.8709482139966,
+        "throughput/steps_per_second": 0.7234619684378135,
+        "progress/samples_seen": 32000
+      },
+      "image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.9999122619628906,
+        "absolute_value_above_0_99_fraction": 0.9998359680175781,
+        "sample_diversity_rms": 0.0005141828380381577,
+        "spatial_per_channel_std_rms": 0.9687396213175797,
+        "mean_color_share_of_between_sample_variance": 0.0003019795615288747,
+        "mean_color_removed_sample_diversity_rms": 0.0005141051958221362
+      },
+      "real_image_grid": {
+        "absolute_value_at_least_0_98_fraction": 0.22432963053385416,
+        "absolute_value_above_0_99_fraction": 0.2048365275065104,
+        "sample_diversity_rms": 0.6995435123897152,
+        "spatial_per_channel_std_rms": 0.5481271788196403,
+        "mean_color_share_of_between_sample_variance": 0.4427140260786952,
+        "mean_color_removed_sample_diversity_rms": 0.5222203476979439
+      }
+    }
+  ],
+  "interpretation": [
+    "Quantized saved EMA previews; not online generator tensors or gradients.",
+    "Fractions count scalar color-channel values, not whole RGB pixels.",
+    "Population variances decompose exactly into sample mean-color and spatial-residual terms.",
+    "Preview particles/seed are recorded; the learned prior and EMA evolve, and real batches differ.",
+    "Large output spread does not imply useful or semantic diversity.",
+    "A single changing-rate run cannot establish a causal rate threshold or validate a fixed-rate alternative."
+  ]
+}

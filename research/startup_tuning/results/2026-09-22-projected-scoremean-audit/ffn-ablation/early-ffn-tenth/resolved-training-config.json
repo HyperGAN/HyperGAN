@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "metrics": {
+    "preset": "standard",
+    "disable": [],
+    "every_steps": 10,
+    "overrides": {},
+    "custom": {}
+  },
+  "name": "images/logos-transgan-projected-dinov3-128",
+  "data": {
+    "factory": "hypergan.colorization_data:ColorizationData",
+    "args": {
+      "root": "/mnt/ml7tb/data/logos256",
+      "manifest": "/home/martyn/dev/hypergan/training-runs/logos-dcgan-128/dataset-manifest-128.json",
+      "manifest_sha256": "e3c57bade4a0b4917960b7481c5361453d7607c211cc745212651aa62050bc27",
+      "split": "train",
+      "shuffle": true
+    }
+  },
+  "components": {
+    "generator": {
+      "factory": "hndl",
+      "inputs": {
+        "z": "latent"
+      },
+      "args": {
+        "input_shape": [
+          "B",
+          128
+        ],
+        "output_shape": [
+          "B",
+          3,
+          128,
+          128
+        ],
+        "source": "# Reduced-depth TransGAN-style 128px generator; one latent [B,128], no extra noise.\n# Two transformer blocks per stage instead of depths 5/4/4/4/4.\n# Parameter-free PixelNorm and learned 2D relative-position bias via native HNDL.\n# Linear projections use explicit PyTorch defaults: Kaiming-uniform weights\n# with a=sqrt(5), and biases uniform in +/-1/sqrt(fan_in). The official\n# generator leaves Linear initialization unchanged; only its RGB convolution\n# gets Xavier weights. Our equivalent tokenwise RGB linear uses Xavier too.\n# Position tables use truncated_normal(std=0.02), default bounds [-2,2].\n# Separate Q/K/V retain the combined matrix fan-in; random draw layout differs.\n# Reduced depth, latent size, and the surrounding training recipe are adaptations.\n# Reference architecture: https://arxiv.org/html/2102.07074v4#A2.T6\n# Learned absolute positions precede grid partitioning at 64px and 128px.\n# Global attention at 8/16/32px; shared 16x16-window attention at 64/128px.\nh = linear(x, 65536, name=\"input_projection\", init={\"weight\": kaiming_uniform(a=2.23606797749979), \"bias\": uniform(a=-0.08838834764831843, b=0.08838834764831843)})\nh = reshape(h, 64, 1024)\nh = pos_embed(h, 64, name=\"stage8_position\", init={\"weight\": truncated_normal(std=0.02)})\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage8_block0_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(8, 8), name=\"stage8_block0_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.03125, b=0.03125),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage8_block0_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage8_block0_norm2\")\nbranch = feed_forward(branch, 4096, activation=\"gelu\", dropout=0.0, name=\"stage8_block0_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.03125, b=0.03125),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.015625, b=0.015625)})\nh = add(h, branch, name=\"stage8_block0\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage8_block1_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(8, 8), name=\"stage8_block1_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.03125, b=0.03125),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage8_block1_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage8_block1_norm2\")\nbranch = feed_forward(branch, 4096, activation=\"gelu\", dropout=0.0, name=\"stage8_block1_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.03125, b=0.03125),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.015625, b=0.015625)})\nh = add(h, branch, name=\"stage8_block1\")\n\n# Bicubic enlargement preserves 1024 channels, 8px -> 16px.\nh = transpose(h, 1, 2)\nh = reshape(h, 1024, 8, 8)\nh = upsample(h, 2, mode=\"bicubic\", align_corners=False, name=\"stage16_upsample\")\nh = reshape(h, 1024, 256)\nh = transpose(h, 1, 2)\nh = pos_embed(h, 256, name=\"stage16_position\", init={\"weight\": truncated_normal(std=0.02)})\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage16_block0_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(16, 16), name=\"stage16_block0_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.03125, b=0.03125),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage16_block0_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage16_block0_norm2\")\nbranch = feed_forward(branch, 4096, activation=\"gelu\", dropout=0.0, name=\"stage16_block0_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.03125, b=0.03125),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.015625, b=0.015625)})\nh = add(h, branch, name=\"stage16_block0\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage16_block1_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(16, 16), name=\"stage16_block1_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.03125, b=0.03125),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage16_block1_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage16_block1_norm2\")\nbranch = feed_forward(branch, 4096, activation=\"gelu\", dropout=0.0, name=\"stage16_block1_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.03125, b=0.03125),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.015625, b=0.015625)})\nh = add(h, branch, name=\"stage16_block1\")\n\n# Pixel shuffle: 16px/1024 channels -> 32px/256 channels.\nh = transpose(h, 1, 2)\nh = reshape(h, 1024, 16, 16)\nh = pixel_shuffle(h, 2, name=\"stage32_upsample\")\nh = reshape(h, 256, 1024)\nh = transpose(h, 1, 2)\nh = pos_embed(h, 1024, name=\"stage32_position\", init={\"weight\": truncated_normal(std=0.02)})\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage32_block0_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(32, 32), name=\"stage32_block0_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.0625, b=0.0625),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage32_block0_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage32_block0_norm2\")\nbranch = feed_forward(branch, 1024, activation=\"gelu\", dropout=0.0, name=\"stage32_block0_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.0625, b=0.0625),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.03125, b=0.03125)})\nh = add(h, branch, name=\"stage32_block0\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage32_block1_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(32, 32), name=\"stage32_block1_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.0625, b=0.0625),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage32_block1_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage32_block1_norm2\")\nbranch = feed_forward(branch, 1024, activation=\"gelu\", dropout=0.0, name=\"stage32_block1_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.0625, b=0.0625),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.03125, b=0.03125)})\nh = add(h, branch, name=\"stage32_block1\")\n\nh = transpose(h, 1, 2)\nh = reshape(h, 256, 32, 32)\n\n# Pixel shuffle: 32px/256 channels -> 64px/64 channels.\nh = pixel_shuffle(h, 2, name=\"stage64_upsample\")\nh = reshape(h, 64, 4096)\nh = transpose(h, 1, 2)\nh = pos_embed(h, 4096, name=\"stage64_position\", init={\"weight\": truncated_normal(std=0.02)})\nh = transpose(h, 1, 2)\nh = reshape(h, 64, 64, 64, name=\"stage64_grid\")\n\n# BEGIN grid64\n# BEGIN stage64 window partition: [B,C,64,64] -> [16*B,C,16,16].\nrow0, row1, row2, row3 = chunk(h, 4, dim=2, name=\"stage64_row_split\")\nrows = concat(row0, row1, row2, row3, axis=0, name=\"stage64_rows\")\ncolumn0, column1, column2, column3 = chunk(rows, 4, dim=3, name=\"stage64_column_split\")\nh = concat(column0, column1, column2, column3, axis=0, name=\"stage64_windows\")\n# END stage64 window partition.\n\nh = reshape(h, 64, 256)\nh = transpose(h, 1, 2)\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage64_block0_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(16, 16), name=\"stage64_block0_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.125, b=0.125),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage64_block0_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage64_block0_norm2\")\nbranch = feed_forward(branch, 256, activation=\"gelu\", dropout=0.0, name=\"stage64_block0_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.125, b=0.125),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.0625, b=0.0625)})\nh = add(h, branch, name=\"stage64_block0\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage64_block1_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(16, 16), name=\"stage64_block1_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.125, b=0.125),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage64_block1_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage64_block1_norm2\")\nbranch = feed_forward(branch, 256, activation=\"gelu\", dropout=0.0, name=\"stage64_block1_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.125, b=0.125),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.0625, b=0.0625)})\nh = add(h, branch, name=\"stage64_block1\")\nh = transpose(h, 1, 2)\nh = reshape(h, 64, 16, 16, name=\"stage64_processed_windows\")\n\n# BEGIN stage64 window inverse: [16*B,C,16,16] -> [B,C,64,64].\ncolumn0, column1, column2, column3 = chunk(h, 4, dim=0, name=\"stage64_column_unstack\")\nrows = concat(column0, column1, column2, column3, axis=3, name=\"stage64_columns_restored\")\nrow0, row1, row2, row3 = chunk(rows, 4, dim=0, name=\"stage64_row_unstack\")\nh = concat(row0, row1, row2, row3, axis=2, name=\"stage64_unwindows\")\n# END stage64 window inverse.\n# END grid64\n\n# Pixel shuffle: 64px/64 channels -> 128px/16 channels.\nh = pixel_shuffle(h, 2, name=\"stage128_upsample\")\nh = reshape(h, 16, 16384)\nh = transpose(h, 1, 2)\nh = pos_embed(h, 16384, name=\"stage128_position\", init={\"weight\": truncated_normal(std=0.02)})\nh = transpose(h, 1, 2)\nh = reshape(h, 16, 128, 128, name=\"stage128_grid\")\n\n# BEGIN grid128\n# BEGIN stage128 window partition: [B,C,128,128] -> [64*B,C,16,16].\nrow0, row1, row2, row3, row4, row5, row6, row7 = chunk(h, 8, dim=2, name=\"stage128_row_split\")\nrows = concat(row0, row1, row2, row3, row4, row5, row6, row7, axis=0, name=\"stage128_rows\")\ncolumn0, column1, column2, column3, column4, column5, column6, column7 = chunk(rows, 8, dim=3, name=\"stage128_column_split\")\nh = concat(column0, column1, column2, column3, column4, column5, column6, column7, axis=0, name=\"stage128_windows\")\n# END stage128 window partition.\n\nh = reshape(h, 16, 256)\nh = transpose(h, 1, 2)\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage128_block0_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(16, 16), name=\"stage128_block0_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.25, b=0.25),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage128_block0_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage128_block0_norm2\")\nbranch = feed_forward(branch, 64, activation=\"gelu\", dropout=0.0, name=\"stage128_block0_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.25, b=0.25),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.125, b=0.125)})\nh = add(h, branch, name=\"stage128_block0\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage128_block1_norm1\")\nbranch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,\n    relative_position_bias=True, spatial_shape=(16, 16), name=\"stage128_block1_attention\",\n    init={\"q_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"k_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"v_proj.weight\": kaiming_uniform(a=2.23606797749979),\n          \"o_proj.weight\": kaiming_uniform(a=2.23606797749979), \"o_proj.bias\": uniform(a=-0.25, b=0.25),\n          \"relative_position_bias_table\": truncated_normal(std=0.02)})\nh = add(h, branch, name=\"stage128_block1_attention_residual\")\nbranch = rms_norm(h, eps=1e-8, affine=False, name=\"stage128_block1_norm2\")\nbranch = feed_forward(branch, 64, activation=\"gelu\", dropout=0.0, name=\"stage128_block1_ffn\",\n    init={\"up.weight\": kaiming_uniform(a=2.23606797749979), \"up.bias\": uniform(a=-0.25, b=0.25),\n          \"down.weight\": kaiming_uniform(a=2.23606797749979), \"down.bias\": uniform(a=-0.125, b=0.125)})\nh = add(h, branch, name=\"stage128_block1\")\nh = transpose(h, 1, 2)\nh = reshape(h, 16, 16, 16, name=\"stage128_processed_windows\")\n\n# BEGIN stage128 window inverse: [64*B,C,16,16] -> [B,C,128,128].\ncolumn0, column1, column2, column3, column4, column5, column6, column7 = chunk(h, 8, dim=0, name=\"stage128_column_unstack\")\nrows = concat(column0, column1, column2, column3, column4, column5, column6, column7, axis=3, name=\"stage128_columns_restored\")\nrow0, row1, row2, row3, row4, row5, row6, row7 = chunk(rows, 8, dim=0, name=\"stage128_row_unstack\")\nh = concat(row0, row1, row2, row3, row4, row5, row6, row7, axis=2, name=\"stage128_unwindows\")\n# END stage128 window inverse.\n# END grid128\n\n# Shared tokenwise RGB projection; permute explicitly declares the sequence rank.\nh = reshape(h, 16, 16384)\nh = permute(h, 2, 1)\nh = linear(h, 3, name=\"output_projection\", init={\"weight\": xavier_uniform(), \"bias\": uniform(a=-0.25, b=0.25)})\nh = permute(h, 2, 1)\nh = reshape(h, 3, 128, 128)\nout = tanh(h)\n"
+      },
+      "trainable": true
+    },
+    "discriminator": {
+      "factory": "hndl",
+      "inputs": {
+        "x": "candidate"
+      },
+      "args": {
+        "input_shape": [
+          "B",
+          3,
+          128,
+          128
+        ],
+        "output_shape": [
+          "B",
+          4,
+          4,
+          4
+        ],
+        "parameters": {
+          "weights_path": "/home/martyn/dev/hypergan/training-runs/dinov3_vits16_pretrain_lvd1689m-08c60483.pth",
+          "weights_sha256": "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
+        },
+        "pretrained_providers": {
+          "dinov3_vits16": {
+            "source_path": "/home/martyn/dev/hypergan/training-runs/dinov3-source",
+            "source_commit": "6876159a11b4df116f30f667f8c9888617df0751"
+          }
+        },
+        "source": "# 128px DINOv3 Projected GAN critic. Input RGB in [-1, 1].\n# Sauer et al., ICLR 2022: frozen feature network, fixed CCM, and independent\n# spectral discriminators. One candidate image and one backbone call.\n# No gray context and no second copy of the image.\n# ViT-S/16 blocks 2, 5, 8, and 11 are all native 8x8 maps. ViT features are\n# not a CNN pyramid. There is no higher-resolution feature map to skip-add,\n# so there is no CSM U-Net.\n# No pixel/RGB branch: the paper's ablation found that it hurt.\n# The four 4x4 logit maps stay concatenated. Logistic loss and b-cap reduce\n# them outside this graph.\n\n# ImageNet normalization of [-1, 1] RGB: (x * 0.5 + 0.5 - mean) / std.\nscaled = scale(x, 0.5)\nhalf = constant(x, 3, 1, 1, value=0.5)\nnormalized = broadcast_add(scaled, half)\nred, green_blue = split(normalized, 1)\ngreen, blue = split(green_blue, 1)\nred_bias = constant(red, 1, 1, 1, value=-0.485)\nred = broadcast_add(red, red_bias)\nred = scale(red, 4.3668122270742355)\ngreen_bias = constant(green, 1, 1, 1, value=-0.456)\ngreen = broadcast_add(green, green_bias)\ngreen = scale(green, 4.464285714285714)\nblue_bias = constant(blue, 1, 1, 1, value=-0.406)\nblue = broadcast_add(blue, blue_bias)\nblue = scale(blue, 4.444444444444445)\nnormalized = concat(red, green, blue, name=\"normalized\")\n\n# Frozen ViT-S/16. The readout returns blocks 2, 5, 8, and 11 concatenated\n# on channels: [B, 1536, 8, 8]. The batch is B, not 2B.\nfeatures = pretrained(normalized, ${weights_path},\n    provider=\"dinov3_vits16\", sha256=${weights_sha256},\n    readout=\"multidepth\", trainable=False, name=\"backbone\")\nfeature1, remaining = split(features, 384, name=\"depth1_split\")\nfeature2, remaining = split(remaining, 384, name=\"depth2_split\")\nfeature3, feature4 = split(remaining, 384, name=\"depth3_split\")\n\n# CCM: one frozen 1x1 per map, 384 to 384, no bias and no activation.\n# Kaiming uniform with a=sqrt(5) is the PyTorch convolution default.\nccm1 = conv(feature1, 384, kernel_size=1, bias=False, trainable=False, name=\"ccm1\", init={\"weight\": kaiming_uniform(a=2.23606797749979)})\nccm2 = conv(feature2, 384, kernel_size=1, bias=False, trainable=False, name=\"ccm2\", init={\"weight\": kaiming_uniform(a=2.23606797749979)})\nccm3 = conv(feature3, 384, kernel_size=1, bias=False, trainable=False, name=\"ccm3\", init={\"weight\": kaiming_uniform(a=2.23606797749979)})\nccm4 = conv(feature4, 384, kernel_size=1, bias=False, trainable=False, name=\"ccm4\", init={\"weight\": kaiming_uniform(a=2.23606797749979)})\n\n# Four independent spectral discriminators. Each 8x8 map emits 4x4 logits.\n# No shared weights, batch norm, final activation, flatten, or linear.\nh1 = conv(ccm1, 128, kernel_size=3, padding=1, stride=2, spectral_norm=True, bias=False, name=\"disc1_down\")\nh1 = leaky_relu(h1, 0.2)\nlogit1 = conv(h1, 1, kernel_size=3, padding=1, spectral_norm=True, bias=False, name=\"disc1_logit\")\n\nh2 = conv(ccm2, 128, kernel_size=3, padding=1, stride=2, spectral_norm=True, bias=False, name=\"disc2_down\")\nh2 = leaky_relu(h2, 0.2)\nlogit2 = conv(h2, 1, kernel_size=3, padding=1, spectral_norm=True, bias=False, name=\"disc2_logit\")\n\nh3 = conv(ccm3, 128, kernel_size=3, padding=1, stride=2, spectral_norm=True, bias=False, name=\"disc3_down\")\nh3 = leaky_relu(h3, 0.2)\nlogit3 = conv(h3, 1, kernel_size=3, padding=1, spectral_norm=True, bias=False, name=\"disc3_logit\")\n\nh4 = conv(ccm4, 128, kernel_size=3, padding=1, stride=2, spectral_norm=True, bias=False, name=\"disc4_down\")\nh4 = leaky_relu(h4, 0.2)\nlogit4 = conv(h4, 1, kernel_size=3, padding=1, spectral_norm=True, bias=False, name=\"disc4_logit\")\n\nout = concat(logit1, logit2, logit3, logit4)\n"
+      },
+      "trainable": true
+    }
+  },
+  "prior": {
+    "kind": "mog",
+    "args": {
+      "num_particles": 4096,
+      "z_dim": 128,
+      "sigma_rel": 0.025
+    },
+    "initialization_device": "cpu",
+    "initialization_seed": 25003,
+    "fixed_sigma": null
+  },
+  "adversarial": {
+    "loss_type": "logistic",
+    "mode": "rp",
+    "weight": 1.0
+  },
+  "gradient_penalty": {
+    "arm": "b_cap",
+    "coeff": 1.0,
+    "kappa": 1.0,
+    "lazy_k": 8,
+    "norm": "l2",
+    "target_anneal": "none",
+    "total_steps": 0,
+    "method": "autograd",
+    "fd_eps": 0.05
+  },
+  "prior_regularizer": {
+    "weight": 1.0,
+    "target_std": 1.0,
+    "eps": 0.0001,
+    "rows": "full"
+  },
+  "objectives": [],
+  "optimizer": {
+    "lr": 0.0002,
+    "d_lr_mult": 1.0,
+    "prior_lr_mult": 10.0,
+    "betas": [
+      0.5,
+      0.999
+    ],
+    "prior_betas": [
+      0.5,
+      0.999
+    ],
+    "implementation": "torch_fused_adam"
+  },
+  "training": {
+    "steps": 200000,
+    "batch_size": 64,
+    "seed": 25002,
+    "device": "cuda",
+    "ema": 0.995,
+    "lr_anneal_start": 0.6,
+    "lr_floor": 1.0,
+    "phase_draws": "independent",
+    "data_rng_device": "cpu",
+    "data_seed_offset": 2,
+    "prior_seed_offset": 3,
+    "backend": {
+      "deterministic_algorithms": false,
+      "cudnn_deterministic": false,
+      "cudnn_benchmark": true,
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true
+    }
+  },
+  "sampling": {
+    "count": 16,
+    "seed": 35002
+  },
+  "qualification": {
+    "status": "unqualified",
+    "recipe_match": false,
+    "scope": "numerical-reference",
+    "image_quality": false,
+    "distributed": false,
+    "resume": false
+  },
+  "warnings": [
+    "Custom resolved recipe: runnable combinations are unqualified until separately evaluated.",
+    "Custom constructors execute trusted Python code when training or sampling; configuration is not a sandbox."
+  ]
+}

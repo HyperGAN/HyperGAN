@@ -26,7 +26,12 @@ this 4×4×4 map does not multiply the input gradient by 64. A one-logit critic
 is unchanged. The first projected run, stopped at step 810, used the old sum
 and is not resumed.
 
-It has not been started. The fresh run directory is
+The corrected run has been started. Its step-500 EMA preview is 99.984%
+saturated, with only 0.071% of real-preview pairwise diversity. The published
+active penalty values through step 500 range from 0.031 to 2.441; collapse
+persists after the logit-mean penalty correction. See the
+[measured audit](../../results/2026-09-22-projected-scoremean-audit/README.md).
+The run directory is
 `~/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean`.
 
 ```bash

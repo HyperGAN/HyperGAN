@@ -1,0 +1,117 @@
+# Diagnostic: runner replicates source FFN units and divides down weights.
+# This HNDL alone does NOT reproduce that initialization.
+# Small TransGAN-style CIFAR generator: one [B,64] latent, no extra noise.
+# Stages 8/16/32px with widths 256/64/16 and two blocks per stage.
+# Pixel shuffle doubles resolution and quarters width; global attention at each stage.
+# Parameter-free PixelNorm, learned absolute and relative positions.
+# Same explicit Linear-default initialization as the corrected 128px generator.
+# RGB projection uses Xavier weights; this is a compact adaptation, not a paper reproduction.
+h = linear(x, 16384, name="input_projection", init={"weight": kaiming_uniform(a=2.23606797749979), "bias": uniform(a=-0.125, b=0.125)})
+h = reshape(h, 64, 256)
+h = pos_embed(h, 64, name="stage8_position", init={"weight": truncated_normal(std=0.02)})
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(8, 8), name="stage8_block0_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.0625, b=0.0625),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage8_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block0_norm2")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage8_block0_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.0625, b=0.0625),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.015625, b=0.015625)})
+h = add(h, branch, name="stage8_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(8, 8), name="stage8_block1_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.0625, b=0.0625),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage8_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block1_norm2")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage8_block1_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.0625, b=0.0625),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.015625, b=0.015625)})
+h = add(h, branch, name="stage8_block1")
+
+# Pixel shuffle: 8px/256 channels -> 16px/64 channels.
+h = transpose(h, 1, 2)
+h = reshape(h, 256, 8, 8)
+h = pixel_shuffle(h, 2, name="stage16_upsample")
+h = reshape(h, 64, 256)
+h = transpose(h, 1, 2)
+h = pos_embed(h, 256, name="stage16_position", init={"weight": truncated_normal(std=0.02)})
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage16_block0_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.125, b=0.125),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage16_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block0_norm2")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage16_block0_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.125, b=0.125),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.015625, b=0.015625)})
+h = add(h, branch, name="stage16_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage16_block1_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.125, b=0.125),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage16_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block1_norm2")
+branch = feed_forward(branch, 4096, activation="gelu", dropout=0.0, name="stage16_block1_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.125, b=0.125),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.015625, b=0.015625)})
+h = add(h, branch, name="stage16_block1")
+
+# Pixel shuffle: 16px/64 channels -> 32px/16 channels.
+h = transpose(h, 1, 2)
+h = reshape(h, 64, 16, 16)
+h = pixel_shuffle(h, 2, name="stage32_upsample")
+h = reshape(h, 16, 1024)
+h = transpose(h, 1, 2)
+h = pos_embed(h, 1024, name="stage32_position", init={"weight": truncated_normal(std=0.02)})
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(32, 32), name="stage32_block0_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.25, b=0.25),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage32_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block0_norm2")
+branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage32_block0_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.25, b=0.25),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.125, b=0.125)})
+h = add(h, branch, name="stage32_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(32, 32), name="stage32_block1_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.25, b=0.25),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage32_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block1_norm2")
+branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage32_block1_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.25, b=0.25),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.125, b=0.125)})
+h = add(h, branch, name="stage32_block1")
+
+# Shared tokenwise RGB projection, then NCHW output.
+h = linear(h, 3, name="output_projection", init={"weight": xavier_uniform(), "bias": uniform(a=-0.25, b=0.25)})
+h = transpose(h, 1, 2)
+h = reshape(h, 3, 32, 32)
+out = tanh(h)

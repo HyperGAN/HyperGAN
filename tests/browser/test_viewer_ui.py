@@ -166,13 +166,12 @@ def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,statu
     assert not errors
 
 
-def test_select_search_log_smoothing_range_and_responsive_accessibility(viewer):
+def test_select_search_smoothing_range_and_responsive_accessibility(viewer):
     page,control,condition,errors=viewer;login(page)
     page.get_by_label('Search metrics').fill('generator')
     assert page.locator('.metric-option').count()==1
     page.get_by_label('Search metrics').fill('')
-    page.locator('#scale').select_option('log')
-    assert page.get_by_text('1 nonpositive points excluded from log scale.',exact=False).count()==1
+    assert page.locator('#scale').count()==0
     page.locator('#smoothing').select_option('0.2')
     assert page.get_by_text('EMA uses visible envelope points;',exact=False).count()==3
     page.locator('#step-from').fill('2');page.locator('#step-to').fill('2');page.get_by_role('button',name='Apply range').click()

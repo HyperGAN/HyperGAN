@@ -344,7 +344,7 @@ export function evaluationShelf(api, base) {
     // echarts measures the element, so it is initialized once the card is attached.
     for (const card of drawn) {
       card.chart ||= init(card.canvas, null, {renderer: 'canvas'});
-      card.chart.setOption({...chartStyle(false), series: chartSeries(card.records)}, true);
+      card.chart.setOption({...chartStyle(), series: chartSeries(card.records)}, true);
       card.stale = false;
     }
     document.getElementById('evaluations').hidden = items.length === 0

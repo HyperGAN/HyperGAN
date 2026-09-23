@@ -1014,9 +1014,7 @@ function render() {
       card = { element, chart, value, note };
       state.charts.set(metric, card);
     }
-    const alpha = Number($("smoothing").value),
-      log = $("scale").value === "log";
-    let omitted = 0;
+    const alpha = Number($("smoothing").value);
     const series = [];
     let latest = null;
     items.forEach((part, index) => {
@@ -1029,12 +1027,6 @@ function render() {
       let ema = null;
       const smooth = [];
       const raw = points.map((point) => {
-        if (log && point.value <= 0) {
-          omitted++;
-          ema = null;
-          smooth.push([point.position[0], null]);
-          return [point.position[0], null];
-        }
         ema =
           ema === null ? point.value : alpha * point.value + (1 - alpha) * ema;
         smooth.push([point.position[0], ema]);
@@ -1081,15 +1073,10 @@ function render() {
       }
     });
     card.value.textContent = latest ? fmt(latest.value) : "—";
-    card.note.textContent = [
-      omitted ? `${omitted} nonpositive points excluded from log scale.` : "",
-      alpha
-        ? "EMA uses visible envelope points; raw values remain visible."
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    card.chart.setOption({ ...chartStyle(log), series }, true);
+    card.note.textContent = alpha
+      ? "EMA uses visible envelope points; raw values remain visible."
+      : "";
+    card.chart.setOption({ ...chartStyle(), series }, true);
   }
   const metricOrder = [...state.selected];
   const rows = [...$("values-table").children].sort((a, b) =>
@@ -1170,7 +1157,6 @@ $("select-none").onclick = () => {
   renderCatalog();
   reconfigure();
 };
-$("scale").onchange = render;
 $("smoothing").onchange = render;
 $("reconnect").onclick = () =>
   state.run

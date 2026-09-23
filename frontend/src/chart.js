@@ -28,8 +28,9 @@ const stepTooltip = (entries) =>
     ? `Step ${entries[0].value[0]}\n` +
       entries.map((p) => `${p.seriesName}: ${String(p.value[1])}`).join("\n")
     : "";
-// Everything except the series: the caller adds those and picks the y scale.
-export function chartStyle(log, formatter) {
+// Everything except the series. Every y axis includes zero without hiding
+// negative observations.
+export function chartStyle(formatter) {
   return {
     animation: false,
     color: chartColors,
@@ -51,8 +52,8 @@ export function chartStyle(log, formatter) {
       axisTick: { show: false },
     },
     yAxis: {
-      type: log ? "log" : "value",
-      scale: true,
+      type: "value",
+      scale: false,
       axisLabel: { color: "#85978b", fontSize: 9 },
       splitLine: { lineStyle: { color: "#2b3930" } },
       axisLine: { show: false },

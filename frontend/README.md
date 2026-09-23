@@ -89,8 +89,9 @@ snapshot recovery obeys backend-provided attempt/through-step lineage.
 
 An envelope contains actual first/min/max/last observations. Optional EMA is a
 presentation of those visible points, labeled separately from raw values; it is
-not a newly published metric or an average of omitted history. Log scale omits
-nonpositive points visibly and preserves gaps. Tooltips and the keyboard
+not a newly published metric or an average of omitted history. All training and
+evaluation charts use linear y axes that include zero. Positive-only charts
+start at zero; negative values remain visible below zero. Tooltips and the keyboard
 accessible latest-value table retain exact numeric values, while summary cards
 use compact formatting.
 

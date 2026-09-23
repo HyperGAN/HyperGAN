@@ -90,10 +90,13 @@ snapshot recovery obeys backend-provided attempt/through-step lineage.
 An envelope contains actual first/min/max/last observations. Optional EMA is a
 presentation of those visible points, labeled separately from raw values; it is
 not a newly published metric or an average of omitted history. All training and
-evaluation charts use linear y axes that include zero. Positive-only charts
-start at zero; negative values remain visible below zero. Tooltips and the keyboard
-accessible latest-value table retain exact numeric values, while summary cards
-use compact formatting.
+evaluation charts use y axes that include zero. Positive-only charts start at
+zero; negative values remain visible below zero. Learning curves also offer a
+symmetric log scale: `sign(y) * ln(1 + abs(y))`, linear near zero and logarithmic
+farther away, with ticks labeled in original units. Unlike a true log scale, it
+includes zero and negative values. EMA is computed before this display transform.
+Tooltips and the keyboard accessible latest-value table retain exact numeric
+values, while summary cards use compact formatting.
 
 ```sh
 python -m pytest tests/browser/test_viewer_ui.py -q

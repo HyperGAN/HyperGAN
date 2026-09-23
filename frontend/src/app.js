@@ -1,5 +1,5 @@
 import { evaluationShelf } from "./evaluations.js";
-import { chartColors as colors, chartStyle, init } from "./chart.js";
+import { chartColors as colors, chartOptions, init } from "./chart.js";
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -1076,7 +1076,7 @@ function render() {
     card.note.textContent = alpha
       ? "EMA uses visible envelope points; raw values remain visible."
       : "";
-    card.chart.setOption({ ...chartStyle(), series }, true);
+    card.chart.setOption(chartOptions(series, $("scale").value === "symlog"), true);
   }
   const metricOrder = [...state.selected];
   const rows = [...$("values-table").children].sort((a, b) =>
@@ -1157,6 +1157,7 @@ $("select-none").onclick = () => {
   renderCatalog();
   reconfigure();
 };
+$("scale").onchange = render;
 $("smoothing").onchange = render;
 $("reconnect").onclick = () =>
   state.run

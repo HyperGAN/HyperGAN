@@ -175,6 +175,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           npm --prefix frontend ci
+          npm --prefix frontend test
           npm --prefix frontend run check
       - name: Build and install optional viewer
         run: |

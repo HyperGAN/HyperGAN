@@ -26,7 +26,7 @@ export const chartColors = [
 const stepTooltip = (entries) =>
   entries.length
     ? `Step ${entries[0].value[0]}\n` +
-      entries.map((p) => `${p.seriesName}: ${String(p.value[1])}`).join("\n")
+      entries.map((p) => `${p.seriesName}: ${String(p.data.rawValue ?? p.value[1])}`).join("\n")
     : "";
 // Everything except the series. Every y axis includes zero without hiding
 // negative observations.
@@ -58,6 +58,27 @@ export function chartStyle(formatter) {
       splitLine: { lineStyle: { color: "#2b3930" } },
       axisLine: { show: false },
     },
+  };
+}
+
+// Signed log1p is linear near zero and logarithmic farther away. Transform
+// presentation coordinates only; tooltips and EMA retain the original values.
+export function chartOptions(series, symlog = false) {
+  const options = chartStyle();
+  if (!symlog) return { ...options, series };
+  options.yAxis.axisLabel.formatter = (value) => {
+    const original = Math.sign(value) * Math.expm1(Math.abs(value));
+    return Number.isFinite(original) ? String(Number(original.toPrecision(4))) : "";
+  };
+  return {
+    ...options,
+    series: series.map((item) => ({
+      ...item,
+      data: item.data.map(([step, value]) => ({
+        value: [step, value === null ? null : Math.sign(value) * Math.log1p(Math.abs(value))],
+        rawValue: value,
+      })),
+    })),
   };
 }
 export { init };

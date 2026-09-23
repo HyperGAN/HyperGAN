@@ -166,14 +166,19 @@ def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,statu
     assert not errors
 
 
-def test_select_search_smoothing_range_and_responsive_accessibility(viewer):
+def test_select_search_symlog_smoothing_range_and_responsive_accessibility(viewer):
     page,control,condition,errors=viewer;login(page)
     page.get_by_label('Search metrics').fill('generator')
     assert page.locator('.metric-option').count()==1
     page.get_by_label('Search metrics').fill('')
-    assert page.locator('#scale').count()==0
+    page.locator('#scale').select_option('symlog')
+    assert page.locator('#d-loss').inner_text()=='-0.5'
+    assert 'excluded' not in page.locator('#charts').inner_text()
     page.locator('#smoothing').select_option('0.2')
     assert page.get_by_text('EMA uses visible envelope points;',exact=False).count()==3
+    page.locator('#scale').select_option('linear')
+    assert page.locator('.chart-canvas canvas').count()==3
+    page.locator('#scale').select_option('symlog')
     page.locator('#step-from').fill('2');page.locator('#step-to').fill('2');page.get_by_role('button',name='Apply range').click()
     page.locator('#stream-position[data-projection="2"]').wait_for()
     assert any('step_from=2' in path and 'step_to=2' in path for path in control['paths'])

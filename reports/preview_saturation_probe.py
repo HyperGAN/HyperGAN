@@ -67,6 +67,7 @@ def main():
         row = {'step': preview['step'], 'preview_manifest': str(path),
                'preview_manifest_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
                'preview_seed': preview['seed'], 'particle_ids': preview.get('particle_ids'),
+               'recorded_diversity': preview.get('diversity'),
                'g_lr_warmup': event.get('g_lr_warmup'),
                'training_metrics': event.get('metrics', {})}
         for name in ('image_grid', 'real_image_grid'):
@@ -77,7 +78,7 @@ def main():
         print(json.dumps({'step': row['step'], **row['image_grid']}), flush=True)
     report = {'run_dir': str(args.run.resolve()), 'run_id': manifest['run_id'],
               'observed_status': manifest['status'], 'observed_step': manifest['steps'],
-              'tuning': manifest['initialization_tuning'], 'rows': rows,
+              'tuning': manifest.get('initialization_tuning'), 'rows': rows,
               'interpretation': [
                   'Quantized saved EMA previews; not online generator tensors or gradients.',
                   'Fractions count scalar color-channel values, not whole RGB pixels.',

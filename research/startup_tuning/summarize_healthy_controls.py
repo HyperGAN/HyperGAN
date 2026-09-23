@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 
-CASES = ('cifar', 'logos', 'cifar_replicated', 'cifar_replicated_compensated')
+CASES = ('cifar', 'logos', 'cifar_replicated', 'cifar_replicated_compensated', 'logos32_data')
 METRICS = ('sample_diversity_rms', 'spatial_sample_diversity_rms',
            'sample_mean_color_diversity_rms', 'pooled_4x4_sample_diversity_rms')
 
@@ -51,22 +51,24 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     for name, rows in (('outputs.csv', outputs), ('stages.csv', stages)):
         with (args.output / name).open('w') as stream:
-            writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+            writer = csv.DictWriter(stream, fieldnames=list(rows[0]), lineterminator='\n')
             writer.writeheader()
             writer.writerows(rows)
     import matplotlib
     matplotlib.use('Agg')
+    matplotlib.rcParams['svg.hashsalt'] = 'healthy-controls-v1'
     import matplotlib.pyplot as plt
     fig, axes = plt.subplots(1, 3, figsize=(14, 4.4), layout='constrained')
-    labels = ('CIFAR source', 'Logos source', 'CIFAR replicated FFNs', 'CIFAR replicated + compensated Adam')
-    colors = ('#238b45', '#252525', '#d95f02', '#2b6cb0')
+    labels = ('CIFAR source', 'Logos128 source', 'CIFAR replicated FFNs',
+              'CIFAR replicated + compensated Adam', 'CIFAR model on logos32 data')
+    colors = ('#238b45', '#252525', '#d95f02', '#2b6cb0', '#8e44ad')
     for case, label, color in zip(CASES, labels, colors):
         rows = [r for r in outputs if r['case'] == case and r['bank'] == 'evolving_prior']
         for ax, metric, scale in zip(axes, ('saturation_percent', 'sample_diversity_rms_relative_to_real',
                                           'pooled_4x4_sample_diversity_rms_relative_to_real'), (1, 100, 100)):
             ax.plot([r['step'] for r in rows], [scale * r[metric] for r in rows], marker='o',
                     markersize=3, label=label, color=color)
-    for ax, title in zip(axes, ('Saturated output pixels (%)', 'Pixel diversity (% of real)',
+    for ax, title in zip(axes, ('Saturated RGB values (%)', 'Pixel diversity (% of real)',
                                '4×4 pooled diversity (% of real)')):
         ax.set_title(title)
         ax.set_xscale('symlog', linthresh=1)
@@ -79,7 +81,9 @@ def main():
     handles, names = axes[0].get_legend_handles_labels()
     fig.legend(handles, names, loc='outside lower center', ncol=2, frameon=False)
     fig.suptitle('Fixed 64-image monitor bank, online generator; diversity is not a quality score')
-    fig.savefig(args.output / 'comparison.svg')
+    destination = args.output / 'comparison.svg'
+    fig.savefig(destination, metadata={'Date': None})
+    destination.write_text('\n'.join(line.rstrip() for line in destination.read_text().splitlines()) + '\n')
     plt.close(fig)
 
 

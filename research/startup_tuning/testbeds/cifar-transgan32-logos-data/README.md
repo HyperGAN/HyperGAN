@@ -7,7 +7,7 @@ The runner verifies this configuration equality and matches the initial paramete
 hash against the completed CIFAR control before any training updates.
 
 The research adapter `bridge_data:Logos32Data` verifies the existing logos128
-manifest unchanged, then explicitly decodes its pinned train images to32px using
+manifest unchanged, then explicitly decodes its pinned train images to 32px using
 the same aspect-fit white padding, Lanczos, EXIF and alpha handling. Its recovery
 identity records both the source manifest policy and effective32px geometry.
 It samples with replacement and applies independent horizontal flips using the

@@ -14,6 +14,11 @@ Thus early FFN width alone is not sufficient for sustained failure in this
 controlled parameterization. It does not rule out independently initialized wide
 networks, channel width, depth, data, or interactions with the training recipe.
 
+A subsequent [data-only bridge](DATA_BRIDGE.md) keeps the working32px model and
+recipe fixed and changes its data to logos. It retains substantial variation
+through 512, so that data change alone does not reproduce the large model failure.
+Quality remains unvalidated.
+
 ## Results at 512 updates
 
 | Case | Step | Saturation | Pixel diversity / real | 4×4 pooled diversity / real | Pre-tanh RMS |
@@ -22,7 +27,9 @@ networks, channel width, depth, data, or interactions with the training recipe.
 | Logos128 source | 512 | 100.0000% | 0.0002% | 0.0000% | 49.1780 |
 | CIFAR replicated FFNs | 512 | 0.3215% | 100.0115% | 108.0898% | 0.6431 |
 | CIFAR replicated + compensated Adam | 512 | 0.1231% | 63.7591% | 51.7267% | 0.4324 |
+| CIFAR model on logos32 data | 512 | 37.1994% | 109.2010% | 123.2553% | 3.0075 |
 
+Saturation counts RGB channel values with absolute value above0.99.
 These are online-G observations on 64 matched monitor examples, with evolving
 prior coordinates and fixed particle IDs/noise. All diversity ratios use that
 recipe's real-image bank. Cross-recipe banks/data/resolutions differ. The CIFAR
@@ -146,6 +153,7 @@ and it is not a Newton/curvature result. No normalization change was made.
 | Logos128 source | 0 | 0.000000 |
 | CIFAR replicated FFNs | 60 | 4.470432 |
 | CIFAR replicated + compensated Adam | 57 | 2.982608 |
+| CIFAR model on logos32 data | 64 | 2.398769 |
 
 The penalty comparison is descriptive, not an intervention: differing real data,
 resolution, critic heads and generator trajectory can all affect it. Earlier
@@ -155,8 +163,8 @@ ResNet weights remain unchanged in every run.
 
 ## Validation and reproduction
 
-Seven focused CPU tests passed (stage-hook/rollback runner plus FFN replication
-and compensation). All four 512-update GPU screens completed with full trainer
+Ten focused CPU tests passed (stage-hook/rollback runner, FFN replication
+and compensation, and the data bridge). All five 512-update GPU screens completed with full trainer
 restoration, unchanged source TOMLs, and matching protected-state hashes before,
 after and after restoration. The complete replication preparations also passed
 CPU checks for both optimizer modes and restored their optimizer group layouts.
@@ -189,12 +197,9 @@ The SVG requires matplotlib; plotting dependencies were installed only into
 
 ## Next causal bridge
 
-Keep the working CIFAR generator, critic, prior, optimizer and resolution fixed,
-and change its data pipeline to logos resized to 32px. This tests whether the
-logos distribution/pipeline is enough to lose recovery before adding channel
-width, resolution and depth. Sampling/preprocessing must be explicit rather than
-silently treated as identical. If that bridge works, change architecture/resolution
-separately. Alongside the existing stage metrics, compare critic input-gradient
-norms and generator gradients before/after tanh to distinguish missing adversarial
-signal from a signal blocked by saturation. A robust fix must retain useful
-diversity and quality and preserve the working controls.
+The [data-only bridge](DATA_BRIDGE.md) is complete. Next, keep its 32px logos data,
+critic, prior and optimizer fixed and vary generator channel width, preserving
+critic/prior initialization explicitly. Separate width, first upsampling choice,
+later depth/resolution and critic geometry. The follow-up report describes a
+concrete width case; it has not been run. A robust fix still needs useful diversity,
+quality validation and preservation of healthy controls.

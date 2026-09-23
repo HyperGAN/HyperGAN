@@ -1,5 +1,11 @@
 # Generator architecture screens: both changes still collapse
 
+**Interpretation update:** the later [healthy-control comparison](../2026-09-22-healthy-control/README.md)
+shows that CIFAR can recover after severe startup saturation. These measurements
+establish poor behavior within 32 updates, not irreversible or persistent failure.
+The narrow and pixelshuffle variants have not been extended; only the unchanged
+logos/ResNet source receives a 512-update comparison in that follow-up.
+
 Two proposed generator changes were tested with the frozen pretrained ResNet18 critic.
 Narrowing the four early FFNs and using pixel shuffle from the first transition both
 delay saturation, but neither prevents collapse within 32 updates. Neither was extended.

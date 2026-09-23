@@ -1,104 +1,142 @@
-# Compaction handoff — 2026-09-22
+# Compaction handoff — 2026-09-22, healthy-control follow-up
 
-## User intent and next action
+## Objective and current conclusion
 
-The user wants to discover why the logos128 TransGAN collapses while the CIFAR32
-TransGAN works well against pretrained ResNet, so the eventual fix generalizes
-to future models. Keeping a fraction of initial diversity is not success: assess
-how useful diversity develops during training, with real-data references and
-quality checks. G/D losses and reduced saturation alone are insufficient.
+Discover why logos128 TransGAN collapses while CIFAR32/ResNet works, and establish
+a robust fix that preserves healthy models. Finite G/D losses, lower saturation,
+or a fraction of initial pixel diversity are not sufficient success criteria.
+No robust fix has been established. No normalization change has been made.
 
-User requested compaction preparation. No further experiment should start until
-they continue. No normalization change has been implemented or tested.
+This continuation completed four 512-update diagnostic runs, all restored and
+finished. No jobs/tools remain pending. Branch is `feat/generator-signal-diagnostic`;
+code through `c682ac3a`, with this handoff/results committed afterward. Commit and
+push as you go. PR #382 must remain OPEN, unmerged, automerge disabled; this
+explicit instruction overrides generic AGENTS merge guidance.
 
-The proposed normalization diagnostic was parameter-free per-token RMSNorm over
-channels immediately before the final RGB linear projection:
-`h = rms_norm(h, eps=1e-8, affine=False)` on [B, tokens, channels]. It would bound
-hidden activation scale; it neither subtracts the across-image common component
-nor ensures latent dependence or diversity growth. The RGB weights could also
-increase scale again. It is an untested intervention, not an identified robust fix.
+## New evidence
 
-On continuation, prioritize instrumenting the working CIFAR32/ResNet recipe with
-the same stage measurements before choosing an intervention. Compare common
-activation energy versus between-image variation, residual branch contributions,
-RGB/pre-tanh scale and latent response, alongside output diversity relative to
-real data over time. Locate the earliest difference in healthy versus failing
-training. Then make one controlled change at a time to bridge the working recipe
-toward logos128, separating data, resolution/depth/width, critic preprocessing,
-prior and optimizer differences. Demonstrate both collapse prevention and useful
-training, and check the eventual fix against working CIFAR and DCGAN controls.
-Do not treat all differences between CIFAR and logos as generator architecture.
+See [complete report](results/2026-09-22-healthy-control/README.md), raw reports,
+CSV measurements and `comparison.svg` in that directory.
 
-## Latest completed experiments
+| At step 512 | Saturation | Pixel diversity / real | 4x4 pooled diversity / real |
+| --- | ---: | ---: | ---: |
+| Original CIFAR32 adversarial/ResNet | 0.2233% | 85.9055% | 71.7402% |
+| Original logos128/ResNet | 100% | 0.0001745% | approximately zero |
+| CIFAR with function-preserving 4096-wide early FFNs | 0.3215% | 100.0115% | 108.0898% |
+| Same replication, compensated Adam | 0.1231% | 63.7591% | 51.7267% |
 
-Branch `feat/generator-signal-diagnostic`, code/results through `700c39d3`, pushed.
-PR #382 remains open and must NOT be merged, overriding generic AGENTS guidance.
+These are online-G, population RMS spread across a fixed 64-image monitor bank,
+relative to real images from each recipe. They are not the previous quantized
+preview metric and not independent quality/FID measurements. Cross-recipe banks
+and data differ; the three CIFAR runs share exact bank and RNG identities.
 
-All three 32-update screens use pretrained frozen ResNet18 with source logos128
-rates. Same configured seed, monitor bank, and measurement RNG. Variants copy
-unchanged tensors exactly from the original initialization; reduced tensors use
-leading slices with correct initialization scaling. No seed sweep.
+**Correction to short-screen interpretation:** original CIFAR briefly reaches
+94.09% saturation at step16, then recovers to 0.027% by step64. A 32-step failure
+is not proof of persistent collapse. Earlier narrow-FFN and pixelshuffle variants
+have only been tested through32; the original logos/ResNet has now been extended
+through512 and does persistently fail within that window. The earlier architecture
+README now explicitly records this qualification.
 
-| Case | Saturation at 32 | Initial diversity retained |
-| --- | ---: | ---: |
-| Original replay with stage instrumentation | 99.653% | 1.031% |
-| Four early FFNs 4096 -> 1024 | 93.675% | 10.814% |
-| Pixel shuffle starting at 8->16, later widths quartered | 89.050% | 12.483% |
+Raw pixel diversity need not grow monotonically: CIFAR starts at123% of real pixel
+diversity (noise) but only20% of real 4x4-pooled diversity. At512 these are86% and72%.
+Pooling reduces fine noise; neither metric proves semantic quality. Do not rank
+variants' perceptual quality by these numbers.
 
-Both variants fail. Pixelshuffle is an independent comparison to original,
-not stacked with narrow; it changes channel/FFN widths and attention dimensions
-as well as upsampling, so it does not isolate interpolation alone.
+## Mechanistic observations and causal width test
 
-Stage evidence: source stage16 RMS grows from 0.671 to 6.497 while across-image
-RMS variation changes from 0.640 to 0.571. Pre-tanh RMS reaches 19.226 with 0.744
-variation, yet output variation is only 0.00569. Shared activation growth and
-subsequent tanh clipping are observed; their upstream cause is still unresolved.
-The width changes reduce growth without fixing collapse. No CIFAR stage comparison
-yet, and no proof that normalization is missing or is the right fix.
+The logos generator grows a component shared across images in early FFNs, and
+later attention/FFN branches amplify it. At512 stage16 batch-mean RMS is16.662
+with between-image RMS0.590. Pre-tanh mean RMS49.171 with variation0.846 becomes
+essentially identical saturated outputs. The shared component can be a spatial
+template, not merely a flat color or global scalar mean. Fixed-latent observations
+also fail; that excludes prior motion as sole explanation, not all prior effects.
 
-Source replay differs numerically from the previous ResNet screen (97.14%
-saturation), despite matching initial parameter and monitor hashes. Configured
-nondeterministic CUDA/TF32 remains enabled. Do not overinterpret precise rankings.
+`healthy_control_screen.py` records attention branches, FFNs, residual sums,
+upsampling and output. Hooks retain the original batch axis (never folded windows).
+Original recipes, seeds, player rates, prior and schedule are unchanged.
 
-Evidence: [architecture results](results/2026-09-22-generator-architecture/README.md).
-Runner: `research/startup_tuning/architecture_screen.py` (source/narrow/pixelshuffle).
-Optional stage hooks added to `reports/joint_rate_probe.py`. Six probe tests and
-ten pretrained-provider tests passed. State restoration, frozen weight integrity,
-alignment assertions, config equality outside intended changes all passed.
-Original artifacts: `/mnt/ml7tb/hypergan-signal-research/transgan128-ffn-width-v1`.
-No checkpoints or long training jobs retained; all our GPU jobs finished.
+`replicated_ffn_screen.py` duplicates each CIFAR early FFN unit: factor4 at8px,
+factor16 at16px, making all four hidden widths4096. Down columns divide by the
+factor, biases stay unchanged. All other tensors, including the entire critic,
+copy exactly from the original seeded source. This preserves the initial generator
+function (full-network CPU float64 error <6e-15); 243 exact tensors,12 transformed.
+It deliberately starts duplicate units; this is NOT independent extra capacity or
+an independently initialized wide network. TOML alone does NOT reproduce this
+initialization; use the runner.
 
-## Working CIFAR control and an important terminology correction
+Adam separately updates each down-weight copy. All three CIFAR runs have first
+logged G loss about1.017, but post-update pre-tanh RMS is1.0109/source,
+1.7055/replicated,1.0116/compensated. Saturation is0.955%,12.237%,0.959% respectively.
+This directly shows why similar loss values miss parameterization-dependent
+function response. Nevertheless the uncompensated wider CIFAR model recovers,
+so this width alone does not establish the cause of sustained logos collapse.
 
-Recipe: `testbeds/cifar-transgan32-adversarial/cifar-transgan.toml` and HNDLs.
-Prior handoff observed saturation <2%, diversity 72–96% of real previews through
-step1700, stopped1825. The original encoder/reconstruction recipe achieved FID10.93
-at50000; that FID is NOT a measurement of the adversarial-only run.
+`--compensated` divides duplicated down-weight LR by factor and up-layer Adam eps
+by factor. This restores source functional Adam updates in exact arithmetic while
+units stay tied. A float64 regression verifies8 steps and uncompensated divergence.
+CUDA/TF32 rounding accumulates into differing later adversarial trajectories;
+no bit-identical long-run equivalence or treatment-effect ranking is claimed.
+This is a diagnostic control, NOT a validated general scaling rule or Newton step.
 
-CIFAR channels256/64/16, FFNs1024/256/64, latent64, pixelshuffle from8px; ResNet
-receives bilinear-upsampled64px input. CIFAR uses G3e-4, D4.5e-4, betas[0,.999],
-16384 prior particles and fixed_sigma0.212616428732872, versus logos latent128,
-4096 particles, G/D2e-4 and betas[.5,.999]. Full TOMLs enumerate further differences.
+Critic interactions remain open: CIFAR has nonzero gradient penalty on61/64
+scheduled steps (max1.506); logos has0/64. The data, critic geometry and trajectory
+all differ, so this is not causal evidence by itself. Prior critic swaps exclude a
+DINO-specific explanation, not all generator–critic interactions.
 
-Earlier prose called the CIFAR prior "fixed". The actual adversarial TOML fixes
-sigma, NOT the particle positions: `make_prior` only fills the sigma buffer;
-ParticlePrior defaults to learnable z, and the trainer optimizes prior parameters.
-Do not carry the frozen-prior claim forward. The CIFAR testbed README also has
-stale "not started" wording; prefer recorded run evidence over that sentence.
+## Next causal bridge
 
-## Constraints and environment
+Keep the working CIFAR generator, pretrained ResNet critic, prior, optimizer and
+32px resolution fixed; change the data pipeline to logos resized to32px. Explicitly
+record sampling, augmentation and preprocessing differences. Do not silently
+label the whole difference as generator architecture. This bridge is NOT prepared
+or run yet. If it works, vary architecture/resolution separately. Add measurements
+of critic input-gradient norms and G gradients before/after tanh to separate weak
+adversarial signal from saturation blocking the signal. Validate an eventual fix
+on failing and healthy models, with diversity development and actual quality.
+
+The earlier proposed parameter-free per-token channel RMSNorm immediately before
+RGB remains UNTESTED. It bounds hidden scale but doesn't remove a shared spatial
+template, ensure latent dependence, or prevent RGB weights from rescaling.
+
+## Prior evidence worth retaining
+
+- DCGAN works with DCGAN and freestyle DINO critics. Large logos TransGAN fails
+  with DCGAN, freestyle DINO, rebuilt projected DINO, and pretrained ResNet.
+- Small adversarial CIFAR ran through1700 with useful diversity, stopped1825.
+  Original encoder/reconstruction CIFAR FID10.93 at50000 is NOT a FID for the
+  adversarial-only recipe.
+- CIFAR prior fixes sigma0.212616428732872, NOT particle positions. Positions are
+  learned; prior LR0.003. Logos prior LR0.002. Avoid old 'frozen/fixed prior' wording.
+- Earlier narrowed FFNs and pixelshuffle screens delay early saturation but don't
+  establish whether those variants could recover after32. Four early FFN down
+  weights dominate first-step response. The negative-curvature grouped probe
+  abstained: never take abs(curvature), floor its rate, or call a manual multiplier
+  a Newton step.
+- DINO freestyle is not Projected GAN (trained projections, gray context, pixel
+  tower, scalar score). Projected testbed uses frozen projections/spatial scores.
+- Installed ParticleGAN penalty fix differentiates summed per-image logit means,
+  avoiding the64-logit gradient multiplier. PR ParticleGAN#42. This does not change
+  spatial adversarial loss. Corrected DINO run still collapsed, stopped703 earlier.
+
+## Validation, artifacts and environment
+
+Seven focused CPU tests passed: `test_joint_rate_probe.py` and
+`test_replicated_ffn_screen.py`. All4 native512-step rollouts restored full trainer
+state, preserved source TOMLs and passed before/after/restore protected hashes.
+Full-model replication preparations also passed CPU checks in both optimizer modes.
+Original artifacts: `/mnt/ml7tb/hypergan-signal-research/healthy-control-v1`.
+CSV/SVG exporter: `research/startup_tuning/summarize_healthy_controls.py`.
+Plotting-only dependencies are isolated in `/tmp/hypergan-signal-plot-deps`; the
+training environment was not modified. No training checkpoints were retained.
 
 - Workspace `/home/martyn/dev/hypergan/generator-signal-diagnostic`.
-- Commit and push as you go; do not overwrite AGENTS.md; do not merge PR #382.
-- Python `/home/martyn/dev/hypergan/training-runs/transgan-128-env/bin/python`.
-- Worktree PYTHONPATH; never python -I; no seed experiments.
-- Never edit training-runs/logos-* source TOMLs. New recipes under testbeds/.
-- GPU1 UUID GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce is reserved; do not launch there.
-- Use GPU0 UUID GPU-ed080e41-3193-3755-6756-f3d46c433331 only after checking availability.
-- Prior scoremean projectedDINO job was observed stopped703; do not restart implicitly.
-- Installed ParticleGAN penalty fix averages logits per image before gradient norm;
-  preserves spatial adversarial loss. ParticleGAN PR42. Existing audit evidence in
-  results/2026-09-22-projected-scoremean-audit/.
-- Earlier grouped curvature probe abstained for negative curvature. Never abs it,
-  add a rate floor, or describe the empirical FFN multipliers as a Newton step.
-- Prefer metrics; no subagents requested; no jobs or tools pending at this handoff.
+- Don't overwrite AGENTS.md. No seed sweeps or same-experiment/different-seed tests.
+- Python `/home/martyn/dev/hypergan/training-runs/transgan-128-env/bin/python`;
+  worktree `PYTHONPATH=src`; never `python -I`.
+- Never edit training-runs/logos-* TOMLs. New recipes under testbeds/.
+- GPU1 UUID GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce remains reserved. Never launch there.
+- All our runs used GPU0 UUID GPU-ed080e41-3193-3755-6756-f3d46c433331. The small
+  replication controls shared our GPU0 logos run after checking available memory;
+  elapsed times are not hardware benchmarks. All finished; GPU0 is now free.
+- Last GPU process query showed only viewer pid71674 on GPU1 (~337MB).
+- No subagents requested or used. No normalization/default training changes made.

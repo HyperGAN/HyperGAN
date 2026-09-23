@@ -21,8 +21,13 @@ logistic relativistic loss, lazy b-cap penalty, prior, and Adam rates match
 the previous 128px TransGAN adversarial recipe. There is no encoder and
 there are no objectives. Tuning is off.
 
+The b-cap penalty averages each image's logits before differentiating, so
+this 4×4×4 map does not multiply the input gradient by 64. A one-logit critic
+is unchanged. The first projected run, stopped at step 810, used the old sum
+and is not resumed.
+
 It has not been started. The fresh run directory is
-`~/dev/hypergan/training-runs/train-transgan-projected-dinov3-128`.
+`~/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-scoremean`.
 
 ```bash
 ~/dev/hypergan/training-runs/start-transgan-projected-dinov3-128.sh

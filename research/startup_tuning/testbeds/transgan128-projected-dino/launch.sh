@@ -10,5 +10,5 @@ export MKL_NUM_THREADS=1
 # TransGAN generator, frozen DINOv3 Projected GAN critic. Tuning stays off.
 exec "$RUNS_DIR/transgan-128-env/bin/python" -m hypergan train \
   "$WORKTREE/research/startup_tuning/testbeds/transgan128-projected-dino/transgan-projected-dino.toml" \
-  --run-dir "$RUNS_DIR/train-transgan-projected-dinov3-128" \
+  --run-dir "$RUNS_DIR/train-transgan-projected-dinov3-128-scoremean" \
   --no-tune --server --checkpoint-every 1000 --preview-every 100 --progress-every 20 "$@"

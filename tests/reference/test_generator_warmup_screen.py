@@ -60,3 +60,43 @@ def test_ratio_one_is_exact_native_trajectory(setup):
                                prepare=screen.prepare(ratio=1, warmup_rounds=2))
     assert native['rollout_final_parameters_sha256'] == wrapped['rollout_final_parameters_sha256']
     assert native['per_step'] == wrapped['per_step']
+
+
+def test_penalty_only_step_has_its_own_moments_and_cannot_update_g_or_prior(setup):
+    screen, path = setup
+    trainer = ReferenceTrainer(load_config(path))
+    trainer.update()  # Populate adversarial Adam moments before testing isolation.
+    d_opt = copy.deepcopy(trainer.opt_d.state_dict())
+    g = [p.detach().clone() for p in trainer.program.generator_parameters]
+    prior = copy.deepcopy(trainer.prior.state_dict())
+    d = [p.detach().clone() for p in trainer.program.critic_parameters]
+    optimizer = screen.DeviceAdam(trainer.program.critic_parameters, **trainer.opt_d.defaults)
+    penalty = screen.GradientPenalty(arm='e_interp', coeff=1, lazy_k=1)
+    with torch.no_grad():
+        batch, _, context = trainer._draw(None, None)
+    result = screen.penalty_only_update(trainer, optimizer, penalty, batch, context)
+    assert result['optimizer_step'] and result['loss'] > 0
+    assert _same_state(d_opt, trainer.opt_d.state_dict())
+    assert _same_state(prior, trainer.prior.state_dict())
+    assert all(torch.equal(p, old) for p, old in zip(trainer.program.generator_parameters, g))
+    assert any(not torch.equal(p, old) for p, old in zip(trainer.program.critic_parameters, d))
+    # A zero penalty must not move D even after penalty momentum exists.
+    d = [p.detach().clone() for p in trainer.program.critic_parameters]
+    old_state = copy.deepcopy(optimizer.state_dict())
+    result = screen.penalty_only_update(trainer, optimizer,
+                                        screen.GradientPenalty(arm='b_cap', kappa=1e9), batch, context)
+    assert result == {'loss': 0., 'optimizer_step': False}
+    assert _same_state(old_state, optimizer.state_dict())
+    assert all(torch.equal(p, old) for p, old in zip(trainer.program.critic_parameters, d))
+
+
+def test_interpolation_warmup_restores_and_stops_penalty_at_transition(setup):
+    screen, path = setup
+    report = screen.run_probe(path, g_lr=1e-4, d_lr=1e-4, steps=3,
+                              prepare=screen.prepare(ratio=2, warmup_rounds=2, extra_penalty='e_interp'))
+    assert report['status'] == 'complete', report.get('failure')
+    assert report['restored']
+    proposal = report['proposal']
+    assert proposal['penalty_only_updates'] == 2
+    assert proposal['g_updates'] == 5 and proposal['d_updates'] == 3
+    assert proposal['rounds'][-1]['extra_g'] == []

@@ -13,24 +13,26 @@ is wrong. This comparison does not establish a cause of training collapse.
 
 ## Generator
 
-| Item | Our 128px generator | Paper / official implementation |
+| Item | Final stable 128px generator | Paper / official implementation |
 | --- | --- | --- |
 | Channel schedule | 1024, 1024, 256, 64, 16 at 8, 16, 32, 64, 128px | Matches paper 128px schedule |
 | Upsampling | Bicubic 8→16, then PixelShuffle | Matches paper 128px schedule |
-| Block depths | 2, 2, 2, 2, 2 | Paper 128px: 5, 4, 4, 4, 4 |
-| Latent width | 128 | Paper and released high-resolution scripts: 512 |
+| Block depths | 5, 4, 4, 4, 4 (previously 2 each) | Matches paper 128px |
+| Latent width | 512 (previously 128) | Matches paper and released high-resolution scripts |
 | Normalization | Channel RMS, epsilon 1e-8, no affine parameters | Matches PixelNorm |
 | Position encoding | Absolute embeddings plus relative attention bias | Matches |
 | Attention / MLP | Four heads, no QKV biases, output bias, GELU, MLP ratio 4 | Matches baseline defaults |
-| Output | Tokenwise RGB linear followed by **tanh** | RGB convolution with **no tanh** |
+| Output | Raw tokenwise RGB linear, **no tanh** | Matches raw RGB convolution output |
 | Initialization | Fan-in defaults for linear layers, Xavier RGB weights, truncated-normal position tables | Matches effective launcher initialization |
 | Extra randomness | None beyond supplied latent | Selected high-resolution variants add learned-strength attention noise |
 
 The baseline's [PixelNorm and attention](https://github.com/VITA-Group/TransGAN/blob/6b85440ca56716fd7a60bac964466cc0296ce663/models_search/ViT_custom_local544444_256_rp.py#L22-L154)
 match our arithmetic. Its [RGB return](https://github.com/VITA-Group/TransGAN/blob/6b85440ca56716fd7a60bac964466cc0296ce663/models_search/ViT_custom_local544444_256_rp.py#L433-L445)
-has no bounding activation. Our final `tanh` can attenuate generator gradients
-when RGB preactivations grow; given observed saturation, this is a concrete
-difference to investigate. It remains in this augmentation-focused configuration.
+has no bounding activation. The previous generator’s final `tanh` can attenuate
+gradients when RGB preactivations grow. The stable generator removes that
+activation; this is a fidelity change, not evidence that it fixes collapse.
+These generator changes live in `transgan-generator-128-stable.hndl`; the original
+reduced-depth file is unchanged. Loss and optimizer settings are unchanged.
 
 The [upstream initializer](https://github.com/VITA-Group/TransGAN/blob/6b85440ca56716fd7a60bac964466cc0296ce663/train_derived.py#L83-L105)
 only overrides convolution weights; the linear override is commented out.
@@ -41,7 +43,7 @@ The released CelebA256 model additionally uses
 [latent cross-attention](https://github.com/VITA-Group/TransGAN/blob/6b85440ca56716fd7a60bac964466cc0296ce663/models_search/Celeba256_gen.py#L191-L218)
 and [up/down filtering after its 64px and 128px stages](https://github.com/VITA-Group/TransGAN/blob/6b85440ca56716fd7a60bac964466cc0296ce663/models_search/Celeba256_gen.py#L491-L513).
 The noisy variants inject [learned-strength token noise](https://github.com/VITA-Group/TransGAN/blob/6b85440ca56716fd7a60bac964466cc0296ce663/models_search/ViT_custom_local544444_256_rp_noise.py#L100-L107),
-initialized at zero. These are absent from our reduced-depth generator.
+initialized at zero. These later 256px mechanisms are absent from our paper-based 128px generator.
 
 ## Augmentation
 
@@ -86,10 +88,11 @@ also differ materially from our projected-DINO setup:
 | Update schedule | One D update then one G update | Four D updates per G update |
 | G:D batch ratio | 1:1 (64 each) | 2:1, with distributed accumulation |
 | Gradient clipping | No global gradient norm clipping | Norm 5 for G and D |
-| Prior | Learned 4096-particle MoG, latent width 128 | Standard Gaussian, latent width 512 |
+| Prior | Learned 4096-particle MoG, latent width 512 | Standard Gaussian, latent width 512 |
 | EMA | 0.995 | 0.995 in the high-resolution launchers |
 
 Normalization and positional bias are verified, not missing fixes. The new
-augmentation closes one gap, while output saturation, capacity, optimizer
-dynamics, prior and discriminator feedback remain independent differences.
+augmentation closes one gap. Full depth, latent width and raw RGB output now
+match the paper/upstream generator. Optimizer dynamics, prior distribution,
+discriminator feedback and the later 256px refinements remain different.
 No training-quality or convergence claim follows from this code comparison.

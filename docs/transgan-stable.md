@@ -10,8 +10,9 @@ combines the three techniques in [TransGAN section 3.4](https://arxiv.org/html/2
 - Parameter-free per-token normalization,
   `x / sqrt(mean(x**2, channels) + 1e-8)`, before attention and feed-forward blocks.
 
-The latter two were already present on `develop`. DiffAug is the new training
-change. It applies during both discriminator and generator updates, including
+The latter two were already present on `develop`. DiffAug adds the missing
+section 3.4 technique; the stable recipe also restores the paper’s full generator
+depth and latent width and removes the final tanh to match upstream RGB output. It applies during both discriminator and generator updates, including
 when discriminator parameters are frozen. Evaluation disables it without drawing
 random numbers. Translation and cutout use integer indexing and masks so
 gradient penalties can differentiate through the augmentation. The stable recipe follows the basic three-operation policy in the
@@ -40,8 +41,11 @@ of the paper's transformer discriminator or WGAN-GP optimizer recipe. DINOv3
 retains its pretrained normalization and positional encoding. Four frozen
 cross-channel projections feed independent spectral convolutional heads, yielding
 `[B, 4, 4, 4]` logits. All four feature depths are 8x8, so there is no cross-scale
-fusion. The existing reduced-depth generator, logistic relativistic loss,
-lazy b-cap penalty, prior, optimizer settings and seeds are retained.
+fusion. The stable generator uses the paper’s 128px depths (5/4/4/4/4), a 512-dimensional
+latent and raw RGB output. The existing reduced-depth generator remains available
+for other recipes. Logistic relativistic loss, lazy b-cap penalty, MoG prior type,
+optimizer settings, update schedule and seeds are retained. Only the prior latent
+width changes to match the new generator input.
 
 Set the example's dataset manifest, digest, DINOv3 weights and pinned source
 checkout before using it. The prepared local configuration is
@@ -73,6 +77,11 @@ the two distribution tests passed against a wheel installed in a temporary targe
 After aligning the policy with upstream, 46 augmentation, HNDL and projected-critic
 tests passed, including exact checkpoint continuation and second derivatives.
 The generator's normalization/position audit passed all 18 tests.
+Five further tests validate the final 151,512,455-parameter generator: all 21
+blocks and 42 normalization layers, 512-dimensional stem initialization, finite
+128px forward/input gradients, unbounded RGB output and unchanged training
+settings. The latter comparison permits only the declared network changes and
+matching prior latent width.
 
 A CPU forward/backward check loaded the actual pinned DINOv3 checkpoint and
 verified the dataset manifest digest. The final configured augmentation produced

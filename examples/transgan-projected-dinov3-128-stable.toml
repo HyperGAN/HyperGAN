@@ -1,4 +1,5 @@
 # TransGAN section 3.4 recipe with a frozen projected DINOv3 critic.
+# Paper 128px generator: depths 5/4/4/4/4, latent width 512, raw RGB output.
 # All three: color/translation/cutout DiffAug, relative position bias, PixelNorm.
 # "stable" names the candidate recipe; convergence has not been established.
 # Set the pinned dataset manifest and local pretrained checkpoint below.
@@ -18,9 +19,9 @@ shuffle = true
 factory = "hndl"
 inputs = { z = "latent" }
 [components.generator.args]
-input_shape = ["B", 128]
+input_shape = ["B", 512]
 output_shape = ["B", 3, 128, 128]
-file = "networks/transgan-generator-128.hndl"
+file = "networks/transgan-generator-128-stable.hndl"
 
 [components.discriminator]
 factory = "hndl"
@@ -44,7 +45,7 @@ initialization_device = "cpu"
 initialization_seed = 25003
 [prior.args]
 num_particles = 4096
-z_dim = 128
+z_dim = 512
 sigma_rel = 0.025
 
 [adversarial]

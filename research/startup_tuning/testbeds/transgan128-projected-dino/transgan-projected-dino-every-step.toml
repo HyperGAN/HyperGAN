@@ -1,0 +1,98 @@
+# Logos 128 adversarial TransGAN. Frozen DINOv3 Projected GAN critic.
+# No encoder and no objectives.
+schema_version = 1
+name = "images/logos-transgan-projected-dinov3-128"
+
+[data]
+factory = "hypergan.colorization_data:ColorizationData"
+[data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "/home/martyn/dev/hypergan/training-runs/logos-dcgan-128/dataset-manifest-128.json"
+manifest_sha256 = "e3c57bade4a0b4917960b7481c5361453d7607c211cc745212651aa62050bc27"
+split = "train"
+shuffle = true
+
+[components.generator]
+factory = "hndl"
+inputs = { z = "latent" }
+[components.generator.args]
+input_shape = ["B", 128]
+output_shape = ["B", 3, 128, 128]
+file = "generator.hndl"
+
+[components.discriminator]
+factory = "hndl"
+inputs = { x = "candidate" }
+[components.discriminator.args]
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 4, 4, 4]
+file = "discriminator.hndl"
+[components.discriminator.args.parameters]
+weights_path = "/home/martyn/dev/hypergan/training-runs/dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
+weights_sha256 = "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
+
+[components.discriminator.args.pretrained_providers.dinov3_vits16]
+source_path = "/home/martyn/dev/hypergan/training-runs/dinov3-source"
+source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 25003
+[prior.args]
+num_particles = 4096
+z_dim = 128
+sigma_rel = 0.025
+
+[adversarial]
+loss_type = "logistic"
+mode = "rp"
+weight = 1.0
+
+[gradient_penalty]
+arm = "b_cap"
+coeff = 1.0
+kappa = 1.0
+lazy_k = 1
+
+[prior_regularizer]
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001
+
+[optimizer]
+implementation = "torch_fused_adam"
+lr = 0.0002
+d_lr_mult = 1.0
+prior_lr_mult = 10.0
+betas = [0.5, 0.999]
+prior_betas = [0.5, 0.999]
+
+[training]
+steps = 200000
+batch_size = 64
+seed = 25002
+device = "cuda"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "independent"
+data_rng_device = "cpu"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+[training.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[sampling]
+count = 16
+seed = 35002
+
+[metrics]
+preset = "standard"
+every_steps = 10

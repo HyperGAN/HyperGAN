@@ -37,3 +37,27 @@ The run directory is
 ```bash
 ~/dev/hypergan/training-runs/start-transgan-projected-dinov3-128.sh
 ```
+
+## Original penalty every step
+
+`transgan-projected-dino-every-step.toml` differs from the source TOML only
+in `gradient_penalty.lazy_k`: 8 becomes 1. It shares the same generator and
+rebuilt projected-DINO discriminator files, seeds, prior, and optimizer.
+The original endpoint `b_cap` keeps coefficient 1 and cap 1. The installed
+ParticleGAN implementation therefore applies 1× each step instead of 8×
+every eighth step. This changes timing with the same nominal average weight;
+it does not imply identical optimizer dynamics. There is no interpolation
+penalty or extra G/D update.
+
+Run from this worktree:
+
+```bash
+bash research/startup_tuning/testbeds/transgan128-projected-dino/launch-every-step.sh
+```
+
+The launcher uses GPU 0 by UUID, the existing `transgan-128-env`, worktree
+`PYTHONPATH`, and `--no-tune`. It defaults to 128 steps, previews every 16,
+and checkpoint interval 128, in a separate run directory
+`~/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-every-step`.
+Append `--steps 200000` for the full configured duration. GPU 1 is reserved.
+This recipe has been prepared but has not been run.

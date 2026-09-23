@@ -23,6 +23,8 @@ def rows_for(case, report):
             activation = measured['final_affine']['activation']
             yield {'case': case, 'round': step, 'g_updates': counts['g_updates'],
                    'd_updates': counts['d_updates'], 'prior_updates': counts['prior_updates'],
+                   'd_penalty_only_updates': sum(int(extra.get('extra_penalty', {}).get('optimizer_step', False))
+                       for n, record in schedule.items() if n <= step for extra in record['extra_g']),
                    'bank': bank, 'saturation_percent': 100 * value['absolute_above_0_99_fraction'],
                    'pixel_diversity_percent_of_real': 100 * value['sample_diversity_rms'] / real['sample_diversity_rms'],
                    'spatial_diversity_percent_of_real': 100 * value['spatial_sample_diversity_rms'] / real['spatial_sample_diversity_rms'],

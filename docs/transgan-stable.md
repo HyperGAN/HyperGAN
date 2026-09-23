@@ -89,3 +89,19 @@ finite `[1, 4, 4, 4]` logits, input gradient L2 norm 0.282507, and finite gradie
 for all eight trainable critic parameter tensors, while frozen weights received
 none. Evaluation was exactly repeatable and consumed no RNG. These are
 implementation checks; the prepared training run has not been launched.
+
+## Matched run without DiffAug
+
+[`transgan-projected-dinov3-128-no-diffaug.toml`](../examples/transgan-projected-dinov3-128-no-diffaug.toml)
+uses the same generator, discriminator weights and architecture, optimizer, loss,
+batch size and seeds. Its only numerical configuration difference is an empty
+DiffAug transform list: the operation becomes identity and consumes no RNG.
+This is an augmentation ablation, starting from scratch with the same seed.
+
+The local launcher is
+`../training-runs/start-transgan-projected-dinov3-128-no-diffaug.sh`.
+It uses physical GPU 0 (`GPU-ed080e41-3193-3755-6756-f3d46c433331`), while the
+augmented run uses physical GPU 1. Checkpoints and previews for this run live in
+`/mnt/ml7tb/hypergan-training-runs/train-transgan-projected-dinov3-128-no-diffaug`
+to avoid filling the home filesystem. Checkpoint, preview and metric cadences
+match the augmented launcher.

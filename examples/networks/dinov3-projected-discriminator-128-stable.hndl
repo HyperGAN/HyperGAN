@@ -11,7 +11,9 @@
 
 # TransGAN section 3.4: augment real and fake RGB in both training phases.
 # Evaluation is identity; frozen DINO retains its pretrained normalization.
-x = diff_augment(x, transforms="color,translation,cutout", name="diffaug")
+# Official TransGAN basic policy; device RNG keeps checkpoint replay exact.
+x = diff_augment(x, transforms="translation,cutout,color",
+    translation_ratio=0.2, cutout_probability=0.3, name="diffaug")
 
 # ImageNet normalization of [-1, 1] RGB: (x * 0.5 + 0.5 - mean) / std.
 scaled = scale(x, 0.5)

@@ -15,7 +15,7 @@ from hypergan.hndl_networks import HNDLNetwork, build_network
 from hypergan.recipes import ComponentGraph
 
 
-CRITIC = '''augmented = diff_augment(x, transforms="color,translation,cutout", name="diffaug")
+CRITIC = '''augmented = diff_augment(x, transforms="translation,cutout,color", translation_ratio=0.2, cutout_probability=0.3, name="diffaug")
 features = conv(augmented, 4, kernel_size=3, padding=1)
 features = tanh(features)
 features = flatten(features)
@@ -48,6 +48,19 @@ def test_registration_is_local_idempotent_and_construction_preserves_rng():
     assert model(torch.ones(2, 3, 8, 8)).device.type == 'cpu'
     with pytest.raises(HNDLError, match='E_'):
         build_network('diff_augment()', input_shape=['B', 192], output_shape=['B', 192])
+
+
+def test_nondefault_augmentation_settings_and_invalid_ranges():
+    model = build_network('diff_augment(transforms="translation,cutout", '
+                          'translation_ratio=0.0, cutout_probability=0.0)',
+                          input_shape=IMAGE_SHAPE, output_shape=IMAGE_SHAPE)
+    pixels = torch.linspace(-1, 1, 2 * 3 * 8 * 8).reshape(2, 3, 8, 8)
+    torch.testing.assert_close(model(pixels), pixels, rtol=0, atol=0)
+    for option in ('translation_ratio=-0.1', 'translation_ratio=1.1',
+                   'cutout_probability=-0.1', 'cutout_probability=1.1'):
+        with pytest.raises(HNDLError, match='E_ARGUMENT'):
+            build_network(f'diff_augment({option})', input_shape=IMAGE_SHAPE,
+                          output_shape=IMAGE_SHAPE)
 
 
 def test_named_adapter_eval_identity_dtype_and_copy_without_rng():
@@ -137,18 +150,58 @@ output_shape = ["B", 1]
     assert fingerprint(config_copy) == fingerprint(config)
     changed = config_values(config)
     changed['components']['discriminator']['args']['source'] = CRITIC.replace(
-        'color,translation,cutout', 'color')
+        'translation,cutout,color', 'color')
     assert fingerprint(resolve_config(changed)) != fingerprint(config)
     model = HNDLNetwork(**config_copy['components']['discriminator']['args']).eval()
     plan_text = model.network.plan.to_json()
     assert 'hypergan.diff_augment@1' in plan_text
-    assert 'color,translation,cutout' in plan_text
+    assert 'translation,cutout,color' in plan_text
+    assert model.network['diffaug'].translation_ratio == 0.2
+    assert model.network['diffaug'].cutout_probability == 0.3
     registry = register_augmentation(Registry.builtins())
     plan = ResolvedPlan.from_json(plan_text, registry=registry)
     restored = build(plan, device='cpu', registry=registry).eval()
+    assert restored['diffaug'].translation_ratio == 0.2
+    assert restored['diffaug'].cutout_probability == 0.3
     state_path = tmp_path / 'critic.pt'
     torch.save(model.network.state_dict(), state_path)
     restored.load_state_dict(torch.load(state_path, weights_only=True), strict=True)
     pixels = torch.linspace(-1, 1, 3 * 8 * 8).reshape(1, 3, 8, 8)
     restored_output, = restored(x=pixels).values()
     torch.testing.assert_close(restored_output, model(pixels), rtol=0, atol=0)
+
+
+def test_training_checkpoint_replays_augmentation_and_optimizer_update_exactly():
+    from hypergan.checkpoints import restore_trainer, trainer_state
+    from hypergan.training import ReferenceTrainer
+
+    config = resolve_config({'components': _specs(),
+                             'prior': {'args': {'num_particles': 16, 'z_dim': 2}},
+                             'gradient_penalty': {'kappa': 0},
+                             'training': {'steps': 3, 'batch_size': 2, 'phase_draws': 'independent'}})
+    trainer = ReferenceTrainer(config)
+    batch = {'real': torch.linspace(-1, 1, 2 * 3 * 8 * 8).reshape(2, 3, 8, 8)}
+    trainer.update(batch, generator_batch=batch)
+    saved = copy.deepcopy(trainer_state(trainer, batch))
+    expected_row, _ = trainer.update(batch, generator_batch=batch)
+    expected_state = copy.deepcopy(trainer_state(trainer, batch))
+    resumed = ReferenceTrainer(config)
+    restore_trainer(resumed, saved)
+    actual_row, _ = resumed.update(batch, generator_batch=batch)
+    assert actual_row == expected_row
+
+    def equal(actual, expected):
+        if isinstance(expected, torch.Tensor):
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        elif isinstance(expected, dict):
+            assert actual.keys() == expected.keys()
+            for key in expected:
+                equal(actual[key], expected[key])
+        elif isinstance(expected, (list, tuple)):
+            assert len(actual) == len(expected)
+            for a, b in zip(actual, expected, strict=True):
+                equal(a, b)
+        else:
+            assert actual == expected
+
+    equal(trainer_state(resumed, batch), expected_state)

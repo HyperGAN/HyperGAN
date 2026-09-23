@@ -14,12 +14,26 @@ The latter two were already present on `develop`. DiffAug is the new training
 change. It applies during both discriminator and generator updates, including
 when discriminator parameters are frozen. Evaluation disables it without drawing
 random numbers. Translation and cutout use integer indexing and masks so
-gradient penalties can differentiate through the augmentation. The policy follows
-the [official DiffAugment reference](https://github.com/mit-han-lab/data-efficient-gans/blob/master/DiffAugment_pytorch.py).
+gradient penalties can differentiate through the augmentation. The stable recipe follows the basic three-operation policy in the
+[official TransGAN implementation](https://github.com/VITA-Group/TransGAN/blob/6b85440ca56716fd7a60bac964466cc0296ce663/models_search/diff_aug.py):
+translation (maximum 20% per axis), half-side cutout enabled on 30% of batches,
+then color. The cutout gate is shared across the batch; cutout centers and other
+transform values are per image. Its batch gate uses device PyTorch RNG for
+checkpoint replay instead of upstream Python RNG.
 
-HNDL exposes it as `diff_augment(x, transforms="color,translation,cutout")`.
+The configured HNDL operation is:
+
+```python
+x = diff_augment(x, transforms="translation,cutout,color",
+    translation_ratio=0.2, cutout_probability=0.3)
+```
+
+Omitting these arguments retains generic DiffAug defaults (color first, 12.5%
+translation, cutout on every batch).
 `transforms` avoids HNDL's reserved `policy` keyword. The operation and selected
 transforms are recorded in resolved network source and configuration identity.
+The recipe explicitly uses autograd gradient penalties. Finite-difference
+penalties would require reusing augmentation draws across perturbed critic calls.
 
 This is an adaptation with a frozen projected DINOv3 critic, not a reproduction
 of the paper's transformer discriminator or WGAN-GP optimizer recipe. DINOv3
@@ -47,3 +61,22 @@ training CLI arguments. The default duration is the configured 200,000 steps;
 do not establish convergence or improved image quality. Compare published
 training/diversity metrics before drawing that conclusion; no seed sweep is
 needed to validate this implementation.
+
+See the [pinned upstream comparison](transgan-upstream-comparison.md) for remaining
+architecture, optimizer, loss and high-resolution recipe differences.
+
+## Implementation validation
+
+The default suite passed 1,132 tests with 188 heavy tests deselected. Its only
+failure was the distribution inventory assertion against an editable installation;
+the two distribution tests passed against a wheel installed in a temporary target.
+After aligning the policy with upstream, 46 augmentation, HNDL and projected-critic
+tests passed, including exact checkpoint continuation and second derivatives.
+The generator's normalization/position audit passed all 18 tests.
+
+A CPU forward/backward check loaded the actual pinned DINOv3 checkpoint and
+verified the dataset manifest digest. The final configured augmentation produced
+finite `[1, 4, 4, 4]` logits, input gradient L2 norm 0.282507, and finite gradients
+for all eight trainable critic parameter tensors, while frozen weights received
+none. Evaluation was exactly repeatable and consumed no RNG. These are
+implementation checks; the prepared training run has not been launched.

@@ -53,6 +53,7 @@ mode = "rp"
 weight = 1.0
 
 [gradient_penalty]
+method = "autograd"
 arm = "b_cap"
 coeff = 1.0
 kappa = 1.0

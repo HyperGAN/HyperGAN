@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "name": "TransGAN 128 frozen pretrained ResNet18 critic screen",
+  "config": "../testbeds/transgan-resnet128/transgan-resnet.toml",
+  "baseline": "source",
+  "evaluation": {
+    "steps": 32,
+    "observation_steps": [
+      0,
+      1,
+      8,
+      16,
+      32
+    ],
+    "features": false,
+    "direction": false,
+    "crossed": false
+  },
+  "cases": [
+    "solutions/source.json"
+  ]
+}

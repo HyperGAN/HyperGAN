@@ -14,3 +14,7 @@ takes the first 1024 hidden units of each FFN, and rescales down weights/biases
 by two to preserve their initialization distributions. This is a paired
 architecture ablation, not a seed experiment. Ordinary training from this TOML
 alone will not reproduce this explicit cross-architecture weight alignment.
+
+Result: the 32-update paired screen failed, with 93.67% saturation
+and 10.81% initial diversity retained.
+See [evidence](../../results/2026-09-22-generator-architecture/README.md).

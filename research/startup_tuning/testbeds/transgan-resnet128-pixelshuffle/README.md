@@ -15,3 +15,7 @@ are copied from the source initialization. Reduced tensors take leading slices;
 Linear tensors are rescaled for the new fan-in (Xavier for the RGB weight),
 and position tables keep their original distribution. The same seed, data,
 prior and original optimizer settings apply. This screen declares 32 updates.
+
+Result: the 32-update paired screen failed, with 89.05% saturation
+and 12.48% initial diversity retained.
+See [evidence](../../results/2026-09-22-generator-architecture/README.md).

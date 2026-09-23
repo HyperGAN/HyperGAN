@@ -53,7 +53,7 @@ def main():
     (destination / 'resolved-training-config.json').write_text(json.dumps(config, indent=2) + '\n')
     opt = config['optimizer']
     report = run_probe(source, g_lr=opt['lr'], d_lr=opt['lr'] * opt['d_lr_mult'],
-                       steps=512 if args.case == 'cifar' else 32, device=args.device,
+                       steps=512, device=args.device,
                        observe_steps=[0, 1, 8, 16, 32, 64, 128, 256, 512],
                        observe_modules=stages(args.case), progress_path=destination / 'report.json')
     if report['status'] != 'complete':

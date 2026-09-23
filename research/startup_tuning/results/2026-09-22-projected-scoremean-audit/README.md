@@ -1,8 +1,10 @@
 # Corrected projected critic still collapses
 
 Read-only inspection of `train-transgan-projected-dinov3-128-scoremean`, run
-`826e2b789a854910827bee2a6892987c`. The original run remains running on GPU 1;
-this inspection launches no inference on that GPU and does not change its state.
+`826e2b789a854910827bee2a6892987c`. The original run was running on GPU 1 at
+inspection. At the final status check it was stopped by SIGINT at step 703,
+with a durable checkpoint at 703; this task did not send that signal.
+This inspection launches no inference on that GPU and does not change its state.
 The saved preview evidence is [inspection.json](inspection.json); the sampled
 training trace through step 500 is [training-trace.json](training-trace.json).
 

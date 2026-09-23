@@ -48,6 +48,74 @@ def _progress_details(event):
     samples = event.get('samples_seen')
     if type(samples) is int and samples >= 0:
         yield f'{samples:,} samples'
+    warmup = event.get('g_lr_warmup')
+    if isinstance(warmup, dict):
+        step, steps, rate = warmup.get('completed_steps'), warmup.get('steps'), warmup.get('g_lr')
+        if type(step) is int and type(steps) is int and steps >= 2 and 0 <= step <= steps:
+            yield 'G LR warmup complete' if warmup.get('status') == 'complete' else f'G LR warmup {step}/{steps}'
+            if type(rate) in (int, float) and math.isfinite(rate) and rate >= 0:
+                yield f'G LR {rate:.6g}'
+
+
+def _tuning_message(tuning):
+    status = tuning.get('status')
+    parts = [{'pending': 'Preparing startup tuning', 'running': 'Tuning startup', 'complete': 'Startup tuning complete',
+              'failed': 'Startup tuning failed'}.get(status, 'Tuning startup')]
+    def factor(value):
+        return f'{value:.4g}' if type(value) in (float, int) and math.isfinite(value) and value > 0 else None
+    def brief(value):
+        return ''.join(char if char.isprintable() else ' ' for char in value).strip()[:240]
+    stages = {'measure': 'Measuring optimizer updates', 'fit': 'Measuring gradient response',
+              'validate': 'Validating held-out response', 'replay': 'Replaying proposed rates'}
+    measured = tuning.get('method') == 'measured-update-response' or tuning.get('stage') in stages
+    if status == 'running':
+        phase = stages.get(tuning.get('stage')) or {'initialization': 'Initialization', 'dynamics': 'Trial updates'}.get(tuning.get('phase'))
+        if phase:
+            parts.append(phase)
+    candidate, total = tuning.get('candidate'), tuning.get('total_candidates')
+    if status == 'running' and not measured and type(candidate) is int and type(total) is int and 0 < candidate <= total:
+        parts.append(f'Candidate {candidate} of {total}')
+    if status == 'running' and tuning.get('phase') == 'dynamics':
+        step, steps = tuning.get('trial_step'), tuning.get('trial_steps')
+        if (not measured or tuning.get('stage') in ('measure', 'replay')) and type(step) is int and type(steps) is int and 0 <= step <= steps and steps > 0:
+            parts.append(f'Trial step {step} of {steps}')
+        g_factor = tuning.get('g_lr_factor', tuning.get('lr_factor'))
+        if factor(g_factor):
+            parts.append('G learning rate × ' + factor(g_factor))
+        if factor(tuning.get('d_lr_factor')):
+            parts.append('D learning rate × ' + factor(tuning['d_lr_factor']))
+    if status == 'complete':
+        outcome = {'selected': 'Applied tuned initialization',
+                   'kept_baseline': 'Kept baseline initialization'}.get(tuning.get('outcome'))
+        if outcome and not measured:
+            parts.append(outcome)
+        dynamics = tuning.get('dynamics_outcome')
+        if dynamics == 'selected':
+            if factor(tuning.get('selected_g_lr_factor')):
+                parts.append('Selected G learning rate × ' + factor(tuning['selected_g_lr_factor']))
+            if factor(tuning.get('selected_d_lr_factor')):
+                parts.append('Selected D learning rate × ' + factor(tuning['selected_d_lr_factor']))
+        elif dynamics == 'kept_baseline':
+            parts.append('Kept configured G and D learning rates' if measured
+                         else 'Configured G and D learning rates passed' if factor(tuning.get('selected_d_lr_factor'))
+                         else 'Configured G learning rate passed')
+        elif dynamics == 'unresolved':
+            parts[0] = 'Startup tuning unresolved'
+            parts.append('No measured adjustment accepted; kept configured G and D learning rates' if measured
+                         else 'No rate candidate passed; kept configured G and D learning rates' if factor(tuning.get('selected_d_lr_factor'))
+                         else 'No rate candidate passed; kept configured G learning rate')
+        elif dynamics == 'skipped':
+            parts.append('Measured update tuning skipped' if measured else 'Dynamics check skipped')
+        reason = tuning.get('dynamics_reason')
+        if isinstance(reason, str) and reason.strip():
+            parts.append(brief(reason))
+        warmup = tuning.get('g_lr_warmup')
+        if isinstance(warmup, dict) and type(warmup.get('steps')) is int and warmup['steps'] >= 2:
+            parts.append(f"G learning-rate warmup enabled for {warmup['steps']} retained updates")
+    message = tuning.get('message')
+    if isinstance(message, str) and message.strip():
+        parts.append(brief(message))
+    return ' | '.join(parts)
 
 
 def _put_latest(pending, value):
@@ -333,7 +401,9 @@ class CLIProgress:
 
     def __call__(self, event):
         self.output.policy.refresh(self.output.stderr)
-        if event.get('event') == 'train' and event['step'] % self.output.policy.every:
+        warmup = event.get('g_lr_warmup', {})
+        warmup_boundary = isinstance(warmup, dict) and bool(warmup) and event.get('step') in (1, warmup.get('steps'))
+        if event.get('event') == 'train' and event['step'] % self.output.policy.every and not warmup_boundary:
             return
         reminder = None
         if event.get('event') == 'train' and self.output.evaluation_reminder:
@@ -344,6 +414,8 @@ class CLIProgress:
             # An added field only; existing progress keys and their meaning are unchanged.
             row = dict(event, evaluation_reminder=reminder) if reminder else event
             self.output.stdout.write(json.dumps(row, allow_nan=False) + '\n')
+        elif event.get('event') == 'tuning':
+            self.output.stderr.write(_tuning_message(event.get('tuning', {})) + '\n')
         elif event.get('event') == 'train':
             metrics = event.get('metrics', {})
             values = ' '.join(f'{label}={metrics[key]:.6g}' for key, label in

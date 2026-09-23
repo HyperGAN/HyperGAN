@@ -91,17 +91,17 @@ def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp
     monkeypatch.setattr(module, 'render_snapshot', delayed)
     result = train(config, tmp_path / 'viewed', checkpoint_every=1, preview_every=1, on_event=observe)
     assert result['status'] == 'complete'
-    assert result['skipped_previews_busy'] == 4
+    assert result['skipped_previews_busy'] == 5
     assert [row['step'] for row in events if row['event'] == 'train'] == [1, 2, 3, 4, 5]
     previews = [row for row in events if row['event'] == 'preview']
     if fail:
         assert not previews
-        assert result['observation_errors'][0]['step'] == 1
+        assert result['observation_errors'][0]['step'] == 0
         errors = [row for row in events if row['event'] == 'observer_error']
-        assert len(errors) == 1 and errors[0]['step'] == 1
+        assert len(errors) == 1 and errors[0]['step'] == 0
     else:
         assert not result['observation_errors']
-        assert len(previews) == 1 and previews[0]['step'] == previews[0]['preview']['step'] == 1
+        assert len(previews) == 1 and previews[0]['step'] == previews[0]['preview']['step'] == 0
         assert Path(result['preview_path']).is_file()
     assert _digest(read_checkpoint(tmp_path / 'plain')[2]) == _digest(read_checkpoint(tmp_path / 'viewed')[2])
 
@@ -232,8 +232,8 @@ def test_blocked_snapshot_storage_allows_updates_and_preserves_complete_state(tm
         release.set()
     assert stopped['steps'] == 3 and stopped['status'] == 'stopped'
     assert not stopped['observation_errors']
-    assert stopped['skipped_previews_busy'] == 2
-    assert stopped['previews'][0]['step'] == 1
+    assert stopped['skipped_previews_busy'] == 3
+    assert stopped['previews'][0]['step'] == 0
     done = resume(tmp_path / 'viewed', preview_every=0)
     assert done['status'] == 'complete'
     assert _digest(read_checkpoint(tmp_path / 'plain')[2]) == _digest(read_checkpoint(tmp_path / 'viewed')[2])
@@ -337,7 +337,7 @@ def test_controller_terminal_poll_enforces_stalled_snapshot_storage_deadline(tmp
     assert time.monotonic() - started < 3
     assert result['steps'] == 5 and result['status'] == 'complete'
     errors = result['observation_errors']
-    assert len(errors) == 1 and errors[0]['source'] == 'preview' and errors[0]['step'] == 1
+    assert len(errors) == 1 and errors[0]['source'] == 'preview' and errors[0]['step'] == 0
     assert 'deadline and cleanup grace' in errors[0]['error']
     assert not instances[0]._thread.is_alive()
     assert not list((tmp_path / 'run').glob('.preview-*'))

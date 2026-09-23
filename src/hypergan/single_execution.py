@@ -92,12 +92,28 @@ class SingleProcessExecution:
             raise ValueError('Resume data identity or state protocol differs from checkpoint')
         validate_implementation(info['implementation'], _implementation(self._trainer))
         self._ready = False
-        self._last_batch = restore_trainer(self._trainer, state)
+        self._last_batch = restore_trainer(self._trainer, state, metadata=info)
         if self._device.type == 'cuda':
             torch.cuda.synchronize(self._device)
         self._ready = True
         return Restored(checkpoint_path=target, step=self._trainer.step,
                         warnings=tuple(runtime_warnings))
+
+    def tune(self, run_dir, on_event=None):
+        """Calibrate owned G/D rates with fully discarded startup updates."""
+        from .startup_tuning import tune_initialized
+        self._boundary()
+        if self._trainer.step != 0:
+            raise ValueError('Startup tuning cannot modify a trained checkpoint')
+        self._ready = False
+        result = tune_initialized(self._trainer, run_dir, on_event=on_event)
+        self._ready = True
+        return result
+
+    def current_generator_lr(self):
+        """Actual rate at the current complete update boundary, including annealing."""
+        self._boundary()
+        return self._trainer.opt_g.param_groups[0]['lr']
 
     def update(self):
         self._boundary()

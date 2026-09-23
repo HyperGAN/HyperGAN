@@ -6,6 +6,7 @@ Use a Python main guard when selecting a replicated profile.
 """
 from dataclasses import dataclass
 import json
+import warnings
 from pathlib import Path
 
 from .config import config_values, fingerprint, load_config, resolve_config, resume_compatible
@@ -185,11 +186,15 @@ class PreparedExecution:
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                   preview_every=None, preview_keep=None, preview_keep_source=None,
-                  preview_name=None):
+                  preview_name=None, tune=False):
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
+    if type(tune) is not bool:
+        raise ValueError("tune must be a boolean")
     run_dir = Path(run_dir).resolve()
     if run_dir.exists():
+        if tune:
+            warnings.warn("Startup tuning is skipped on an existing run; restoring its saved checkpoint", RuntimeWarning)
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=profile, service_policy=service_policy, checkpoint_every=checkpoint_every,
             max_seconds=max_seconds, stop_after_steps=stop_after_steps,
@@ -203,6 +208,8 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     config = _training_config(config_path, steps)
     profile = _profile(profile, config)
     policy = _policy(profile, service_policy)
+    if tune and _execution(profile) is not None:
+        raise ValueError('Startup tuning currently requires native single-process execution; omit the replicated profile')
     if _execution(profile) is not None:
         from .replicated_execution import MAX_SAMPLE_COUNT
         if config['sampling']['count'] > MAX_SAMPLE_COUNT:
@@ -211,6 +218,8 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
                     preview_keep=preview_keep, preview_keep_source=preview_keep_source,
                     preview_name=preview_name)
+    if tune:
+        controls['tune'] = True
     return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls)
 
 

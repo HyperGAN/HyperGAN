@@ -1,0 +1,2995 @@
+{
+  "schema_version": 2,
+  "status": "complete",
+  "completed_updates": 32,
+  "kind": "disposable-explicit-joint-rate-rollout",
+  "purpose": "Measurement of one supplied rate pair; no acceptance rule or automatic calibration",
+  "source": {
+    "integration_reference": {
+      "repository": "https://github.com/255BITS/ParticleGAN",
+      "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181"
+    },
+    "particlegan_distribution_version": "0.5.0",
+    "particlegan_distribution_commit": null,
+    "hypergan_commit": "ce4bb9fc26d0639d20721a7e2099da9ea88cea58",
+    "hypergan_dirty": true,
+    "hypergan_provenance": "git",
+    "distribution_records": {
+      "hypergan": {
+        "record_sha256": null
+      },
+      "particlegan": {
+        "record_sha256": "3532c31cfe2ac7713909aa8298de42e0f1a7785fed6678b272a22dedc8256511"
+      },
+      "hndl": {
+        "record_sha256": "15964f79378a6c701fd2a26b66dbe910ea0c376007c79e020c8d656943cac955"
+      }
+    }
+  },
+  "config": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/testbeds/transgan128-projected-dino/transgan-projected-dino.toml",
+  "initial_parameters_sha256": "323c82c9e198abd9679f3b634eb1af580d089e2903e1ef13814e0783e3b7a632",
+  "original_config_fingerprint": "bbc1ef60ec0de324a8bac3d694f1e71f3d0fd8dd3efa77d1a391d477b852bbef",
+  "effective_config_fingerprint": "b4c613aa9d0a2b22f031276bf2fa536eece35ba4557d29831693b8aa3aeba702",
+  "config_sha256": "609833c63cce82c48ff06b1b3ac992f17c2e1f87ef9e37e54234943eb719c846",
+  "seed": 25002,
+  "device": "cuda:0",
+  "requested_updates": 32,
+  "g_lr": 0.0002,
+  "d_lr": 0.0002,
+  "prior_base_lrs": [
+    0.002
+  ],
+  "original_base_lrs": [
+    [
+      0.0002,
+      0.002
+    ],
+    [
+      0.0002
+    ]
+  ],
+  "gradient_penalty": {
+    "arm": "b_cap",
+    "coeff": 1.0,
+    "kappa": 1.0,
+    "lazy_k": 8,
+    "norm": "l2",
+    "target_anneal": "none",
+    "total_steps": 0,
+    "method": "autograd",
+    "fd_eps": 0.05
+  },
+  "schedule": "Original training horizon, annealing, D-then-G draws and lazy penalty schedule; prior base rates unchanged",
+  "observation_steps": [
+    0,
+    1,
+    8,
+    16,
+    32
+  ],
+  "observations": [
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.622485178004942,
+          "std": 0.6004651574516792,
+          "absolute_max": 0.9999922513961792,
+          "absolute_above_0_99_fraction": 0.010104497273763021,
+          "sample_diversity_rms": 0.5518607460359599,
+          "spatial_sample_diversity_rms": 0.5512911826655621,
+          "per_image_spatial_rms": 0.5936586248590651,
+          "sample_mean_color_diversity_rms": 0.025066210933686512,
+          "mean_color_fraction_of_sample_variance": 0.0020630909429835047,
+          "mean_absolute_horizontal_difference": 0.696461444794236,
+          "mean_absolute_vertical_difference": 0.6592556461541095,
+          "pooled_4x4_sample_diversity_rms": 0.05130702018432424
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 0.9985208314429637,
+            "std": 0.960362802774584,
+            "absolute_max": 6.2286882400512695,
+            "absolute_above_0_99_fraction": 0.31259950002034503,
+            "tanh_response": {
+              "mean_derivative": 0.6125122023787566,
+              "minimum_derivative": 1.555559935806361e-05,
+              "derivative_below_0_01_fraction": 0.0039285024007161455,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.622485178004942,
+          "std": 0.6004651574516792,
+          "absolute_max": 0.9999922513961792,
+          "absolute_above_0_99_fraction": 0.010104497273763021,
+          "sample_diversity_rms": 0.5518607460359599,
+          "spatial_sample_diversity_rms": 0.5512911826655621,
+          "per_image_spatial_rms": 0.5936586248590651,
+          "sample_mean_color_diversity_rms": 0.025066210933686512,
+          "mean_color_fraction_of_sample_variance": 0.0020630909429835047,
+          "mean_absolute_horizontal_difference": 0.696461444794236,
+          "mean_absolute_vertical_difference": 0.6592556461541095,
+          "pooled_4x4_sample_diversity_rms": 0.05130702018432424
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 0.9985208314429637,
+            "std": 0.960362802774584,
+            "absolute_max": 6.2286882400512695,
+            "absolute_above_0_99_fraction": 0.31259950002034503,
+            "tanh_response": {
+              "mean_derivative": 0.6125122023787566,
+              "minimum_derivative": 1.555559935806361e-05,
+              "derivative_below_0_01_fraction": 0.0039285024007161455,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.6224851780050165,
+          "after_rms": 0.6224851780050165,
+          "change_rms": 0.0,
+          "relative_change": 0.0,
+          "norm_ratio": 1.0,
+          "cosine": 0.9999999999997582,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.593658624708267,
+          "after_rms": 0.593658624708267,
+          "change_rms": 0.0,
+          "relative_change": 0.0,
+          "norm_ratio": 1.0,
+          "cosine": 0.9999999999997539,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.18723577196560232,
+          "after_rms": 0.18723577196560232,
+          "change_rms": 0.0,
+          "relative_change": 0.0,
+          "norm_ratio": 1.0,
+          "cosine": 1.0,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.19261487457323562,
+          "after_rms": 0.19261487457323562,
+          "change_rms": 0.0,
+          "relative_change": 0.0,
+          "norm_ratio": 1.0,
+          "cosine": 1.0,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.056704592558377,
+        "change_rms": 0.0,
+        "relative_change": 0.0,
+        "norm_ratio": 1.0,
+        "cosine": 0.9999999999999987,
+        "relative_status": "resolved"
+      },
+      "step": 0,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.6224851780050165,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 0.9999999999997582,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.593658624708267,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 0.9999999999997539,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.18723577196560232,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 1.0,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.19261487457323562,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 1.0,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.6224851780050165,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 0.9999999999997582,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.593658624708267,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 0.9999999999997539,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.18723577196560232,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 1.0,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.19261487457323562,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 1.0,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": false,
+          "delta_rms": 0.0,
+          "measurement": "cumulative_0_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.0
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": false,
+          "delta_rms": 0.0,
+          "measurement": "cumulative_0_update_parameter_displacement",
+          "initial_rms": 0.009853631754659803,
+          "relative_delta_l2": 0.0
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": false,
+          "delta_rms": 0.0,
+          "measurement": "cumulative_0_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.0
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 0.0,
+        "diagnostic_seconds": 3.5725867789878976,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.3030825660098344,
+        "elapsed_seconds": 10.537482915999135
+      }
+    },
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.6545796095710233,
+          "std": 0.6461774307586384,
+          "absolute_max": 0.9999920129776001,
+          "absolute_above_0_99_fraction": 0.016977945963541668,
+          "sample_diversity_rms": 0.5249825811601216,
+          "spatial_sample_diversity_rms": 0.5242137175199951,
+          "per_image_spatial_rms": 0.6322597627818539,
+          "sample_mean_color_diversity_rms": 0.02840226901869876,
+          "mean_color_fraction_of_sample_variance": 0.0029269566183058445,
+          "mean_absolute_horizontal_difference": 0.7538905027118212,
+          "mean_absolute_vertical_difference": 0.7330728135349953,
+          "pooled_4x4_sample_diversity_rms": 0.05066007025673818
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 1.1031965573637226,
+            "std": 1.087263179989794,
+            "absolute_max": 6.216442108154297,
+            "absolute_above_0_99_fraction": 0.3668937683105469,
+            "tanh_response": {
+              "mean_derivative": 0.5715255339513569,
+              "minimum_derivative": 1.594129212822981e-05,
+              "derivative_below_0_01_fraction": 0.0070349375406901045,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.6545773870176377,
+          "std": 0.6461751201664946,
+          "absolute_max": 0.9999920129776001,
+          "absolute_above_0_99_fraction": 0.016977628072102863,
+          "sample_diversity_rms": 0.5249843655133155,
+          "spatial_sample_diversity_rms": 0.524216073544527,
+          "per_image_spatial_rms": 0.6322599491592833,
+          "sample_mean_color_diversity_rms": 0.02839176413992972,
+          "mean_color_fraction_of_sample_variance": 0.0029247720052132265,
+          "mean_absolute_horizontal_difference": 0.753890251806522,
+          "mean_absolute_vertical_difference": 0.7330726859175677,
+          "pooled_4x4_sample_diversity_rms": 0.05065566033233799
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 1.1031889635650103,
+            "std": 1.0872554597389221,
+            "absolute_max": 6.2172627449035645,
+            "absolute_above_0_99_fraction": 0.3668588002522786,
+            "tanh_response": {
+              "mean_derivative": 0.571528443604905,
+              "minimum_derivative": 1.591514977550279e-05,
+              "derivative_below_0_01_fraction": 0.0070374806722005205,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.6545796095711097,
+          "after_rms": 0.6545773870177226,
+          "change_rms": 0.0010498984736439921,
+          "relative_change": 0.001603927861932487,
+          "norm_ratio": 0.9999966046095011,
+          "cosine": 0.999998713708848,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.6322597631053103,
+          "after_rms": 0.6322599491112841,
+          "change_rms": 0.0010478288058147504,
+          "relative_change": 0.0016572758017502091,
+          "norm_ratio": 1.0000002941923316,
+          "cosine": 0.999998626718629,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.1694758315669307,
+          "after_rms": 0.16946655134945923,
+          "change_rms": 6.589067582618207e-05,
+          "relative_change": 0.00038879098699191227,
+          "norm_ratio": 0.9999452416466368,
+          "cosine": 0.9999999259159662,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.17467594030045538,
+          "after_rms": 0.17466745919769375,
+          "change_rms": 0.00010184168669494955,
+          "relative_change": 0.0005830321366513007,
+          "norm_ratio": 0.9999514466460174,
+          "cosine": 0.9999998312072836,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.056709421750855,
+        "change_rms": 0.0017352176496895867,
+        "relative_change": 0.0016421028752117643,
+        "norm_ratio": 1.0000045700496734,
+        "cosine": 0.9999986517656768,
+        "relative_status": "resolved"
+      },
+      "step": 1,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.6545796095711097,
+            "change_rms": 0.42948743167709,
+            "relative_change": 0.6899560774339094,
+            "norm_ratio": 1.051558547416264,
+            "cosine": 0.7749145275173551,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.6322597631053103,
+            "change_rms": 0.3743719352332986,
+            "relative_change": 0.630618203209413,
+            "norm_ratio": 1.0650224502608927,
+            "cosine": 0.8152849270523924,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.1694758315669307,
+            "change_rms": 0.21048778656690964,
+            "relative_change": 1.1241857491077027,
+            "norm_ratio": 0.9051466489964622,
+            "cosine": 0.3068546175962527,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.17467594030045538,
+            "change_rms": 0.21092573007018287,
+            "relative_change": 1.0950645973604969,
+            "norm_ratio": 0.9068663086766982,
+            "cosine": 0.3436228821478823,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.6545773870177226,
+            "change_rms": 0.42947749264895424,
+            "relative_change": 0.6899401107434773,
+            "norm_ratio": 1.0515549769643633,
+            "cosine": 0.7749240642986484,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.6322599491112841,
+            "change_rms": 0.374366506889142,
+            "relative_change": 0.6306090593278443,
+            "norm_ratio": 1.0650227635823304,
+            "cosine": 0.8152904147327823,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.16946655134945923,
+            "change_rms": 0.2104771609668547,
+            "relative_change": 1.1241289992679504,
+            "norm_ratio": 0.905097084656411,
+            "cosine": 0.30689234065385385,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.17466745919769375,
+            "change_rms": 0.2109149014628753,
+            "relative_change": 1.0950083784037234,
+            "norm_ratio": 0.9068222772757981,
+            "cosine": 0.3436634219340825,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.000170743363239385,
+          "measurement": "cumulative_1_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.006988345205304961
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0001999704380209671,
+          "measurement": "cumulative_1_update_parameter_displacement",
+          "initial_rms": 0.009853631754659803,
+          "relative_delta_l2": 0.020294084759804487
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0019560017473290356,
+          "measurement": "cumulative_1_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.0019536002084758718
+        }
+      },
+      "last_update_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.00017074336323938638,
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.006988345205305018,
+          "training_gradient_dot_delta": -0.9369837997874068,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.00019997043802094335,
+          "initial_rms": 0.009853631754659803,
+          "relative_delta_l2": 0.02029408475980208,
+          "training_gradient_dot_delta": -0.47909467347935025,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.001956001747321709,
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.001953600208468554,
+          "training_gradient_dot_delta": -0.002529926929498441,
+          "measurement": "one_actual_optimizer_update"
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 1.3515590589959174,
+        "diagnostic_seconds": 9.704312095971545,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.3030825660098344,
+        "elapsed_seconds": 18.599940579006216
+      }
+    },
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9676858350150147,
+          "std": 0.9622510051113049,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.7229131062825521,
+          "sample_diversity_rms": 0.12820262605173322,
+          "spatial_sample_diversity_rms": 0.12812791172716484,
+          "per_image_spatial_rms": 0.9585008981432681,
+          "sample_mean_color_diversity_rms": 0.0043762498781948845,
+          "mean_color_fraction_of_sample_variance": 0.0011652265752370263,
+          "mean_absolute_horizontal_difference": 1.2091385652536186,
+          "mean_absolute_vertical_difference": 0.7814615794289487,
+          "pooled_4x4_sample_diversity_rms": 0.009276709810782246
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 4.0545666300785985,
+            "std": 4.037349309995598,
+            "absolute_max": 11.59315013885498,
+            "absolute_above_0_99_fraction": 0.9498205184936523,
+            "tanh_response": {
+              "mean_derivative": 0.06358412439345879,
+              "minimum_derivative": 3.4070435361854834e-10,
+              "derivative_below_0_01_fraction": 0.6480859120686849,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9676854904869492,
+          "std": 0.9622510543385039,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.7228816350301107,
+          "sample_diversity_rms": 0.12819121837702271,
+          "spatial_sample_diversity_rms": 0.12811708036171385,
+          "per_image_spatial_rms": 0.9585007033172691,
+          "sample_mean_color_diversity_rms": 0.004359149983159951,
+          "mean_color_fraction_of_sample_variance": 0.0011563440582671135,
+          "mean_absolute_horizontal_difference": 1.2091408840319926,
+          "mean_absolute_vertical_difference": 0.7814565683725802,
+          "pooled_4x4_sample_diversity_rms": 0.009273217043655961
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 4.054348113425272,
+            "std": 4.037134129095026,
+            "absolute_max": 11.596211433410645,
+            "absolute_above_0_99_fraction": 0.9498214721679688,
+            "tanh_response": {
+              "mean_derivative": 0.06358479111596584,
+              "minimum_derivative": 3.386246838488205e-10,
+              "derivative_below_0_01_fraction": 0.6481049855550131,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.9676858350149716,
+          "after_rms": 0.9676854904869141,
+          "change_rms": 0.0016397322333508997,
+          "relative_change": 0.0016944882047648557,
+          "norm_ratio": 0.9999996439670344,
+          "cosine": 0.9999985643544125,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.9585008984983658,
+          "after_rms": 0.9585007032572929,
+          "change_rms": 0.0016387091314585837,
+          "relative_change": 0.0017096584197530385,
+          "norm_ratio": 0.9999997963058008,
+          "cosine": 0.9999985385334997,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.13301091515979468,
+          "after_rms": 0.13300981266575618,
+          "change_rms": 5.791562492950096e-05,
+          "relative_change": 0.00043542009210238984,
+          "norm_ratio": 0.9999917112513873,
+          "cosine": 0.9999999052382382,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.1332665290309941,
+          "after_rms": 0.13326574403943386,
+          "change_rms": 0.00011272991894552827,
+          "relative_change": 0.0008458982143919305,
+          "norm_ratio": 0.9999941096120238,
+          "cosine": 0.9999996422433504,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.0567681083646212,
+        "change_rms": 0.011391132688759695,
+        "relative_change": 0.010779864844895523,
+        "norm_ratio": 1.0000601074384379,
+        "cosine": 0.9999419025555023,
+        "relative_status": "resolved"
+      },
+      "step": 8,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9676858350149716,
+            "change_rms": 1.1190908584741919,
+            "relative_change": 1.7977791247347152,
+            "norm_ratio": 1.5545524121815688,
+            "cosine": 0.05938153626767533,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9585008984983658,
+            "change_rms": 1.0865553904674983,
+            "relative_change": 1.8302696958229965,
+            "norm_ratio": 1.6145657767027102,
+            "cosine": 0.07956798402347444,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.13301091515979468,
+            "change_rms": 0.26788380658411415,
+            "relative_change": 1.4307298427638493,
+            "norm_ratio": 0.7103926443299016,
+            "cosine": -0.38171156344714663,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.1332665290309941,
+            "change_rms": 0.27129323493233926,
+            "relative_change": 1.4084749972369799,
+            "norm_ratio": 0.6918807767378514,
+            "cosine": -0.36502156556787346,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9676854904869141,
+            "change_rms": 1.1190912991999302,
+            "relative_change": 1.7977798327447272,
+            "norm_ratio": 1.5545518587096636,
+            "cosine": 0.05938018515106511,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9585007032572929,
+            "change_rms": 1.0865568738052045,
+            "relative_change": 1.8302721944605036,
+            "norm_ratio": 1.614565447825027,
+            "cosine": 0.07956483889854446,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.13300981266575618,
+            "change_rms": 0.2678796302379762,
+            "relative_change": 1.43070753748482,
+            "norm_ratio": 0.7103867560638564,
+            "cosine": -0.38167569285047603,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.13326574403943386,
+            "change_rms": 0.27128846705077,
+            "relative_change": 1.408450243792679,
+            "norm_ratio": 0.6918767012916432,
+            "cosine": -0.36497740024097186,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0004866210104937379,
+          "measurement": "cumulative_8_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.019916883098505946
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0008484064106266992,
+          "measurement": "cumulative_8_update_parameter_displacement",
+          "initial_rms": 0.009853631754659803,
+          "relative_delta_l2": 0.08610088460282535
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.012262112674963528,
+          "measurement": "cumulative_8_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.012247057504357976
+        }
+      },
+      "last_update_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 5.355855620065442e-05,
+          "initial_rms": 0.024434823520904838,
+          "relative_delta_l2": 0.0021918945375166395,
+          "training_gradient_dot_delta": -0.32038654015660106,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.00025303002616877256,
+          "initial_rms": 0.009864248045920298,
+          "relative_delta_l2": 0.025651222981301843,
+          "training_gradient_dot_delta": -4.878662570970524,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0015279450874046202,
+          "initial_rms": 1.0043085102679532,
+          "relative_delta_l2": 0.0015213901622689217,
+          "training_gradient_dot_delta": -0.0011909451513303173,
+          "measurement": "one_actual_optimizer_update"
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 10.545045761973597,
+        "diagnostic_seconds": 15.519793871964794,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.3030825660098344,
+        "elapsed_seconds": 34.56968511699233
+      }
+    },
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.973179829724333,
+          "std": 0.9731643329905243,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.795008659362793,
+          "sample_diversity_rms": 0.12243583190746934,
+          "spatial_sample_diversity_rms": 0.12237977640586903,
+          "per_image_spatial_rms": 0.9693115691521574,
+          "sample_mean_color_diversity_rms": 0.0037044921006243814,
+          "mean_color_fraction_of_sample_variance": 0.0009154618973994278,
+          "mean_absolute_horizontal_difference": 1.213665950909266,
+          "mean_absolute_vertical_difference": 0.8964345904053254,
+          "pooled_4x4_sample_diversity_rms": 0.008537480194649796
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 4.86750109397148,
+            "std": 4.841264835928273,
+            "absolute_max": 20.480518341064453,
+            "absolute_above_0_99_fraction": 0.9544442494710287,
+            "tanh_response": {
+              "mean_derivative": 0.05292101890237183,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.7302354176839193,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9731808203853257,
+          "std": 0.97316534298063,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.7950159708658854,
+          "sample_diversity_rms": 0.12242937184774329,
+          "spatial_sample_diversity_rms": 0.12237375047272304,
+          "per_image_spatial_rms": 0.9693124554542525,
+          "sample_mean_color_diversity_rms": 0.003690025240118499,
+          "mean_color_fraction_of_sample_variance": 0.0009084215559858225,
+          "mean_absolute_horizontal_difference": 1.21368082892151,
+          "mean_absolute_vertical_difference": 0.89642907905839,
+          "pooled_4x4_sample_diversity_rms": 0.008527376189365953
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 4.867410652867242,
+            "std": 4.84117054647807,
+            "absolute_max": 20.411907196044922,
+            "absolute_above_0_99_fraction": 0.9544528325398763,
+            "tanh_response": {
+              "mean_derivative": 0.05291909075377105,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.7302341461181641,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.9731798297242028,
+          "after_rms": 0.9731808203852007,
+          "change_rms": 0.0029327302901189537,
+          "relative_change": 0.0030135543303955277,
+          "norm_ratio": 1.0000010179629373,
+          "cosine": 0.9999954592502802,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.9693115694257479,
+          "after_rms": 0.9693124570433609,
+          "change_rms": 0.0029312350655635324,
+          "relative_change": 0.003024038047229842,
+          "norm_ratio": 1.0000009157196106,
+          "cosine": 0.9999954276012681,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.08668369522888379,
+          "after_rms": 0.08668490610342199,
+          "change_rms": 9.363392827298603e-05,
+          "relative_change": 0.0010801792427716714,
+          "norm_ratio": 1.0000139688846328,
+          "cosine": 0.9999994167121146,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.08703722607895163,
+          "after_rms": 0.08703807268381276,
+          "change_rms": 0.00020007166972819173,
+          "relative_change": 0.002298690787166245,
+          "norm_ratio": 1.0000097269283417,
+          "cosine": 0.9999973580833377,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.0567670480471825,
+        "change_rms": 0.022006661910064035,
+        "relative_change": 0.02082574644327411,
+        "norm_ratio": 1.0000591040194633,
+        "cosine": 0.9997831587053735,
+        "relative_status": "resolved"
+      },
+      "step": 16,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9731798297242028,
+            "change_rms": 1.1243194568779058,
+            "relative_change": 1.8061786795971633,
+            "norm_ratio": 1.5633783166422,
+            "cosine": 0.058165811940850104,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9693115694257479,
+            "change_rms": 1.1100804977326098,
+            "relative_change": 1.8698970275688664,
+            "norm_ratio": 1.6327760249454517,
+            "cosine": 0.051887904812595406,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.08668369522888379,
+            "change_rms": 0.17836908337814783,
+            "relative_change": 0.9526442597246673,
+            "norm_ratio": 0.46296545963881697,
+            "cosine": 0.33134861882739225,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.08703722607895163,
+            "change_rms": 0.183664440693514,
+            "relative_change": 0.9535319694309564,
+            "norm_ratio": 0.45187177922678307,
+            "cosine": 0.3263811790143545,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9731808203852007,
+            "change_rms": 1.1243240076374257,
+            "relative_change": 1.8061859902282926,
+            "norm_ratio": 1.563379908103383,
+            "cosine": 0.05815889817393698,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9693124570433609,
+            "change_rms": 1.1100842799761301,
+            "relative_change": 1.8699033986436946,
+            "norm_ratio": 1.6327775201104775,
+            "cosine": 0.05188205613794791,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.08668490610342199,
+            "change_rms": 0.17837423808131425,
+            "relative_change": 0.9526717902713802,
+            "norm_ratio": 0.4629719267499116,
+            "cosine": 0.33129380774026274,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.08703807268381276,
+            "change_rms": 0.18366959951473405,
+            "relative_change": 0.9535587525193937,
+            "norm_ratio": 0.4518761745511992,
+            "cosine": 0.3263258822105388,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0005707546165746296,
+          "measurement": "cumulative_16_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.02336038257927987
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.001087616508273869,
+          "measurement": "cumulative_16_update_parameter_displacement",
+          "initial_rms": 0.009853631754659803,
+          "relative_delta_l2": 0.11037722287110362
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.022225857547901993,
+          "measurement": "cumulative_16_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.022198569095568523
+        }
+      },
+      "last_update_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 5.38946317433539e-05,
+          "initial_rms": 0.024436550820413013,
+          "relative_delta_l2": 0.0022054925893360182,
+          "training_gradient_dot_delta": -0.2942611291580982,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0003801837408917904,
+          "initial_rms": 0.009880576573049795,
+          "relative_delta_l2": 0.038477890240613835,
+          "training_gradient_dot_delta": -81.58194501425749,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0014264712506141279,
+          "initial_rms": 1.0039371836868456,
+          "relative_delta_l2": 0.001420876996880994,
+          "training_gradient_dot_delta": -0.0011577275395667976,
+          "measurement": "one_actual_optimizer_update"
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 21.30435289806337,
+        "diagnostic_seconds": 21.219259391975356,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.3030825660098344,
+        "elapsed_seconds": 52.10125968101784
+      }
+    },
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9859217159046707,
+          "std": 0.9805762883664778,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.8918937047322592,
+          "sample_diversity_rms": 0.08623253575162475,
+          "spatial_sample_diversity_rms": 0.08617396893891927,
+          "per_image_spatial_rms": 0.936517705200572,
+          "sample_mean_color_diversity_rms": 0.003177624815710262,
+          "mean_color_fraction_of_sample_variance": 0.001357884786648349,
+          "mean_absolute_horizontal_difference": 1.1192586922774996,
+          "mean_absolute_vertical_difference": 0.7021180696234198,
+          "pooled_4x4_sample_diversity_rms": 0.006235773597374178
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 6.567596641079454,
+            "std": 6.487251250850789,
+            "absolute_max": 22.95097541809082,
+            "absolute_above_0_99_fraction": 0.9763917922973633,
+            "tanh_response": {
+              "mean_derivative": 0.027958370650126962,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.8599608739217123,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9859336588317571,
+          "std": 0.9805870835013298,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.8920189539591471,
+          "sample_diversity_rms": 0.0861184351739129,
+          "spatial_sample_diversity_rms": 0.08606025953968523,
+          "per_image_spatial_rms": 0.9365299178121494,
+          "sample_mean_color_diversity_rms": 0.003164902015143466,
+          "mean_color_fraction_of_sample_variance": 0.0013506047665876343,
+          "mean_absolute_horizontal_difference": 1.1192646251857608,
+          "mean_absolute_vertical_difference": 0.7021107590635178,
+          "pooled_4x4_sample_diversity_rms": 0.00622148547331796
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 6.568684557096537,
+            "std": 6.488301663491772,
+            "absolute_max": 22.93699073791504,
+            "absolute_above_0_99_fraction": 0.9764102300008138,
+            "tanh_response": {
+              "mean_derivative": 0.02793482094415148,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.8600711822509766,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.9859217159043888,
+          "after_rms": 0.9859336588314831,
+          "change_rms": 0.0038217063696448297,
+          "relative_change": 0.003876277708457986,
+          "norm_ratio": 1.0000121134638802,
+          "cosine": 0.9999924874011635,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.9365177054293805,
+          "after_rms": 0.9365299172402752,
+          "change_rms": 0.003819573819467862,
+          "relative_change": 0.004078485433136195,
+          "norm_ratio": 1.0000130395942586,
+          "cosine": 0.9999916831713995,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.30818212154056424,
+          "after_rms": 0.3081832131153958,
+          "change_rms": 0.00012765395059701243,
+          "relative_change": 0.0004142159511359262,
+          "norm_ratio": 1.0000035419797428,
+          "cosine": 0.9999999142191496,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.3082300527178081,
+          "after_rms": 0.30823101119723495,
+          "change_rms": 0.00026107439251910926,
+          "relative_change": 0.0008470114780083726,
+          "norm_ratio": 1.0000031096235373,
+          "cosine": 0.9999996412917296,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.0566122123127017,
+        "change_rms": 0.04019063776527453,
+        "relative_change": 0.03803393876425708,
+        "norm_ratio": 0.9999125770377779,
+        "cosine": 0.9992766503350543,
+        "relative_status": "resolved"
+      },
+      "step": 32,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9859217159043888,
+            "change_rms": 1.1354409623428932,
+            "relative_change": 1.8240449772343703,
+            "norm_ratio": 1.5838476974891817,
+            "cosine": 0.05727616681737561,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9365177054293805,
+            "change_rms": 1.1092459055914832,
+            "relative_change": 1.8684911823467294,
+            "norm_ratio": 1.577535752789913,
+            "cosine": -0.0008368264152765993,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.30818212154056424,
+            "change_rms": 0.24248649958020227,
+            "relative_change": 1.2950863877910586,
+            "norm_ratio": 1.645957491483953,
+            "cosine": 0.6172478093886011,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.3082300527178081,
+            "change_rms": 0.24653483697623177,
+            "relative_change": 1.2799366483116277,
+            "norm_ratio": 1.6002401341056012,
+            "cosine": 0.6007006767723784,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9859336588314831,
+            "change_rms": 1.1354708470672596,
+            "relative_change": 1.8240929859668227,
+            "norm_ratio": 1.583866883371057,
+            "cosine": 0.05723936925866638,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9365299172402752,
+            "change_rms": 1.1092768581630676,
+            "relative_change": 1.868543321017501,
+            "norm_ratio": 1.5775563232160579,
+            "cosine": -0.0008780002208968172,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.3081832131153958,
+            "change_rms": 0.2424848361822854,
+            "relative_change": 1.2950775038160607,
+            "norm_ratio": 1.6459633214320453,
+            "cosine": 0.6172584431715307,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.30823101119723495,
+            "change_rms": 0.24653203573872762,
+            "relative_change": 1.2799221051071616,
+            "norm_ratio": 1.6002451102499875,
+            "cosine": 0.6007154171015426,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0008289886102411952,
+          "measurement": "cumulative_32_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.0339296267200104
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0015611242565512547,
+          "measurement": "cumulative_32_update_parameter_displacement",
+          "initial_rms": 0.009853631754659803,
+          "relative_delta_l2": 0.15843135763755284
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.03917530313857983,
+          "measurement": "cumulative_32_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.039127204504363244
+        }
+      },
+      "last_update_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.00012872743047317962,
+          "initial_rms": 0.024445400981467597,
+          "relative_delta_l2": 0.005265916094842122,
+          "training_gradient_dot_delta": -1.4077710927694904,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "discriminator": {
+          "elements": 1774080,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.00010628005819933482,
+          "initial_rms": 0.009952858387363874,
+          "relative_delta_l2": 0.010678345261524842,
+          "training_gradient_dot_delta": -5.694244465254158,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0013767478786714128,
+          "initial_rms": 1.0027571874590497,
+          "relative_delta_l2": 0.0013729623640594806,
+          "training_gradient_dot_delta": -0.0030670761368159377,
+          "measurement": "one_actual_optimizer_update"
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 42.57850463598152,
+        "diagnostic_seconds": 26.833223093970446,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.3030825660098344,
+        "elapsed_seconds": 80.57622556699789
+      }
+    }
+  ],
+  "per_step": [
+    {
+      "step": 1,
+      "g_loss": 1.338086485862732,
+      "d_loss": 0.7043169736862183,
+      "g_adversarial": 1.3040777444839478,
+      "prior_loss": 0.03400872275233269,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 2,
+      "g_loss": 1.9046090841293335,
+      "d_loss": 0.3940660357475281,
+      "g_adversarial": 1.8718773126602173,
+      "prior_loss": 0.032731764018535614,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 3,
+      "g_loss": 2.251293420791626,
+      "d_loss": 0.26576170325279236,
+      "g_adversarial": 2.219778060913086,
+      "prior_loss": 0.03151542693376541,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 4,
+      "g_loss": 2.6142117977142334,
+      "d_loss": 0.21230635046958923,
+      "g_adversarial": 2.5838265419006348,
+      "prior_loss": 0.030385371297597885,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 5,
+      "g_loss": 2.763775587081909,
+      "d_loss": 0.2543337345123291,
+      "g_adversarial": 2.7344138622283936,
+      "prior_loss": 0.029361821711063385,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 6,
+      "g_loss": 3.3393757343292236,
+      "d_loss": 0.14350096881389618,
+      "g_adversarial": 3.3109984397888184,
+      "prior_loss": 0.02837730571627617,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 7,
+      "g_loss": 3.6382668018341064,
+      "d_loss": 0.09053993970155716,
+      "g_adversarial": 3.610868453979492,
+      "prior_loss": 0.027398457750678062,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 8,
+      "g_loss": 3.5253846645355225,
+      "d_loss": 0.4239765703678131,
+      "g_adversarial": 3.4989242553710938,
+      "prior_loss": 0.02646046131849289,
+      "gradient_penalty": 0.36210426688194275,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 9,
+      "g_loss": 3.3473989963531494,
+      "d_loss": 0.08300763368606567,
+      "g_adversarial": 3.3218512535095215,
+      "prior_loss": 0.02554767020046711,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 10,
+      "g_loss": 3.2006964683532715,
+      "d_loss": 0.08926942944526672,
+      "g_adversarial": 3.1760025024414062,
+      "prior_loss": 0.02469407580792904,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 11,
+      "g_loss": 3.1815569400787354,
+      "d_loss": 0.07649561762809753,
+      "g_adversarial": 3.157672166824341,
+      "prior_loss": 0.023884844034910202,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 12,
+      "g_loss": 3.1510698795318604,
+      "d_loss": 0.08348539471626282,
+      "g_adversarial": 3.127962589263916,
+      "prior_loss": 0.023107392713427544,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 13,
+      "g_loss": 3.241111993789673,
+      "d_loss": 0.07983145862817764,
+      "g_adversarial": 3.218754768371582,
+      "prior_loss": 0.02235720306634903,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 14,
+      "g_loss": 3.237018346786499,
+      "d_loss": 0.07163967192173004,
+      "g_adversarial": 3.2153759002685547,
+      "prior_loss": 0.02164245769381523,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 15,
+      "g_loss": 3.4105420112609863,
+      "d_loss": 0.06284452229738235,
+      "g_adversarial": 3.3895840644836426,
+      "prior_loss": 0.020958004519343376,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 16,
+      "g_loss": 3.5286521911621094,
+      "d_loss": 9.132671356201172,
+      "g_adversarial": 3.5083680152893066,
+      "prior_loss": 0.020284190773963928,
+      "gradient_penalty": 9.071544647216797,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 17,
+      "g_loss": 3.201159954071045,
+      "d_loss": 0.06542661786079407,
+      "g_adversarial": 3.1815268993377686,
+      "prior_loss": 0.019632991403341293,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 18,
+      "g_loss": 3.1333911418914795,
+      "d_loss": 0.07757951319217682,
+      "g_adversarial": 3.1143555641174316,
+      "prior_loss": 0.019035549834370613,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 19,
+      "g_loss": 2.9244534969329834,
+      "d_loss": 0.08704458177089691,
+      "g_adversarial": 2.9060027599334717,
+      "prior_loss": 0.018450811505317688,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 20,
+      "g_loss": 2.3769993782043457,
+      "d_loss": 0.14184515178203583,
+      "g_adversarial": 2.359126567840576,
+      "prior_loss": 0.017872696742415428,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 21,
+      "g_loss": 2.3562815189361572,
+      "d_loss": 0.18000578880310059,
+      "g_adversarial": 2.338960647583008,
+      "prior_loss": 0.017320863902568817,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 22,
+      "g_loss": 2.4538919925689697,
+      "d_loss": 0.18398666381835938,
+      "g_adversarial": 2.437102794647217,
+      "prior_loss": 0.016789130866527557,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 23,
+      "g_loss": 2.2585079669952393,
+      "d_loss": 0.19975101947784424,
+      "g_adversarial": 2.242234230041504,
+      "prior_loss": 0.016273707151412964,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 24,
+      "g_loss": 2.2502548694610596,
+      "d_loss": 22.575136184692383,
+      "g_adversarial": 2.234485149383545,
+      "prior_loss": 0.015769708901643753,
+      "gradient_penalty": 22.391571044921875,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 25,
+      "g_loss": 2.2995247840881348,
+      "d_loss": 0.1674201637506485,
+      "g_adversarial": 2.2842321395874023,
+      "prior_loss": 0.015292610973119736,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 26,
+      "g_loss": 2.001981258392334,
+      "d_loss": 0.23913124203681946,
+      "g_adversarial": 1.987158179283142,
+      "prior_loss": 0.01482299156486988,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 27,
+      "g_loss": 2.0880284309387207,
+      "d_loss": 0.22656190395355225,
+      "g_adversarial": 2.073664665222168,
+      "prior_loss": 0.014363670721650124,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 28,
+      "g_loss": 2.096815824508667,
+      "d_loss": 0.21563324332237244,
+      "g_adversarial": 2.0828771591186523,
+      "prior_loss": 0.013938695192337036,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 29,
+      "g_loss": 2.0988287925720215,
+      "d_loss": 0.20631878077983856,
+      "g_adversarial": 2.0853190422058105,
+      "prior_loss": 0.013509707525372505,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 30,
+      "g_loss": 2.0322768688201904,
+      "d_loss": 0.22549426555633545,
+      "g_adversarial": 2.0191917419433594,
+      "prior_loss": 0.01308520883321762,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 31,
+      "g_loss": 2.056342124938965,
+      "d_loss": 0.2332313060760498,
+      "g_adversarial": 2.0436620712280273,
+      "prior_loss": 0.01267996896058321,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 32,
+      "g_loss": 2.244462251663208,
+      "d_loss": 6.57616662979126,
+      "g_adversarial": 2.2321391105651855,
+      "prior_loss": 0.012323223054409027,
+      "gradient_penalty": 6.37773323059082,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ]
+    }
+  ],
+  "diagnostics_enabled": {
+    "direction": false,
+    "features": false,
+    "crossed": false
+  },
+  "evaluation": {
+    "protocol": "joint-rate-fixed-bank",
+    "protocol_version": 2,
+    "observation_steps": [
+      0,
+      1,
+      8,
+      16,
+      32
+    ],
+    "requested_updates": 32,
+    "configured_training_horizon": 200000,
+    "batch_size": 64,
+    "execution_backend": "native",
+    "training_backend": {
+      "deterministic_algorithms": false,
+      "cudnn_deterministic": false,
+      "cudnn_benchmark": true,
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true
+    },
+    "torch_version": "2.14.0+cu130",
+    "device_type": "cuda",
+    "device_hardware": "NVIDIA RTX A6000",
+    "diagnostics": {
+      "direction": false,
+      "features": false,
+      "crossed": false
+    },
+    "bank_sha256": "2f26fe77a6e60e3d5ef3bfb61e536dbdee9506973b010057e918f0e391db2059",
+    "measurement_rng_sha256": "7d50745d9324d5d89bd3442b537c5a7d6c6fddd8dbc8626476c47c179ab40fcb",
+    "prior_rng_sha256": "095d71acf2c753e8437be0009037c0c6bc7d62d3318e384f9f0c4b7b2a1ee9af"
+  },
+  "timing_definition": "Synchronized wall time; training updates exclude observer callbacks. Diagnostics include observations and requested probes; setup, state audits, JSON writes and final restoration remain in elapsed time only.",
+  "interpretation": [
+    "Fixed latent values isolate G drift; replayed prior RNG fixes IDs/noise while allowing learned coordinates to evolve.",
+    "Observation bank starts at initial data/prior draw positions and may overlap training; it is not independent quality validation.",
+    "Protocol v2 disables implicit first/eighth response and crossed probes unless requested; historical total costs are not directly comparable.",
+    "Saturation, color variance and spatial statistics are descriptive, not sample quality or an acceptance decision."
+  ],
+  "proposal": {
+    "case": "early-ffn-tenth",
+    "algorithm": {
+      "name": "fixed",
+      "evidence": [],
+      "solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/early-ffn-tenth.json",
+      "solution_sha256": "f0b32ecda7c60caddf1353a398e262987108d22ffed1828c0324460b92518095",
+      "proposal_seconds": 1.287998748011887e-05
+    },
+    "resolved": {
+      "schema_version": 1,
+      "plan": {
+        "schema_version": 1,
+        "layer_lr_multipliers": [
+          {
+            "pattern": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight",
+            "multiplier": 0.1
+          },
+          {
+            "pattern": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight",
+            "multiplier": 0.1
+          },
+          {
+            "pattern": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight",
+            "multiplier": 0.1
+          },
+          {
+            "pattern": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight",
+            "multiplier": 0.1
+          }
+        ]
+      },
+      "initialization_rules": [],
+      "initialization_parameters": [],
+      "layer_lr_rules": [
+        {
+          "pattern": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight",
+          "multiplier": 0.1,
+          "matched_names": [
+            "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight"
+          ]
+        },
+        {
+          "pattern": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight",
+          "multiplier": 0.1,
+          "matched_names": [
+            "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight"
+          ]
+        },
+        {
+          "pattern": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight",
+          "multiplier": 0.1,
+          "matched_names": [
+            "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight"
+          ]
+        },
+        {
+          "pattern": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight",
+          "multiplier": 0.1,
+          "matched_names": [
+            "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight"
+          ]
+        }
+      ],
+      "optimizers": [
+        {
+          "player": "generator",
+          "base_lr": 0.0002,
+          "parameters": [
+            {
+              "path": "graph.models.generator.network.nodes.n_input_projection.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_input_projection.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_position.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight",
+              "multiplier": 0.1,
+              "effective_lr": 2e-05
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight",
+              "multiplier": 0.1,
+              "effective_lr": 2e-05
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_position.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight",
+              "multiplier": 0.1,
+              "effective_lr": 2e-05
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight",
+              "multiplier": 0.1,
+              "effective_lr": 2e-05
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_position.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.down.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.down.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_position.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.down.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.down.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_position.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_ffn.down.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block0_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_attention.relative_position_bias_table",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_attention.q_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_attention.k_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_attention.v_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_attention.o_proj.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_attention.o_proj.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_ffn.up.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_ffn.up.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_ffn.down.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_stage128_block1_ffn.down.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_output_projection.weight",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.generator.network.nodes.n_output_projection.bias",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            }
+          ],
+          "group_base_lrs": [
+            0.0002,
+            0.002,
+            2e-05
+          ]
+        },
+        {
+          "player": "discriminator",
+          "base_lr": 0.0002,
+          "parameters": [
+            {
+              "path": "graph.models.discriminator.network.nodes.n_disc1_down.parametrizations.weight.original",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.discriminator.network.nodes.n_disc1_logit.parametrizations.weight.original",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.discriminator.network.nodes.n_disc2_down.parametrizations.weight.original",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.discriminator.network.nodes.n_disc2_logit.parametrizations.weight.original",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.discriminator.network.nodes.n_disc3_down.parametrizations.weight.original",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.discriminator.network.nodes.n_disc3_logit.parametrizations.weight.original",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.discriminator.network.nodes.n_disc4_down.parametrizations.weight.original",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            },
+            {
+              "path": "graph.models.discriminator.network.nodes.n_disc4_logit.parametrizations.weight.original",
+              "multiplier": 1.0,
+              "effective_lr": 0.0002
+            }
+          ],
+          "group_base_lrs": [
+            0.0002
+          ]
+        }
+      ],
+      "effective_base_lrs": [
+        [
+          0.0002,
+          0.002,
+          2e-05
+        ],
+        [
+          0.0002
+        ]
+      ],
+      "prior_rates_unchanged": true,
+      "pretrained_state_calibrated": false
+    },
+    "manifest_sha256": "554cec6e45f9316c5d2946a6b0beb5dda66b1d528ee4d4b00d3e6bd3c39be4a2"
+  },
+  "prepared_parameters_sha256": "323c82c9e198abd9679f3b634eb1af580d089e2903e1ef13814e0783e3b7a632",
+  "real_bank_output_stats": {
+    "status": "finite",
+    "shape": [
+      64,
+      3,
+      128,
+      128
+    ],
+    "rms": 0.7436409084213006,
+    "std": 0.7348428971631474,
+    "absolute_max": 1.0,
+    "absolute_above_0_99_fraction": 0.24061870574951172,
+    "sample_diversity_rms": 0.7308387704551089,
+    "spatial_sample_diversity_rms": 0.510330384998357,
+    "per_image_spatial_rms": 0.5150121597951787,
+    "sample_mean_color_diversity_rms": 0.5231521829714217,
+    "mean_color_fraction_of_sample_variance": 0.5124044905631588,
+    "mean_absolute_horizontal_difference": 0.07481035185792805,
+    "mean_absolute_vertical_difference": 0.07696539081239387,
+    "pooled_4x4_sample_diversity_rms": 0.5891844266956378
+  },
+  "budget": {
+    "rollout_observation_generator_forwards": 10,
+    "completed_native_training_updates": 32
+  },
+  "timings": {
+    "training_update_seconds": 42.57850463598152,
+    "diagnostic_seconds": 26.833223093970446,
+    "observer_seconds_inside_update": 0.0,
+    "preparation_seconds": 0.3030825660098344
+  },
+  "elapsed_seconds": 81.83988231199328,
+  "rollout_final_parameters_sha256": "50afef73368996ada9d9e2826b309e9e43bfc787d60264cde8c5c51e1c4e1531",
+  "protected_before_sha256": "e9e8c451f2bb0bf2d1cb90a85bfe09f2c159d8b9622a823b2bc3c152e17d50a8",
+  "protected_after_sha256": "e9e8c451f2bb0bf2d1cb90a85bfe09f2c159d8b9622a823b2bc3c152e17d50a8",
+  "restored": true,
+  "protected_after_restore_sha256": "e9e8c451f2bb0bf2d1cb90a85bfe09f2c159d8b9622a823b2bc3c152e17d50a8",
+  "source_config_unchanged": true
+}

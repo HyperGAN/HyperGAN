@@ -63,6 +63,10 @@ def viewer():
                 run={'run_id':RUN,'status':control['status'],'steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}}
                 if control.get('progress',True):
                     run.update(steps_per_second=12.5,training_seconds=5025.4,samples_seen=control['step']*32,global_batch_size=32)
+                if 'initialization_tuning' in control:
+                    run['initialization_tuning'] = control['initialization_tuning']
+                if 'g_lr_warmup' in control:
+                    run['g_lr_warmup'] = control['g_lr_warmup']
                 return self.send(200,run)
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
             if '/artifacts/' in path:
@@ -95,11 +99,15 @@ def viewer():
                     deadline=time.monotonic()+15
                     sent_ready=False
                     published=control['artifact_revision']
+                    published_run_update=None
                     while time.monotonic()<deadline:
                         with condition:condition.wait(.03)
                         if path=='/api/v1/stream':
                             if not control.get('waiting'):emit('metadata',{'run_id':RUN});return
                             continue
+                        if control.get('run_update') and control['run_update'] != published_run_update:
+                            published_run_update=control['run_update']
+                            emit('heartbeat', {'run': published_run_update})
                         if control['artifact_revision']!=published:
                             published=control['artifact_revision'];emit('artifacts',{'revision':f'{published:064x}'})
                         if control['release'] and not sent_ready:emit('bootstrap_ready',{});sent_ready=True
@@ -149,7 +157,7 @@ def test_login_plots_live_ack_reconnect_and_exact_table(viewer,tmp_path):
     assert not errors
 
 
-@pytest.mark.parametrize('status,label',[('running','Training'),('failed','Failed'),('quiesced','Quiesced')])
+@pytest.mark.parametrize('status,label',[('running','Training'),('tuning','Tuning startup'),('failed','Failed'),('quiesced','Quiesced')])
 def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,status,label):
     page,control,condition,errors=viewer
     control['status']=status;login(page)
@@ -163,6 +171,149 @@ def test_status_badge_reads_in_plain_words_beside_a_labelled_run_id(viewer,statu
     # Either the clipboard took it, or the id was selected for a keystroke.
     page.locator('#run-id-status:not(:empty)').wait_for()
     assert 'opy' in page.locator('#run-id-status').text_content()
+    assert not errors
+
+
+@pytest.mark.parametrize('terminal,outcome,expected',[
+    ('complete','selected','Applied tuned initialization'),
+    ('complete','kept_baseline','Kept baseline initialization'),
+    ('failed',None,'Startup tuning failed'),
+])
+def test_initialization_tuning_progress_and_outcome_arrive_live(viewer,terminal,outcome,expected):
+    page,control,condition,errors=viewer
+    control.update(status='tuning', initialization_tuning={
+        'status':'running', 'candidate':2, 'total_candidates':5})
+    login(page)
+    panel=page.locator('#initialization-tuning')
+    assert panel.is_visible()
+    assert panel.text_content()=='Tuning startup · Candidate 2 of 5'
+    result={'status':terminal, 'message':'<script>not markup</script>'}
+    if outcome: result['outcome']=outcome
+    with condition:
+        control['run_update']={'run_id':RUN, 'status':'failed' if terminal=='failed' else 'running',
+            'steps':2, 'initialization_tuning':result}
+        condition.notify_all()
+    panel.filter(has_text=expected).wait_for()
+    assert panel.get_attribute('data-status')==terminal
+    assert panel.locator('script').count()==0
+    assert '<script>not markup</script>' in panel.text_content()
+    assert page.locator('#run-status').text_content()==('Failed' if terminal=='failed' else 'Training')
+    assert not errors
+
+
+@pytest.mark.parametrize('outcome,factor,expected',[
+    ('selected',.246,'Selected G learning rate × 0.246'),
+    ('kept_baseline',1.,'Configured G learning rate passed'),
+    ('unresolved',1.,'Startup tuning unresolved'),
+    ('skipped',1.,'Dynamics check skipped'),
+])
+def test_startup_dynamics_progress_and_decision_are_distinct_from_training(viewer,outcome,factor,expected):
+    page,control,condition,errors=viewer
+    control.update(status='tuning', initialization_tuning={
+        'status':'running', 'phase':'initialization', 'candidate':1, 'total_candidates':3})
+    login(page)
+    panel=page.locator('#initialization-tuning')
+    assert panel.text_content()=='Tuning startup · Initialization · Candidate 1 of 3'
+    with condition:
+        control['run_update']={'run_id':RUN, 'status':'tuning', 'steps':2, 'initialization_tuning':{
+            'status':'running', 'phase':'dynamics', 'candidate':2, 'total_candidates':2,
+            'trial_step':4, 'trial_steps':8, 'lr_factor':.246}}
+        condition.notify_all()
+    panel.filter(has_text='Trial step 4 of 8').wait_for()
+    assert panel.text_content()=='Tuning startup · Trial updates · Candidate 2 of 2 · Trial step 4 of 8 · G learning rate × 0.246'
+    assert page.locator('#step').text_content()=='2'
+    with condition:
+        control['run_update']={'run_id':RUN, 'status':'running', 'steps':2, 'initialization_tuning':{
+            'status':'complete', 'outcome':'selected', 'dynamics_outcome':outcome,
+            'selected_g_lr_factor':factor, 'dynamics_reason':'Recorded trial decision'}}
+        condition.notify_all()
+    panel.filter(has_text=expected).wait_for()
+    assert 'Applied tuned initialization' in panel.text_content()
+    assert 'Recorded trial decision' in panel.text_content()
+    assert panel.get_attribute('data-outcome')==outcome
+    assert 'Trial step' not in panel.text_content()
+    assert page.locator('#run-status').text_content()=='Training'
+    assert not errors
+
+
+@pytest.mark.parametrize('outcome,g_factor,d_factor,expected', [
+    ('selected', 1., .5, 'Selected G learning rate × 1 · Selected D learning rate × 0.5'),
+    ('selected', .2, 1., 'Selected G learning rate × 0.2 · Selected D learning rate × 1'),
+    ('kept_baseline', 1., 1., 'Configured G and D learning rates passed'),
+    ('unresolved', 1., 1., 'No rate candidate passed; kept configured G and D learning rates'),
+])
+def test_generator_and_discriminator_rate_decisions_arrive_live(viewer, outcome, g_factor, d_factor, expected):
+    page, control, condition, errors = viewer
+    control.update(status='tuning', initialization_tuning={
+        'status': 'running', 'phase': 'dynamics', 'trial_step': 2, 'trial_steps': 8,
+        'g_lr_factor': 1., 'd_lr_factor': .5})
+    login(page)
+    panel = page.locator('#initialization-tuning')
+    assert 'G learning rate × 1 · D learning rate × 0.5' in panel.text_content()
+    with condition:
+        control['run_update'] = {'run_id': RUN, 'status': 'running', 'steps': 2, 'initialization_tuning': {
+            'status': 'complete', 'dynamics_outcome': outcome,
+            'selected_g_lr_factor': g_factor, 'selected_d_lr_factor': d_factor}}
+        condition.notify_all()
+    panel.filter(has_text=expected).wait_for()
+    assert page.locator('#run-status').text_content() == 'Training'
+    assert not errors
+
+
+def test_measured_update_stages_and_unresolved_decision_arrive_live(viewer):
+    page, control, condition, errors = viewer
+    tuning = {'status': 'running', 'method': 'measured-update-response', 'phase': 'dynamics',
+              'stage': 'measure', 'trial_step': 8, 'trial_steps': 8, 'candidate': 1, 'total_candidates': 2,
+              'g_lr_factor': 1., 'd_lr_factor': 1.}
+    control.update(status='tuning', initialization_tuning=tuning)
+    login(page)
+    panel = page.locator('#initialization-tuning')
+    assert 'Measuring optimizer updates' in panel.text_content()
+    assert 'Trial step 8 of 8' in panel.text_content()
+    for stage, label in [('fit', 'Measuring gradient response'),
+                         ('validate', 'Validating held-out response'),
+                         ('replay', 'Replaying proposed rates')]:
+        with condition:
+            control['run_update'] = {'run_id': RUN, 'status': 'tuning', 'steps': 0,
+                'initialization_tuning': dict(tuning, stage=stage, candidate=2)}
+            condition.notify_all()
+        panel.filter(has_text=label).wait_for()
+        assert ('Trial step' in panel.text_content()) is (stage == 'replay')
+        assert 'Candidate' not in panel.text_content()
+    with condition:
+        control['run_update'] = {'run_id': RUN, 'status': 'running', 'steps': 0, 'initialization_tuning': {
+            'status': 'complete', 'method': 'measured-update-response', 'outcome': 'kept_baseline',
+            'dynamics_outcome': 'unresolved', 'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
+            'dynamics_reason': 'Directional curvature unresolved'}}
+        condition.notify_all()
+    panel.filter(has_text='No measured adjustment accepted').wait_for()
+    assert 'Startup tuning unresolved' in panel.text_content()
+    assert 'Directional curvature unresolved' in panel.text_content()
+    assert 'initialization' not in panel.text_content() and 'warmup' not in panel.text_content()
+    assert not errors
+
+
+def test_warmup_progress_arrives_live_during_retained_training(viewer):
+    page, control, condition, errors = viewer
+    tuning = {'status': 'complete', 'outcome': 'kept_baseline',
+              'dynamics_outcome': 'selected', 'selected_g_lr_factor': .1}
+    warmup = {'steps': 4, 'completed_steps': 2, 'progress': 1 / 3, 'status': 'running',
+              'g_lr': .00008, 'start_g_lr': .00002, 'target_g_lr': .0002}
+    control.update(initialization_tuning=tuning, g_lr_warmup=warmup)
+    login(page)
+    panel = page.locator('#initialization-tuning')
+    assert 'G learning-rate warmup · Update 2 of 4' in panel.text_content()
+    assert 'Current G learning rate 0.00008' in panel.text_content()
+    assert 'Configured target 0.0002 before annealing' in panel.text_content()
+    assert page.locator('#run-status').text_content() == 'Training'
+    with condition:
+        control['run_update'] = {'run_id': RUN, 'status': 'running', 'steps': 4,
+            'initialization_tuning': tuning, 'g_lr_warmup': dict(warmup,
+                completed_steps=4, progress=1., status='complete', g_lr=.0002)}
+        condition.notify_all()
+    panel.filter(has_text='G learning-rate warmup complete').wait_for()
+    assert 'Current G learning rate 0.0002' in panel.text_content()
+    assert page.locator('#step').text_content() == '4'
     assert not errors
 
 

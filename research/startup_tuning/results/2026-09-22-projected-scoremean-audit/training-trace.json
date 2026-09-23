@@ -1,0 +1,2021 @@
+{
+  "run_id": "826e2b789a854910827bee2a6892987c",
+  "last_included_step": 500,
+  "metric_cadence": 10,
+  "penalty_cadence": 8,
+  "logged_applied_penalty_count": 12,
+  "logged_applied_penalty_min": 0.03099237009882927,
+  "logged_applied_penalty_max": 2.441199779510498,
+  "training_events": [
+    {
+      "metrics": {
+        "loss/d_total": 0.08022235333919525,
+        "loss/g_total": 3.486558437347412,
+        "loss/total": 3.5667807906866074,
+        "loss/d_adversarial": 0.08022235333919525,
+        "loss/g_adversarial": 3.4622721672058105,
+        "loss/d_adversarial_raw": 0.08022235333919525,
+        "loss/g_adversarial_raw": 3.4622721672058105,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.024286389350891113,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3095630750176497,
+        "timing/training_seconds": 22.82494698400842,
+        "throughput/steps_per_second": 0.6964128330699209,
+        "progress/samples_seen": 640
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 640,
+      "training_seconds": 22.82494698400842,
+      "steps_per_second": 0.6964128330699209,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 12,
+      "step": 10,
+      "seconds": 22.824986605002778
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.11005100607872009,
+        "loss/g_total": 2.923640012741089,
+        "loss/total": 3.033691018819809,
+        "loss/d_adversarial": 0.11005100607872009,
+        "loss/g_adversarial": 2.906449794769287,
+        "loss/d_adversarial_raw": 0.11005100607872009,
+        "loss/g_adversarial_raw": 2.906449794769287,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.017190182581543922,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3340247419837397,
+        "timing/training_seconds": 36.21617623398197,
+        "throughput/steps_per_second": 0.7207761041165991,
+        "progress/samples_seen": 1280
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 1280,
+      "training_seconds": 36.21617623398197,
+      "steps_per_second": 0.7207761041165991,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 24,
+      "step": 20,
+      "seconds": 36.21621713400236
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.18453922867774963,
+        "loss/g_total": 2.4058475494384766,
+        "loss/total": 2.590386778116226,
+        "loss/d_adversarial": 0.18453922867774963,
+        "loss/g_adversarial": 2.3937063217163086,
+        "loss/d_adversarial_raw": 0.18453922867774963,
+        "loss/g_adversarial_raw": 2.3937063217163086,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.012141218408942223,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.2753859099757392,
+        "timing/training_seconds": 49.47051445598481,
+        "throughput/steps_per_second": 0.7507398161011385,
+        "progress/samples_seen": 1920
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 1920,
+      "training_seconds": 49.47051445598481,
+      "steps_per_second": 0.7507398161011385,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 34,
+      "step": 30,
+      "seconds": 49.47054924600525
+    },
+    {
+      "metrics": {
+        "loss/d_total": 1.137189269065857,
+        "loss/g_total": 2.330393075942993,
+        "loss/total": 3.46758234500885,
+        "loss/d_adversarial": 0.212990865111351,
+        "loss/g_adversarial": 2.321899890899658,
+        "loss/d_adversarial_raw": 0.212990865111351,
+        "loss/g_adversarial_raw": 2.321899890899658,
+        "loss/gradient_penalty": 0.9241983890533447,
+        "loss/prior_regularizer": 0.008493101224303246,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.5965379950066563,
+        "timing/training_seconds": 63.23098627800937,
+        "throughput/steps_per_second": 0.7404741448734047,
+        "progress/samples_seen": 2560
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 2560,
+      "training_seconds": 63.23098627800937,
+      "steps_per_second": 0.7404741448734047,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 44,
+      "step": 40,
+      "seconds": 63.231021957995836
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.18855935335159302,
+        "loss/g_total": 2.2656924724578857,
+        "loss/total": 2.4542518258094788,
+        "loss/d_adversarial": 0.18855935335159302,
+        "loss/g_adversarial": 2.259913921356201,
+        "loss/d_adversarial_raw": 0.18855935335159302,
+        "loss/g_adversarial_raw": 2.259913921356201,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.005778566002845764,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3463958609791007,
+        "timing/training_seconds": 76.95685350100393,
+        "throughput/steps_per_second": 0.7277738873795875,
+        "progress/samples_seen": 3200
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 3200,
+      "training_seconds": 76.95685350100393,
+      "steps_per_second": 0.7277738873795875,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 54,
+      "step": 50,
+      "seconds": 76.95688766200328
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.2034628838300705,
+        "loss/g_total": 2.25862193107605,
+        "loss/total": 2.4620848149061203,
+        "loss/d_adversarial": 0.2034628838300705,
+        "loss/g_adversarial": 2.2547993659973145,
+        "loss/d_adversarial_raw": 0.2034628838300705,
+        "loss/g_adversarial_raw": 2.2547993659973145,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.003822553437203169,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3713318909867667,
+        "timing/training_seconds": 90.6796153220057,
+        "throughput/steps_per_second": 0.728777290378008,
+        "progress/samples_seen": 3840
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 3840,
+      "training_seconds": 90.6796153220057,
+      "steps_per_second": 0.728777290378008,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 64,
+      "step": 60,
+      "seconds": 90.679648661986
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.24119529128074646,
+        "loss/g_total": 2.1219778060913086,
+        "loss/total": 2.363173097372055,
+        "loss/d_adversarial": 0.24119529128074646,
+        "loss/g_adversarial": 2.119520664215088,
+        "loss/d_adversarial_raw": 0.24119529128074646,
+        "loss/g_adversarial_raw": 2.119520664215088,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.002457218710333109,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.374043611023808,
+        "timing/training_seconds": 104.41046646100585,
+        "throughput/steps_per_second": 0.7286423042807645,
+        "progress/samples_seen": 4480
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 4480,
+      "training_seconds": 104.41046646100585,
+      "steps_per_second": 0.7286423042807645,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 74,
+      "step": 70,
+      "seconds": 104.41049885100801
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.534027099609375,
+        "loss/g_total": 2.149346113204956,
+        "loss/total": 2.683373212814331,
+        "loss/d_adversarial": 0.22309204936027527,
+        "loss/g_adversarial": 2.147810220718384,
+        "loss/d_adversarial_raw": 0.22309204936027527,
+        "loss/g_adversarial_raw": 2.147810220718384,
+        "loss/gradient_penalty": 0.31093502044677734,
+        "loss/prior_regularizer": 0.0015359031967818737,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.5951392249844503,
+        "timing/training_seconds": 118.21485331098665,
+        "throughput/steps_per_second": 0.7264767005455057,
+        "progress/samples_seen": 5120
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 5120,
+      "training_seconds": 118.21485331098665,
+      "steps_per_second": 0.7264767005455057,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 84,
+      "step": 80,
+      "seconds": 118.21488602098543
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.20513224601745605,
+        "loss/g_total": 2.1459944248199463,
+        "loss/total": 2.3511266708374023,
+        "loss/d_adversarial": 0.20513224601745605,
+        "loss/g_adversarial": 2.145057201385498,
+        "loss/d_adversarial_raw": 0.20513224601745605,
+        "loss/g_adversarial_raw": 2.145057201385498,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.0009372829808853567,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3507262320199516,
+        "timing/training_seconds": 131.97574016600265,
+        "throughput/steps_per_second": 0.7256858895176987,
+        "progress/samples_seen": 5760
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 5760,
+      "training_seconds": 131.97574016600265,
+      "steps_per_second": 0.7256858895176987,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 94,
+      "step": 90,
+      "seconds": 131.97577092598658
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.2069759964942932,
+        "loss/g_total": 2.150646686553955,
+        "loss/total": 2.3576226830482483,
+        "loss/d_adversarial": 0.2069759964942932,
+        "loss/g_adversarial": 2.1500909328460693,
+        "loss/d_adversarial_raw": 0.2069759964942932,
+        "loss/g_adversarial_raw": 2.1500909328460693,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.0005557851400226355,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.329252517025452,
+        "timing/training_seconds": 145.91471427099896,
+        "throughput/steps_per_second": 0.7221631414791205,
+        "progress/samples_seen": 6400
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 6400,
+      "training_seconds": 145.91471427099896,
+      "steps_per_second": 0.7221631414791205,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 104,
+      "step": 100,
+      "seconds": 145.91475120198447
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.24367395043373108,
+        "loss/g_total": 2.1017403602600098,
+        "loss/total": 2.345414310693741,
+        "loss/d_adversarial": 0.24367395043373108,
+        "loss/g_adversarial": 2.1014184951782227,
+        "loss/d_adversarial_raw": 0.24367395043373108,
+        "loss/g_adversarial_raw": 2.1014184951782227,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.0003217514604330063,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3762589569960255,
+        "timing/training_seconds": 160.12840340199182,
+        "throughput/steps_per_second": 0.7136256105445798,
+        "progress/samples_seen": 7040
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 7040,
+      "training_seconds": 160.12840340199182,
+      "steps_per_second": 0.7136256105445798,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 114,
+      "step": 110,
+      "seconds": 160.1284364919993
+    },
+    {
+      "metrics": {
+        "loss/d_total": 2.082425355911255,
+        "loss/g_total": 1.915480375289917,
+        "loss/total": 3.997905731201172,
+        "loss/d_adversarial": 0.2701682448387146,
+        "loss/g_adversarial": 1.9152982234954834,
+        "loss/d_adversarial_raw": 0.2701682448387146,
+        "loss/g_adversarial_raw": 1.9152982234954834,
+        "loss/gradient_penalty": 1.8122570514678955,
+        "loss/prior_regularizer": 0.00018220554920844734,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.59524756699102,
+        "timing/training_seconds": 174.2295057119918,
+        "throughput/steps_per_second": 0.7095302495623597,
+        "progress/samples_seen": 7680
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 7680,
+      "training_seconds": 174.2295057119918,
+      "steps_per_second": 0.7095302495623597,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 126,
+      "step": 120,
+      "seconds": 174.22953847199096
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.24426744878292084,
+        "loss/g_total": 1.9531725645065308,
+        "loss/total": 2.1974400132894516,
+        "loss/d_adversarial": 0.24426744878292084,
+        "loss/g_adversarial": 1.9530702829360962,
+        "loss/d_adversarial_raw": 0.24426744878292084,
+        "loss/g_adversarial_raw": 1.9530702829360962,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 0.00010232775821350515,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3865432110032998,
+        "timing/training_seconds": 188.14003045699792,
+        "throughput/steps_per_second": 0.7141383792746647,
+        "progress/samples_seen": 8320
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 8320,
+      "training_seconds": 188.14003045699792,
+      "steps_per_second": 0.7141383792746647,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 136,
+      "step": 130,
+      "seconds": 188.14006321699708
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.2092438042163849,
+        "loss/g_total": 1.94498610496521,
+        "loss/total": 2.154229909181595,
+        "loss/d_adversarial": 0.2092438042163849,
+        "loss/g_adversarial": 1.9449303150177002,
+        "loss/d_adversarial_raw": 0.2092438042163849,
+        "loss/g_adversarial_raw": 1.9449303150177002,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 5.5743090342730284e-05,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3336187999811955,
+        "timing/training_seconds": 201.84298811500776,
+        "throughput/steps_per_second": 0.7244311840191782,
+        "progress/samples_seen": 8960
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 8960,
+      "training_seconds": 201.84298811500776,
+      "steps_per_second": 0.7244311840191782,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 146,
+      "step": 140,
+      "seconds": 201.84301995500573
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.1987403929233551,
+        "loss/g_total": 2.1040544509887695,
+        "loss/total": 2.3027948439121246,
+        "loss/d_adversarial": 0.1987403929233551,
+        "loss/g_adversarial": 2.104024887084961,
+        "loss/d_adversarial_raw": 0.1987403929233551,
+        "loss/g_adversarial_raw": 2.104024887084961,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 2.9581455237348564e-05,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3274699749890715,
+        "timing/training_seconds": 215.62361068298924,
+        "throughput/steps_per_second": 0.727857494150117,
+        "progress/samples_seen": 9600
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 9600,
+      "training_seconds": 215.62361068298924,
+      "steps_per_second": 0.727857494150117,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 156,
+      "step": 150,
+      "seconds": 215.6236428229895
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.45248061418533325,
+        "loss/g_total": 1.6326801776885986,
+        "loss/total": 2.085160791873932,
+        "loss/d_adversarial": 0.296658456325531,
+        "loss/g_adversarial": 1.6326647996902466,
+        "loss/d_adversarial_raw": 0.296658456325531,
+        "loss/g_adversarial_raw": 1.6326647996902466,
+        "loss/gradient_penalty": 0.15582214295864105,
+        "loss/prior_regularizer": 1.5336179785663262e-05,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.6788907700101845,
+        "timing/training_seconds": 229.98720348600182,
+        "throughput/steps_per_second": 0.7107728999658531,
+        "progress/samples_seen": 10240
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 10240,
+      "training_seconds": 229.98720348600182,
+      "steps_per_second": 0.7107728999658531,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 166,
+      "step": 160,
+      "seconds": 229.98724492598558
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.2781423330307007,
+        "loss/g_total": 1.7444067001342773,
+        "loss/total": 2.022549033164978,
+        "loss/d_adversarial": 0.2781423330307007,
+        "loss/g_adversarial": 1.7443989515304565,
+        "loss/d_adversarial_raw": 0.2781423330307007,
+        "loss/g_adversarial_raw": 1.7443989515304565,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 7.789902156218886e-06,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3593277750187553,
+        "timing/training_seconds": 244.22634307100088,
+        "throughput/steps_per_second": 0.6993814478768027,
+        "progress/samples_seen": 10880
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 10880,
+      "training_seconds": 244.22634307100088,
+      "steps_per_second": 0.6993814478768027,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 176,
+      "step": 170,
+      "seconds": 244.22638011100935
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.27346575260162354,
+        "loss/g_total": 1.7236086130142212,
+        "loss/total": 1.9970743656158447,
+        "loss/d_adversarial": 0.27346575260162354,
+        "loss/g_adversarial": 1.723604679107666,
+        "loss/d_adversarial_raw": 0.27346575260162354,
+        "loss/g_adversarial_raw": 1.723604679107666,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 3.887612820108188e-06,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3443297969934065,
+        "timing/training_seconds": 258.05061517399736,
+        "throughput/steps_per_second": 0.7128223710411998,
+        "progress/samples_seen": 11520
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 11520,
+      "training_seconds": 258.05061517399736,
+      "steps_per_second": 0.7128223710411998,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 186,
+      "step": 180,
+      "seconds": 258.05064831400523
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.2791912853717804,
+        "loss/g_total": 1.7489176988601685,
+        "loss/total": 2.028108984231949,
+        "loss/d_adversarial": 0.2791912853717804,
+        "loss/g_adversarial": 1.7489157915115356,
+        "loss/d_adversarial_raw": 0.2791912853717804,
+        "loss/g_adversarial_raw": 1.7489157915115356,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 1.8861499029299011e-06,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3168340880074538,
+        "timing/training_seconds": 271.72332719300175,
+        "throughput/steps_per_second": 0.7275016918417673,
+        "progress/samples_seen": 12160
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 12160,
+      "training_seconds": 271.72332719300175,
+      "steps_per_second": 0.7275016918417673,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 196,
+      "step": 190,
+      "seconds": 271.723360183998
+    },
+    {
+      "metrics": {
+        "loss/d_total": 1.4247803688049316,
+        "loss/g_total": 1.693008542060852,
+        "loss/total": 3.1177889108657837,
+        "loss/d_adversarial": 0.2754696011543274,
+        "loss/g_adversarial": 1.693007469177246,
+        "loss/d_adversarial_raw": 0.2754696011543274,
+        "loss/g_adversarial_raw": 1.693007469177246,
+        "loss/gradient_penalty": 1.149310827255249,
+        "loss/prior_regularizer": 1.096958612833987e-06,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.628748577000806,
+        "timing/training_seconds": 285.75157219698303,
+        "throughput/steps_per_second": 0.7221419002984774,
+        "progress/samples_seen": 12800
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 12800,
+      "training_seconds": 285.75157219698303,
+      "steps_per_second": 0.7221419002984774,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 206,
+      "step": 200,
+      "seconds": 285.75160609799786
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.2696651220321655,
+        "loss/g_total": 1.745417594909668,
+        "loss/total": 2.0150827169418335,
+        "loss/d_adversarial": 0.2696651220321655,
+        "loss/g_adversarial": 1.7454171180725098,
+        "loss/d_adversarial_raw": 0.2696651220321655,
+        "loss/g_adversarial_raw": 1.7454171180725098,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 5.100521889289666e-07,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3972020980145317,
+        "timing/training_seconds": 299.78394194098655,
+        "throughput/steps_per_second": 0.7162379848541666,
+        "progress/samples_seen": 13440
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 13440,
+      "training_seconds": 299.78394194098655,
+      "steps_per_second": 0.7162379848541666,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 216,
+      "step": 210,
+      "seconds": 299.7839744820085
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.26540499925613403,
+        "loss/g_total": 1.7214641571044922,
+        "loss/total": 1.9868691563606262,
+        "loss/d_adversarial": 0.26540499925613403,
+        "loss/g_adversarial": 1.721463918685913,
+        "loss/d_adversarial_raw": 0.26540499925613403,
+        "loss/g_adversarial_raw": 1.721463918685913,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 2.1432748553706915e-07,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3901892669964582,
+        "timing/training_seconds": 313.8961921809823,
+        "throughput/steps_per_second": 0.7141002355987559,
+        "progress/samples_seen": 14080
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 14080,
+      "training_seconds": 313.8961921809823,
+      "steps_per_second": 0.7141002355987559,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 228,
+      "step": 220,
+      "seconds": 313.89623623198713
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.24778565764427185,
+        "loss/g_total": 1.734054684638977,
+        "loss/total": 1.981840342283249,
+        "loss/d_adversarial": 0.24778565764427185,
+        "loss/g_adversarial": 1.7340545654296875,
+        "loss/d_adversarial_raw": 0.24778565764427185,
+        "loss/g_adversarial_raw": 1.7340545654296875,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.138939560671133e-08,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.419433767994633,
+        "timing/training_seconds": 327.8956235880032,
+        "throughput/steps_per_second": 0.7116043178529795,
+        "progress/samples_seen": 14720
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 14720,
+      "training_seconds": 327.8956235880032,
+      "steps_per_second": 0.7116043178529795,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 238,
+      "step": 230,
+      "seconds": 327.89565632800804
+    },
+    {
+      "metrics": {
+        "loss/d_total": 1.1008415222167969,
+        "loss/g_total": 1.7540407180786133,
+        "loss/total": 2.85488224029541,
+        "loss/d_adversarial": 0.2516091465950012,
+        "loss/g_adversarial": 1.7540407180786133,
+        "loss/d_adversarial_raw": 0.2516091465950012,
+        "loss/g_adversarial_raw": 1.7540407180786133,
+        "loss/gradient_penalty": 0.8492323160171509,
+        "loss/prior_regularizer": 3.967340944655007e-08,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.6271609060058836,
+        "timing/training_seconds": 341.96286317298654,
+        "throughput/steps_per_second": 0.7127417393772707,
+        "progress/samples_seen": 15360
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 15360,
+      "training_seconds": 341.96286317298654,
+      "steps_per_second": 0.7127417393772707,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 248,
+      "step": 240,
+      "seconds": 341.9628962429997
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.23720909655094147,
+        "loss/g_total": 1.7471221685409546,
+        "loss/total": 1.984331265091896,
+        "loss/d_adversarial": 0.23720909655094147,
+        "loss/g_adversarial": 1.7471221685409546,
+        "loss/d_adversarial_raw": 0.23720909655094147,
+        "loss/g_adversarial_raw": 1.7471221685409546,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 1.7084056835869887e-08,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3860857679974288,
+        "timing/training_seconds": 355.7115510980075,
+        "throughput/steps_per_second": 0.719167893483242,
+        "progress/samples_seen": 16000
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 16000,
+      "training_seconds": 355.7115510980075,
+      "steps_per_second": 0.719167893483242,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 258,
+      "step": 250,
+      "seconds": 355.7115845590015
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.23499804735183716,
+        "loss/g_total": 1.7945961952209473,
+        "loss/total": 2.0295942425727844,
+        "loss/d_adversarial": 0.23499804735183716,
+        "loss/g_adversarial": 1.7945961952209473,
+        "loss/d_adversarial_raw": 0.23499804735183716,
+        "loss/g_adversarial_raw": 1.7945961952209473,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 7.240512189810033e-09,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3984619170078076,
+        "timing/training_seconds": 369.5731879110099,
+        "throughput/steps_per_second": 0.7245218956277288,
+        "progress/samples_seen": 16640
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 16640,
+      "training_seconds": 369.5731879110099,
+      "steps_per_second": 0.7245218956277288,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 268,
+      "step": 260,
+      "seconds": 369.5732274609909
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.22037699818611145,
+        "loss/g_total": 1.8144726753234863,
+        "loss/total": 2.034849673509598,
+        "loss/d_adversarial": 0.22037699818611145,
+        "loss/g_adversarial": 1.8144726753234863,
+        "loss/d_adversarial_raw": 0.22037699818611145,
+        "loss/g_adversarial_raw": 1.8144726753234863,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 3.062083697713547e-09,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.4259909560205415,
+        "timing/training_seconds": 383.737562306982,
+        "throughput/steps_per_second": 0.7137744848550852,
+        "progress/samples_seen": 17280
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 17280,
+      "training_seconds": 383.737562306982,
+      "steps_per_second": 0.7137744848550852,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 278,
+      "step": 270,
+      "seconds": 383.7375963469967
+    },
+    {
+      "metrics": {
+        "loss/d_total": 2.650662660598755,
+        "loss/g_total": 1.939129114151001,
+        "loss/total": 4.589791774749756,
+        "loss/d_adversarial": 0.2094629555940628,
+        "loss/g_adversarial": 1.939129114151001,
+        "loss/d_adversarial_raw": 0.2094629555940628,
+        "loss/g_adversarial_raw": 1.939129114151001,
+        "loss/gradient_penalty": 2.441199779510498,
+        "loss/prior_regularizer": 1.313092079513467e-09,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.5731277870072518,
+        "timing/training_seconds": 397.6920729590056,
+        "throughput/steps_per_second": 0.7114187762455506,
+        "progress/samples_seen": 17920
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 17920,
+      "training_seconds": 397.6920729590056,
+      "steps_per_second": 0.7114187762455506,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 288,
+      "step": 280,
+      "seconds": 397.69210787900374
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.21580037474632263,
+        "loss/g_total": 1.8708943128585815,
+        "loss/total": 2.086694687604904,
+        "loss/d_adversarial": 0.21580037474632263,
+        "loss/g_adversarial": 1.8708943128585815,
+        "loss/d_adversarial_raw": 0.21580037474632263,
+        "loss/g_adversarial_raw": 1.8708943128585815,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 6.147395370525999e-10,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3471058860013727,
+        "timing/training_seconds": 411.3461574940011,
+        "throughput/steps_per_second": 0.7245716521538141,
+        "progress/samples_seen": 18560
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 18560,
+      "training_seconds": 411.3461574940011,
+      "steps_per_second": 0.7245716521538141,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 298,
+      "step": 290,
+      "seconds": 411.34619118398405
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.20484310388565063,
+        "loss/g_total": 1.9138495922088623,
+        "loss/total": 2.118692696094513,
+        "loss/d_adversarial": 0.20484310388565063,
+        "loss/g_adversarial": 1.9138495922088623,
+        "loss/d_adversarial_raw": 0.20484310388565063,
+        "loss/g_adversarial_raw": 1.9138495922088623,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 3.443151042059611e-10,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3613811690011062,
+        "timing/training_seconds": 425.06269500998314,
+        "throughput/steps_per_second": 0.7308731098440833,
+        "progress/samples_seen": 19200
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 19200,
+      "training_seconds": 425.06269500998314,
+      "steps_per_second": 0.7308731098440833,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 308,
+      "step": 300,
+      "seconds": 425.0627288100077
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.20837244391441345,
+        "loss/g_total": 1.8743860721588135,
+        "loss/total": 2.082758516073227,
+        "loss/d_adversarial": 0.20837244391441345,
+        "loss/g_adversarial": 1.8743860721588135,
+        "loss/d_adversarial_raw": 0.20837244391441345,
+        "loss/g_adversarial_raw": 1.8743860721588135,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 1.7733768231664726e-08,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.36924699699739,
+        "timing/training_seconds": 439.174734848988,
+        "throughput/steps_per_second": 0.7220386970119657,
+        "progress/samples_seen": 19840
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 19840,
+      "training_seconds": 439.174734848988,
+      "steps_per_second": 0.7220386970119657,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 318,
+      "step": 310,
+      "seconds": 439.1747720789863
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.48902684450149536,
+        "loss/g_total": 1.900879144668579,
+        "loss/total": 2.3899059891700745,
+        "loss/d_adversarial": 0.1947624385356903,
+        "loss/g_adversarial": 1.900879144668579,
+        "loss/d_adversarial_raw": 0.1947624385356903,
+        "loss/g_adversarial_raw": 1.900879144668579,
+        "loss/gradient_penalty": 0.29426440596580505,
+        "loss/prior_regularizer": 3.1924649590564513e-09,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.622210821020417,
+        "timing/training_seconds": 453.3316227309988,
+        "throughput/steps_per_second": 0.7107479595406443,
+        "progress/samples_seen": 20480
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 20480,
+      "training_seconds": 453.3316227309988,
+      "steps_per_second": 0.7107479595406443,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 330,
+      "step": 320,
+      "seconds": 453.33165563098737
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.18882861733436584,
+        "loss/g_total": 1.954361081123352,
+        "loss/total": 2.143189698457718,
+        "loss/d_adversarial": 0.18882861733436584,
+        "loss/g_adversarial": 1.954361081123352,
+        "loss/d_adversarial_raw": 0.18882861733436584,
+        "loss/g_adversarial_raw": 1.954361081123352,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 7.148039937732165e-10,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.356982336990768,
+        "timing/training_seconds": 467.3169744749903,
+        "throughput/steps_per_second": 0.7108402401868975,
+        "progress/samples_seen": 21120
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 21120,
+      "training_seconds": 467.3169744749903,
+      "steps_per_second": 0.7108402401868975,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 340,
+      "step": 330,
+      "seconds": 467.317006725003
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.19081126153469086,
+        "loss/g_total": 1.998063325881958,
+        "loss/total": 2.188874587416649,
+        "loss/d_adversarial": 0.19081126153469086,
+        "loss/g_adversarial": 1.998063325881958,
+        "loss/d_adversarial_raw": 0.19081126153469086,
+        "loss/g_adversarial_raw": 1.998063325881958,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 2.3281807037811575e-10,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3537567550083622,
+        "timing/training_seconds": 481.33433874099865,
+        "throughput/steps_per_second": 0.7143794696264273,
+        "progress/samples_seen": 21760
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 21760,
+      "training_seconds": 481.33433874099865,
+      "steps_per_second": 0.7143794696264273,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 350,
+      "step": 340,
+      "seconds": 481.3343717310054
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.19958636164665222,
+        "loss/g_total": 1.9102845191955566,
+        "loss/total": 2.109870880842209,
+        "loss/d_adversarial": 0.19958636164665222,
+        "loss/g_adversarial": 1.9102845191955566,
+        "loss/d_adversarial_raw": 0.19958636164665222,
+        "loss/g_adversarial_raw": 1.9102845191955566,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 1.2256412551536755e-10,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.335110279993387,
+        "timing/training_seconds": 495.2512759619858,
+        "throughput/steps_per_second": 0.7161320403107877,
+        "progress/samples_seen": 22400
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 22400,
+      "training_seconds": 495.2512759619858,
+      "steps_per_second": 0.7161320403107877,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 360,
+      "step": 350,
+      "seconds": 495.2513076030009
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.2357073426246643,
+        "loss/g_total": 1.9903273582458496,
+        "loss/total": 2.226034700870514,
+        "loss/d_adversarial": 0.18798422813415527,
+        "loss/g_adversarial": 1.9903273582458496,
+        "loss/d_adversarial_raw": 0.18798422813415527,
+        "loss/g_adversarial_raw": 1.9903273582458496,
+        "loss/gradient_penalty": 0.047723107039928436,
+        "loss/prior_regularizer": 9.828851621485057e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.6392771639802959,
+        "timing/training_seconds": 509.22250218500267,
+        "throughput/steps_per_second": 0.7173190679179373,
+        "progress/samples_seen": 23040
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 23040,
+      "training_seconds": 509.22250218500267,
+      "steps_per_second": 0.7173190679179373,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 370,
+      "step": 360,
+      "seconds": 509.2225365350023
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.17700053751468658,
+        "loss/g_total": 2.0217127799987793,
+        "loss/total": 2.198713317513466,
+        "loss/d_adversarial": 0.17700053751468658,
+        "loss/g_adversarial": 2.0217127799987793,
+        "loss/d_adversarial_raw": 0.17700053751468658,
+        "loss/g_adversarial_raw": 2.0217127799987793,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.079235974152056e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.4027007769909687,
+        "timing/training_seconds": 523.2014509229921,
+        "throughput/steps_per_second": 0.7157272863287538,
+        "progress/samples_seen": 23680
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 23680,
+      "training_seconds": 523.2014509229921,
+      "steps_per_second": 0.7157272863287538,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 380,
+      "step": 370,
+      "seconds": 523.20148599401
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.19312909245491028,
+        "loss/g_total": 1.969829797744751,
+        "loss/total": 2.1629588901996613,
+        "loss/d_adversarial": 0.19312909245491028,
+        "loss/g_adversarial": 1.969829797744751,
+        "loss/d_adversarial_raw": 0.19312909245491028,
+        "loss/g_adversarial_raw": 1.969829797744751,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 8.797908235269603e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.336224417987978,
+        "timing/training_seconds": 537.0877422640042,
+        "throughput/steps_per_second": 0.7179055784854456,
+        "progress/samples_seen": 24320
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 24320,
+      "training_seconds": 537.0877422640042,
+      "steps_per_second": 0.7179055784854456,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 390,
+      "step": 380,
+      "seconds": 537.0877740340075
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.19145306944847107,
+        "loss/g_total": 1.948951244354248,
+        "loss/total": 2.140404313802719,
+        "loss/d_adversarial": 0.19145306944847107,
+        "loss/g_adversarial": 1.948951244354248,
+        "loss/d_adversarial_raw": 0.19145306944847107,
+        "loss/g_adversarial_raw": 1.948951244354248,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 8.690122232923869e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3576401319878642,
+        "timing/training_seconds": 550.7883492149995,
+        "throughput/steps_per_second": 0.725148986734011,
+        "progress/samples_seen": 24960
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 24960,
+      "training_seconds": 550.7883492149995,
+      "steps_per_second": 0.725148986734011,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 400,
+      "step": 390,
+      "seconds": 550.7883821050054
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.29776492714881897,
+        "loss/g_total": 2.000427722930908,
+        "loss/total": 2.298192650079727,
+        "loss/d_adversarial": 0.19137316942214966,
+        "loss/g_adversarial": 2.000427722930908,
+        "loss/d_adversarial_raw": 0.19137316942214966,
+        "loss/g_adversarial_raw": 2.000427722930908,
+        "loss/gradient_penalty": 0.10639175772666931,
+        "loss/prior_regularizer": 9.190580241291713e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.6157459050009493,
+        "timing/training_seconds": 565.0017702440091,
+        "throughput/steps_per_second": 0.7166524191265229,
+        "progress/samples_seen": 25600
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 25600,
+      "training_seconds": 565.0017702440091,
+      "steps_per_second": 0.7166524191265229,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 410,
+      "step": 400,
+      "seconds": 565.0018029540079
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.17735403776168823,
+        "loss/g_total": 2.0247907638549805,
+        "loss/total": 2.2021448016166687,
+        "loss/d_adversarial": 0.17735403776168823,
+        "loss/g_adversarial": 2.0247907638549805,
+        "loss/d_adversarial_raw": 0.17735403776168823,
+        "loss/g_adversarial_raw": 2.0247907638549805,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.180163573763167e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3760299650020897,
+        "timing/training_seconds": 579.2878803479834,
+        "throughput/steps_per_second": 0.705164098240561,
+        "progress/samples_seen": 26240
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 26240,
+      "training_seconds": 579.2878803479834,
+      "steps_per_second": 0.705164098240561,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 420,
+      "step": 410,
+      "seconds": 579.2879161979945
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.17739756405353546,
+        "loss/g_total": 2.0549843311309814,
+        "loss/total": 2.232381895184517,
+        "loss/d_adversarial": 0.17739756405353546,
+        "loss/g_adversarial": 2.0549843311309814,
+        "loss/d_adversarial_raw": 0.17739756405353546,
+        "loss/g_adversarial_raw": 2.0549843311309814,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 8.986369287589113e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.2982110540033318,
+        "timing/training_seconds": 593.1665248229983,
+        "throughput/steps_per_second": 0.7135950384409089,
+        "progress/samples_seen": 26880
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 26880,
+      "training_seconds": 593.1665248229983,
+      "steps_per_second": 0.7135950384409089,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 432,
+      "step": 420,
+      "seconds": 593.1665592830104
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.1675686091184616,
+        "loss/g_total": 2.027843952178955,
+        "loss/total": 2.1954125612974167,
+        "loss/d_adversarial": 0.1675686091184616,
+        "loss/g_adversarial": 2.027843952178955,
+        "loss/d_adversarial_raw": 0.1675686091184616,
+        "loss/g_adversarial_raw": 2.027843952178955,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 8.679711116510447e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.4088982819812372,
+        "timing/training_seconds": 607.2727404889883,
+        "throughput/steps_per_second": 0.7148523639691884,
+        "progress/samples_seen": 27520
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 27520,
+      "training_seconds": 607.2727404889883,
+      "steps_per_second": 0.7148523639691884,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 442,
+      "step": 430,
+      "seconds": 607.2727759889967
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.1988144963979721,
+        "loss/g_total": 2.0258677005767822,
+        "loss/total": 2.2246821969747543,
+        "loss/d_adversarial": 0.16782212257385254,
+        "loss/g_adversarial": 2.0258677005767822,
+        "loss/d_adversarial_raw": 0.16782212257385254,
+        "loss/g_adversarial_raw": 2.0258677005767822,
+        "loss/gradient_penalty": 0.03099237009882927,
+        "loss/prior_regularizer": 8.978055798802842e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.6467814269999508,
+        "timing/training_seconds": 621.4226113809855,
+        "throughput/steps_per_second": 0.7079861915642911,
+        "progress/samples_seen": 28160
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 28160,
+      "training_seconds": 621.4226113809855,
+      "steps_per_second": 0.7079861915642911,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 452,
+      "step": 440,
+      "seconds": 621.422644590988
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.16010066866874695,
+        "loss/g_total": 2.0829312801361084,
+        "loss/total": 2.2430319488048553,
+        "loss/d_adversarial": 0.16010066866874695,
+        "loss/g_adversarial": 2.0829312801361084,
+        "loss/d_adversarial_raw": 0.16010066866874695,
+        "loss/g_adversarial_raw": 2.0829312801361084,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.241387516345512e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3400450549961533,
+        "timing/training_seconds": 635.3052758350095,
+        "throughput/steps_per_second": 0.7136335135060897,
+        "progress/samples_seen": 28800
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 28800,
+      "training_seconds": 635.3052758350095,
+      "steps_per_second": 0.7136335135060897,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 462,
+      "step": 450,
+      "seconds": 635.3053109250031
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.33028680086135864,
+        "loss/g_total": 1.3953983783721924,
+        "loss/total": 1.725685179233551,
+        "loss/d_adversarial": 0.33028680086135864,
+        "loss/g_adversarial": 1.3953983783721924,
+        "loss/d_adversarial_raw": 0.33028680086135864,
+        "loss/g_adversarial_raw": 1.3953983783721924,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.292435571017776e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.3470724869985133,
+        "timing/training_seconds": 648.9645774679957,
+        "throughput/steps_per_second": 0.7263473501847835,
+        "progress/samples_seen": 29440
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 29440,
+      "training_seconds": 648.9645774679957,
+      "steps_per_second": 0.7263473501847835,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 472,
+      "step": 460,
+      "seconds": 648.9646115280048
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.33727210760116577,
+        "loss/g_total": 1.4044612646102905,
+        "loss/total": 1.7417333722114563,
+        "loss/d_adversarial": 0.33727210760116577,
+        "loss/g_adversarial": 1.4044612646102905,
+        "loss/d_adversarial_raw": 0.33727210760116577,
+        "loss/g_adversarial_raw": 1.4044612646102905,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.10716085877894e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.355194034986198,
+        "timing/training_seconds": 662.9177941810049,
+        "throughput/steps_per_second": 0.7244913585796893,
+        "progress/samples_seen": 30080
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 30080,
+      "training_seconds": 662.9177941810049,
+      "steps_per_second": 0.7244913585796893,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 482,
+      "step": 470,
+      "seconds": 662.9178274009901
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.3706181049346924,
+        "loss/g_total": 1.457338809967041,
+        "loss/total": 1.8279569149017334,
+        "loss/d_adversarial": 0.3254917562007904,
+        "loss/g_adversarial": 1.457338809967041,
+        "loss/d_adversarial_raw": 0.3254917562007904,
+        "loss/g_adversarial_raw": 1.457338809967041,
+        "loss/gradient_penalty": 0.04512634500861168,
+        "loss/prior_regularizer": 9.53543910497956e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.6005245140113402,
+        "timing/training_seconds": 677.2192779360048,
+        "throughput/steps_per_second": 0.7080197543772452,
+        "progress/samples_seen": 30720
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": true,
+          "effective_coefficient": 8.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 30720,
+      "training_seconds": 677.2192779360048,
+      "steps_per_second": 0.7080197543772452,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 492,
+      "step": 480,
+      "seconds": 677.2193112359964
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.3221516013145447,
+        "loss/g_total": 1.4706683158874512,
+        "loss/total": 1.7928199172019958,
+        "loss/d_adversarial": 0.3221516013145447,
+        "loss/g_adversarial": 1.4706683158874512,
+        "loss/d_adversarial_raw": 0.3221516013145447,
+        "loss/g_adversarial_raw": 1.4706683158874512,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.518043297962464e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.399202452012105,
+        "timing/training_seconds": 690.7875247019983,
+        "throughput/steps_per_second": 0.7178000839792003,
+        "progress/samples_seen": 31360
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 31360,
+      "training_seconds": 690.7875247019983,
+      "steps_per_second": 0.7178000839792003,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 502,
+      "step": 490,
+      "seconds": 690.7875579219835
+    },
+    {
+      "metrics": {
+        "loss/d_total": 0.3061571419239044,
+        "loss/g_total": 1.4986145496368408,
+        "loss/total": 1.8047716915607452,
+        "loss/d_adversarial": 0.3061571419239044,
+        "loss/g_adversarial": 1.4986145496368408,
+        "loss/d_adversarial_raw": 0.3061571419239044,
+        "loss/g_adversarial_raw": 1.4986145496368408,
+        "loss/gradient_penalty": 0.0,
+        "loss/prior_regularizer": 9.69218177937492e-11,
+        "optimizer/lr_scale": 1.0,
+        "timing/step_seconds": 1.383675190008944,
+        "timing/training_seconds": 704.8709482139966,
+        "throughput/steps_per_second": 0.7234619684378135,
+        "progress/samples_seen": 32000
+      },
+      "measurement_status": {
+        "loss/gradient_penalty": {
+          "status": "available",
+          "applied": false,
+          "effective_coefficient": 0.0
+        }
+      },
+      "metric_publication": "sampled",
+      "samples_seen": 32000,
+      "training_seconds": 704.8709482139966,
+      "steps_per_second": 0.7234619684378135,
+      "schema_version": 2,
+      "event": "train",
+      "run_id": "826e2b789a854910827bee2a6892987c",
+      "stream_id": "training",
+      "stream_generation": "826e2b789a854910827bee2a6892987c",
+      "catalog": "427e0a7fdd4cb0a5751547e5c00bf8f911e4487e6d82d838966791ba93286833",
+      "attempt_id": "0001-053766906d3c4a499e2ac8de800064c6",
+      "sequence": 512,
+      "step": 500,
+      "seconds": 704.8709815839829
+    }
+  ],
+  "source": {
+    "distribution_records": {
+      "hndl": {
+        "record_sha256": "15964f79378a6c701fd2a26b66dbe910ea0c376007c79e020c8d656943cac955"
+      },
+      "hypergan": {
+        "record_sha256": null
+      },
+      "particlegan": {
+        "record_sha256": "3532c31cfe2ac7713909aa8298de42e0f1a7785fed6678b272a22dedc8256511"
+      }
+    },
+    "hypergan_commit": "c418ca64446d487d0168827fa8d1fa50f62846d7",
+    "hypergan_dirty": false,
+    "hypergan_provenance": "git",
+    "integration_reference": {
+      "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181",
+      "repository": "https://github.com/255BITS/ParticleGAN"
+    },
+    "particlegan_distribution_commit": null,
+    "particlegan_distribution_version": "0.5.0"
+  },
+  "config_sha256": "bbc1ef60ec0de324a8bac3d694f1e71f3d0fd8dd3efa77d1a391d477b852bbef",
+  "runtime": {
+    "cuda": {
+      "capability": [
+        8,
+        6
+      ],
+      "cublas_workspace_config": null,
+      "cudnn": 92400,
+      "cudnn_allow_tf32": true,
+      "cudnn_benchmark": true,
+      "cudnn_deterministic": false,
+      "deterministic_warn_only": false,
+      "matmul_allow_tf32": true,
+      "matmul_precision": "high",
+      "name": "NVIDIA RTX A6000",
+      "uuid": "548116b7-9dbe-de58-b3d9-a6e27b0f74ce",
+      "version": "13.0",
+      "visible_devices": [
+        "548116b7-9dbe-de58-b3d9-a6e27b0f74ce"
+      ]
+    },
+    "default_dtype": "torch.float32",
+    "deterministic_algorithms": false,
+    "device": "cuda:0",
+    "dtype": "float32",
+    "hndl": "0.6.0",
+    "hypergan": "2.0.0a1",
+    "machine": "x86_64",
+    "numpy": "2.5.3",
+    "particlegan": "0.5.0",
+    "platform": "Linux",
+    "python": "3.14.7",
+    "threads": 1,
+    "torch": "2.14.0+cu130",
+    "world_size": 1
+  },
+  "interpretation": "Only published penalty applications are included: metric cadence 10 intersects lazy cadence 8 every 40 steps; not a bound on unlogged applications."
+}

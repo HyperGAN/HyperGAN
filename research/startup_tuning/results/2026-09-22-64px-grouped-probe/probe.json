@@ -1,0 +1,1801 @@
+{
+  "schema_version": 1,
+  "kind": "grouped-first-g-probe",
+  "status": "complete",
+  "source": {
+    "integration_reference": {
+      "repository": "https://github.com/255BITS/ParticleGAN",
+      "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181"
+    },
+    "particlegan_distribution_version": "0.5.0",
+    "particlegan_distribution_commit": null,
+    "hypergan_commit": "47389a555e603c3e26133a59dd597c926c32f532",
+    "hypergan_dirty": false,
+    "hypergan_provenance": "git",
+    "distribution_records": {
+      "hypergan": {
+        "record_sha256": null
+      },
+      "particlegan": {
+        "record_sha256": "3532c31cfe2ac7713909aa8298de42e0f1a7785fed6678b272a22dedc8256511"
+      },
+      "hndl": {
+        "record_sha256": "15964f79378a6c701fd2a26b66dbe910ea0c376007c79e020c8d656943cac955"
+      }
+    }
+  },
+  "config": "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-64-init-v2/transgan-dinov3-multidepth.toml",
+  "group_a": [
+    "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight",
+    "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight",
+    "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight",
+    "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight"
+  ],
+  "rates": {
+    "g_lr": 0.0002,
+    "d_lr": 0.0002
+  },
+  "budget": {
+    "native_updates": 1,
+    "loss_evaluations": 14,
+    "projection_backwards": 8,
+    "output_forwards": 4
+  },
+  "group_b": [
+    "graph.models.generator.network.nodes.n_input_projection.weight",
+    "graph.models.generator.network.nodes.n_input_projection.bias",
+    "graph.models.generator.network.nodes.n_stage8_position.weight",
+    "graph.models.generator.network.nodes.n_stage8_block0_attention.relative_position_bias_table",
+    "graph.models.generator.network.nodes.n_stage8_block0_attention.q_proj.weight",
+    "graph.models.generator.network.nodes.n_stage8_block0_attention.k_proj.weight",
+    "graph.models.generator.network.nodes.n_stage8_block0_attention.v_proj.weight",
+    "graph.models.generator.network.nodes.n_stage8_block0_attention.o_proj.weight",
+    "graph.models.generator.network.nodes.n_stage8_block0_attention.o_proj.bias",
+    "graph.models.generator.network.nodes.n_stage8_block0_ffn.up.weight",
+    "graph.models.generator.network.nodes.n_stage8_block0_ffn.up.bias",
+    "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.bias",
+    "graph.models.generator.network.nodes.n_stage8_block1_attention.relative_position_bias_table",
+    "graph.models.generator.network.nodes.n_stage8_block1_attention.q_proj.weight",
+    "graph.models.generator.network.nodes.n_stage8_block1_attention.k_proj.weight",
+    "graph.models.generator.network.nodes.n_stage8_block1_attention.v_proj.weight",
+    "graph.models.generator.network.nodes.n_stage8_block1_attention.o_proj.weight",
+    "graph.models.generator.network.nodes.n_stage8_block1_attention.o_proj.bias",
+    "graph.models.generator.network.nodes.n_stage8_block1_ffn.up.weight",
+    "graph.models.generator.network.nodes.n_stage8_block1_ffn.up.bias",
+    "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.bias",
+    "graph.models.generator.network.nodes.n_stage16_position.weight",
+    "graph.models.generator.network.nodes.n_stage16_block0_attention.relative_position_bias_table",
+    "graph.models.generator.network.nodes.n_stage16_block0_attention.q_proj.weight",
+    "graph.models.generator.network.nodes.n_stage16_block0_attention.k_proj.weight",
+    "graph.models.generator.network.nodes.n_stage16_block0_attention.v_proj.weight",
+    "graph.models.generator.network.nodes.n_stage16_block0_attention.o_proj.weight",
+    "graph.models.generator.network.nodes.n_stage16_block0_attention.o_proj.bias",
+    "graph.models.generator.network.nodes.n_stage16_block0_ffn.up.weight",
+    "graph.models.generator.network.nodes.n_stage16_block0_ffn.up.bias",
+    "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.bias",
+    "graph.models.generator.network.nodes.n_stage16_block1_attention.relative_position_bias_table",
+    "graph.models.generator.network.nodes.n_stage16_block1_attention.q_proj.weight",
+    "graph.models.generator.network.nodes.n_stage16_block1_attention.k_proj.weight",
+    "graph.models.generator.network.nodes.n_stage16_block1_attention.v_proj.weight",
+    "graph.models.generator.network.nodes.n_stage16_block1_attention.o_proj.weight",
+    "graph.models.generator.network.nodes.n_stage16_block1_attention.o_proj.bias",
+    "graph.models.generator.network.nodes.n_stage16_block1_ffn.up.weight",
+    "graph.models.generator.network.nodes.n_stage16_block1_ffn.up.bias",
+    "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.bias",
+    "graph.models.generator.network.nodes.n_stage32_position.weight",
+    "graph.models.generator.network.nodes.n_stage32_block0_attention.relative_position_bias_table",
+    "graph.models.generator.network.nodes.n_stage32_block0_attention.q_proj.weight",
+    "graph.models.generator.network.nodes.n_stage32_block0_attention.k_proj.weight",
+    "graph.models.generator.network.nodes.n_stage32_block0_attention.v_proj.weight",
+    "graph.models.generator.network.nodes.n_stage32_block0_attention.o_proj.weight",
+    "graph.models.generator.network.nodes.n_stage32_block0_attention.o_proj.bias",
+    "graph.models.generator.network.nodes.n_stage32_block0_ffn.up.weight",
+    "graph.models.generator.network.nodes.n_stage32_block0_ffn.up.bias",
+    "graph.models.generator.network.nodes.n_stage32_block0_ffn.down.weight",
+    "graph.models.generator.network.nodes.n_stage32_block0_ffn.down.bias",
+    "graph.models.generator.network.nodes.n_stage32_block1_attention.relative_position_bias_table",
+    "graph.models.generator.network.nodes.n_stage32_block1_attention.q_proj.weight",
+    "graph.models.generator.network.nodes.n_stage32_block1_attention.k_proj.weight",
+    "graph.models.generator.network.nodes.n_stage32_block1_attention.v_proj.weight",
+    "graph.models.generator.network.nodes.n_stage32_block1_attention.o_proj.weight",
+    "graph.models.generator.network.nodes.n_stage32_block1_attention.o_proj.bias",
+    "graph.models.generator.network.nodes.n_stage32_block1_ffn.up.weight",
+    "graph.models.generator.network.nodes.n_stage32_block1_ffn.up.bias",
+    "graph.models.generator.network.nodes.n_stage32_block1_ffn.down.weight",
+    "graph.models.generator.network.nodes.n_stage32_block1_ffn.down.bias",
+    "graph.models.generator.network.nodes.n_stage64_position.weight",
+    "graph.models.generator.network.nodes.n_stage64_block0_attention.relative_position_bias_table",
+    "graph.models.generator.network.nodes.n_stage64_block0_attention.q_proj.weight",
+    "graph.models.generator.network.nodes.n_stage64_block0_attention.k_proj.weight",
+    "graph.models.generator.network.nodes.n_stage64_block0_attention.v_proj.weight",
+    "graph.models.generator.network.nodes.n_stage64_block0_attention.o_proj.weight",
+    "graph.models.generator.network.nodes.n_stage64_block0_attention.o_proj.bias",
+    "graph.models.generator.network.nodes.n_stage64_block0_ffn.up.weight",
+    "graph.models.generator.network.nodes.n_stage64_block0_ffn.up.bias",
+    "graph.models.generator.network.nodes.n_stage64_block0_ffn.down.weight",
+    "graph.models.generator.network.nodes.n_stage64_block0_ffn.down.bias",
+    "graph.models.generator.network.nodes.n_stage64_block1_attention.relative_position_bias_table",
+    "graph.models.generator.network.nodes.n_stage64_block1_attention.q_proj.weight",
+    "graph.models.generator.network.nodes.n_stage64_block1_attention.k_proj.weight",
+    "graph.models.generator.network.nodes.n_stage64_block1_attention.v_proj.weight",
+    "graph.models.generator.network.nodes.n_stage64_block1_attention.o_proj.weight",
+    "graph.models.generator.network.nodes.n_stage64_block1_attention.o_proj.bias",
+    "graph.models.generator.network.nodes.n_stage64_block1_ffn.up.weight",
+    "graph.models.generator.network.nodes.n_stage64_block1_ffn.up.bias",
+    "graph.models.generator.network.nodes.n_stage64_block1_ffn.down.weight",
+    "graph.models.generator.network.nodes.n_stage64_block1_ffn.down.bias",
+    "graph.models.generator.network.nodes.n_output_projection.weight",
+    "graph.models.generator.network.nodes.n_output_projection.bias"
+  ],
+  "bank_hashes": {
+    "monitor": "399828f2a4ffe53588b15093310ae4615beac9266c113454278cf31fe9d2a382",
+    "fitting_0": "ee71e673f01585c88b9accf81d1ea9be79d816b8f698b27494098b91a43188e6",
+    "fitting_1": "f08bf6ce716a1d540e30dd17793dd34c9723e73cd8b22ef2fdc274d648d7ddd6"
+  },
+  "adam": {
+    "A": {
+      "relative_rms": 1.0357321432909091e-06,
+      "contaminated_slope_fraction": 0.002238362610702948,
+      "elements": 16777216,
+      "step": 1,
+      "weight_decay": 0.0,
+      "amsgrad": false,
+      "eps": 1e-08,
+      "lr": 0.0002,
+      "status": "measured"
+    },
+    "B": {
+      "relative_rms": 3.542896188828604e-06,
+      "contaminated_slope_fraction": 0.03832281934698004,
+      "elements": 44609251,
+      "step": 1,
+      "weight_decay": 0.0,
+      "amsgrad": false,
+      "eps": 1e-08,
+      "lr": 0.0002,
+      "status": "measured"
+    }
+  },
+  "banks": [
+    {
+      "parameters": [
+        {
+          "path": "graph.models.generator.network.nodes.n_input_projection.weight",
+          "projections": [
+            -0.022511042879529625,
+            -0.014983460820919534,
+            -0.020779660620894716,
+            -0.023042728393480406
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_input_projection.bias",
+          "projections": [
+            -0.004594803878967295,
+            4.578307813557923e-05,
+            -0.0007619828754802248,
+            -0.001213820509335396
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_position.weight",
+          "projections": [
+            -0.004594804079626656,
+            4.578298369076208e-05,
+            -0.0007619842304524593,
+            -0.0012138209623918435
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.relative_position_bias_table",
+          "projections": [
+            -6.924362141826391e-06,
+            -4.6299280207842465e-07,
+            7.5109054636630705e-06,
+            1.3196677337510368e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.q_proj.weight",
+          "projections": [
+            -0.00043823993848081757,
+            0.000350911408373055,
+            -0.0003988112707995396,
+            -0.0009883301923423696
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.k_proj.weight",
+          "projections": [
+            -0.00048386769985894876,
+            0.0003162254547177701,
+            -0.0003191625123809213,
+            -0.00037437752385895503
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.v_proj.weight",
+          "projections": [
+            -0.025739290716804527,
+            0.019396138727883046,
+            -0.01360163095456289,
+            0.011000718654917162
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.o_proj.weight",
+          "projections": [
+            -0.018513799188889946,
+            0.020268597681044682,
+            -0.009623970373326053,
+            0.012748113120242176
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.o_proj.bias",
+          "projections": [
+            -0.006072369633397377,
+            0.001633262625855586,
+            -0.0012737228436264993,
+            -0.0010994672900196
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.up.weight",
+          "projections": [
+            -0.04812627961322647,
+            -0.004129794925026494,
+            -0.01786589936169766,
+            -0.01810420362049646
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.up.bias",
+          "projections": [
+            -0.0032385731693496725,
+            0.0008985810479626855,
+            -0.0008796978989332011,
+            -0.00034389298004516015
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight",
+          "projections": [
+            -2.488254906346793,
+            0.8109608443073386,
+            -0.6216321493843138,
+            -0.3365209063235619
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.bias",
+          "projections": [
+            -0.005398463714205496,
+            0.0019287050249920553,
+            -0.0012976947460341865,
+            -0.0006772808585258196
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.relative_position_bias_table",
+          "projections": [
+            -2.7728473592702276e-06,
+            3.2937512151954044e-06,
+            -1.263063381990916e-05,
+            3.8614195844172085e-07
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.q_proj.weight",
+          "projections": [
+            -0.0009168036565176988,
+            -1.3020998100702925e-06,
+            -0.00022775404979223123,
+            -0.0009994571065842642
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.k_proj.weight",
+          "projections": [
+            -0.0010972252272454111,
+            -0.00034044112974272386,
+            -0.0003889055753785605,
+            -0.001144362500849638
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.v_proj.weight",
+          "projections": [
+            -0.254267281323197,
+            0.07557601298649144,
+            -0.08907591619120395,
+            -0.014691269876315534
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.o_proj.weight",
+          "projections": [
+            -0.2246360339787537,
+            0.08319633514519426,
+            -0.07206632691893976,
+            -0.009929554396177135
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.o_proj.bias",
+          "projections": [
+            -0.0048779726520788765,
+            0.0017499556175196783,
+            -0.0013816068433862552,
+            -0.00045492927464012777
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.up.weight",
+          "projections": [
+            -0.1911199438421275,
+            0.07337576917006795,
+            -0.07643150595675123,
+            -0.01466532367025781
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.up.bias",
+          "projections": [
+            -0.002617665827591128,
+            0.0009774632268159354,
+            -0.0009459020915974113,
+            -8.952231931467846e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight",
+          "projections": [
+            -2.0292899547942422,
+            0.6756991801062739,
+            -0.6499954847955471,
+            -0.18848578177359154
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.bias",
+          "projections": [
+            -0.004782654341106084,
+            0.00165063868307261,
+            -0.0012274911496585994,
+            -0.0005248802271177055
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_position.weight",
+          "projections": [
+            -0.0026650516932037243,
+            -0.0005107812885992832,
+            -0.00027841154071548666,
+            -0.0003547101842310724
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.relative_position_bias_table",
+          "projections": [
+            2.233099162435312e-05,
+            -6.1273390225606774e-06,
+            -2.2895626445572232e-06,
+            -1.1521663207128262e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.q_proj.weight",
+          "projections": [
+            -0.0009319901077633029,
+            0.00016963218925656665,
+            -0.00015559074783953378,
+            -0.001800196204164903
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.k_proj.weight",
+          "projections": [
+            -0.001102874287130728,
+            0.0006382700963266635,
+            -0.0012674954607136836,
+            -0.0013274664154965823
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.v_proj.weight",
+          "projections": [
+            -0.3318704491137529,
+            0.11290563207399174,
+            -0.12656208936929536,
+            -0.0281635741504329
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.o_proj.weight",
+          "projections": [
+            -0.33979388352887724,
+            0.12668790146032716,
+            -0.10247283395510551,
+            -0.02691982076632715
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.o_proj.bias",
+          "projections": [
+            -0.004103694276211735,
+            0.0014868602766755033,
+            -0.0010908105965888929,
+            -0.0003046824116554783
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.up.weight",
+          "projections": [
+            -0.3116392408914108,
+            0.09391889214372097,
+            -0.08986237012548426,
+            -0.03103607758915309
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.up.bias",
+          "projections": [
+            -0.002258551275848071,
+            0.0007360354110253421,
+            -0.0006909974812385881,
+            -0.0001278303256360653
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight",
+          "projections": [
+            -1.6705992997134527,
+            0.6715147560492423,
+            -0.5064772151191012,
+            -0.12014677772423983
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.bias",
+          "projections": [
+            -0.004014350901508303,
+            0.0013813836720616005,
+            -0.0010274662382918514,
+            -0.0003206371161219066
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.relative_position_bias_table",
+          "projections": [
+            3.2720724303702065e-06,
+            -2.7457084807397106e-06,
+            -3.4096136384892387e-07,
+            -2.2034086475888968e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.q_proj.weight",
+          "projections": [
+            -0.0021816845665367773,
+            -0.0004801391607815638,
+            -0.0010415165563585922,
+            -9.11461210069403e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.k_proj.weight",
+          "projections": [
+            -0.0021030680712666844,
+            -9.937777384927735e-06,
+            -0.0005116004754296504,
+            -0.00010849737463604228
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.v_proj.weight",
+          "projections": [
+            -0.343501994983118,
+            0.13413943005678963,
+            -0.14687681533333907,
+            -0.0016022653241992179
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.o_proj.weight",
+          "projections": [
+            -0.3864393497176835,
+            0.1484208311570489,
+            -0.1217271186893194,
+            -0.022615461366437616
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.o_proj.bias",
+          "projections": [
+            -0.0035274560761951023,
+            0.00128909130228864,
+            -0.0009325265992159734,
+            -0.0002836326084368953
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.up.weight",
+          "projections": [
+            -0.3806573874790182,
+            0.08466702294451992,
+            -0.08665698429648047,
+            -0.06458908741911569
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.up.bias",
+          "projections": [
+            -0.0019111792754924117,
+            0.0004815984737806144,
+            -0.0004915017878297969,
+            -0.00029506143123607506
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight",
+          "projections": [
+            -1.4711982037374656,
+            0.5081506082460477,
+            -0.4688892484098655,
+            -0.06666131849526097
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.bias",
+          "projections": [
+            -0.003266141737766926,
+            0.0012742306969777259,
+            -0.001029835559029926,
+            2.8199530450268094e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_position.weight",
+          "projections": [
+            -0.0018151647785888852,
+            -0.00045331987025128877,
+            -0.0003125763699265702,
+            -0.00023502187162158824
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.relative_position_bias_table",
+          "projections": [
+            -1.0515309398861075e-06,
+            5.752970173074458e-06,
+            -4.9604067597193694e-06,
+            1.2464066897619606e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.q_proj.weight",
+          "projections": [
+            -0.0004012555052039516,
+            0.00044173266652648897,
+            -0.00037251239131184846,
+            -1.31461830564574e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.k_proj.weight",
+          "projections": [
+            -0.00024317755032888911,
+            0.0004955647567635634,
+            -0.000493669264732681,
+            5.4073808506069456e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.v_proj.weight",
+          "projections": [
+            -0.04129642106268436,
+            0.019669826074740625,
+            -0.022423597792018128,
+            0.007221920116901429
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.o_proj.weight",
+          "projections": [
+            -0.04217606992387018,
+            0.014638749530136674,
+            -0.009521815996682344,
+            -0.004313049222970257
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.o_proj.bias",
+          "projections": [
+            -0.002496936759277702,
+            0.0007776442536522574,
+            -0.0006966730104712498,
+            -0.00030205893150976734
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.up.weight",
+          "projections": [
+            -0.0494069268089716,
+            0.011068757500552771,
+            -0.013667571019298014,
+            -0.013493324104921923
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.up.bias",
+          "projections": [
+            -0.0015879763420127146,
+            0.00041032961453605195,
+            -0.0004055219663879137,
+            -0.000306883185107382
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.down.weight",
+          "projections": [
+            -0.29059480440297303,
+            0.09411177845342958,
+            -0.07384974712429136,
+            -0.04325453982947852
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.down.bias",
+          "projections": [
+            -0.0025879126177404356,
+            0.0007347219513296073,
+            -0.0006350063944951904,
+            -0.0004624444450789507
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.relative_position_bias_table",
+          "projections": [
+            -2.4619661078788093e-06,
+            3.198343352117025e-06,
+            -5.970937124327384e-06,
+            2.974085402117334e-07
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.q_proj.weight",
+          "projections": [
+            -0.0012001160813981835,
+            0.0004065252773950127,
+            -0.00013153818195064997,
+            -0.00022438669635657183
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.k_proj.weight",
+          "projections": [
+            -0.0010266138691299843,
+            0.00040104637203869007,
+            0.00027448857115689785,
+            -0.0003651750228129643
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.v_proj.weight",
+          "projections": [
+            -0.06401002706035969,
+            0.016163930540735696,
+            -0.013445106509034846,
+            -0.008368897404363503
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.o_proj.weight",
+          "projections": [
+            -0.054543371284710276,
+            0.019183160361346943,
+            -0.018541519086586328,
+            -0.004900964079601545
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.o_proj.bias",
+          "projections": [
+            -0.002367645829589809,
+            0.0008161671497957899,
+            -0.0007646805729432885,
+            -5.8883857257395304e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.up.weight",
+          "projections": [
+            -0.04970404086130746,
+            0.02376460308715856,
+            -0.010034487663877708,
+            -0.008201683132030752
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.up.bias",
+          "projections": [
+            -0.0013900292311050655,
+            0.00042045535366165695,
+            -0.00018729047176951403,
+            -0.0002022946200138854
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.down.weight",
+          "projections": [
+            -0.2896996370454514,
+            0.08447542585762359,
+            -0.07816413261351805,
+            -0.018540003736132585
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.down.bias",
+          "projections": [
+            -0.0024717686113366463,
+            0.0008055569971590855,
+            -0.0005710449319438442,
+            -0.00021221359740045988
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_position.weight",
+          "projections": [
+            -0.0017209462593109517,
+            -0.0006648451714026222,
+            7.978564398665495e-05,
+            -0.0004018727501743308
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.relative_position_bias_table",
+          "projections": [
+            -6.342575309695033e-06,
+            5.250882433453863e-06,
+            -7.187773585475733e-06,
+            -3.397512995624651e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.q_proj.weight",
+          "projections": [
+            -0.00024849810670008084,
+            7.914681446814209e-05,
+            2.573492767206277e-05,
+            2.2194356215760554e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.k_proj.weight",
+          "projections": [
+            -3.7940436602355444e-05,
+            9.242403157392294e-06,
+            -0.00018991243964094386,
+            0.00012487656941642523
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.v_proj.weight",
+          "projections": [
+            -0.010202860226595382,
+            0.003674123291516585,
+            -0.0014840931041637821,
+            -0.0016140382766316633
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.o_proj.weight",
+          "projections": [
+            -0.008073586519040199,
+            0.0027811445850353055,
+            -0.0009508675357063367,
+            -0.0010220634314898453
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.o_proj.bias",
+          "projections": [
+            -0.002335148926791793,
+            0.0006712611088393224,
+            -0.00013519895006410703,
+            -0.00046277059286451566
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.up.weight",
+          "projections": [
+            -0.0077783254070062985,
+            0.004207082419279887,
+            -0.0025073980473212616,
+            -0.0017470214269662853
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.up.bias",
+          "projections": [
+            -0.0012214782334061562,
+            0.00039392283697664934,
+            -0.00015778546391583903,
+            -0.00023906262910729844
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.down.weight",
+          "projections": [
+            -0.062136119724094316,
+            0.016392915872802227,
+            -0.013240057399211757,
+            -0.013556922916772305
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.down.bias",
+          "projections": [
+            -0.0022553748630348962,
+            0.0007571713715744145,
+            -0.00021223845530069473,
+            -0.000423955850976954
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.relative_position_bias_table",
+          "projections": [
+            -3.6070852212792314e-07,
+            -5.210235090858851e-06,
+            -1.1836144250858911e-05,
+            1.490137245963565e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.q_proj.weight",
+          "projections": [
+            -0.0003049451601961653,
+            0.00014040486970470667,
+            -5.474355311450092e-05,
+            -0.00012271364806234613
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.k_proj.weight",
+          "projections": [
+            -0.00010936333614187775,
+            -5.460685883857517e-06,
+            -0.00020584412301865467,
+            -3.077671626324059e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.v_proj.weight",
+          "projections": [
+            -0.010896251747198347,
+            0.003371965870210428,
+            -0.00045724695413425817,
+            -0.0031534827748273472
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.o_proj.weight",
+          "projections": [
+            -0.007711946045327233,
+            0.00205558777996009,
+            -0.0009043790276882076,
+            -0.001826184134224619
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.o_proj.bias",
+          "projections": [
+            -0.0019199540781926205,
+            0.0006200612983166421,
+            -0.0002579246033186785,
+            -0.0002797994018775441
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.up.weight",
+          "projections": [
+            -0.007520714336171038,
+            0.0017800414481909555,
+            -0.004005655366196885,
+            -0.0018980377768938474
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.up.bias",
+          "projections": [
+            -0.0011913366772442415,
+            0.0003519887466783821,
+            -5.08881831066438e-05,
+            -0.0002690757773448359
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.down.weight",
+          "projections": [
+            -0.05529765489703756,
+            0.017420429770933627,
+            -0.0013913422463665893,
+            -0.01209469865321397
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.down.bias",
+          "projections": [
+            -0.0020254529544279226,
+            0.00046316003867575076,
+            -1.4571161095390181e-05,
+            -0.000501035625751968
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_output_projection.weight",
+          "projections": [
+            -0.0009271123746065549,
+            0.0022756578260402713,
+            -0.002287034974764869,
+            -0.00041669415512452304
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_output_projection.bias",
+          "projections": [
+            -0.00026988940994265853,
+            0.00015906039778479375,
+            -4.148617036836555e-05,
+            -6.173098914630248e-05
+          ]
+        }
+      ],
+      "losses": {
+        "origin": 0.9675948023796082,
+        "A_minus": 0.988385021686554,
+        "A_plus": 0.7796437740325928,
+        "B_minus": 1.0010343790054321,
+        "B_plus": 0.8112786412239075,
+        "full_step": 0.7650653719902039,
+        "opposite_mix": 0.8231648206710815
+      },
+      "exact_slopes": {
+        "A": -0.44537775364420706,
+        "B": -0.3510993950528512,
+        "missing_gradient": false
+      },
+      "output": {
+        "rms_dA": 1.1040984669312008,
+        "rms_dB": 0.9102076313845148,
+        "rms_dAB": 1.1717975099283167,
+        "rms_residual": 0.8869362772664469,
+        "ms_cross": -0.6744019526362338
+      }
+    },
+    {
+      "parameters": [
+        {
+          "path": "graph.models.generator.network.nodes.n_input_projection.weight",
+          "projections": [
+            -0.00503316444147591,
+            -0.012192333160016021,
+            -0.0074680475359298545,
+            -0.0003700252314039125
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_input_projection.bias",
+          "projections": [
+            -0.0031796429015559353,
+            -0.002472085241734769,
+            4.193686259584211e-05,
+            0.0004608550600679634
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_position.weight",
+          "projections": [
+            -0.003179644457136648,
+            -0.0024720838217586337,
+            4.193504978660168e-05,
+            0.0004608547420847538
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.relative_position_bias_table",
+          "projections": [
+            -1.0111329136099762e-07,
+            -2.882002884552195e-06,
+            -7.801057605968385e-06,
+            -8.253891383799808e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.q_proj.weight",
+          "projections": [
+            0.0002784886575705959,
+            -0.0003344633048198616,
+            0.0003118260498979681,
+            0.0001004251501923086
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.k_proj.weight",
+          "projections": [
+            -0.00013596597103177258,
+            -9.156503989061942e-06,
+            6.102873581506294e-06,
+            0.00016030906260413571
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.v_proj.weight",
+          "projections": [
+            -0.007579362992368067,
+            -0.013995875879696456,
+            -0.0066105155496074585,
+            0.011065300053788026
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.o_proj.weight",
+          "projections": [
+            -0.0027509241757522423,
+            -0.013755005570365245,
+            -0.00638342756496591,
+            0.006908761042928088
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_attention.o_proj.bias",
+          "projections": [
+            -0.004188798183523607,
+            -0.000800640534282566,
+            -0.000491273691644579,
+            0.0008887223622169012
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.up.weight",
+          "projections": [
+            -0.030469614716098825,
+            -0.01476963654315158,
+            -0.004777039422373015,
+            0.0031634766918921015
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.up.bias",
+          "projections": [
+            -0.0024168956649952347,
+            -0.00021552741708572866,
+            -0.0007532695412966492,
+            0.0008049393640328839
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight",
+          "projections": [
+            -1.9229456078009146,
+            -0.22444041928449288,
+            -0.4183610448039036,
+            0.4675772448966061
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.bias",
+          "projections": [
+            -0.004208155884600561,
+            -0.0004470393175966895,
+            -0.0009783988155638245,
+            0.0010963445395123824
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.relative_position_bias_table",
+          "projections": [
+            6.427744284400185e-06,
+            -9.171497620426613e-06,
+            2.892463160725826e-06,
+            -1.6662040743446776e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.q_proj.weight",
+          "projections": [
+            -0.000829933640158665,
+            -0.0003292960715446618,
+            0.0005401857994614061,
+            5.665370230228237e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.k_proj.weight",
+          "projections": [
+            -0.0006392331081977295,
+            -0.0005173687734660649,
+            0.00020111469825408537,
+            0.0003659136319937316
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.v_proj.weight",
+          "projections": [
+            -0.16471461115756836,
+            -0.025892456627751935,
+            -0.06487518439550136,
+            0.04937003771329314
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.o_proj.weight",
+          "projections": [
+            -0.1566615179397835,
+            -0.04144610353069911,
+            -0.07016540712769365,
+            0.05512495450507352
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_attention.o_proj.bias",
+          "projections": [
+            -0.0035928205300354765,
+            -0.0007530223446291243,
+            -0.001215012382966652,
+            0.0009510643263331143
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.up.weight",
+          "projections": [
+            -0.11964902141500855,
+            -0.014674852306608104,
+            -0.04929397282514614,
+            0.034844694840937177
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.up.bias",
+          "projections": [
+            -0.0017659432987374797,
+            -7.297871483171242e-05,
+            -0.0007315052753772924,
+            0.000689460811892236
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight",
+          "projections": [
+            -1.424595460857935,
+            -0.17357030078593622,
+            -0.615420477774678,
+            0.5926667332202544
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.bias",
+          "projections": [
+            -0.003135771863844715,
+            -0.00038685642990438595,
+            -0.0013453210109717446,
+            0.0012850517111301356
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_position.weight",
+          "projections": [
+            -0.0019166105870279905,
+            -0.0014419358757304318,
+            -0.000296753359005558,
+            0.00010357155224073952
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.relative_position_bias_table",
+          "projections": [
+            -1.3765900981048046e-06,
+            2.5667222731244284e-06,
+            -1.8342752040021777e-05,
+            3.6364770240455076e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.q_proj.weight",
+          "projections": [
+            -0.0010439769565239836,
+            0.00041182617906571523,
+            -1.837357329290701e-05,
+            0.00039405687882084037
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.k_proj.weight",
+          "projections": [
+            -0.0005186563212241061,
+            0.00028118182034512644,
+            -0.0002791109501242597,
+            0.00033526917794540344
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.v_proj.weight",
+          "projections": [
+            -0.22199048746825703,
+            -0.05406252444164832,
+            -0.10280225208144148,
+            0.0811042905739793
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.o_proj.weight",
+          "projections": [
+            -0.2530280575002942,
+            -0.014838023011255523,
+            -0.09556808613844958,
+            0.07259945253998862
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_attention.o_proj.bias",
+          "projections": [
+            -0.0031120427112924526,
+            -0.00021910476570131813,
+            -0.0008922593495748745,
+            0.001055988715350451
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.up.weight",
+          "projections": [
+            -0.20252777423203505,
+            -0.009573254712628237,
+            -0.06576426521164722,
+            0.07554530089274981
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.up.bias",
+          "projections": [
+            -0.0016081880128768684,
+            1.8176239647173976e-05,
+            -0.0005802078627530264,
+            0.0005265575220588882
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight",
+          "projections": [
+            -1.1828905181542948,
+            0.0344497320621289,
+            -0.39049793735278543,
+            0.4335704128290948
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.bias",
+          "projections": [
+            -0.0027837401740674174,
+            -2.4386369531509687e-05,
+            -0.0008131619814950872,
+            0.000903817090132646
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.relative_position_bias_table",
+          "projections": [
+            1.8806164674136955e-07,
+            -4.644021333265351e-06,
+            -3.113380722092503e-07,
+            5.259085244828659e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.q_proj.weight",
+          "projections": [
+            -0.001012008504849314,
+            -0.0009033934397714124,
+            -0.0003384487693188842,
+            0.00027337643957114736
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.k_proj.weight",
+          "projections": [
+            -0.0006485542693034016,
+            -0.0001795320885120292,
+            -0.0003836792803357265,
+            -5.814041061261826e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.v_proj.weight",
+          "projections": [
+            -0.22452965023600333,
+            0.0039286508550126845,
+            -0.11057919337699208,
+            0.11344934648367527
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.o_proj.weight",
+          "projections": [
+            -0.26325995819739284,
+            -0.008997059774642914,
+            -0.10750266604393273,
+            0.11649666685376965
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_attention.o_proj.bias",
+          "projections": [
+            -0.002391226733834063,
+            -7.583305753027983e-06,
+            -0.0008321436403154356,
+            0.0011447092830599924
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.up.weight",
+          "projections": [
+            -0.23677399999897006,
+            -0.03440053199596597,
+            -0.07730584831782343,
+            0.0903338138293837
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.up.bias",
+          "projections": [
+            -0.0013905406318942383,
+            -0.000131138852016821,
+            -0.00045482910919588337,
+            0.0004513536406415358
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight",
+          "projections": [
+            -0.9799207894471105,
+            0.03510178265244562,
+            -0.46785893074734186,
+            0.42049779569065915
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.bias",
+          "projections": [
+            -0.002143390630404601,
+            0.0001729667231296294,
+            -0.0010738959374213964,
+            0.0010657314598445965
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_position.weight",
+          "projections": [
+            -0.0011480303542082708,
+            -0.0012964327093012923,
+            -0.00018899254462506886,
+            -0.00018144139379329437
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.relative_position_bias_table",
+          "projections": [
+            -7.530849848004857e-06,
+            -3.243433069465701e-06,
+            1.1276320731280805e-07,
+            -4.2314440898827405e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.q_proj.weight",
+          "projections": [
+            -0.0003280367897147638,
+            -2.3413882397936648e-05,
+            -0.0003708385918680497,
+            0.00014597259259711246
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.k_proj.weight",
+          "projections": [
+            -0.0001925955812096684,
+            0.0002410536403204833,
+            -0.0002958515575991801,
+            0.0002952599786440901
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.v_proj.weight",
+          "projections": [
+            -0.027755371368797143,
+            0.0001561365765135946,
+            -0.01935727236022653,
+            0.01790880578970305
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.o_proj.weight",
+          "projections": [
+            -0.0319955277236482,
+            -0.004205643761553496,
+            -0.0071295290494778245,
+            0.006348484667379035
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_attention.o_proj.bias",
+          "projections": [
+            -0.001991435210762285,
+            -0.00023997412667747564,
+            -0.00039604701733979676,
+            0.00048595785536657767
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.up.weight",
+          "projections": [
+            -0.02670517167966,
+            -0.005029756105136265,
+            -0.01093847415394558,
+            0.0030028192908268334
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.up.bias",
+          "projections": [
+            -0.0011935240161714115,
+            5.0439709003141925e-05,
+            -0.0002460451901399242,
+            0.0003996738726566637
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.down.weight",
+          "projections": [
+            -0.22491860549448983,
+            -0.027684321960983478,
+            -0.06053385538497593,
+            0.06021886265413845
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block0_ffn.down.bias",
+          "projections": [
+            -0.0019095444379098913,
+            -0.00017170406423121535,
+            -0.0004627760347276174,
+            0.0004059539727750273
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.relative_position_bias_table",
+          "projections": [
+            -3.6801745413557697e-06,
+            3.7637303933203696e-07,
+            8.760421427904087e-07,
+            2.1023767271516675e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.q_proj.weight",
+          "projections": [
+            -0.0005645153368197497,
+            -0.000160954354706972,
+            7.700792592617371e-05,
+            0.00022443059240939754
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.k_proj.weight",
+          "projections": [
+            -0.000713343244816375,
+            -0.00037113909377940594,
+            -2.7861319316621745e-05,
+            0.00026577157575259473
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.v_proj.weight",
+          "projections": [
+            -0.04000849299852651,
+            -0.005248301372731951,
+            -0.006418308298070307,
+            0.014880432587430291
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.o_proj.weight",
+          "projections": [
+            -0.04562376441353913,
+            -0.006612218099726251,
+            -0.010612229516675007,
+            0.01238257364368784
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_attention.o_proj.bias",
+          "projections": [
+            -0.00196846358091702,
+            -0.00027629194463782696,
+            -0.0006129195029750264,
+            0.0006100255792448519
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.up.weight",
+          "projections": [
+            -0.02328418272493812,
+            -0.004509590971064362,
+            -0.006734141039089935,
+            0.0018314578181926344
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.up.bias",
+          "projections": [
+            -0.0010210351042070332,
+            -0.0001802902962440723,
+            -0.00012881196831256384,
+            0.00024879385410435763
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.down.weight",
+          "projections": [
+            -0.22042705207260868,
+            -0.01420378631475211,
+            -0.036672981035961894,
+            0.07212793406264179
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage32_block1_ffn.down.bias",
+          "projections": [
+            -0.0018435937953115032,
+            -0.00016978701470053568,
+            -0.0003704827540215639,
+            0.0005878400312831547
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_position.weight",
+          "projections": [
+            -0.0012122363760434507,
+            -0.0014345100169623976,
+            3.0366571251656266e-06,
+            -0.0004816386945821421
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.relative_position_bias_table",
+          "projections": [
+            5.143366931291558e-06,
+            -4.344007829017446e-07,
+            -6.188250711280228e-06,
+            -2.714072045303442e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.q_proj.weight",
+          "projections": [
+            -0.00015989201619300152,
+            0.0002100644676313163,
+            -0.0001949346365163808,
+            -3.9957131734460136e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.k_proj.weight",
+          "projections": [
+            -0.0002724709929668123,
+            0.0002378082365803432,
+            -0.00014364728677010742,
+            -0.0002309298162394045
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.v_proj.weight",
+          "projections": [
+            -0.0073374123651269545,
+            0.0006836890575621847,
+            0.0006389970437461886,
+            0.0008714408304994685
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.o_proj.weight",
+          "projections": [
+            -0.005029147465921245,
+            0.00039461388739344127,
+            0.0008134778530497632,
+            0.0013513804991089303
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_attention.o_proj.bias",
+          "projections": [
+            -0.0018361567323933073,
+            -5.9147526098276334e-05,
+            0.00014353988594303707,
+            0.00013111347497542138
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.up.weight",
+          "projections": [
+            -0.008130263806034925,
+            0.0025334480116668105,
+            -0.0022297318466123865,
+            0.0009493610514327827
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.up.bias",
+          "projections": [
+            -0.0010096693831045391,
+            3.489773237391161e-05,
+            3.123670424030097e-05,
+            8.43895208216835e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.down.weight",
+          "projections": [
+            -0.05714974088903402,
+            -6.040819201525577e-05,
+            -0.00043238069144324685,
+            0.008192597019337493
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block0_ffn.down.bias",
+          "projections": [
+            -0.001798498473916942,
+            9.43550710351751e-06,
+            0.00017413671066892483,
+            6.0314010061502527e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.relative_position_bias_table",
+          "projections": [
+            6.026924818060187e-07,
+            -1.0148367907433817e-05,
+            -9.985604306518527e-06,
+            2.3539283187704803e-06
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.q_proj.weight",
+          "projections": [
+            -0.00030267492487459944,
+            4.2207955492755606e-05,
+            -8.958497614852136e-05,
+            -8.780329296252635e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.k_proj.weight",
+          "projections": [
+            -0.00032206589090078713,
+            0.00023071017594818654,
+            1.2639050679105456e-05,
+            -0.00022000292559122211
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.v_proj.weight",
+          "projections": [
+            -0.008942674175452366,
+            0.00016273395451254388,
+            0.0006004712322620222,
+            0.0012758460659762286
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.o_proj.weight",
+          "projections": [
+            -0.008048630881407741,
+            0.0007706370605748453,
+            0.001330355007602996,
+            0.00034508102708136955
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_attention.o_proj.bias",
+          "projections": [
+            -0.0014775163516126087,
+            1.7036164790412006e-05,
+            -3.1982257816923904e-05,
+            0.00024590923432392386
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.up.weight",
+          "projections": [
+            -0.008210843619881728,
+            0.0033353039148410523,
+            -0.0011161045970562162,
+            -8.405320768122758e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.up.bias",
+          "projections": [
+            -0.0008858456570711047,
+            3.855305180965769e-05,
+            5.953011249358088e-05,
+            8.806616321954859e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.down.weight",
+          "projections": [
+            -0.03848310205781745,
+            -0.0035714929052119673,
+            0.00486784700044197,
+            0.004695176811017544
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_stage64_block1_ffn.down.bias",
+          "projections": [
+            -0.001545028856394454,
+            -8.351133050440865e-05,
+            0.00011144995453469392,
+            0.00017414882941237282
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_output_projection.weight",
+          "projections": [
+            -0.0019920874590651765,
+            0.0014976343752344152,
+            -0.0011247424633652973,
+            5.773236748389879e-05
+          ]
+        },
+        {
+          "path": "graph.models.generator.network.nodes.n_output_projection.bias",
+          "projections": [
+            -0.0002630977434137094,
+            4.54529198736231e-05,
+            6.051421870068019e-05,
+            -6.4299085570374e-05
+          ]
+        }
+      ],
+      "losses": {
+        "origin": 0.9737814664840698,
+        "A_minus": 0.9918139576911926,
+        "A_plus": 0.7831152081489563,
+        "B_minus": 1.000008463859558,
+        "B_plus": 0.820894718170166,
+        "full_step": 0.770104169845581,
+        "opposite_mix": 0.8208715915679932
+      },
+      "exact_slopes": {
+        "A": -0.3538665121336516,
+        "B": -0.19309497286769298,
+        "missing_gradient": false
+      },
+      "output": {
+        "rms_dA": 1.096132462530196,
+        "rms_dB": 0.893173816191695,
+        "rms_dAB": 1.1627165146528855,
+        "rms_residual": 0.8714552705467767,
+        "ms_cross": -0.6473561478963936
+      }
+    }
+  ],
+  "stencil_ran": true,
+  "restored": true,
+  "protected_before_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+  "protected_after_sha256": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+  "source_config_unchanged": true,
+  "elapsed_seconds": 38.00466932900599
+}

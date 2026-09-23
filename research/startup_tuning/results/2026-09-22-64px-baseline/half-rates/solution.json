@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "id": "half-rates",
+  "algorithm": "fixed",
+  "options": {"g_lr": 0.0001, "d_lr": 0.0001},
+  "description": "Both owned player rates halved; prior unchanged"
+}

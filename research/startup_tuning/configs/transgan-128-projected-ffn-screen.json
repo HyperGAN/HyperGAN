@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "Projected DINO 128 early FFN step ablation",
+  "config": "../testbeds/transgan128-projected-dino/transgan-projected-dino.toml",
+  "baseline": "source",
+  "evaluation": {
+    "steps": 32,
+    "observation_steps": [0, 1, 8, 16, 32],
+    "features": false,
+    "direction": false,
+    "crossed": false
+  },
+  "cases": ["solutions/source.json", "solutions/early-ffn-tenth.json"]
+}

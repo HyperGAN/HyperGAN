@@ -171,8 +171,8 @@ def handle_command(state, operation, payload):
                 or path.name != 'snapshot.pt' or path.parent.parent != Path(context['attempt_dir'])
                 or not path.parent.name.startswith('.preview-') or path.parent.is_symlink()):
             raise ValueError('Preview snapshot destination or identity differs from the current attempt')
-        if state['batch'] is None:
-            raise ValueError('Preview capture requires a completed batch')
+        if state['batch'] is None and trainer.step != 0:
+            raise ValueError('Preview capture requires a completed batch after the first update')
         if state['rank']:
             return _ready(state)
         from .preview_snapshot import capture_snapshot

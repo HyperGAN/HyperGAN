@@ -1,0 +1,70 @@
+{
+  "manifest": {
+    "schema_version": 1,
+    "name": "Projected DINO 128 early FFN step ablation",
+    "config": "../testbeds/transgan128-projected-dino/transgan-projected-dino.toml",
+    "baseline": "source",
+    "evaluation": {
+      "steps": 32,
+      "observation_steps": [
+        0,
+        1,
+        8,
+        16,
+        32
+      ],
+      "features": false,
+      "direction": false,
+      "crossed": false
+    },
+    "cases": [
+      {
+        "id": "source",
+        "algorithm": "source",
+        "description": "Original configuration, no startup calibration",
+        "_solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/source.json",
+        "_solution_sha256": "0f845ad59d71fa5aee1555de8dd88cb6e56c457b8e83810ac5c167ccd4029afe"
+      },
+      {
+        "id": "early-ffn-tenth",
+        "algorithm": "fixed",
+        "description": "Empirical 32-update causal ablation: reduce only the four early FFN down-weight Adam rates tenfold, preserving initialization and every other rate. Not a GeN/Newton estimate, not emitted by the abstaining grouped probe, and not a proposed production rate. Tests whether their updates contribute to early saturation; does not measure independent sample quality.",
+        "options": {
+          "layer_lr_multipliers": [
+            {
+              "pattern": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight",
+              "multiplier": 0.1
+            },
+            {
+              "pattern": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight",
+              "multiplier": 0.1
+            },
+            {
+              "pattern": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight",
+              "multiplier": 0.1
+            },
+            {
+              "pattern": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight",
+              "multiplier": 0.1
+            }
+          ]
+        },
+        "_solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/early-ffn-tenth.json",
+        "_solution_sha256": "f0b32ecda7c60caddf1353a398e262987108d22ffed1828c0324460b92518095"
+      }
+    ]
+  },
+  "manifest_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/transgan-128-projected-ffn-screen.json",
+  "manifest_sha256": "554cec6e45f9316c5d2946a6b0beb5dda66b1d528ee4d4b00d3e6bd3c39be4a2",
+  "case": "source",
+  "algorithm": {
+    "name": "source",
+    "evidence": [],
+    "solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/source.json",
+    "solution_sha256": "0f845ad59d71fa5aee1555de8dd88cb6e56c457b8e83810ac5c167ccd4029afe",
+    "proposal_seconds": 1.2889999197795987e-05
+  },
+  "proposal": {
+    "schema_version": 1
+  }
+}

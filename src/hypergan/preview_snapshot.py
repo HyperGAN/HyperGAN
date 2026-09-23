@@ -17,7 +17,7 @@ import torch
 import torch.distributed as dist
 
 from .artifacts import _restore_buffers
-from .checkpoints import _portable, capture_rng, restore_rng
+from .checkpoints import _portable, capture_rng, restore_rng, data_contract
 from .previews import MAX_RENDER_BYTES, _inputs, _write_bounded, preview_budget, render_preview
 from .recipes import ComponentGraph, make_prior
 
@@ -48,6 +48,33 @@ class _BoundedWriter:
         self.stream.flush()
 
 
+def _initial_preview_batch(trainer):
+    """Draw rank-local preview conditioning without entering group collectives.
+
+    Caller fences the data sampler and RNG. Replicated capture runs only on rank
+    zero while peer ranks are idle, so calling ReplicatedTrainer.batch would hang.
+    """
+    from .recipes import move_tensors
+    if getattr(trainer, 'world_size', 1) == 1:
+        return trainer.batch()
+    global_count, local_count = trainer.global_batch_size, trainer.local_batch_size
+    full = trainer.data(global_count, generator=trainer.streams['data'])
+    def shard(value):
+        if isinstance(value, torch.Tensor):
+            if value.ndim == 0:
+                return value.clone()
+            if len(value) != global_count:
+                raise ValueError('Initial preview data tensors must share the global batch dimension')
+            start = trainer.rank * local_count
+            return value[start:start + local_count].clone()
+        if isinstance(value, dict):
+            return {key: shard(item) for key, item in value.items()}
+        if isinstance(value, (tuple, list)):
+            return type(value)(shard(item) for item in value)
+        return value
+    return move_tensors(shard(full), trainer.device)
+
+
 def capture_snapshot_state(trainer, batch, identity):
     """Freeze owned CPU state at a boundary; perform no filesystem operations.
 
@@ -56,7 +83,22 @@ def capture_snapshot_state(trainer, batch, identity):
     """
     rng, threads = capture_rng(), torch.get_num_threads()
     streams = {name: stream.get_state() for name, stream in trainer.streams.items()}
+    restore_data, saved_data = None, None
     try:
+        if batch is None:
+            if trainer.step != 0:
+                raise ValueError('A missing preview batch is supported only before the first update')
+            contract = data_contract(trainer.data, trainer.config['data'])
+            if not contract['supported']:
+                raise ValueError('Initial preview requires stateless data or paired state_dict/load_state_dict recovery')
+            if contract['stateful']:
+                saved_data = copy.deepcopy(trainer.data.state_dict())
+                restore_data = trainer.data.load_state_dict
+            if getattr(trainer, 'device', torch.device('cpu')).type == 'cuda':
+                with torch.cuda.device(trainer.device):
+                    batch = _initial_preview_batch(trainer)
+            else:
+                batch = _initial_preview_batch(trainer)
         inputs = _inputs(trainer, batch)
         real = batch['real']
         if not isinstance(real, torch.Tensor) or real.ndim < 1 or not len(real):
@@ -96,10 +138,20 @@ def capture_snapshot_state(trainer, batch, identity):
         _portable(state)
         return _freeze_cpu_state(state)
     finally:
-        restore_rng(rng)
-        for name, value in streams.items():
-            trainer.streams[name].set_state(value)
-        torch.set_num_threads(threads)
+        try:
+            if restore_data is not None:
+                try:
+                    restore_data(saved_data)
+                except BaseException as error:
+                    from .run_controller import FatalExecutionError
+                    raise FatalExecutionError('Initial preview failed to restore training data state') from error
+        finally:
+            # Data load hooks can consume randomness too; restore them before
+            # the global and named stream fence is released.
+            restore_rng(rng)
+            for name, value in streams.items():
+                trainer.streams[name].set_state(value)
+            torch.set_num_threads(threads)
 
 
 def _freeze_cpu_state(state):

@@ -227,10 +227,12 @@ def _cleanup_validation_failure(execution):
 
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
           stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
-          preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None):
+          preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None, tune=False):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
     if execution_factory is None:
         raise TypeError('run_train requires an execution_factory')
+    if type(tune) is not bool:
+        raise ValueError('tune must be a boolean')
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     config = load_config(config_path)
@@ -251,6 +253,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
     managed = False
     try:
         descriptor = _configure_attempt(execution, context, preview_every, on_event)
+        if tune and not callable(getattr(execution, 'tune', None)):
+            raise ValueError('Startup tuning is unsupported by this execution adapter')
         environment = execution.environment()
         run_dir.mkdir(parents=True, exist_ok=False)
         sync_directory(run_dir.parent)
@@ -266,6 +270,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
                 'rng_streams': {name: config['training']['seed'] + offset for name, offset in [
                     ('data', config['training']['data_seed_offset']),
                     ('prior', config['training']['prior_seed_offset']), ('penalty', 3)]}}
+        if tune:
+            manifest['initialization_tuning'] = {'status': 'pending', 'method': 'measured-update-response'}
         manifest['rng_streams']['sampling'] = config['sampling']['seed']
         _apply_execution(manifest, descriptor)
         with run_lock(run_dir):
@@ -419,6 +425,19 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     def training_seconds(now=None):
         return training_baseline + max(0.0, (time.monotonic() if now is None else now) - started)
 
+    def warmup_progress(step):
+        descriptor = manifest.get('initialization_tuning', {}).get('g_lr_warmup')
+        if descriptor is None:
+            manifest.pop('g_lr_warmup', None)
+            return None
+        steps = descriptor['steps']
+        result = dict(descriptor, completed_steps=min(step, steps),
+                      progress=max(0., min(1., (step - 1) / (steps - 1))),
+                      status='complete' if step >= steps else 'running',
+                      g_lr=execution.current_generator_lr())
+        manifest['g_lr_warmup'] = result
+        return result
+
     manifest.update(metrics_catalog=catalog_revision, observation_sha256=observation_fingerprint(config))
     manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
                     status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
@@ -449,7 +468,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             row['observation_gap'] = dict(dropped)
         boundary_event = event in {'start', 'resume', 'checkpoint', 'checkpoint_request',
                                    'checkpoint_boundary', 'observation_gap', 'complete',
-                                   'stopped', 'failed', 'interrupted'}
+                                   'stopped', 'failed', 'interrupted', 'tuning'}
         if not journal.append(row, wait=boundary_event):
             if dropped is None:
                 dropped = {'dropped_train_events': 0, 'by_event': {},
@@ -545,6 +564,25 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             raise
         publish_custom(outcomes)
 
+    lifecycle_started = False
+
+    def begin_lifecycle():
+        nonlocal lifecycle_started
+        if lifecycle_started:
+            return
+        # Lifecycle must be sequence one, including before startup tuning. The
+        # viewer uses this first event to establish the attempt's lineage.
+        publish()  # A start/resume observer can immediately submit an attempt-bound request.
+        parent = manifest.get('recovery_parent')
+        emit('resume' if parent else 'start', config_sha256=fingerprint(config),
+             observation_sha256=manifest['observation_sha256'],
+             warnings=list(manifest.get('resume_warnings', [])),
+             parent_attempt_id=parent['attempt_id'] if parent else None,
+             restored_step=parent['step'] if parent else 0,
+             checkpoint_id=parent['checkpoint_id'] if parent else None,
+             checkpoint_sha256=parent['checkpoint_sha256'] if parent else None)
+        lifecycle_started = True
+
     try:
         info = execution.start()
         if info.environment is not None:
@@ -566,6 +604,38 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         reasons = info.recovery_reasons
         manifest.update(resume_supported=not reasons, resume_unsupported_reasons=reasons,
                         data_identity=info.data_identity, status='running')
+        tuning = manifest.get('initialization_tuning')
+        if tuning is not None and tuning.get('status') == 'pending':
+            if manifest.get('recovery_parent') or info.step != 0:
+                raise ValueError('Startup tuning may only run before the first training update')
+            if reasons:
+                raise ValueError('Startup tuning requires full checkpoint support: ' + '; '.join(reasons))
+            manifest['status'] = 'tuning'
+            tuning.update(status='running', message='Measuring configured G and D optimizer updates')
+            begin_lifecycle()
+            publish()
+            emit('tuning', tuning=dict(tuning))
+            def tuning_progress(value):
+                progress = _json_value(value)
+                if not isinstance(progress, dict):
+                    raise ValueError('Tuning progress must be a JSON object')
+                tuning.update(progress, status='running')
+                publish()
+                emit('tuning', tuning=dict(tuning))
+            try:
+                result = _json_value(execution.tune(run_dir, on_event=tuning_progress))
+                if not isinstance(result, dict):
+                    raise ValueError('Tuning result must be a JSON object')
+            except BaseException as error:
+                tuning.update(status='failed', message=f'{type(error).__name__}: {error}'[:1000])
+                publish()
+                emit('tuning', tuning=dict(tuning))
+                raise
+            tuning.update(result, status='complete')
+            manifest['status'] = 'running'
+            publish()
+            emit('tuning', tuning=dict(tuning))
+        warmup_progress(info.step)
         manifest['qualification']['resume'] = False
         manifest['qualification']['recovery_scope'] = 'Full-state protocol on the recorded execution device; custom hidden state is author responsibility'
         for reason in reasons:
@@ -576,6 +646,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                         next_sample_sequence=manifest['next_sample_sequence'],
                         source=_json_value(manifest.get('source', {})),
                         initial_source=_json_value(manifest['initial_source']))
+        if 'initialization_tuning' in manifest:
+            metadata['initialization_tuning'] = _json_value(manifest['initialization_tuning'])
 
         def checkpoint_now(request_ids=None, observer=False):
             nonlocal checkpoint_custom_publications, checkpoint_preview_publications
@@ -731,21 +803,18 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 if error:
                     observer_error('manual_checkpoint', error)
 
-        publish()  # A start/resume observer can immediately submit an attempt-bound request.
-        parent = manifest.get('recovery_parent')
-        emit('resume' if parent else 'start', config_sha256=fingerprint(config),
-             observation_sha256=manifest['observation_sha256'],
-             warnings=list(manifest.get('resume_warnings', [])),
-             parent_attempt_id=parent['attempt_id'] if parent else None,
-             restored_step=parent['step'] if parent else 0,
-             checkpoint_id=parent['checkpoint_id'] if parent else None,
-             checkpoint_sha256=parent['checkpoint_sha256'] if parent else None)
+        begin_lifecycle()
         if manifest['last_durable_step'] is None or manifest.get('resumed_from'):
             # Accepting an older recovery point must also move the default pointer,
             # even if this attempt stops before another update.
             checkpoint_now()
         publish()
         poll_requests(force=True)
+        if (manifest['steps'] == 0 and not manifest.get('recovery_parent')
+                and manifest['preview_every'] and not (stop is not None and stop.reason)):
+            # Capture the actual initialization (including startup calibration)
+            # before any update. Rendering still uses the normal async worker.
+            preview_now()
         custom_metrics.start()
         attempt_steps = 0
         while manifest['steps'] < config['training']['steps']:
@@ -774,6 +843,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             # examples the step drew.
             batch = row['global_batch_size'] if type(row.get('global_batch_size')) is int and row['global_batch_size'] > 0 else global_batch_size
             progress = {'samples_seen': completed.step * batch, 'training_seconds': training_seconds()}
+            warmup = warmup_progress(completed.step)
+            if warmup is not None:
+                progress['g_lr_warmup'] = warmup
             rate = throughput.observe(step_seconds)
             if rate is not None:
                 progress['steps_per_second'] = rate

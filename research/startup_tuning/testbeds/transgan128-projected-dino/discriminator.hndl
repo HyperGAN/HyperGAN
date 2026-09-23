@@ -1,0 +1,63 @@
+# 128px DINOv3 Projected GAN critic. Input RGB in [-1, 1].
+# Sauer et al., ICLR 2022: frozen feature network, fixed CCM, and independent
+# spectral discriminators. One candidate image and one backbone call.
+# No gray context and no second copy of the image.
+# ViT-S/16 blocks 2, 5, 8, and 11 are all native 8x8 maps. ViT features are
+# not a CNN pyramid. There is no higher-resolution feature map to skip-add,
+# so there is no CSM U-Net.
+# No pixel/RGB branch: the paper's ablation found that it hurt.
+# The four 4x4 logit maps stay concatenated. Logistic loss and b-cap reduce
+# them outside this graph.
+
+# ImageNet normalization of [-1, 1] RGB: (x * 0.5 + 0.5 - mean) / std.
+scaled = scale(x, 0.5)
+half = constant(x, 3, 1, 1, value=0.5)
+normalized = broadcast_add(scaled, half)
+red, green_blue = split(normalized, 1)
+green, blue = split(green_blue, 1)
+red_bias = constant(red, 1, 1, 1, value=-0.485)
+red = broadcast_add(red, red_bias)
+red = scale(red, 4.3668122270742355)
+green_bias = constant(green, 1, 1, 1, value=-0.456)
+green = broadcast_add(green, green_bias)
+green = scale(green, 4.464285714285714)
+blue_bias = constant(blue, 1, 1, 1, value=-0.406)
+blue = broadcast_add(blue, blue_bias)
+blue = scale(blue, 4.444444444444445)
+normalized = concat(red, green, blue, name="normalized")
+
+# Frozen ViT-S/16. The readout returns blocks 2, 5, 8, and 11 concatenated
+# on channels: [B, 1536, 8, 8]. The batch is B, not 2B.
+features = pretrained(normalized, ${weights_path},
+    provider="dinov3_vits16", sha256=${weights_sha256},
+    readout="multidepth", trainable=False, name="backbone")
+feature1, remaining = split(features, 384, name="depth1_split")
+feature2, remaining = split(remaining, 384, name="depth2_split")
+feature3, feature4 = split(remaining, 384, name="depth3_split")
+
+# CCM: one frozen 1x1 per map, 384 to 384, no bias and no activation.
+# Kaiming uniform with a=sqrt(5) is the PyTorch convolution default.
+ccm1 = conv(feature1, 384, kernel_size=1, bias=False, trainable=False, name="ccm1", init={"weight": kaiming_uniform(a=2.23606797749979)})
+ccm2 = conv(feature2, 384, kernel_size=1, bias=False, trainable=False, name="ccm2", init={"weight": kaiming_uniform(a=2.23606797749979)})
+ccm3 = conv(feature3, 384, kernel_size=1, bias=False, trainable=False, name="ccm3", init={"weight": kaiming_uniform(a=2.23606797749979)})
+ccm4 = conv(feature4, 384, kernel_size=1, bias=False, trainable=False, name="ccm4", init={"weight": kaiming_uniform(a=2.23606797749979)})
+
+# Four independent spectral discriminators. Each 8x8 map emits 4x4 logits.
+# No shared weights, batch norm, final activation, flatten, or linear.
+h1 = conv(ccm1, 128, kernel_size=3, padding=1, stride=2, spectral_norm=True, bias=False, name="disc1_down")
+h1 = leaky_relu(h1, 0.2)
+logit1 = conv(h1, 1, kernel_size=3, padding=1, spectral_norm=True, bias=False, name="disc1_logit")
+
+h2 = conv(ccm2, 128, kernel_size=3, padding=1, stride=2, spectral_norm=True, bias=False, name="disc2_down")
+h2 = leaky_relu(h2, 0.2)
+logit2 = conv(h2, 1, kernel_size=3, padding=1, spectral_norm=True, bias=False, name="disc2_logit")
+
+h3 = conv(ccm3, 128, kernel_size=3, padding=1, stride=2, spectral_norm=True, bias=False, name="disc3_down")
+h3 = leaky_relu(h3, 0.2)
+logit3 = conv(h3, 1, kernel_size=3, padding=1, spectral_norm=True, bias=False, name="disc3_logit")
+
+h4 = conv(ccm4, 128, kernel_size=3, padding=1, stride=2, spectral_norm=True, bias=False, name="disc4_down")
+h4 = leaky_relu(h4, 0.2)
+logit4 = conv(h4, 1, kernel_size=3, padding=1, spectral_norm=True, bias=False, name="disc4_logit")
+
+out = concat(logit1, logit2, logit3, logit4)

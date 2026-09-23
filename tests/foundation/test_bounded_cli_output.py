@@ -341,3 +341,120 @@ def test_json_progress_rows_carry_the_same_training_metrics(capsys):
                          'training_seconds': 1.25, 'samples_seen': 96})
     row = json.loads(capsys.readouterr().out)
     assert row['steps_per_second'] == 12.5 and row['training_seconds'] == 1.25 and row['samples_seen'] == 96
+
+
+def test_warmup_progress_reports_actual_rate_and_forces_start_and_end(capsys):
+    with training_output(progress_every=3) as output:
+        for step in range(1, 6):
+            output.progress({'event': 'train', 'step': step, 'g_lr_warmup': {
+                'steps': 4, 'completed_steps': min(step, 4),
+                'status': 'complete' if step >= 4 else 'running', 'g_lr': step * .00001}})
+    assert capsys.readouterr().err.splitlines() == [
+        'step 1 | G LR warmup 1/4 | G LR 1e-05',
+        'step 3 | G LR warmup 3/4 | G LR 3e-05',
+        'step 4 | G LR warmup complete | G LR 4e-05',
+    ]
+
+
+def test_warmup_boundaries_remain_structured_in_json_output(capsys):
+    event = {'event': 'train', 'step': 1, 'g_lr_warmup': {
+        'steps': 4, 'completed_steps': 1, 'status': 'running', 'progress': 0., 'g_lr': .00001}}
+    with training_output(progress_json=True, progress_every=1000) as output:
+        output.progress(event)
+    assert json.loads(capsys.readouterr().out) == event
+
+
+def test_tuning_phase_and_outcomes_are_always_visible(capsys):
+    with training_output(progress_every=1000) as output:
+        for tuning in ({'status': 'running'},
+                       {'status': 'running', 'candidate': 2, 'total_candidates': 5},
+                       {'status': 'complete', 'outcome': 'selected'},
+                       {'status': 'complete', 'outcome': 'kept_baseline'},
+                       {'status': 'failed', 'message': 'Invalid\ninitialization'}):
+            output.progress({'event': 'tuning', 'step': 0, 'tuning': tuning})
+    assert capsys.readouterr().err.splitlines() == [
+        'Tuning startup', 'Tuning startup | Candidate 2 of 5',
+        'Startup tuning complete | Applied tuned initialization',
+        'Startup tuning complete | Kept baseline initialization',
+        'Startup tuning failed | Invalid initialization',
+    ]
+
+
+def test_json_progress_preserves_tuning_event_without_step_throttling(capsys):
+    event = {'event': 'tuning', 'step': 0, 'tuning': {
+        'status': 'complete', 'outcome': 'kept_baseline', 'report_path': 'tuning/report.json'}}
+    with training_output(progress_json=True, progress_every=1000) as output:
+        output.progress(event)
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == event
+    assert captured.err == ''
+
+
+@pytest.mark.parametrize('outcome,g_factor,d_factor,decision', [
+    ('selected', 1., .5, 'Selected G learning rate × 1 | Selected D learning rate × 0.5'),
+    ('selected', .2, 1., 'Selected G learning rate × 0.2 | Selected D learning rate × 1'),
+    ('kept_baseline', 1., 1., 'Configured G and D learning rates passed'),
+    ('unresolved', 1., 1., 'No rate candidate passed; kept configured G and D learning rates'),
+])
+def test_generator_and_discriminator_trial_rates_and_decisions_are_visible(capsys, outcome, g_factor, d_factor, decision):
+    with training_output(progress_every=1000) as output:
+        output.progress({'event': 'tuning', 'step': 0, 'tuning': {
+            'status': 'running', 'phase': 'dynamics', 'trial_step': 2, 'trial_steps': 8,
+            'g_lr_factor': 1., 'd_lr_factor': .5}})
+        output.progress({'event': 'tuning', 'step': 0, 'tuning': {
+            'status': 'complete', 'dynamics_outcome': outcome,
+            'selected_g_lr_factor': g_factor, 'selected_d_lr_factor': d_factor}})
+    lines = capsys.readouterr().err.splitlines()
+    assert lines[0] == 'Tuning startup | Trial updates | Trial step 2 of 8 | G learning rate × 1 | D learning rate × 0.5'
+    assert decision in lines[1]
+
+
+@pytest.mark.parametrize('stage,label,has_step', [
+    ('measure', 'Measuring optimizer updates', True),
+    ('fit', 'Measuring gradient response', False),
+    ('validate', 'Validating held-out response', False),
+    ('replay', 'Replaying proposed rates', True),
+])
+def test_measured_update_stages_replace_candidate_search_labels(capsys, stage, label, has_step):
+    with training_output(progress_every=1000) as output:
+        output.progress({'event': 'tuning', 'step': 0, 'tuning': {
+            'status': 'running', 'method': 'measured-update-response', 'phase': 'dynamics',
+            'stage': stage, 'candidate': 2, 'total_candidates': 2, 'trial_step': 8, 'trial_steps': 8,
+            'g_lr_factor': .25, 'd_lr_factor': .75}})
+    text = capsys.readouterr().err
+    assert label in text
+    assert ('Trial step 8 of 8' in text) is has_step
+    assert 'Candidate' not in text and 'initialization' not in text
+
+
+def test_measured_update_completion_does_not_claim_layer_calibration(capsys):
+    with training_output(progress_every=1000) as output:
+        output.progress({'event': 'tuning', 'step': 0, 'tuning': {
+            'status': 'complete', 'method': 'measured-update-response', 'outcome': 'kept_baseline',
+            'dynamics_outcome': 'unresolved', 'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
+            'dynamics_reason': 'Directional curvature unresolved'}})
+    text = capsys.readouterr().err
+    assert 'Startup tuning unresolved' in text
+    assert 'No measured adjustment accepted; kept configured G and D learning rates' in text
+    assert 'Directional curvature unresolved' in text
+    assert 'initialization' not in text and 'warmup' not in text
+
+
+@pytest.mark.parametrize('outcome,factor,expected',[
+    ('selected',.246,'Startup tuning complete | Selected G learning rate × 0.246'),
+    ('kept_baseline',1.,'Startup tuning complete | Configured G learning rate passed'),
+    ('unresolved',1.,'Startup tuning unresolved | No rate candidate passed; kept configured G learning rate'),
+    ('skipped',1.,'Startup tuning complete | Dynamics check skipped'),
+])
+def test_discarded_dynamics_trials_report_progress_and_honest_outcome(capsys,outcome,factor,expected):
+    with training_output(progress_every=1000) as output:
+        output.progress({'event':'tuning', 'step':0, 'tuning':{
+            'status':'running', 'phase':'dynamics', 'candidate':2, 'total_candidates':2,
+            'trial_step':4, 'trial_steps':8, 'lr_factor':.246}})
+        output.progress({'event':'tuning', 'step':0, 'tuning':{
+            'status':'complete', 'dynamics_outcome':outcome, 'selected_g_lr_factor':factor,
+            'dynamics_reason':'Recorded\ntrial decision'}})
+    assert capsys.readouterr().err.splitlines()==[
+        'Tuning startup | Trial updates | Candidate 2 of 2 | Trial step 4 of 8 | G learning rate × 0.246',
+        expected+' | Recorded trial decision',
+    ]

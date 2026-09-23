@@ -1,0 +1,216 @@
+{
+  "source": {
+    "integration_reference": {
+      "repository": "https://github.com/255BITS/ParticleGAN",
+      "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181"
+    },
+    "particlegan_distribution_version": "0.5.0",
+    "particlegan_distribution_commit": null,
+    "hypergan_commit": "50b4f0ff39104842ba24fd1324f4722ebb9a406c",
+    "hypergan_dirty": true,
+    "hypergan_provenance": "git",
+    "distribution_records": {
+      "hypergan": {
+        "record_sha256": null
+      },
+      "particlegan": {
+        "record_sha256": "3532c31cfe2ac7713909aa8298de42e0f1a7785fed6678b272a22dedc8256511"
+      },
+      "hndl": {
+        "record_sha256": "15964f79378a6c701fd2a26b66dbe910ea0c376007c79e020c8d656943cac955"
+      }
+    }
+  },
+  "config": "/home/martyn/dev/hypergan/training-runs/logos-transgan-dinov3-multidepth-128-init-v2/transgan-dinov3-multidepth.toml",
+  "purpose": "first-update model validity, not a candidate search",
+  "banks": [
+    {
+      "status": "finite",
+      "player": "generator",
+      "step": 1,
+      "h": 0.042290394298150395,
+      "loss0": 0.9693623781204224,
+      "loss_h": 0.9488433599472046,
+      "epsilon": 1.1920928955078125e-07,
+      "slope0": -0.4609516215242566,
+      "slope_h": -0.5934354854596364,
+      "slope0_absolute_product_sum": 0.9490899590637163,
+      "slope_h_absolute_product_sum": 1.7064812302274726,
+      "gradient0_norm": 1.1364311581975655,
+      "gradient_h_norm": 1.9522003324125214,
+      "gradient_change_norm": 1.7885668420309984,
+      "delta_norm": 1.5663662970121093,
+      "realized_parameter_perturbation_norm": 0.0662422804298389,
+      "directional_secant_curvature": -3.1327176332610853,
+      "unweighted_cauchy_curvature": 66.2455592529972,
+      "gradient0_connected_tensors": 109,
+      "gradient_h_connected_tensors": 109,
+      "interpretation": "Measured two-point gradient-field response, not a certified neighborhood Lipschitz bound; no tuning decision is applied",
+      "adam_metric": {
+        "status": "measured",
+        "reason": null,
+        "delta_metric_norm": 0.01167881455996268,
+        "gradient_change_dual_norm": 533.3728096134853,
+        "gradient0_dual_norm": 248.23255129761577,
+        "gradient_h_dual_norm": 498.01322324179824,
+        "cauchy_curvature": 147.29496468834324,
+        "definition": "sqrt(sum(delta^2 * denominator)) * sqrt(sum((gh-g0)^2 / denominator)) / h",
+        "denominator_definition": "sqrt(bias_corrected_exp_avg_sq)+optimizer_eps"
+      }
+    },
+    {
+      "status": "finite",
+      "player": "generator",
+      "step": 1,
+      "h": 0.042290394298150395,
+      "loss0": 0.9531948566436768,
+      "loss_h": 0.9328722953796387,
+      "epsilon": 1.1920928955078125e-07,
+      "slope0": -0.44429088560996044,
+      "slope_h": -0.5397071154219466,
+      "slope0_absolute_product_sum": 0.6961726518010992,
+      "slope_h_absolute_product_sum": 1.5215575509290908,
+      "gradient0_norm": 0.8980716168880835,
+      "gradient_h_norm": 1.7947879855292783,
+      "gradient_change_norm": 1.5587514302193697,
+      "delta_norm": 1.5663662970121093,
+      "realized_parameter_perturbation_norm": 0.0662422804298389,
+      "directional_secant_curvature": -2.256215185398715,
+      "unweighted_cauchy_curvature": 57.73357629398663,
+      "gradient0_connected_tensors": 109,
+      "gradient_h_connected_tensors": 109,
+      "interpretation": "Measured two-point gradient-field response, not a certified neighborhood Lipschitz bound; no tuning decision is applied",
+      "adam_metric": {
+        "status": "measured",
+        "reason": null,
+        "delta_metric_norm": 0.01167881455996268,
+        "gradient_change_dual_norm": 453.5642956515269,
+        "gradient0_dual_norm": 146.49741823055945,
+        "gradient_h_dual_norm": 451.5831509211764,
+        "cauchy_curvature": 125.25523556459113,
+        "definition": "sqrt(sum(delta^2 * denominator)) * sqrt(sum((gh-g0)^2 / denominator)) / h",
+        "denominator_definition": "sqrt(bias_corrected_exp_avg_sq)+optimizer_eps"
+      }
+    }
+  ],
+  "h": 0.042290394298150395,
+  "observations": [
+    {
+      "step": 1,
+      "player": "discriminator",
+      "optimizer_motion": {
+        "elements": 1622693,
+        "finite": true,
+        "changed": true,
+        "delta_rms": 0.00019532282473677776,
+        "initial_rms": 0.036925398064576835,
+        "relative_delta_l2": 0.00528966063941107,
+        "training_gradient_dot_delta": -0.5728315280513059,
+        "measurement": "one_actual_optimizer_update"
+      }
+    },
+    {
+      "step": 1,
+      "player": "generator",
+      "optimizer_motion": {
+        "elements": 61662491,
+        "finite": true,
+        "changed": true,
+        "delta_rms": 0.00019947239284699364,
+        "initial_rms": 0.024432588577589308,
+        "relative_delta_l2": 0.008164193990888009,
+        "training_gradient_dot_delta": -0.6819779287964807,
+        "measurement": "one_actual_optimizer_update"
+      },
+      "prior_optimizer_motion": {
+        "elements": 524288,
+        "finite": true,
+        "changed": true,
+        "delta_rms": 0.0019539175224042933,
+        "initial_rms": 1.0012292887985703,
+        "relative_delta_l2": 0.0019515185425197715,
+        "training_gradient_dot_delta": -0.001836143401410568,
+        "measurement": "one_actual_optimizer_update"
+      },
+      "generator_output_response": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.6208814575665423,
+          "after_rms": 0.8293833957083057,
+          "change_rms": 0.9082005235676512,
+          "relative_change": 1.4627599399202798,
+          "norm_ratio": 1.3358160170525262,
+          "cosine": 0.24132731654197595,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.5914546579149369,
+          "after_rms": 0.5333222204140787,
+          "change_rms": 0.5550933765037178,
+          "relative_change": 0.9385222841267258,
+          "norm_ratio": 0.9017127742204394,
+          "cosine": 0.5169394712166067,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.18887872312650628,
+          "after_rms": 0.6351725994005453,
+          "change_rms": 0.7188181566939352,
+          "relative_change": 3.8057127070500614,
+          "norm_ratio": 3.362859452279982,
+          "cosine": -0.32332982446517483,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.19454056657037172,
+          "after_rms": 0.6356447348758535,
+          "change_rms": 0.7197327785720345,
+          "relative_change": 3.699653965548021,
+          "norm_ratio": 3.2674148435047345,
+          "cosine": -0.30780292702021217,
+          "relative_status": "resolved"
+        }
+      },
+      "generator_final_affine_response": {
+        "status": "measured",
+        "path": "generator.network.nodes.n_output_projection",
+        "measurement": "final_owned_affine_activation_displacement",
+        "relationship_to_output": "pre_tanh",
+        "downstream_operations": [
+          "permute",
+          "reshape",
+          "tanh"
+        ],
+        "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+        "shape": [
+          64,
+          16384,
+          3
+        ],
+        "response": {
+          "status": "finite",
+          "before_rms": 0.9931821020493913,
+          "after_rms": 2.388055959938212,
+          "change_rms": 2.2927848591091813,
+          "relative_change": 2.308524141119853,
+          "norm_ratio": 2.4044492495490553,
+          "cosine": 0.3019594786196693,
+          "relative_status": "resolved"
+        }
+      },
+      "input_control": "fixed_latent_values; prior output response not included"
+    }
+  ],
+  "protected_after": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+  "protected_before": "01d54beef4f137b8e502c67dc7896e6a619eef9fe2c1e67c0820aa906e49fa9c",
+  "restored": true,
+  "budget": {
+    "g_response_forwards": 2,
+    "gradient_field_phase_loss_evaluations": 4,
+    "gradient_field_player_gradient_evaluations": 4
+  },
+  "elapsed_seconds": 38.359421993009164
+}

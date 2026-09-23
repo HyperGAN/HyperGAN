@@ -1,0 +1,71 @@
+{
+  "kind": "deterministic_algebra_only",
+  "torch_version": "2.14.0+cu130",
+  "device": "cpu",
+  "dtype": "float64",
+  "adam_direction": {
+    "parameter_delta": [
+      -0.019999999745657776,
+      0.019999999250978534
+    ],
+    "actual_output_delta": [
+      -0.04195004223908699,
+      0.02385344902068906,
+      0.03191079434127661
+    ],
+    "jvp": [
+      -0.04110006074246516,
+      0.02380664392306221,
+      0.03163706544361454
+    ],
+    "gradient_dot_delta": -0.02106714256982835,
+    "q_dot_jvp": -0.02106714256982835,
+    "relative_linearization_error": {
+      "1.0": 0.015668673888667793,
+      "0.5": 0.00792182025199553
+    },
+    "rescaled_coordinates_same_jvp": true
+  },
+  "quadratic_fits": {
+    "positive": {
+      "slope": -8.0,
+      "curvature": 32.0,
+      "interior_minimum": 0.25
+    },
+    "flat": {
+      "slope": -1.0,
+      "curvature": 0.0,
+      "interior_minimum": null
+    },
+    "negative": {
+      "slope": -1.0,
+      "curvature": -2.0,
+      "interior_minimum": null
+    }
+  },
+  "all_sign_projections": {
+    "count": 8,
+    "layer_squared_rms": [
+      0.00048761780558146534,
+      0.0003742762482991977
+    ],
+    "total_squared_rms": 0.0010856250659324505,
+    "sum_of_layer_squared_rms": 0.000861894053880663,
+    "note": "Exact enumeration validates identity; few projections in a real model remain noisy."
+  },
+  "worst_direction": {
+    "spectral_bound": 100.0,
+    "actual_directional_motion": 0.1
+  },
+  "coupled_quadratic": {
+    "simultaneous_update_spectral_radius": {
+      "0.01": 0.9950376877284599,
+      "1.0": 10.000000000000002
+    }
+  },
+  "saturated_tanh": {
+    "preactivation_delta": 1.0,
+    "output_delta": 1.0625293149102433e-05
+  },
+  "interpretation": "Checks identities and counterexamples, not GAN rate selection or quality."
+}

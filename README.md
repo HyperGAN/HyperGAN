@@ -77,6 +77,19 @@ For GPU construction checks, use `demo` with `--profile examples/execution/cuda-
 
 ## Configure the recipe
 
+For a new native run, `hypergan train CONFIG --run-dir RUN --tune` performs an
+opt-in [startup calibration](docs/initialization-tuning.md) before training.
+It measures actual optimizer updates and the resulting G/D gradient response in Adam's metric,
+and checks a bounded rate proposal on held-out data and a coupled replay. The
+viewer and console show each stage. At most 16 training updates are discarded,
+with additional measurement and state-verification overhead. Failed checks keep
+the configured rates and report an unresolved result. Initialization and
+pretrained state stay unchanged; accepted rate overrides are saved in the run
+folder. Selected G/D base rates remain in effect with configured annealing,
+without an automatic ramp back to source rates. Resume never retunes and preserves
+historical checkpoint schedules. `--no-tune` uses configured rates directly.
+These short startup checks do not establish long-term stability or sample quality.
+
 `hypergan new` writes a GPU-first `config.toml`; `--device cpu` explicitly selects CPU. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.
 
 The reference defaults to ParticleGAN's relativistic-paired objective, b-cap discriminator regularization and VICReg prior regularization. Custom configurations remain runnable with an explicit qualification warning. An unknown combination is different from an invalid binding or incompatible tensor shape: actual incompatibilities fail with an error. No custom configuration inherits quality, distributed or deployment approval merely by completing a run.

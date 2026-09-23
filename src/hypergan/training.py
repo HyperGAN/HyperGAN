@@ -330,7 +330,7 @@ def _recovery_contract(trainer):
 
 def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
           stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
-          preview_keep_source=None, preview_name=None):
+          preview_keep_source=None, preview_name=None, tune=False):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
     from .run_controller import run_train
     from .single_execution import SingleProcessExecution
@@ -340,7 +340,7 @@ def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds
                      preview_every=preview_every, preview_keep=preview_keep,
                      preview_keep_source=preview_keep_source,
                      preview_name=sample_name(preview_name),
-                     execution_factory=SingleProcessExecution)
+                     execution_factory=SingleProcessExecution, tune=tune)
 
 
 def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,

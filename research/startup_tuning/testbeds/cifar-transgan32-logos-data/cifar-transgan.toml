@@ -1,0 +1,162 @@
+# Data-only bridge: CIFAR model/training recipe with pinned logos resized to32.
+# Run via logos_data_bridge_screen.py so the research data adapter is importable.
+# Adversarial-only CIFAR TransGAN. Same generator, ResNet critic, prior, and
+# optimizer as the FID 10.93 run. The encoder and reconstruction loss are removed.
+# Requires local CIFAR bytes and hash-pinned ResNet18 weights; never downloads.
+schema_version = 1
+name = "images/cifar-transgan-logos-data"
+
+[data]
+factory = "bridge_data:Logos32Data"
+[data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "/home/martyn/dev/hypergan/training-runs/logos-dcgan-128/dataset-manifest-128.json"
+manifest_sha256 = "e3c57bade4a0b4917960b7481c5361453d7607c211cc745212651aa62050bc27"
+split = "train"
+sampling = "random"
+horizontal_flip = true
+
+[components.generator]
+factory = "hndl"
+inputs = { z = "latent" }
+[components.generator.args]
+input_shape = ["B", 64]
+output_shape = ["B", 3, 32, 32]
+file = "generator.hndl"
+
+# Complete discriminator graph; architecture changes require a fresh run.
+[components.discriminator]
+factory = "hndl"
+inputs = { x = "candidate" }
+[components.discriminator.args]
+input_shape = ["B", 3, 32, 32]
+output_shape = ["B", 1]
+file = "discriminator.hndl"
+[components.discriminator.args.parameters]
+weights_path = "~/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
+weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 24003
+fixed_sigma = 0.212616428732872
+[prior.args]
+num_particles = 16384
+z_dim = 64
+sigma_rel = 0.025
+
+[adversarial]
+loss_type = "logistic"
+mode = "rp"
+weight = 1.0
+
+[gradient_penalty]
+arm = "b_cap"
+coeff = 1.0
+kappa = 1.0
+lazy_k = 8
+
+[prior_regularizer]
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001
+
+[optimizer]
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
+
+[training]
+steps = 200000
+batch_size = 64
+seed = 24002
+device = "cuda"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "independent"
+data_rng_device = "execution"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+# Backend matched to the source: TF32 and cuDNN autotuning on, nondeterministic
+# kernels allowed. Measured 2026-09-20 on an RTX A6000: 61 -> 41 ms/step against the
+# strict deterministic policy in docs/cifar-recipe.md. Resume still restores the
+# complete state; only bit-exact replay of a run is given up.
+[training.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[sampling]
+count = 64
+seed = 34002
+
+[metrics]
+preset = "standard"
+every_steps = 1
+
+# A 128-sample protocol check, not a quality number. It is the explicit opt-out
+# from the snapshot default: omitting trigger would schedule it every 10,000 steps.
+[metrics.custom.fid_smoke]
+factory = "hypergan.image_metrics:InceptionFID"
+mode = "snapshot"
+trigger = "manual"
+timeout = 180
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.fid_smoke.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+[metrics.custom.fid_smoke.evaluation]
+device = "cuda"
+sample_count = 128
+batch_size = 128
+seed = 34002
+[metrics.custom.fid_smoke.evaluation.data]
+factory = "bridge_data:Logos32Data"
+[metrics.custom.fid_smoke.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "/home/martyn/dev/hypergan/training-runs/logos-dcgan-128/dataset-manifest-128.json"
+manifest_sha256 = "e3c57bade4a0b4917960b7481c5361453d7607c211cc745212651aa62050bc27"
+split = "train"
+sampling = "sequential"
+horizontal_flip = false
+
+# Scheduled FID. trigger/every_steps/on_busy below are the snapshot defaults,
+# written out here so the cadence is visible in the recipe.
+[metrics.custom.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+mode = "snapshot"
+trigger = "interval"
+every_steps = 10000
+on_busy = "skip"
+timeout = 3600
+on_error = "fail"
+inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
+[metrics.custom.fid50k_train.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+[metrics.custom.fid50k_train.evaluation]
+# Single-GPU default: this shares the training GPU, which resolve_config warns
+# about. With a second visible GPU use device = "cuda:1" to avoid that contention.
+device = "cuda"
+sample_count = 50000
+batch_size = 128
+seed = 34002
+[metrics.custom.fid50k_train.evaluation.data]
+factory = "bridge_data:Logos32Data"
+[metrics.custom.fid50k_train.evaluation.data.args]
+root = "/mnt/ml7tb/data/logos256"
+manifest = "/home/martyn/dev/hypergan/training-runs/logos-dcgan-128/dataset-manifest-128.json"
+manifest_sha256 = "e3c57bade4a0b4917960b7481c5361453d7607c211cc745212651aa62050bc27"
+split = "train"
+sampling = "sequential"
+horizontal_flip = false

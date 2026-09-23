@@ -78,6 +78,7 @@ def test_preview_schedule_retention_and_resume_preserve_complete_state(tmp_path)
     full = train(config, tmp_path / 'full')
     stopped = train(config, tmp_path / 'observed', preview_every=1, preview_keep=2, stop_after_steps=3)
     assert 1 <= len(stopped['previews']) <= 2
+    assert stopped['previews'][0]['step'] == 0
     initial_paths = {record['path'] for record in stopped['previews']}
     initial_sequence = stopped['next_sample_sequence']
     done = resume(tmp_path / 'observed')
@@ -86,7 +87,7 @@ def test_preview_schedule_retention_and_resume_preserve_complete_state(tmp_path)
     assert done['next_sample_sequence'] > initial_sequence
     index = json.loads((tmp_path / 'observed/previews/index.json').read_text())
     steps = [record['step'] for record in index['previews']]
-    assert steps == sorted(steps) and 4 <= steps[-1] <= 6
+    assert steps == sorted(steps) and steps[0] == 0 and 4 <= steps[-1] <= 6
     retained = {record['path'] for record in index['previews']}
     assert all(Path(path).exists() == (path in retained) for path in initial_paths)
     directories = [path for path in (tmp_path / 'observed/previews').iterdir() if path.is_dir()]

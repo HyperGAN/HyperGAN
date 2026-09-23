@@ -1,0 +1,3733 @@
+{
+  "schema_version": 2,
+  "status": "complete",
+  "completed_updates": 32,
+  "kind": "disposable-explicit-joint-rate-rollout",
+  "purpose": "Measurement of one supplied rate pair; no acceptance rule or automatic calibration",
+  "source": {
+    "integration_reference": {
+      "repository": "https://github.com/255BITS/ParticleGAN",
+      "commit": "f946b4ed468ff3b3eae5a3bca11411d5725f1181"
+    },
+    "particlegan_distribution_version": "0.5.0",
+    "particlegan_distribution_commit": null,
+    "hypergan_commit": "27097281c8c254b1a1211c59e86af6d838cacd23",
+    "hypergan_dirty": false,
+    "hypergan_provenance": "git",
+    "distribution_records": {
+      "hypergan": {
+        "record_sha256": null
+      },
+      "particlegan": {
+        "record_sha256": "3532c31cfe2ac7713909aa8298de42e0f1a7785fed6678b272a22dedc8256511"
+      },
+      "hndl": {
+        "record_sha256": "15964f79378a6c701fd2a26b66dbe910ea0c376007c79e020c8d656943cac955"
+      }
+    }
+  },
+  "config": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/testbeds/transgan-resnet128/transgan-resnet.toml",
+  "initial_parameters_sha256": "3a8c7c38b1166bf563c64025e135aad8c79f0c83aaa711afa8be2192c2450bff",
+  "original_config_fingerprint": "57814276b63f9817f54dc359254b3c84c6f23b4c4315b37ffa8deebe78e61a67",
+  "effective_config_fingerprint": "2f4f3a984c1754e7b1647ee5bc41be90d9edb8f0f69b6fc5b2db546c9f859cc7",
+  "config_sha256": "bdbddb681713f737621f0cef4f840d6394c6312e554fba517ed34c5fecb55c94",
+  "seed": 25002,
+  "device": "cuda:0",
+  "requested_updates": 32,
+  "g_lr": 0.0002,
+  "d_lr": 0.0002,
+  "prior_base_lrs": [
+    0.002
+  ],
+  "original_base_lrs": [
+    [
+      0.0002,
+      0.002
+    ],
+    [
+      0.0002
+    ]
+  ],
+  "gradient_penalty": {
+    "arm": "b_cap",
+    "coeff": 1.0,
+    "kappa": 1.0,
+    "lazy_k": 8,
+    "norm": "l2",
+    "target_anneal": "none",
+    "total_steps": 0,
+    "method": "autograd",
+    "fd_eps": 0.05
+  },
+  "schedule": "Original training horizon, annealing, D-then-G draws and lazy penalty schedule; prior base rates unchanged",
+  "observation_steps": [
+    0,
+    1,
+    8,
+    16,
+    32
+  ],
+  "observations": [
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.622485178004942,
+          "std": 0.6004651574516792,
+          "absolute_max": 0.9999922513961792,
+          "absolute_above_0_99_fraction": 0.010104497273763021,
+          "sample_diversity_rms": 0.5518607460359599,
+          "spatial_sample_diversity_rms": 0.5512911826655621,
+          "per_image_spatial_rms": 0.5936586248590651,
+          "sample_mean_color_diversity_rms": 0.025066210933686512,
+          "mean_color_fraction_of_sample_variance": 0.0020630909429835047,
+          "mean_absolute_horizontal_difference": 0.696461444794236,
+          "mean_absolute_vertical_difference": 0.6592556461541095,
+          "pooled_4x4_sample_diversity_rms": 0.05130702018432424
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 0.9985208314429637,
+            "std": 0.960362802774584,
+            "absolute_max": 6.2286882400512695,
+            "absolute_above_0_99_fraction": 0.31259950002034503,
+            "tanh_response": {
+              "mean_derivative": 0.6125122023787566,
+              "minimum_derivative": 1.555559935806361e-05,
+              "derivative_below_0_01_fraction": 0.0039285024007161455,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6123155355453491,
+            "sample_diversity_rms": 0.6062202453613281,
+            "diversity_to_rms": 0.9900455078628826
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.19756169617176056,
+            "sample_diversity_rms": 0.18427325785160065,
+            "diversity_to_rms": 0.9327377797535868
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.6457337737083435,
+            "sample_diversity_rms": 0.6353083252906799,
+            "diversity_to_rms": 0.9838548813115474
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.19799651205539703,
+            "sample_diversity_rms": 0.18288405239582062,
+            "diversity_to_rms": 0.9236731015981325
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.6783747673034668,
+            "sample_diversity_rms": 0.6626145839691162,
+            "diversity_to_rms": 0.9767677335685743
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 0.5969111919403076,
+            "sample_diversity_rms": 0.5808306932449341,
+            "diversity_to_rms": 0.9730604838500304
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.1988913118839264,
+            "sample_diversity_rms": 0.18167904019355774,
+            "diversity_to_rms": 0.9134589061365648
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.633898138999939,
+            "sample_diversity_rms": 0.6113264560699463,
+            "diversity_to_rms": 0.9643922555671127
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.19797956943511963,
+            "sample_diversity_rms": 0.1786719113588333,
+            "diversity_to_rms": 0.902476512443302
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.6711741089820862,
+            "sample_diversity_rms": 0.6403959393501282,
+            "diversity_to_rms": 0.9541427936208137
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 0.7338990569114685,
+            "sample_diversity_rms": 0.6901530027389526,
+            "diversity_to_rms": 0.9403922736232743
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 0.8020272850990295,
+            "sample_diversity_rms": 0.7350675463676453,
+            "diversity_to_rms": 0.9165118943264923
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 0.8936749696731567,
+            "sample_diversity_rms": 0.7641720771789551,
+            "diversity_to_rms": 0.8550894935084008
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 0.9985208511352539,
+            "sample_diversity_rms": 0.8768977522850037,
+            "diversity_to_rms": 0.8781967359900671
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.622485178004942,
+          "std": 0.6004651574516792,
+          "absolute_max": 0.9999922513961792,
+          "absolute_above_0_99_fraction": 0.010104497273763021,
+          "sample_diversity_rms": 0.5518607460359599,
+          "spatial_sample_diversity_rms": 0.5512911826655621,
+          "per_image_spatial_rms": 0.5936586248590651,
+          "sample_mean_color_diversity_rms": 0.025066210933686512,
+          "mean_color_fraction_of_sample_variance": 0.0020630909429835047,
+          "mean_absolute_horizontal_difference": 0.696461444794236,
+          "mean_absolute_vertical_difference": 0.6592556461541095,
+          "pooled_4x4_sample_diversity_rms": 0.05130702018432424
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 0.9985208314429637,
+            "std": 0.960362802774584,
+            "absolute_max": 6.2286882400512695,
+            "absolute_above_0_99_fraction": 0.31259950002034503,
+            "tanh_response": {
+              "mean_derivative": 0.6125122023787566,
+              "minimum_derivative": 1.555559935806361e-05,
+              "derivative_below_0_01_fraction": 0.0039285024007161455,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6123155355453491,
+            "sample_diversity_rms": 0.6062202453613281,
+            "diversity_to_rms": 0.9900455078628826
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.19756169617176056,
+            "sample_diversity_rms": 0.18427325785160065,
+            "diversity_to_rms": 0.9327377797535868
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.6457337737083435,
+            "sample_diversity_rms": 0.6353083252906799,
+            "diversity_to_rms": 0.9838548813115474
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.19799651205539703,
+            "sample_diversity_rms": 0.18288405239582062,
+            "diversity_to_rms": 0.9236731015981325
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.6783747673034668,
+            "sample_diversity_rms": 0.6626145839691162,
+            "diversity_to_rms": 0.9767677335685743
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 0.5969111919403076,
+            "sample_diversity_rms": 0.5808306932449341,
+            "diversity_to_rms": 0.9730604838500304
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.1988913118839264,
+            "sample_diversity_rms": 0.18167904019355774,
+            "diversity_to_rms": 0.9134589061365648
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.633898138999939,
+            "sample_diversity_rms": 0.6113264560699463,
+            "diversity_to_rms": 0.9643922555671127
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.19797956943511963,
+            "sample_diversity_rms": 0.1786719113588333,
+            "diversity_to_rms": 0.902476512443302
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.6711741089820862,
+            "sample_diversity_rms": 0.6403959393501282,
+            "diversity_to_rms": 0.9541427936208137
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 0.7338990569114685,
+            "sample_diversity_rms": 0.6901530027389526,
+            "diversity_to_rms": 0.9403922736232743
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 0.8020272850990295,
+            "sample_diversity_rms": 0.7350675463676453,
+            "diversity_to_rms": 0.9165118943264923
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 0.8936749696731567,
+            "sample_diversity_rms": 0.7641720771789551,
+            "diversity_to_rms": 0.8550894935084008
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 0.9985208511352539,
+            "sample_diversity_rms": 0.8768977522850037,
+            "diversity_to_rms": 0.8781967359900671
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.6224851780050165,
+          "after_rms": 0.6224851780050165,
+          "change_rms": 0.0,
+          "relative_change": 0.0,
+          "norm_ratio": 1.0,
+          "cosine": 0.9999999999997582,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.593658624708267,
+          "after_rms": 0.593658624708267,
+          "change_rms": 0.0,
+          "relative_change": 0.0,
+          "norm_ratio": 1.0,
+          "cosine": 0.9999999999997539,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.18723577196560232,
+          "after_rms": 0.18723577196560232,
+          "change_rms": 0.0,
+          "relative_change": 0.0,
+          "norm_ratio": 1.0,
+          "cosine": 1.0,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.19261487457323562,
+          "after_rms": 0.19261487457323562,
+          "change_rms": 0.0,
+          "relative_change": 0.0,
+          "norm_ratio": 1.0,
+          "cosine": 1.0,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.056704592558377,
+        "change_rms": 0.0,
+        "relative_change": 0.0,
+        "norm_ratio": 1.0,
+        "cosine": 0.9999999999999987,
+        "relative_status": "resolved"
+      },
+      "step": 0,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.6224851780050165,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 0.9999999999997582,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.593658624708267,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 0.9999999999997539,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.18723577196560232,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 1.0,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.19261487457323562,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 1.0,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.6224851780050165,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 0.9999999999997582,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.593658624708267,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 0.9999999999997539,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.18723577196560232,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 1.0,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.19261487457323562,
+            "change_rms": 0.0,
+            "relative_change": 0.0,
+            "norm_ratio": 1.0,
+            "cosine": 1.0,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": false,
+          "delta_rms": 0.0,
+          "measurement": "cumulative_0_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.0
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": false,
+          "delta_rms": 0.0,
+          "measurement": "cumulative_0_update_parameter_displacement",
+          "initial_rms": 0.038163871026623004,
+          "relative_delta_l2": 0.0
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": false,
+          "delta_rms": 0.0,
+          "measurement": "cumulative_0_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.0
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 0.0,
+        "diagnostic_seconds": 4.356705304002389,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.0,
+        "elapsed_seconds": 12.684192599990638
+      }
+    },
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.8414569189470419,
+          "std": 0.8294907044902009,
+          "absolute_max": 0.9999998211860657,
+          "absolute_above_0_99_fraction": 0.2631133397420247,
+          "sample_diversity_rms": 0.33393352991962566,
+          "spatial_sample_diversity_rms": 0.33356821134504483,
+          "per_image_spatial_rms": 0.5155765444980392,
+          "sample_mean_color_diversity_rms": 0.015615722354377467,
+          "mean_color_fraction_of_sample_variance": 0.0021867750026968082,
+          "mean_absolute_horizontal_difference": 0.4444973179162478,
+          "mean_absolute_vertical_difference": 0.5075766124957675,
+          "pooled_4x4_sample_diversity_rms": 0.027769893877301007
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 2.2416132548269165,
+            "std": 2.2159623605586574,
+            "absolute_max": 8.169154167175293,
+            "absolute_above_0_99_fraction": 0.7073589960734049,
+            "tanh_response": {
+              "mean_derivative": 0.2919502528366609,
+              "minimum_derivative": 3.20939201881032e-07,
+              "derivative_below_0_01_fraction": 0.19549051920572916,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6123248338699341,
+            "sample_diversity_rms": 0.6062297821044922,
+            "diversity_to_rms": 0.9900460483908178
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.2130448967218399,
+            "sample_diversity_rms": 0.1844041496515274,
+            "diversity_to_rms": 0.8655647353632365
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.6507552862167358,
+            "sample_diversity_rms": 0.6353902816772461,
+            "diversity_to_rms": 0.9763889669973846
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.21554063260555267,
+            "sample_diversity_rms": 0.18081198632717133,
+            "diversity_to_rms": 0.8388765688465987
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.7052295804023743,
+            "sample_diversity_rms": 0.6621824502944946,
+            "diversity_to_rms": 0.9389601183726316
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 0.6273822784423828,
+            "sample_diversity_rms": 0.5804615020751953,
+            "diversity_to_rms": 0.9252118238282425
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.22330273687839508,
+            "sample_diversity_rms": 0.16712650656700134,
+            "diversity_to_rms": 0.7484301755692951
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.7309650778770447,
+            "sample_diversity_rms": 0.6067525148391724,
+            "diversity_to_rms": 0.8300704550775186
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.22349295020103455,
+            "sample_diversity_rms": 0.1470087766647339,
+            "diversity_to_rms": 0.6577781381135188
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.8685727715492249,
+            "sample_diversity_rms": 0.6272051930427551,
+            "diversity_to_rms": 0.7221101254694459
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 1.1117380857467651,
+            "sample_diversity_rms": 0.6525689363479614,
+            "diversity_to_rms": 0.586980822834386
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 1.2497836351394653,
+            "sample_diversity_rms": 0.6732000708580017,
+            "diversity_to_rms": 0.5386532932021295
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 1.40574312210083,
+            "sample_diversity_rms": 0.6874131560325623,
+            "diversity_to_rms": 0.4890033927430847
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 2.2416131496429443,
+            "sample_diversity_rms": 0.8276408314704895,
+            "diversity_to_rms": 0.36921662045135684
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.841456819199718,
+          "std": 0.8294910169456383,
+          "absolute_max": 0.9999998211860657,
+          "absolute_above_0_99_fraction": 0.26310157775878906,
+          "sample_diversity_rms": 0.3339299435689425,
+          "spatial_sample_diversity_rms": 0.3335649716008733,
+          "per_image_spatial_rms": 0.5155771015823697,
+          "sample_mean_color_diversity_rms": 0.015608232855314064,
+          "mean_color_fraction_of_sample_variance": 0.002184724821894191,
+          "mean_absolute_horizontal_difference": 0.4445001540273823,
+          "mean_absolute_vertical_difference": 0.5075776929279219,
+          "pooled_4x4_sample_diversity_rms": 0.027766339509990814
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 2.2416112102424215,
+            "std": 2.215961101056878,
+            "absolute_max": 8.169434547424316,
+            "absolute_above_0_99_fraction": 0.7073691685994467,
+            "tanh_response": {
+              "mean_derivative": 0.2919504206550809,
+              "minimum_derivative": 3.207592824683303e-07,
+              "derivative_below_0_01_fraction": 0.1954975128173828,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6123170852661133,
+            "sample_diversity_rms": 0.6062217354774475,
+            "diversity_to_rms": 0.9900454357140521
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.2130446583032608,
+            "sample_diversity_rms": 0.18440410494804382,
+            "diversity_to_rms": 0.865565494186443
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.650748074054718,
+            "sample_diversity_rms": 0.6353828310966492,
+            "diversity_to_rms": 0.9763883389430102
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.21554051339626312,
+            "sample_diversity_rms": 0.18081213533878326,
+            "diversity_to_rms": 0.8388777241444487
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.7052227854728699,
+            "sample_diversity_rms": 0.6621754765510559,
+            "diversity_to_rms": 0.9389592766873668
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 0.6273759007453918,
+            "sample_diversity_rms": 0.5804550051689148,
+            "diversity_to_rms": 0.9252108735437082
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.22330273687839508,
+            "sample_diversity_rms": 0.1671266257762909,
+            "diversity_to_rms": 0.7484307094153698
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.730958878993988,
+            "sample_diversity_rms": 0.6067461967468262,
+            "diversity_to_rms": 0.8300688509070242
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.2234928458929062,
+            "sample_diversity_rms": 0.14700835943222046,
+            "diversity_to_rms": 0.657776578238501
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.8685674667358398,
+            "sample_diversity_rms": 0.6271985769271851,
+            "diversity_to_rms": 0.7221069185152165
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 1.1117334365844727,
+            "sample_diversity_rms": 0.6525617241859436,
+            "diversity_to_rms": 0.5869767902194063
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 1.249780297279358,
+            "sample_diversity_rms": 0.6731929183006287,
+            "diversity_to_rms": 0.53864900876266
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 1.4057403802871704,
+            "sample_diversity_rms": 0.6874059438705444,
+            "diversity_to_rms": 0.4889992160075236
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 2.2416112422943115,
+            "sample_diversity_rms": 0.8276320099830627,
+            "diversity_to_rms": 0.3692129992781322
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.8414569189471386,
+          "after_rms": 0.8414568191998132,
+          "change_rms": 0.0006783177838068734,
+          "relative_change": 0.0008061230094294181,
+          "norm_ratio": 0.9999998814587852,
+          "cosine": 0.9999996750825875,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.5155765445525735,
+          "after_rms": 0.5155771014844025,
+          "change_rms": 0.0006772959784296457,
+          "relative_change": 0.0013136671665647925,
+          "norm_ratio": 1.0000010802117258,
+          "cosine": 0.9999991371404213,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.6650041884817806,
+          "after_rms": 0.6650036351532811,
+          "change_rms": 3.721227901979341e-05,
+          "relative_change": 5.595796186599949e-05,
+          "norm_ratio": 0.9999991679323093,
+          "cosine": 0.9999999984346981,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.665414906132428,
+          "after_rms": 0.6654143819007903,
+          "change_rms": 5.6993131893577516e-05,
+          "relative_change": 8.565051874902692e-05,
+          "norm_ratio": 0.9999992121732878,
+          "cosine": 0.9999999963323036,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.0567026653130223,
+        "change_rms": 0.0017756277490144493,
+        "relative_change": 0.0016803444988494796,
+        "norm_ratio": 0.9999981761739579,
+        "cosine": 0.9999985882202702,
+        "relative_status": "resolved"
+      },
+      "step": 1,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.8414569189471386,
+            "change_rms": 0.9602086435551814,
+            "relative_change": 1.5425405736286355,
+            "norm_ratio": 1.3517702086399839,
+            "cosine": 0.16565362693051738,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.5155765445525735,
+            "change_rms": 0.5942279470549918,
+            "relative_change": 1.0009590062757103,
+            "norm_ratio": 0.8684730973224482,
+            "cosine": 0.43313177509328626,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.6650041884817806,
+            "change_rms": 0.7542504783063518,
+            "relative_change": 4.028346028049158,
+            "norm_ratio": 3.5516941100547315,
+            "cosine": -0.3678583500342166,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.665414906132428,
+            "change_rms": 0.7550823620429173,
+            "relative_change": 3.920166413502097,
+            "norm_ratio": 3.454639251546616,
+            "cosine": -0.35216012064558844,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.8414568191998132,
+            "change_rms": 0.9602103088791591,
+            "relative_change": 1.5425432489115765,
+            "norm_ratio": 1.3517700483995012,
+            "cosine": 0.16565043348799202,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.5155771014844025,
+            "change_rms": 0.5942316685110258,
+            "relative_change": 1.000965274955856,
+            "norm_ratio": 0.8684740354572714,
+            "cosine": 0.4331250203695226,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.6650036351532811,
+            "change_rms": 0.7542496716244298,
+            "relative_change": 4.028341719674141,
+            "norm_ratio": 3.551691154804815,
+            "cosine": -0.3678567247905956,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.6654143819007903,
+            "change_rms": 0.7550814558338446,
+            "relative_change": 3.9201617087300757,
+            "norm_ratio": 3.4546365298895325,
+            "cosine": -0.35215778098428163,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0001993888968686658,
+          "measurement": "cumulative_1_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.008160776588836538
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.00019471387271936697,
+          "measurement": "cumulative_1_update_parameter_displacement",
+          "initial_rms": 0.038163871026623004,
+          "relative_delta_l2": 0.005102047236862716
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0019539660329569667,
+          "measurement": "cumulative_1_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.0019515669935121827
+        }
+      },
+      "last_update_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0001993888968686581,
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.008160776588836221,
+          "training_gradient_dot_delta": -0.5649199527506669,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.00019471387271948886,
+          "initial_rms": 0.038163871026623004,
+          "relative_delta_l2": 0.00510204723686591,
+          "training_gradient_dot_delta": -0.5152635387012292,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.001953966032951845,
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.0019515669935070673,
+          "training_gradient_dot_delta": -0.0017910030720609048,
+          "measurement": "one_actual_optimizer_update"
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 3.874494165997021,
+        "diagnostic_seconds": 10.474341449997155,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.0,
+        "elapsed_seconds": 24.34805120000965
+      }
+    },
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9776368442432578,
+          "std": 0.9570531539903884,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.8408778508504232,
+          "sample_diversity_rms": 0.10788186320095798,
+          "spatial_sample_diversity_rms": 0.10784281776027514,
+          "per_image_spatial_rms": 0.9354575874539215,
+          "sample_mean_color_diversity_rms": 0.002902251752397874,
+          "mean_color_fraction_of_sample_variance": 0.0007237245206963728,
+          "mean_absolute_horizontal_difference": 0.8027444156633006,
+          "mean_absolute_vertical_difference": 0.7851110917016964,
+          "pooled_4x4_sample_diversity_rms": 0.0074151835109621525
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 7.205311814684191,
+            "std": 7.161134665189657,
+            "absolute_max": 24.653337478637695,
+            "absolute_above_0_99_fraction": 0.9612890879313151,
+            "tanh_response": {
+              "mean_derivative": 0.044226201405714365,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.8027728398640951,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6123251914978027,
+            "sample_diversity_rms": 0.6062301397323608,
+            "diversity_to_rms": 0.9900460542044125
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.35005757212638855,
+            "sample_diversity_rms": 0.18540450930595398,
+            "diversity_to_rms": 0.5296400480061992
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.7085107564926147,
+            "sample_diversity_rms": 0.6356995105743408,
+            "diversity_to_rms": 0.8972333937755356
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.5120985507965088,
+            "sample_diversity_rms": 0.14873947203159332,
+            "diversity_to_rms": 0.29045087473933806
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 1.1839560270309448,
+            "sample_diversity_rms": 0.6550315022468567,
+            "diversity_to_rms": 0.5532566136679131
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 1.1404186487197876,
+            "sample_diversity_rms": 0.5744436383247375,
+            "diversity_to_rms": 0.5037129469687269
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.5242028832435608,
+            "sample_diversity_rms": 0.07719399780035019,
+            "diversity_to_rms": 0.14725977339671267
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 1.9041317701339722,
+            "sample_diversity_rms": 0.5809799432754517,
+            "diversity_to_rms": 0.30511540870649656
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.5242202877998352,
+            "sample_diversity_rms": 0.05325453728437424,
+            "diversity_to_rms": 0.10158808906058324
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 2.6589527130126953,
+            "sample_diversity_rms": 0.5840418338775635,
+            "diversity_to_rms": 0.21965107954696256
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 2.8706648349761963,
+            "sample_diversity_rms": 0.5873067378997803,
+            "diversity_to_rms": 0.204589101013825
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 2.949831962585449,
+            "sample_diversity_rms": 0.5902172327041626,
+            "diversity_to_rms": 0.20008503541566242
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 2.961456537246704,
+            "sample_diversity_rms": 0.5911405682563782,
+            "diversity_to_rms": 0.19961142796509432
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 7.2053117752075195,
+            "sample_diversity_rms": 0.7398251295089722,
+            "diversity_to_rms": 0.10267774006041043
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9776358811561134,
+          "std": 0.9570539311342995,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.8409020105997721,
+          "sample_diversity_rms": 0.10789516058657493,
+          "spatial_sample_diversity_rms": 0.10785613978050133,
+          "per_image_spatial_rms": 0.9354581809677637,
+          "sample_mean_color_diversity_rms": 0.00290151506143801,
+          "mean_color_fraction_of_sample_variance": 0.0007231788678934409,
+          "mean_absolute_horizontal_difference": 0.8027449508562023,
+          "mean_absolute_vertical_difference": 0.7851141954509041,
+          "pooled_4x4_sample_diversity_rms": 0.007416338388369067
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 7.205138381137634,
+            "std": 7.160967014598666,
+            "absolute_max": 24.660093307495117,
+            "absolute_above_0_99_fraction": 0.9612674713134766,
+            "tanh_response": {
+              "mean_derivative": 0.044228084533963236,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.802764892578125,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6123523116111755,
+            "sample_diversity_rms": 0.6062514185905457,
+            "diversity_to_rms": 0.9900369560056405
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.35005274415016174,
+            "sample_diversity_rms": 0.1854020208120346,
+            "diversity_to_rms": 0.529640243964215
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.7085280418395996,
+            "sample_diversity_rms": 0.6357196569442749,
+            "diversity_to_rms": 0.8972399388649639
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.5120750069618225,
+            "sample_diversity_rms": 0.14873634278774261,
+            "diversity_to_rms": 0.29045811798198456
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 1.1839158535003662,
+            "sample_diversity_rms": 0.6550467014312744,
+            "diversity_to_rms": 0.5532882252522956
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 1.140371322631836,
+            "sample_diversity_rms": 0.5744513869285583,
+            "diversity_to_rms": 0.5037406461632126
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.5242023468017578,
+            "sample_diversity_rms": 0.07719721645116806,
+            "diversity_to_rms": 0.14726606418716093
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 1.9040720462799072,
+            "sample_diversity_rms": 0.5809823870658875,
+            "diversity_to_rms": 0.3051262625282407
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.5242202281951904,
+            "sample_diversity_rms": 0.05325515940785408,
+            "diversity_to_rms": 0.10158928737107951
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 2.65889048576355,
+            "sample_diversity_rms": 0.5840427875518799,
+            "diversity_to_rms": 0.2196565788169952
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 2.8706016540527344,
+            "sample_diversity_rms": 0.5873084664344788,
+            "diversity_to_rms": 0.20459420609798395
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 2.9497694969177246,
+            "sample_diversity_rms": 0.5902188420295715,
+            "diversity_to_rms": 0.20008981808453286
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 2.9613959789276123,
+            "sample_diversity_rms": 0.5911424160003662,
+            "diversity_to_rms": 0.1996161338121463
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 7.205138683319092,
+            "sample_diversity_rms": 0.7397710084915161,
+            "diversity_to_rms": 0.1026726952812428
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.9776368442431026,
+          "after_rms": 0.9776358811559411,
+          "change_rms": 0.0014975562070606656,
+          "relative_change": 0.0015318123655825291,
+          "norm_ratio": 0.9999990148825025,
+          "cosine": 0.9999988267759038,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.9354575884299856,
+          "after_rms": 0.9354581815474483,
+          "change_rms": 0.0014970511634739346,
+          "relative_change": 0.0016003410330835983,
+          "norm_ratio": 1.0000006340399288,
+          "cosine": 0.999998719455066,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.284064962008626,
+          "after_rms": 0.28405969488135213,
+          "change_rms": 3.888609194743353e-05,
+          "relative_change": 0.00013689154647046086,
+          "norm_ratio": 0.9999814580184876,
+          "cosine": 0.9999999908020847,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.28415033903316367,
+          "after_rms": 0.28414511095745426,
+          "change_rms": 9.998346734863965e-05,
+          "relative_change": 0.00035186819656396896,
+          "norm_ratio": 0.9999816010224475,
+          "cosine": 0.9999999382625153,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.0567691945006261,
+        "change_rms": 0.013009758209672649,
+        "relative_change": 0.01231163212622636,
+        "norm_ratio": 1.00006113529051,
+        "cosine": 0.9999242183588879,
+        "relative_status": "resolved"
+      },
+      "step": 8,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9776368442431026,
+            "change_rms": 1.1574529454067928,
+            "relative_change": 1.8594064345697001,
+            "norm_ratio": 1.5705383498066585,
+            "cosine": 0.002928428744280974,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9354575884299856,
+            "change_rms": 1.092331230788208,
+            "relative_change": 1.8399989241712718,
+            "norm_ratio": 1.5757500177643067,
+            "cosine": 0.030903403596668957,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.284064962008626,
+            "change_rms": 0.38276599471188383,
+            "relative_change": 2.0442994984003535,
+            "norm_ratio": 1.517151124630247,
+            "cosine": -0.2891646355952027,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.28415033903316367,
+            "change_rms": 0.38531312470733203,
+            "relative_change": 2.000432861486142,
+            "norm_ratio": 1.4752253150891763,
+            "cosine": -0.27976807833715966,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9776358811559411,
+            "change_rms": 1.1574493494678106,
+            "relative_change": 1.8594006578233466,
+            "norm_ratio": 1.5705368026418496,
+            "cosine": 0.002933723719189485,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9354581815474483,
+            "change_rms": 1.0923300537005942,
+            "relative_change": 1.8399969414027835,
+            "norm_ratio": 1.5757510168527356,
+            "cosine": 0.030906698361016206,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.28405969488135213,
+            "change_rms": 0.3827584813141828,
+            "relative_change": 2.044259370396916,
+            "norm_ratio": 1.5171229936421424,
+            "cosine": -0.2891440573027285,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.28414511095745426,
+            "change_rms": 0.3853052495332353,
+            "relative_change": 2.000391975889356,
+            "norm_ratio": 1.475198172451719,
+            "cosine": -0.2797449266853088,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0006005534088202371,
+          "measurement": "cumulative_8_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.024580015617792224
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0006760208755061214,
+          "measurement": "cumulative_8_update_parameter_displacement",
+          "initial_rms": 0.038163871026623004,
+          "relative_delta_l2": 0.017713634841563405
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.01379283898964513,
+          "measurement": "cumulative_8_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.013775904424645737
+        }
+      },
+      "last_update_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 8.492027053222055e-05,
+          "initial_rms": 0.024438638526103253,
+          "relative_delta_l2": 0.003474836392441257,
+          "training_gradient_dot_delta": -0.26238716498404097,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 9.54702862576655e-05,
+          "initial_rms": 0.038170983987092094,
+          "relative_delta_l2": 0.0025011219592858736,
+          "training_gradient_dot_delta": -0.10176664070857531,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0016976905877374051,
+          "initial_rms": 1.003180809524914,
+          "relative_delta_l2": 0.0016923076793518377,
+          "training_gradient_dot_delta": -0.0011411206623716597,
+          "measurement": "one_actual_optimizer_update"
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 20.500144137011375,
+        "diagnostic_seconds": 16.149631744017825,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.0,
+        "elapsed_seconds": 47.47349392899196
+      }
+    },
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9870438688041762,
+          "std": 0.9778951355207095,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.9135793050130209,
+          "sample_diversity_rms": 0.08201756779755,
+          "spatial_sample_diversity_rms": 0.08198904806145209,
+          "per_image_spatial_rms": 0.9595334008432632,
+          "sample_mean_color_diversity_rms": 0.0021627356293844333,
+          "mean_color_fraction_of_sample_variance": 0.0006953334101503362,
+          "mean_absolute_horizontal_difference": 0.8380719272144046,
+          "mean_absolute_vertical_difference": 0.7973706423595853,
+          "pooled_4x4_sample_diversity_rms": 0.005688399598538966
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 9.789919750369606,
+            "std": 9.475366375381943,
+            "absolute_max": 38.1912841796875,
+            "absolute_above_0_99_fraction": 0.9763514200846354,
+            "tanh_response": {
+              "mean_derivative": 0.025744402276966588,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.8866761525472006,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6122934818267822,
+            "sample_diversity_rms": 0.6061980724334717,
+            "diversity_to_rms": 0.9900449546267831
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.4007960855960846,
+            "sample_diversity_rms": 0.18567122519016266,
+            "diversity_to_rms": 0.46325608423551057
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.7354555726051331,
+            "sample_diversity_rms": 0.6356155276298523,
+            "diversity_to_rms": 0.8642473472304696
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.7169755697250366,
+            "sample_diversity_rms": 0.12389314919710159,
+            "diversity_to_rms": 0.172799680252167
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 1.5508090257644653,
+            "sample_diversity_rms": 0.6503840088844299,
+            "diversity_to_rms": 0.4193836881777404
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 1.5183969736099243,
+            "sample_diversity_rms": 0.570604145526886,
+            "diversity_to_rms": 0.37579378479021786
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.6388978958129883,
+            "sample_diversity_rms": 0.058022208511829376,
+            "diversity_to_rms": 0.09081608953805828
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 2.5084662437438965,
+            "sample_diversity_rms": 0.5745364427566528,
+            "diversity_to_rms": 0.22903893731460176
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.5910833477973938,
+            "sample_diversity_rms": 0.04145902395248413,
+            "diversity_to_rms": 0.07014074090731293
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 3.3296473026275635,
+            "sample_diversity_rms": 0.5765078067779541,
+            "diversity_to_rms": 0.17314380604906945
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 3.52394700050354,
+            "sample_diversity_rms": 0.5786714553833008,
+            "diversity_to_rms": 0.16421116869822783
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 3.6037256717681885,
+            "sample_diversity_rms": 0.580625057220459,
+            "diversity_to_rms": 0.16111799568127838
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 3.5779976844787598,
+            "sample_diversity_rms": 0.58094722032547,
+            "diversity_to_rms": 0.1623665724675006
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 9.78991985321045,
+            "sample_diversity_rms": 0.7392534613609314,
+            "diversity_to_rms": 0.07551169697456767
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9870421987018493,
+          "std": 0.9778935730968772,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.9135627746582031,
+          "sample_diversity_rms": 0.0820076245572365,
+          "spatial_sample_diversity_rms": 0.0819795179148062,
+          "per_image_spatial_rms": 0.9595321724404855,
+          "sample_mean_color_diversity_rms": 0.00214688797486623,
+          "mean_color_fraction_of_sample_variance": 0.0006853466627820913,
+          "mean_absolute_horizontal_difference": 0.8380740361027518,
+          "mean_absolute_vertical_difference": 0.7973659093902383,
+          "pooled_4x4_sample_diversity_rms": 0.0056807225792459785
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 9.789478554873423,
+            "std": 9.474926596316745,
+            "absolute_max": 38.17781448364258,
+            "absolute_above_0_99_fraction": 0.9763679504394531,
+            "tanh_response": {
+              "mean_derivative": 0.025747699218360034,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.8866704305013021,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6123824715614319,
+            "sample_diversity_rms": 0.6062777638435364,
+            "diversity_to_rms": 0.9900312174149434
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.4007857143878937,
+            "sample_diversity_rms": 0.18566639721393585,
+            "diversity_to_rms": 0.4632560257231169
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.7355195879936218,
+            "sample_diversity_rms": 0.6356902122497559,
+            "diversity_to_rms": 0.8642736680661567
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.7169111371040344,
+            "sample_diversity_rms": 0.12386477738618851,
+            "diversity_to_rms": 0.17277563560602616
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 1.5506912469863892,
+            "sample_diversity_rms": 0.6504265666007996,
+            "diversity_to_rms": 0.41944298574254385
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 1.5182652473449707,
+            "sample_diversity_rms": 0.570625364780426,
+            "diversity_to_rms": 0.3758403650339051
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.6388900279998779,
+            "sample_diversity_rms": 0.05802372097969055,
+            "diversity_to_rms": 0.09081957525826595
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 2.5083167552948,
+            "sample_diversity_rms": 0.574548065662384,
+            "diversity_to_rms": 0.22905722112232113
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 0.5910763144493103,
+            "sample_diversity_rms": 0.04145786166191101,
+            "diversity_to_rms": 0.07013960913073665
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 3.3294875621795654,
+            "sample_diversity_rms": 0.5765199661254883,
+            "diversity_to_rms": 0.17315576507157274
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 3.5237882137298584,
+            "sample_diversity_rms": 0.5786850452423096,
+            "diversity_to_rms": 0.1642224248856838
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 3.603567600250244,
+            "sample_diversity_rms": 0.5806383490562439,
+            "diversity_to_rms": 0.1611287516892766
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 3.57783842086792,
+            "sample_diversity_rms": 0.5809628367424011,
+            "diversity_to_rms": 0.16237816480305722
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 9.789478302001953,
+            "sample_diversity_rms": 0.7390721440315247,
+            "diversity_to_rms": 0.07549658125095227
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.9870438688040222,
+          "after_rms": 0.9870421987016973,
+          "change_rms": 0.002148547358480987,
+          "relative_change": 0.00217674961203531,
+          "norm_ratio": 0.9999983079755848,
+          "cosine": 0.9999976308780174,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.9595334011871379,
+          "after_rms": 0.9595321728987551,
+          "change_rms": 0.00214792091055095,
+          "relative_change": 0.0022385056193911907,
+          "norm_ratio": 0.9999987199107595,
+          "cosine": 0.9999974945432726,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.23141143360563626,
+          "after_rms": 0.23140940660048354,
+          "change_rms": 5.188094346062073e-05,
+          "relative_change": 0.00022419351823831888,
+          "norm_ratio": 0.9999912406871123,
+          "cosine": 0.9999999749067764,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.2314723045422737,
+          "after_rms": 0.23147022718066798,
+          "change_rms": 0.00014201472898911025,
+          "relative_change": 0.0006135279521666238,
+          "norm_ratio": 0.9999910254420726,
+          "cosine": 0.9999998118303131,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.0568842597905281,
+        "change_rms": 0.02468648332970281,
+        "relative_change": 0.023361764019530388,
+        "norm_ratio": 1.000170025978326,
+        "cosine": 0.9997271748327299,
+        "relative_status": "resolved"
+      },
+      "step": 16,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9870438688040222,
+            "change_rms": 1.1405021359889607,
+            "relative_change": 1.83217557025875,
+            "norm_ratio": 1.5856503956726626,
+            "cosine": 0.04963889186241657,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9595334011871379,
+            "change_rms": 1.1235040487416121,
+            "relative_change": 1.8925085932908317,
+            "norm_ratio": 1.6163049962571796,
+            "cosine": 0.009544320322233311,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.23141143360563626,
+            "change_rms": 0.19617281925786026,
+            "relative_change": 1.0477315162505367,
+            "norm_ratio": 1.2359360135954662,
+            "cosine": 0.5784265867446393,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.2314723045422737,
+            "change_rms": 0.20117776958853786,
+            "relative_change": 1.044456042319029,
+            "norm_ratio": 1.201736392659871,
+            "cosine": 0.5630527382594874,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9870421987016973,
+            "change_rms": 1.140501925636824,
+            "relative_change": 1.8321752323356253,
+            "norm_ratio": 1.5856477127134792,
+            "cosine": 0.04963668335286042,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9595321728987551,
+            "change_rms": 1.1235042347104096,
+            "relative_change": 1.892508906549647,
+            "norm_ratio": 1.6163029272425444,
+            "cosine": 0.009541896733109229,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.23140940660048354,
+            "change_rms": 0.19617053445524815,
+            "relative_change": 1.0477193134402076,
+            "norm_ratio": 1.235925187645214,
+            "cosine": 0.578431172045454,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.23147022718066798,
+            "change_rms": 0.20117512444757507,
+            "relative_change": 1.0444423095220754,
+            "norm_ratio": 1.2017256076070015,
+            "cosine": 0.5630589418633654,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0007457688743397068,
+          "measurement": "cumulative_16_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.030523530978774808
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0008218358692001878,
+          "measurement": "cumulative_16_update_parameter_displacement",
+          "initial_rms": 0.038163871026623004,
+          "relative_delta_l2": 0.021534394889524633
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.024994614624904318,
+          "measurement": "cumulative_16_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.024963926749382973
+        }
+      },
+      "last_update_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 8.071229774269356e-05,
+          "initial_rms": 0.024441626699781976,
+          "relative_delta_l2": 0.003302247380425523,
+          "training_gradient_dot_delta": -0.3873386907803168,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 1.1539769739299704e-05,
+          "initial_rms": 0.038178068357799265,
+          "relative_delta_l2": 0.00030226174962941216,
+          "training_gradient_dot_delta": -0.0004605464159008433,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0015270613820103313,
+          "initial_rms": 1.0036176417525584,
+          "relative_delta_l2": 0.001521556934116576,
+          "training_gradient_dot_delta": -0.0009195937912703156,
+          "measurement": "one_actual_optimizer_update"
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 32.82588047199533,
+        "diagnostic_seconds": 21.733407429012004,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.0,
+        "elapsed_seconds": 66.24906503400416
+      }
+    },
+    {
+      "fixed_latent": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9997908194740025,
+          "std": 0.9799675147244631,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.9965372085571289,
+          "sample_diversity_rms": 0.005654750353016569,
+          "spatial_sample_diversity_rms": 0.005653953268540319,
+          "per_image_spatial_rms": 0.9731911460639334,
+          "sample_mean_color_diversity_rms": 9.494204602422244e-05,
+          "mean_color_fraction_of_sample_variance": 0.00028189690034877564,
+          "mean_absolute_horizontal_difference": 0.7267826011667042,
+          "mean_absolute_vertical_difference": 0.7476604409960119,
+          "pooled_4x4_sample_diversity_rms": 0.0003341788976254239
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 19.227896958399516,
+            "std": 19.217277839018543,
+            "absolute_max": 59.992774963378906,
+            "absolute_above_0_99_fraction": 0.999882698059082,
+            "tanh_response": {
+              "mean_derivative": 0.00041831862542696406,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.9949328104654948,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6123172044754028,
+            "sample_diversity_rms": 0.6062216758728027,
+            "diversity_to_rms": 0.9900451456237909
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.5144100189208984,
+            "sample_diversity_rms": 0.1873316764831543,
+            "diversity_to_rms": 0.3641680169374006
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.8049371838569641,
+            "sample_diversity_rms": 0.6362295746803284,
+            "diversity_to_rms": 0.7904089753087928
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 1.5791500806808472,
+            "sample_diversity_rms": 0.09254498779773712,
+            "diversity_to_rms": 0.05860430172529045
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 2.8983991146087646,
+            "sample_diversity_rms": 0.647466778755188,
+            "diversity_to_rms": 0.22338772306814797
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 2.88145112991333,
+            "sample_diversity_rms": 0.5686355233192444,
+            "diversity_to_rms": 0.19734345566927874
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 1.2904146909713745,
+            "sample_diversity_rms": 0.033093538135290146,
+            "diversity_to_rms": 0.025645661326421047
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 4.849003791809082,
+            "sample_diversity_rms": 0.5703005790710449,
+            "diversity_to_rms": 0.11761190618872981
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 1.1675989627838135,
+            "sample_diversity_rms": 0.022551316767930984,
+            "diversity_to_rms": 0.01931426584532387
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 6.498054504394531,
+            "sample_diversity_rms": 0.571230411529541,
+            "diversity_to_rms": 0.08790791322898676
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 6.8505330085754395,
+            "sample_diversity_rms": 0.5717808604240417,
+            "diversity_to_rms": 0.08346516390889458
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 6.937108993530273,
+            "sample_diversity_rms": 0.5723387002944946,
+            "diversity_to_rms": 0.08250392214224578
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 6.893686771392822,
+            "sample_diversity_rms": 0.5720537900924683,
+            "diversity_to_rms": 0.08298227190512295
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 19.227895736694336,
+            "sample_diversity_rms": 0.7446679472923279,
+            "diversity_to_rms": 0.03872852014020497
+          }
+        }
+      },
+      "evolving_prior": {
+        "output": {
+          "status": "finite",
+          "shape": [
+            64,
+            3,
+            128,
+            128
+          ],
+          "rms": 0.9997906217971491,
+          "std": 0.9799672284212614,
+          "absolute_max": 1.0,
+          "absolute_above_0_99_fraction": 0.9965264002482096,
+          "sample_diversity_rms": 0.0056901982405083845,
+          "spatial_sample_diversity_rms": 0.005689382638526051,
+          "per_image_spatial_rms": 0.9731908496586098,
+          "sample_mean_color_diversity_rms": 9.633903011277732e-05,
+          "mean_color_fraction_of_sample_variance": 0.0002866485475174411,
+          "mean_absolute_horizontal_difference": 0.7267832505296874,
+          "mean_absolute_vertical_difference": 0.7476595700140032,
+          "pooled_4x4_sample_diversity_rms": 0.0003364660620510706
+        },
+        "final_affine": {
+          "status": "measured",
+          "path": "generator.network.nodes.n_output_projection",
+          "measurement": "final_owned_affine_activation_displacement",
+          "relationship_to_output": "pre_tanh",
+          "downstream_operations": [
+            "permute",
+            "reshape",
+            "tanh"
+          ],
+          "interpretation": "Matched fixed-latent observation only; no threshold or tuning decision uses this displacement",
+          "activation": {
+            "status": "finite",
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 19.226135519219678,
+            "std": 19.215520080776827,
+            "absolute_max": 59.944236755371094,
+            "absolute_above_0_99_fraction": 0.9998830159505209,
+            "tanh_response": {
+              "mean_derivative": 0.0004187138989143189,
+              "minimum_derivative": 0.0,
+              "derivative_below_0_01_fraction": 0.9949235916137695,
+              "interpretation": "Descriptive tanh saturation; no tuning threshold is applied"
+            }
+          }
+        },
+        "stages": {
+          "models.generator.network.nodes.n_input_projection": {
+            "shape": [
+              64,
+              65536
+            ],
+            "rms": 0.6125869154930115,
+            "sample_diversity_rms": 0.6064697504043579,
+            "diversity_to_rms": 0.990014208704196
+          },
+          "models.generator.network.nodes.n_stage8_block0_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.5143493413925171,
+            "sample_diversity_rms": 0.18731814622879028,
+            "diversity_to_rms": 0.36418467207843
+          },
+          "models.generator.network.nodes.n_stage8_block0": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 0.8050990700721741,
+            "sample_diversity_rms": 0.6364617347717285,
+            "diversity_to_rms": 0.790538405061966
+          },
+          "models.generator.network.nodes.n_stage8_block1_ffn": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 1.5789538621902466,
+            "sample_diversity_rms": 0.09244125336408615,
+            "diversity_to_rms": 0.05854588634772154
+          },
+          "models.generator.network.nodes.n_stage8_block1": {
+            "shape": [
+              64,
+              64,
+              1024
+            ],
+            "rms": 2.89782977104187,
+            "sample_diversity_rms": 0.6475816369056702,
+            "diversity_to_rms": 0.22347124851051625
+          },
+          "models.generator.network.nodes.n_stage16_upsample": {
+            "shape": [
+              64,
+              1024,
+              16,
+              16
+            ],
+            "rms": 2.880862236022949,
+            "sample_diversity_rms": 0.5686929821968079,
+            "diversity_to_rms": 0.19740374082652856
+          },
+          "models.generator.network.nodes.n_stage16_block0_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 1.2903937101364136,
+            "sample_diversity_rms": 0.033109355717897415,
+            "diversity_to_rms": 0.02565833625645716
+          },
+          "models.generator.network.nodes.n_stage16_block0": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 4.848386764526367,
+            "sample_diversity_rms": 0.5703457593917847,
+            "diversity_to_rms": 0.11763619263313888
+          },
+          "models.generator.network.nodes.n_stage16_block1_ffn": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 1.167576789855957,
+            "sample_diversity_rms": 0.02255723439157009,
+            "diversity_to_rms": 0.019319700928923877
+          },
+          "models.generator.network.nodes.n_stage16_block1": {
+            "shape": [
+              64,
+              256,
+              1024
+            ],
+            "rms": 6.49741792678833,
+            "sample_diversity_rms": 0.571270227432251,
+            "diversity_to_rms": 0.08792265387100157
+          },
+          "models.generator.network.nodes.n_stage32_block1": {
+            "shape": [
+              64,
+              1024,
+              256
+            ],
+            "rms": 6.849895000457764,
+            "sample_diversity_rms": 0.5718224048614502,
+            "diversity_to_rms": 0.08347900293701385
+          },
+          "models.generator.network.nodes.n_stage64_unwindows": {
+            "shape": [
+              64,
+              64,
+              64,
+              64
+            ],
+            "rms": 6.936470985412598,
+            "sample_diversity_rms": 0.572381317615509,
+            "diversity_to_rms": 0.08251765470067232
+          },
+          "models.generator.network.nodes.n_stage128_unwindows": {
+            "shape": [
+              64,
+              16,
+              128,
+              128
+            ],
+            "rms": 6.89304780960083,
+            "sample_diversity_rms": 0.5720975399017334,
+            "diversity_to_rms": 0.08299631102295561
+          },
+          "models.generator.network.nodes.n_output_projection": {
+            "shape": [
+              64,
+              16384,
+              3
+            ],
+            "rms": 19.22613525390625,
+            "sample_diversity_rms": 0.7440879344940186,
+            "diversity_to_rms": 0.038701898466195345
+          }
+        }
+      },
+      "prior_induced_output_difference_at_fixed_generator": {
+        "full": {
+          "status": "finite",
+          "before_rms": 0.9997908194738573,
+          "after_rms": 0.999790621796997,
+          "change_rms": 0.00032546284448201426,
+          "relative_change": 0.000325530939215155,
+          "norm_ratio": 0.9999998022817809,
+          "cosine": 0.9999999470097787,
+          "relative_status": "resolved"
+        },
+        "per_image_mean_removed": {
+          "status": "finite",
+          "before_rms": 0.9731911456096043,
+          "after_rms": 0.973190850112647,
+          "change_rms": 0.00032540700509445366,
+          "relative_change": 0.0003343711115359764,
+          "norm_ratio": 0.9999996963628794,
+          "cosine": 0.9999999440987899,
+          "relative_status": "resolved"
+        },
+        "spatial_channel_means": {
+          "status": "finite",
+          "before_rms": 0.22908662003942146,
+          "after_rms": 0.22908701756011618,
+          "change_rms": 6.0288761041734e-06,
+          "relative_change": 2.6317015385429078e-05,
+          "norm_ratio": 1.000001735241869,
+          "cosine": 0.9999999996552136,
+          "relative_status": "resolved"
+        },
+        "pooled_4x4": {
+          "status": "finite",
+          "before_rms": 0.22908689039325275,
+          "after_rms": 0.22908729074899303,
+          "change_rms": 1.862072483109491e-05,
+          "relative_change": 8.128236757297808e-05,
+          "norm_ratio": 1.0000017476152372,
+          "cosine": 0.9999999966981226,
+          "relative_status": "resolved"
+        }
+      },
+      "latent_coordinate_change": {
+        "status": "finite",
+        "before_rms": 1.056704592558377,
+        "after_rms": 1.0571961342382368,
+        "change_rms": 0.04505401132014232,
+        "relative_change": 0.0426363352988393,
+        "norm_ratio": 1.0004651647048015,
+        "cosine": 0.9990916021998375,
+        "relative_status": "resolved"
+      },
+      "step": 32,
+      "change_from_initial": {
+        "fixed_latent": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.9997908194738573,
+            "change_rms": 1.1454754322817107,
+            "relative_change": 1.840164991482704,
+            "norm_ratio": 1.6061279124397083,
+            "cosine": 0.06021926203450339,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.9731911456096043,
+            "change_rms": 1.1327783380780232,
+            "relative_change": 1.9081308532065677,
+            "norm_ratio": 1.6393110537016882,
+            "cosine": 0.014145386785912917,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.22908662003942146,
+            "change_rms": 0.1700799896412953,
+            "relative_change": 0.9083733725441164,
+            "norm_ratio": 1.2235195103717023,
+            "cosine": 0.683216652509747,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.22908689039325275,
+            "change_rms": 0.175981021416527,
+            "relative_change": 0.9136419074925383,
+            "norm_ratio": 1.1893520212331774,
+            "cosine": 0.6641501704629105,
+            "relative_status": "resolved"
+          }
+        },
+        "evolving_prior": {
+          "full": {
+            "status": "finite",
+            "before_rms": 0.6224851780050165,
+            "after_rms": 0.999790621796997,
+            "change_rms": 1.1454749267927715,
+            "relative_change": 1.8401641794329444,
+            "norm_ratio": 1.6061275948789577,
+            "cosine": 0.06021988675783492,
+            "relative_status": "resolved"
+          },
+          "per_image_mean_removed": {
+            "status": "finite",
+            "before_rms": 0.593658624708267,
+            "after_rms": 0.973190850112647,
+            "change_rms": 1.1327778243524045,
+            "relative_change": 1.9081299878512992,
+            "norm_ratio": 1.6393105559460002,
+            "cosine": 0.014145900583172714,
+            "relative_status": "resolved"
+          },
+          "spatial_channel_means": {
+            "status": "finite",
+            "before_rms": 0.18723577196560232,
+            "after_rms": 0.22908701756011618,
+            "change_rms": 0.1700800136069534,
+            "relative_change": 0.9083735005413354,
+            "norm_ratio": 1.2235216334739842,
+            "cosine": 0.6832174950377271,
+            "relative_status": "resolved"
+          },
+          "pooled_4x4": {
+            "status": "finite",
+            "before_rms": 0.19261487457323562,
+            "after_rms": 0.22908729074899303,
+            "change_rms": 0.1759809343774059,
+            "relative_change": 0.9136414556109206,
+            "norm_ratio": 1.1893540997628922,
+            "cosine": 0.6641514354416878,
+            "relative_status": "resolved"
+          }
+        }
+      },
+      "cumulative_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.001009665344648614,
+          "measurement": "cumulative_32_update_parameter_displacement",
+          "initial_rms": 0.024432588577589308,
+          "relative_delta_l2": 0.04132453429739022
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0009022770975008556,
+          "measurement": "cumulative_32_update_parameter_displacement",
+          "initial_rms": 0.038163871026623004,
+          "relative_delta_l2": 0.023642179716817244
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.044087425297572355,
+          "measurement": "cumulative_32_update_parameter_displacement",
+          "initial_rms": 1.0012292887985703,
+          "relative_delta_l2": 0.044033295660452824
+        }
+      },
+      "last_update_optimizer_motion": {
+        "generator": {
+          "elements": 61662491,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 5.9547101378318545e-05,
+          "initial_rms": 0.024451235267092874,
+          "relative_delta_l2": 0.0024353412303246137,
+          "training_gradient_dot_delta": -0.38984723803616855,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "discriminator": {
+          "elements": 1445284,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 4.701295653415628e-06,
+          "initial_rms": 0.038181981523085134,
+          "relative_delta_l2": 0.00012312864513260493,
+          "training_gradient_dot_delta": -5.46759695934062e-05,
+          "measurement": "one_actual_optimizer_update"
+        },
+        "prior": {
+          "elements": 524288,
+          "finite": true,
+          "changed": true,
+          "delta_rms": 0.0012431774714935515,
+          "initial_rms": 1.0032962228365658,
+          "relative_delta_l2": 0.0012390931443744325,
+          "training_gradient_dot_delta": -0.000582957513866399,
+          "measurement": "one_actual_optimizer_update"
+        }
+      },
+      "timing_at_observation": {
+        "training_update_seconds": 57.45470152597409,
+        "diagnostic_seconds": 27.313448437984334,
+        "observer_seconds_inside_update": 0.0,
+        "preparation_seconds": 0.0,
+        "elapsed_seconds": 97.61783553400892
+      }
+    }
+  ],
+  "per_step": [
+    {
+      "step": 1,
+      "g_loss": 0.926653265953064,
+      "d_loss": 0.6899389624595642,
+      "g_adversarial": 0.8926445245742798,
+      "prior_loss": 0.03400872275233269,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 2,
+      "g_loss": 0.938656210899353,
+      "d_loss": 0.7265343070030212,
+      "g_adversarial": 0.9059835076332092,
+      "prior_loss": 0.0326726958155632,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 3,
+      "g_loss": 1.2420810461044312,
+      "d_loss": 0.5419440865516663,
+      "g_adversarial": 1.210689663887024,
+      "prior_loss": 0.03139142692089081,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 4,
+      "g_loss": 1.7841744422912598,
+      "d_loss": 0.39573752880096436,
+      "g_adversarial": 1.754010558128357,
+      "prior_loss": 0.030163835734128952,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 5,
+      "g_loss": 2.0378737449645996,
+      "d_loss": 0.23374541103839874,
+      "g_adversarial": 2.0088884830474854,
+      "prior_loss": 0.02898537740111351,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 6,
+      "g_loss": 2.7276382446289062,
+      "d_loss": 0.42250823974609375,
+      "g_adversarial": 2.6997766494750977,
+      "prior_loss": 0.027861613780260086,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 7,
+      "g_loss": 2.6366541385650635,
+      "d_loss": 0.1671062856912613,
+      "g_adversarial": 2.609865188598633,
+      "prior_loss": 0.02678903192281723,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 8,
+      "g_loss": 3.363297939300537,
+      "d_loss": 0.14419105648994446,
+      "g_adversarial": 3.3375132083892822,
+      "prior_loss": 0.025784611701965332,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 9,
+      "g_loss": 4.340351104736328,
+      "d_loss": 0.09575854986906052,
+      "g_adversarial": 4.315532207489014,
+      "prior_loss": 0.02481895685195923,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 10,
+      "g_loss": 4.653949737548828,
+      "d_loss": 0.021341025829315186,
+      "g_adversarial": 4.630030632019043,
+      "prior_loss": 0.023919055238366127,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 11,
+      "g_loss": 5.0594401359558105,
+      "d_loss": 0.01422178465873003,
+      "g_adversarial": 5.036370277404785,
+      "prior_loss": 0.023069629445672035,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 12,
+      "g_loss": 5.61693000793457,
+      "d_loss": 0.01533704437315464,
+      "g_adversarial": 5.594676971435547,
+      "prior_loss": 0.022252943366765976,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 13,
+      "g_loss": 5.7656731605529785,
+      "d_loss": 0.00447503849864006,
+      "g_adversarial": 5.744205474853516,
+      "prior_loss": 0.021467741578817368,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 14,
+      "g_loss": 5.728581428527832,
+      "d_loss": 0.006039174273610115,
+      "g_adversarial": 5.7078657150268555,
+      "prior_loss": 0.020715681836009026,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 15,
+      "g_loss": 5.897987365722656,
+      "d_loss": 0.005587466061115265,
+      "g_adversarial": 5.878012657165527,
+      "prior_loss": 0.019974643364548683,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 16,
+      "g_loss": 6.089747905731201,
+      "d_loss": 0.0026101868133991957,
+      "g_adversarial": 6.070470809936523,
+      "prior_loss": 0.019277000799775124,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 17,
+      "g_loss": 6.123343467712402,
+      "d_loss": 0.002520499750971794,
+      "g_adversarial": 6.104728698730469,
+      "prior_loss": 0.018614565953612328,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 18,
+      "g_loss": 6.272487640380859,
+      "d_loss": 0.005972768645733595,
+      "g_adversarial": 6.254519939422607,
+      "prior_loss": 0.017967721447348595,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 19,
+      "g_loss": 6.381293296813965,
+      "d_loss": 0.0021314111072570086,
+      "g_adversarial": 6.363964080810547,
+      "prior_loss": 0.017329340800642967,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 20,
+      "g_loss": 6.445772171020508,
+      "d_loss": 0.0018470408394932747,
+      "g_adversarial": 6.429049491882324,
+      "prior_loss": 0.016722459346055984,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 21,
+      "g_loss": 6.521125316619873,
+      "d_loss": 0.001573579735122621,
+      "g_adversarial": 6.504999160766602,
+      "prior_loss": 0.01612618938088417,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 22,
+      "g_loss": 6.573428153991699,
+      "d_loss": 0.0018865503370761871,
+      "g_adversarial": 6.557867527008057,
+      "prior_loss": 0.015560847707092762,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 23,
+      "g_loss": 6.482287406921387,
+      "d_loss": 0.0022206869907677174,
+      "g_adversarial": 6.467278480529785,
+      "prior_loss": 0.01500890776515007,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 24,
+      "g_loss": 6.54495906829834,
+      "d_loss": 0.007003363221883774,
+      "g_adversarial": 6.530472755432129,
+      "prior_loss": 0.014486514031887054,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 25,
+      "g_loss": 5.8106689453125,
+      "d_loss": 0.0076719410717487335,
+      "g_adversarial": 5.796700477600098,
+      "prior_loss": 0.013968495652079582,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 26,
+      "g_loss": 6.550003528594971,
+      "d_loss": 0.012109688483178616,
+      "g_adversarial": 6.5365309715271,
+      "prior_loss": 0.013472437858581543,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 27,
+      "g_loss": 6.28029727935791,
+      "d_loss": 0.00428797397762537,
+      "g_adversarial": 6.267306804656982,
+      "prior_loss": 0.012990513816475868,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 28,
+      "g_loss": 6.688133716583252,
+      "d_loss": 0.0024860443081706762,
+      "g_adversarial": 6.675609588623047,
+      "prior_loss": 0.012524347752332687,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 29,
+      "g_loss": 7.202057838439941,
+      "d_loss": 0.0013143518008291721,
+      "g_adversarial": 7.1899847984313965,
+      "prior_loss": 0.01207294687628746,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 30,
+      "g_loss": 7.28999137878418,
+      "d_loss": 0.0009338386007584631,
+      "g_adversarial": 7.27834939956665,
+      "prior_loss": 0.011641740798950195,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 31,
+      "g_loss": 7.454723834991455,
+      "d_loss": 0.0007053094450384378,
+      "g_adversarial": 7.4435014724731445,
+      "prior_loss": 0.011222483590245247,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    },
+    {
+      "step": 32,
+      "g_loss": 7.5334343910217285,
+      "d_loss": 0.000536365550942719,
+      "g_adversarial": 7.522619724273682,
+      "prior_loss": 0.010814533568918705,
+      "gradient_penalty": 0.0,
+      "lr_scale": 1.0,
+      "actual_lrs": [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    }
+  ],
+  "diagnostics_enabled": {
+    "direction": false,
+    "features": false,
+    "crossed": false
+  },
+  "evaluation": {
+    "protocol": "joint-rate-fixed-bank",
+    "protocol_version": 2,
+    "observation_steps": [
+      0,
+      1,
+      8,
+      16,
+      32
+    ],
+    "requested_updates": 32,
+    "configured_training_horizon": 200000,
+    "batch_size": 64,
+    "execution_backend": "native",
+    "training_backend": {
+      "deterministic_algorithms": false,
+      "cudnn_deterministic": false,
+      "cudnn_benchmark": true,
+      "matmul_allow_tf32": true,
+      "cudnn_allow_tf32": true
+    },
+    "torch_version": "2.14.0+cu130",
+    "device_type": "cuda",
+    "device_hardware": "NVIDIA RTX A6000",
+    "diagnostics": {
+      "direction": false,
+      "features": false,
+      "crossed": false,
+      "observe_modules": [
+        "models.generator.network.nodes.n_input_projection",
+        "models.generator.network.nodes.n_stage8_block0_ffn",
+        "models.generator.network.nodes.n_stage8_block0",
+        "models.generator.network.nodes.n_stage8_block1_ffn",
+        "models.generator.network.nodes.n_stage8_block1",
+        "models.generator.network.nodes.n_stage16_upsample",
+        "models.generator.network.nodes.n_stage16_block0_ffn",
+        "models.generator.network.nodes.n_stage16_block0",
+        "models.generator.network.nodes.n_stage16_block1_ffn",
+        "models.generator.network.nodes.n_stage16_block1",
+        "models.generator.network.nodes.n_stage32_block1",
+        "models.generator.network.nodes.n_stage64_unwindows",
+        "models.generator.network.nodes.n_stage128_unwindows",
+        "models.generator.network.nodes.n_output_projection"
+      ]
+    },
+    "bank_sha256": "2f26fe77a6e60e3d5ef3bfb61e536dbdee9506973b010057e918f0e391db2059",
+    "measurement_rng_sha256": "32b606b91fb183b513321d72640146f7558a9673bfada4488c7fbb48b2e846a8",
+    "prior_rng_sha256": "095d71acf2c753e8437be0009037c0c6bc7d62d3318e384f9f0c4b7b2a1ee9af"
+  },
+  "timing_definition": "Synchronized wall time; training updates exclude observer callbacks. Diagnostics include observations and requested probes; setup, state audits, JSON writes and final restoration remain in elapsed time only.",
+  "interpretation": [
+    "Fixed latent values isolate G drift; replayed prior RNG fixes IDs/noise while allowing learned coordinates to evolve.",
+    "Observation bank starts at initial data/prior draw positions and may overlap training; it is not independent quality validation.",
+    "Protocol v2 disables implicit first/eighth response and crossed probes unless requested; historical total costs are not directly comparable.",
+    "Saturation, color variance and spatial statistics are descriptive, not sample quality or an acceptance decision."
+  ],
+  "prepared_parameters_sha256": "3a8c7c38b1166bf563c64025e135aad8c79f0c83aaa711afa8be2192c2450bff",
+  "real_bank_output_stats": {
+    "status": "finite",
+    "shape": [
+      64,
+      3,
+      128,
+      128
+    ],
+    "rms": 0.7436409084213006,
+    "std": 0.7348428971631474,
+    "absolute_max": 1.0,
+    "absolute_above_0_99_fraction": 0.24061870574951172,
+    "sample_diversity_rms": 0.7308387704551089,
+    "spatial_sample_diversity_rms": 0.510330384998357,
+    "per_image_spatial_rms": 0.5150121597951787,
+    "sample_mean_color_diversity_rms": 0.5231521829714217,
+    "mean_color_fraction_of_sample_variance": 0.5124044905631588,
+    "mean_absolute_horizontal_difference": 0.07481035185792805,
+    "mean_absolute_vertical_difference": 0.07696539081239387,
+    "pooled_4x4_sample_diversity_rms": 0.5891844266956378
+  },
+  "budget": {
+    "rollout_observation_generator_forwards": 10,
+    "completed_native_training_updates": 32
+  },
+  "timings": {
+    "training_update_seconds": 57.45470152597409,
+    "diagnostic_seconds": 27.313448437984334,
+    "observer_seconds_inside_update": 0.0,
+    "preparation_seconds": 0.0
+  },
+  "elapsed_seconds": 98.53258807200473,
+  "rollout_final_parameters_sha256": "2ec49e60589ba701b48dfec3530b0cfb34c982b127b6e79dc54b2b0cd5692c85",
+  "protected_before_sha256": "d77cb8fe8cf6e434dc384f5a7efc0546b028bbb77d587159cff710a5594cdb0f",
+  "protected_after_sha256": "d77cb8fe8cf6e434dc384f5a7efc0546b028bbb77d587159cff710a5594cdb0f",
+  "restored": true,
+  "protected_after_restore_sha256": "d77cb8fe8cf6e434dc384f5a7efc0546b028bbb77d587159cff710a5594cdb0f",
+  "source_config_unchanged": true
+}

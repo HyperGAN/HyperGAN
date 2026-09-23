@@ -66,6 +66,37 @@ async def get_bootstrap(service, **kwargs):
     return job.result
 
 
+def test_initialization_tuning_progress_is_public_and_updates_live(tmp_path):
+    manifest = fixture_run(tmp_path)
+    progress = {'status': 'running', 'candidate': 1, 'total_candidates': 3}
+    manifest.update(status='tuning', initialization_tuning=progress)
+    atomic_json(tmp_path / 'manifest.json', manifest)
+
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            assert service.public_manifest()['initialization_tuning'] == progress
+            subscriber, _ = service.subscribe('*')
+            result = {'status': 'complete', 'outcome': 'kept_baseline'}
+            warmup = {'steps': 4, 'completed_steps': 2, 'status': 'running', 'progress': 1 / 3,
+                      'g_lr': .00008, 'start_g_lr': .00002, 'target_g_lr': .0002}
+            manifest.update(status='running', initialization_tuning=result, g_lr_warmup=warmup)
+            atomic_json(tmp_path / 'manifest.json', manifest)
+            for _ in range(300):
+                message = await asyncio.wait_for(subscriber.get(), timeout=3)
+                if b'event: heartbeat' in message and b'kept_baseline' in message:
+                    break
+            else:
+                raise AssertionError('Tuning completion was not published')
+            assert service.public_manifest()['status'] == 'running'
+            assert service.public_manifest()['initialization_tuning'] == result
+            assert service.public_manifest()['g_lr_warmup'] == warmup
+            assert b'g_lr_warmup' in message
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
 def test_auth_api_schema_artifact_and_no_mapper(tmp_path, monkeypatch):
     fixture_run(tmp_path)
     import hypergan.event_views as maps
@@ -778,6 +809,66 @@ def test_default_retention_publishes_a_whole_run_history_to_the_viewer(tmp_path)
             generated = [value for value in previews.values()
                          if value['modality'] == 'image' and value['name'] == 'g']
             assert len(generated) == 60
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
+def test_real_tuned_run_establishes_viewer_lineage_before_tuning(tmp_path):
+    from hypergan.config import write_default
+    from hypergan.run_controller import CompletedUpdate, ExecutionInfo, run_train
+
+    class TuningExecution:
+        def __init__(self, config):
+            self.step = 0
+
+        def environment(self):
+            return {'runtime': {}, 'source': {}}
+
+        def start(self):
+            return ExecutionInfo(0, {}, [], {})
+
+        def tune(self, run_dir, on_event=None):
+            on_event({'phase': 'dynamics', 'stage': 'measure', 'trial_step': 1, 'trial_steps': 8})
+            return {'method': 'measured-update-response', 'outcome': 'unresolved',
+                    'dynamics_outcome': 'unresolved', 'selected_g_lr_factor': 1., 'selected_d_lr_factor': 1.,
+                    'dynamics_reason': 'Directional curvature unresolved'}
+
+        def checkpoint(self, run_dir, metadata):
+            target = run_dir / f'checkpoint-{self.step}'
+            target.mkdir()
+            atomic_json(target / 'manifest.json', dict(metadata, step=self.step))
+            return target
+
+        def update(self):
+            self.step += 1
+            return CompletedUpdate(self.step, {'g_loss': .5})
+
+        inference_available = False
+
+        def observe(self, callback, event):
+            callback(event)
+
+        def shutdown(self):
+            pass
+
+    root = tmp_path / 'run'
+    result = run_train(write_default(tmp_path / 'project', device='cpu'), root,
+                       steps=1, tune=True, execution_factory=TuningExecution)
+    events = [json.loads(line) for line in (root / 'events.jsonl').read_text().splitlines()]
+    assert events[0]['event'] == 'start' and events[0]['sequence'] == 1
+    assert any(row['event'] == 'tuning' for row in events[1:])
+    assert sum(row['event'] == 'start' for row in events) == 1
+    with Projector(root) as projector:
+        projector.project(limit=10000)
+
+    async def scenario():
+        service = await ObservationService(root, poll_seconds=.01).start()
+        try:
+            bootstrap = await get_bootstrap(service)
+            assert bootstrap['lineage'] == [{'attempt_id': result['attempt_id'], 'through_step': None}]
+            assert service.public_manifest()['initialization_tuning']['status'] == 'complete'
+            assert service.public_manifest()['initialization_tuning']['dynamics_outcome'] == 'unresolved'
         finally:
             await service.close()
     asyncio.run(scenario())

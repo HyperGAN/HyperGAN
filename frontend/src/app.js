@@ -141,6 +141,7 @@ const RUN_STATUS_LABELS = {
   initializing: "Starting",
   pending: "Starting",
   starting: "Starting",
+  tuning: "Tuning startup",
   running: "Training",
   training: "Training",
   complete: "Complete",
@@ -181,6 +182,66 @@ function duration(seconds) {
   if (total < 3600) return `${Math.floor(total / 60)}m ${pad(total % 60)}s`;
   return `${Math.floor(total / 3600)}h ${pad(Math.floor((total % 3600) / 60))}m`;
 }
+function updateInitializationTuning(tuning, warmup) {
+  const panel = $("initialization-tuning");
+  const labels = {pending: "Preparing startup tuning", running: "Tuning startup", complete: "Startup tuning complete",
+    failed: "Startup tuning failed"};
+  panel.hidden = !labels[tuning?.status];
+  if (panel.hidden) { panel.textContent = ""; return; }
+  panel.dataset.status = tuning.status;
+  panel.dataset.outcome = tuning.dynamics_outcome || "";
+  const parts = [tuning.status === "complete" && tuning.dynamics_outcome === "unresolved"
+    ? "Startup tuning unresolved" : labels[tuning.status]];
+  const factor = value => Number.isFinite(value) && value > 0 ? Number(value.toPrecision(4)).toString() : null;
+  const stages = {measure: "Measuring optimizer updates", fit: "Measuring gradient response",
+    validate: "Validating held-out response", replay: "Replaying proposed rates"};
+  const measured = tuning.method === "measured-update-response" || Boolean(stages[tuning.stage]);
+  if (tuning.status === "running") {
+    if (stages[tuning.stage]) parts.push(stages[tuning.stage]);
+    else if (tuning.phase === "initialization") parts.push("Initialization");
+    else if (tuning.phase === "dynamics") parts.push("Trial updates");
+  }
+  if (tuning.status === "running" && !measured && Number.isSafeInteger(tuning.candidate) && tuning.candidate > 0
+      && Number.isSafeInteger(tuning.total_candidates) && tuning.total_candidates >= tuning.candidate)
+    parts.push(`Candidate ${tuning.candidate} of ${tuning.total_candidates}`);
+  if (tuning.status === "running" && tuning.phase === "dynamics") {
+    if ((!measured || ["measure", "replay"].includes(tuning.stage))
+        && Number.isSafeInteger(tuning.trial_step) && tuning.trial_step >= 0
+        && Number.isSafeInteger(tuning.trial_steps) && tuning.trial_steps > 0 && tuning.trial_step <= tuning.trial_steps)
+      parts.push(`Trial step ${tuning.trial_step} of ${tuning.trial_steps}`);
+    const gFactor = tuning.g_lr_factor ?? tuning.lr_factor;
+    if (factor(gFactor)) parts.push(`G learning rate × ${factor(gFactor)}`);
+    if (factor(tuning.d_lr_factor)) parts.push(`D learning rate × ${factor(tuning.d_lr_factor)}`);
+  }
+  if (tuning.status === "complete") {
+    if (!measured && tuning.outcome === "kept_baseline") parts.push("Kept baseline initialization");
+    else if (!measured && tuning.outcome === "selected") parts.push("Applied tuned initialization");
+    if (tuning.dynamics_outcome === "selected") {
+      if (factor(tuning.selected_g_lr_factor)) parts.push(`Selected G learning rate × ${factor(tuning.selected_g_lr_factor)}`);
+      if (factor(tuning.selected_d_lr_factor)) parts.push(`Selected D learning rate × ${factor(tuning.selected_d_lr_factor)}`);
+    }
+    else if (tuning.dynamics_outcome === "kept_baseline") parts.push(measured
+      ? "Kept configured G and D learning rates" : factor(tuning.selected_d_lr_factor)
+      ? "Configured G and D learning rates passed" : "Configured G learning rate passed");
+    else if (tuning.dynamics_outcome === "unresolved") parts.push(measured
+      ? "No measured adjustment accepted; kept configured G and D learning rates" : factor(tuning.selected_d_lr_factor)
+      ? "No rate candidate passed; kept configured G and D learning rates" : "No rate candidate passed; kept configured G learning rate");
+    else if (tuning.dynamics_outcome === "skipped") parts.push(measured ? "Measured update tuning skipped" : "Dynamics check skipped");
+    if (typeof tuning.dynamics_reason === "string" && tuning.dynamics_reason.trim())
+      parts.push(tuning.dynamics_reason.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240));
+  }
+  if (typeof tuning.message === "string" && tuning.message.trim())
+    parts.push(tuning.message.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 240));
+  if (tuning.status === "complete" && Number.isSafeInteger(warmup?.steps) && warmup.steps >= 2
+      && Number.isSafeInteger(warmup.completed_steps) && warmup.completed_steps >= 0
+      && warmup.completed_steps <= warmup.steps) {
+    parts.push(warmup.status === "complete" ? "G learning-rate warmup complete"
+      : `G learning-rate warmup · Update ${warmup.completed_steps} of ${warmup.steps}`);
+    if (factor(warmup.g_lr)) parts.push(`Current G learning rate ${factor(warmup.g_lr)}`);
+    if (factor(warmup.target_g_lr)) parts.push(`Configured target ${factor(warmup.target_g_lr)} before annealing`);
+  }
+  panel.textContent = parts.join(" · ");
+}
 function updateRun(run) {
   state.run = run;
   evaluations.update(state.catalog, run);
@@ -192,6 +253,7 @@ function updateRun(run) {
   }
   $("run-status").textContent = statusLabel(run.status);
   $("run-status").dataset.status = run.status || "unknown";
+  updateInitializationTuning(run.initialization_tuning, run.g_lr_warmup);
   $("step").textContent = fmt(run.steps);
   $("steps-per-second").textContent = rate(run.steps_per_second);
   $("training-time").textContent = duration(run.training_seconds);

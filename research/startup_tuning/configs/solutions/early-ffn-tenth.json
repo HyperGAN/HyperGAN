@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "early-ffn-tenth",
+  "algorithm": "fixed",
+  "description": "Empirical 32-update causal ablation: reduce only the four early FFN down-weight Adam rates tenfold, preserving initialization and every other rate. Not a GeN/Newton estimate, not emitted by the abstaining grouped probe, and not a proposed production rate. Tests whether their updates contribute to early saturation; does not measure independent sample quality.",
+  "options": {
+    "layer_lr_multipliers": [
+      {"pattern": "graph.models.generator.network.nodes.n_stage8_block0_ffn.down.weight", "multiplier": 0.1},
+      {"pattern": "graph.models.generator.network.nodes.n_stage8_block1_ffn.down.weight", "multiplier": 0.1},
+      {"pattern": "graph.models.generator.network.nodes.n_stage16_block0_ffn.down.weight", "multiplier": 0.1},
+      {"pattern": "graph.models.generator.network.nodes.n_stage16_block1_ffn.down.weight", "multiplier": 0.1}
+    ]
+  }
+}

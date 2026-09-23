@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "quantized-ema-preview-inspection",
+  "run_dir": "/home/martyn/dev/hypergan/training-runs/train-transgan-dinov3-multidepth-64-init-v2",
+  "run_id": "6c49528376ad425db3ee97ee12deeb57",
+  "source_commit": "6bbdf60e8ce63891e444c52bfc881e0f7f8d9bc3",
+  "observed_status": "running",
+  "observed_step": 166,
+  "possible_lost_steps": 166,
+  "last_durable_step": 0,
+  "initialization_tuning_present": false,
+  "preview_count": 16,
+  "preview_seed": 35002,
+  "saturation_definition": "PNG byte/127.5 - 1; fraction of channel values with absolute value above 0.99. Quantization can cross the threshold by about 0.004.",
+  "diversity_definition": "Trainer pairwise RMS recorded as diversity/generated_rms. PNG population RMS times sqrt(2*N/(N-1)), N=16, matches those recorded values.",
+  "rows": [
+    {
+      "step": 0,
+      "generated_saturation_above_0_99": 0.0303802490234375,
+      "generated_diversity_rms": 0.8308961985703495,
+      "real_saturation_above_0_99": 0.20473734537760416,
+      "real_diversity_rms": 0.9804573582412867,
+      "pooled4_generated_rms": 0.1460366884880676,
+      "pooled4_ratio": 0.17434555038412225
+    },
+    {
+      "step": 100,
+      "generated_saturation_above_0_99": 0.8046620686848959,
+      "generated_diversity_rms": 0.21621171185005836,
+      "diversity_retention": 0.260214,
+      "real_saturation_above_0_99": 0.22339884440104166,
+      "real_diversity_rms": 0.9934096089547257,
+      "pooled4_generated_rms": 0.030847692772556026,
+      "pooled4_ratio": 0.04003922058351676,
+      "g_loss": 8.7603,
+      "d_adversarial": 0.0003
+    }
+  ],
+  "loss_samples": [
+    {"step": 10, "g_total": 4.5594, "d_adversarial": 0.0611, "gradient_penalty": 0.0},
+    {"step": 40, "g_total": 6.9354, "d_adversarial": 0.0013, "gradient_penalty": 0.6216},
+    {"step": 80, "g_total": 7.6335, "d_adversarial": 0.0005, "gradient_penalty": 2.5162},
+    {"step": 120, "g_total": 9.7506, "d_adversarial": 0.0001, "gradient_penalty": 0.0015},
+    {"step": 160, "g_total": 10.0957, "d_adversarial": 0.0001, "gradient_penalty": 0.0016}
+  ],
+  "not_a_benchmark_row": true
+}

@@ -1,0 +1,1912 @@
+{
+  "schema_version": 1,
+  "experiments": [
+    {
+      "name": "transgan-init-v2-tuned-100",
+      "run": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100",
+      "probe_directory": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2",
+      "probe_summary": {
+        "run_dir": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100",
+        "configured_batch_size": 64,
+        "device": "cuda:0",
+        "rows": [
+          {
+            "step": 0,
+            "input_mode": "fixed_ids_noise",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000000-fixed_ids_noise.json",
+            "summary": {
+              "generated_output_gradient_rms": 3.5100044897262705e-06,
+              "generated_output_gradient_rms_times_batch_size": 0.00022464028734248132,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.6981118875275204,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 0.17686820030212402,
+                    "mean": -0.17634525895118713,
+                    "std": 0.013590695336461067,
+                    "abs_max": 0.2015189528465271,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.007730204612016678,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 3.5100044897262705e-06,
+                      "gradient_to_score_rms_ratio": 0.00045406359416022893
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.011683614866331361,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+              "output_rms": 0.5159794688224792,
+              "sample_diversity_rms": 0.45532137155532837,
+              "mean_within_sample_std": 0.49672242999076843,
+              "min_within_sample_std": 0.4727421998977661,
+              "absolute_output_above_0_99_fraction": 0.00037320455885492265
+            },
+            "latent_rms_change_from_anchor": 0.0,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.049874186515808,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0011200904846191,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 0,
+            "input_mode": "fixed_latent_tensor",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000000-fixed_latent_tensor.json",
+            "summary": {
+              "generated_output_gradient_rms": 3.5100044897262705e-06,
+              "generated_output_gradient_rms_times_batch_size": 0.00022464028734248132,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.6981122761999727,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 0.17686820030212402,
+                    "mean": -0.17634525895118713,
+                    "std": 0.013590695336461067,
+                    "abs_max": 0.2015189528465271,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.007730204612016678,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 3.5100044897262705e-06,
+                      "gradient_to_score_rms_ratio": 0.00045406359416022893
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.011683597164159478,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+              "output_rms": 0.5159794688224792,
+              "sample_diversity_rms": 0.45532137155532837,
+              "mean_within_sample_std": 0.49672242999076843,
+              "min_within_sample_std": 0.4727421998977661,
+              "absolute_output_above_0_99_fraction": 0.00037320455885492265
+            },
+            "latent_rms_change_from_anchor": 0.0,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.049874186515808,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0011200904846191,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 20,
+            "input_mode": "fixed_ids_noise",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000020-fixed_ids_noise.json",
+            "summary": {
+              "generated_output_gradient_rms": 7.162084330047946e-06,
+              "generated_output_gradient_rms_times_batch_size": 0.00045837339712306857,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.03583678210035944,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 4.083742618560791,
+                    "mean": -4.083742141723633,
+                    "std": 0.0018019693670794368,
+                    "abs_max": 4.087237358093262,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.015595859847962856,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 7.162084330047946e-06,
+                      "gradient_to_score_rms_ratio": 0.00045922984688679823
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.8664388359616495,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.0019681307021528482,
+              "output_rms": 0.9965608716011047,
+              "sample_diversity_rms": 0.02922951430082321,
+              "mean_within_sample_std": 0.9261108636856079,
+              "min_within_sample_std": 0.9250935316085815,
+              "absolute_output_above_0_99_fraction": 0.9741182327270508
+            },
+            "latent_rms_change_from_anchor": 0.030251018702983856,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.05000638961792,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.003227949142456,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 20,
+            "input_mode": "fixed_latent_tensor",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000020-fixed_latent_tensor.json",
+            "summary": {
+              "generated_output_gradient_rms": 4.226331384415971e-06,
+              "generated_output_gradient_rms_times_batch_size": 0.00027048520860262215,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.05620127868027301,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 4.083739280700684,
+                    "mean": -4.083738803863525,
+                    "std": 0.0018156118458136916,
+                    "abs_max": 4.0871052742004395,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.015595860779285431,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 4.226331384415971e-06,
+                      "gradient_to_score_rms_ratio": 0.00027099058168237976
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.866319158438392,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.0019706382881850004,
+              "output_rms": 0.9965599179267883,
+              "sample_diversity_rms": 0.029260050505399704,
+              "mean_within_sample_std": 0.9261090755462646,
+              "min_within_sample_std": 0.9250912070274353,
+              "absolute_output_above_0_99_fraction": 0.9741157293319702
+            },
+            "latent_rms_change_from_anchor": 0.0,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.049874186515808,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.003227949142456,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 100,
+            "input_mode": "fixed_ids_noise",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000100-fixed_ids_noise.json",
+            "summary": {
+              "generated_output_gradient_rms": 1.5166186130954884e-05,
+              "generated_output_gradient_rms_times_batch_size": 0.0009706359123811126,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.07179112006801877,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 7.159422397613525,
+                    "mean": -7.159414768218994,
+                    "std": 0.010470425710082054,
+                    "abs_max": 7.180362224578857,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.015624272637069225,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 1.5166186130954884e-05,
+                      "gradient_to_score_rms_ratio": 0.0009706810987778392
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.7976091765879099,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.004954418167471886,
+              "output_rms": 0.9859049916267395,
+              "sample_diversity_rms": 0.0693088099360466,
+              "mean_within_sample_std": 0.9169260263442993,
+              "min_within_sample_std": 0.9154926538467407,
+              "absolute_output_above_0_99_fraction": 0.9330991506576538
+            },
+            "latent_rms_change_from_anchor": 0.09140574187040329,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.0504566431045532,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0033881664276123,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 100,
+            "input_mode": "fixed_latent_tensor",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-tuned-100-probes-v2/step-00000100-fixed_latent_tensor.json",
+            "summary": {
+              "generated_output_gradient_rms": 1.034139859257266e-05,
+              "generated_output_gradient_rms_times_batch_size": 0.0006618495099246502,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.10387786346549066,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 7.159793853759766,
+                    "mean": -7.159786224365234,
+                    "std": 0.010323566384613514,
+                    "abs_max": 7.179166793823242,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.015624272637069225,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 1.034139859257266e-05,
+                      "gradient_to_score_rms_ratio": 0.0006618803212661093
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.7976177583654863,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.004954180680215359,
+              "output_rms": 0.9859078526496887,
+              "sample_diversity_rms": 0.06928294897079468,
+              "mean_within_sample_std": 0.9169350862503052,
+              "min_within_sample_std": 0.9155634045600891,
+              "absolute_output_above_0_99_fraction": 0.9331251978874207
+            },
+            "latent_rms_change_from_anchor": 0.0,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.049874186515808,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0033881664276123,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          }
+        ],
+        "interpretation": [
+          "Online saved G and D, not EMA, and no optimizer updates; all checkpoints use the same real batch.",
+          "fixed_ids_noise tracks the same learned particles and Gaussian epsilon; latent tensors may evolve.",
+          "fixed_latent_tensor holds startup latent coordinates fixed; prior gradients are intentionally disconnected in this control.",
+          "Both G and D evolve across checkpoints; changes are not attributable to either network alone.",
+          "Saved post-update probes differ from the next training G signal after the next D update.",
+          "The startup bank may overlap calibration or training inputs; it is a drift control, not an independent quality evaluation.",
+          "One matched bank and startup gradient statistics do not establish image quality or long-term stability.",
+          "Exact RNG replay requires the same CPU/CUDA backend and visible CUDA device inventory as the saved run.",
+          "Existing checkpoint directories are retained by the writer; this script never writes into the run."
+        ]
+      },
+      "detail": [
+        {
+          "step": 0,
+          "input_mode": "fixed_ids_noise",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "03563c949fe902e428b377200e390702ec69de3ff76db201cc6f0be30c3303a6",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.6123155355453491,
+              "gradient_rms": 2.450375859552878e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 0.6783747673034668,
+              "gradient_rms": 2.1892801669309847e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 0.6711741089820862,
+              "gradient_rms": 1.186887857329566e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 0.7338990569114685,
+              "gradient_rms": 1.0843052677955711e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 0.7638911604881287,
+              "gradient_rms": 1.0409618198536918e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 0.8936749696731567,
+              "gradient_rms": 1.1094739420514088e-06
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 0.699999988079071,
+              "gradient_rms": 2.6748950858745957e-06
+            }
+          ],
+          "branch_attribution": {
+            "paired_real_minus_fake_score": {
+              "mean": -0.02201952552422881,
+              "std": 0.06100192265448642,
+              "min": -0.14585158228874207,
+              "max": 0.1523037850856781,
+              "rms": 0.06485440672657569
+            },
+            "loss_to_fake_score_cotangent": {
+              "mean": -0.0077265378859010525,
+              "std": 0.00023806228730818499,
+              "min": -0.008406288921833038,
+              "max": -0.007243774831295013,
+              "rms": 0.007730204483382229
+            },
+            "cancellation_fraction": 0.47882259776672786,
+            "gradient_reconstruction": {
+              "relative_l2_error": 0.000881229774051338,
+              "maximum_relative_l2_error": 0.001,
+              "absolute_max_error": 3.632158041000366e-07
+            },
+            "total_image_gradient": {
+              "rms": 3.5100044579299086e-06,
+              "l2_norm": 0.006225414201270127,
+              "per_sample_norm_mean": 0.0005740566994063556,
+              "per_sample_norm_std": 0.0005253741983324289,
+              "sample_coordinate_pairwise_cosine_mean": 0.027872490556457595,
+              "sample_coordinate_alignment_valid_rows": 64,
+              "pooled_spatial_gradient": {
+                "2": {
+                  "block_mean_gradient_rms": 2.547721450059609e-06,
+                  "low_frequency_energy_fraction": 0.5268519005063332,
+                  "residual_high_frequency_energy_fraction": 0.4731480972200231
+                },
+                "4": {
+                  "block_mean_gradient_rms": 1.1508508298442902e-06,
+                  "low_frequency_energy_fraction": 0.10750353229793648,
+                  "residual_high_frequency_energy_fraction": 0.8924964664733305
+                },
+                "8": {
+                  "block_mean_gradient_rms": 7.083698154411256e-07,
+                  "low_frequency_energy_fraction": 0.04072909479823921,
+                  "residual_high_frequency_energy_fraction": 0.9592709049885328
+                },
+                "16": {
+                  "block_mean_gradient_rms": 3.4488090460056997e-07,
+                  "low_frequency_energy_fraction": 0.00965434827869026,
+                  "residual_high_frequency_energy_fraction": 0.9903456517240756
+                }
+              }
+            }
+          },
+          "branch_shares": {
+            "pixel_score": 0.057705611391792956,
+            "feature1_score": 0.07491500331883616,
+            "feature2_score": 0.18470789843461022,
+            "feature3_score": 0.3798405958188482,
+            "feature4_score": 0.3028308910359125
+          }
+        },
+        {
+          "step": 0,
+          "input_mode": "fixed_latent_tensor",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "03563c949fe902e428b377200e390702ec69de3ff76db201cc6f0be30c3303a6",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.6123155355453491,
+              "gradient_rms": 2.4503772237949306e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 0.6783747673034668,
+              "gradient_rms": 2.1892810764256865e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 0.6711741089820862,
+              "gradient_rms": 1.1868879710164038e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 0.7338990569114685,
+              "gradient_rms": 1.0843052677955711e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 0.7638911604881287,
+              "gradient_rms": 1.0409618198536918e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 0.8936749696731567,
+              "gradient_rms": 1.1094739420514088e-06
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 0.699999988079071,
+              "gradient_rms": 2.6748950858745957e-06
+            }
+          ],
+          "branch_attribution": {
+            "paired_real_minus_fake_score": {
+              "mean": -0.02201952552422881,
+              "std": 0.06100192265448642,
+              "min": -0.14585158228874207,
+              "max": 0.1523037850856781,
+              "rms": 0.06485440672657569
+            },
+            "loss_to_fake_score_cotangent": {
+              "mean": -0.0077265378859010525,
+              "std": 0.00023806228730818499,
+              "min": -0.008406288921833038,
+              "max": -0.007243774831295013,
+              "rms": 0.007730204483382229
+            },
+            "cancellation_fraction": 0.4788225977300177,
+            "gradient_reconstruction": {
+              "relative_l2_error": 0.0008812297706392205,
+              "maximum_relative_l2_error": 0.001,
+              "absolute_max_error": 3.632158041000366e-07
+            },
+            "total_image_gradient": {
+              "rms": 3.510004458164221e-06,
+              "l2_norm": 0.0062254142016857075,
+              "per_sample_norm_mean": 0.0005740566994063556,
+              "per_sample_norm_std": 0.0005253741983324289,
+              "sample_coordinate_pairwise_cosine_mean": 0.027872490702940983,
+              "sample_coordinate_alignment_valid_rows": 64,
+              "pooled_spatial_gradient": {
+                "2": {
+                  "block_mean_gradient_rms": 2.547721450017286e-06,
+                  "low_frequency_energy_fraction": 0.5268519004184885,
+                  "residual_high_frequency_energy_fraction": 0.47314809724379436
+                },
+                "4": {
+                  "block_mean_gradient_rms": 1.1508508302004281e-06,
+                  "low_frequency_energy_fraction": 0.10750353235011884,
+                  "residual_high_frequency_energy_fraction": 0.8924964664720985
+                },
+                "8": {
+                  "block_mean_gradient_rms": 7.083698162566687e-07,
+                  "low_frequency_energy_fraction": 0.0407290948865839,
+                  "residual_high_frequency_energy_fraction": 0.9592709051547232
+                },
+                "16": {
+                  "block_mean_gradient_rms": 3.448809046111257e-07,
+                  "low_frequency_energy_fraction": 0.009654348277992273,
+                  "residual_high_frequency_energy_fraction": 0.9903456517115424
+                }
+              }
+            }
+          },
+          "branch_shares": {
+            "pixel_score": 0.05770561138832401,
+            "feature1_score": 0.07491500331911194,
+            "feature2_score": 0.1847078984352902,
+            "feature3_score": 0.37984059582024654,
+            "feature4_score": 0.3028308910370273
+          }
+        },
+        {
+          "step": 20,
+          "input_mode": "fixed_ids_noise",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "fd783814950e98f85167c6be85f41b886a07301b9f0b4039061652c9dd3223b1",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.612373411655426,
+              "gradient_rms": 2.5666605552032706e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 1.9212719202041626,
+              "gradient_rms": 2.281789619473784e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 4.8416666984558105,
+              "gradient_rms": 1.2466401244637382e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 5.186605930328369,
+              "gradient_rms": 1.24048810334898e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 5.248241901397705,
+              "gradient_rms": 1.2387874903652119e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 5.27581262588501,
+              "gradient_rms": 1.237857532032649e-07
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 9.850261688232422,
+              "gradient_rms": 3.1742749229124456e-07
+            }
+          ],
+          "branch_attribution": {
+            "paired_real_minus_fake_score": {
+              "mean": 6.4774537943303585,
+              "std": 0.4321681958679611,
+              "min": 3.750953435897827,
+              "max": 6.884949207305908,
+              "rms": 6.491854666210922
+            },
+            "loss_to_fake_score_cotangent": {
+              "mean": -0.015595802309690043,
+              "std": 4.242013916245957e-05,
+              "min": -0.015609030611813068,
+              "max": -0.015266313217580318,
+              "rms": 0.015595860000369966
+            },
+            "cancellation_fraction": 0.4985788888558028,
+            "gradient_reconstruction": {
+              "relative_l2_error": 0.0006065515334298775,
+              "maximum_relative_l2_error": 0.001,
+              "absolute_max_error": 3.979075700044632e-07
+            },
+            "total_image_gradient": {
+              "rms": 7.1620840437847415e-06,
+              "l2_norm": 0.012702815694759458,
+              "per_sample_norm_mean": 0.0009815205121412873,
+              "per_sample_norm_std": 0.0012481551384553313,
+              "sample_coordinate_pairwise_cosine_mean": 0.7623928681844366,
+              "sample_coordinate_alignment_valid_rows": 64,
+              "pooled_spatial_gradient": {
+                "2": {
+                  "block_mean_gradient_rms": 5.235280033847323e-06,
+                  "low_frequency_energy_fraction": 0.5343194802163003,
+                  "residual_high_frequency_energy_fraction": 0.46568051659351933
+                },
+                "4": {
+                  "block_mean_gradient_rms": 1.6459915507799139e-06,
+                  "low_frequency_energy_fraction": 0.0528173219804806,
+                  "residual_high_frequency_energy_fraction": 0.9471826749868993
+                },
+                "8": {
+                  "block_mean_gradient_rms": 1.0863109952596978e-06,
+                  "low_frequency_energy_fraction": 0.023005386011396053,
+                  "residual_high_frequency_energy_fraction": 0.9769946131701356
+                },
+                "16": {
+                  "block_mean_gradient_rms": 6.534596501403843e-07,
+                  "low_frequency_energy_fraction": 0.008324510892434462,
+                  "residual_high_frequency_energy_fraction": 0.9916754906065637
+                }
+              }
+            }
+          },
+          "branch_shares": {
+            "pixel_score": 0.05587126651074636,
+            "feature1_score": 0.26075961229357536,
+            "feature2_score": 0.2824193756955139,
+            "feature3_score": 0.1445311403931579,
+            "feature4_score": 0.25641860510700654
+          }
+        },
+        {
+          "step": 20,
+          "input_mode": "fixed_latent_tensor",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "03563c949fe902e428b377200e390702ec69de3ff76db201cc6f0be30c3303a6",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.6123020648956299,
+              "gradient_rms": 2.3752522793074604e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 1.9214493036270142,
+              "gradient_rms": 2.0941969580690056e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 4.841831684112549,
+              "gradient_rms": 9.95694335870212e-08
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 5.186769485473633,
+              "gradient_rms": 9.913591725307924e-08
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 5.248404502868652,
+              "gradient_rms": 9.891644481285766e-08
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 5.275975704193115,
+              "gradient_rms": 9.921431143311565e-08
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 9.850587844848633,
+              "gradient_rms": 2.526584239603835e-07
+            }
+          ],
+          "branch_attribution": {
+            "paired_real_minus_fake_score": {
+              "mean": 6.477450642734766,
+              "std": 0.43215961420962956,
+              "min": 3.7510297298431396,
+              "max": 6.884988784790039,
+              "rms": 6.49185095032371
+            },
+            "loss_to_fake_score_cotangent": {
+              "mean": -0.015595802658936009,
+              "std": 4.241687429589351e-05,
+              "min": -0.015609031543135643,
+              "max": -0.015266339294612408,
+              "rms": 0.01559586034073467
+            },
+            "cancellation_fraction": 0.5784240793367704,
+            "gradient_reconstruction": {
+              "relative_l2_error": 0.0008626440202192307,
+              "maximum_relative_l2_error": 0.001,
+              "absolute_max_error": 3.605455276556313e-07
+            },
+            "total_image_gradient": {
+              "rms": 4.2263315032133415e-06,
+              "l2_norm": 0.007495906194631122,
+              "per_sample_norm_mean": 0.0007744359318166971,
+              "per_sample_norm_std": 0.0005274429568089545,
+              "sample_coordinate_pairwise_cosine_mean": 0.7860095991563074,
+              "sample_coordinate_alignment_valid_rows": 64,
+              "pooled_spatial_gradient": {
+                "2": {
+                  "block_mean_gradient_rms": 3.032815444640703e-06,
+                  "low_frequency_energy_fraction": 0.5149497457152803,
+                  "residual_high_frequency_energy_fraction": 0.48505025216670067
+                },
+                "4": {
+                  "block_mean_gradient_rms": 1.341758362100154e-06,
+                  "low_frequency_energy_fraction": 0.10079094173524558,
+                  "residual_high_frequency_energy_fraction": 0.8992090599726764
+                },
+                "8": {
+                  "block_mean_gradient_rms": 9.177496003749164e-07,
+                  "low_frequency_energy_fraction": 0.0471542986781486,
+                  "residual_high_frequency_energy_fraction": 0.9528457023648353
+                },
+                "16": {
+                  "block_mean_gradient_rms": 6.443305276882183e-07,
+                  "low_frequency_energy_fraction": 0.023242899178395796,
+                  "residual_high_frequency_energy_fraction": 0.9767570986044232
+                }
+              }
+            }
+          },
+          "branch_shares": {
+            "pixel_score": 0.07961581974661179,
+            "feature1_score": 0.2648864049731599,
+            "feature2_score": 0.21137049005468142,
+            "feature3_score": 0.16847956034184047,
+            "feature4_score": 0.27564772488370637
+          }
+        },
+        {
+          "step": 100,
+          "input_mode": "fixed_ids_noise",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "d628612245b9948d26d47190185af90518272cbf229e4aa9d10943cccbce77f5",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.613013744354248,
+              "gradient_rms": 1.088797489501303e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 4.399425506591797,
+              "gradient_rms": 9.785816246221657e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 9.306840896606445,
+              "gradient_rms": 6.038259243723587e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 9.932090759277344,
+              "gradient_rms": 6.03789032993518e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 10.025434494018555,
+              "gradient_rms": 6.052259777789004e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 10.07162857055664,
+              "gradient_rms": 6.115574819887115e-07
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 19.90118408203125,
+              "gradient_rms": 1.5733307918708306e-06
+            }
+          ],
+          "branch_attribution": {
+            "paired_real_minus_fake_score": {
+              "mean": 11.089117929339409,
+              "std": 1.0908468911302527,
+              "min": 6.911888122558594,
+              "max": 12.188691139221191,
+              "rms": 11.142642567662541
+            },
+            "loss_to_fake_score_cotangent": {
+              "mean": -0.015624272738932632,
+              "std": 2.133791363489225e-06,
+              "min": -0.015624920837581158,
+              "max": -0.015609455294907093,
+              "rms": 0.01562427288463751
+            },
+            "cancellation_fraction": 0.21314581050874737,
+            "gradient_reconstruction": {
+              "relative_l2_error": 0.00029881695645343016,
+              "maximum_relative_l2_error": 0.001,
+              "absolute_max_error": 6.365589797496796e-07
+            },
+            "total_image_gradient": {
+              "rms": 1.5166185326027594e-05,
+              "l2_norm": 0.026899050026685797,
+              "per_sample_norm_mean": 0.001536121009849012,
+              "per_sample_norm_std": 0.002990976208820939,
+              "sample_coordinate_pairwise_cosine_mean": 0.8232771797026176,
+              "sample_coordinate_alignment_valid_rows": 64,
+              "pooled_spatial_gradient": {
+                "2": {
+                  "block_mean_gradient_rms": 1.1193650504095706e-05,
+                  "low_frequency_energy_fraction": 0.5447418841607049,
+                  "residual_high_frequency_energy_fraction": 0.4552581058561342
+                },
+                "4": {
+                  "block_mean_gradient_rms": 4.174521144234832e-06,
+                  "low_frequency_energy_fraction": 0.0757636018289742,
+                  "residual_high_frequency_energy_fraction": 0.9242363995601164
+                },
+                "8": {
+                  "block_mean_gradient_rms": 3.615480641034671e-06,
+                  "low_frequency_energy_fraction": 0.05683022345358996,
+                  "residual_high_frequency_energy_fraction": 0.9431697794824032
+                },
+                "16": {
+                  "block_mean_gradient_rms": 2.972467217358824e-06,
+                  "low_frequency_energy_fraction": 0.038413283361940706,
+                  "residual_high_frequency_energy_fraction": 0.961586716863562
+                }
+              }
+            }
+          },
+          "branch_shares": {
+            "pixel_score": 0.21752578203820203,
+            "feature1_score": 0.1094701608357406,
+            "feature2_score": 0.18578705513327354,
+            "feature3_score": 0.2773210416318177,
+            "feature4_score": 0.20989596036096614
+          }
+        },
+        {
+          "step": 100,
+          "input_mode": "fixed_latent_tensor",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "03563c949fe902e428b377200e390702ec69de3ff76db201cc6f0be30c3303a6",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.6126769185066223,
+              "gradient_rms": 1.07424239104148e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 4.399748802185059,
+              "gradient_rms": 9.630218755773967e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 9.307120323181152,
+              "gradient_rms": 5.090712420496857e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 9.932360649108887,
+              "gradient_rms": 5.08380537667108e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 10.025699615478516,
+              "gradient_rms": 5.094269113214978e-07
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 10.071892738342285,
+              "gradient_rms": 5.119405273035227e-07
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 19.90174102783203,
+              "gradient_rms": 1.3091594155412167e-06
+            }
+          ],
+          "branch_attribution": {
+            "paired_real_minus_fake_score": {
+              "mean": 11.089489191770554,
+              "std": 1.0909150344377152,
+              "min": 6.912210464477539,
+              "max": 12.189681053161621,
+              "rms": 11.14301871786807
+            },
+            "loss_to_fake_score_cotangent": {
+              "mean": -0.015624273029970936,
+              "std": 2.133177640683861e-06,
+              "min": -0.015624920837581158,
+              "max": -0.015609459951519966,
+              "rms": 0.01562427317559201
+            },
+            "cancellation_fraction": 0.28219603457012943,
+            "gradient_reconstruction": {
+              "relative_l2_error": 0.0008581118575415943,
+              "maximum_relative_l2_error": 0.001,
+              "absolute_max_error": 2.193148247897625e-06
+            },
+            "total_image_gradient": {
+              "rms": 1.0341397965789849e-05,
+              "l2_norm": 0.018341710538790353,
+              "per_sample_norm_mean": 0.001381835900247097,
+              "per_sample_norm_std": 0.0018294989131391048,
+              "sample_coordinate_pairwise_cosine_mean": 0.818057273237668,
+              "sample_coordinate_alignment_valid_rows": 64,
+              "pooled_spatial_gradient": {
+                "2": {
+                  "block_mean_gradient_rms": 7.883553727595654e-06,
+                  "low_frequency_energy_fraction": 0.5811464120912387,
+                  "residual_high_frequency_energy_fraction": 0.41885359145753237
+                },
+                "4": {
+                  "block_mean_gradient_rms": 3.9668577597674295e-06,
+                  "low_frequency_energy_fraction": 0.1471413559105981,
+                  "residual_high_frequency_energy_fraction": 0.8528586441602123
+                },
+                "8": {
+                  "block_mean_gradient_rms": 3.4599586133688735e-06,
+                  "low_frequency_energy_fraction": 0.11193948520605018,
+                  "residual_high_frequency_energy_fraction": 0.8880605162543266
+                },
+                "16": {
+                  "block_mean_gradient_rms": 2.9695913929679706e-06,
+                  "low_frequency_energy_fraction": 0.08245839721556017,
+                  "residual_high_frequency_energy_fraction": 0.9175416031422424
+                }
+              }
+            }
+          },
+          "branch_shares": {
+            "pixel_score": 0.29094499671302354,
+            "feature1_score": 0.09606348323975866,
+            "feature2_score": 0.1647178937172512,
+            "feature3_score": 0.2652189871195583,
+            "feature4_score": 0.1830546392104082
+          }
+        }
+      ],
+      "preview_metrics": [
+        {
+          "step": 0,
+          "metrics": {
+            "diversity/generated_rms": 0.6451674496657442,
+            "diversity/reference_rms": 0.9947166173560502,
+            "diversity/ratio": 0.6485942211165576,
+            "diversity/pooled4_generated_rms": 0.05727598925518081,
+            "diversity/pooled4_reference_rms": 0.837828839404614,
+            "diversity/pooled4_ratio": 0.06836239881153151
+          }
+        },
+        {
+          "step": 20,
+          "metrics": {
+            "diversity/generated_rms": 0.6308973636578977,
+            "diversity/reference_rms": 1.1261089948323755,
+            "diversity/ratio": 0.5602453817108606,
+            "diversity/pooled4_generated_rms": 0.05532862965214932,
+            "diversity/pooled4_reference_rms": 0.831410654081253,
+            "diversity/pooled4_ratio": 0.06654789589302292
+          }
+        },
+        {
+          "step": 40,
+          "metrics": {
+            "diversity/generated_rms": 0.5532154475759669,
+            "diversity/reference_rms": 1.106479723644907,
+            "diversity/ratio": 0.4999779352066152,
+            "diversity/pooled4_generated_rms": 0.04912960420614701,
+            "diversity/pooled4_reference_rms": 0.8911943790766672,
+            "diversity/pooled4_ratio": 0.05512782100022706
+          }
+        },
+        {
+          "step": 60,
+          "metrics": {
+            "diversity/generated_rms": 0.4110645746460461,
+            "diversity/reference_rms": 1.0155102415761001,
+            "diversity/ratio": 0.404786242242188,
+            "diversity/pooled4_generated_rms": 0.03646423456308898,
+            "diversity/pooled4_reference_rms": 0.7662503674095811,
+            "diversity/pooled4_ratio": 0.04758788525787145
+          }
+        },
+        {
+          "step": 80,
+          "metrics": {
+            "diversity/generated_rms": 0.29782822521644436,
+            "diversity/reference_rms": 1.0787479103717976,
+            "diversity/ratio": 0.2760869544709439,
+            "diversity/pooled4_generated_rms": 0.0233875103059765,
+            "diversity/pooled4_reference_rms": 0.8058674395486095,
+            "diversity/pooled4_ratio": 0.029021535252840774
+          }
+        },
+        {
+          "step": 100,
+          "metrics": {
+            "diversity/generated_rms": 0.252808586330913,
+            "diversity/reference_rms": 1.0175828901382884,
+            "diversity/ratio": 0.24844028804037438,
+            "diversity/pooled4_generated_rms": 0.01761994845890757,
+            "diversity/pooled4_reference_rms": 0.7708483824667449,
+            "diversity/pooled4_ratio": 0.022857865255581193
+          }
+        }
+      ]
+    },
+    {
+      "name": "transgan-init-v2-g-lr-0p1-100",
+      "run": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100",
+      "probe_directory": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2",
+      "probe_summary": {
+        "run_dir": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100",
+        "configured_batch_size": 64,
+        "device": "cuda:0",
+        "rows": [
+          {
+            "step": 0,
+            "input_mode": "fixed_ids_noise",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000000-fixed_ids_noise.json",
+            "summary": {
+              "generated_output_gradient_rms": 3.510399665174191e-06,
+              "generated_output_gradient_rms_times_batch_size": 0.00022466557857114822,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.6980973580956313,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 0.17686815559864044,
+                    "mean": -0.17634522914886475,
+                    "std": 0.01359074842184782,
+                    "abs_max": 0.20151899755001068,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.007730204612016678,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 3.510399665174191e-06,
+                      "gradient_to_score_rms_ratio": 0.0004541147151159803
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.011683597164159478,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+              "output_rms": 0.5159794688224792,
+              "sample_diversity_rms": 0.45532137155532837,
+              "mean_within_sample_std": 0.49672242999076843,
+              "min_within_sample_std": 0.4727421998977661,
+              "absolute_output_above_0_99_fraction": 0.00037320455885492265
+            },
+            "latent_rms_change_from_anchor": 0.0,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.049874186515808,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0011200904846191,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 0,
+            "input_mode": "fixed_latent_tensor",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000000-fixed_latent_tensor.json",
+            "summary": {
+              "generated_output_gradient_rms": 3.510399665174191e-06,
+              "generated_output_gradient_rms_times_batch_size": 0.00022466557857114822,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.6980980058101286,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 0.17686815559864044,
+                    "mean": -0.17634522914886475,
+                    "std": 0.01359074842184782,
+                    "abs_max": 0.20151899755001068,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.007730204612016678,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 3.510399665174191e-06,
+                      "gradient_to_score_rms_ratio": 0.0004541147151159803
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.011683614866331361,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.04271630197763443,
+              "output_rms": 0.5159794688224792,
+              "sample_diversity_rms": 0.45532137155532837,
+              "mean_within_sample_std": 0.49672242999076843,
+              "min_within_sample_std": 0.4727421998977661,
+              "absolute_output_above_0_99_fraction": 0.00037320455885492265
+            },
+            "latent_rms_change_from_anchor": 0.0,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.049874186515808,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0011200904846191,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 20,
+            "input_mode": "fixed_ids_noise",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000020-fixed_ids_noise.json",
+            "summary": {
+              "generated_output_gradient_rms": 1.5006606190581806e-05,
+              "generated_output_gradient_rms_times_batch_size": 0.0009604227961972356,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.3680202616518923,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 4.50718879699707,
+                    "mean": -4.507128715515137,
+                    "std": 0.02324121631681919,
+                    "abs_max": 4.5553717613220215,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.01555148046463728,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 1.5006606190581806e-05,
+                      "gradient_to_score_rms_ratio": 0.0009649631894986159
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.25610281172988414,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.02067626640200615,
+              "output_rms": 0.8274196982383728,
+              "sample_diversity_rms": 0.23321308195590973,
+              "mean_within_sample_std": 0.7281177639961243,
+              "min_within_sample_std": 0.7156932950019836,
+              "absolute_output_above_0_99_fraction": 0.13921038806438446
+            },
+            "latent_rms_change_from_anchor": 0.028002457693219185,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.0503844022750854,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0069043636322021,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 20,
+            "input_mode": "fixed_latent_tensor",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000020-fixed_latent_tensor.json",
+            "summary": {
+              "generated_output_gradient_rms": 9.188569492835086e-06,
+              "generated_output_gradient_rms_times_batch_size": 0.0005880684475414455,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 0.3730736917247546,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 4.507074356079102,
+                    "mean": -4.50701379776001,
+                    "std": 0.023350892588496208,
+                    "abs_max": 4.55507230758667,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.015551436692476273,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 9.188569492835086e-06,
+                      "gradient_to_score_rms_ratio": 0.0005908502008229556
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.2562174413355487,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.020762598142027855,
+              "output_rms": 0.8274844884872437,
+              "sample_diversity_rms": 0.23311863839626312,
+              "mean_within_sample_std": 0.7281503677368164,
+              "min_within_sample_std": 0.7151540517807007,
+              "absolute_output_above_0_99_fraction": 0.13936933875083923
+            },
+            "latent_rms_change_from_anchor": 0.0,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.049874186515808,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0069043636322021,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 100,
+            "input_mode": "fixed_ids_noise",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000100-fixed_ids_noise.json",
+            "summary": {
+              "generated_output_gradient_rms": 1.5594408978358842e-05,
+              "generated_output_gradient_rms_times_batch_size": 0.000998042174614966,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 1.795998701522445,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 7.372849464416504,
+                    "mean": -7.365418434143066,
+                    "std": 0.3309367001056671,
+                    "abs_max": 8.223471641540527,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.014772004447877407,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 1.5594408978358842e-05,
+                      "gradient_to_score_rms_ratio": 0.0010556731845961234
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.05138793514138755,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.4518919587135315,
+              "output_rms": 0.8514938950538635,
+              "sample_diversity_rms": 0.7789229154586792,
+              "mean_within_sample_std": 0.8257111310958862,
+              "min_within_sample_std": 0.7535712122917175,
+              "absolute_output_above_0_99_fraction": 0.26854801177978516
+            },
+            "latent_rms_change_from_anchor": 0.07979108393192291,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.050296664237976,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0217854976654053,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          },
+          {
+            "step": 100,
+            "input_mode": "fixed_latent_tensor",
+            "report": "/mnt/ml7tb/hypergan-signal-research/transgan-init-v2-g-lr-0p1-100-probes-v2/step-00000100-fixed_latent_tensor.json",
+            "summary": {
+              "generated_output_gradient_rms": 2.712347668420989e-05,
+              "generated_output_gradient_rms_times_batch_size": 0.001735902507789433,
+              "first_observed_module": "generator.network.nodes.n_input_projection",
+              "first_observed_to_output_rms_ratio": 1.1252046687580128,
+              "zero_gradient_activation_records": 0,
+              "unused_activation_records": 0,
+              "nonfinite_activation_records": 0,
+              "discriminator_profiles": [
+                {
+                  "term_id": "adversarial",
+                  "weight": 1.0,
+                  "fake_binding": {
+                    "path": "generated",
+                    "detach_sample": false,
+                    "detach_score": false
+                  },
+                  "real_binding": {
+                    "path": "batch.real",
+                    "detach_sample": false,
+                    "detach_score": true
+                  },
+                  "fake_score_activation": {
+                    "rms": 7.371477127075195,
+                    "mean": -7.363960266113281,
+                    "std": 0.33281582593917847,
+                    "abs_max": 8.215456008911133,
+                    "zero_fraction": 0.0,
+                    "nonfinite_fraction": 0.0
+                  },
+                  "fake_score_gradient_rms": 0.014765097759664059,
+                  "fake_score_status": "measured",
+                  "fake_input_gradients": [
+                    {
+                      "path": "discriminator[adversarial].input[kwargs][x]",
+                      "status": "measured",
+                      "gradient_rms": 2.712347668420989e-05,
+                      "gradient_to_score_rms_ratio": 0.0018369994649345969
+                    }
+                  ],
+                  "nonfinite_activation_records": 0,
+                  "zero_gradient_activation_records": 0
+                }
+              ]
+            },
+            "transmission_score": 0.0514362609436836,
+            "generated_statistics": {
+              "coarse_4x4_sample_diversity_rms": 0.4508008658885956,
+              "output_rms": 0.8516489863395691,
+              "sample_diversity_rms": 0.7779751420021057,
+              "mean_within_sample_std": 0.8251599073410034,
+              "min_within_sample_std": 0.7519709467887878,
+              "absolute_output_above_0_99_fraction": 0.2690509259700775
+            },
+            "latent_rms_change_from_anchor": 0.0,
+            "prior_statistics": {
+              "latent_batch_std_rms": 1.049874186515808,
+              "sigma": 0.322172075510025,
+              "raw_table_std_rms": 1.0217854976654053,
+              "read_means_std_rms": 0.9998769760131836
+            }
+          }
+        ],
+        "interpretation": [
+          "Online saved G and D, not EMA, and no optimizer updates; all checkpoints use the same real batch.",
+          "fixed_ids_noise tracks the same learned particles and Gaussian epsilon; latent tensors may evolve.",
+          "fixed_latent_tensor holds startup latent coordinates fixed; prior gradients are intentionally disconnected in this control.",
+          "Both G and D evolve across checkpoints; changes are not attributable to either network alone.",
+          "Saved post-update probes differ from the next training G signal after the next D update.",
+          "The startup bank may overlap calibration or training inputs; it is a drift control, not an independent quality evaluation.",
+          "One matched bank and startup gradient statistics do not establish image quality or long-term stability.",
+          "Exact RNG replay requires the same CPU/CUDA backend and visible CUDA device inventory as the saved run.",
+          "Existing checkpoint directories are retained by the writer; this script never writes into the run."
+        ]
+      },
+      "detail": [
+        {
+          "step": 0,
+          "input_mode": "fixed_ids_noise",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "03563c949fe902e428b377200e390702ec69de3ff76db201cc6f0be30c3303a6",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.6123155355453491,
+              "gradient_rms": 2.4506007321178913e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 0.6783747673034668,
+              "gradient_rms": 2.189479346270673e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 0.6711741089820862,
+              "gradient_rms": 1.1870241678479942e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 0.7338990569114685,
+              "gradient_rms": 1.0844293001355254e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 0.7638911604881287,
+              "gradient_rms": 1.0410803952254355e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 0.8936749696731567,
+              "gradient_rms": 1.109602067117521e-06
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 0.699999988079071,
+              "gradient_rms": 2.6751915811473737e-06
+            }
+          ]
+        },
+        {
+          "step": 0,
+          "input_mode": "fixed_latent_tensor",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "03563c949fe902e428b377200e390702ec69de3ff76db201cc6f0be30c3303a6",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.6123155355453491,
+              "gradient_rms": 2.4506030058546457e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 0.6783747673034668,
+              "gradient_rms": 2.1894795736443484e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 0.6711741089820862,
+              "gradient_rms": 1.1870240541611565e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 0.7338990569114685,
+              "gradient_rms": 1.0844293001355254e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 0.7638911604881287,
+              "gradient_rms": 1.0410803952254355e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 0.8936749696731567,
+              "gradient_rms": 1.109602067117521e-06
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 0.699999988079071,
+              "gradient_rms": 2.6751915811473737e-06
+            }
+          ]
+        },
+        {
+          "step": 20,
+          "input_mode": "fixed_ids_noise",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "ccd7f02348b55b73b3d4027b99be1038905ec27d827f5ce5edc61c8eb1bdd89c",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.612545907497406,
+              "gradient_rms": 5.5227351367648225e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 0.7266560792922974,
+              "gradient_rms": 4.851875473832479e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 1.0961458683013916,
+              "gradient_rms": 2.9076591090415604e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 1.2380449771881104,
+              "gradient_rms": 2.81023426396132e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 1.278342366218567,
+              "gradient_rms": 2.75680395134259e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 1.364212155342102,
+              "gradient_rms": 2.9482500849553617e-06
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 1.8255760669708252,
+              "gradient_rms": 7.17732200428145e-06
+            }
+          ]
+        },
+        {
+          "step": 20,
+          "input_mode": "fixed_latent_tensor",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "03563c949fe902e428b377200e390702ec69de3ff76db201cc6f0be30c3303a6",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.6122596859931946,
+              "gradient_rms": 3.428013542361441e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 0.7264403104782104,
+              "gradient_rms": 3.095836063948809e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 1.0963064432144165,
+              "gradient_rms": 1.8438323650116217e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 1.2382529973983765,
+              "gradient_rms": 1.7675713479547994e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 1.2785577774047852,
+              "gradient_rms": 1.731569454932469e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 1.3644142150878906,
+              "gradient_rms": 1.8230037994726445e-06
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 1.8261473178863525,
+              "gradient_rms": 4.584200723911636e-06
+            }
+          ]
+        },
+        {
+          "step": 100,
+          "input_mode": "fixed_ids_noise",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "d8249e47279c5693b101b2fb9eb9cc57c5421d18a6009a99afcf6ab1044d923f",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.6122187972068787,
+              "gradient_rms": 2.800753827614244e-05
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 0.6932157874107361,
+              "gradient_rms": 6.4328637563448865e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 1.013211965560913,
+              "gradient_rms": 1.6014731727409526e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 1.261526107788086,
+              "gradient_rms": 1.490718773311528e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 1.322014331817627,
+              "gradient_rms": 1.4513856285702786e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 1.5582401752471924,
+              "gradient_rms": 1.4969978110457305e-06
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 2.2383265495300293,
+              "gradient_rms": 3.786082061196794e-06
+            }
+          ]
+        },
+        {
+          "step": 100,
+          "input_mode": "fixed_latent_tensor",
+          "batch_real_sha256": "8ab72b9f623f373bbe03880abf42a0faad1ca830cb4a2148680eaacef48ff906",
+          "latent_sha256": "03563c949fe902e428b377200e390702ec69de3ff76db201cc6f0be30c3303a6",
+          "frozen_sha256": "e66078889fc67072dde805c59970c8ba436a5e9c1aa2f6b1b1c4d3e0267a7f32",
+          "state_unchanged": true,
+          "activations": [
+            {
+              "path": "generator.network.nodes.n_input_projection",
+              "activation_rms": 0.612029492855072,
+              "gradient_rms": 3.0519462598022074e-05
+            },
+            {
+              "path": "generator.network.nodes.n_stage8_block1",
+              "activation_rms": 0.6930126547813416,
+              "gradient_rms": 9.747204785526264e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage16_block1",
+              "activation_rms": 1.0135120153427124,
+              "gradient_rms": 4.694589279097272e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage32_block1",
+              "activation_rms": 1.2618329524993896,
+              "gradient_rms": 4.479087692743633e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage64_block0",
+              "activation_rms": 1.3222488164901733,
+              "gradient_rms": 4.359702415968059e-06
+            },
+            {
+              "path": "generator.network.nodes.n_stage128_block1",
+              "activation_rms": 1.5588074922561646,
+              "gradient_rms": 4.555610757961404e-06
+            },
+            {
+              "path": "generator.network.nodes.n_output_projection",
+              "activation_rms": 2.239009380340576,
+              "gradient_rms": 1.1753577382478397e-05
+            }
+          ]
+        }
+      ],
+      "preview_metrics": [
+        {
+          "step": 0,
+          "metrics": {
+            "diversity/generated_rms": 0.6451674496657442,
+            "diversity/reference_rms": 0.9947166173560502,
+            "diversity/ratio": 0.6485942211165576,
+            "diversity/pooled4_generated_rms": 0.05727598925518081,
+            "diversity/pooled4_reference_rms": 0.837828839404614,
+            "diversity/pooled4_ratio": 0.06836239881153151
+          }
+        },
+        {
+          "step": 20,
+          "metrics": {
+            "diversity/generated_rms": 0.6456921258368203,
+            "diversity/reference_rms": 1.1261089948323755,
+            "diversity/ratio": 0.5733833303879554,
+            "diversity/pooled4_generated_rms": 0.057414307670004446,
+            "diversity/pooled4_reference_rms": 0.831410654081253,
+            "diversity/pooled4_ratio": 0.06905649739772687
+          }
+        },
+        {
+          "step": 40,
+          "metrics": {
+            "diversity/generated_rms": 0.6453667580381464,
+            "diversity/reference_rms": 1.106479723644907,
+            "diversity/ratio": 0.5832612602354911,
+            "diversity/pooled4_generated_rms": 0.057223568746416154,
+            "diversity/pooled4_reference_rms": 0.8911943790766672,
+            "diversity/pooled4_ratio": 0.06420997493914103
+          }
+        },
+        {
+          "step": 60,
+          "metrics": {
+            "diversity/generated_rms": 0.6371121768467964,
+            "diversity/reference_rms": 1.0155102415761001,
+            "diversity/ratio": 0.627381340692321,
+            "diversity/pooled4_generated_rms": 0.05680562898632508,
+            "diversity/pooled4_reference_rms": 0.7662503674095811,
+            "diversity/pooled4_ratio": 0.07413455366861961
+          }
+        },
+        {
+          "step": 80,
+          "metrics": {
+            "diversity/generated_rms": 0.6299656718651321,
+            "diversity/reference_rms": 1.0787479103717976,
+            "diversity/ratio": 0.5839785790621,
+            "diversity/pooled4_generated_rms": 0.05825230024999226,
+            "diversity/pooled4_reference_rms": 0.8058674395486095,
+            "diversity/pooled4_ratio": 0.07228521390890433
+          }
+        },
+        {
+          "step": 100,
+          "metrics": {
+            "diversity/generated_rms": 0.6283826466688888,
+            "diversity/reference_rms": 1.0175828901382884,
+            "diversity/ratio": 0.6175247763683333,
+            "diversity/pooled4_generated_rms": 0.06539374639100197,
+            "diversity/pooled4_reference_rms": 0.7708483824667449,
+            "diversity/pooled4_ratio": 0.084833474232299
+          }
+        }
+      ]
+    }
+  ],
+  "interpretation": [
+    "Same configured seed; substantive learning-rate intervention, not a seed sweep.",
+    "Matched real images/particle IDs/noise; fixed-latent control isolates effects of prior coordinate drift on the probe.",
+    "All measurements use online G/D except explicitly labeled preview metrics (EMA).",
+    "No independent image-quality or long-term stability claim.",
+    "Branch reconstruction accepts aggregate relative L2 error at most 0.001 under configured TF32."
+  ],
+  "controlled_initial_state_comparison": {
+    "graph": true,
+    "prior": true,
+    "ema_graph": true,
+    "ema_prior": true,
+    "streams": true,
+    "rng": true,
+    "base_lrs": [
+      [
+        [
+          0.0002,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ],
+      [
+        [
+          2e-05,
+          0.002
+        ],
+        [
+          0.0002
+        ]
+      ]
+    ]
+  }
+}

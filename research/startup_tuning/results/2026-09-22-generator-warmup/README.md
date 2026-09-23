@@ -22,6 +22,7 @@ Initialization and all measurement-bank/RNG identity hashes match baseline.
 | 4:1 warmup at original G rate | 99.999650% | 0.006670% | 29.2759 |
 | Same + interpolation penalty-only D steps | 99.992975% | 95.147612% | 59.3472 |
 | Same interpolation, G rate/4 during warmup only | 94.662317% | 41.351698% | 12.7248 |
+| Same interpolation, retain G rate/4 after warmup | 81.709735% | 46.846280% | 6.3481 |
 
 Extra unchanged-rate G updates did not calm saturation in this128-round window.
 By round16 (64 G updates), saturation was99.9853% and diversity0.0567% of real.
@@ -73,9 +74,54 @@ Fixed-latent measurements are similar (94.67%sat/41.26%pixel diversity), so lear
 prior motion does not explain away the measured failure. Real saturation is24.06%.
 Elapsed416.65s; restoration/source/protected audits pass. This control finished.
 
-Final control now running: keep the selected G rate5e-5 after round32 while
-ending extra G/penalty steps as before. This isolates the rate jump at handoff;
+Final control completed: keep the selected G rate5e-5 after round32 while
+ending extra G/penalty steps as before. The intended contrast is the rate jump at handoff;
 the post-warmup schedule is fixed1:1, not an adaptive controller.
+
+The two quarter-rate runs already diverge during their identically configured
+warmup (at round8, pixel diversity23.15% versus60.68% of real). Initial parameter
+and measurement/RNG hashes match; original nondeterministic CUDA/TF32 execution
+is retained. Therefore the final control tests a complete recipe, but comparing
+its ending to the previous run is NOT an exact paired estimate of the rate jump's
+effect. A causal handoff comparison should fork both continuations from the same
+saved warmup state. These disposable runs retain no checkpoints. No seed sweep.
+
+At128, the retained quarter-rate run has81.71%saturation,46.85%pixel diversity,
+67.03%spatial diversity and11.72%pooled diversity versus real. Pre-tanh RMS6.35
+is lower than in the other candidates, but saturation is still far above real's
+24.06%. Fixed-latent results are similar. Elapsed433.19s, all state audits pass.
+
+## Insights and limits
+
+- None of these finite warmups solved the saturation problem in128 rounds.
+  Extra unchanged-rate G updates alone still yield nearly identical outputs.
+- The interpolation-penalty run preserves substantial diversity while remaining
+  almost fully saturated. Critic regularization/training interactions matter;
+  it is too strong to say the critic has been completely exonerated.
+- Smaller G updates reduce activation amplitude in these observations, but
+  transient low saturation at round4 is not sufficient. Retaining a smaller
+  fixed rate also does not produce a healthy endpoint in this screen.
+- Low G/D losses, high raw diversity, low early saturation, and small updates
+  each miss different failure modes. Pixel, spatial and pooled variation need
+  to be considered together, and none substitutes for sample-quality validation.
+- The interpolation penalty constrains gradient magnitude, not direction toward
+  real images or semantic correctness. It does not establish an OCR/text mechanism.
+- No test proves Nash equilibrium or long-term failure. Returning to ordinary
+  training must be evaluated separately from the warmup transient. A causal
+  handoff test needs a shared saved warmup state, not separate nondeterministic
+  rollouts with the same seed.
+
+All four runs finished onGPU0, roughly6.6–7.2 minutes each including diagnostics;
+GPU1 remained untouched. Twelve focused CPU tests pass (six warmup plus six
+existing probe tests). All four restoration/source/protected-state audits pass.
+No production --tune default was changed, no ongoing controller was added, and
+PR382 remains unmerged. User requested compaction and discussion after completion;
+do not launch additional experiments without continuing that discussion.
+
+`outputs.csv` contains both fixed/evolving-prior banks and actual G/D/prior and
+penalty-only counts. `comparison.svg` plots saturation, spatial diversity and
+pre-tanh amplitude, with the end of warmup marked at round32. All values describe
+one64-image matched monitoring bank, not independent FID/quality measurements.
 
 Runner: `research/startup_tuning/generator_warmup_screen.py`; exact semantics in
 `testbeds/generator-warmup/README.md`. All raw artifacts for the completed case

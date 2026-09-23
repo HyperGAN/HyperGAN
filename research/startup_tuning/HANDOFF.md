@@ -1,38 +1,111 @@
-# Compaction handoff — 2026-09-22, healthy-control follow-up
+# Compaction handoff — 2026-09-22, finite generator warmup
 
-## Active continuation: finite generator-heavy warmup
+## Current stopping point
 
-User redirected research toward finite startup tuning, explicitly rejected an
-ongoing adaptive controller, and authorized128-step warmup tests. Priority is
-extra G updates at unchanged LR. New runner `generator_warmup_screen.py` applies
-32 rounds of1D:4G followed by96 rounds of1D:1G (224G/128D/128prior). Extra G steps
-hold prior fixed. Production --tune and all source recipes remain unchanged.
+User requested compaction and discussion of ideas/insights after the experiments
+wrap up. ALL FOUR RUNS HAVE FINISHED. No jobs or tool sessions remain pending.
+Do not start more experiments until the user continues the discussion.
+No robust fix is established. Production --tune is unchanged.
 
-Completed `logos_g4`:99.999650% saturation,0.006670% real pixel diversity at128;
-no recovery. Elapsed393.67s, restoration/protected/source audits passed. Results
-in `results/2026-09-22-generator-warmup/`. Source baseline reused at128, not rerun.
+User wants finite startup tuning leading to stable ordinary training, explicitly
+rejects an ongoing adaptive controller. Preferred testing extra G updates before
+lowering G LR. During the experiment the user explicitly selected a real–fake
+interpolation gradient penalty on the extra steps. Source recipes, original seed,
+model architecture and pretrained weights remain unchanged; no seed sweeps.
 
-User then explicitly selected real–fake interpolation penalty on extra steps.
-Completed onGPU0: `logos_g4_interp`, same schedule/rates plus separate penalty-only
-D Adam steps before extra G, coefficient1/lazy1, native cap/lazy8 unchanged.
-Penalty and extra G steps both end after32. Separate Adam avoids carried
-adversarial momentum; prior fixed on extras. At128:99.992975%sat,95.147612%realdiv,
-pre-tanh RMS59.3472; NOT success. All96 extra penalties and16 native lazy cap
-applications nonzero. Restoration/source/protected audits pass;416.98s.
-Log `/tmp/generator-warmup-g4-interp.log`; output
-`/mnt/ml7tb/hypergan-signal-research/generator-warmup-v1/logos_g4_interp/`.
-Completed `logos_g4_interp_quarter`, same setup but G5e-5 during32-round
-warmup, then original2e-4 at round33:128-round94.662317%sat,41.351698%pixel
-diversity,59.16%spatial and8.71%pooled versus real. Pre-tanh RMS12.7248.
-Elapsed416.65s; restoration/source/protected audits pass. Fixed-latent stats
-similar. Log `/tmp/generator-warmup-g4-interp-quarter.log`; sibling output directory.
-RUNNING final control `logos_g4_interp_quarter_fixed` onGPU0: same quarter-rate
-warmup, but retain G5e-5 after32 while extra G and interpolation steps stop.
-Log `/tmp/generator-warmup-g4-interp-quarter-fixed.log`; sibling output directory.
-GPU1 remains reserved. Twelve focused tests pass (6 warmup +6 existing probe).
-Do not follow the older 'all jobs finished' or width-test next instruction below
-until this continuation finishes. The proposed2:1 test has not run; interpolation
-is the user's prioritized follow-up. No robust fix yet.
+Workspace/branch: /home/martyn/dev/hypergan/generator-signal-diagnostic,
+feat/generator-signal-diagnostic. Commit/push as work proceeds. PR382 remains OPEN,
+unmerged, automerge disabled. Never merge despite generic AGENTS guidance.
+GPU1 UUID GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce is reserved; never launch there.
+GPU0 UUID GPU-ed080e41-3193-3755-6756-f3d46c433331 was used serially for all four.
+Python: /home/martyn/dev/hypergan/training-runs/transgan-128-env/bin/python,
+PYTHONPATH=src, never python -I. Never edit training-runs/logos-* source TOMLs.
+No subagents used/requested. No training checkpoints retained.
+
+## Latest experiment results
+
+Full report, raw artifacts, CSV and trajectory SVG:
+[generator warmup results](results/2026-09-22-generator-warmup/README.md).
+Runner `generator_warmup_screen.py`, exporter `summarize_generator_warmup.py`,
+semantics `testbeds/generator-warmup/README.md`.
+
+All runs use the large logos128 TransGAN/pretrained ResNet source. A warmup is
+32 rounds of1D:4G, then96 rounds of1D:1G. Each round contains one native D/G/prior
+update. Extra G steps hold prior parameters/moments fixed. Thus224 G,128
+adversarial D and128 prior updates per run. Source G/D rates2e-4, prior2e-3,
+betas[.5,.999], batch64, original seed25002. Baseline is the existing512-round
+source report truncated to128, with128 G updates; not a compute-matched baseline.
+
+At round128, evolving-prior64-image bank:
+
+| Case | G rate warmup / afterward | Sat% | Pixel diversity / real% | Pre-tanh RMS |
+| --- | --- | ---: | ---: | ---: |
+| Existing source1:1 | 2e-4 / 2e-4 | 99.999873 | 0.004684 | 16.8912 |
+| logos_g4 | 2e-4 / 2e-4 | 99.999650 | 0.006670 | 29.2759 |
+| logos_g4_interp | 2e-4 / 2e-4 | 99.992975 | 95.147612 | 59.3472 |
+| logos_g4_interp_quarter | 5e-5 / 2e-4 | 94.662317 | 41.351698 | 12.7248 |
+| logos_g4_interp_quarter_fixed | 5e-5 / 5e-5 | 81.709735 | 46.846280 | 6.3481 |
+
+Real-bank saturation24.06187%. Full-rate interpolation at128 also has93.57%real
+spatial diversity and86.57%pooled diversity, despite near-total saturation.
+Quarter warmup then original rate:59.16%spatial,8.71%pooled. Retained quarter
+rate:67.03%spatial,11.72%pooled. Fixed-latent results are similar to evolving-prior.
+These are descriptive variation metrics, NOT semantic quality/FID. No images
+were used to claim sample quality. No equilibrium certification or robust fix.
+
+Interpolation variants add one penalty-only D step before each extra G update:
+(norm(grad D(x_interp))-1)^2 on uniform real/fake line interpolates, coefficient1,
+lazy1. There are96 such updates, all nonzero. They end after round32. The normal
+D update retains original endpoint b_cap/lazy8; all16 native penalty applications
+are nonzero in interpolation variants, zero in logos_g4. Separate D Adam history
+at original D rate/betas avoids carrying adversarial momentum into GP-only steps;
+zero penalty skips its step. D is fixed during the subsequent G update. The same
+fresh real/latent draw is reused between each GP-only step and its G step.
+G EMA follows G updates; D/prior EMA and lazy/annealing clocks follow rounds.
+So interpolation warmup is4G per adversarial D, plus3 penalty-only D steps.
+The penalty constrains magnitude, not direction toward real images.
+
+## Insights to discuss after compaction
+
+1. Extra full-rate G updates alone did not calm saturation. This weakens the
+   simple 'G just needs more turns' explanation for this tested schedule.
+2. The interpolation run retains diversity but remains saturated. Critic/training
+   interactions cannot be dismissed merely because several critic architectures
+   fail. Diversity collapse and saturation are distinct outcomes.
+3. Smaller G steps reduce amplitude in these observations, but the quarter-rate
+   warmup's5.4%saturation at round4 did not persist. Keeping a lower fixed rate
+   also did not yield a healthy endpoint. No adaptive controller was introduced.
+4. The normal-training handoff must be validated. Balanced losses or a calm early
+   transient do not establish Nash equilibrium or attractive stable dynamics.
+5. IMPORTANT limitation: quarter-rate runs diverge DURING identical warmups
+   under the original nondeterministic CUDA/TF32 settings. At8 their pixel
+   diversity is23.15% versus60.68%real, before the intended rate difference.
+   Initial parameter/bank/RNG hashes match, but these are complete recipe tests,
+   NOT exact paired estimates of handoff rate effects. A future causal test should
+   branch both continuations from ONE saved warmup state. None was retained here.
+6. Text/OCR sensitivity remains an untested hypothesis. Interpolation penalties
+   do not prove the critic reads text or provide semantic directions to G.
+
+The user wants to discuss ideas next, not automatically return to the older width
+bridge proposal below. Keep the useful earlier evidence but follow this direction.
+
+## Validation and saved state
+
+Twelve focused tests passed:6 tests/reference/test_generator_warmup_screen.py and
+6 existing test_joint_rate_probe.py. Tests cover frozen D/prior and momentum on
+extra G steps, separate GP momentum, no movement on zero penalty, exact native
+ratio1 equivalence, schedule transition, fixed G rate without prior scaling and
+full rollback. All four GPU runs passed source-preservation/restoration/protected
+hash audits and match source initialization and monitoring-bank identities.
+Runtimes393.67s,416.98s,416.65s,433.19s including diagnostics. All finished.
+Original artifacts /mnt/ml7tb/hypergan-signal-research/generator-warmup-v1/.
+Logs /tmp/generator-warmup-g4.log, /tmp/generator-warmup-g4-interp.log,
+/tmp/generator-warmup-g4-interp-quarter.log,
+/tmp/generator-warmup-g4-interp-quarter-fixed.log.
+Plotting uses isolated /tmp/hypergan-signal-plot-deps, not modified training env.
+All research results/code are committed and pushed; use git HEAD for latest commit.
+
+## Earlier healthy-control investigation (historical)
 
 ## Objective and current conclusion
 

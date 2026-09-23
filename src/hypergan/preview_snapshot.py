@@ -21,8 +21,10 @@ from .checkpoints import _portable, capture_rng, restore_rng
 from .previews import MAX_RENDER_BYTES, _inputs, _write_bounded, preview_budget, render_preview
 from .recipes import ComponentGraph, make_prior
 
-# Large transformer generators include position buffers as well as parameters.
-MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
+# The full 128px TransGAN has ~578 MiB of FP32 parameters alone, plus
+# position buffers and prior state. Bound capture, storage and rendering with
+# the same 1 GiB limit; this is an artifact budget, not a process memory quota.
+MAX_SNAPSHOT_BYTES = 1024 * 1024 * 1024
 
 
 class _BoundedWriter:

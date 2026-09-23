@@ -148,3 +148,37 @@ def test_snapshot_storage_checks_cancellation_before_opening_a_file(tmp_path):
     with pytest.raises(RuntimeError, match='cancelled'):
         write_snapshot({'value': torch.ones(4)}, tmp_path / 'snapshot.pt', cancellation_event=cancel)
     assert not (tmp_path / 'snapshot.pt').exists()
+
+
+@pytest.mark.heavy
+def test_full_transgan_snapshot_above_512_mib_renders_in_isolated_worker(tmp_path):
+    """The shipped full-depth recipe must fit capture, storage and reader limits."""
+    from pathlib import Path
+    from types import SimpleNamespace
+    from hypergan.config import load_config
+    from hypergan.preview_snapshot import MAX_SNAPSHOT_BYTES
+    from hypergan.recipes import ComponentGraph, make_prior
+    from hypergan.snapshot_renderer import render_snapshot
+
+    config = load_config(Path(__file__).parents[2] /
+                         'examples/transgan-projected-dinov3-128-stable.toml')
+    old_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        # Preview capture needs the EMA generator and prior, not the DINO critic,
+        # training optimizers, dataset or a CUDA device.
+        trainer = SimpleNamespace(
+            config=config, step=100, streams={},
+            ema_graph=ComponentGraph({'generator': config['components']['generator']}),
+            ema_prior=make_prior(config['prior'], device='cpu'))
+        batch = {'real': torch.zeros(config['sampling']['count'], 3, 128, 128)}
+        identity = {'run_id': 'full-transgan-preview', 'attempt_id': 'test', 'sample_sequence': 1}
+        path = tmp_path / 'snapshot.pt'
+        descriptor = capture_snapshot(trainer, batch, identity, path)
+        assert 512 * 1024 * 1024 < descriptor['bytes'] <= MAX_SNAPSHOT_BYTES
+        rendered = render_snapshot(path, descriptor, identity, trainer.step, tmp_path / 'preview.json')
+        assert rendered['shape'] == [16, 3, 128, 128]
+        assert rendered['count'] == config['sampling']['count']
+        assert rendered['step'] == 100 and rendered['representation'] == 'png'
+    finally:
+        torch.set_num_threads(old_threads)

@@ -129,7 +129,19 @@ def _sample_prior(trainer, prior_rng):
         return _cpu_clone(trainer.prior.sample(trainer.config['training']['batch_size'], generator=local))
 
 
-def _observe(trainer, batch, fixed_latent, prior_rng, measurement_rng, protected, protected_hash, budget, *, features=False):
+def _stage_stats(value):
+    """Compact stage measurements; axis zero must represent original images."""
+    value = value.detach().float()
+    if not bool(torch.isfinite(value).all()):
+        raise ValueError('Nonfinite generator stage activation')
+    rms = float(value.square().mean().sqrt())
+    diversity = float(value.var(dim=0, unbiased=False).mean().sqrt())
+    return {'shape': list(value.shape), 'rms': rms,
+            'sample_diversity_rms': diversity,
+            'diversity_to_rms': diversity / rms if rms else None}
+
+
+def _observe(trainer, batch, fixed_latent, prior_rng, measurement_rng, protected, protected_hash, budget, *, features=False, observe_modules=()):
     """Matched fixed/current-prior forwards with an exact caller-state fence."""
     saved = _snapshot(trainer)
     expected = _hash(_registered_parameters(trainer))
@@ -143,7 +155,15 @@ def _observe(trainer, batch, fixed_latent, prior_rng, measurement_rng, protected
             _restore(trainer, saved)
             restore_rng(measurement_rng)
             captured, handle = [], None
+            stage_values, stage_handles = {}, []
             try:
+                modules = dict(trainer.graph.named_modules())
+                for path in observe_modules:
+                    def capture_stage(module, args, output, path=path):
+                        if path in stage_values:
+                            raise ValueError('Stage observation expected one invocation: ' + path)
+                        stage_values[path] = _stage_stats(output)
+                    stage_handles.append(modules[path].register_forward_hook(capture_stage))
                 if affine is not None:
                     def capture(module, args, output):
                         captured.append(output.detach().cpu().clone() if isinstance(output, torch.Tensor) else None)
@@ -158,6 +178,10 @@ def _observe(trainer, batch, fixed_latent, prior_rng, measurement_rng, protected
                     raise ValueError('Rollout observation changed protected pretrained state')
                 outputs[name] = output
                 observation = {'output': _stats(output), 'final_affine': dict(description)}
+                if observe_modules:
+                    if set(stage_values) != set(observe_modules):
+                        raise ValueError('Requested stage hooks did not all execute')
+                    observation['stages'] = stage_values
                 if affine is not None:
                     if len(captured) == 1 and captured[0] is not None:
                         observation['final_affine']['activation'] = _activation_scalars(
@@ -168,6 +192,8 @@ def _observe(trainer, batch, fixed_latent, prior_rng, measurement_rng, protected
             finally:
                 if handle is not None:
                     handle.remove()
+                for stage_handle in stage_handles:
+                    stage_handle.remove()
         observations['prior_induced_output_difference_at_fixed_generator'] = _image_response(
             outputs['fixed_latent'], outputs['evolving_prior'])
         observations['latent_coordinate_change'] = tensor_change(fixed_latent[0], current_latent[0])
@@ -224,7 +250,7 @@ def _directional(trainer, observer, budget):
 
 
 def run_probe(config_path, *, g_lr, d_lr, steps=32, device=None, direction=False, features=False,
-              crossed=False, observe_steps=None, progress_path=None, prepare=None):
+              crossed=False, observe_steps=None, progress_path=None, prepare=None, observe_modules=()):
     """Measure one pair and restore state; optional prepare is a context factory.
 
     Its context spans the rollout and closes before restoring the original
@@ -292,7 +318,8 @@ def run_probe(config_path, *, g_lr, d_lr, steps=32, device=None, direction=False
                              'device_type': trainer.device.type,
                              'device_hardware': (torch.cuda.get_device_name(trainer.device) if trainer.device.type == 'cuda'
                                                  else platform.processor() or platform.machine()),
-                             'diagnostics': {'direction': direction, 'features': features, 'crossed': crossed}},
+                             'diagnostics': {'direction': direction, 'features': features, 'crossed': crossed,
+                                             'observe_modules': list(observe_modules)}},
               'timing_definition': 'Synchronized wall time; training updates exclude observer callbacks. Diagnostics include observations and requested probes; setup, state audits, JSON writes and final restoration remain in elapsed time only.',
               'interpretation': ['Fixed latent values isolate G drift; replayed prior RNG fixes IDs/noise while allowing learned coordinates to evolve.',
                                  'Observation bank starts at initial data/prior draw positions and may overlap training; it is not independent quality validation.',
@@ -371,7 +398,8 @@ def run_probe(config_path, *, g_lr, d_lr, steps=32, device=None, direction=False
                     _synchronize(trainer)
                     diagnostic_started = time.monotonic()
                     measured, outputs = _observe(trainer, batch, fixed_latent, prior_rng, measurement_rng,
-                                                 protected, protected_hash, budget, features=features)
+                                                 protected, protected_hash, budget, features=features,
+                                                 observe_modules=observe_modules)
                     if baseline_outputs is None:
                         baseline_outputs = outputs
                     measured['step'] = step

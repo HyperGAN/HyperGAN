@@ -143,3 +143,21 @@ def test_failed_prepare_restores_weights_and_persists_failure(tmp_path):
     assert report['failure']['message'] == 'deliberate proposal failure'
     assert report['completed_updates'] == 0
     assert json.loads((tmp_path / 'failed.json').read_text()) == report
+
+
+def test_stage_hooks_measure_batch_variation_without_changing_rollout(tmp_path):
+    path = config_path(tmp_path)
+    plain = probe.run_probe(path, g_lr=1e-4, d_lr=1e-4, steps=1)
+    measured = probe.run_probe(path, g_lr=1e-4, d_lr=1e-4, steps=1,
+                               observe_modules=['models.generator'])
+    assert measured['status'] == 'complete' and measured['restored']
+    assert plain['rollout_final_parameters_sha256'] == measured['rollout_final_parameters_sha256']
+    assert plain['per_step'] == measured['per_step']
+    for row in measured['observations']:
+        obs = row['evolving_prior']
+        stage = obs['stages']['models.generator']
+        assert stage['sample_diversity_rms'] == pytest.approx(obs['output']['sample_diversity_rms'])
+        assert 0 <= stage['diversity_to_rms'] <= 1.00001
+    stats = probe._stage_stats(torch.tensor([[1., 3.], [3., 1.]]))
+    assert stats['sample_diversity_rms'] == 1
+    assert stats['rms'] == pytest.approx(5 ** .5)

@@ -21,6 +21,7 @@ Initialization and all measurement-bank/RNG identity hashes match baseline.
 | Source1:1 baseline | 99.999873% | 0.004684% | 16.8912 |
 | 4:1 warmup at original G rate | 99.999650% | 0.006670% | 29.2759 |
 | Same + interpolation penalty-only D steps | 99.992975% | 95.147612% | 59.3472 |
+| Same interpolation, G rate/4 during warmup only | 94.662317% | 41.351698% | 12.7248 |
 
 Extra unchanged-rate G updates did not calm saturation in this128-round window.
 By round16 (64 G updates), saturation was99.9853% and diversity0.0567% of real.
@@ -59,10 +60,22 @@ is evidence that the critic/training interaction matters; it does not establish
 that the original critic alone caused the failure or prove a general fix.
 Elapsed416.98s; full restoration/protected/source audits passed. Run finished.
 
-Next running control: same interpolation4:1 warmup with G rate5e-5 during the
+Completed control: same interpolation4:1 warmup with G rate5e-5 during the
 first32 rounds only, then original2e-4 and1:1 from round33. This tests whether
 smaller steps permit extra G updates to help without excessive activation growth.
 D and prior rates stay unchanged; there is no ongoing adaptation.
+
+At round4, the quarter-rate control reached5.40%sat/70.67%real diversity, but
+this did not last:89.68%sat/30.89%div at16,70.94%sat/37.48%div at32. After
+restoring source G rate and ordinary alternation, round128 is94.66%sat,
+41.35%pixel diversity,59.16%spatial diversity and8.71%pooled diversity versus real.
+Fixed-latent measurements are similar (94.67%sat/41.26%pixel diversity), so learned
+prior motion does not explain away the measured failure. Real saturation is24.06%.
+Elapsed416.65s; restoration/source/protected audits pass. This control finished.
+
+Final control now running: keep the selected G rate5e-5 after round32 while
+ending extra G/penalty steps as before. This isolates the rate jump at handoff;
+the post-warmup schedule is fixed1:1, not an adaptive controller.
 
 Runner: `research/startup_tuning/generator_warmup_screen.py`; exact semantics in
 `testbeds/generator-warmup/README.md`. All raw artifacts for the completed case

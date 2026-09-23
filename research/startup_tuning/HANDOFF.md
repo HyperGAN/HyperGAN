@@ -21,10 +21,15 @@ pre-tanh RMS59.3472; NOT success. All96 extra penalties and16 native lazy cap
 applications nonzero. Restoration/source/protected audits pass;416.98s.
 Log `/tmp/generator-warmup-g4-interp.log`; output
 `/mnt/ml7tb/hypergan-signal-research/generator-warmup-v1/logos_g4_interp/`.
-RUNNING next: `logos_g4_interp_quarter`, same setup but G5e-5 during32-round
-warmup, then original2e-4 at round33. Log
-`/tmp/generator-warmup-g4-interp-quarter.log`; sibling output directory.
-GPU1 remains reserved. Eleven focused tests pass (5 warmup +6 existing probe).
+Completed `logos_g4_interp_quarter`, same setup but G5e-5 during32-round
+warmup, then original2e-4 at round33:128-round94.662317%sat,41.351698%pixel
+diversity,59.16%spatial and8.71%pooled versus real. Pre-tanh RMS12.7248.
+Elapsed416.65s; restoration/source/protected audits pass. Fixed-latent stats
+similar. Log `/tmp/generator-warmup-g4-interp-quarter.log`; sibling output directory.
+RUNNING final control `logos_g4_interp_quarter_fixed` onGPU0: same quarter-rate
+warmup, but retain G5e-5 after32 while extra G and interpolation steps stop.
+Log `/tmp/generator-warmup-g4-interp-quarter-fixed.log`; sibling output directory.
+GPU1 remains reserved. Twelve focused tests pass (6 warmup +6 existing probe).
 Do not follow the older 'all jobs finished' or width-test next instruction below
 until this continuation finishes. The proposed2:1 test has not run; interpolation
 is the user's prioritized follow-up. No robust fix yet.

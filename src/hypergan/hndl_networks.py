@@ -9,10 +9,11 @@ def build_network(source=None, *, file=None, input_shape, output_shape,
     """Construct an unmodified native HNDL tensor/named-port network."""
     from hndl import Registry
     from hndl.torch import network
+    from .hndl_augmentation import register_augmentation
     from .pretrained_providers import register_providers
     source = render_source(source if source is not None else packaged_source(file), parameters)
-    registry = register_providers(Registry.builtins() if registry is None else registry,
-                                  pretrained_providers)
+    registry = register_augmentation(Registry.builtins() if registry is None else registry)
+    registry = register_providers(registry, pretrained_providers)
     return network(source, input_shape=input_shape, output_shape=output_shape,
                    device='cpu', registry=registry, input_dtype=input_dtype)
 

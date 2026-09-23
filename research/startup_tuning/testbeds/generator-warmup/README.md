@@ -49,3 +49,9 @@ updates separately (128 versus up to96). Prior still updates128 times.
 This is a changed startup regularization objective as well as a schedule test.
 It follows the user's explicit selection of real–fake interpolation rather
 than merely applying the inactive existing cap more often. No ongoing controller.
+
+Rate controls: `--warmup-g-factor .25` applies G5e-5 during warmup only. Default
+steady factor1 restores2e-4 at round33. Adding `--steady-g-factor .25` retains
+the selected fixed5e-5 after the extra G/penalty updates stop. Neither factor
+changes D/prior rates. This isolates the rate jump at handoff without extending
+warmup, adding a controller, or changing source configuration.

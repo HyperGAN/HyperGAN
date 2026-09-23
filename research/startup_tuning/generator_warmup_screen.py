@@ -87,11 +87,11 @@ def extra_generator_update(trainer, *, penalty_optimizer=None, penalty=None):
             parameter.requires_grad_(flag)
 
 
-def prepare(*, ratio=4, warmup_rounds=32, warmup_g_factor=1., extra_penalty='none'):
+def prepare(*, ratio=4, warmup_rounds=32, warmup_g_factor=1., extra_penalty='none', steady_g_factor=1.):
     if type(ratio) is not int or ratio < 1 or type(warmup_rounds) is not int or warmup_rounds < 0:
         raise ValueError('Invalid finite warmup schedule')
-    if not 0 < warmup_g_factor <= 1:
-        raise ValueError('Warmup G factor must be in (0, 1]')
+    if not 0 < warmup_g_factor <= 1 or not 0 < steady_g_factor <= 1:
+        raise ValueError('G factors must be in (0, 1]')
     if extra_penalty not in ('none', 'b_cap', 'e_interp'):
         raise ValueError('Unsupported extra penalty')
 
@@ -111,7 +111,8 @@ def prepare(*, ratio=4, warmup_rounds=32, warmup_g_factor=1., extra_penalty='non
         proposal = {
             'kind': 'finite-extra-generator-warmup', 'warmup_rounds': warmup_rounds,
             'warmup_g_per_d': ratio, 'warmup_g_lr_factor': warmup_g_factor,
-            'after_warmup': 'native 1D:1G at original rates',
+            'steady_g_lr_factor': steady_g_factor,
+            'after_warmup': 'native 1D:1G at the declared fixed G rate; original D/prior rates',
             'step_unit': 'one D/G/prior round, including any extra G-only updates',
             'extra_g_semantics': 'fresh real/latent draws; D fixed during G backward/update, optionally penalty-updated beforehand; prior parameters/moments fixed; G EMA per G update',
             'clocks': 'D, penalty, prior, annealing use round count; G Adam and G EMA use G update count',
@@ -124,7 +125,7 @@ def prepare(*, ratio=4, warmup_rounds=32, warmup_g_factor=1., extra_penalty='non
         def update(*args, **kwargs):
             number = trainer.step + 1
             warming = number <= warmup_rounds
-            trainer.base_lrs[0][0] = original_base * (warmup_g_factor if warming else 1.)
+            trainer.base_lrs[0][0] = original_base * (warmup_g_factor if warming else steady_g_factor)
             row, batch = original_update(*args, **kwargs)
             proposal['g_updates'] += 1
             proposal['d_updates'] += 1
@@ -158,6 +159,7 @@ def main():
     parser.add_argument('--ratio', type=int, default=4)
     parser.add_argument('--warmup-rounds', type=int, default=32)
     parser.add_argument('--warmup-g-factor', type=float, default=1.)
+    parser.add_argument('--steady-g-factor', type=float, default=1.)
     parser.add_argument('--extra-penalty', choices=('none', 'b_cap', 'e_interp'), default='none')
     parser.add_argument('--steps', type=int, default=128)
     parser.add_argument('--device', default='cuda:0')
@@ -181,7 +183,8 @@ def main():
                        observe_steps=[0, 1, 4, 8, 16, 32, 33, 48, 64, 96, 128],
                        observe_modules=stages(args.case),
                        prepare=prepare(ratio=args.ratio, warmup_rounds=args.warmup_rounds,
-                                       warmup_g_factor=args.warmup_g_factor, extra_penalty=args.extra_penalty),
+                                       warmup_g_factor=args.warmup_g_factor, extra_penalty=args.extra_penalty,
+                                       steady_g_factor=args.steady_g_factor),
                        progress_path=args.output / 'report.json')
     report['schedule'] = 'Native D/G/prior rounds with research-only extra G warmup; see proposal for exact counts and clocks'
     report['budget']['extra_generator_updates'] = report['proposal']['g_updates'] - report['completed_updates']

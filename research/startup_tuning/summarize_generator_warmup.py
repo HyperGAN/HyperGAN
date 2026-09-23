@@ -37,6 +37,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('reports', type=Path, nargs='+', help='case/report.json paths')
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--plot', type=Path)
     args = parser.parse_args()
     baseline = json.loads(BASELINE.read_text())
     rows = list(rows_for('baseline', baseline))
@@ -66,6 +67,36 @@ def main():
             writer = csv.DictWriter(stream, fieldnames=list(rows[0]), lineterminator='\n')
             writer.writeheader()
             writer.writerows(rows)
+    if args.plot:
+        import matplotlib
+        matplotlib.use('Agg')
+        matplotlib.rcParams['svg.hashsalt'] = 'generator-warmup-v1'
+        import matplotlib.pyplot as plt
+        fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), layout='constrained')
+        labels = {'baseline': 'Source 1:1', 'logos_g4': '4:1 warmup',
+                  'logos_g4_interp': '4:1 + interpolation penalty',
+                  'logos_g4_interp_quarter': '4:1 + interpolation + quarter G rate in warmup',
+                  'logos_g4_interp_quarter_fixed': 'Same warmup, keep quarter G rate afterward'}
+        for case in dict.fromkeys(row['case'] for row in rows):
+            subset = [r for r in rows if r['case'] == case and r['bank'] == 'evolving_prior']
+            for ax, metric in zip(axes, ('saturation_percent', 'spatial_diversity_percent_of_real', 'pre_tanh_rms')):
+                ax.plot([r['round'] for r in subset], [r[metric] for r in subset],
+                        marker='o', markersize=3, label=labels.get(case, case))
+        for ax, title in zip(axes, ('Saturated RGB values (%)', 'Spatial diversity (% of real)', 'Pre-tanh RMS')):
+            ax.set_title(title)
+            ax.set_xlabel('D/G rounds (extra G steps counted separately)')
+            ax.axvline(32, color='gray', linestyle='--', linewidth=1)
+            ax.set_ylim(bottom=0)
+            ax.grid(alpha=.2)
+        axes[0].set_ylim(0, 105)
+        axes[0].axhline(100 * baseline['real_bank_output_stats']['absolute_above_0_99_fraction'],
+                        color='gray', linestyle=':', linewidth=1)
+        axes[1].axhline(100, color='gray', linestyle=':', linewidth=1)
+        fig.legend(*axes[0].get_legend_handles_labels(), loc='outside lower center', ncol=2, frameon=False)
+        fig.suptitle('Warmup ends at round 32; fixed monitor bank, online G; diversity does not measure quality')
+        fig.savefig(args.plot, metadata={'Date': None})
+        args.plot.write_text('\n'.join(line.rstrip() for line in args.plot.read_text().splitlines()) + '\n')
+        plt.close(fig)
 
 
 if __name__ == '__main__':

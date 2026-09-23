@@ -100,3 +100,15 @@ def test_interpolation_warmup_restores_and_stops_penalty_at_transition(setup):
     assert proposal['penalty_only_updates'] == 2
     assert proposal['g_updates'] == 5 and proposal['d_updates'] == 3
     assert proposal['rounds'][-1]['extra_g'] == []
+
+
+def test_fixed_selected_rate_survives_warmup_without_scaling_prior(setup):
+    screen, path = setup
+    report = screen.run_probe(path, g_lr=1e-4, d_lr=1e-4, steps=3,
+                              prepare=screen.prepare(ratio=2, warmup_rounds=2,
+                                                     warmup_g_factor=.25, steady_g_factor=.25))
+    assert report['status'] == 'complete' and report['restored']
+    assert all(r['g_lr'] == 2.5e-5 for r in report['proposal']['rounds'])
+    assert report['proposal']['rounds'][-1]['extra_g'] == []
+    assert all(r['actual_lrs'][0][1:] == report['original_base_lrs'][0][1:] for r in report['per_step'])
+    assert all(r['actual_lrs'][1] == [1e-4] for r in report['per_step'])

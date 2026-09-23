@@ -147,20 +147,43 @@ def test_grid_blocks_share_weights_preserve_locality_and_use_pixelnorm(side, cha
     torch.testing.assert_close(changed[:, :, :16, 16:], output[:, :, :16, 16:], rtol=0, atol=0)
 
 
-def test_relative_position_attention_matches_2d_oracle_and_learns():
+def test_all_stage_norms_use_parameter_free_channel_scaling_with_small_epsilon(generator):
+    # Tiny and zero tokens expose a wrong epsilon that ordinary activations
+    # conceal. Nonzero channel means also distinguish this from LayerNorm.
+    for side, channels in ((8, 1024), (16, 1024), (32, 256), (64, 64), (128, 16)):
+        values = torch.linspace(.5, 1.5, channels).reshape(1, 1, channels)
+        scales = torch.tensor([0., 1e-6, 1e-4, 1.]).reshape(1, 4, 1)
+        x = (values * scales).repeat(2, 1, 1).requires_grad_()
+        expected = x / torch.sqrt(x.square().mean(-1, keepdim=True) + 1e-8)
+        expected_gradient, = torch.autograd.grad(expected.sum(), x)
+        for block in (0, 1):
+            for branch in (1, 2):
+                norm = generator[f'stage{side}_block{block}_norm{branch}']
+                assert list(norm.parameters()) == []
+                actual = norm(x)
+                torch.testing.assert_close(actual, expected, rtol=1e-6, atol=1e-7)
+                gradient, = torch.autograd.grad(actual.sum(), x)
+                torch.testing.assert_close(gradient, expected_gradient, rtol=2e-5, atol=1e-6)
+                assert torch.isfinite(gradient).all()
+
+
+@pytest.mark.parametrize('stage,block,grid', [(8, 0, 8), (64, 0, 16), (128, 1, 16)])
+def test_relative_position_attention_matches_2d_oracle_and_learns(stage, block, grid):
     # Reuse an actual configured attention operation at a small channel width.
-    # Its native 8x8 token geometry, projection bias flags and init stay intact.
+    # Native global/grid geometry, projection bias flags and init stay intact.
     full_source = SOURCE_PATH.read_text()
-    start = full_source.index('branch = attention(')
+    name = f'stage{stage}_block{block}_attention'
+    start = full_source.rindex('branch = attention(', 0, full_source.index(f'name="{name}"'))
     end = full_source.index('\nh = add(', start)
     source = 'branch = x\n' + full_source[start:end]
-    model = build_network(source, input_shape=('B', 64, 8), output_shape=('B', 64, 8)).double().eval()
-    attention = model['stage8_block0_attention']
+    tokens = grid * grid
+    model = build_network(source, input_shape=('B', tokens, 8), output_shape=('B', tokens, 8)).double().eval()
+    attention = model[name]
     table = attention.relative_position_bias_table
     expected_index = torch.tensor([
-        [(query_row - key_row + 7) * 15 + query_column - key_column + 7
-         for key_row in range(8) for key_column in range(8)]
-        for query_row in range(8) for query_column in range(8)], dtype=torch.int64)
+        [(query_row - key_row + grid - 1) * (2 * grid - 1) + query_column - key_column + grid - 1
+         for key_row in range(grid) for key_column in range(grid)]
+        for query_row in range(grid) for query_column in range(grid)], dtype=torch.int64)
     torch.testing.assert_close(attention.relative_position_index, expected_index, rtol=0, atol=0)
     assert attention.relative_position_index.dtype == torch.int64
     assert attention.q_proj.bias is attention.k_proj.bias is attention.v_proj.bias is None
@@ -168,12 +191,12 @@ def test_relative_position_attention_matches_2d_oracle_and_learns():
     # Deliberately asymmetric offsets expose swapped axes or reversed q/k.
     with torch.no_grad():
         table.copy_(torch.arange(table.numel(), dtype=torch.float64).sin().reshape_as(table) * .1)
-    x = torch.arange(2 * 64 * 8, dtype=torch.float64).cos().reshape(2, 64, 8)
-    q, k, v = [projection(x).reshape(2, 64, 4, 2).transpose(1, 2)
+    x = torch.arange(2 * tokens * 8, dtype=torch.float64).cos().reshape(2, tokens, 8)
+    q, k, v = [projection(x).reshape(2, tokens, 4, 2).transpose(1, 2)
                for projection in (attention.q_proj, attention.k_proj, attention.v_proj)]
     bias = table[expected_index].permute(2, 0, 1)
     probabilities = (q @ k.transpose(-2, -1) / math.sqrt(2) + bias).softmax(-1)
-    expected = attention.o_proj((probabilities @ v).transpose(1, 2).reshape(2, 64, 8))
+    expected = attention.o_proj((probabilities @ v).transpose(1, 2).reshape(2, tokens, 8))
     actual = model(x)
     torch.testing.assert_close(actual, expected, rtol=1e-12, atol=1e-12)
     before = table.detach().clone()
@@ -184,9 +207,9 @@ def test_relative_position_attention_matches_2d_oracle_and_learns():
     with torch.no_grad():
         updated = model(x)
         assert torch.isfinite(updated).all() and not torch.equal(updated, actual)
-    restored = build_network(source, input_shape=('B', 64, 8), output_shape=('B', 64, 8)).double().eval()
+    restored = build_network(source, input_shape=('B', tokens, 8), output_shape=('B', tokens, 8)).double().eval()
     restored.load_state_dict(model.state_dict(), strict=True)
-    torch.testing.assert_close(restored['stage8_block0_attention'].relative_position_index, expected_index, rtol=0, atol=0)
+    torch.testing.assert_close(restored[name].relative_position_index, expected_index, rtol=0, atol=0)
     with torch.no_grad():
         torch.testing.assert_close(restored(x), updated, rtol=0, atol=0)
 

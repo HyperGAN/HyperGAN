@@ -1,0 +1,30 @@
+{
+  "torch": "2.14.0+cu130",
+  "python": "3.14.7 (main, Aug 10 2026, 00:00:00) [GCC 16.1.1 20260515 (Red Hat 16.1.1-2)]",
+  "seed": 1234,
+  "argv": [
+    "research/depth_toy/run.py",
+    "--particlegan-root",
+    "/home/martyn/dev/ParticleGAN",
+    "--output",
+    "/mnt/ml7tb/hypergan-signal-research/100gaussians-depth-v1"
+  ],
+  "device": "cpu",
+  "threads": 1,
+  "source_commit": "d162e4c4d4d6ac7b93ef41882f290eb54dee085b",
+  "runner_commit": "f9eb52ff79a43ef8baf110b60c9261b683a18030",
+  "file_sha256": {
+    "/home/martyn/dev/ParticleGAN/examples/100gaussians.py": "1a0155e6a245d878691a4c354e970adacdced24807278b9a55bd62eeac3736f9",
+    "/home/martyn/dev/ParticleGAN/lib/toy_models.py": "70f32797882de0dc88085afcf5e05821b65eb5f248c9690818a2494225d782a3",
+    "/home/martyn/dev/ParticleGAN/particlegan/__init__.py": "3b1241444e97cb2a79ffb82ee9d99b7a7ee3a5085425d99418e0dffa115a5d56",
+    "/home/martyn/dev/ParticleGAN/particlegan/autoencoder.py": "f3fbb9184e9f44112e15eccf0c0246dfba5ed490d3c7b81b0f837a5335916402",
+    "/home/martyn/dev/ParticleGAN/particlegan/conditioning.py": "8734fe338868ace4b5851a8fdb1f071e46d47396f66a3765e6b1ef37f0481486",
+    "/home/martyn/dev/ParticleGAN/particlegan/diffusion.py": "ec4acf8d6e15c30c5dfbb6fc7b93f10ee1c778214493223c50e08eb2e5047683",
+    "/home/martyn/dev/ParticleGAN/particlegan/gan_loss.py": "9232adaafeaa8767cf102b05a0f303cb40dffed843ced5b0702041ddd8d057da",
+    "/home/martyn/dev/ParticleGAN/particlegan/grad_regularizers.py": "da03f7653b3d8718fbfa086b0c6eb20bf06943b1f6a8e360b6e14ebd66dabd3f",
+    "/home/martyn/dev/ParticleGAN/particlegan/particle_prior.py": "eabbc41c3c42376e0b748b06a87fae4f8d10314002dfd888a5bd30e8f311b69b",
+    "/home/martyn/dev/ParticleGAN/particlegan/recipes.py": "33ea97c94f4dd79ee2c5451cdf9e9ce98272921d71a300918258e8df3e6a88bc",
+    "/home/martyn/dev/ParticleGAN/particlegan/vicreg_loss.py": "ab1c4dc266dec2c35337f449917240eb38afede7590d2154b63f6f471dc45a36",
+    "/home/martyn/dev/hypergan/generator-depth-toy/research/depth_toy/run.py": "0b0b578cf6986fc49696d58805052572efadecf26d461f11d78c102239386252"
+  }
+}

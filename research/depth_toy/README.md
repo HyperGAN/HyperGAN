@@ -4,6 +4,10 @@ This CPU research adapter asks whether increasing generator depth breaks the
 existing 100-Gaussian GAN while its task and training recipe stay fixed. It is
 not a reconstruction task. There are no assigned latent/target pairs.
 
+The first comparison is complete: [results and interpretation](results/2026-09-23-native-depth/README.md).
+The native shallow control learns; deeper versions underperform at the same
+7k budget. This is depth sensitivity, not yet the image collapse mechanism.
+
 The first declared comparison is **3, 8, and 16 hidden layers, 7,000 updates**,
 with the original seed 1234. Width remains 128; activations remain LeakyReLU(.2),
 with an unbounded linear output. The native Fourier-2 discriminator, learned

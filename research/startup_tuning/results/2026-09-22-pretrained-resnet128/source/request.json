@@ -1,0 +1,43 @@
+{
+  "manifest": {
+    "schema_version": 1,
+    "name": "TransGAN 128 frozen pretrained ResNet18 critic screen",
+    "config": "../testbeds/transgan-resnet128/transgan-resnet.toml",
+    "baseline": "source",
+    "evaluation": {
+      "steps": 32,
+      "observation_steps": [
+        0,
+        1,
+        8,
+        16,
+        32
+      ],
+      "features": false,
+      "direction": false,
+      "crossed": false
+    },
+    "cases": [
+      {
+        "id": "source",
+        "algorithm": "source",
+        "description": "Original configuration, no startup calibration",
+        "_solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/source.json",
+        "_solution_sha256": "0f845ad59d71fa5aee1555de8dd88cb6e56c457b8e83810ac5c167ccd4029afe"
+      }
+    ]
+  },
+  "manifest_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/transgan-128-resnet-screen.json",
+  "manifest_sha256": "8e7b695649d6e2a0e0d12ca11b59eca7fc092263f188f6e468d8403afc71a893",
+  "case": "source",
+  "algorithm": {
+    "name": "source",
+    "evidence": [],
+    "solution_path": "/home/martyn/dev/hypergan/generator-signal-diagnostic/research/startup_tuning/configs/solutions/source.json",
+    "solution_sha256": "0f845ad59d71fa5aee1555de8dd88cb6e56c457b8e83810ac5c167ccd4029afe",
+    "proposal_seconds": 8.109986083582044e-06
+  },
+  "proposal": {
+    "schema_version": 1
+  }
+}

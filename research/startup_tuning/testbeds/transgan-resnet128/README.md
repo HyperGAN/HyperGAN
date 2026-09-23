@@ -21,6 +21,10 @@ The DINO-specific feature observer is disabled. No seed sweep and no startup
 tuning. Saturation and diversity determine whether collapse persists; G/D
 losses alone do not establish success.
 
+The screen completed and failed: 97.14% saturation and 9.49% initial diversity
+retained at step 32. Frozen weights/buffers and restoration audits passed.
+See the [recorded results](../../results/2026-09-22-pretrained-resnet128/README.md).
+
 The separate ordinary training launcher is installed at:
 
 ```bash

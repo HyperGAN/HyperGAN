@@ -49,13 +49,15 @@ every eighth step. This changes timing with the same nominal average weight;
 it does not imply identical optimizer dynamics. There is no interpolation
 penalty or extra G/D update.
 
-Run from this worktree:
+Run using the launcher in the training-runs directory:
 
 ```bash
-bash research/startup_tuning/testbeds/transgan128-projected-dino/launch-every-step.sh
+~/dev/hypergan/training-runs/start-transgan-projected-dinov3-128-every-step.sh
 ```
 
-The launcher uses GPU 0 by UUID, the existing `transgan-128-env`, worktree
+The launcher sets its working directory to `~/dev/hypergan/training-runs`
+and reads this research config from the worktree. It uses GPU 0 by UUID,
+the existing `transgan-128-env`, worktree
 `PYTHONPATH`, and `--no-tune`. It defaults to 128 steps, previews every 16,
 and checkpoint interval 128, in a separate run directory
 `~/dev/hypergan/training-runs/train-transgan-projected-dinov3-128-every-step`.

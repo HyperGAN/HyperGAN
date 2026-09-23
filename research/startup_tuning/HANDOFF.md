@@ -1,5 +1,30 @@
 # Compaction handoff — 2026-09-22, healthy-control follow-up
 
+## Active continuation: finite generator-heavy warmup
+
+User redirected research toward finite startup tuning, explicitly rejected an
+ongoing adaptive controller, and authorized128-step warmup tests. Priority is
+extra G updates at unchanged LR. New runner `generator_warmup_screen.py` applies
+32 rounds of1D:4G followed by96 rounds of1D:1G (224G/128D/128prior). Extra G steps
+hold prior fixed. Production --tune and all source recipes remain unchanged.
+
+Completed `logos_g4`:99.999650% saturation,0.006670% real pixel diversity at128;
+no recovery. Elapsed393.67s, restoration/protected/source audits passed. Results
+in `results/2026-09-22-generator-warmup/`. Source baseline reused at128, not rerun.
+
+User then explicitly selected real–fake interpolation penalty on extra steps.
+RUNNING onGPU0: `logos_g4_interp`, same schedule/rates plus separate penalty-only
+D Adam steps before extra G, coefficient1/lazy1, native cap/lazy8 unchanged.
+Penalty and extra G steps both end after32. Separate Adam avoids carried
+adversarial momentum; prior fixed on extras. At4:52.20%sat,41.96%realdiv (early,
+not success). Log `/tmp/generator-warmup-g4-interp.log`; output
+`/mnt/ml7tb/hypergan-signal-research/generator-warmup-v1/logos_g4_interp/`.
+GPU1 remains reserved. Eleven focused tests pass (5 warmup +6 existing probe).
+Commit5324251f records the first result; later commit may update this section.
+Do not follow the older 'all jobs finished' or width-test next instruction below
+until this continuation finishes. The proposed2:1 test has not run; interpolation
+is the user's prioritized follow-up. No robust fix yet.
+
 ## Objective and current conclusion
 
 Discover why logos128 TransGAN collapses while CIFAR32/ResNet works, and establish

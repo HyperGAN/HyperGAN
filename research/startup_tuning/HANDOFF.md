@@ -13,14 +13,18 @@ no recovery. Elapsed393.67s, restoration/protected/source audits passed. Results
 in `results/2026-09-22-generator-warmup/`. Source baseline reused at128, not rerun.
 
 User then explicitly selected real–fake interpolation penalty on extra steps.
-RUNNING onGPU0: `logos_g4_interp`, same schedule/rates plus separate penalty-only
+Completed onGPU0: `logos_g4_interp`, same schedule/rates plus separate penalty-only
 D Adam steps before extra G, coefficient1/lazy1, native cap/lazy8 unchanged.
 Penalty and extra G steps both end after32. Separate Adam avoids carried
-adversarial momentum; prior fixed on extras. At4:52.20%sat,41.96%realdiv (early,
-not success). Log `/tmp/generator-warmup-g4-interp.log`; output
+adversarial momentum; prior fixed on extras. At128:99.992975%sat,95.147612%realdiv,
+pre-tanh RMS59.3472; NOT success. All96 extra penalties and16 native lazy cap
+applications nonzero. Restoration/source/protected audits pass;416.98s.
+Log `/tmp/generator-warmup-g4-interp.log`; output
 `/mnt/ml7tb/hypergan-signal-research/generator-warmup-v1/logos_g4_interp/`.
+RUNNING next: `logos_g4_interp_quarter`, same setup but G5e-5 during32-round
+warmup, then original2e-4 at round33. Log
+`/tmp/generator-warmup-g4-interp-quarter.log`; sibling output directory.
 GPU1 remains reserved. Eleven focused tests pass (5 warmup +6 existing probe).
-Commit5324251f records the first result; later commit may update this section.
 Do not follow the older 'all jobs finished' or width-test next instruction below
 until this continuation finishes. The proposed2:1 test has not run; interpolation
 is the user's prioritized follow-up. No robust fix yet.

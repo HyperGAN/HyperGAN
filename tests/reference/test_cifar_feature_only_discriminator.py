@@ -1,7 +1,9 @@
 """Feature-only CIFAR critic retains input gradients through frozen ResNet."""
 import hashlib
 from pathlib import Path
+import tomllib
 
+import pytest
 import torch
 from particlegan import GradientPenalty
 from torch.nn import functional as F
@@ -12,13 +14,18 @@ from hypergan.hndl_networks import build_network
 NETWORKS = Path(__file__).parents[2] / 'examples/networks'
 
 
-def test_feature_only_scores_freezing_and_penalty(tmp_path):
+@pytest.mark.parametrize('side', [32, 128])
+def test_feature_only_scores_freezing_and_penalty(tmp_path, side):
+    if side == 32:
+        source = (NETWORKS / 'resnet18-features-discriminator-32.hndl').read_text()
+    else:
+        config = tomllib.loads((NETWORKS.parent / 'logos-tiny-transformer-resnet-features-128.toml').read_text())
+        source = config['components']['discriminator']['args']['source']
     with torch.random.fork_rng(devices=[]):
         path = tmp_path / 'resnet18.pth'
         torch.save(resnet18(weights=None).state_dict(), path)
         model = build_network(
-            (NETWORKS / 'resnet18-features-discriminator-32.hndl').read_text(),
-            input_shape=('B', 3, 32, 32), output_shape=('B', 1),
+            source, input_shape=('B', 3, side, side), output_shape=('B', 1),
             parameters={'weights_path': str(path),
                         'weights_sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
     model.train()
@@ -36,16 +43,20 @@ def test_feature_only_scores_freezing_and_penalty(tmp_path):
     handles = [model[name].register_forward_hook(capture(name))
                for name in ('normalized', 'resnet', 'feature1_score',
                             'feature2_score', 'feature3_score')]
-    x = torch.linspace(-1, 1, 2 * 3 * 32 * 32).reshape(2, 3, 32, 32).requires_grad_()
+    # Vary both spatial axes to catch an unintended resize of the 128px input.
+    x = torch.arange(2 * 3 * side * side).float().sin().reshape(2, 3, side, side).requires_grad_()
     score = model(x)
     for handle in handles:
         handle.remove()
     mean = torch.tensor([.485, .456, .406])[None, :, None, None]
     std = torch.tensor([.229, .224, .225])[None, :, None, None]
-    expected = (F.interpolate(x, size=64, mode='bilinear', align_corners=False) * .5 + .5 - mean) / std
+    backbone_input = F.interpolate(x, size=64, mode='bilinear', align_corners=False) if side == 32 else x
+    expected = (backbone_input * .5 + .5 - mean) / std
     torch.testing.assert_close(captured['normalized'][:2], expected)
+    feature_size = 64 if side == 32 else 128
     assert [tuple(v.shape) for v in captured['resnet']] == [
-        (4, 64, 16, 16), (4, 128, 8, 8), (4, 256, 4, 4)]
+        (4, channels, feature_size // divisor, feature_size // divisor)
+        for channels, divisor in ((64, 4), (128, 8), (256, 16))]
     torch.testing.assert_close(score, sum(captured[f'feature{i}_score'] for i in (1, 2, 3)) / 3**.5)
     assert all('pixel' not in n.id for n in model.plan.nodes)
 

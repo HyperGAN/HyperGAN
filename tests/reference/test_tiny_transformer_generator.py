@@ -1,5 +1,6 @@
 """The small generator has an immediate, sample-independent latent path."""
 from pathlib import Path
+import tomllib
 
 import pytest
 import torch
@@ -9,9 +10,13 @@ from hypergan.hndl_networks import build_network
 NETWORKS = Path(__file__).parents[2] / 'examples/networks'
 
 
-@pytest.mark.parametrize('side,z_dim', [(32, 64), (128, 512)])
+@pytest.mark.parametrize('side,z_dim', [(32, 64), (128, 512), (128, 64)])
 def test_initial_conditioning_gradients_and_checkpoint(side, z_dim):
-    source = (NETWORKS / f'tiny-transformer-generator-{side}.hndl').read_text()
+    if (side, z_dim) == (128, 64):
+        config = tomllib.loads((NETWORKS.parent / 'logos-tiny-transformer-resnet-features-128.toml').read_text())
+        source = config['components']['generator']['args']['source']
+    else:
+        source = (NETWORKS / f'tiny-transformer-generator-{side}.hndl').read_text()
     with torch.random.fork_rng(devices=[]):
         model = build_network(source, input_shape=('B', z_dim),
                               output_shape=('B', 3, side, side))

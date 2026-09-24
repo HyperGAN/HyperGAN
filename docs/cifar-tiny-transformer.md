@@ -1,5 +1,8 @@
 # CIFAR tiny transformer with a feature-only critic
 
+The [128px logo adaptation](logos-tiny-transformer-features.md) embeds both
+networks in one config and retains this recipe's latent, prior, and optimizer.
+
 The [recipe](../examples/cifar-tiny-transformer-resnet-features.toml) pairs the
 simplified transformer with a discriminator that uses only pretrained ResNet18
 features. This tests whether the pair can learn CIFAR at 32px before another

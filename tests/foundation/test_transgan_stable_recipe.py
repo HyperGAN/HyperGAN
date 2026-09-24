@@ -19,3 +19,13 @@ def test_stable_recipe_changes_only_explicit_network_settings():
     # finite differences across independently sampled transforms.
     expected['gradient_penalty']['method'] = 'autograd'
     assert stable == expected
+
+
+def test_e2_recipe_changes_only_generator_and_run_name():
+    examples = Path(__file__).parents[2] / 'examples'
+    baseline = tomllib.loads((examples / 'transgan-resnet-multiscale-128-stable.toml').read_text())
+    e2 = tomllib.loads((examples / 'transgan-resnet-multiscale-128-e2.toml').read_text())
+    expected = deepcopy(baseline)
+    expected['name'] = 'images/logos-transgan-resnet-multiscale-128-e2'
+    expected['components']['generator']['args']['file'] = 'networks/transgan-generator-128-e2.hndl'
+    assert e2 == expected

@@ -139,3 +139,43 @@ an autograd gradient penalty. Frozen backbone weights received no gradients,
 BatchNorm buffers stayed unchanged, and generator-side input gradients remained
 finite and nonzero with discriminator parameters frozen. Preparation did not
 start a training run.
+
+## E2 residual scaling with the ResNet critic
+
+[`transgan-resnet-multiscale-128-e2.toml`](../examples/transgan-resnet-multiscale-128-e2.toml)
+adapts E2 to TransGAN. Each transformer block already has identity bypasses
+around attention and the feed-forward network. This variant scales the learned
+branches before adding them to those bypasses:
+
+```text
+u      = h + alpha * Attention(PixelNorm(h))
+h_next = u + alpha * FFN(PixelNorm(u))
+alpha  = 1 / sqrt(42) = 0.1543033499620919
+```
+
+There are 21 blocks and 42 residual branches, so the scale uses 42 instead of
+the 15 hidden transitions in the proposed MLP experiment. Both global and
+windowed attention stages use the same scale. The input projection, position
+embeddings, upsampling and raw RGB readout are unchanged. This tests damping
+existing residual branches; it does not add new bypasses to TransGAN.
+
+The parameter count remains 151,512,455. All generator state keys, tensor
+shapes and initialization draws match the unscaled generator. E2 adds only
+fixed elementwise multiplies; E3 latent concatenation would widen learned
+projections and is not included. Numerical tests check identical initial
+weights, strict generator state loading, all 42 scaled additions, changed
+outputs and finite nonzero latent gradients. These checks do not establish
+improved conditioning or convergence.
+
+The no-DiffAug ResNet critic, prior, optimizer, losses, batch size, seeds and
+schedule match the ResNet stable recipe. The prepared launcher starts a new
+run from scratch; generator weight compatibility does not bypass full training
+checkpoint recipe checks.
+
+```bash
+../training-runs/start-transgan-resnet-multiscale-128-e2.sh
+```
+
+It selects physical GPU 0 and writes to
+`/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-e2`.
+Training is left for the user to launch.

@@ -103,3 +103,19 @@ The launcher uses physical GPU 0 and writes to
 `/mnt/ml7tb/hypergan-training-runs/train-simple-styletransformer-resnet-128-low-g-lr`.
 It keeps batch 64, previews every 100 steps, and checkpoints every 1000 steps.
 Training is left for the user to launch; convergence has not been evaluated.
+
+## Normal generator learning rate comparison
+
+The [normal-rate recipe](../examples/simple-styletransformer-resnet-128-normal-g-lr.toml)
+uses the same generator and training settings, restoring G to `0.0002`.
+Its optimizer settings are `lr=0.0002`, `d_lr_mult=1`, and `prior_lr_mult=10`,
+so D remains at `0.0002` and the learned prior remains at `0.002`.
+The seeds match the lower-rate recipe.
+
+```bash
+../training-runs/start-simple-styletransformer-resnet-128-normal-g-lr.sh
+```
+
+This launcher selects physical GPU 1 and uses a separate run directory:
+`/mnt/ml7tb/hypergan-training-runs/train-simple-styletransformer-resnet-128-normal-g-lr`.
+Training is left for the user to launch.

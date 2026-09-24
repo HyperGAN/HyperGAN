@@ -179,3 +179,46 @@ checkpoint recipe checks.
 It selects physical GPU 0 and writes to
 `/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-e2`.
 Training is left for the user to launch.
+
+## E3-style latent shortcuts on the other GPU
+
+[`transgan-resnet-multiscale-128-e3.toml`](../examples/transgan-resnet-multiscale-128-e3.toml)
+gives the 32px and 64px stages direct access to the original 512-dimensional
+latent vector. After each stage's position embedding, a separate bias-free
+projection of `z` is added to every token of that image:
+
+```text
+h32[b, t, :] += W32 @ z[b, :]    # W32: [256, 512]
+h64[b, t, :] += W64 @ z[b, :]    # W64: [64, 512]
+```
+
+These are the entrances to transformer blocks 10 and 14 of 21. The later,
+narrower stages keep the projections small while providing shorter gradient
+paths to the prior. Projection happens once per image, before 64px window
+partitioning, so the same image's latent reaches all of its windows.
+
+This adapts E3's repeated latent access using projected additions, rather than
+literally concatenating `z` into wider transformer inputs. It adds 163,840
+weights (151,676,295 total), preserving all original weight names and shapes.
+It uses the baseline residual gains, without E2's scaling. Stem, upsampling,
+attention widths, normalization and RGB readout remain unchanged. Added
+projections consume initialization RNG, so the same seed does not imply
+identical initial backbone values across configurations. No existing training
+checkpoint is resumed; the launcher starts a separate run from scratch.
+
+The ResNet critic, disabled DiffAug, prior, optimizer, losses, batch size, seeds
+and schedule match the stable ResNet recipe. Numerical tests verify that the
+baseline weights load with only the two new tensors missing, zeroed shortcuts
+recover baseline outputs exactly, and each shortcut independently carries
+finite nonzero gradients to `z` and its projection with the stem gradient
+disconnected. A two-image batch checks that conditioning stays per image.
+Training performance and convergence remain to be measured.
+
+```bash
+../training-runs/start-transgan-resnet-multiscale-128-e3.sh
+```
+
+The launcher selects physical GPU 1
+(`GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce`) and writes to
+`/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-e3`.
+E2's launcher remains on GPU 0. Training is left for the user to launch.

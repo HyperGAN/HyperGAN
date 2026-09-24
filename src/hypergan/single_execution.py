@@ -195,6 +195,10 @@ class SingleProcessExecution:
     def _shutdown_training(self):
         self._closed = True
         self._ready = False
+        if self._trainer is not None:
+            close = getattr(self._trainer.data, 'close', None)
+            if callable(close):
+                close()
         if self._previous_device is not None:
             torch.cuda.set_device(self._previous_device)
             self._previous_device = None

@@ -39,6 +39,13 @@ RNG; the prior's RNG policy remains unchanged. The example requires a local
 manifest path/hash; the prepared training-runs config supplies both. CIFAR FID
 evaluations are omitted because their reference dataset is not this dataset.
 
+The image loader now defaults to four decoder threads and one prefetched batch
+of uint8 pixels (3 MiB for this recipe). The existing config needs no edits:
+after a graceful stop, rerunning the same launcher resumes with the faster
+loader. Both independent real-batch draws per training step remain intact.
+See [background loading](image-data.md#background-loading) for tuning and recovery
+details. Already-running processes retain the loader code they imported.
+
 ## Validation and launch
 
 Five focused CPU tests passed across CIFAR and logo variants, including

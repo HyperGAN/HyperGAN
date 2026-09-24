@@ -11,7 +11,6 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import tempfile
-import warnings
 
 from .data import ImageFolder, _EXTENSIONS, _digest, _positive_int
 
@@ -148,7 +147,9 @@ class ColorizationData(ImageFolder):
     ``shuffle=False`` is a finite sequential evaluation pass with no wrapping.
     ``shuffle=True`` traverses fresh permutations, wrapping between epochs.
     """
-    def __init__(self, root, manifest, manifest_sha256, split='train', shuffle=True, repeats=1):
+    def __init__(self, root, manifest, manifest_sha256, split='train', shuffle=True, repeats=1,
+                 workers=4, prefetch_batches=1):
+        self._configure_workers(workers, prefetch_batches)
         from PIL import __version__
         if split not in {'train', 'heldout'} or type(shuffle) is not bool:
             raise ValueError('Colorization split must be train/heldout and shuffle must be boolean')
@@ -207,20 +208,23 @@ class ColorizationData(ImageFolder):
 
     def _decode(self, content, name):
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter('error', self._image.DecompressionBombWarning)
-                with self._image.open(BytesIO(content)) as image:
-                    if image.width * image.height > self.max_pixels:
-                        raise ValueError(f'decoded image exceeds max_pixels={self.max_pixels}')
-                    if getattr(image, 'n_frames', 1) != 1:
-                        raise ValueError('animated/multi-frame images need explicit frame extraction')
-                    if image.mode not in {'RGB', 'RGBA', 'L', 'LA', 'P', '1'}:
-                        raise ValueError(f'unsupported source mode {image.mode!r}')
-                    image.load()
-                    source = {'source_width': image.width, 'source_height': image.height, 'source_mode': image.mode}
-                    rgba = self._ops.exif_transpose(image).convert('RGBA')
-                    background = self._image.new('RGBA', rgba.size, (255, 255, 255, 255))
-                    result = self._image.alpha_composite(background, rgba).convert('RGB')
+            with self._image.open(BytesIO(content)) as image:
+                # Do not mutate process-global warning filters from decoder
+                # threads. Enforce Pillow's warning limit explicitly as an error.
+                limit = self._image.MAX_IMAGE_PIXELS
+                if limit is not None and image.width * image.height > limit:
+                    raise self._image.DecompressionBombWarning("decoded size exceeds Pillow limit")
+                if image.width * image.height > self.max_pixels:
+                    raise ValueError(f'decoded image exceeds max_pixels={self.max_pixels}')
+                if getattr(image, 'n_frames', 1) != 1:
+                    raise ValueError('animated/multi-frame images need explicit frame extraction')
+                if image.mode not in {'RGB', 'RGBA', 'L', 'LA', 'P', '1'}:
+                    raise ValueError(f'unsupported source mode {image.mode!r}')
+                image.load()
+                source = {'source_width': image.width, 'source_height': image.height, 'source_mode': image.mode}
+                rgba = self._ops.exif_transpose(image).convert('RGBA')
+                background = self._image.new('RGBA', rgba.size, (255, 255, 255, 255))
+                result = self._image.alpha_composite(background, rgba).convert('RGB')
             return result, source
         except (OSError, ValueError, self._image.DecompressionBombError, self._image.DecompressionBombWarning) as exc:
             raise ValueError(f"Cannot decode colorization image '{name}': {exc}; no images were skipped") from exc

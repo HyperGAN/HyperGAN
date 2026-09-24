@@ -1,10 +1,11 @@
 """Deterministic, explicitly preprocessed image folders; optional imports stay lazy."""
+from concurrent.futures import ThreadPoolExecutor, wait
 from copy import deepcopy
 import hashlib
 from io import BytesIO
 import json
 from pathlib import Path
-import warnings
+import weakref
 
 
 _EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
@@ -20,7 +21,7 @@ def _positive_int(value, name):
 
 
 class ImageFolder:
-    """Single-process image batches with caller-owned torch RNG and resumable order.
+    """Threaded image batches with caller-owned torch RNG and resumable order.
 
     No files are downloaded or silently skipped. Labels use top-level directory
     names, sorted lexically; flat/recursive unlabelled datasets need no class folders.
@@ -28,7 +29,9 @@ class ImageFolder:
 
     def __init__(self, root, *, height, width, mode="RGB", resize="none",
                  interpolation="bilinear", fill=0, recursive=True, labels=False,
-                 shuffle=True, max_pixels=16_777_216, max_file_bytes=67_108_864):
+                 shuffle=True, max_pixels=16_777_216, max_file_bytes=67_108_864,
+                 workers=4, prefetch_batches=1):
+        self._configure_workers(workers, prefetch_batches)
         for name, value in (("height", height), ("width", width), ("max_pixels", max_pixels), ("max_file_bytes", max_file_bytes)):
             _positive_int(value, name)
         if mode not in {"RGB", "L"}:
@@ -100,6 +103,69 @@ class ImageFolder:
         self._identity_sha256 = _digest(self._identity)
         self._permutation, self._cursor, self._epoch = [], 0, 0
 
+    def _configure_workers(self, workers, prefetch_batches):
+        for name, value in (("workers", workers), ("prefetch_batches", prefetch_batches)):
+            if type(value) is not int or value < 0:
+                raise ValueError(f"image_folder {name} must be a nonnegative integer")
+        self.workers, self.prefetch_batches = workers, prefetch_batches
+        self._pool, self._pool_finalizer, self._pending = None, None, {}
+
+    def _executor(self):
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="image-loader")
+            # Also reclaim idle threads when a standalone loader is discarded.
+            self._pool_finalizer = weakref.finalize(self, self._pool.shutdown,
+                                                    wait=False, cancel_futures=True)
+        return self._pool
+
+    def _discard_prefetch(self):
+        pending, self._pending = self._pending, {}
+        for future in pending.values():
+            future.cancel()
+        # Workers only read files and produce immutable pixels, never sampler/RNG
+        # state. Drain running reads before recovery or closing the loader.
+        wait(pending.values())
+
+    def close(self):
+        """Drain outstanding reads and release the pool; a later call reopens it."""
+        self._discard_prefetch()
+        if self._pool is not None:
+            self._pool.shutdown(wait=True, cancel_futures=True)
+            self._pool_finalizer.detach()
+            self._pool = self._pool_finalizer = None
+
+    def __getstate__(self):
+        # Checkpoint validation deep-copies trainers. Worker queues are disposable
+        # derived state, and locks/futures must never be copied into a candidate.
+        return dict(self.__dict__, _pool=None, _pool_finalizer=None, _pending={})
+
+    def _pixels(self, entry):
+        image, _ = self._decode(self._read_bytes(entry), entry["path"])
+        return self._preprocess(image, entry["path"]).tobytes()
+
+    def _verified_prefetch(self, entry, future):
+        pixels = future.result()
+        # Preserve read-time content and path checks even if a file was replaced
+        # after its pixels were prefetched. This avoids stale-cache acceptance.
+        self._read_bytes(entry)
+        return pixels
+
+    def _prefetch(self, batch_size):
+        if not self.workers or not self.prefetch_batches:
+            return
+        # Only look ahead in the existing permutation: never draw an epoch or
+        # advance the caller-owned RNG just to keep workers busy.
+        stop = self._cursor + batch_size * self.prefetch_batches
+        indices = self._permutation[self._cursor:stop]
+        wanted = set(indices)
+        stale = [self._pending.pop(index) for index in list(self._pending) if index not in wanted]
+        for future in stale:
+            future.cancel()
+        wait(stale)
+        for index in indices:
+            if index not in self._pending:
+                self._pending[index] = self._executor().submit(self._pixels, self.entries[index])
+
     def _read_bytes(self, entry):
         path = self.root / entry["path"]
         try:
@@ -120,18 +186,21 @@ class ImageFolder:
 
     def _decode(self, content, name):
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("error", self._image.DecompressionBombWarning)
-                with self._image.open(BytesIO(content)) as image:
-                    if image.width * image.height > self.max_pixels:
-                        raise ValueError(f"decoded size {image.size} exceeds max_pixels={self.max_pixels}")
-                    if getattr(image, "n_frames", 1) != 1:
-                        raise ValueError("animated/multi-frame images are unsupported; extract one frame explicitly")
-                    if image.mode not in {"RGB", "L"}:
-                        raise ValueError(f"source mode {image.mode!r} is unsupported; explicitly convert to RGB or L (composite alpha before loading)")
-                    image.load()  # Detect truncation during preflight, not deep in training.
-                    source = {"source_width": image.width, "source_height": image.height, "source_mode": image.mode}
-                    result = self._ops.exif_transpose(image).convert(self.mode)
+            with self._image.open(BytesIO(content)) as image:
+                # Do not mutate process-global warning filters from decoder
+                # threads. Enforce Pillow's warning limit explicitly as an error.
+                limit = self._image.MAX_IMAGE_PIXELS
+                if limit is not None and image.width * image.height > limit:
+                    raise self._image.DecompressionBombWarning("decoded size exceeds Pillow limit")
+                if image.width * image.height > self.max_pixels:
+                    raise ValueError(f"decoded size {image.size} exceeds max_pixels={self.max_pixels}")
+                if getattr(image, "n_frames", 1) != 1:
+                    raise ValueError("animated/multi-frame images are unsupported; extract one frame explicitly")
+                if image.mode not in {"RGB", "L"}:
+                    raise ValueError(f"source mode {image.mode!r} is unsupported; explicitly convert to RGB or L (composite alpha before loading)")
+                image.load()  # Detect truncation during preflight, not deep in training.
+                source = {"source_width": image.width, "source_height": image.height, "source_mode": image.mode}
+                result = self._ops.exif_transpose(image).convert(self.mode)
             return result, source
         except (OSError, ValueError, self._image.DecompressionBombError, self._image.DecompressionBombWarning) as exc:
             raise ValueError(f"Cannot decode image '{name}': {exc}. Repair/remove this file before training; no images were skipped") from exc
@@ -172,6 +241,7 @@ class ImageFolder:
             raise ValueError("Invalid image_folder sampler cursor/epoch")
         if not self.shuffle and order and order != list(range(n)):
             raise ValueError("Unshuffled image_folder state must use inventory order")
+        self._discard_prefetch()
         self._permutation, self._cursor, self._epoch = list(order), cursor, epoch
 
     def __call__(self, batch_size, *, generator):
@@ -180,27 +250,38 @@ class ImageFolder:
         if not isinstance(generator, torch.Generator) or generator.device.type != "cpu":
             raise ValueError("image_folder requires a caller-owned CPU torch.Generator")
         old_state, old_rng = self.state_dict(), generator.get_state()
-        tensors, labels = [], []
+        indices, futures = [], []
         try:
             for _ in range(batch_size):
                 if self._cursor == len(self._permutation):
                     self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
                     self._cursor = 0
                     self._epoch += 1
-                entry = self.entries[self._permutation[self._cursor]]
-                image, _ = self._decode(self._read_bytes(entry), entry["path"])
-                image = self._preprocess(image, entry["path"])
-                channels = 3 if self.mode == "RGB" else 1
-                tensor = torch.frombuffer(bytearray(image.tobytes()), dtype=torch.uint8).reshape(self.height, self.width, channels)
-                tensors.append(tensor.permute(2, 0, 1).to(torch.float32).div_(127.5).sub_(1))
-                if self.labels:
-                    labels.append(self.class_map[entry["class"]])
+                indices.append(self._permutation[self._cursor])
                 self._cursor += 1
-            batch = {"real": torch.stack(tensors)}
+            if self.workers:
+                pool = self._executor()
+                for index in indices:
+                    entry = self.entries[index]
+                    prefetched = self._pending.pop(index, None)
+                    futures.append(pool.submit(self._pixels, entry) if prefetched is None
+                                   else pool.submit(self._verified_prefetch, entry, prefetched))
+                pixels = [future.result() for future in futures]
+            else:
+                pixels = [self._pixels(self.entries[index]) for index in indices]
+            channels = 3 if self.mode == "RGB" else 1
+            tensor = torch.frombuffer(bytearray(b"".join(pixels)), dtype=torch.uint8)
+            tensor = tensor.reshape(batch_size, self.height, self.width, channels).permute(0, 3, 1, 2)
+            batch = {"real": tensor.to(torch.float32).div_(127.5).sub_(1).contiguous()}
             if self.labels:
-                batch["labels"] = torch.tensor(labels, dtype=torch.int64)
+                batch["labels"] = torch.tensor([self.class_map[self.entries[index]["class"]]
+                                                for index in indices], dtype=torch.int64)
+            self._prefetch(batch_size)
             return batch
         except BaseException:
+            for future in futures:
+                future.cancel()
+            wait(futures)
             self.load_state_dict(old_state)
             generator.set_state(old_rng)
             raise

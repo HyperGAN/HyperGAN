@@ -62,7 +62,36 @@ With `recursive=true` (default), all ordinary image files beneath the root are i
 
 With `labels=true`, every accepted image must sit beneath a named top-level class directory, such as `cats/a.png` and `zebras/nested/b.jpg`. Class directory names need not be numeric. Recursive discovery is required, and root-level images fail with layout guidance. The vocabulary is the sorted set of class names containing accepted images; empty directories do not create classes. Output adds `labels`, an int64 tensor shaped `[N]`; bind it explicitly as `batch.labels` in a compatible conditional recipe. Classification losses and multi-attribute labels are separate recipe concerns.
 
-Preflight reads, hashes, fully decodes and validates every accepted image. A zero-byte, unreadable, truncated or incompatible image stops preflight with its relative path and corrective guidance. Nothing is silently skipped or retried. An empty dataset reports supported extensions and discovered/ignored counts. The first slice has one process, no worker pool and no quarantine mode; distributed failure coordination remains a separate requirement.
+Preflight reads, hashes, fully decodes and validates every accepted image. A zero-byte, unreadable, truncated or incompatible image stops preflight with its relative path and corrective guidance. Nothing is silently skipped or retried. An empty dataset reports supported extensions and discovered/ignored counts. There is no quarantine mode.
+
+## Background loading
+
+`ImageFolder` and `ColorizationData` default to four persistent decoder threads
+and one batch of lookahead. Workers read, verify, decode and resize individual
+images concurrently. While the GPU trains, they prepare the next images in the
+already-selected permutation. CPU tensor assembly and normalization happen once
+per batch on the caller thread. Workers never use Torch or advance any RNG.
+
+For new configurations, optional `[data.args]` settings `workers = 4` and
+`prefetch_batches = 1` make these defaults explicit. `workers = 0` selects serial
+loading; `prefetch_batches = 0` disables lookahead while retaining parallel batch
+decoding. Both must be nonnegative integers. Existing configs that omit these
+arguments pick up the defaults after restarting with the updated code; leave their
+config unchanged to preserve the run's exact configuration check on resume.
+
+Lookahead stores immutable uint8 pixels, bounded by the requested batch size times
+`prefetch_batches`, plus active decoder working memory. At batch 64 and 128px RGB,
+one full prefetched batch contains 3 MiB of pixels. There is no full-dataset RAM
+cache or persistent disk cache. Prefetched files are read and hashed again when
+consumed, so a changed file or symlink still fails. Lookahead stops at the epoch
+boundary rather than speculatively drawing the next permutation; the first batch
+and epoch transitions can therefore wait longer.
+
+Sampler state records only consumed images. Restore discards speculative work;
+worker completion order never affects batch order, pixels, labels, or RNG state.
+Standalone callers can use `data.close()` to drain work and release threads; a
+later call recreates the pool. Single-process training closes it at shutdown,
+and discarded loaders release idle workers automatically.
 
 ## Exact sampling and resume
 

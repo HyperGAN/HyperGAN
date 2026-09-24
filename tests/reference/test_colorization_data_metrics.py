@@ -41,7 +41,7 @@ def test_pairs_split_and_full_sampler_recovery(logos):
     torch.testing.assert_close(batch['gray'], expected_gray)
     state, rng_state = training.state_dict(), rng.get_state()
     expected = training(104, generator=rng)  # Crosses the epoch boundary.
-    restored = ColorizationData(**args)
+    restored = ColorizationData(**args, workers=0)
     restored.load_state_dict(state)
     rng.set_state(rng_state)
     actual = restored(104, generator=rng)
@@ -72,9 +72,10 @@ def test_alpha_white_and_pad(logos):
     assert torch.equal(bit_sample['real'][bit_index], torch.ones(3, 8, 8))
 
 
-def test_pinned_manifest_and_file_changes_fail_without_sampler_rng_advance(logos):
+@pytest.mark.parametrize('workers', [0, 4])
+def test_pinned_manifest_and_file_changes_fail_without_sampler_rng_advance(logos, workers):
     root, manifest, info = logos
-    data = ColorizationData(root, manifest, info['sha256'], shuffle=False)
+    data = ColorizationData(root, manifest, info['sha256'], shuffle=False, workers=workers)
     rng = torch.Generator().manual_seed(10)
     original_state, original_rng = data.state_dict(), rng.get_state()
     (root / data.entries[0]['path']).write_bytes(b'changed')

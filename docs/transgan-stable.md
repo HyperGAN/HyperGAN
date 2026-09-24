@@ -105,3 +105,37 @@ augmented run uses physical GPU 1. Checkpoints and previews for this run live in
 `/mnt/ml7tb/hypergan-training-runs/train-transgan-projected-dinov3-128-no-diffaug`
 to avoid filling the home filesystem. Checkpoint, preview and metric cadences
 match the augmented launcher.
+
+## Full-depth generator with a ResNet critic
+
+[`transgan-resnet-multiscale-128-stable.toml`](../examples/transgan-resnet-multiscale-128-stable.toml)
+replaces the no-DiffAug variant's entire discriminator with the existing
+`resnet18-multiscale-discriminator-128.hndl`. It uses a SHA256-pinned frozen
+ImageNet ResNet18, native layer1/2/3 feature maps, trainable feature heads and
+a trainable pixel branch with fixed gray context. It emits one score per image.
+BatchNorm retains its pretrained statistics; input gradients still pass through
+the frozen backbone. DiffAug remains disabled.
+
+The full-depth 512-latent TransGAN, prior, optimizer, loss, gradient penalty,
+batch size, seeds and update schedule match the no-DiffAug baseline. A resolved
+configuration comparison permits only the discriminator component and run name
+to differ. This compares critic designs, including their heads and pixel paths,
+rather than isolating the pretrained backbone alone.
+
+Run the prepared local launcher manually:
+
+```bash
+../training-runs/start-transgan-resnet-multiscale-128-stable.sh
+```
+
+It uses physical GPU 0 and a separate run directory on the data volume:
+`/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-stable`.
+The older launcher without the `-stable` suffix uses the earlier reduced-depth
+generator and is a different configuration.
+
+Validation: 10 pretrained-provider tests passed. A CPU check with the real
+ResNet18 weights produced finite scores and trainable-head gradients through
+an autograd gradient penalty. Frozen backbone weights received no gradients,
+BatchNorm buffers stayed unchanged, and generator-side input gradients remained
+finite and nonzero with discriminator parameters frozen. Preparation did not
+start a training run.

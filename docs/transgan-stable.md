@@ -273,3 +273,10 @@ run as part of this preparation.
 The launcher uses physical GPU 0 and writes to
 `/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-equalized`.
 Training is left for the user to launch.
+
+## Smaller style transformer with a lower generator learning rate
+
+The next comparison uses the [Simple StyleTransformer recipe](simple-styletransformer.md):
+six blocks at 16px with the reference's Fourier renderer and learned coordinate
+warp, 19.0M parameters, and a tenfold reduction in G's learning rate. Effective
+D and learned-prior rates remain unchanged.

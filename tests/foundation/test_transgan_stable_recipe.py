@@ -49,3 +49,21 @@ def test_equalized_recipe_changes_only_generator_and_run_name():
     expected['name'] = 'images/logos-transgan-resnet-multiscale-128-equalized'
     expected['components']['generator']['args']['file'] = 'networks/transgan-generator-128-equalized.hndl'
     assert equalized == expected
+
+
+def test_simple_styletransformer_preserves_d_and_prior_rates():
+    import pytest
+
+    examples = Path(__file__).parents[2] / 'examples'
+    baseline = tomllib.loads((examples / 'transgan-resnet-multiscale-128-stable.toml').read_text())
+    simple = tomllib.loads((examples / 'simple-styletransformer-resnet-128-low-g-lr.toml').read_text())
+    expected = deepcopy(baseline)
+    expected['name'] = 'images/logos-simple-styletransformer-resnet-128-low-g-lr'
+    expected['components']['generator']['args']['file'] = 'networks/simple-styletransformer-generator-128.hndl'
+    expected['optimizer'].update(lr=.00002, d_lr_mult=10.0, prior_lr_mult=100.0)
+    assert simple == expected
+    opt = simple['optimizer']
+    assert opt['lr'] == pytest.approx(baseline['optimizer']['lr'] / 10)
+    for multiplier in ('d_lr_mult', 'prior_lr_mult'):
+        assert opt['lr'] * opt[multiplier] == pytest.approx(
+            baseline['optimizer']['lr'] * baseline['optimizer'][multiplier])

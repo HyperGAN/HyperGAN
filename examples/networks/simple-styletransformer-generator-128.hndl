@@ -1,0 +1,173 @@
+# Simple StyleTransformer 128px, adapted from simple_styletransformer_generator.py.
+# z=512 (existing prior), w=512, dim=384, six blocks, eight heads, coarse grid=16.
+# Ordinary affine layers, no normalization (matching the reference), zero style gates.
+# Same warped coordinates and ONE fixed Fourier table for coarse and fine paths.
+w = linear(x, 512, name="mapping0")
+w = leaky_relu(w, 0.2)
+w = linear(w, 512, name="mapping1")
+w = leaky_relu(w, 0.2)
+w = linear(w, 512, name="mapping2")
+w = leaky_relu(w, 0.2)
+
+# theta = I + delta; row-major 2x2 scale/rotation/shear, without translation.
+delta = linear(w, 4, name="affine_prediction", init={"weight": 0.0, "bias": 0.0})
+one = constant(x, 1, value=1.0)
+zero = constant(x, 1)
+identity_matrix = concat(one, zero, zero, one, axis=1)
+theta = add(delta, identity_matrix)
+theta = reshape(theta, 2, 2)
+theta = transpose(theta, 1, 2)
+coarse = coordinate_grid(x, 16, 16, name="coarse_coordinates")
+coarse = reshape(coarse, 256, 2)
+fine = coordinate_grid(x, 128, 128, name="fine_coordinates")
+fine = reshape(fine, 16384, 2)
+coords = concat(coarse, fine, axis=1)
+coords = matmul(coords, theta, name="warped_coordinates")
+coarse_coords, fine_coords = split(coords, 256, dim=1)
+fine_grid = reshape(fine_coords, 128, 128, 2)
+features = fourier_features(coords, 192, scale=8.0, name="fourier")
+h, fine_features = split(features, 256, dim=1)
+h = linear(h, 384, name="input_projection")
+style = silu(w, name="style_activation")
+
+# Style block 0: h += gate * branch(h * (1 + scale) + shift).
+modulation = linear(style, 2304, name="block0_modulation", init={"weight": 0.0, "bias": 0.0})
+modulation = reshape(modulation, 1, 2304)
+shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = chunk(modulation, 6, dim=2)
+branch = broadcast_mul(h, scale_a)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_a)
+branch = attention(branch, 8, dropout=0.0, qkv_bias=True, out_bias=True, name="block0_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476), "q_proj.bias": 0.0,
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476), "k_proj.bias": 0.0,
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476), "v_proj.bias": 0.0,
+          "o_proj.bias": 0.0})
+branch = broadcast_mul(branch, gate_a)
+h = add(h, branch, name="block0_attention_residual")
+branch = broadcast_mul(h, scale_m)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_m)
+branch = feed_forward(branch, 1536, activation="gelu", dropout=0.0, name="block0_ffn")
+branch = broadcast_mul(branch, gate_m)
+h = add(h, branch, name="block0_output")
+
+# Style block 1: h += gate * branch(h * (1 + scale) + shift).
+modulation = linear(style, 2304, name="block1_modulation", init={"weight": 0.0, "bias": 0.0})
+modulation = reshape(modulation, 1, 2304)
+shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = chunk(modulation, 6, dim=2)
+branch = broadcast_mul(h, scale_a)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_a)
+branch = attention(branch, 8, dropout=0.0, qkv_bias=True, out_bias=True, name="block1_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476), "q_proj.bias": 0.0,
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476), "k_proj.bias": 0.0,
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476), "v_proj.bias": 0.0,
+          "o_proj.bias": 0.0})
+branch = broadcast_mul(branch, gate_a)
+h = add(h, branch, name="block1_attention_residual")
+branch = broadcast_mul(h, scale_m)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_m)
+branch = feed_forward(branch, 1536, activation="gelu", dropout=0.0, name="block1_ffn")
+branch = broadcast_mul(branch, gate_m)
+h = add(h, branch, name="block1_output")
+
+# Style block 2: h += gate * branch(h * (1 + scale) + shift).
+modulation = linear(style, 2304, name="block2_modulation", init={"weight": 0.0, "bias": 0.0})
+modulation = reshape(modulation, 1, 2304)
+shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = chunk(modulation, 6, dim=2)
+branch = broadcast_mul(h, scale_a)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_a)
+branch = attention(branch, 8, dropout=0.0, qkv_bias=True, out_bias=True, name="block2_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476), "q_proj.bias": 0.0,
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476), "k_proj.bias": 0.0,
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476), "v_proj.bias": 0.0,
+          "o_proj.bias": 0.0})
+branch = broadcast_mul(branch, gate_a)
+h = add(h, branch, name="block2_attention_residual")
+branch = broadcast_mul(h, scale_m)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_m)
+branch = feed_forward(branch, 1536, activation="gelu", dropout=0.0, name="block2_ffn")
+branch = broadcast_mul(branch, gate_m)
+h = add(h, branch, name="block2_output")
+
+# Style block 3: h += gate * branch(h * (1 + scale) + shift).
+modulation = linear(style, 2304, name="block3_modulation", init={"weight": 0.0, "bias": 0.0})
+modulation = reshape(modulation, 1, 2304)
+shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = chunk(modulation, 6, dim=2)
+branch = broadcast_mul(h, scale_a)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_a)
+branch = attention(branch, 8, dropout=0.0, qkv_bias=True, out_bias=True, name="block3_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476), "q_proj.bias": 0.0,
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476), "k_proj.bias": 0.0,
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476), "v_proj.bias": 0.0,
+          "o_proj.bias": 0.0})
+branch = broadcast_mul(branch, gate_a)
+h = add(h, branch, name="block3_attention_residual")
+branch = broadcast_mul(h, scale_m)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_m)
+branch = feed_forward(branch, 1536, activation="gelu", dropout=0.0, name="block3_ffn")
+branch = broadcast_mul(branch, gate_m)
+h = add(h, branch, name="block3_output")
+
+# Style block 4: h += gate * branch(h * (1 + scale) + shift).
+modulation = linear(style, 2304, name="block4_modulation", init={"weight": 0.0, "bias": 0.0})
+modulation = reshape(modulation, 1, 2304)
+shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = chunk(modulation, 6, dim=2)
+branch = broadcast_mul(h, scale_a)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_a)
+branch = attention(branch, 8, dropout=0.0, qkv_bias=True, out_bias=True, name="block4_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476), "q_proj.bias": 0.0,
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476), "k_proj.bias": 0.0,
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476), "v_proj.bias": 0.0,
+          "o_proj.bias": 0.0})
+branch = broadcast_mul(branch, gate_a)
+h = add(h, branch, name="block4_attention_residual")
+branch = broadcast_mul(h, scale_m)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_m)
+branch = feed_forward(branch, 1536, activation="gelu", dropout=0.0, name="block4_ffn")
+branch = broadcast_mul(branch, gate_m)
+h = add(h, branch, name="block4_output")
+
+# Style block 5: h += gate * branch(h * (1 + scale) + shift).
+modulation = linear(style, 2304, name="block5_modulation", init={"weight": 0.0, "bias": 0.0})
+modulation = reshape(modulation, 1, 2304)
+shift_a, scale_a, gate_a, shift_m, scale_m, gate_m = chunk(modulation, 6, dim=2)
+branch = broadcast_mul(h, scale_a)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_a)
+branch = attention(branch, 8, dropout=0.0, qkv_bias=True, out_bias=True, name="block5_attention",
+    init={"q_proj.weight": xavier_uniform(gain=0.7071067811865476), "q_proj.bias": 0.0,
+          "k_proj.weight": xavier_uniform(gain=0.7071067811865476), "k_proj.bias": 0.0,
+          "v_proj.weight": xavier_uniform(gain=0.7071067811865476), "v_proj.bias": 0.0,
+          "o_proj.bias": 0.0})
+branch = broadcast_mul(branch, gate_a)
+h = add(h, branch, name="block5_attention_residual")
+branch = broadcast_mul(h, scale_m)
+branch = add(h, branch)
+branch = broadcast_add(branch, shift_m)
+branch = feed_forward(branch, 1536, activation="gelu", dropout=0.0, name="block5_ffn")
+branch = broadcast_mul(branch, gate_m)
+h = add(h, branch, name="block5_output")
+
+# Sample coarse features with the SAME warp used for both Fourier encodings.
+h = permute(h, 2, 1)
+h = reshape(h, 384, 16, 16)
+h = grid_sample(h, fine_grid, mode="bilinear", padding_mode="zeros", align_corners=False, name="renderer_sample")
+h = reshape(h, 384, 16384)
+h = permute(h, 2, 1)
+h = concat(h, fine_features, axis=2)
+h = linear(h, 384, name="renderer0")
+h = leaky_relu(h, 0.2)
+h = linear(h, 192, name="renderer1")
+h = leaky_relu(h, 0.2)
+h = linear(h, 3, name="renderer_rgb")
+h = tanh(h)
+h = permute(h, 2, 1)
+out = reshape(h, 3, 128, 128)

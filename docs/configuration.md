@@ -212,6 +212,20 @@ is assumed; compare FID and diversity metrics during training.
 
 The configuration separates `prior`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`. The generated default uses a particle prior, paired relativistic logistic loss, b-cap and VICReg. The exact resolved parameters are saved with each run.
 
+With ParticleGAN 0.6.0, a MoG recipe's `prior.fixed_sigma` is passed directly to
+the constructor. It sets one shared, fixed isotropic noise scale and performs
+no nearest-neighbor calibration. Existing fixed-sigma configs need no edits;
+a legacy `prior.args.sigma_rel` is ignored when a fixed scale is supplied.
+Alternatively, pass `sigma` in `prior.args`; specifying both forms is an error.
+Explicit scales must be finite and nonnegative, and zero disables noise draws.
+
+Recipes with neither explicit scale retain their historical behavior:
+HyperGAN initializes the centers once, explicitly calls ParticleGAN's
+`calibrate_mog_sigma` helper on `prior.means()`, and stores the resulting sigma
+and spacing. `sigma_rel` defaults to 0.025. That exact nearest-neighbor search
+can be expensive for large, high-dimensional tables; choose an explicit scale
+to avoid it. Existing checkpoint buffers and read settings restore as saved.
+
 The discriminator penalty uses ParticleGAN arm names: `b_cap` is the default; `a_r1r2` denotes its paired zero-centered R1/R2 alternative. Changing an arm produces a custom, unqualified configuration. Do not treat these names as interchangeable with other papers' formulations.
 
 Additional objectives select a loss factory, input bindings and weight. Reconstruction objectives such as MSE or L1 can connect generated output and paired targets. Custom task losses can be imported through the same factory mechanism. The runtime's supported update ownership is explicit; it does not infer a new training algorithm from component names.

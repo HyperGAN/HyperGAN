@@ -76,7 +76,7 @@ def _prior_population(group, rank):
     unequal = group.unique_indices(torch.tensor([], dtype=torch.int64) if rank == 0 else ids, num_rows=7)
     assert unequal.tolist() == [2, 4]
     assert group.unique_indices(torch.tensor([], dtype=torch.int64), num_rows=7).numel() == 0
-    prior = MoGParticlePrior(num_particles=7, z_dim=3, dtype=torch.float64,
+    prior = MoGParticlePrior(num_particles=7, z_dim=3, dtype=torch.float64, sigma=0,
                              generator=torch.Generator().manual_seed(83))
     rows = prior.z.detach().clone().requires_grad_()
     regularizer = ParticleRegularizer()

@@ -1,4 +1,4 @@
-"""Numerical contract and native-artifact checks, against ParticleGAN 0.5.0."""
+"""Numerical contract and native-artifact checks, against ParticleGAN 0.6.0."""
 import copy
 import json
 from pathlib import Path

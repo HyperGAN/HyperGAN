@@ -84,7 +84,14 @@ class SingleProcessExecution:
         apply_backend_policy(self._config)
         # Warns on stderr as it is detected; the controller also records them on
         # the run so the owner can read them after the attempt has scrolled past.
-        runtime_warnings = validate_runtime(info['runtime'], runtime_info(self._config['training']['device']))
+        current_runtime = runtime_info(self._config['training']['device'])
+        migration = {}
+        if (isinstance(info['runtime'], dict)
+                and (info['runtime'].get('particlegan'), current_runtime.get('particlegan')) == ('0.5.0', '0.6.0')):
+            self._open()
+            migration = {'saved_implementation': info['implementation'],
+                         'current_implementation': _implementation(self._trainer)}
+        runtime_warnings = validate_runtime(info['runtime'], current_runtime, **migration)
         self._open()
         contract, reasons = _recovery_contract(self._trainer)
         if reasons:

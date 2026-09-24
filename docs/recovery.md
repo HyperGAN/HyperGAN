@@ -78,6 +78,16 @@ A rejected runtime names every field that differs, as dotted key paths with the 
 
 Built-in synthetic data is stateless apart from the trainer's RNG. `image_folder` records its content/preprocessing/class-map identity, shuffled order and cursor. Custom data must implement the documented state protocol or explicitly declare itself stateless to support recovery. Custom components must register their tensor state and obey the recovery contract; arbitrary Python caches and external services cannot be inferred from a model's weights. Unsupported recovery does not silently become a successful restore.
 
+ParticleGAN 0.5.0 checkpoints also have a narrow, audited migration to 0.6.0's
+explicit-sigma constructor. It requires exact known old/new source hashes for
+`particlegan.particle_prior` and `particlegan.recipes`; every other external
+implementation and numerical runtime setting must still match. It restores
+saved centers, sigma, legacy spacing, read settings, optimizer and RNG state,
+and records a resume warning. Unknown source changes, a downgrade, or other
+dependency versions are not qualified by this exception. Fixed-sigma configs
+avoid calibration during construction before restore; legacy relative-noise
+configs still explicitly calibrate before their saved buffers are restored.
+
 For process managers, `--progress-json` writes cadence-filtered JSONL progress and immediate lifecycle events to stdout, followed by a `result` event containing the final manifest. Diagnostics remain on stderr. Without that flag, routine updates go to stderr every 100 steps and the final manifest goes to stdout. Change the interval with `--progress-every N`; collected metrics are unaffected. The Python API starts no server. CLI output is bounded best-effort delivery; the event journal is authoritative. The CLI can launch the optional browser viewer.
 
 For bounded event pages, periodic previews and acknowledged manual checkpoint requests, see [run observation](observation.md). Periodic preview retention (at most `--preview-keep` generations, 128 by default, thinning the older samples instead of dropping the beginning of the run) never deletes complete checkpoints or final attempt inference bundles. A resume inherits a stored `preview_keep` only when the manifest's `preview_keep_source` records it as explicit, so a run started under an older default is not pinned to it. A submitted save request is pending until the trainer acknowledges a durable checkpoint at a safe boundary.

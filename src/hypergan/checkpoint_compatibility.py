@@ -12,6 +12,18 @@ import warnings
 
 CURRENT_VERSION = 2
 
+# Audited 0.5.0 -> 0.6.0 constructor migration. Saved prior buffers/read settings
+# still restore exactly; loss and penalty implementations must remain identical.
+# These are exact source digests, not a blanket exception for library upgrades.
+PARTICLEGAN_060_MIGRATION = {
+    'particlegan.particle_prior': (
+        'eabbc41c3c42376e0b748b06a87fae4f8d10314002dfd888a5bd30e8f311b69b',
+        '17e39404cefca5963c82d9981f8582ea6c650c9aae66b51ce11ecf05896bb9a9'),
+    'particlegan.recipes': (
+        '33ea97c94f4dd79ee2c5451cdf9e9ce98272921d71a300918258e8df3e6a88bc',
+        '79c4449d804f1b701dde8d4578c676ef31ceb4806f12705b8a237cec821d0cc9'),
+}
+
 # Which physical card a run sits on is recorded so an attempt can be traced back
 # to hardware, but it does not change what the saved state means. Two identical
 # GPUs in one machine enumerate in an unstable order unless CUDA_DEVICE_ORDER
@@ -20,12 +32,12 @@ CURRENT_VERSION = 2
 # difference confined to them warns and resumes instead of rejecting.
 DEVICE_IDENTITY_KEYS = frozenset({'cuda.uuid', 'cuda.visible_devices'})
 
-# Every other key in `runtime` decides behavior and stays a hard failure: device
+# Other keys in `runtime` decide behavior and stay hard failures: device
 # type, dtype, world size, torch/cuda/cudnn versions, the deterministic, tf32 and
 # matmul settings, the GPU model and capability, python/numpy and the platform.
-# Because any difference outside DEVICE_IDENTITY_KEYS rejects, an accepted
-# identity change has already proved the model, the capability and every
-# numerical setting still match.
+# The explicit-sigma library migration below additionally requires audited
+# source hashes. An accepted identity change still proves the model,
+# capability and every numerical runtime setting match.
 
 MAX_VALUE_CHARACTERS = 200
 
@@ -93,21 +105,30 @@ def _device_identity_warning(saved, differences):
             'CUDA_VISIBLE_DEVICES to pin one physical device across restarts.')
 
 
-def validate_runtime(saved, current, *, warn=None):
+def validate_runtime(saved, current, *, warn=None, saved_implementation=None,
+                     current_implementation=None):
     """Reject an incompatible runtime, naming every differing key path.
 
     A difference confined to DEVICE_IDENTITY_KEYS says which card ran, not what
     it computes, so it warns and resumes. Returns the warning messages; `warn`
     takes a sink that receives each message instead of `warnings.warn`, for a
-    caller that also records them on the run.
+    caller that also records them on the run. The ParticleGAN migration also
+    requires both implementation inventories and their exact audited hashes.
     """
     if not isinstance(saved, dict) or not isinstance(current, dict):
         raise ValueError('Invalid resume runtime metadata')
     # A HyperGAN release can change without changing its recovery contract.
     saved = {key: value for key, value in saved.items() if key != 'hypergan'}
     current = {key: value for key, value in current.items() if key != 'hypergan'}
+    upgraded = ((saved.get('particlegan'), current.get('particlegan')) == ('0.5.0', '0.6.0')
+                and _particlegan_060_upgrade(saved_implementation, current_implementation))
+    if upgraded:
+        # Also check all other external implementations before qualifying the
+        # version change. A different loss/penalty cannot slip through here.
+        validate_implementation(saved_implementation, current_implementation)
+        saved['particlegan'] = current['particlegan']
     differences = _differences(saved, current)
-    if not differences:
+    if not differences and not upgraded:
         return []
     incompatible = [difference for difference in differences
                     if difference[0] not in DEVICE_IDENTITY_KEYS]
@@ -115,13 +136,22 @@ def validate_runtime(saved, current, *, warn=None):
         raise ValueError(
             'Resume runtime/topology differs from checkpoint: ' + _describe(incompatible) +
             '. Resume with the runtime that wrote the checkpoint, or start a new run directory.')
-    messages = [_device_identity_warning(saved, differences)]
+    messages = [_device_identity_warning(saved, differences)] if differences else []
+    if upgraded:
+        messages.append('Resuming ParticleGAN 0.5.0 state with the audited 0.6.0 explicit-sigma '
+                        'implementation; saved centers, sigma and read settings restore unchanged.')
     for message in messages:
         if warn is None:
             warnings.warn(message, RuntimeWarning, stacklevel=2)
         else:
             warn(message)
     return messages
+
+
+def _particlegan_060_upgrade(saved, current):
+    return (isinstance(saved, dict) and isinstance(current, dict)
+            and all(saved.get(key) == old and current.get(key) == new
+                    for key, (old, new) in PARTICLEGAN_060_MIGRATION.items()))
 
 
 def validate_implementation(saved, current):
@@ -133,5 +163,8 @@ def validate_implementation(saved, current):
     def external(value):
         return {key: digest for key, digest in value.items()
                 if key != 'hypergan' and not key.startswith('hypergan.')}
-    if not _same(external(saved), external(current)):
+    left, right = external(saved), external(current)
+    if _particlegan_060_upgrade(left, right):
+        left.update({key: new for key, (_, new) in PARTICLEGAN_060_MIGRATION.items()})
+    if not _same(left, right):
         raise ValueError('Resume implementation differs from checkpoint: external component or dependency changed')

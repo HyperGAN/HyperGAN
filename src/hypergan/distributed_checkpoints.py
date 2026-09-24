@@ -389,7 +389,9 @@ def _validate_restore_identity(saved, current):
     if not isinstance(saved, dict):
         raise ValueError('Distributed checkpoint identity must be a dictionary')
     validate_checkpoint_compatibility(saved)
-    validate_runtime(saved.get('runtime'), current['runtime'])
+    validate_runtime(saved.get('runtime'), current['runtime'],
+                     saved_implementation=saved.get('implementation'),
+                     current_implementation=current['implementation'])
     validate_implementation(saved.get('implementation'), current['implementation'])
     for identity in (saved, current):
         if (not isinstance(identity.get('config'), dict)

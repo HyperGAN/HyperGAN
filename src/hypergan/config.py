@@ -283,6 +283,13 @@ def resolve_config(raw):
         _positive(prior['fixed_sigma'], 'prior.fixed_sigma', zero=True)
         if prior['kind'] != 'mog':
             raise ValueError('prior.fixed_sigma requires a MoG prior')
+    if prior['kind'] == 'mog':
+        if 'sigma' in prior['args']:
+            _positive(prior['args']['sigma'], 'prior.args.sigma', zero=True)
+            if prior['fixed_sigma'] is not None:
+                raise ValueError('Choose prior.fixed_sigma or prior.args.sigma, not both')
+        if 'sigma_rel' in prior['args']:
+            _positive(prior['args']['sigma_rel'], 'prior.args.sigma_rel', zero=True)
     if "dtype" in result["prior"]["args"] or ("device" in result["prior"]["args"] and result["prior"]["args"]["device"] != result["training"]["device"]):
         raise ValueError("Training owns prior device and float32 dtype; omit prior.args.device/dtype or match training.device")
     _positive(result["prior"]["args"].get("z_dim"), "prior.args.z_dim", integer=True)

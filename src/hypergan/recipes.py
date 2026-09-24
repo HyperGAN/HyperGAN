@@ -84,18 +84,30 @@ def move_tensors(value, device):
 
 
 def make_prior(spec, *, device=None):
-    from particlegan import GaussianPrior, MoGParticlePrior, ParticlePrior
+    from particlegan import GaussianPrior, MoGParticlePrior, ParticlePrior, calibrate_mog_sigma
     args = dict(spec['args'])
     initial_device = 'cpu' if spec.get('initialization_device') == 'cpu' else device
     if initial_device is not None:
         args['device'] = initial_device
     if spec.get('initialization_seed') is not None:
         args['generator'] = torch.Generator(device=initial_device or 'cpu').manual_seed(spec['initialization_seed'])
-    prior = {"particles": ParticlePrior, "mog": MoGParticlePrior, "gaussian": GaussianPrior}[spec["kind"]](**args)
-    if spec.get('fixed_sigma') is not None:
-        with torch.no_grad():
-            prior.sigma.fill_(spec['fixed_sigma'])
-        prior._noise_enabled = bool(spec['fixed_sigma'] > 0)
+    if spec['kind'] == 'mog':
+        sigma_rel = args.pop('sigma_rel', .025)
+        sigma = args.pop('sigma', None)
+        if spec.get('fixed_sigma') is not None:
+            if sigma is not None:
+                raise ValueError('Choose prior.fixed_sigma or prior.args.sigma, not both')
+            sigma = spec['fixed_sigma']
+        prior = MoGParticlePrior(sigma=0.0 if sigma is None else sigma, **args)
+        if sigma is None:
+            # Preserve historical relative-noise recipes explicitly. Fixed-noise
+            # recipes never search neighbors, including during checkpoint setup.
+            value, distance = calibrate_mog_sigma(prior.means(), sigma_rel)
+            prior.set_sigma(value)
+            prior.d0.copy_(distance)
+            prior.sigma_rel = float(sigma_rel)
+    else:
+        prior = {"particles": ParticlePrior, "gaussian": GaussianPrior}[spec["kind"]](**args)
     return prior.to(device) if device is not None else prior
 
 

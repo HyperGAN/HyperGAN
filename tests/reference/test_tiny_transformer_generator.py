@@ -1,23 +1,26 @@
 """The small generator has an immediate, sample-independent latent path."""
 from pathlib import Path
 
+import pytest
 import torch
 
 from hypergan.hndl_networks import build_network
 
-SOURCE = Path(__file__).parents[2] / 'examples/networks/tiny-transformer-generator-128.hndl'
+NETWORKS = Path(__file__).parents[2] / 'examples/networks'
 
 
-def test_initial_conditioning_gradients_and_checkpoint():
+@pytest.mark.parametrize('side,z_dim', [(32, 64), (128, 512)])
+def test_initial_conditioning_gradients_and_checkpoint(side, z_dim):
+    source = (NETWORKS / f'tiny-transformer-generator-{side}.hndl').read_text()
     with torch.random.fork_rng(devices=[]):
-        model = build_network(SOURCE.read_text(), input_shape=('B', 512),
-                              output_shape=('B', 3, 128, 128))
-        restored = build_network(SOURCE.read_text(), input_shape=('B', 512),
-                                 output_shape=('B', 3, 128, 128))
-    z = torch.arange(1024).float().cos().reshape(2, 512).requires_grad_()
+        model = build_network(source, input_shape=('B', z_dim),
+                              output_shape=('B', 3, side, side))
+        restored = build_network(source, input_shape=('B', z_dim),
+                                 output_shape=('B', 3, side, side))
+    z = torch.arange(2 * z_dim).float().cos().reshape(2, z_dim).requires_grad_()
     rng = torch.get_rng_state().clone()
     out = model(z)
-    assert out.shape == (2, 3, 128, 128)
+    assert out.shape == (2, 3, side, side)
     assert torch.isfinite(out).all() and out.abs().max() <= 1
     assert (out[0] - out[1]).square().mean().sqrt() > 1e-4
     out.square().mean().backward()
@@ -27,7 +30,7 @@ def test_initial_conditioning_gradients_and_checkpoint():
         assert p.grad is not None and torch.isfinite(p.grad).all(), name
     # Both transformer branches and the decoder must participate immediately.
     for name in ('input_projection', 'block0_attention', 'block1_attention',
-                 'block0_ffn', 'block1_ffn', 'conv16', 'conv128', 'rgb'):
+                 'block0_ffn', 'block1_ffn', 'conv16', f'conv{side}', 'rgb'):
         assert sum(p.grad.abs().sum() for p in model[name].parameters()) > 0, name
     restored.load_state_dict(model.state_dict(), strict=True)
     with torch.no_grad():

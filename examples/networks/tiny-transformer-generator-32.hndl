@@ -1,0 +1,30 @@
+# CIFAR z=64 -> 64 spatial tokens; two pre-LayerNorm transformer blocks.
+# Each position has its own projection weights, so no position table is needed.
+h = linear(x, 16384, name="input_projection")
+h = reshape(h, 64, 256)
+
+branch = layer_norm(h, name="block0_attention_norm")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=True, out_bias=True, name="block0_attention")
+h = add(h, branch)
+branch = layer_norm(h, name="block0_ffn_norm")
+branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block0_ffn")
+h = add(h, branch)
+
+branch = layer_norm(h, name="block1_attention_norm")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=True, out_bias=True, name="block1_attention")
+h = add(h, branch)
+branch = layer_norm(h, name="block1_ffn_norm")
+branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block1_ffn")
+h = add(h, branch)
+
+# Plain nearest-neighbor upsampling and 3x3 convolutions: 8 -> 16 -> 32.
+h = permute(h, 2, 1)
+h = reshape(h, 256, 8, 8)
+h = upsample(h, 2, mode="nearest")
+h = conv(h, 128, kernel_size=3, padding=1, name="conv16")
+h = leaky_relu(h, 0.2)
+h = upsample(h, 2, mode="nearest")
+h = conv(h, 64, kernel_size=3, padding=1, name="conv32")
+h = leaky_relu(h, 0.2)
+h = conv(h, 3, kernel_size=3, padding=1, name="rgb")
+out = tanh(h)

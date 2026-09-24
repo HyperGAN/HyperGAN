@@ -1,5 +1,8 @@
 # Tiny transformer generator at 128px
 
+The subsequent [CIFAR experiment](cifar-tiny-transformer.md) adapts this
+generator to 32px and removes the discriminator's pixel branch.
+
 The [recipe](../examples/tiny-transformer-resnet-128.toml) replaces the style
 transformer with a [9,851,555-parameter generator](../examples/networks/tiny-transformer-generator-128.hndl).
 It keeps the normal-rate recipe's ResNet18 multiscale/pixel critic, no DiffAug,

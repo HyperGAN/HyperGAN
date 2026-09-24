@@ -1,0 +1,70 @@
+# CIFAR feature-only critic: frozen ResNet18 at 64px, three trainable heads.
+# Preserve CIFAR preprocessing, fixed context, and layer1/2/3 feature heads.
+# No pixel discriminator. Normalize the three remaining scores by sqrt(3).
+context = constant(x, 3, 32, 32)
+
+# Join along batch before normalization: raw zero context is midgray RGB.
+# ResNet preprocessing: (RGB * 0.5 + 0.5 - ImageNet mean) / std.
+feature_batch = concat(x, context, axis=0, name="feature_batch")
+resized = upsample(feature_batch, 2, mode="bilinear", align_corners=False)
+scaled = scale(resized, 0.5)
+half = constant(feature_batch, 3, 1, 1, value=0.5)
+normalized = broadcast_add(scaled, half)
+red, green_blue = split(normalized, 1)
+green, blue = split(green_blue, 1)
+red_bias = constant(red, 1, 1, 1, value=-0.485)
+red = broadcast_add(red, red_bias)
+red = scale(red, 4.3668122270742355)
+green_bias = constant(green, 1, 1, 1, value=-0.456)
+green = broadcast_add(green, green_bias)
+green = scale(green, 4.464285714285714)
+blue_bias = constant(blue, 1, 1, 1, value=-0.406)
+blue = broadcast_add(blue, blue_bias)
+blue = scale(blue, 4.444444444444445)
+normalized = concat(red, green, blue, name="normalized")
+
+# One frozen backbone, one pass at batch 2*B, native 16px / 8px / 4px maps.
+# Frozen BatchNorm uses checkpoint statistics; examples remain independent.
+feature1, feature2, feature3 = pretrained(normalized, ${weights_path},
+    provider="torchvision_resnet18", sha256=${weights_sha256},
+    layers=("layer1", "layer2", "layer3"), trainable=False, name="resnet")
+
+# Candidate + fixed-context feature head 1, native 16px map.
+candidate1, context1 = chunk(feature1, 2, dim=0, name="feature1_split")
+head1 = concat(candidate1, context1, name="feature1_join")
+head1 = conv(head1, 64, kernel_size=1, name="feature1_project")
+head1 = group_norm(head1, 8, name="feature1_norm")
+head1 = leaky_relu(head1, 0.2)
+head1 = conv(head1, 64, kernel_size=3, padding=1, name="feature1_conv")
+head1 = leaky_relu(head1, 0.2)
+head1 = adaptive_avg_pool(head1, 4)
+head1 = flatten(head1)
+score1 = linear(head1, 1, name="feature1_score")
+
+# Candidate + fixed-context feature head 2, native 8px map.
+candidate2, context2 = chunk(feature2, 2, dim=0, name="feature2_split")
+head2 = concat(candidate2, context2, name="feature2_join")
+head2 = conv(head2, 64, kernel_size=1, name="feature2_project")
+head2 = group_norm(head2, 8, name="feature2_norm")
+head2 = leaky_relu(head2, 0.2)
+head2 = conv(head2, 64, kernel_size=3, padding=1, name="feature2_conv")
+head2 = leaky_relu(head2, 0.2)
+head2 = adaptive_avg_pool(head2, 4)
+head2 = flatten(head2)
+score2 = linear(head2, 1, name="feature2_score")
+
+# Candidate + fixed-context feature head 3, native 4px map.
+candidate3, context3 = chunk(feature3, 2, dim=0, name="feature3_split")
+head3 = concat(candidate3, context3, name="feature3_join")
+head3 = conv(head3, 64, kernel_size=1, name="feature3_project")
+head3 = group_norm(head3, 8, name="feature3_norm")
+head3 = leaky_relu(head3, 0.2)
+head3 = conv(head3, 64, kernel_size=3, padding=1, name="feature3_conv")
+head3 = leaky_relu(head3, 0.2)
+head3 = adaptive_avg_pool(head3, 4)
+head3 = flatten(head3)
+score3 = linear(head3, 1, name="feature3_score")
+
+feature_score = concat(score1, score2, score3)
+feature_score = sum(feature_score, 1, keepdim=True)
+out = scale(feature_score, 0.5773502691896258)

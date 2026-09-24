@@ -1,5 +1,8 @@
 # Simple StyleTransformer at 128px
 
+For the subsequent two-block transformer with a convolutional decoder, see
+[the tiny transformer experiment](tiny-transformer.md).
+
 The [recipe](../examples/simple-styletransformer-resnet-128-low-g-lr.toml)
 replaces the 151,512,455-parameter TransGAN with a 19,036,935-parameter
 [HNDL generator](../examples/networks/simple-styletransformer-generator-128.hndl)

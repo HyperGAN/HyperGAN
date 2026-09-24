@@ -149,8 +149,10 @@ class ColorizationData(ImageFolder):
     """
     def __init__(self, root, manifest, manifest_sha256, split='train', shuffle=True, repeats=1,
                  workers=4, prefetch_batches=1, bad_image_policy='error',
-                 max_bad_images=100, max_consecutive_bad_images=8):
+                 max_bad_images=100, max_consecutive_bad_images=8, cache_dir=None):
         self._configure_workers(workers, prefetch_batches)
+        if cache_dir is not None and (not isinstance(cache_dir, (str, Path)) or not str(cache_dir).strip()):
+            raise ValueError('cache_dir must be a nonempty path or None')
         if bad_image_policy not in {'error', 'skip'}:
             raise ValueError('bad_image_policy must be error or skip')
         _positive_int(max_bad_images, 'max_bad_images')
@@ -213,6 +215,11 @@ class ColorizationData(ImageFolder):
         if order == 'sha256,path':
             self._identity['order'] = order
         self._identity_sha256 = _digest(self._identity)
+        if cache_dir is not None:
+            from .image_cache import PixelCache
+            namespace = _digest({'kind': 'colorization_pixels', 'version': 1,
+                                 'preprocessing': policy})
+            self._pixel_cache = PixelCache(cache_dir, namespace, height * width * 3)
         self._permutation, self._cursor, self._epoch = [], 0, 0
 
     def _decode(self, content, name):

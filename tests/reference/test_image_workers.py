@@ -147,6 +147,28 @@ def test_prefetch_failure_is_reported_when_consumed(tmp_path):
         data.close()
 
 
+def test_assembly_failure_discards_new_prefetch_and_rolls_back_epoch(tmp_path, monkeypatch):
+    data = folder(tmp_path, workers=4)
+    rng = torch.Generator().manual_seed(17)
+    try:
+        data(3, generator=rng)
+        state, rng_state = data.state_dict(), rng.get_state()
+        original = torch.frombuffer
+        def broken(*args, **kwargs):
+            assert data._pending  # Next reads now start before assembly.
+            raise RuntimeError('assembly failed')
+        monkeypatch.setattr(torch, 'frombuffer', broken)
+        with pytest.raises(RuntimeError, match='assembly failed'):
+            data(13, generator=rng)
+        assert data.state_dict() == state
+        assert torch.equal(rng.get_state(), rng_state)
+        assert not data._pending
+        monkeypatch.setattr(torch, 'frombuffer', original)
+        data(13, generator=rng)
+    finally:
+        data.close()
+
+
 def test_worker_decoding_keeps_warning_filters_and_pillow_limits(tmp_path, monkeypatch):
     data = folder(tmp_path, workers=4)
     rng = torch.Generator()

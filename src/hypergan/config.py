@@ -487,7 +487,7 @@ def numerical_values(config):
 
 
 def resume_compatible(config, original, *, include_observation=False):
-    """Allow constant-LR step extension and explicit pinned-image skip opt-in.
+    """Allow constant-LR extension, pinned-image skip opt-in and pixel caching.
 
     Keep fingerprints unchanged: existing checkpoints retain their original
     identities, and each new checkpoint records the extended configuration.
@@ -500,6 +500,12 @@ def resume_compatible(config, original, *, include_observation=False):
         factory = 'hypergan.colorization_data:ColorizationData'
         if current['data']['factory'] == saved['data']['factory'] == factory:
             left, right = current['data']['args'], saved['data']['args']
+            # Derived pixels are checked and source hashes still verified on
+            # every access. Cache placement/presence cannot change training.
+            caches = [args.get('cache_dir') for args in (left, right)]
+            if all(c is None or (isinstance(c, str) and c.strip()) for c in caches):
+                for args in (left, right):
+                    args.pop('cache_dir', None)
             keys = {'bad_image_policy': 'error', 'max_bad_images': 100,
                     'max_consecutive_bad_images': 8}
             policies = [{k: args.get(k, default) for k, default in keys.items()}

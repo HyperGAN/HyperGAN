@@ -31,9 +31,14 @@ def pinned(tmp_path):
 
 
 @pytest.mark.parametrize('workers', [0, 1, 4])
-def test_missing_changed_and_prefetched_images_resume_exactly(pinned, workers, caplog):
+@pytest.mark.parametrize('cached', [False, True])
+def test_missing_changed_and_prefetched_images_resume_exactly(pinned, workers, cached, caplog, tmp_path):
     strict = ColorizationData(**pinned, workers=0)
-    data = ColorizationData(**pinned, workers=workers, bad_image_policy='skip')
+    data = ColorizationData(**pinned, workers=workers, bad_image_policy='skip',
+                            cache_dir=tmp_path / 'cache' if cached else None)
+    if cached:
+        for entry in data.entries:
+            data._pixels(entry)
     rng = torch.Generator().manual_seed(71)
     restored = None
     try:

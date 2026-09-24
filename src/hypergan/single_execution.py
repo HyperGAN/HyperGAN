@@ -80,7 +80,7 @@ class SingleProcessExecution:
                     or fingerprint(info['config']) != info['config_sha256']):
                 raise ValueError('Resume configuration differs from checkpoint; only an increased '
                                  'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
-                                 'pinned training-image skipping, is allowed')
+                                 'pinned training-image skipping, or changing its pixel cache, is allowed')
         apply_backend_policy(self._config)
         # Warns on stderr as it is detected; the controller also records them on
         # the run so the owner can read them after the attempt has scrolled past.

@@ -14,6 +14,7 @@ shuffle = true
 bad_image_policy = "skip"
 max_bad_images = 100
 max_consecutive_bad_images = 8
+cache_dir = "/mnt/ml7tb/hypergan-cache/logos-128"
 
 # Two-block transformer with convolutional upsampling to 128px.
 [components.generator]

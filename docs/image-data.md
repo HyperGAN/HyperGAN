@@ -82,8 +82,8 @@ config unchanged to preserve the run's exact configuration check on resume.
 Lookahead stores immutable uint8 pixels, bounded by the requested batch size times
 `prefetch_batches`, plus active decoder working memory. At batch 64 and 128px RGB,
 one full prefetched batch contains 3 MiB of pixels. There is no full-dataset RAM
-cache or persistent disk cache. Prefetched files are read and hashed again when
-consumed, so a changed file or symlink is still rejected. Lookahead stops at the epoch
+cache. Prefetched sources are read and hashed when consumed, so a changed file
+or symlink is still rejected. Lookahead stops at the epoch
 boundary rather than speculatively drawing the next permutation; the first batch
 and epoch transitions can therefore wait longer.
 
@@ -92,6 +92,45 @@ worker completion order never affects batch order, pixels, labels, or RNG state.
 Standalone callers can use `data.close()` to drain work and release threads; a
 later call recreates the pool. Single-process training closes it at shutdown,
 and discarded loaders release idle workers automatically.
+
+## Resized-pixel disk cache
+
+The manifest-backed `hypergan.colorization_data:ColorizationData` loader accepts
+an optional cache directory, disabled by default:
+
+```toml
+[data.args]
+cache_dir = "/mnt/ml7tb/hypergan-cache/logos-128"
+```
+
+Workers save the exact preprocessed RGB uint8 bytes on first access. Later
+accesses avoid Pillow decoding, alpha composition and resizing. The cache grows
+as training encounters images; it does not scan the dataset at startup or load
+it all into RAM. Initial misses still pay the decoding cost and an additional
+cache write. For 404,757 unique 128px images, payloads occupy about 18.5 GiB;
+allow roughly 20 GiB with filesystem allocation overhead. Use a directory
+outside the source dataset, on a disk with enough room.
+
+Entries are keyed by source SHA256 and a namespace containing preprocessing,
+Pillow version and cache-format version. Each has an exact length and a checksum
+binding its pixels to the source and namespace. Missing, truncated or corrupt
+cache entries are regenerated from the verified source. Publication is atomic,
+so decoder threads and independent loaders can share the directory. A cache
+write failure logs a warning and disables further writes for that loader;
+training continues using source decoding and any readable existing entries.
+
+**Every consumed source is still read, hashed and checked for unsafe paths.**
+A warm cache never hides a deleted or changed source from the error/skip policy.
+For speculative cache hits, that source check happens at consumption; cold
+prefetch also verifies the source before decoding. Cache failures never count
+as damaged training images. The cache is disposable derived data and can be
+removed; missing entries are rebuilt. It is not included in checkpoints.
+
+Enabling, moving or disabling `cache_dir` on resume is allowed for this pinned
+loader. Pixels, sample order, RNG and sampler state remain identical; all other
+recipe compatibility rules still apply. New checkpoints record the actual
+configuration. This cache option is separate from `ImageFolder`, which still
+inventories its sources at construction.
 
 ## Skipping damaged training sources
 

@@ -317,7 +317,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
                     or fingerprint(manifest['config']) != manifest['config_sha256']):
                 raise ValueError('Resume configuration differs from the original run; only an increased '
                                  'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
-                                 'pinned training-image skipping, is allowed')
+                                 'pinned training-image skipping, or changing its pixel cache, is allowed')
         prepare_custom(config)
         context = _candidate_attempt(run_dir, manifest['run_id'])
         execution = execution_factory(config)

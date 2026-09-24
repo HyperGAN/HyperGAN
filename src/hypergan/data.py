@@ -114,6 +114,7 @@ class ImageFolder:
                 raise ValueError(f"image_folder {name} must be a nonnegative integer")
         self.workers, self.prefetch_batches = workers, prefetch_batches
         self._pool, self._pool_finalizer, self._pending = None, None, {}
+        self._pixel_cache = None
         self.bad_image_policy = 'error'
         self._excluded, self._bad_image_streak = {}, 0
 
@@ -147,8 +148,18 @@ class ImageFolder:
         return dict(self.__dict__, _pool=None, _pool_finalizer=None, _pending={})
 
     def _pixels(self, entry):
-        image, _ = self._decode(self._read_bytes(entry), entry["path"])
-        return self._preprocess(image, entry["path"]).tobytes()
+        # Always verify the source, even on cache hits. A missing/changed file
+        # must still fail or be excluded by the configured bad-image policy.
+        content = self._read_bytes(entry)
+        if self._pixel_cache is not None:
+            cached = self._pixel_cache.get(entry['sha256'])
+            if cached is not None:
+                return cached
+        image, _ = self._decode(content, entry["path"])
+        pixels = self._preprocess(image, entry["path"]).tobytes()
+        if self._pixel_cache is not None:
+            self._pixel_cache.put(entry['sha256'], pixels)
+        return pixels
 
     def _verified_prefetch(self, entry, future):
         pixels = future.result()
@@ -156,6 +167,15 @@ class ImageFolder:
         # after its pixels were prefetched. This avoids stale-cache acceptance.
         self._read_bytes(entry)
         return pixels
+
+    def _prefetch_pixels(self, entry):
+        # Cached pixels can be read speculatively without opening the source
+        # twice: _verified_prefetch always checks it before accepting the image.
+        if self._pixel_cache is not None:
+            cached = self._pixel_cache.get(entry['sha256'])
+            if cached is not None:
+                return cached
+        return self._pixels(entry)
 
     def _prefetch(self, batch_size):
         if not self.workers or not self.prefetch_batches:
@@ -171,14 +191,21 @@ class ImageFolder:
         wait(stale)
         for index in indices:
             if index not in self._pending:
-                self._pending[index] = self._executor().submit(self._pixels, self.entries[index])
+                self._pending[index] = self._executor().submit(self._prefetch_pixels, self.entries[index])
 
     def _read_bytes(self, entry):
         path = self.root / entry["path"]
         try:
             # Recheck containment: files/directories may be replaced after preflight.
-            if not path.resolve().is_relative_to(self.root) or any(p.is_symlink() for p in (path, *path.parents) if p != self.root and self.root in p.parents):
+            if not path.is_relative_to(self.root) or not path.resolve().is_relative_to(self.root):
                 raise ValueError("symlink or path escape since inventory")
+            # Walk only the relative path. Rebuilding every ancestor's parents
+            # for membership tests adds substantial Python work per image.
+            current = path
+            while current != self.root:
+                if current.is_symlink():
+                    raise ValueError("symlink or path escape since inventory")
+                current = current.parent
             with path.open("rb") as stream:
                 content = stream.read(self.max_file_bytes + 1)
             if not content:
@@ -299,7 +326,12 @@ class ImageFolder:
         _positive_int(batch_size, "batch_size")
         if not isinstance(generator, torch.Generator) or generator.device.type != "cpu":
             raise ValueError("image_folder requires a caller-owned CPU torch.Generator")
-        old_state, old_rng = self.state_dict(), generator.get_state()
+        # Permutations are replaced at epoch boundaries, never mutated. Keep
+        # their reference for rollback instead of copying the entire inventory
+        # (hundreds of thousands of indices) twice per training update.
+        old_sampler = self._permutation, self._cursor, self._epoch
+        old_excluded, old_streak = self._excluded.copy(), self._bad_image_streak
+        old_rng = generator.get_state()
         indices, pixels, futures = [], [], []
         try:
             while len(pixels) < batch_size:
@@ -337,6 +369,8 @@ class ImageFolder:
                         indices.append(index)
                         self._bad_image_streak = 0
                 wait(futures)
+            # Start the next reads before CPU normalization/assembly, too.
+            self._prefetch(batch_size)
             channels = 3 if self.mode == "RGB" else 1
             tensor = torch.frombuffer(bytearray(b"".join(pixels)), dtype=torch.uint8)
             tensor = tensor.reshape(batch_size, self.height, self.width, channels).permute(0, 3, 1, 2)
@@ -344,12 +378,13 @@ class ImageFolder:
             if self.labels:
                 batch["labels"] = torch.tensor([self.class_map[self.entries[index]["class"]]
                                                 for index in indices], dtype=torch.int64)
-            self._prefetch(batch_size)
             return batch
         except BaseException:
             for future in futures:
                 future.cancel()
             wait(futures)
-            self.load_state_dict(old_state)
+            self._discard_prefetch()
+            self._permutation, self._cursor, self._epoch = old_sampler
+            self._excluded, self._bad_image_streak = old_excluded, old_streak
             generator.set_state(old_rng)
             raise

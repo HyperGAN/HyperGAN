@@ -39,3 +39,13 @@ def test_e3_recipe_changes_only_generator_and_run_name():
     expected['name'] = 'images/logos-transgan-resnet-multiscale-128-e3'
     expected['components']['generator']['args']['file'] = 'networks/transgan-generator-128-e3.hndl'
     assert e3 == expected
+
+
+def test_equalized_recipe_changes_only_generator_and_run_name():
+    examples = Path(__file__).parents[2] / 'examples'
+    baseline = tomllib.loads((examples / 'transgan-resnet-multiscale-128-stable.toml').read_text())
+    equalized = tomllib.loads((examples / 'transgan-resnet-multiscale-128-equalized.toml').read_text())
+    expected = deepcopy(baseline)
+    expected['name'] = 'images/logos-transgan-resnet-multiscale-128-equalized'
+    expected['components']['generator']['args']['file'] = 'networks/transgan-generator-128-equalized.hndl'
+    assert equalized == expected

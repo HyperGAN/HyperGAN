@@ -222,3 +222,54 @@ The launcher selects physical GPU 1
 (`GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce`) and writes to
 `/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-e3`.
 E2's launcher remains on GPU 0. Training is left for the user to launch.
+
+## Equalized linear projections
+
+[`transgan-resnet-multiscale-128-equalized.toml`](../examples/transgan-resnet-multiscale-128-equalized.toml)
+sets HNDL's `equalized=True` on the stem, attention, feed-forward and RGB
+operators. All 128 affine projections use:
+
+```text
+raw_weight ~ Normal(0, 1)
+bias = 0 at initialization
+y = linear(x, raw_weight / sqrt(fan_in), bias)
+```
+
+The runtime weight scaling follows the linear-activation case in
+[StyleGAN2-ADA's fully connected layer](https://github.com/NVlabs/stylegan2-ada-pytorch/blob/main/training/networks.py),
+with unit gain and learning-rate multiplier. Scaling happens on every forward,
+including after optimizer updates. The FFN down projection uses its own wider
+fan-in. Bias is unscaled; GELU remains a separate FFN activation. Attention's
+`1/sqrt(head_dim)` logit scale and learned position tables are unchanged.
+
+This changes both initialization (ordinary linear weights previously used
+Kaiming uniform; the RGB head used Xavier uniform) and the relationship between
+stored weights and their effective updates. It is not merely a different
+initializer. Original weight names, shapes and the 151,512,455 parameter count
+are retained, but ordinary checkpoints store a different weight convention.
+This recipe starts fresh; it does not convert or resume an older checkpoint.
+
+The baseline ResNet critic, no DiffAug, original residual gains, prior,
+optimizer settings, losses, batch size, seeds and schedule are retained. E2
+scaling and E3 shortcuts are absent. Numerical checks cover runtime scaling
+after updates, input/parameter gradients, plan/state round trips, unchanged
+default operators, all 128 projections and a full 128px forward/backward pass.
+Convergence remains to be measured.
+
+This requires [HNDL commit 8667817](https://github.com/HyperGAN/HNDL/commit/8667817cdaf7cdddbdcbf77148aad81a4911dcc2)
+or later with the new `equalized` arguments; the published HNDL 0.6.0 alone is
+insufficient. The local training environment
+already imports the editable `../hndl` checkout. No package release is made
+as part of this experiment.
+
+Validation: 963 HNDL CPU tests and 16 HyperGAN tests passed. HNDL generated
+documentation and lint checks passed. CUDA/reduced-precision tests were not
+run as part of this preparation.
+
+```bash
+../training-runs/start-transgan-resnet-multiscale-128-equalized.sh
+```
+
+The launcher uses physical GPU 0 and writes to
+`/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-equalized`.
+Training is left for the user to launch.

@@ -83,7 +83,7 @@ Lookahead stores immutable uint8 pixels, bounded by the requested batch size tim
 `prefetch_batches`, plus active decoder working memory. At batch 64 and 128px RGB,
 one full prefetched batch contains 3 MiB of pixels. There is no full-dataset RAM
 cache or persistent disk cache. Prefetched files are read and hashed again when
-consumed, so a changed file or symlink still fails. Lookahead stops at the epoch
+consumed, so a changed file or symlink is still rejected. Lookahead stops at the epoch
 boundary rather than speculatively drawing the next permutation; the first batch
 and epoch transitions can therefore wait longer.
 
@@ -92,6 +92,52 @@ worker completion order never affects batch order, pixels, labels, or RNG state.
 Standalone callers can use `data.close()` to drain work and release threads; a
 later call recreates the pool. Single-process training closes it at shutdown,
 and discarded loaders release idle workers automatically.
+
+## Skipping damaged training sources
+
+The manifest-backed `hypergan.colorization_data:ColorizationData` loader supports
+an opt-in policy for **shuffled training only**:
+
+```toml
+[data.args]
+bad_image_policy = "skip"
+max_bad_images = 100
+max_consecutive_bad_images = 8
+```
+
+These are the default limits; the default policy remains `"error"`. Limits must
+be positive integers. Missing, unreadable, changed-content, unsafe-path and
+undecodable sources are excluded when encountered, with their path and reason
+logged as a warning. Workers only report failures: the sampler consumes results
+in order, records exclusions and draws subsequent usable entries to fill the
+batch. Speculative failures do not exclude an image until it is requested.
+Ordinary programming/runtime errors still propagate. Nothing is deleted or
+rewritten, and no changed image is accepted under its original manifest hash.
+
+Training stops on the **101st excluded image**, the **8th consecutive new source
+failure**, or exhaustion of all usable entries, with the defaults above. A good
+image resets the consecutive-failure counter. Fatal batches roll back sampler,
+RNG and exclusions to the pre-call boundary; their warnings remain visible.
+
+Checkpoint sampler schema 2 stores excluded indices, paths and reasons along
+with the failure counter. Restoring preserves exclusions even if a source has
+since been repaired. Legacy schema-1 checkpoints load with no exclusions.
+Exclusions discovered after the latest durable checkpoint must be rediscovered
+if the process crashes; exact continuation assumes the remaining sources have
+not changed. The policy is recorded in the resolved run/checkpoint configuration.
+
+An existing pinned training run can explicitly enable skipping by adding these
+settings to its config and rerunning its launcher. This is a narrow allowed
+resume change: manifest, preprocessing, model, optimizer and other recipe fields
+must still match. Disabling skipping or changing its limits after enabling it
+requires a new run. Healthy-source sampling and legacy fingerprints are unchanged.
+
+Held-out and finite sequential evaluation remain strict. `ImageFolder` also
+remains strict: it rebuilds its inventory during construction, so safely resuming
+after deletion requires the separate pinned manifest supplied by
+`ColorizationData`. Manifest preparation still validates sources and requires
+explicit approval for initial rejections; this option handles later training
+failures without a cleanup script.
 
 ## Exact sampling and resume
 

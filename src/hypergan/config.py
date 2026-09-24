@@ -487,7 +487,7 @@ def numerical_values(config):
 
 
 def resume_compatible(config, original, *, include_observation=False):
-    """Allow only an increased stopping step when the saved LR is constant.
+    """Allow constant-LR step extension and explicit pinned-image skip opt-in.
 
     Keep fingerprints unchanged: existing checkpoints retain their original
     identities, and each new checkpoint records the extended configuration.
@@ -497,6 +497,27 @@ def resume_compatible(config, original, *, include_observation=False):
     try:
         values = config_values if include_observation else numerical_values
         current, saved = values(config), values(original)
+        factory = 'hypergan.colorization_data:ColorizationData'
+        if current['data']['factory'] == saved['data']['factory'] == factory:
+            left, right = current['data']['args'], saved['data']['args']
+            keys = {'bad_image_policy': 'error', 'max_bad_images': 100,
+                    'max_consecutive_bad_images': 8}
+            policies = [{k: args.get(k, default) for k, default in keys.items()}
+                        for args in (left, right)]
+            valid = all(p['bad_image_policy'] in ('error', 'skip')
+                        and all(type(p[k]) is int and p[k] > 0
+                                for k in ('max_bad_images', 'max_consecutive_bad_images'))
+                        for p in policies)
+            enabling = (policies[0]['bad_image_policy'] == 'skip'
+                        and policies[1]['bad_image_policy'] == 'error'
+                        and left.get('split', 'train') == 'train'
+                        and left.get('shuffle', True) is True)
+            if valid and (policies[0] == policies[1] or enabling):
+                # Keep the pinned inventory and every other recipe field exact.
+                # New checkpoints record the explicit policy in their config.
+                for args in (left, right):
+                    for key in keys:
+                        args.pop(key, None)
         new_steps, old_steps = current['training']['steps'], saved['training']['steps']
         if new_steps != old_steps:
             if (type(new_steps) is not int or type(old_steps) is not int

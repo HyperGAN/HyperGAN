@@ -46,6 +46,13 @@ loader. Both independent real-batch draws per training step remain intact.
 See [background loading](image-data.md#background-loading) for tuning and recovery
 details. Already-running processes retain the loader code they imported.
 
+The logo config also enables `bad_image_policy = "skip"`, with at most 100
+excluded sources and a stop after 8 consecutive source failures. Each exclusion
+logs its path/reason, replacements keep batches full, and checkpoints preserve
+the exclusions. This policy can be enabled when resuming the existing strict
+run without changing its pinned inventory or training recipe. See
+[damaged training sources](image-data.md#skipping-damaged-training-sources).
+
 ## Validation and launch
 
 Five focused CPU tests passed across CIFAR and logo variants, including

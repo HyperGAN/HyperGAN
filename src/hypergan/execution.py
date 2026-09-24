@@ -246,7 +246,8 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
         if (not resume_compatible(config, manifest['config'])
                 or fingerprint(manifest['config']) != manifest['config_sha256']):
             raise ValueError('Resume configuration differs from the original run; only an increased '
-                             'training.steps with unchanged constant learning rate (lr_floor=1) is allowed')
+                             'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
+                             'pinned training-image skipping, is allowed')
     saved = manifest.get('execution')
     if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
         raise ValueError('Run has no supported numerical execution identity')

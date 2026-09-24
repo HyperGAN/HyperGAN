@@ -12,7 +12,7 @@ import os
 from pathlib import Path, PurePosixPath
 import tempfile
 
-from .data import ImageFolder, _EXTENSIONS, _digest, _positive_int
+from .data import ImageDataError, ImageFolder, _EXTENSIONS, _digest, _positive_int
 
 
 def _heldout(sha256):
@@ -148,8 +148,17 @@ class ColorizationData(ImageFolder):
     ``shuffle=True`` traverses fresh permutations, wrapping between epochs.
     """
     def __init__(self, root, manifest, manifest_sha256, split='train', shuffle=True, repeats=1,
-                 workers=4, prefetch_batches=1):
+                 workers=4, prefetch_batches=1, bad_image_policy='error',
+                 max_bad_images=100, max_consecutive_bad_images=8):
         self._configure_workers(workers, prefetch_batches)
+        if bad_image_policy not in {'error', 'skip'}:
+            raise ValueError('bad_image_policy must be error or skip')
+        _positive_int(max_bad_images, 'max_bad_images')
+        _positive_int(max_consecutive_bad_images, 'max_consecutive_bad_images')
+        if bad_image_policy == 'skip' and (split != 'train' or shuffle is not True):
+            raise ValueError('Skipping bad images requires shuffled training; evaluation remains strict')
+        self.bad_image_policy = bad_image_policy
+        self.max_bad_images, self.max_consecutive_bad_images = max_bad_images, max_consecutive_bad_images
         from PIL import __version__
         if split not in {'train', 'heldout'} or type(shuffle) is not bool:
             raise ValueError('Colorization split must be train/heldout and shuffle must be boolean')
@@ -227,7 +236,8 @@ class ColorizationData(ImageFolder):
                 result = self._image.alpha_composite(background, rgba).convert('RGB')
             return result, source
         except (OSError, ValueError, self._image.DecompressionBombError, self._image.DecompressionBombWarning) as exc:
-            raise ValueError(f"Cannot decode colorization image '{name}': {exc}; no images were skipped") from exc
+            suffix = '; no images were skipped' if getattr(self, 'bad_image_policy', 'error') == 'error' else ''
+            raise ImageDataError(f"Cannot decode colorization image '{name}': {exc}{suffix}") from exc
 
     def __call__(self, batch_size, *, generator):
         _positive_int(batch_size, 'batch_size')

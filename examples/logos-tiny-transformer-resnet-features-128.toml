@@ -11,6 +11,9 @@ manifest = "./dataset-manifest-128.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "train"
 shuffle = true
+bad_image_policy = "skip"
+max_bad_images = 100
+max_consecutive_bad_images = 8
 
 # Two-block transformer with convolutional upsampling to 128px.
 [components.generator]
@@ -207,4 +210,3 @@ seed = 34002
 [metrics]
 preset = "standard"
 every_steps = 1
-

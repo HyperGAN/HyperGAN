@@ -4,11 +4,16 @@ from copy import deepcopy
 import hashlib
 from io import BytesIO
 import json
+import logging
 from pathlib import Path
 import weakref
 
 
 _EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
+
+
+class ImageDataError(ValueError):
+    """A source read/decode failure, distinct from a loader programming error."""
 
 
 def _digest(value):
@@ -109,6 +114,8 @@ class ImageFolder:
                 raise ValueError(f"image_folder {name} must be a nonnegative integer")
         self.workers, self.prefetch_batches = workers, prefetch_batches
         self._pool, self._pool_finalizer, self._pending = None, None, {}
+        self.bad_image_policy = 'error'
+        self._excluded, self._bad_image_streak = {}, 0
 
     def _executor(self):
         if self._pool is None:
@@ -156,7 +163,7 @@ class ImageFolder:
         # Only look ahead in the existing permutation: never draw an epoch or
         # advance the caller-owned RNG just to keep workers busy.
         stop = self._cursor + batch_size * self.prefetch_batches
-        indices = self._permutation[self._cursor:stop]
+        indices = [i for i in self._permutation[self._cursor:stop] if i not in self._excluded]
         wanted = set(indices)
         stale = [self._pending.pop(index) for index in list(self._pending) if index not in wanted]
         for future in stale:
@@ -182,7 +189,7 @@ class ImageFolder:
                 raise ValueError("content changed since inventory; rebuild the dataset and start a new run, or restore the original file")
             return content
         except (OSError, ValueError) as exc:
-            raise ValueError(f"Cannot read image '{entry['path']}': {exc}") from exc
+            raise ImageDataError(f"Cannot read image '{entry['path']}': {exc}") from exc
 
     def _decode(self, content, name):
         try:
@@ -203,7 +210,7 @@ class ImageFolder:
                 result = self._ops.exif_transpose(image).convert(self.mode)
             return result, source
         except (OSError, ValueError, self._image.DecompressionBombError, self._image.DecompressionBombWarning) as exc:
-            raise ValueError(f"Cannot decode image '{name}': {exc}. Repair/remove this file before training; no images were skipped") from exc
+            raise ImageDataError(f"Cannot decode image '{name}': {exc}. Repair/remove this file before training; no images were skipped") from exc
 
     def _preprocess(self, image, name):
         size = (self.width, self.height)
@@ -225,13 +232,21 @@ class ImageFolder:
 
     def state_dict(self):
         """Sampler state only: caller must also save the supplied generator state."""
-        return {"schema_version": 1, "identity_sha256": self._identity_sha256,
+        state = {"schema_version": 1, "identity_sha256": self._identity_sha256,
                 "permutation": list(self._permutation), "cursor": self._cursor, "epoch": self._epoch}
+        if self.bad_image_policy == 'skip':
+            state.update(schema_version=2, bad_image_streak=self._bad_image_streak,
+                         excluded=[{'index': i, 'path': self.entries[i]['path'], 'reason': reason}
+                                   for i, reason in sorted(self._excluded.items())])
+        return state
 
     def load_state_dict(self, state):
-        if not isinstance(state, dict) or set(state) != {"schema_version", "identity_sha256", "permutation", "cursor", "epoch"}:
+        fields = {"schema_version", "identity_sha256", "permutation", "cursor", "epoch"}
+        if isinstance(state, dict) and state.get('schema_version') == 2:
+            fields |= {'excluded', 'bad_image_streak'}
+        if not isinstance(state, dict) or set(state) != fields:
             raise ValueError("Invalid image_folder sampler state fields")
-        if type(state["schema_version"]) is not int or state["schema_version"] != 1 or state["identity_sha256"] != self._identity_sha256:
+        if type(state["schema_version"]) is not int or state["schema_version"] not in (1, 2) or state["identity_sha256"] != self._identity_sha256:
             raise ValueError("Image folder sampler schema or data/preprocessing/class-map identity mismatch")
         order, cursor, epoch = state["permutation"], state["cursor"], state["epoch"]
         n = len(self.entries)
@@ -241,8 +256,43 @@ class ImageFolder:
             raise ValueError("Invalid image_folder sampler cursor/epoch")
         if not self.shuffle and order and order != list(range(n)):
             raise ValueError("Unshuffled image_folder state must use inventory order")
+        excluded, streak = {}, 0
+        if state['schema_version'] == 2:
+            if self.bad_image_policy != 'skip' or not isinstance(state['excluded'], list):
+                raise ValueError('Excluded images require bad_image_policy=skip')
+            for item in state['excluded']:
+                if not isinstance(item, dict) or set(item) != {'index', 'path', 'reason'}:
+                    raise ValueError('Invalid excluded image record')
+                index, reason = item['index'], item['reason']
+                if (type(index) is not int or not 0 <= index < n or index in excluded
+                        or item['path'] != self.entries[index]['path']
+                        or not isinstance(reason, str) or not reason):
+                    raise ValueError('Invalid excluded image index/path/reason')
+                excluded[index] = reason
+            streak = state['bad_image_streak']
+            if (len(excluded) > self.max_bad_images or len(excluded) >= n
+                    or type(streak) is not int or not 0 <= streak < self.max_consecutive_bad_images
+                    or streak > len(excluded) or (excluded and not order)):
+                raise ValueError('Invalid excluded image count or failure streak')
         self._discard_prefetch()
         self._permutation, self._cursor, self._epoch = list(order), cursor, epoch
+        self._excluded, self._bad_image_streak = excluded, streak
+
+    def _exclude_image(self, index, error):
+        if index in self._excluded:
+            return
+        self._excluded[index] = str(error)
+        self._bad_image_streak += 1
+        logging.getLogger(__name__).warning('Skipping image %r (%d excluded): %s',
+                                           self.entries[index]['path'], len(self._excluded), error)
+        if (len(self._excluded) > self.max_bad_images
+                or self._bad_image_streak >= self.max_consecutive_bad_images
+                or len(self._excluded) >= len(self.entries)):
+            raise ValueError('Image failure limit reached '
+                             f'({len(self._excluded)} excluded, {self._bad_image_streak} consecutive; '
+                             f'max_bad_images={self.max_bad_images}, '
+                             f'max_consecutive_bad_images={self.max_consecutive_bad_images}); '
+                             'check the dataset/storage before continuing')
 
     def __call__(self, batch_size, *, generator):
         import torch
@@ -250,25 +300,43 @@ class ImageFolder:
         if not isinstance(generator, torch.Generator) or generator.device.type != "cpu":
             raise ValueError("image_folder requires a caller-owned CPU torch.Generator")
         old_state, old_rng = self.state_dict(), generator.get_state()
-        indices, futures = [], []
+        indices, pixels, futures = [], [], []
         try:
-            for _ in range(batch_size):
-                if self._cursor == len(self._permutation):
-                    self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
-                    self._cursor = 0
-                    self._epoch += 1
-                indices.append(self._permutation[self._cursor])
-                self._cursor += 1
-            if self.workers:
-                pool = self._executor()
-                for index in indices:
-                    entry = self.entries[index]
-                    prefetched = self._pending.pop(index, None)
-                    futures.append(pool.submit(self._pixels, entry) if prefetched is None
-                                   else pool.submit(self._verified_prefetch, entry, prefetched))
-                pixels = [future.result() for future in futures]
-            else:
-                pixels = [self._pixels(self.entries[index]) for index in indices]
+            while len(pixels) < batch_size:
+                candidates = []
+                while len(candidates) < batch_size - len(pixels):
+                    if self._cursor == len(self._permutation):
+                        self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
+                        self._cursor = 0
+                        self._epoch += 1
+                    index = self._permutation[self._cursor]
+                    self._cursor += 1
+                    if index not in self._excluded:
+                        candidates.append(index)
+                futures = []
+                if self.workers:
+                    pool = self._executor()
+                    for index in candidates:
+                        entry = self.entries[index]
+                        prefetched = self._pending.pop(index, None)
+                        futures.append(pool.submit(self._pixels, entry) if prefetched is None
+                                       else pool.submit(self._verified_prefetch, entry, prefetched))
+                # Resolve in sampler order, never worker completion order. Only
+                # consumed failures enter checkpoint state; speculative ones wait.
+                for position, index in enumerate(candidates):
+                    if index in self._excluded:
+                        continue
+                    try:
+                        value = futures[position].result() if self.workers else self._pixels(self.entries[index])
+                    except ImageDataError as exc:
+                        if self.bad_image_policy != 'skip':
+                            raise
+                        self._exclude_image(index, exc)
+                    else:
+                        pixels.append(value)
+                        indices.append(index)
+                        self._bad_image_streak = 0
+                wait(futures)
             channels = 3 if self.mode == "RGB" else 1
             tensor = torch.frombuffer(bytearray(b"".join(pixels)), dtype=torch.uint8)
             tensor = tensor.reshape(batch_size, self.height, self.width, channels).permute(0, 3, 1, 2)

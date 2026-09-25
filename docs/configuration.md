@@ -210,13 +210,44 @@ is assumed; compare FID and diversity metrics during training.
 
 ## Numerical recipe
 
-The configuration separates `prior`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`. The generated default uses a particle prior, paired relativistic logistic loss, b-cap and VICReg. The exact resolved parameters are saved with each run.
+The configuration separates `prior`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`. The generated default uses a particle prior, paired relativistic logistic loss, the K3P critic penalty and VICReg. The exact resolved parameters are saved with each run.
+
+Training uses ParticleGAN 0.8's one formulation, K3P
+([how it works](https://github.com/255BITS/ParticleGAN/blob/master/docs/k3p.md)):
+an RpGAN logistic loss; a critic penalty that hands over from R1 plus a
+fake-gradient cap to one-sided caps plus an EMA-critic gradient anchor as the
+critic learning rate anneals; and optimizers built by the ParticleGAN recipe
+whose steps add a critic gradient-spike guard and sparse latent-row damping.
+All of its state (the EMA critic, the learning-rate record, damping history)
+is in the optimizer states, which checkpoints save. Its settings:
+
+| Field | HyperGAN default | ParticleGAN default | Meaning |
+| --- | --- | --- | --- |
+| `gradient_penalty.coeff`, `kappa`, `lazy_k` | 1, 1, 1 | 1, 1, 1 | penalty coefficient, gradient cap, apply every k-th step with k times the coefficient |
+| `gradient_penalty.anchor_weight`, `anchor_decay` | 1, .999 | 1, .999 | EMA-anchor term weight (0 removes it and the EMA critic); EMA critic decay |
+| `optimizer.d_guard_ratio`, `d_guard_min_steps` | 5, 200 | 5, 200 | clip a critic tensor whose gradient RMS exceeds that multiple of its Adam RMS (0 disables) |
+| `optimizer.latent_damping_max_rate` | .5 | .5 | damping of sparsely sampled particle-table rows (0 disables; needs `prior_betas[0] = 0`) |
+| `training.network_lr_floor`, `network_lr_horizon_cap` | follows `lr_floor`, full budget | .01, 1600 | generator/critic cosine floor and horizon; the prior keeps the full-budget schedule |
+| `training.input_noise_std`, `input_noise_anneal_end` | 0, .1 | .5, .1 | critic input noise, linear to 0 by that fraction of training |
+| `training.output_noise_std`, `output_noise_warmup` | 0, .2 | .029, .2 | noise added to the fake sample, linear warmup over that fraction |
+
+HyperGAN's defaults keep its earlier learning rates and single schedule and add
+no noise. The removed fields `adversarial.loss_type`/`mode` are accepted only as
+`"logistic"`/`"rp"` and dropped; every other removed loss or
+`gradient_penalty` field (`arm`, `norm`, `method`, ...) is refused with the
+field named. Runs trained before ParticleGAN 0.8 cannot resume under it.
+
+Critic input noise is added inside the critic, so the penalty differentiates
+the clean input and the EMA critic sees the same noise. Output noise is added
+to the fake sample the critic scores, not to objectives or previews. Recipes
+with either noise require native execution.
 
 Top-level `defaults = "particlegan"` fills omitted optimizer (`lr`, `d_lr_mult`,
-`prior_lr_mult`, `betas`, `prior_betas`), adversarial (`loss_type`, `mode`),
-gradient-penalty (`arm`, `coeff`, `kappa`, `lazy_k`, `method`),
-`prior_regularizer.weight` and training (`ema`, `lr_anneal_start`, `lr_floor`)
-fields from the installed `particlegan.Recipe` defaults instead of HyperGAN's.
+`prior_lr_mult`, `betas`, `prior_betas`, guard and damping), gradient-penalty
+(`coeff`, `kappa`, `lazy_k`, `anchor_weight`, `anchor_decay`),
+`prior_regularizer.weight` and training (`ema`, `lr_anneal_start`, `lr_floor`,
+network schedule and noise) fields from the installed `particlegan.Recipe`
+defaults instead of HyperGAN's.
 Explicit fields still win; the mapping is `PARTICLEGAN_DEFAULT_FIELDS` in
 `hypergan.config`. Resolution reads the dataclass without importing Torch.
 The resolved configuration stores the concrete values, so installing a
@@ -237,8 +268,6 @@ and spacing. `sigma_rel` defaults to 0.025. That exact nearest-neighbor search
 can be expensive for large, high-dimensional tables; choose an explicit scale
 to avoid it. Existing checkpoint buffers and read settings restore as saved.
 
-The discriminator penalty uses ParticleGAN arm names: `b_cap` is the default; `a_r1r2` denotes its paired zero-centered R1/R2 alternative. Changing an arm produces a custom, unqualified configuration. Do not treat these names as interchangeable with other papers' formulations.
-
 Additional objectives select a loss factory, input bindings and weight. Reconstruction objectives such as MSE or L1 can connect generated output and paired targets. Custom task losses can be imported through the same factory mechanism. The runtime's supported update ownership is explicit; it does not infer a new training algorithm from component names.
 
 The native step runs one compiled program, `d-then-g-v1`: a critic step, then a generator step. The program records the adversarial terms, their sample bindings, the per-phase detach policy of each scored sample and each critic input, the generator terms, and the ordered parameter groups. The executor follows those records. It does not choose sample sources, detachment, routing, or optimizer membership by reading component names during the update.
@@ -251,12 +280,12 @@ The legacy compiler records this policy, and the executor runs those records:
 
 - The real sample binding is `batch.real`. The fake sample binding is `generated`.
 - On the critic step, the fake sample is detached before the forward. Both scores stay attached. Gradients enter the critic. The penalty scores those same samples with that same sample-detach policy. Its coefficient comes from `[gradient_penalty]`, including when `adversarial.weight` is 0. That weight does not scale the penalty.
-- On the generator step, the fake sample and its score stay attached. The real sample is not detached before the forward; its score is detached after the forward, because relativistic losses need the value. `adversarial.weight` scales only the adversarial scalar. Critic parameters are frozen for this step.
+- On the generator step, the fake sample and its score stay attached. The real sample is not detached before the forward; its score is detached after the forward, because the relativistic loss needs the value. `adversarial.weight` scales only the adversarial scalar. Critic parameters are frozen for this step.
 - The critic input whose path is `candidate` stays attached on both steps. Every other critic input is detached on both steps, whether it comes from the batch or from a component. A detached input is resolved against a detached context, so a component-produced condition sees detached inputs.
 
 These records describe the current recipe. They do not implement another training method.
 
-`[[adversarial_terms]]` adds further terms, in list order, after that implicit first term. Each term names an existing non-reuse component, required `real` and `fake` binding paths, and an `id`. `loss_type` and `mode` are optional and inherit `[adversarial]` when omitted; the allowed values are the same as that table. `weight` defaults to 1 and may be 0. Weight 0 still runs that term's forward and scales only its adversarial scalar by zero. `penalty` defaults to false, so an extra term does not take the legacy gradient penalty. `penalty = true` builds a separate penalty from `[gradient_penalty]` using that term's `penalty_coeff` (the default is `[gradient_penalty].coeff`). Two terms may name one component and keep different penalty coefficients. A term may override `inputs`; otherwise it uses the component's inputs. Exactly one of those paths is `candidate`.
+`[[adversarial_terms]]` adds further terms, in list order, after that implicit first term. Each term names an existing non-reuse component, required `real` and `fake` binding paths, and an `id`. Every term uses the RpGAN logistic loss. `weight` defaults to 1 and may be 0. Weight 0 still runs that term's forward and scales only its adversarial scalar by zero. `penalty` defaults to false, so an extra term does not take the legacy gradient penalty. `penalty = true` builds a separate penalty from `[gradient_penalty]` using that term's `penalty_coeff` (the default is `[gradient_penalty].coeff`). All scoring components share one critic optimizer, one EMA critic and one learning-rate handover. Two terms may name one component and keep different penalty coefficients. A term may override `inputs`; otherwise it uses the component's inputs. Exactly one of those paths is `candidate`.
 
 Extra terms use the legacy detach policy above. Conditioning inputs stay detached on both steps. A trainable component whose only use is that detached conditioning still fails validation. A component used as a real or fake sample is generator-reachable and is not reported as disconnected. The schedule stays `d-then-g-v1`. Replicated execution rejects these extra terms.
 

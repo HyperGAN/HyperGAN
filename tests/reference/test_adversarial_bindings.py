@@ -89,7 +89,8 @@ class RecordingCritic(nn.Module):
 
     def forward(self, x, condition):
         self.condition_requires_grad.append(bool(condition.requires_grad))
-        return self.linear(torch.cat((x, condition), -1))
+        # The product keeps the shared condition in the paired RpGAN difference.
+        return self.linear(torch.cat((x * condition, condition), -1))
 
 
 class _RecordingPenalty:
@@ -97,9 +98,9 @@ class _RecordingPenalty:
         self.inner = inner
         self.fake = None
 
-    def __call__(self, critic, real, fake, step=1, generator=None):
+    def __call__(self, critic, real, fake):
         self.fake = fake.detach().clone()
-        return self.inner(critic, real, fake, step=step, generator=generator)
+        return self.inner(critic, real, fake)
 
 
 @pytest.fixture(autouse=True)
@@ -129,8 +130,6 @@ def _condition_config():
             "discriminator": {"factory": f"{__name__}:RecordingCritic",
                               "inputs": {"x": "candidate", "condition": "components.conditioner"}},
             "conditioner": {"factory": f"{__name__}:Conditioner", "inputs": {"x": "batch.real"}}},
-        # Relativistic pairing subtracts a shared condition out of both scores.
-        "adversarial": {"mode": "vanilla"},
         "gradient_penalty": {"lazy_k": 2},
         "training": {"steps": 2, "batch_size": 8},
         "prior": {"args": {"num_particles": 32, "z_dim": 4}}})

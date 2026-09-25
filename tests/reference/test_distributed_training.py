@@ -37,7 +37,7 @@ class CubicCritic(nn.Module):
         return self.network(x)
 
 
-def _config(mode='rp', kernel='logistic', nonlinear=False):
+def _config(nonlinear=False):
     discriminator = {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}}
     if nonlinear:
         discriminator = {'factory': f'{__name__}:CubicCritic', 'inputs': {'x': 'candidate'}}
@@ -45,7 +45,6 @@ def _config(mode='rp', kernel='logistic', nonlinear=False):
         'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]}, 'inputs': {'x': 'latent'}},
         'discriminator': discriminator},
         'prior': {'args': {'num_particles': 20, 'z_dim': 4}},
-        'adversarial': {'mode': mode, 'loss_type': kernel},
         'gradient_penalty': {'lazy_k': 2, 'kappa': .01},
         'training': {'steps': 3, 'batch_size': 8}, 'sampling': {'count': 4}})
 
@@ -76,9 +75,11 @@ def _state(trainer):
 def _parity(rank):
     ids = torch.tensor([0, 0, 2, 2, 3, 4, 4, 5])
     data = torch.linspace(-1, 1, 16).reshape(8, 2)
-    for mode in ('rp', 'ra', 'vanilla'):
-        for kernel in ('logistic', 'hinge', 'wasserstein', 'lsgan'):
-            config = _config(mode, kernel)
+    # ParticleGAN 0.8 has one loss (RpGAN logistic); prior rows vary instead.
+    for rows in ('sampled_unique', 'full'):
+        if True:
+            config = _config()
+            config['prior_regularizer']['rows'] = rows
             replicated = ReplicatedCPUTrainer(config, world_size=2)
             reference = ReferenceTrainer(config)
             for step in range(3):
@@ -86,7 +87,7 @@ def _parity(rank):
                 row, _ = replicated.update({'real': data.chunk(2)[rank]},
                                             (replicated.prior.z[local_ids], local_ids))
                 expected, _ = reference.update({'real': data}, (reference.prior.z[ids], ids))
-                context = f'rank={rank} {mode}/{kernel} step={step + 1}'
+                context = f'rank={rank} rows={rows} step={step + 1}'
                 _close(_state(replicated), _state(reference), context)
                 for key in ('d_loss', 'g_loss', 'prior_loss', 'gradient_penalty'):
                     assert row[key] == pytest.approx(expected[key], rel=3e-5, abs=3e-6), f'{context}.{key}'

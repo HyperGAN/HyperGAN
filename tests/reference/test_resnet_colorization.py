@@ -6,7 +6,7 @@ import pytest
 import torch
 from torch import nn
 from torch.nn import functional as F
-from particlegan import GradientPenalty
+from particlegan.grad_regularizers import GradientPenalty
 
 from hypergan import image_components as image
 
@@ -75,7 +75,7 @@ def test_256_native_maps_attention_and_frozen_backbone_double_backward(pinned_ba
     assert [tuple(value.shape) for value in model._context_features] == [
         (1, 64, 64, 64), (1, 128, 32, 32), (1, 256, 16, 16)]
     # Zero cap makes the penalty active even for a weak synthetic critic.
-    penalty = GradientPenalty(arm='b_cap', kappa=0)(model, real, fake)
+    penalty = GradientPenalty(kappa=0)(model, real, fake)
     (F.softplus(fake_logits - real_logits).mean() + penalty).backward()
     for module in (model.critic.pixel, model.critic.project):
         assert all(parameter.grad is not None and torch.isfinite(parameter.grad).all()

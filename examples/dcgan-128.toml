@@ -47,7 +47,7 @@ inputs = { x = "candidate" }
 input_shape = ["B", 3, 128, 128]
 output_shape = ["B", 1]
 # No batch normalization: each critic score stays independent of other examples
-# for the per-example b-cap gradient penalty. Scores are unrestricted logits.
+# for the per-example critic gradient penalty. Scores are unrestricted logits.
 source = """
 conv(64, kernel_size=4, stride=2, padding=1)
 leaky_relu(0.2)
@@ -73,12 +73,9 @@ z_dim = 128
 sigma_rel = 0.025
 
 [adversarial]
-loss_type = "logistic"
-mode = "rp"
 weight = 1.0
 
 [gradient_penalty]
-arm = "b_cap"
 coeff = 1.0
 kappa = 1.0
 lazy_k = 8

@@ -98,12 +98,9 @@ num_particles = 64
 z_dim = 16
 
 [adversarial]
-loss_type = "logistic"
-mode = "vanilla"
 weight = 1.0
 
 [gradient_penalty]
-arm = "b_cap"
 coeff = 1.0
 kappa = 1.0
 lazy_k = 1

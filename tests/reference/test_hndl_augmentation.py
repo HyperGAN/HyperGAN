@@ -6,7 +6,7 @@ import pytest
 import torch
 from hndl import HNDLError, Registry, ResolvedPlan
 from hndl.torch import build
-from particlegan import GradientPenalty
+from particlegan.grad_regularizers import GradientPenalty
 
 from hypergan.config import config_values, fingerprint, load_config, resolve_config
 from hypergan.diff_augment import DiffAugment
@@ -96,7 +96,7 @@ def test_critic_and_generator_routes_augment_with_input_and_penalty_gradients():
     try:
         real_score = graph.critic(real, context)
         fake_score = graph.critic(fake.detach(), context)
-        penalty = GradientPenalty(arm='b_cap', kappa=0)(
+        penalty = GradientPenalty(kappa=0)(
             lambda candidate: graph.critic(candidate, context), real, fake.detach())
         loss = real_score.square().mean() + fake_score.square().mean() + penalty
         loss.backward()

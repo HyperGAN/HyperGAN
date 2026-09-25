@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from particlegan import GradientPenalty
+from particlegan.grad_regularizers import GradientPenalty
 from torch.nn import functional as F
 
 from hypergan.config import load_config
@@ -149,7 +149,7 @@ def test_bcap_training_freeze_and_strict_reload(discriminators):
     fake = real.flip(-1)
     optimizer = torch.optim.Adam((p for p in native.parameters() if p.requires_grad), lr=.001)
     before = {name: p.detach().clone() for name, p in native.named_parameters() if p.requires_grad}
-    penalty = GradientPenalty(arm='b_cap', kappa=0)(native, real, fake)
+    penalty = GradientPenalty(kappa=0)(native, real, fake)
     loss = F.softplus(native(fake) - native(real)).mean() + penalty
     loss.backward()
     assert torch.isfinite(loss) and penalty > 0

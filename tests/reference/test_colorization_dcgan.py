@@ -1,7 +1,7 @@
 """Small CPU checks for the unconditioned 256px pixel discriminator control."""
 import pytest
 import torch
-from particlegan import GradientPenalty
+from particlegan.grad_regularizers import GradientPenalty
 
 from hypergan.colorization_components import DCGANDiscriminator256
 
@@ -34,7 +34,7 @@ def test_training_and_bcap_double_backward_reach_parameters(spectral_norm):
     real, fake = torch.randn(2, 3, 256, 256).tanh(), torch.randn(2, 3, 256, 256).tanh()
     # Zero cap guarantees an active penalty, exercising double backward even
     # when the small randomly initialized critic has gradients below one.
-    penalty = GradientPenalty(arm='b_cap', kappa=0)(model, real, fake)
+    penalty = GradientPenalty(kappa=0)(model, real, fake)
     penalty.backward()
     weight_gradients = [p.grad for p in model.parameters() if p.ndim > 1]
     assert all(g is not None and torch.isfinite(g).all() and g.abs().sum() > 0

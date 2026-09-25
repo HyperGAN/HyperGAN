@@ -229,16 +229,17 @@ class ComponentGraph(nn.Module):
         context["generated"] = self.call("generator", context)
         return context
 
-    def critic(self, candidate, context):
+    def critic(self, candidate, context, module=None):
         # Auxiliary conditioning runs with detached inputs and contributes no D loss
         # gradients to G/encoder parameters. The candidate path remains attached.
+        # ``module`` replaces the discriminator (the penalty passes its EMA).
         fixed = detach(context)
         fixed["candidate"] = candidate
         kwargs = {}
         for arg, path in self.specs["discriminator"]["inputs"].items():
             value = self.resolve(path, fixed)
             kwargs[arg] = value if path == "candidate" else detach(value)
-        return self.models["discriminator"](**kwargs)
+        return (self.models["discriminator"] if module is None else module)(**kwargs)
 
     def generator_parameters(self):
         return [p for name, model in self.models.items() if name != "discriminator" for p in model.parameters() if p.requires_grad]

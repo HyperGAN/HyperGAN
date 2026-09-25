@@ -11,7 +11,8 @@ import pytest
 import torch
 import torch.distributed as dist
 from torch.nn import functional as F
-from particlegan import GANLoss, GradientPenalty, MoGParticlePrior, ParticleRegularizer
+from particlegan import MoGParticlePrior, ParticleRegularizer
+from particlegan.grad_regularizers import GradientPenalty
 
 from hypergan.distributed import GlooCollectives
 
@@ -44,29 +45,6 @@ def _gather_double_backward(group, rank, dtype):
     _close(loss * 2, expected_loss)
     _close(first, expected_first.chunk(2)[rank])
     _close(second, expected_second.chunk(2)[rank])
-
-
-def _ra_and_double_backward(group, rank):
-    real = torch.tensor([[1.2, -.7], [.4, 1.1], [-.9, .6], [.8, .3]], dtype=torch.float64)
-    fake = real.flip(0) * .6 + .4
-    theta = torch.tensor([.8, -.3], dtype=torch.float64, requires_grad=True)
-    dr, df = real.chunk(2)[rank] @ theta, fake.chunk(2)[rank] @ theta
-    # Match ParticleGAN RA logistic kernel with differentiable GLOBAL means.
-    loss = (F.softplus(-(dr - group.mean(df))).mean()
-            + F.softplus(df - group.mean(dr)).mean()) * .5
-    gradient = torch.autograd.grad(loss, theta, create_graph=True)[0]
-    direction = theta.new_tensor([.4, -.7])
-    hessian_vector = torch.autograd.grad((gradient * direction).sum(), theta)[0]
-    reference = theta.detach().clone().requires_grad_()
-    expected_loss = GANLoss(mode="ra").d_loss(real @ reference, fake @ reference)
-    expected_gradient = torch.autograd.grad(expected_loss, reference, create_graph=True)[0]
-    expected_hvp = torch.autograd.grad((expected_gradient * direction).sum(), reference)[0]
-    _close(_average(loss), expected_loss)
-    _close(_average(gradient), expected_gradient)
-    _close(_average(hessian_vector), expected_hvp)
-    # Local means give a measurably different objective for this fixture.
-    wrong = GANLoss(mode="ra").d_loss(dr, df)
-    assert not torch.isclose(_average(wrong), expected_loss, rtol=1e-5, atol=1e-6)
 
 
 def _prior_population(group, rank):
@@ -103,7 +81,7 @@ def _exact_penalty(rank):
     parameter = torch.tensor([.9, .8], dtype=torch.float64, requires_grad=True)
     critic = lambda value: (value @ parameter).pow(3)
     # Real==fake removes random interpolation differences while retaining the
-    # actual input-autograd/create_graph/parameter-backward b-cap computation.
+    # actual input-autograd/create_graph/parameter-backward penalty computation.
     local = data.chunk(2)[rank]
     penalty = GradientPenalty(lazy_k=2)
     inactive = penalty(critic, local, local, step=1)
@@ -111,7 +89,8 @@ def _exact_penalty(rank):
     active = penalty(critic, local, local, step=2)
     gradient = torch.autograd.grad(active, parameter)[0]
     reference = parameter.detach().clone().requires_grad_()
-    expected = penalty(lambda value: (value @ reference).pow(3), data, data, step=2)
+    # One penalty instance serves one critic; the reference critic gets its own.
+    expected = GradientPenalty(lazy_k=2)(lambda value: (value @ reference).pow(3), data, data, step=2)
     expected_gradient = torch.autograd.grad(expected, reference)[0]
     _close(_average(active), expected)
     _close(_average(gradient), expected_gradient)
@@ -126,7 +105,6 @@ def _worker(mode, rank, rendezvous, result):
         if mode == "numerics":
             for dtype in (torch.float32, torch.float64):
                 _gather_double_backward(group, rank, dtype)
-            _ra_and_double_backward(group, rank)
             _prior_population(group, rank)
             _exact_penalty(rank)
             outcome = {"passed": True}

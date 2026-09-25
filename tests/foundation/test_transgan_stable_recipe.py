@@ -15,9 +15,6 @@ def test_stable_recipe_changes_only_explicit_network_settings():
     expected['components']['discriminator']['args'].update(
         output_shape=['B', 4, 4, 4], file='networks/dinov3-projected-discriminator-128-stable.hndl')
     expected['prior']['args']['z_dim'] = 512
-    # Make the existing default explicit: stochastic augmentation must not use
-    # finite differences across independently sampled transforms.
-    expected['gradient_penalty']['method'] = 'autograd'
     assert stable == expected
 
 

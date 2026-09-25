@@ -327,7 +327,7 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
         metrics[name] = value
         if name == 'loss/gradient_penalty':
             penalty = config['gradient_penalty']
-            applied = penalty['arm'] != 'f_none' and step % penalty['lazy_k'] == 0
+            applied = step % penalty['lazy_k'] == 0
             statuses[name] = {'status': 'available', 'applied': applied,
                               'effective_coefficient': penalty['coeff'] * penalty['lazy_k'] if applied else 0.0}
     return metrics, statuses, 'sampled' if metrics or statuses else 'disabled'

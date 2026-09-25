@@ -79,7 +79,7 @@ For GPU construction checks, use `demo` with `--profile examples/execution/cuda-
 
 `hypergan new` writes a GPU-first `config.toml`; `--device cpu` explicitly selects CPU. Configuration selects generator, discriminator, optional encoder/auxiliary components, constructor arguments, explicit input bindings, adversarial losses, gradient penalties, prior regularization and additional task objectives. Built-in identifiers and importable `module:object` constructors support ordinary Python implementations without a layer language.
 
-The reference defaults to ParticleGAN's relativistic-paired objective, b-cap discriminator regularization and VICReg prior regularization. Custom configurations remain runnable with an explicit qualification warning. An unknown combination is different from an invalid binding or incompatible tensor shape: actual incompatibilities fail with an error. No custom configuration inherits quality, distributed or deployment approval merely by completing a run.
+The reference trains with ParticleGAN 0.8's formulation (K3P): the relativistic-paired logistic objective, its learning-rate-scheduled critic penalty with an EMA-critic anchor, and VICReg prior regularization. Custom configurations remain runnable with an explicit qualification warning. An unknown combination is different from an invalid binding or incompatible tensor shape: actual incompatibilities fail with an error. No custom configuration inherits quality, distributed or deployment approval merely by completing a run.
 
 Networks are defined in HNDL configuration, with source recorded in every resolved run. Edit the TOML or `.hndl` file to change an architecture without rebuilding HyperGAN.
 

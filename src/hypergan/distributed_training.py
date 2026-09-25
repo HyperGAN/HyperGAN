@@ -11,12 +11,11 @@ import warnings
 import numpy as np
 import torch
 import torch.distributed as dist
-from particlegan import learning_rate_scale
 
 from .config import config_values, fingerprint, resolve_config
 from .distributed import Collectives
 from .recipes import detach, move_tensors
-from .training import ReferenceTrainer, update_ema
+from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, schedule_learning_rates, update_ema
 
 
 class ReplicatedTrainer(ReferenceTrainer):
@@ -86,6 +85,8 @@ class ReplicatedTrainer(ReferenceTrainer):
         np.random.seed(rank_seed % (2 ** 32))
         for offset, name in enumerate(('data', 'prior', 'penalty'), 1):
             self.streams[name].manual_seed(((config['training']['seed'] if name == 'data' else rank_seed) + offset) % (2 ** 63))
+        # Replicated recipes have no noise schedule; the stream is still rank-owned.
+        self.streams['noise'].manual_seed((rank_seed + NOISE_SEED_OFFSET) % (2 ** 63))
         self._phase('initial CUDA completion', self._synchronize)
         self.checkpoint_ready = True
 
@@ -236,11 +237,8 @@ class ReplicatedTrainer(ReferenceTrainer):
                     raise ValueError('Optimizer produced nonfinite state')
 
     def _logits(self, real, fake):
-        if self.config['adversarial']['mode'] == 'ra':
-            # Run the exact public upstream kernel over global logits. Its means
-            # are differentiable; gather backward sums contributions, and the
-            # later parameter-gradient mean cancels replicated loss consumption.
-            return self.collectives.gather(real), self.collectives.gather(fake)
+        # RpGAN pairs each real with the fake of its own row, so rank-local
+        # logits suffice; the parameter-gradient mean forms the global loss.
         return real, fake
 
     def update(self, batch=None, latent_draw=None):
@@ -267,10 +265,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             return self._accumulated_update(batch, latent_draw)
         cfg, step = self.config, self.step + 1
         settings = cfg['training']
-        scale = learning_rate_scale(step - 1, settings['steps'], start=settings['lr_anneal_start'], floor=settings['lr_floor'])
-        for optimizer, rates in zip((self.opt_g, self.opt_d), self.base_lrs):
-            for group, rate in zip(optimizer.param_groups, rates):
-                group['lr'] = rate * scale
+        scale = schedule_learning_rates(self, step - 1)
 
         self._agree('input source', {'sample_data': batch is None, 'sample_prior': latent_draw is None})
         if batch is None:
@@ -298,7 +293,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         critic = lambda value: self.graph.critic(value, context)
         self.opt_d.zero_grad(set_to_none=True)
         dr, df, d_penalty = self._phase('discriminator forward and penalty', lambda: (
-            critic(real), critic(fake.detach()), self.penalty(critic, real, fake.detach(), step=step, generator=self.streams['penalty'])))
+            critic(real), critic(fake.detach()), self.penalty(self._scored_critic(context), real, fake.detach())))
         dr, df = self._logits(dr, df)
         d_adversarial = self.gan.d_loss(dr, df)
         d_adversarial_weighted = cfg['adversarial']['weight'] * d_adversarial
@@ -356,6 +351,10 @@ class ReplicatedTrainer(ReferenceTrainer):
         row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size, world_size=self.world_size)
         return row, detach(batch)
+
+    def _scored_critic(self, context):
+        return ScoredCritic(self.graph.models['discriminator'],
+                            lambda module, value: self.graph.critic(value, context, module=module))
 
     def _check_accumulation(self):
         # Arbitrary Python forwards cannot be proved sample independent. Keep
@@ -441,10 +440,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         """
         cfg, step = self.config, self.step + 1
         settings = cfg['training']
-        scale = learning_rate_scale(step - 1, settings['steps'], start=settings['lr_anneal_start'], floor=settings['lr_floor'])
-        for optimizer, rates in zip((self.opt_g, self.opt_d), self.base_lrs):
-            for group, rate in zip(optimizer.param_groups, rates):
-                group['lr'] = rate * scale
+        scale = schedule_learning_rates(self, step - 1)
         self._agree('input source', {'sample_data': batch is None, 'sample_prior': latent_draw is None})
         if batch is None:
             batch = self.batch()
@@ -465,6 +461,10 @@ class ReplicatedTrainer(ReferenceTrainer):
         selected = None if ids is None else self.collectives.unique_indices(ids, num_rows=len(self.prior.z))
         starts = range(0, self.local_batch_size, self.microbatch_size)
         generation_rng, d_records = [], []
+        # The penalty record counts calls. Discovery and replay evaluate one
+        # logical penalty per microbatch; keep the count of the plain update.
+        record, logical_calls = self.opt_d.record, None
+        calls_before = record.calls
 
         def generate(local_z, local_batch):
             context = self.graph.generate(local_z, local_batch)
@@ -481,7 +481,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             real, fake = local_batch['real'], context['generated']
             dr, df = critic(real), critic(fake)
             self._micro_logits(dr, df)
-            penalty = self.penalty(critic, real, fake, step=step, generator=self.streams['penalty'])
+            penalty = self.penalty(self._scored_critic(context), real, fake)
             return dr, df, penalty, self._digest(fake)
 
         # Prepasses use ordinary grad mode and immediately discard each graph,
@@ -494,6 +494,8 @@ class ReplicatedTrainer(ReferenceTrainer):
                 self._finite_loss(penalty)
                 return dr.detach(), df.detach(), penalty.detach(), fake_digest
             d_records.append((rng, self._phase(f'D micro {index} discovery', prepass)))
+            if logical_calls is None:
+                logical_calls = record.calls
         dr = torch.cat([record[1][0] for record in d_records]).requires_grad_(True)
         df = torch.cat([record[1][1] for record in d_records]).requires_grad_(True)
         global_dr, global_df = self._logits(dr, df)
@@ -516,6 +518,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 terms = terms + (df_micro * d_cotangents[1][start:start + self.microbatch_size]).sum() + penalty / self.accumulation_steps
                 terms.backward()
             self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
+        record.calls = calls_before if logical_calls is None else logical_calls
         self._reduce_gradients(self.opt_d, 'discriminator')
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))

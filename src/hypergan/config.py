@@ -33,12 +33,15 @@ DEFAULT = {
         "discriminator": {"factory": "hndl", "args": {"source": packaged_source("reference.hndl"), "input_shape": ["B", 2], "output_shape": ["B", 1]}, "inputs": {"x": "candidate"}, "trainable": True},
     },
     "prior": {"kind": "particles", "args": {"num_particles": 20000, "z_dim": 4}, "initialization_device": "execution", "initialization_seed": None, "fixed_sigma": None},
-    "adversarial": {"loss_type": "logistic", "mode": "rp", "weight": 1.0},
-    "gradient_penalty": {"arm": "b_cap", "coeff": 1.0, "kappa": 1.0, "lazy_k": 1, "norm": "l2", "target_anneal": "none", "total_steps": 0, "method": "autograd", "fd_eps": 0.05},
+    "adversarial": {"weight": 1.0},
+    "gradient_penalty": {"coeff": 1.0, "kappa": 1.0, "lazy_k": 1, "anchor_weight": 1.0, "anchor_decay": 0.999},
     "prior_regularizer": {"weight": 1.0, "target_std": 1.0, "eps": 0.0001, "rows": "sampled_unique"},
     "objectives": [],
-    "optimizer": {"lr": 0.0006, "d_lr_mult": 1.5, "prior_lr_mult": 10.0, "betas": [0.0, 0.999], "prior_betas": [0.0, 0.999], "implementation": "device_adam"},
+    "optimizer": {"lr": 0.0006, "d_lr_mult": 1.5, "prior_lr_mult": 10.0, "betas": [0.0, 0.999], "prior_betas": [0.0, 0.999], "implementation": "device_adam",
+                  "d_guard_ratio": 5.0, "d_guard_min_steps": 200, "latent_damping_max_rate": 0.5},
     "training": {"steps": 5, "batch_size": 16, "seed": 42, "device": "cpu", "ema": 0.995, "lr_anneal_start": 0.6, "lr_floor": 0.05,
+                 "network_lr_floor": None, "network_lr_horizon_cap": None,
+                 "input_noise_std": 0.0, "input_noise_anneal_end": 0.1, "output_noise_std": 0.0, "output_noise_warmup": 0.2,
                  "phase_draws": "shared", "data_rng_device": "cpu", "data_seed_offset": 1, "prior_seed_offset": 2, "backend": {}},
     "sampling": {"count": 256, "seed": 123},
 }
@@ -90,12 +93,9 @@ num_particles = 20000
 z_dim = 4
 
 [adversarial]
-loss_type = "logistic"
-mode = "rp"
 weight = 1.0
 
 [gradient_penalty]
-arm = "b_cap"
 coeff = 1.0
 kappa = 1.0
 lazy_k = 1
@@ -131,23 +131,50 @@ seed = 123
 # record the concrete values, so a later ParticleGAN release cannot silently
 # change an existing run; its resume then fails the configuration check.
 PARTICLEGAN_DEFAULT_FIELDS = {
-    ("adversarial", "loss_type"): "loss_type",
-    ("adversarial", "mode"): "gan_mode",
-    ("gradient_penalty", "arm"): "reg_arm",
     ("gradient_penalty", "coeff"): "reg_coeff",
     ("gradient_penalty", "kappa"): "reg_kappa",
     ("gradient_penalty", "lazy_k"): "reg_every",
-    ("gradient_penalty", "method"): "reg_method",
+    ("gradient_penalty", "anchor_weight"): "reg_anchor_weight",
+    ("gradient_penalty", "anchor_decay"): "reg_anchor_decay",
     ("prior_regularizer", "weight"): "prior_reg",
     ("optimizer", "lr"): "lr",
     ("optimizer", "d_lr_mult"): "d_lr_mult",
     ("optimizer", "prior_lr_mult"): "prior_lr_mult",
     ("optimizer", "betas"): "betas",
     ("optimizer", "prior_betas"): "prior_betas",
+    ("optimizer", "d_guard_ratio"): "d_guard_ratio",
+    ("optimizer", "d_guard_min_steps"): "d_guard_min_steps",
+    ("optimizer", "latent_damping_max_rate"): "latent_damping_max_rate",
     ("training", "ema"): "ema_decay",
     ("training", "lr_anneal_start"): "lr_anneal_start",
     ("training", "lr_floor"): "lr_floor",
+    ("training", "network_lr_floor"): "network_lr_floor",
+    ("training", "network_lr_horizon_cap"): "network_lr_horizon_cap",
+    ("training", "input_noise_std"): "input_noise_std",
+    ("training", "input_noise_anneal_end"): "input_noise_anneal_end",
+    ("training", "output_noise_std"): "output_noise_std",
+    ("training", "output_noise_warmup"): "output_noise_warmup",
 }
+
+# Fields ParticleGAN 0.8 removed. Its only formulation is RpGAN logistic with
+# the K3P critic penalty, so a loss that names exactly that is dropped; any
+# other value, and every penalty technique field, is refused.
+_REMOVED_ADVERSARIAL = {"loss_type": "logistic", "mode": "rp"}
+_REMOVED_PENALTY = ("arm", "norm", "target_anneal", "total_steps", "method", "fd_eps")
+
+
+def _drop_removed_fields(table, location):
+    """Drop removed loss fields that name the only formulation; refuse the rest."""
+    if not isinstance(table, dict):
+        return table
+    table = dict(table)
+    for key, only in _REMOVED_ADVERSARIAL.items():
+        if key in table:
+            if table[key] != only:
+                raise ValueError(f"{location}.{key} = {table[key]!r} is no longer supported: ParticleGAN 0.8 "
+                                 f"trains only the RpGAN logistic loss; remove {location}.{key}")
+            del table[key]
+    return table
 
 
 @functools.cache
@@ -229,7 +256,7 @@ def _spec(value, location, objectives=False):
 
 
 _TERM_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}")
-_ADVERSARIAL_TERM_FIELDS = {"id", "component", "weight", "loss_type", "mode", "penalty", "penalty_coeff", "real", "fake", "inputs"}
+_ADVERSARIAL_TERM_FIELDS = {"id", "component", "weight", "penalty", "penalty_coeff", "real", "fake", "inputs"}
 
 
 def _resolve_adversarial_terms(result):
@@ -259,10 +286,6 @@ def _resolve_adversarial_terms(result):
             raise ValueError(f"{location}.component must name an existing non-reuse component")
         term.setdefault("weight", 1.0)
         _positive(term["weight"], f"{location}.weight", zero=True)
-        for key in ("loss_type", "mode"):
-            term.setdefault(key, result["adversarial"][key])
-        if term["mode"] not in {"vanilla", "rp", "ra"} or term["loss_type"] not in {"hinge", "logistic", "wasserstein", "lsgan"}:
-            raise ValueError(f"Unsupported {location} loss_type or mode")
         term.setdefault("penalty", False)
         if type(term["penalty"]) is not bool:
             raise ValueError(f"{location}.penalty must be boolean")
@@ -285,6 +308,15 @@ def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
     _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults"}, "configuration")
     raw = dict(raw)
+    if "adversarial" in raw:
+        raw["adversarial"] = _drop_removed_fields(raw["adversarial"], "adversarial")
+    if isinstance(raw.get("adversarial_terms"), list):
+        raw["adversarial_terms"] = [_drop_removed_fields(term, f"adversarial_terms[{index}]")
+                                    for index, term in enumerate(raw["adversarial_terms"])]
+    removed = sorted(set(raw.get("gradient_penalty") or ()) & set(_REMOVED_PENALTY))
+    if removed:
+        raise ValueError(f"gradient_penalty.{removed[0]} is no longer supported: ParticleGAN 0.8 has one critic "
+                         "penalty (K3P); remove " + ", ".join(f"gradient_penalty.{key}" for key in removed))
     source = raw.pop("defaults", "hypergan")
     result = deepcopy(DEFAULT)
     if source == "particlegan":
@@ -353,25 +385,13 @@ def resolve_config(raw):
     if "dtype" in result["prior"]["args"] or ("device" in result["prior"]["args"] and result["prior"]["args"]["device"] != result["training"]["device"]):
         raise ValueError("Training owns prior device and float32 dtype; omit prior.args.device/dtype or match training.device")
     _positive(result["prior"]["args"].get("z_dim"), "prior.args.z_dim", integer=True)
-    if result["adversarial"]["mode"] not in {"vanilla", "rp", "ra"} or result["adversarial"]["loss_type"] not in {"hinge", "logistic", "wasserstein", "lsgan"}:
-        raise ValueError("Unsupported adversarial loss_type or mode")
     _positive(result["adversarial"]["weight"], "adversarial.weight", zero=True)
     penalty = result["gradient_penalty"]
-    if penalty["arm"] not in {"a_r1r2", "b_cap", "c_eikonal", "d_asym", "e_interp", "f_none", "g_interp_cap"}:
-        raise ValueError("Unknown gradient_penalty.arm")
-    if penalty["norm"] not in {"l1", "l2", "linf"} or penalty["target_anneal"] not in {"none", "linear", "delayed"} or penalty["method"] not in {"autograd", "finite_difference"}:
-        raise ValueError("Invalid gradient penalty norm, target_anneal, or method")
-    for key in ("coeff", "kappa"):
+    for key in ("coeff", "kappa", "anchor_weight"):
         _positive(penalty[key], f"gradient_penalty.{key}", zero=True)
-    _positive(penalty["fd_eps"], "gradient_penalty.fd_eps")
     _positive(penalty["lazy_k"], "gradient_penalty.lazy_k", integer=True)
-    _positive(penalty["total_steps"], "gradient_penalty.total_steps", integer=True, zero=True)
-    if penalty["target_anneal"] != "none" and penalty["total_steps"] <= 0:
-        raise ValueError("Annealed gradient penalty requires its explicit total_steps")
-    if penalty["arm"] == "a_r1r2" and penalty["norm"] != "l2":
-        raise ValueError("R1/R2 requires the L2 norm")
-    if penalty["method"] == "finite_difference" and (penalty["arm"] != "b_cap" or penalty["norm"] != "l2"):
-        raise ValueError("Finite-difference penalty supports only L2 b_cap")
+    if type(penalty["anchor_decay"]) not in (int, float) or not 0 <= penalty["anchor_decay"] < 1:
+        raise ValueError("gradient_penalty.anchor_decay must be in [0, 1)")
     if result["prior_regularizer"]["rows"] not in {"sampled_unique", "full"}:
         raise ValueError("prior_regularizer.rows must be sampled_unique or full")
     for key in ("weight", "target_std"):
@@ -397,11 +417,32 @@ def resolve_config(raw):
         values = result["optimizer"][key]
         if not isinstance(values, list) or len(values) != 2 or any(type(x) not in (int, float) or not 0 <= x < 1 for x in values):
             raise ValueError(f"optimizer.{key} must contain two numbers in [0,1)")
+    _positive(result["optimizer"]["d_guard_ratio"], "optimizer.d_guard_ratio", zero=True)
+    _positive(result["optimizer"]["d_guard_min_steps"], "optimizer.d_guard_min_steps", integer=True, zero=True)
+    damping = result["optimizer"]["latent_damping_max_rate"]
+    if type(damping) not in (int, float) or not 0 <= damping <= 1:
+        raise ValueError("optimizer.latent_damping_max_rate must be in [0, 1]")
+    if (damping > 0 and result["prior"]["kind"] == "particles" and result["prior"]["args"].get("learnable", True)
+            and result["optimizer"]["prior_betas"][0] != 0):
+        raise ValueError("Latent damping needs optimizer.prior_betas[0] = 0 for a particle table; "
+                         "set optimizer.latent_damping_max_rate = 0 to train without it")
     for key in ("steps", "batch_size"):
         _positive(result["training"][key], f"training.{key}", integer=True)
     for key in ("ema", "lr_anneal_start", "lr_floor"):
         v = result["training"][key]
         if type(v) not in (int, float) or not 0 <= v <= 1 or (key == "ema" and v == 1):
+            raise ValueError(f"Invalid training.{key}")
+    training = result["training"]
+    if training["network_lr_floor"] is not None and (type(training["network_lr_floor"]) not in (int, float)
+                                                     or not 0 <= training["network_lr_floor"] <= 1):
+        raise ValueError("training.network_lr_floor must be in [0, 1]; omit it to follow training.lr_floor")
+    if training["network_lr_horizon_cap"] is not None:
+        _positive(training["network_lr_horizon_cap"], "training.network_lr_horizon_cap", integer=True)
+    for key in ("input_noise_std", "output_noise_std"):
+        _positive(training[key], f"training.{key}", zero=True)
+    for key, zero in (("input_noise_anneal_end", False), ("output_noise_warmup", True)):
+        v = training[key]
+        if type(v) not in (int, float) or not (0 <= v <= 1 if zero else 0 < v <= 1):
             raise ValueError(f"Invalid training.{key}")
     validate_device(result["training"]["device"])
     if result['training']['phase_draws'] not in ('shared', 'independent'):
@@ -595,14 +636,24 @@ def resume_compatible(config, original, *, include_observation=False):
         if new_steps != old_steps:
             if (type(new_steps) is not int or type(old_steps) is not int
                     or new_steps < old_steps
-                    or current['training']['lr_floor'] != 1.0
-                    or saved['training']['lr_floor'] != 1.0):
+                    or not all(_step_independent(values['training']) for values in (current, saved))):
                 return False
             current['training']['steps'] = old_steps
         return (json.dumps(current, sort_keys=True, allow_nan=False)
                 == json.dumps(saved, sort_keys=True, allow_nan=False))
     except (KeyError, TypeError, ValueError):
         return False
+
+
+def _step_independent(training):
+    """Whether no schedule depends on the step budget: constant LRs and no noise schedule.
+
+    Older resolved configurations lack the noise and network-LR fields; they
+    had none of those schedules.
+    """
+    return (training['lr_floor'] == 1.0 and training.get('network_lr_floor') in (None, 1.0)
+            and not training.get('input_noise_std', 0)
+            and (not training.get('output_noise_std', 0) or training.get('output_noise_warmup') == 0))
 
 
 def observation_fingerprint(config):

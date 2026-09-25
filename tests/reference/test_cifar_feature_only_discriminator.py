@@ -5,7 +5,7 @@ import tomllib
 
 import pytest
 import torch
-from particlegan import GradientPenalty
+from particlegan.grad_regularizers import GradientPenalty
 from torch.nn import functional as F
 from torchvision.models import resnet18
 
@@ -60,8 +60,8 @@ def test_feature_only_scores_freezing_and_penalty(tmp_path, side):
     torch.testing.assert_close(score, sum(captured[f'feature{i}_score'] for i in (1, 2, 3)) / 3**.5)
     assert all('pixel' not in n.id for n in model.plan.nodes)
 
-    # Force an active b_cap penalty to exercise second derivatives and head gradients.
-    penalty = GradientPenalty(arm='b_cap', kappa=0)(model, x.detach(), -x.detach())
+    # Force an active penalty (R1 plus a zero fake-gradient cap) to exercise second derivatives and head gradients.
+    penalty = GradientPenalty(kappa=0)(model, x.detach(), -x.detach())
     loss = score.square().mean() + penalty
     loss.backward()
     assert x.grad.abs().sum() > 0 and torch.isfinite(x.grad).all()

@@ -60,6 +60,30 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 
 ## Done
 
+### 21. Update to ParticleGAN 0.8.0: new formulation and API (raised 2026-09-25)
+
+**Status:** Implemented in [#385](https://github.com/HyperGAN/HyperGAN/pull/385). Known issue: the CUDA interval-evaluation acceptance test is order-dependent (see the PR).
+
+Owner: "can you update particlegan dependency. the formulation changed too, as
+well as the api. please update it all" and then a CIFAR config "with no
+overrides. I want the defaults from particlegan for everything (our higher
+particle count is fine tho)".
+
+- [x] Pin `particlegan==0.8.0`; train with its one formulation (K3P): RpGAN
+  logistic loss, the LR-scheduled critic penalty with an EMA-critic anchor,
+  recipe-built optimizers (spike guard, latent damping), the split network/prior
+  LR schedule and critic input / generator output noise
+  (`src/hypergan/training.py`, `src/hypergan/objective_program.py`).
+- [x] Config: new K3P fields, `defaults = "particlegan"` covers them; removed
+  loss modes and penalty arms are refused with the field named
+  (`src/hypergan/config.py`, [configuration](../docs/configuration.md#numerical-recipe)).
+- [x] Checkpoints carry the optimizers' regularization state; replicated and
+  accumulated execution use the same penalty (no noise there).
+- [x] Example recipes, tests and docs updated.
+- [x] Owner run config: `training-runs/cifar-tiny-transformer-resnet-features-pg08-defaults.toml`
+  with `start-cifar-tiny-transformer-resnet-features-pg08-defaults.sh` (ParticleGAN
+  defaults for every formulation field, 65536 particles).
+
 ### 20. Gate the heavy tests so a plain `pytest` is fast (raised 2026-09-20)
 
 Owner: "those tests seem pretty heavy we should probably gate them and run them intentionally"

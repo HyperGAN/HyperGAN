@@ -9,7 +9,8 @@ import pytest
 from hypergan.config import (
     DEFAULT, config_values, fingerprint, load_config, numerical_values, resolve_config, resume_compatible, write_default)
 
-LEGACY_FINGERPRINT = "11dd870ea803a25a38cba344d0131c74f1d5e0575b9560f47bf7a5863a6ecda5"
+# The default recipe under the ParticleGAN 0.8 (K3P) formulation.
+LEGACY_FINGERPRINT = "9df4cec15093ff394b613b5b0e08e28b01b686ff810e8fa406212c1327f8ef8e"
 
 
 def test_default_roundtrip_without_runtime(tmp_path):
@@ -124,8 +125,6 @@ def test_legacy_fingerprint_ignores_a_missing_adversarial_terms_key():
     assert fingerprint(checkpoint) == fingerprint(resolved)
     assert resume_compatible(resolved, config_values(resolved))
     extra = resolve_config({"adversarial_terms": [_extra_term()]})
-    assert extra["adversarial_terms"][0]["loss_type"] == resolved["adversarial"]["loss_type"]
-    assert extra["adversarial_terms"][0]["mode"] == resolved["adversarial"]["mode"]
     assert extra["adversarial_terms"][0]["weight"] == 1.0
     assert extra["adversarial_terms"][0]["penalty"] is False
     assert extra["adversarial_terms"][0]["penalty_coeff"] == resolved["gradient_penalty"]["coeff"]
@@ -160,10 +159,51 @@ def test_adversarial_term_rules_and_reachability():
     raw["components"]["encoder"]["trainable"] = False
     assert resolve_config(raw)["components"]["encoder"]["trainable"] is False
     raw = deepcopy(DEFAULT)
-    raw["adversarial_terms"] = [_extra_term(weight=0, penalty=True, penalty_coeff=0.25, loss_type="hinge", mode="vanilla")]
+    raw["adversarial_terms"] = [_extra_term(weight=0, penalty=True, penalty_coeff=0.25, loss_type="logistic", mode="rp")]
     term = resolve_config(raw)["adversarial_terms"][0]
     assert term["weight"] == 0 and term["penalty"] is True and term["penalty_coeff"] == 0.25
-    assert term["loss_type"] == "hinge" and term["mode"] == "vanilla"
+    assert "loss_type" not in term and "mode" not in term
+    raw["adversarial_terms"] = [_extra_term(loss_type="hinge")]
+    with pytest.raises(ValueError, match="RpGAN logistic"):
+        resolve_config(raw)
+
+
+def test_removed_particlegan_formulation_fields():
+    # The only remaining loss is accepted by name and dropped from the resolved recipe.
+    assert resolve_config({"adversarial": {"loss_type": "logistic", "mode": "rp"}}) == resolve_config({})
+    for adversarial in ({"mode": "ra"}, {"loss_type": "hinge"}):
+        with pytest.raises(ValueError, match="RpGAN logistic"):
+            resolve_config({"adversarial": adversarial})
+    for key, value in (("arm", "b_cap"), ("norm", "l2"), ("method", "autograd")):
+        with pytest.raises(ValueError, match=f"gradient_penalty.{key} is no longer supported"):
+            resolve_config({"gradient_penalty": {key: value}})
+
+
+def test_k3p_settings_are_validated():
+    for section, values, message in (
+            ("gradient_penalty", {"anchor_decay": 1.0}, "anchor_decay"),
+            ("gradient_penalty", {"anchor_weight": -1}, "anchor_weight"),
+            ("optimizer", {"latent_damping_max_rate": 2}, "latent_damping_max_rate"),
+            ("optimizer", {"d_guard_min_steps": 1.5}, "d_guard_min_steps"),
+            ("optimizer", {"prior_betas": [0.5, 0.999]}, "prior_betas\\[0\\] = 0"),
+            ("training", {"network_lr_horizon_cap": 0}, "network_lr_horizon_cap"),
+            ("training", {"network_lr_floor": 2}, "network_lr_floor"),
+            ("training", {"input_noise_anneal_end": 0}, "input_noise_anneal_end"),
+            ("training", {"output_noise_std": -1}, "output_noise_std")):
+        with pytest.raises(ValueError, match=message):
+            resolve_config({section: values})
+    frozen = resolve_config({"optimizer": {"prior_betas": [0.5, 0.999], "latent_damping_max_rate": 0}})
+    assert frozen["optimizer"]["latent_damping_max_rate"] == 0
+
+
+def test_step_extension_requires_step_independent_schedules():
+    original = resolve_config({"training": {"lr_floor": 1.0}})
+    longer = resolve_config({"training": {"lr_floor": 1.0, "steps": 10}})
+    assert resume_compatible(longer, config_values(original))
+    for training in ({"network_lr_floor": 0.5}, {"input_noise_std": 0.1}, {"output_noise_std": 0.1}):
+        original = resolve_config({"training": {"lr_floor": 1.0, **training}})
+        longer = resolve_config({"training": {"lr_floor": 1.0, "steps": 10, **training}})
+        assert not resume_compatible(longer, config_values(original))
 
 
 def test_sampling_view_does_not_make_a_dormant_trainable_component_reachable():

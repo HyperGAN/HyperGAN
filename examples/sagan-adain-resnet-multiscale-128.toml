@@ -43,12 +43,9 @@ z_dim = 128
 sigma_rel = 0.025
 
 [adversarial]
-loss_type = "logistic"
-mode = "rp"
 weight = 1.0
 
 [gradient_penalty]
-arm = "b_cap"
 coeff = 1.0
 kappa = 1.0
 lazy_k = 8

@@ -8,7 +8,7 @@ Both encoders read the same MoG table (`prior.means`, `prior.sigma`) and the sam
 
 The router does not layer-normalize the query and does not call the 256px DINO encoder. Distance is mean squared Euclidean distance to detached means (sum of squares divided by the latent size). Responsibilities are a softmax at temperature 0.125. The straight-through center is `means[ids] + (soft @ fixed - (soft @ fixed).detach())`. The code is `center + sigma * 3 * tanh(offset/3)`. Offset maps are zero-initialized, so a new encoder sits on the selected center. Routing samples no noise. Sigma is the prior's fixed value 0.05.
 
-`[adversarial]` is the image marginal on `G(z)`: the image critic scores `batch.real` and `generated`, with `[gradient_penalty]` applied to that term only. Mode is vanilla so a shared condition is not subtracted out of both scores. The three `[[adversarial_terms]]` entries are:
+`[adversarial]` is the image marginal on `G(z)`: the image critic scores `batch.real` and `generated`, with `[gradient_penalty]` applied to that term only. Every term uses ParticleGAN 0.8's paired (RpGAN) loss. The recipe used the vanilla loss before 0.8 so that a shared condition was not subtracted out of both scores; with pairing, a score component that depends only on the shared condition cancels. The three `[[adversarial_terms]]` entries are:
 
 - `image-from-text`: the same image critic on `batch.real` versus `G(E(text))`, with no penalty, so the image critic is not penalized twice.
 - `text-marginal`: the text critic on `E(text)` versus `ZEmbedding(z)`, penalty coefficient 0.1.

@@ -152,7 +152,7 @@ class DINOv3Discriminator(nn.Module):
     """Frozen ViT-S/16 image features with trainable attention and grayscale pixel head.
 
     The backbone always stays in evaluation mode, but image derivatives flow
-    through it. Math SDPA supports the double backward required by b-cap; Flash
+    through it. Math SDPA supports the double backward required by the critic penalty; Flash
     and efficient SDPA do not provide this derivative on supported Torch builds.
     """
     def __init__(self, source_path, source_commit, weights_path, weights_sha256,
@@ -205,7 +205,7 @@ class DINOv3ProjectedDiscriminator(nn.Module):
 
     Projection initialization uses Torch's checkpointed global RNG, and all
     frozen weights are included in the module state. Image derivatives remain
-    enabled through both frozen modules; math SDPA permits b-cap double backward.
+    enabled through both frozen modules; math SDPA permits the critic penalty's double backward.
     The original two-path DINOv3Discriminator remains available for prior runs.
     """
     def __init__(self, source_path, source_commit, weights_path, weights_sha256,
@@ -299,7 +299,7 @@ class DINOv3MultiScaleDiscriminator(nn.Module):
 
     Backbone and random channel/fusion convolutions remain frozen and in eval
     mode. Image derivatives pass through them. Math SDPA and linear resampling
-    retain input double backward for b-cap, including deterministic execution.
+    retain input double backward for the critic penalty, including deterministic execution.
     """
     blocks = (2, 5, 8, 11)
 

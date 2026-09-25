@@ -214,8 +214,8 @@ def test_zero_weight_extra_term_still_runs_and_its_penalty_steps_the_critic():
     trainer = ReferenceTrainer(config)
     term = trainer.program.adversarial_terms[1]
     assert term.weight == 0 and term.penalty is True and term.penalty_fn is not trainer.penalty
-    assert term.penalty_fn.kappa == pytest.approx(.001)
-    assert trainer.penalty.kappa == pytest.approx(.001)
+    assert term.penalty_fn.regularizer.kappa == pytest.approx(.001)
+    assert trainer.penalty.regularizer.kappa == pytest.approx(.001)
     module = trainer.graph.models["extra"]
     before = _clone(module.parameters())
     row, _ = trainer.update()
@@ -243,12 +243,12 @@ def test_penalty_coefficients_stay_per_term_when_a_module_is_reused():
     trainer = ReferenceTrainer(config)
     terms = trainer.program.adversarial_terms
     assert terms[0].penalty_fn is trainer.penalty
-    assert trainer.penalty.coeff == 1.0
+    assert trainer.penalty.regularizer.coeff == 1.0
     assert trainer.config["gradient_penalty"]["coeff"] == 1.0
     assert terms[1].penalty_fn is not terms[2].penalty_fn
     assert terms[1].penalty_fn is not trainer.penalty
-    assert terms[1].penalty_fn.coeff == 0.25
-    assert terms[2].penalty_fn.coeff == 0.5
+    assert terms[1].penalty_fn.regularizer.coeff == 0.25
+    assert terms[2].penalty_fn.regularizer.coeff == 0.5
     assert terms[3].penalty is False and terms[3].penalty_fn is None
     counters = []
     replaced = []
@@ -263,6 +263,6 @@ def test_penalty_coefficients_stay_per_term_when_a_module_is_reused():
     trainer.program = replace(trainer.program, adversarial_terms=tuple(replaced))
     trainer.update()
     assert [None if counter is None else counter.calls for counter in counters] == [1, 1, 1, None]
-    assert trainer.penalty.coeff == 1.0
-    assert terms[1].penalty_fn.coeff == 0.25
-    assert terms[2].penalty_fn.coeff == 0.5
+    assert trainer.penalty.regularizer.coeff == 1.0
+    assert terms[1].penalty_fn.regularizer.coeff == 0.25
+    assert terms[2].penalty_fn.regularizer.coeff == 0.5

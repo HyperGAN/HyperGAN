@@ -160,15 +160,14 @@ class OrderedData:
         return {'fixture': 'seven-deterministic-paired-points'}
 
 
-def _config(mode='ra', kernel='logistic', rows='sampled_unique', *, memory=False, stochastic=False, mutable=False, backward_failure=False):
+def _config(rows='sampled_unique', *, memory=False, stochastic=False, mutable=False, backward_failure=False):
     raw = copy.deepcopy(DEFAULT)
     raw['name'] = 'independent/accumulation'
     raw['training'].update(steps=3, batch_size=64 if memory else 16, seed=421, lr_anneal_start=.3)
     raw['data'] = {'factory': f'{__name__}:OrderedData', 'args': {}}
-    raw['adversarial'].update(mode=mode, loss_type=kernel)
     raw['prior'] = {'kind': 'mog', 'args': {'num_particles': 12, 'z_dim': 4, 'sigma_rel': .03}}
     raw['prior_regularizer']['rows'] = rows
-    raw['gradient_penalty'].update(arm='f_none' if memory else 'b_cap', lazy_k=2, kappa=.03)
+    raw['gradient_penalty'].update(coeff=0.0 if memory else 1.0, lazy_k=2, kappa=.03)
     generator = 'BackwardFailureGenerator' if backward_failure else 'MutableGenerator' if mutable else 'StochasticGenerator' if stochastic else 'Generator'
     raw['components'] = {
         'encoder': {'factory': f'{__name__}:Encoder', 'inputs': {'input': 'batch.condition'}},
@@ -212,9 +211,9 @@ def _equal(actual, expected, *, exact=False, path='state'):
 
 def _numeric_case():
     global _FORWARD_LIMIT, _MAX_FORWARD_ROWS
-    cases = [(mode, kernel) for mode in ('vanilla', 'rp', 'ra') for kernel in ('logistic', 'hinge', 'wasserstein', 'lsgan')]
-    for index, (mode, kernel) in enumerate(cases):
-        config = _config(mode, kernel, rows='full' if index % 2 else 'sampled_unique')
+    # ParticleGAN 0.8 has one loss (RpGAN logistic); prior rows vary instead.
+    for rows in ('sampled_unique', 'full'):
+        config = _config(rows)
         plain = ReplicatedCPUTrainer(config, world_size=2, accumulation_steps=1)
         accumulated = ReplicatedCPUTrainer(config, world_size=2, accumulation_steps=2)
         for step in range(1, 4):
@@ -228,9 +227,9 @@ def _numeric_case():
             assert _MAX_FORWARD_ROWS == accumulated.local_batch_size // 2
             expected, actual = trainer_state(plain, expected_batch), trainer_state(accumulated, actual_batch)
             for key in ('graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs', 'step', 'modes', 'trainable', 'buffers'):
-                _equal(actual[key], expected[key], path=f'{mode}/{kernel}/step{step}/{key}')
+                _equal(actual[key], expected[key], path=f'{rows}/step{step}/{key}')
             for key in ('d_loss', 'g_loss', 'prior_loss', 'gradient_penalty', 'objectives'):
-                _equal(actual_row[key], expected_row[key], path=f'{mode}/{kernel}/{key}')
+                _equal(actual_row[key], expected_row[key], path=f'{rows}/{key}')
             assert expected_row['gradient_penalty'] > 0 if step == 2 else expected_row['gradient_penalty'] == 0
             assert accumulated.checkpoint_ready
     _FORWARD_LIMIT = None

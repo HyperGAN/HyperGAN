@@ -169,7 +169,7 @@ def test_recipe_declares_shared_generator_and_three_terms():
     assert raw['components']['generator']['factory'] == 'hypergan.color_words:ColorGenerator'
     assert raw['components']['reconstruction']['reuse'] == 'generator'
     assert raw['components']['text_image']['reuse'] == 'generator'
-    assert raw['adversarial']['mode'] == 'vanilla' and raw['adversarial']['weight'] == 1.0
+    assert raw['adversarial'] == {'weight': 1.0}
     assert raw['prior']['kind'] == 'mog' and raw['prior']['fixed_sigma'] == 0.05
     assert raw['training']['seed'] == SEED and raw['training']['phase_draws'] == 'shared'
     assert raw['optimizer']['implementation'] == 'device_adam'

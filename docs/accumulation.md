@@ -8,7 +8,7 @@ Public `train` and `resume` select this strategy through a [CPU/Gloo or CUDA/NCC
 
 ## Preserving the objective
 
-Independent microbatch RA losses would use different means, and independent VICReg losses would use different covariances. HyperGAN instead collects detached logits for the full effective batch and evaluates the pinned ParticleGAN adversarial kernel once per logical D/G loss. RA uses globally gathered logits. Their derivatives provide cotangents for replaying one microbatch's network computation and immediately backpropagating it.
+Independent microbatch VICReg losses would use different covariances. HyperGAN instead collects detached logits for the full effective batch and evaluates the pinned ParticleGAN adversarial kernel once per logical D/G loss. Their derivatives provide cotangents for replaying one microbatch's network computation and immediately backpropagating it.
 
 The prior draw remains a full local draw. Gradients from replay accumulate at the latent boundary and propagate through its original prior graph once, preserving standardized MoG's dependence on unsampled rows. VICReg evaluates the global unique sampled raw rows, or the configured full table, once per update. Both optimizers step once; EMA advances only after the complete successful update.
 

@@ -6,10 +6,9 @@ program. It deliberately calls ``ComponentGraph.critic`` and
 Do not use it from the training runtime.
 """
 import torch
-from particlegan import learning_rate_scale
 
 from hypergan.recipes import detach
-from hypergan.training import update_ema
+from hypergan.training import ScoredCritic, noise_levels, schedule_learning_rates, update_ema
 
 
 def legacy_native_update(trainer, batch=None, latent_draw=None, *, generator_batch=None, generator_latent_draw=None):
@@ -20,10 +19,9 @@ def legacy_native_update(trainer, batch=None, latent_draw=None, *, generator_bat
     if not independent and (generator_batch is not None or generator_latent_draw is not None):
         raise ValueError("Explicit generator phase draws require training.phase_draws=independent")
     step = trainer.step + 1
-    scale = learning_rate_scale(step - 1, settings["steps"], start=settings["lr_anneal_start"], floor=settings["lr_floor"])
-    for optimizer, rates in zip((trainer.opt_g, trainer.opt_d), trainer.base_lrs):
-        for group, rate in zip(optimizer.param_groups, rates):
-            group["lr"] = rate * scale
+    if noise_levels(trainer, step - 1) != (0, 0):
+        raise ValueError("The oracle covers noise-free recipes only")
+    scale = schedule_learning_rates(trainer, step - 1)
     if independent:
         with torch.no_grad():
             batch, ids, context = trainer._draw(batch, latent_draw)
@@ -33,7 +31,9 @@ def legacy_native_update(trainer, batch=None, latent_draw=None, *, generator_bat
     critic = lambda x: trainer.graph.critic(x, context)
     trainer.opt_d.zero_grad(set_to_none=True)
     d_adversarial = trainer.gan.d_loss(critic(real), critic(fake.detach()))
-    d_penalty = trainer.penalty(critic, real, fake.detach(), step=step, generator=trainer.streams["penalty"])
+    scored = ScoredCritic(trainer.graph.models["discriminator"],
+                          lambda module, x: trainer.graph.critic(x, context, module=module))
+    d_penalty = trainer.penalty(scored, real, fake.detach())
     d_adversarial_weighted = cfg["adversarial"]["weight"] * d_adversarial
     d_loss = d_adversarial_weighted + d_penalty
     d_loss.backward()

@@ -74,7 +74,8 @@ def test_one_update_reads_the_host_once_per_phase_not_once_per_parameter():
     events = {event.key: event.count for event in profile.key_averages()}
     # One stacked flag read per phase; the metric fence keeps its pinned copies.
     assert events.get('Memcpy DtoH (Device -> Pageable)') == 2
-    assert events.get('aten::stack') == 2
+    # Plus the critic spike guard's clip count, which stays on the device.
+    assert events.get('aten::stack') == 3
     assert events.get('aten::isfinite') == 2  # one loss reduction per phase
     assert events.get('aten::_amp_foreach_non_finite_check_and_unscale_') == 3
     # The per-parameter checks this replaces read each gradient back through an
@@ -82,7 +83,9 @@ def test_one_update_reads_the_host_once_per_phase_not_once_per_parameter():
     # inventory; two remain. The metric fence stages its own scalars through
     # pinned buffers and is qualified in test_metric_scalar_transfer.py.
     assert len(row['objectives']) == 0
-    assert events.get('Memcpy DtoH (Device -> Pinned)') == len(_METRIC_SCALARS) + 1
+    # ParticleGAN's latent-row damping on the particle table reads its active
+    # row count and masks rows by a boolean index: three fixed reads per step.
+    assert events.get('Memcpy DtoH (Device -> Pinned)') == len(_METRIC_SCALARS) + 1 + 3
     # Fused EMA: one lerp launch for this single-device float32 graph rather
     # than one per tensor. (The foreach Adam also issues its own lerps, so the
     # EMA is profiled on its own.)

@@ -5,7 +5,7 @@ os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8')
 
 import pytest
 import torch
-from particlegan import GradientPenalty
+from particlegan.grad_regularizers import GradientPenalty
 
 from hypergan.hndl_networks import build_network
 from hypergan.image_components import _PixelDiscriminator
@@ -47,7 +47,7 @@ def test_native_sagan_broadcast_and_constants_support_pixel_bcap():
     def critic(x):
         return pixel(x, torch.zeros_like(x)).flatten()
 
-    penalty = GradientPenalty(arm='b_cap', kappa=0)(critic, real, fake)
+    penalty = GradientPenalty(kappa=0)(critic, real, fake)
     (penalty + critic(real).square().mean()).backward()
     assert torch.isfinite(penalty) and penalty >= 0
     assert all(parameter.grad is not None and torch.isfinite(parameter.grad).all()

@@ -50,7 +50,6 @@ def _config(mode):
     return resolve_config({
         'training': {'device': 'cuda', 'steps': 3, 'batch_size': 8, 'seed': 817, 'lr_anneal_start': .3},
         'prior': {'kind': 'mog', 'args': {'num_particles': 12, 'z_dim': 4, 'sigma_rel': .03, 'device': 'cuda'}},
-        'adversarial': {'mode': mode},
         'gradient_penalty': {'lazy_k': 2, 'kappa': .01},
         'components': {
             'encoder': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 2, 'bias': False},
@@ -122,7 +121,7 @@ def _worker(rank, rendezvous, output):
         second, = torch.autograd.grad(first.sum(), x)
         torch.testing.assert_close(first, torch.full_like(x, 3.), rtol=0, atol=0)
         torch.testing.assert_close(second, torch.full_like(x, 2.), rtol=0, atol=0)
-        for mode in ('rp', 'ra'):
+        for mode in ('rp',):  # ParticleGAN 0.8 trains only RpGAN
             for accumulation in (1, 2):
                 config = _config(mode)
                 replica = ReplicatedTrainer(config, accumulation_steps=accumulation)

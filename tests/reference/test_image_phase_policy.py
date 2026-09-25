@@ -17,7 +17,7 @@ from tests.hndl_fixtures import fixture_network
 from hypergan.checkpoints import restore_trainer, trainer_state
 from hypergan.config import config_values, resolve_config
 from hypergan.execution_profiles import resolve_execution_profile
-from hypergan.training import DeviceAdam, ReferenceTrainer, update_ema
+from hypergan.training import ReferenceTrainer, update_ema
 
 
 class Encoder(torch.nn.Module):
@@ -88,11 +88,13 @@ def test_independent_phases_match_direct_updates_and_encoder_only_gradient_routi
     g, d, e = [copy.deepcopy(trainer.graph.models[name]) for name in ('generator', 'discriminator', 'encoder')]
     prior = copy.deepcopy(trainer.prior)
     ema_g, ema_e, ema_prior = [copy.deepcopy(module) for module in (g, e, prior)]
-    opt = trainer.config['optimizer']
-    og = DeviceAdam([{'params': [*g.parameters(), *e.parameters()], 'lr': opt['lr']},
-                    {'params': prior.parameters(), 'lr': opt['lr'] * opt['prior_lr_mult'], 'betas': tuple(opt['prior_betas'])}],
-                   betas=tuple(opt['betas']), fused=True)
-    od = DeviceAdam(d.parameters(), lr=opt['lr'] * opt['d_lr_mult'], betas=tuple(opt['betas']), fused=True)
+    opt, recipe = trainer.config['optimizer'], trainer.recipe
+    og = recipe.make_generator_optimizer(
+        [{'params': [*g.parameters(), *e.parameters()], 'lr': opt['lr']},
+         {'params': prior.parameters(), 'lr': opt['lr'] * opt['prior_lr_mult'], 'betas': tuple(opt['prior_betas'])}],
+        fused=True)
+    od = recipe.make_critic_optimizer(d, ema_critic=copy.deepcopy(d), fused=True)
+    penalty = recipe.make_critic_penalty(od)
     data_rng = torch.Generator().manual_seed(441)
     d_ids, g_ids = torch.arange(8), torch.arange(8, 16)
     for step in range(1, 5):
@@ -102,7 +104,7 @@ def test_independent_phases_match_direct_updates_and_encoder_only_gradient_routi
         with torch.no_grad():
             fake = g(prior(d_ids, eps=d_eps))
         od.zero_grad(set_to_none=True)
-        dp = trainer.penalty(d, d_real, fake, step)
+        dp = penalty(d, d_real, fake)
         dl = trainer.gan.d_loss(d(d_real), d(fake)) + dp
         dl.backward()
         od.step()
@@ -133,7 +135,11 @@ def test_independent_phases_match_direct_updates_and_encoder_only_gradient_routi
         close(trainer.prior.state_dict(), prior.state_dict())
         close(trainer.prior.z.grad, prior.z.grad)
         close(trainer.opt_g.state_dict(), og.state_dict())
-        close(trainer.opt_d.state_dict(), od.state_dict())
+        # The trainer's critic root names the discriminator; the EMA critic matches under that prefix.
+        actual_d, expected_d = trainer.opt_d.state_dict(), od.state_dict()
+        actual_ema, expected_ema = actual_d['regularizer'].pop('ema'), expected_d['regularizer'].pop('ema')
+        close(actual_d, expected_d)
+        close({key.removeprefix('discriminator.'): value for key, value in actual_ema.items()}, expected_ema)
         for actual, expected in ((trainer.ema_graph.models['generator'], ema_g), (trainer.ema_graph.models['encoder'], ema_e), (trainer.ema_prior, ema_prior)):
             close(actual.state_dict(), expected.state_dict())
 
@@ -207,7 +213,7 @@ def test_run_manifest_reports_configured_named_rng_seeds(tmp_path):
     path = write_default(tmp_path / 'config.toml', device='cpu')
     path.write_text(path.read_text().replace('device = "cpu"', 'device = "cpu"\ndata_seed_offset = 4\nprior_seed_offset = 9'))
     result = train(path, tmp_path / 'run', stop_after_steps=1)
-    assert result['rng_streams'] == {'data': 46, 'prior': 51, 'penalty': 45, 'sampling': 123}
+    assert result['rng_streams'] == {'data': 46, 'prior': 51, 'penalty': 45, 'noise': 47, 'sampling': 123}
 
 
 @pytest.mark.heavy

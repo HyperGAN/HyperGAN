@@ -7,7 +7,6 @@ sequences from that program.
 from dataclasses import dataclass
 
 import torch
-from particlegan import GANLoss, GradientPenalty, learning_rate_scale
 
 from .recipes import detach
 
@@ -114,16 +113,16 @@ def _routes(inputs):
     return routes
 
 
-def _penalty_for_term(config, spec):
-    """A new penalty object. The legacy penalty passed into the compiler is not mutated."""
+def _penalty_for_term(spec, make_penalty):
+    """A new penalty with the term's coefficient, paired with the shared critic optimizer."""
     if not spec["penalty"]:
         return None
-    options = dict(config["gradient_penalty"])
-    options["coeff"] = spec["penalty_coeff"]
-    return GradientPenalty(**options)
+    if make_penalty is None:
+        raise ValueError("A penalized adversarial term needs a penalty factory")
+    return make_penalty(spec["penalty_coeff"])
 
 
-def compile_legacy_program(graph, prior, config, objectives, gan, penalty, spread):
+def compile_legacy_program(graph, prior, config, objectives, gan, penalty, spread, make_penalty=None):
     """Compile today's recipe into ``d-then-g-v1``.
 
     The implicit first term reads the discriminator and its inputs. Optional
@@ -140,7 +139,7 @@ def compile_legacy_program(graph, prior, config, objectives, gan, penalty, sprea
         extra_critic, extra_generator = _phases(spec["real"], spec["fake"])
         terms.append(AdversarialTerm(
             module, _routes(spec["inputs"]), spec["weight"], bool(spec["penalty"]),
-            _penalty_for_term(config, spec), GANLoss(spec["loss_type"], spec["mode"]),
+            _penalty_for_term(spec, make_penalty), gan,
             extra_critic, extra_generator, spec["id"]))
     terms = tuple(terms)
     if len(terms) == 1:
@@ -190,14 +189,20 @@ def _phase_detaches(route, phase):
         raise ValueError(f"Unsupported adversarial phase {phase}") from None
 
 
-def score_candidate(term, candidate, context, graph, phase):
+def score_candidate(term, candidate, context, graph, phase, *, module=None, noise=(0, None)):
     """Score one sample using that phase's route detach records.
+
+    ``module`` replaces the term's critic (the penalty passes its EMA critic).
+    ``noise`` is the critic input noise ``(std, generator)`` added to the
+    candidate inside the critic, so penalties differentiate the clean input.
 
     Detached routes resolve against a detached context, so a component-produced
     condition sees detached inputs, and the resolved value is detached again.
     Attached routes resolve against a live per-score view so gradients can flow
     through a fresh component forward. Detached routes keep the generation cache.
     """
+    from .training import with_noise
+    candidate = with_noise(candidate, *noise)
     detached = detach(context)
     detached["candidate"] = candidate
     live = None
@@ -214,7 +219,7 @@ def score_candidate(term, candidate, context, graph, phase):
             live["prior"] = dict(context["prior"])
             live["candidate"] = candidate
         kwargs[route.argument] = graph.resolve(route.path, live)
-    return term.module(**kwargs)
+    return (term.module if module is None else module)(**kwargs)
 
 
 def _sample_tensor(graph, context, binding):
@@ -237,14 +242,20 @@ def _sample_context(context, phase_name):
     return scratch
 
 
-def _bound_scores(term, context, graph, phase_name, phase, *, first):
-    """Resolve both samples, then score them in the phase's historical order."""
+def _bound_scores(term, context, graph, phase_name, phase, *, first, noise):
+    """Resolve both samples, then score them in the phase's historical order.
+
+    ``noise`` holds the ``(std, generator)`` pairs of the generator output
+    noise, added to the fake sample, and the critic input noise.
+    """
+    from .training import with_noise
+    output_noise, input_noise = noise
     sample_context = _sample_context(context, phase_name)
     real = _sample_tensor(graph, sample_context, phase.real)
-    fake = _sample_tensor(graph, sample_context, phase.fake)
+    fake = with_noise(_sample_tensor(graph, sample_context, phase.fake), *output_noise)
 
     def score(sample, binding):
-        value = score_candidate(term, sample, context, graph, phase_name)
+        value = score_candidate(term, sample, context, graph, phase_name, noise=input_noise)
         return detach(value) if binding.detach_score else value
 
     if first == "real":
@@ -286,7 +297,7 @@ def _generator_tail(trainer, program, context, ids, fake):
 
 def run_native_program(trainer, batch, latent_draw, generator_batch, generator_latent_draw):
     """Execute ``d-then-g-v1`` from the compiled program."""
-    from .training import update_ema
+    from .training import ScoredCritic, noise_levels, schedule_learning_rates, update_ema
     program = trainer.program
     if program.schedule != "d-then-g-v1":
         raise ValueError(f"Unsupported native schedule {program.schedule}")
@@ -295,10 +306,15 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     if not independent and (generator_batch is not None or generator_latent_draw is not None):
         raise ValueError("Explicit generator phase draws require training.phase_draws=independent")
     step = trainer.step + 1
-    scale = learning_rate_scale(step - 1, settings["steps"], start=settings["lr_anneal_start"], floor=settings["lr_floor"])
-    for optimizer, rates in zip((trainer.opt_g, trainer.opt_d), trainer.base_lrs):
-        for group, rate in zip(optimizer.param_groups, rates):
-            group["lr"] = rate * scale
+    scale = schedule_learning_rates(trainer, step - 1)
+    input_std, output_std = noise_levels(trainer, step - 1)
+    stream = trainer.streams["noise"]
+    noise = ((output_std, stream), (input_std, stream))
+
+    def penalty(term, real, fake):
+        critic = ScoredCritic(term.module, lambda module, value: score_candidate(
+            term, value, context, trainer.graph, "critic", module=module, noise=(input_std, stream)))
+        return term.penalty_fn(critic, real, fake)
     if independent:
         with torch.no_grad():
             batch, ids, context = trainer._draw(batch, latent_draw)
@@ -309,12 +325,10 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     if len(terms) == 1:
         term = terms[0]
         real, fake, real_score, fake_score = _bound_scores(
-            term, context, trainer.graph, "critic", term.critic_phase, first="real")
+            term, context, trainer.graph, "critic", term.critic_phase, first="real", noise=noise)
         d_adversarial = term.gan.d_loss(real_score, fake_score)
         if term.penalty:
-            d_penalty = term.penalty_fn(
-                lambda value: score_candidate(term, value, context, trainer.graph, "critic"),
-                real, fake, step=step, generator=trainer.streams["penalty"])
+            d_penalty = penalty(term, real, fake)
         else:
             d_penalty = fake.new_zeros(())
         d_adversarial_weighted = term.weight * d_adversarial
@@ -326,14 +340,12 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         fake = None
         for term in terms:
             real, fake, real_score, fake_score = _bound_scores(
-                term, context, trainer.graph, "critic", term.critic_phase, first="real")
+                term, context, trainer.graph, "critic", term.critic_phase, first="real", noise=noise)
             loss = term.gan.d_loss(real_score, fake_score)
             unweighted.append(loss)
             weighted.append(term.weight * loss)
             if term.penalty_fn is not None:
-                penalties.append(term.penalty_fn(
-                    lambda value, term=term: score_candidate(term, value, context, trainer.graph, "critic"),
-                    real, fake, step=step, generator=trainer.streams["penalty"]))
+                penalties.append(penalty(term, real, fake))
         d_adversarial = _sum_tensors(unweighted)
         d_adversarial_weighted = _sum_tensors(weighted)
         d_penalty = _sum_tensors(penalties) if penalties else fake.new_zeros(())
@@ -369,7 +381,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         if len(terms) == 1:
             term = terms[0]
             real, fake, real_score, fake_score = _bound_scores(
-                term, context, trainer.graph, "generator", term.generator_phase, first="fake")
+                term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
             g_adversarial = term.gan.g_loss(fake_score, real_score)
             prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
             g_adversarial_weighted = term.weight * g_adversarial
@@ -379,7 +391,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             fake = None
             for term in terms:
                 real, fake, real_score, fake_score = _bound_scores(
-                    term, context, trainer.graph, "generator", term.generator_phase, first="fake")
+                    term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
                 loss = term.gan.g_loss(fake_score, real_score)
                 unweighted.append(loss)
                 weighted.append(term.weight * loss)

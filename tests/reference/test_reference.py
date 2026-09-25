@@ -1,4 +1,4 @@
-"""Numerical contract and native-artifact checks, against ParticleGAN 0.7.0."""
+"""Numerical contract and native-artifact checks, against ParticleGAN 0.8.0."""
 import copy
 import json
 from pathlib import Path
@@ -40,8 +40,8 @@ def test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema():
     # Pin the upstream recipe to HyperGAN's own defaults; ParticleGAN's differ.
     recipe = get_recipe(total_steps=5, batch_size=16, **{
         field: DEFAULT[section][key] for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items()})
-    opt_g, opt_d = recipe.make_optimizers(generator, critic, prior)
-    gan, penalty, spread = recipe.make_loss(), recipe.make_gradient_penalty(), recipe.make_prior_regularizer()
+    opt_g, opt_d = recipe.make_optimizers(generator, critic, prior, ema_critic=copy.deepcopy(critic))
+    gan, penalty, spread = recipe.make_loss(), recipe.make_critic_penalty(opt_d), recipe.make_prior_regularizer()
     rng = torch.Generator().manual_seed(9)
     real = torch.randn(16, 2, generator=rng)
     ids = torch.tensor([0, 1, 2, 2, 4, 6, 7, 7, 9, 11, 12, 12, 14, 15, 16, 17])
@@ -50,7 +50,7 @@ def test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema():
     fake = generator(prior(ids))
     opt_d.zero_grad(set_to_none=True)
     d_loss = gan.d_loss(critic(real), critic(fake.detach()))
-    d_loss = d_loss + penalty(critic, real, fake.detach(), step=1)
+    d_loss = d_loss + penalty(critic, real, fake.detach())
     d_loss.backward()
     opt_d.step()
     critic.requires_grad_(False)

@@ -135,7 +135,9 @@ def _restore_trainer(trainer, state):
         if set(state['modes'][name]) != dict(getattr(trainer, name).named_modules()).keys():
             raise ValueError('Checkpoint nested module mode inventory differs from trainer')
     for optimizer, saved, rates in zip((trainer.opt_g, trainer.opt_d), state['optimizers'], state['base_lrs']):
-        if set(saved) != {'state', 'param_groups'} or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
+        # The recipe's optimizers keep their regularization state (EMA critic,
+        # LR record, latent-damping history) under 'regularizer'.
+        if set(saved) != {'state', 'param_groups', 'regularizer'} or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
             raise ValueError('Checkpoint optimizer parameter groups differ from trainer')
         for actual, prior in zip(optimizer.param_groups, saved['param_groups']):
             if len(actual['params']) != len(prior['params']):

@@ -102,7 +102,6 @@ def _config(case='ra'):
     raw['training'].update(steps=3, batch_size=8, seed=817, lr_anneal_start=.3)
     raw['prior'] = {'kind': 'mog', 'args': {'num_particles': 12, 'z_dim': 4, 'sigma_rel': .03}}
     raw['gradient_penalty'].update(lazy_k=2, kappa=.05)
-    raw['adversarial']['mode'] = 'ra' if case == 'ra' else 'rp'
     raw['components'] = {
         'encoder': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 2},
                     'inputs': {'input': 'batch.condition'}},

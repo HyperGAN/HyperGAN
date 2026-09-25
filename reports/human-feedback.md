@@ -9,6 +9,41 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
+
+Owner: "in the web viewer ... i want to have a way to see what networks are involved
+in hypergan, and what the gan formulation is, and what the losses are. i think we can
+leverage hndl parsing ... basically i want to easily see what the hyperparams and
+losses and network configuration is, maybe a separate tab from the metrics."
+
+In progress on branch `feat/viewer-model-tab` (not merged into develop yet):
+- [x] Torch-free run description from `manifest['config']`: K3P formulation and
+  parameters (pre-0.8 runs show their recorded fields), prior, per-player loss terms
+  with weights and metric series ids, optimizers/schedule/noise, components with roles
+  and HNDL source, data/training settings; local paths shown as `…/basename`
+  (`src/hypergan/model_description.py`, `describe_run`).
+- [x] `GET /api/v1/runs/{run_id}/model` with the usual run check and credential, a
+  `Model` OpenAPI schema and a cache keyed by configuration
+  (`src/hypergan/web_server.py`, `web_service.py` `model_summary`, `web_schema.py`).
+- [x] Per-layer network detail (op, output shape, parameters, source line) recorded as
+  `RUN/model.json` at training start (`single_execution.py`, `run_controller.py`
+  `_record_model`), and `hypergan model RUN --write` to backfill older runs on the
+  meta device, falling back to hndl capture when pretrained weights are missing.
+- [x] Separate **Model** tab next to Metrics (`frontend/src/model.js`, `index.html`,
+  `style.css`); a loss row charts its series under Metrics. Documented in
+  `docs/local-web.md` and `frontend/API.md`.
+- [x] Tests: every `examples/*.toml`, route/auth/OpenAPI, train-time record, browser tab
+  (`tests/foundation/test_model_description.py`, `tests/web/test_web_service.py`,
+  `tests/reference/test_model_record.py`, `tests/browser/test_viewer_ui.py`).
+- [ ] Owner review in the viewer, then merge into develop.
+- [ ] Record the original `.hndl` file names and `defaults = "particlegan"` in the
+  manifest (today the file is matched by content against packaged/example networks and
+  the defaults source is inferred).
+- [ ] Record train-time `model.json` for replicated (multi-GPU) execution too; use
+  `hypergan model RUN --write` there meanwhile.
+- [ ] Per-term series for configs with several adversarial terms (`color-words`):
+  today they are summed into one `loss/d_adversarial`.
+
 ### 19. Training throughput: use the GPU fully, less host blocking if needed (raised 2026-09-20)
 
 Owner: "i'm running hypergan on card 0, it's like 10-12 steps/s. particlegan its

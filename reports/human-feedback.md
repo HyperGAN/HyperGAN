@@ -62,6 +62,8 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 
 ### 21. Update to ParticleGAN 0.8.0: new formulation and API (raised 2026-09-25)
 
+**Status:** Implemented in [#385](https://github.com/HyperGAN/HyperGAN/pull/385). Known issue: the CUDA interval-evaluation acceptance test is order-dependent (see the PR).
+
 Owner: "can you update particlegan dependency. the formulation changed too, as
 well as the api. please update it all" and then a CIFAR config "with no
 overrides. I want the defaults from particlegan for everything (our higher

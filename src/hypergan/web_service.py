@@ -144,6 +144,7 @@ class ObservationService:
         self.attempts = {}
         self.artifacts = {}
         self._artifact_signature = None
+        self._model_cache = None
         self._artifact_lock = asyncio.Lock()
         self.run_id = None
         self.manifest = {'status': 'waiting'}
@@ -186,6 +187,48 @@ class ObservationService:
         if isinstance(boundary, dict):
             result['durable_event_boundary'] = boundary
         result['metric_consistency'] = self.metric_consistency()
+        return result
+
+    def model_summary(self):
+        """The run's formulation, losses, optimizers and networks (torch-free).
+
+        Built from the recorded configuration plus, when training or a backfill
+        wrote one for this exact configuration, the bounded model.json detail.
+        Cached until the configuration, the catalog or that file changes.
+        """
+        from .model_description import MAX_MODEL_BYTES, MODEL_FILE, describe_run
+        from .metrics import read_catalog
+        manifest = self.manifest
+        if not isinstance(manifest.get('config'), dict):
+            raise FileNotFoundError('No model configuration recorded for this run')
+        try:
+            info = (self.root / MODEL_FILE).lstat()
+            signature = (info.st_mtime_ns, info.st_size)
+        except OSError:
+            signature = None
+        key = (manifest.get('config_sha256'), manifest.get('metrics_catalog'), signature)
+        if self._model_cache is not None and self._model_cache[0] == key:
+            return self._model_cache[1]
+        recorded = None
+        if signature is not None:
+            try:
+                recorded = read_json(self.root, MODEL_FILE, max_bytes=MAX_MODEL_BYTES)
+            except ValueError:
+                recorded = None
+        catalog = None
+        if manifest.get('metrics_catalog'):
+            try:
+                catalog = read_catalog(self.root, manifest['metrics_catalog'],
+                    _open_file=lambda path: _open(self.root, path.relative_to(self.root).as_posix()))
+            except (OSError, ValueError, KeyError):
+                catalog = None
+        result = describe_run(manifest, recorded=recorded, catalog=catalog)
+        result['run_id'] = self.run_id
+        if signature is not None and recorded is None:
+            for entry in result['networks']:
+                if 'reuse_of' not in entry:
+                    entry['graph'] = {'status': 'unavailable', 'reason': 'model.json is unreadable or exceeds its byte budget'}
+        self._model_cache = (key, result)
         return result
 
     def metric_consistency(self):

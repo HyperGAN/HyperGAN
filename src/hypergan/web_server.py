@@ -84,6 +84,11 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         check_run(request)
         return JSONResponse(service.public_manifest())
 
+    async def model(request):
+        check_run(request)
+        import asyncio
+        return JSONResponse(await asyncio.to_thread(service.model_summary))
+
     async def catalog(request):
         check_run(request)
         from .metrics import read_catalog
@@ -212,6 +217,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
               Route('/api/v1/capabilities', capabilities), Route('/api/v1/openapi.json', openapi),
               Route('/api/v1/stream', stream), Route('/api/v1/runs/{run_id}', run),
               Route('/api/v1/runs/{run_id}/metrics/catalog', catalog),
+              Route('/api/v1/runs/{run_id}/model', model),
               Route('/api/v1/runs/{run_id}/events', events),
               Route('/api/v1/runs/{run_id}/views', views),
               Route('/api/v1/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
@@ -279,6 +285,9 @@ def openapi_schema(*, auth_mode='token', cookie_name=LocalSession.cookie_name):
         '/capabilities': 'Authenticated server identity and resource limits',
         '/runs/{run_id}': 'Current run manifest',
         '/runs/{run_id}/metrics/catalog': 'Immutable metric definition catalog',
+        '/runs/{run_id}/model': 'Run model: GAN formulation, per-player losses with metric ids, optimizers, prior, '
+                                'data/training settings and networks (HNDL source; per-layer detail when model.json '
+                                'was recorded); 404 when the run records no configuration',
         '/runs/{run_id}/events': 'Bounded raw source or projection frame page',
         '/runs/{run_id}/views': 'Available view descriptors and stream watermarks',
         '/runs/{run_id}/views/{map_revision}/bootstrap': 'Historical shared-reducer state through a fixed projection cursor; 202 while indexing/reducing',

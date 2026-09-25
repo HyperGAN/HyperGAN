@@ -121,6 +121,12 @@ def _parser():
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
     inspect = commands.add_parser("inspect", help="Read a run manifest without loading model weights")
     inspect.add_argument("path", type=Path)
+    model = commands.add_parser("model", help="Describe a run's formulation, losses, optimizers and networks")
+    model.add_argument("path", type=Path, help="run directory, manifest.json or project .toml")
+    model.add_argument("--networks", action="store_true",
+                       help="also build each component on the meta device for per-layer detail (loads torch)")
+    model.add_argument("--write", action="store_true",
+                       help="record the per-layer detail as RUN/model.json for the viewer (implies --networks)")
     events = commands.add_parser("events", help="Read a bounded page of run events without loading training")
     events.add_argument("run_dir", type=Path)
     events.add_argument("--cursor", help="opaque cursor returned by the previous page")
@@ -236,6 +242,23 @@ def _dispatch(args, *, output=None):
             if not isinstance(manifest, dict):
                 raise ValueError("run manifest must contain a JSON object")
             _print_json(manifest)
+        elif args.command == "model":
+            from .model_description import MODEL_FILE, build_networks, describe_run, load
+
+            manifest, config = load(args.path)
+            if args.write and not (args.path.is_dir() and manifest):
+                raise ValueError("--write needs a run directory")
+            if not isinstance(config, dict):
+                raise ValueError("No model configuration recorded for this run")
+            recorded = None
+            if args.networks or args.write:
+                recorded = build_networks(config, manifest.get("config_sha256"))
+            if args.write:
+                from .run_state import atomic_json
+
+                atomic_json(args.path / MODEL_FILE, recorded)
+                print(f"wrote {args.path / MODEL_FILE}", file=sys.stderr)
+            _print_json(describe_run(manifest if manifest else {"config": config}, recorded=recorded))
         elif args.command == "events":
             from .run_events import read_event_page
 

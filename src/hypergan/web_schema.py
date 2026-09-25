@@ -95,10 +95,42 @@ def schemas():
             **{key: {'oneOf': [SAFE_INTEGER, {'type': 'null'}]}
                for key in ('committed_step', 'committed_offset', 'projected_offset')}},
             ('status', 'committed_step', 'committed_offset', 'projected_offset'))}, ('status',))
+    graph = object_schema({'status': {'enum': ['built', 'built-no-hndl', 'captured', 'unavailable']},
+        'reason': {'type': 'string'}, 'origin': {'type': 'string'}, 'parameters': {'type': 'object'},
+        'subgraphs': {'type': 'array', 'maxItems': 64, 'items': object_schema({
+            'module_path': {'type': 'string'}, 'node_count': SAFE_INTEGER, 'nodes_truncated': {'type': 'boolean'},
+            'semantic_digest': {'type': 'string'}, 'nodes': {'type': 'array', 'maxItems': 512, 'items': {'type': 'object'}}},
+            ('nodes',))}}, ('status',))
+    network = object_schema({'name': {'type': 'string'},
+        'role': {'enum': ['generator', 'critic', 'encoder', 'auxiliary', 'alias']},
+        'optimizer_group': {'type': 'string'}, 'factory': {'type': 'string'}, 'inputs': {'type': 'object'},
+        'trainable': {'type': 'boolean'}, 'reuse_of': {'type': 'string'},
+        'input_shape': {}, 'output_shape': {}, 'source': {'type': 'object'},
+        'templates': {'type': 'array', 'items': {'type': 'object'}}, 'graph': ref('NetworkGraph')},
+        ('name', 'role', 'factory', 'graph'))
+    loss_term = object_schema({'id': {'type': 'string'}, 'kind': {'type': ['string', 'null']},
+        'metric': {'type': ['string', 'null']}, 'metric_note': {'type': ['string', 'null']}}, ('id', 'metric'))
+    model = object_schema({'schema_version': {'const': 1}, 'run_id': {'type': 'string'}, 'name': {'type': ['string', 'null']},
+        'config_sha256': {'oneOf': [HASH, {'type': 'null'}]}, 'provenance': {'type': 'object'},
+        'formulation': object_schema({'family': {'enum': ['k3p', 'legacy']}, 'name': {'type': 'string'},
+            'loss': {'type': 'string'}, 'equations': {'type': 'object'}, 'parameters': {'type': 'object'},
+            'raw': {'type': 'object'}}, ('family', 'name', 'parameters')),
+        'prior': {'type': 'object'},
+        'losses': object_schema({'discriminator': {'type': 'array', 'items': ref('LossTerm')},
+            'generator': {'type': 'array', 'items': ref('LossTerm')}, 'totals': {'type': 'object'}},
+            ('discriminator', 'generator', 'totals')),
+        'optimizers': {'type': 'object'}, 'networks': {'type': 'array', 'items': ref('Network')},
+        'edges': {'type': 'array', 'items': object_schema({'from': {'type': 'string'}, 'to': {'type': 'string'},
+            'port': {'type': 'string'}, 'path': {'type': 'string'}, 'detached': {'type': 'boolean'}}, ('from', 'to'))},
+        'data': {'type': 'object'}, 'training': {'type': 'object'}, 'sampling': {'type': 'object'},
+        'warnings': {'type': 'array', 'items': {'type': 'string'}}},
+        ('schema_version', 'formulation', 'losses', 'optimizers', 'networks'),
+        description='Local absolute paths are shown as …/basename.')
     return {'Histogram': histogram, 'SourceIdentity': source, 'Emission': emission, 'ProjectionFrame': frame, 'Event': event,
             'Point': point, 'EnvelopeState': envelope, 'Group': group, 'Bootstrap': bootstrap,
             'Page': page, 'Catalog': catalog, 'StreamFrame': stream_frame, 'StreamControl': control,
-            'Run': run, 'Error': object_schema({'error': {'type': 'string'}}, ('error',)),
+            'Run': run, 'Model': model, 'Network': network, 'NetworkGraph': graph, 'LossTerm': loss_term,
+            'Error': object_schema({'error': {'type': 'string'}}, ('error',)),
             'Pending': object_schema({'status': {'enum': ['indexing', 'reducing']},
                                      'reason': {'type': 'string'}, 'job_id': HASH}, ('status',))}
 
@@ -109,7 +141,7 @@ def enrich(document):
         operation = operations.get('get')
         if not operation:
             continue
-        selected = 'Bootstrap' if path.endswith('/bootstrap') else 'Catalog' if path.endswith('/catalog') else 'Page' if path.endswith('/events') else 'Run' if path.endswith('/{run_id}') else None
+        selected = 'Bootstrap' if path.endswith('/bootstrap') else 'Catalog' if path.endswith('/catalog') else 'Page' if path.endswith('/events') else 'Model' if path.endswith('/model') else 'Run' if path.endswith('/{run_id}') else None
         if selected:
             operation['responses']['200']['content'] = {'application/json': {'schema': ref(selected)}}
         operation['responses']['202']['content'] = {'application/json': {'schema': ref('Pending')}}

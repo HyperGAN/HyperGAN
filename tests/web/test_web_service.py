@@ -9,8 +9,10 @@ import pytest
 from starlette.testclient import TestClient
 
 from hypergan.event_views import MapSpec, Projector
+from hypergan.config import config_values, fingerprint, resolve_config
 from hypergan.metrics import digest
 from hypergan.metrics_reducer import Reducer
+from hypergan.model_description import MODEL_FILE
 from hypergan.run_state import atomic_json
 from hypergan.web_service import ObservationService, Subscriber
 from hypergan.web_server import create_app
@@ -781,3 +783,86 @@ def test_default_retention_publishes_a_whole_run_history_to_the_viewer(tmp_path)
         finally:
             await service.close()
     asyncio.run(scenario())
+
+
+# GET /api/v1/runs/{run_id}/model: authenticated, run-checked, bounded and redacted.
+def configured_run(root):
+    manifest = fixture_run(root)
+    config = resolve_config({})
+    manifest.update(config=config_values(config), config_sha256=fingerprint(config),
+                    source={'particlegan_distribution_version': '0.8.0'}, runtime={'hndl': '0.6.0'})
+    manifest['config']['data']['args']['root'] = '/home/someone/private-data'
+    atomic_json(root / 'manifest.json', manifest)
+    return manifest
+
+
+def authenticated(client, session, root):
+    session.write_credentials(root / 'session.json')
+    token = json.loads((root / 'session.json').read_text())['token']
+    assert client.post('/api/v1/session', json={'token': token}).status_code == 200
+
+
+def test_model_route_serves_the_recorded_configuration(tmp_path):
+    manifest = configured_run(tmp_path)
+    session = LocalSession(8123, auth='token')
+    with TestClient(create_app(tmp_path, session), base_url=session.origin) as client:
+        assert client.get('/api/v1/runs/run/model').status_code == 401
+        authenticated(client, session, tmp_path)
+        assert client.get('/api/v1/runs/foreign/model').status_code == 404
+        response = client.get('/api/v1/runs/run/model')
+        assert response.status_code == 200
+        body = response.json()
+        assert body['run_id'] == 'run' and body['config_sha256'] == manifest['config_sha256']
+        assert body['formulation']['family'] == 'k3p' and body['formulation']['particlegan'] == '0.8.0'
+        assert [n['name'] for n in body['networks']] == ['generator', 'discriminator']
+        assert body['networks'][0]['source']['text'].strip()
+        assert body['networks'][0]['graph']['status'] == 'unavailable'
+        assert body['losses']['totals']['generator'] == 'loss/g_total'
+        # The fixture catalog publishes only loss/g_total; the others say so.
+        adversarial = body['losses']['generator'][0]
+        assert adversarial['metric'] == 'loss/g_adversarial' and 'catalog' in adversarial['metric_note']
+        assert 'someone' not in response.text and body['data']['args']['root'] == '…/private-data'
+        assert client.get('/api/v1/runs/run/model', headers={'origin': 'http://evil.example'}).status_code == 403
+
+
+def test_model_route_merges_recorded_network_detail(tmp_path):
+    manifest = configured_run(tmp_path)
+    node = {'id': 'n0', 'op': 'linear', 'category': 'core', 'out': {'out': ['B', 2]}, 'params': 10}
+    atomic_json(tmp_path / MODEL_FILE, {'schema_version': 1, 'config_sha256': manifest['config_sha256'],
+        'origin': 'recorded', 'components': {'generator': {'status': 'built', 'parameters': {'total': 10},
+            'subgraphs': [{'module_path': 'network', 'node_count': 1, 'nodes': [node]}]}}})
+    session = LocalSession(8123, auth='none')
+    with TestClient(create_app(tmp_path, session), base_url=session.origin) as client:
+        body = client.get('/api/v1/runs/run/model').json()
+        generator, discriminator = body['networks']
+        assert generator['graph']['status'] == 'built' and generator['graph']['subgraphs'][0]['nodes'] == [node]
+        assert discriminator['graph']['status'] == 'unavailable'
+        # A file for another configuration is never attached.
+        atomic_json(tmp_path / MODEL_FILE, {'schema_version': 1, 'config_sha256': 'f' * 64, 'components': {}})
+        body = client.get('/api/v1/runs/run/model').json()
+        assert 'different configuration' in body['networks'][0]['graph']['reason']
+        (tmp_path / MODEL_FILE).write_text('{not json')
+        body = client.get('/api/v1/runs/run/model').json()
+        assert 'unreadable' in body['networks'][0]['graph']['reason']
+
+
+def test_model_route_without_configuration_is_not_found(tmp_path):
+    fixture_run(tmp_path)
+    session = LocalSession(8123, auth='none')
+    with TestClient(create_app(tmp_path, session), base_url=session.origin) as client:
+        response = client.get('/api/v1/runs/run/model')
+        assert response.status_code == 404 and 'configuration' in response.json()['error']
+
+
+@pytest.mark.parametrize('auth', ['token', 'none'])
+def test_model_route_is_in_the_openapi_contract(tmp_path, auth):
+    fixture_run(tmp_path)
+    session = LocalSession(8123, auth=auth)
+    with TestClient(create_app(tmp_path, session), base_url=session.origin) as client:
+        if auth == 'token':
+            authenticated(client, session, tmp_path)
+        schema = client.get('/api/v1/openapi.json').json()
+    operation = schema['paths']['/api/v1/runs/{run_id}/model']['get']
+    assert operation['responses']['200']['content']['application/json']['schema'] == {'$ref': '#/components/schemas/Model'}
+    assert {'Model', 'Network', 'NetworkGraph', 'LossTerm'} <= set(schema['components']['schemas'])
+    assert bool(operation.get('security')) == (auth == 'token')

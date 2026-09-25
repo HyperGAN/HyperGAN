@@ -29,6 +29,17 @@ The token never enters a URL, storage, telemetry, or browser logs.
 - `GET /runs/r/metrics/catalog[?revision=<sha256>]` -> the immutable metric catalog shape.
   Omit revision for the active training catalog; independent evaluation documents
   always supply their own catalog revision.
+- `GET /runs/r/model` -> the Model tab document (`Model` in `/openapi.json`):
+  `formulation` (K3P name, loss, equations, penalty parameters; `family:"legacy"`
+  shows a pre-0.8 run's recorded fields), `prior`, `losses.discriminator` /
+  `losses.generator` terms with weights and their metric series id (`metric`,
+  or `null` plus `metric_note` when no per-term series exists), `optimizers`
+  (groups, schedule, noise, EMA), `networks` (role, factory, inputs, shapes,
+  HNDL `source` text with comment `sections` and a matched source `file`, and
+  `graph`: per-layer `subgraphs[].nodes` when `model.json` was recorded for this
+  `config_sha256`, otherwise `{status:"unavailable", reason}`), `edges`, `data`,
+  `training`, `sampling` and `warnings`. Local absolute paths read `…/basename`.
+  404 when the run records no configuration.
 - `GET /runs/r/artifacts` -> `{ "schema_version":1, "artifacts":{ "id":{ "name":"g", "role":"sample", "modality":"tensor", "media_type":"application/json", "bytes":54, "shape":[2,2], "provenance":{ "step":2, "name":"g" } } } }`.
   `GET /runs/r/artifacts/{id}` downloads a bounded, digest-checked indexed artifact.
   Artifact IDs remain the opaque digest keys; `name` is an added short stable

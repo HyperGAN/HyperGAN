@@ -1,4 +1,5 @@
 import { evaluationShelf } from "./evaluations.js";
+import { modelPanel } from "./model.js";
 import { chartColors as colors, chartOptions, init } from "./chart.js";
 
 const $ = (id) => document.getElementById(id);
@@ -133,6 +134,43 @@ const base = () => `/runs/${encodeURIComponent(state.run.run_id)}`;
 // Snapshot evaluations own their results end to end; Learning curves charts the
 // training stream only, so an evaluation id never reaches the catalog or a chart.
 const evaluations = evaluationShelf(api, base);
+// The Model tab reads the recorded configuration; its loss rows can put a
+// series on the Metrics tab.
+const model = modelPanel(api, base, { catalog: () => state.catalog, onPlot: plotMetric });
+const TABS = ["metrics", "model"];
+function activeTab() {
+  return $("tab-model").getAttribute("aria-selected") === "true" ? "model" : "metrics";
+}
+function selectTab(name, { focus = false, remember = true } = {}) {
+  for (const tab of TABS) {
+    const selected = tab === name;
+    const button = $(`tab-${tab}`);
+    button.setAttribute("aria-selected", String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    $(`panel-${tab}`).hidden = !selected;
+    if (selected && focus) button.focus();
+  }
+  if (remember) {
+    try {
+      history.replaceState(null, "", name === "model" ? "#model" : `${location.pathname}${location.search}`);
+    } catch {}
+  }
+  if (name === "model" && state.run) model.load().catch((error) => notice(error.message));
+  // Charts measured nothing while hidden; size them to the visible panel.
+  if (name === "metrics") requestAnimationFrame(() => { for (const card of state.charts.values()) card.chart.resize(); });
+}
+function plotMetric(id) {
+  if (!state.selected.has(id)) {
+    if (state.selected.size >= 8) {
+      notice("Choose at most 8 metrics for this view; clear one to add this series.");
+      return;
+    }
+    state.selected.add(id);
+    renderCatalog();
+    reconfigure();
+  }
+  selectTab("metrics", { focus: true });
+}
 function metricDefinitions() { return state.catalog?.metrics || {}; }
 function trainingSelection() { return [...state.selected]; }
 // The manifest status is an internal word; the badge reads as the person's
@@ -635,6 +673,9 @@ async function metadata(expectedEpoch = state.epoch) {
     [...state.selected].filter((id) => metricDefinitions()[id]?.kind === "scalar" && metricDefinitions()[id]?.scope !== "snapshot"),
   );
   renderCatalog();
+  // A new attempt may carry a new configuration; reload only what is showing.
+  model.invalidate();
+  if (activeTab() === "model") model.load().catch((error) => notice(error.message));
   await refreshArtifacts();
 }
 async function connect() {
@@ -651,6 +692,7 @@ async function connect() {
   renderCatalog();
   $("login").hidden = true;
   $("workspace").hidden = false;
+  if (location.hash === "#model") selectTab("model", { remember: false });
   state.bucket = Math.max(1, Math.ceil((state.run.steps || 1) / 180));
   await reconfigure();
 }
@@ -1127,6 +1169,14 @@ $("copy-run-id").addEventListener("click", async () => {
     selection.addRange(range);
     $("run-id-status").textContent = "Selected — press Ctrl+C to copy";
   }
+});
+for (const tab of TABS) $(`tab-${tab}`).addEventListener("click", () => selectTab(tab));
+$("tab-metrics").parentElement.addEventListener("keydown", (event) => {
+  const index = TABS.indexOf(activeTab());
+  const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: TABS.length - 1 }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  selectTab(TABS[(next + TABS.length) % TABS.length], { focus: true });
 });
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();

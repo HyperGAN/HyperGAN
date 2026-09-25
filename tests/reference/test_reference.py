@@ -1,4 +1,4 @@
-"""Numerical contract and native-artifact checks, against ParticleGAN 0.6.0."""
+"""Numerical contract and native-artifact checks, against ParticleGAN 0.7.0."""
 import copy
 import json
 from pathlib import Path
@@ -10,7 +10,7 @@ import torch
 from particlegan import get_recipe
 
 from hypergan.artifacts import sample, save_bundle
-from hypergan.config import DEFAULT, load_config, resolve_config, write_default
+from hypergan.config import DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, load_config, resolve_config, write_default
 from hypergan.training import ReferenceTrainer, train
 
 
@@ -37,7 +37,9 @@ def test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema():
     critic = copy.deepcopy(trainer.graph.models["discriminator"])
     prior = copy.deepcopy(trainer.prior)
     ema_g, ema_prior = copy.deepcopy(generator), copy.deepcopy(prior)
-    recipe = get_recipe(total_steps=5, batch_size=16)
+    # Pin the upstream recipe to HyperGAN's own defaults; ParticleGAN's differ.
+    recipe = get_recipe(total_steps=5, batch_size=16, **{
+        field: DEFAULT[section][key] for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items()})
     opt_g, opt_d = recipe.make_optimizers(generator, critic, prior)
     gan, penalty, spread = recipe.make_loss(), recipe.make_gradient_penalty(), recipe.make_prior_regularizer()
     rng = torch.Generator().manual_seed(9)

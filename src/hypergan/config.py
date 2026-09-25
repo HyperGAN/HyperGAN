@@ -3,10 +3,14 @@
 Constructor paths are trusted Python code, imported only by train/sample.
 """
 from copy import deepcopy
+import dataclasses
+import functools
 import hashlib
+import importlib.util
 import json
 import math
 import re
+import sys
 from pathlib import Path
 
 from .network_config import packaged_source, read_source, validate_network_args, materialize_networks
@@ -122,6 +126,55 @@ seed = 123
 '''
 
 
+# `defaults = "particlegan"` fills these omitted fields from the installed
+# particlegan.Recipe field defaults instead of DEFAULT. Resolved configurations
+# record the concrete values, so a later ParticleGAN release cannot silently
+# change an existing run; its resume then fails the configuration check.
+PARTICLEGAN_DEFAULT_FIELDS = {
+    ("adversarial", "loss_type"): "loss_type",
+    ("adversarial", "mode"): "gan_mode",
+    ("gradient_penalty", "arm"): "reg_arm",
+    ("gradient_penalty", "coeff"): "reg_coeff",
+    ("gradient_penalty", "kappa"): "reg_kappa",
+    ("gradient_penalty", "lazy_k"): "reg_every",
+    ("gradient_penalty", "method"): "reg_method",
+    ("prior_regularizer", "weight"): "prior_reg",
+    ("optimizer", "lr"): "lr",
+    ("optimizer", "d_lr_mult"): "d_lr_mult",
+    ("optimizer", "prior_lr_mult"): "prior_lr_mult",
+    ("optimizer", "betas"): "betas",
+    ("optimizer", "prior_betas"): "prior_betas",
+    ("training", "ema"): "ema_decay",
+    ("training", "lr_anneal_start"): "lr_anneal_start",
+    ("training", "lr_floor"): "lr_floor",
+}
+
+
+@functools.cache
+def particlegan_defaults():
+    """Installed particlegan.Recipe defaults, keyed by HyperGAN (section, field).
+
+    Reads the dataclass from recipes.py without importing the package, whose
+    __init__ imports Torch; configuration loading stays Torch-free.
+    """
+    package = importlib.util.find_spec("particlegan")
+    if package is None or not package.submodule_search_locations:
+        raise ValueError('defaults = "particlegan" requires ParticleGAN (the train extra)')
+    name = "_hypergan_particlegan_recipes"
+    spec = importlib.util.spec_from_file_location(name, Path(package.submodule_search_locations[0]) / "recipes.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+        recipe = {field.name: field.default for field in dataclasses.fields(module.Recipe)}
+    finally:
+        del sys.modules[name]
+    if recipe["prior_betas"] is None:
+        recipe["prior_betas"] = recipe["betas"]
+    return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]
+            for key, field in PARTICLEGAN_DEFAULT_FIELDS.items()}
+
+
 def _keys(value, allowed, location):
     if not isinstance(value, dict):
         raise ValueError(f"{location} must be a table")
@@ -230,8 +283,15 @@ def _resolve_adversarial_terms(result):
 
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
-    _keys(raw, set(DEFAULT) | {"adversarial_terms"}, "configuration")
+    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults"}, "configuration")
+    raw = dict(raw)
+    source = raw.pop("defaults", "hypergan")
     result = deepcopy(DEFAULT)
+    if source == "particlegan":
+        for (section, key), value in particlegan_defaults().items():
+            result[section][key] = deepcopy(value)
+    elif source != "hypergan":
+        raise ValueError('defaults must be "hypergan" or "particlegan"')
     for key, value in raw.items():
         if key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.

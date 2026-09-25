@@ -1,4 +1,5 @@
 """Explicit MoG scales avoid calibration while legacy recipes retain their meaning."""
+import importlib.metadata
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -68,6 +69,8 @@ def test_ambiguous_explicit_scale_rejected():
         make_prior(spec, device='cpu')
 
 
+@pytest.mark.skipif(importlib.metadata.version('particlegan') != '0.6.0',
+                    reason='the audited 0.5.0 -> 0.6.0 migration resumes only under a 0.6.0 runtime')
 def test_audited_050_checkpoint_metadata_uses_qualified_resume(tmp_path):
     from hypergan.checkpoint_compatibility import PARTICLEGAN_060_MIGRATION
     from hypergan.checkpoints import read_checkpoint

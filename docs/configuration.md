@@ -212,7 +212,18 @@ is assumed; compare FID and diversity metrics during training.
 
 The configuration separates `prior`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`. The generated default uses a particle prior, paired relativistic logistic loss, b-cap and VICReg. The exact resolved parameters are saved with each run.
 
-With ParticleGAN 0.6.0, a MoG recipe's `prior.fixed_sigma` is passed directly to
+Top-level `defaults = "particlegan"` fills omitted optimizer (`lr`, `d_lr_mult`,
+`prior_lr_mult`, `betas`, `prior_betas`), adversarial (`loss_type`, `mode`),
+gradient-penalty (`arm`, `coeff`, `kappa`, `lazy_k`, `method`),
+`prior_regularizer.weight` and training (`ema`, `lr_anneal_start`, `lr_floor`)
+fields from the installed `particlegan.Recipe` defaults instead of HyperGAN's.
+Explicit fields still win; the mapping is `PARTICLEGAN_DEFAULT_FIELDS` in
+`hypergan.config`. Resolution reads the dataclass without importing Torch.
+The resolved configuration stores the concrete values, so installing a
+ParticleGAN release with different defaults makes resume fail its
+configuration check instead of silently changing a run.
+
+Since ParticleGAN 0.6.0, a MoG recipe's `prior.fixed_sigma` is passed directly to
 the constructor. It sets one shared, fixed isotropic noise scale and performs
 no nearest-neighbor calibration. Existing fixed-sigma configs need no edits;
 a legacy `prior.args.sigma_rel` is ignored when a fixed scale is supplied.

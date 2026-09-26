@@ -666,11 +666,21 @@ def fingerprint(config):
 
 
 def load_config(path):
-    path = Path(path)
-    if path.is_dir():
-        path = path / "config.toml"
-    with path.open("rb") as stream:
-        raw = tomllib.load(stream)
+    """Resolve a TOML file (or a project directory), or an in-memory raw mapping.
+
+    A mapping is the same raw configuration a TOML file parses to; the Python
+    API passes one so a run can start without a temporary file. Relative file
+    references in a mapping resolve against the working directory.
+    """
+    if isinstance(path, dict):
+        raw, base = deepcopy(path), Path.cwd()
+    else:
+        path = Path(path)
+        if path.is_dir():
+            path = path / "config.toml"
+        with path.open("rb") as stream:
+            raw = tomllib.load(stream)
+        base = path.parent
     for spec in raw.get("components", {}).values():
         args = spec.get("args", {})
         network_files = args.pop('network_files', {})
@@ -683,11 +693,11 @@ def load_config(path):
             for name, file in network_files.items():
                 if not isinstance(file, str):
                     raise ValueError('args.network_files paths must be strings')
-                sources[name] = read_source(path.parent / file)
+                sources[name] = read_source(base / file)
         if spec.get("factory") == "hndl" and "file" in args:
             if "source" in args:
                 raise ValueError("HNDL component must specify exactly one of source or file")
-            args["source"] = read_source(path.parent / args.pop("file"))
+            args["source"] = read_source(base / args.pop("file"))
     return resolve_config(raw)
 
 

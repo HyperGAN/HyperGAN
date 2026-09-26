@@ -1,6 +1,13 @@
 # Python API proposal — 2026-09-26
 
-Status: **proposal for owner review.** Nothing in this document is implemented.
+Status: **superseded.** The owner's review changed the direction: no image
+assumptions, custom samplers/metrics/evaluations/data loaders, no copying of user
+code, a loadable config file, support for many networks, and a CLI running on the same
+API. See the three proofs of concept and their review in
+[python-api-pocs-2026-09-26.md](python-api-pocs-2026-09-26.md). This first draft is
+kept for the record.
+
+Original status: proposal for owner review. Nothing in this document is implemented.
 It sets out a public Python API for HyperGAN 2, grounded in the code on
 `develop` at `370f6306`, and ends with the decisions the owner needs to make
 before implementation starts.

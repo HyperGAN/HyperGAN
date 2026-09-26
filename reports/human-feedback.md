@@ -57,12 +57,17 @@ losses should be listed together or attached per network. Requested three API pr
 of concept built in a workflow, reviewed, with the best one recommended as the base for
 iteration.
 
-- [~] Three API proofs of concept, a review and a recommendation.
+- [x] Three API proofs of concept, a review and a recommendation: branches
+  `poc/api-config-first`, `poc/api-graph` and `poc/api-per-network`, reviewed in
+  [python-api-pocs-2026-09-26.md](python-api-pocs-2026-09-26.md). The review recommends
+  iterating from config-first, with explicit roles checked against the losses, and one
+  list of losses.
+- [ ] Owner decisions on that review's section 8.
 
 Owner, 2026-09-26: "we'll want to consider how we can change the cli to use this same api".
 
-- [ ] The CLI becomes a thin layer over the public API (one execution path); the review
-  maps each command and flag to its API call.
+- [~] The CLI becomes a thin layer over the public API (one execution path). Section 7
+  of the review maps each command and flag to its API call.
 
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 

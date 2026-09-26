@@ -59,6 +59,11 @@ iteration.
 
 - [~] Three API proofs of concept, a review and a recommendation.
 
+Owner, 2026-09-26: "we'll want to consider how we can change the cli to use this same api".
+
+- [ ] The CLI becomes a thin layer over the public API (one execution path); the review
+  maps each command and flag to its API call.
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved

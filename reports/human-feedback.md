@@ -22,6 +22,19 @@ train your own network with it."
   `gpus=`, and a `Generator` for inference, and lists 7 decisions for the owner.
 - [ ] Owner decisions recorded, then implementation in the proposal's 8 steps.
 
+Owner review, 2026-09-26: "i don't think we should assume images. the things that
+intersect with images are sampling, evaluations, etc etc. it's just what we have right
+now. but you should be able to add custom samplers, evaluations, metrics, data
+loaders..." Answers to the proposal's decisions:
+1 (blocking default) undecided; 2 (`__main__` networks) "probably copy in";
+3 (recipes) needs more thought; 4 asked what the no-downloads rule is (it was never an
+owner rule, only a stance in the docs); 5 (torch `Dataset`) yes: the user writes only
+the dataset loading, while workers and the like stay outside it; 6 (multi-host)
+unfamiliar with torchrun; 7 functional style preferred. "lets think about this more."
+
+- [ ] Rework the proposal to be modality-agnostic, with extension points for data,
+  samplers, metrics and evaluations; images become one set of plugins.
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved

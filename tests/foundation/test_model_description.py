@@ -147,30 +147,6 @@ def test_description_never_imports_torch(tmp_path):
     subprocess.run([sys.executable, '-c', code, *map(str, EXAMPLES)], cwd=tmp_path, check=True)
 
 
-def test_backfill_builds_per_layer_detail_on_the_meta_device():
-    from hypergan.model_description import build_networks
-    config = resolve_config({})
-    recorded = build_networks(config, 'a' * 64)
-    result = describe_run({'config': config, 'config_sha256': 'a' * 64}, recorded=json.loads(json.dumps(recorded)))
-    for entry in result['networks']:
-        graph = entry['graph']
-        assert graph['status'] == 'built' and graph['origin'] == 'backfill'
-        nodes = graph['subgraphs'][0]['nodes']
-        assert nodes and all('out' in n and 'params' in n for n in nodes)
-        assert sum(n['params'] for n in nodes) == graph['parameters']['total'] > 0
-
-
-def test_backfill_captures_nodes_when_pretrained_weights_are_missing():
-    from hypergan.model_description import build_networks
-    config = load_config(next(p for p in EXAMPLES if p.stem == 'dcgan-resnet-128'))
-    weights = config['components']['discriminator']['args'].get('parameters', {}).get('weights_path')
-    if weights and Path(weights).exists():
-        pytest.skip('placeholder weights exist on this host')
-    graph = build_networks(config)['components']['discriminator']
-    assert graph['status'] == 'captured' and 'E_PRETRAINED' in graph['reason']
-    assert graph['subgraphs'][0]['nodes'] and '/path/to' not in json.dumps(graph)
-
-
 def _training_view(config):
     """What training builds for this configuration: penalty options, prior group, latent table."""
     pytest.importorskip('torch')

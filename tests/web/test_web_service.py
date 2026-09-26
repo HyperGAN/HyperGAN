@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import socket
+import time
 
 import httpx
 import pytest
@@ -849,14 +850,18 @@ def test_model_route_merges_recorded_network_detail(tmp_path):
 def test_model_summary_cache_follows_the_attempt(tmp_path):
     manifest = configured_run(tmp_path)
     session = LocalSession(8123, auth='none')
-    with TestClient(create_app(tmp_path, session), base_url=session.origin) as client:
-        service = client.app.state.observations
+    with TestClient(create_app(tmp_path, session, poll_seconds=.01), base_url=session.origin) as client:
         first = client.get('/api/v1/runs/run/model').json()
         assert first['warnings'] == []
-        # A new attempt with the same configuration, catalog and model.json.
-        service.manifest = {**service.manifest, 'attempt_index': 2, 'warnings': ['new attempt warning'],
-                            'source': {**manifest['source'], 'hypergan_commit': 'abcdef1234567'}}
+        # A new attempt with the same configuration, catalog and model.json. It is
+        # written to disk because the watcher replaces the in-memory manifest on every poll.
+        atomic_json(tmp_path / 'manifest.json', {**manifest, 'attempt_index': 2, 'warnings': ['new attempt warning'],
+                                                 'source': {**manifest['source'], 'hypergan_commit': 'abcdef1234567'}})
+        deadline = time.monotonic() + 10
         body = client.get('/api/v1/runs/run/model').json()
+        while body['run']['attempt_index'] != 2 and time.monotonic() < deadline:
+            time.sleep(.01)
+            body = client.get('/api/v1/runs/run/model').json()
         assert body['warnings'] == ['new attempt warning'] and body['run']['attempt_index'] == 2
         assert body['provenance']['hypergan_commit'] == 'abcdef1234567'
 

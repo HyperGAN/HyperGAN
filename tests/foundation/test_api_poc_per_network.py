@@ -249,6 +249,18 @@ def test_item_data_resume_matches_an_uninterrupted_run(tmp_path):
     assert last(resumed) == last(whole)
 
 
+@pytest.mark.heavy
+def test_replicated_workers_rebuild_the_recipe_from_config_and_import_paths(tmp_path):
+    base = recipes.extensions(steps=2)
+    recipe = hg.recipe(base.networks, data=base.data, prior=base.prior, training=base.training,
+                       sampling={'count': 16, 'seed': 3})
+    profile = {'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo', 'world_size': 2,
+                                                  'accumulation_steps': 1}}
+    run = hg.train(recipe, tmp_path / 'run', profile=profile)
+    assert (run.status, run.steps) == ('complete', 2)
+    assert len(hg.metrics(run)['loss/g_total']) == 2
+
+
 def test_manual_custom_evaluation_runs_through_the_api(tmp_path):
     from toy_project.data import RingPoints
     from toy_project.observe import radius_gap

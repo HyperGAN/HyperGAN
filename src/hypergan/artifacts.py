@@ -10,7 +10,7 @@ import uuid
 import numpy as np
 import torch
 
-from .config import config_values, resolve_config, sampling_bindings, evaluation_bindings
+from .config import config_values, resolve_config, sampler_bindings, sampling_bindings, evaluation_bindings
 from .recipes import ComponentGraph, generation_output, generation_particle_ids, make_prior
 from .run_state import sync_directory
 
@@ -32,7 +32,7 @@ def bundle_state(trainer, batch):
             if path.startswith("components."):
                 include(path.split(".")[1])
     include("generator")
-    for binding in sampling_bindings(trainer.config['sampling']):
+    for binding in sampling_bindings(trainer.config['sampling']) + sampler_bindings(trainer.config):
         if binding.startswith('components.'):
             include(binding.split('.')[1])
     sampling_components = set(called_components)
@@ -41,6 +41,7 @@ def bundle_state(trainer, batch):
             include(binding.split('.')[1])
     specs = {name: spec for name, spec in trainer.config["components"].items() if name in needed_components}
     needed = {path.split(".")[1] for name in sampling_components for path in specs[name]["inputs"].values() if path.startswith("batch.")}
+    needed |= {path.split(".")[1] for path in sampler_bindings(trainer.config) if path.startswith("batch.")}
     models = {name: trainer.ema_graph.models[name] for name, spec in specs.items() if 'reuse' not in spec}
     state = {"schema_version": 1, "kind": "ema-inference", "resume_supported": False, "step": trainer.step, "config": config_values(trainer.config), "components": specs, "model_states": {name: model.state_dict() for name, model in models.items()}, "prior": trainer.ema_prior.state_dict(), "example_inputs": {k: v for k, v in batch.items() if k in needed}}
     state["identity"] = getattr(trainer, "artifact_identity", {})
@@ -101,7 +102,12 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None):
             torch.cuda.set_device(cuda_device)
 
 
-def _sample(run_dir, count, seed, output, *, inputs):
+def load_inference(run_dir):
+    """Verify and load a run's EMA inference bundle on CPU in evaluation mode.
+
+    Returns the raw state, its resolved configuration, the component graph, the
+    prior and the verified bundle SHA256. Custom constructors are trusted code.
+    """
     run_dir = Path(run_dir)
     bundle_dir = run_dir
     manifest_path = run_dir / "manifest.json"
@@ -132,6 +138,12 @@ def _sample(run_dir, count, seed, output, *, inputs):
     prior.load_state_dict(state["prior"])
     if "prior_buffers" in state:
         _restore_buffers(prior, state["prior_buffers"])
+    return state, config, graph, prior, expected
+
+
+def _sample(run_dir, count, seed, output, *, inputs):
+    run_dir = Path(run_dir)
+    state, config, graph, prior, expected = load_inference(run_dir)
     supplied = inputs is not None
     batch = state["example_inputs"] if inputs is None else inputs
     if not isinstance(batch, dict):

@@ -304,9 +304,54 @@ def _resolve_adversarial_terms(result):
     result["adversarial_terms"] = terms
 
 
+_SAMPLER_FIELDS = {"factory", "args", "inputs", "count", "seed"}
+
+
+def _resolve_samplers(result):
+    """Validate optional named samplers without importing them.
+
+    A sampler maps model outputs to something viewable. It is observation, like
+    ``metrics``: it is recorded in the run manifest and inference bundle but is not
+    part of the numerical fingerprint. Absent means the key is not stored.
+    """
+    if "samplers" not in result:
+        return
+    samplers = result["samplers"]
+    if not isinstance(samplers, dict) or not samplers or len(samplers) > 16:
+        raise ValueError("samplers must be a table of one to sixteen named samplers")
+    for name, spec in samplers.items():
+        location = f"samplers.{name}"
+        if not isinstance(name, str) or _TERM_ID.fullmatch(name) is None:
+            raise ValueError("Sampler names must be 1–128 letters, digits, dots, underscores or hyphens")
+        _keys(spec, _SAMPLER_FIELDS, location)
+        factory = spec.get("factory")
+        if not isinstance(factory, str) or factory.count(":") != 1 or not all(factory.split(":")):
+            raise ValueError(f"{location}.factory requires module:object")
+        spec.setdefault("args", {})
+        if not isinstance(spec["args"], dict):
+            raise ValueError(f"{location}.args must be a table")
+        inputs = spec.get("inputs")
+        if (not isinstance(inputs, dict) or not inputs
+                or not all(isinstance(k, str) and k.isidentifier() and isinstance(v, str) and v for k, v in inputs.items())):
+            raise ValueError(f"{location}.inputs must bind argument names to output paths")
+        if any(v == "candidate" for v in inputs.values()):
+            raise ValueError(f"{location}.inputs cannot bind the critic candidate")
+        spec.setdefault("count", 16)
+        _positive(spec["count"], f"{location}.count", integer=True)
+        if spec["count"] > 1024:
+            raise ValueError(f"{location}.count must be at most 1024")
+        spec.setdefault("seed", result["sampling"]["seed"])
+        _positive(spec["seed"], f"{location}.seed", integer=True, zero=True)
+
+
+def sampler_bindings(config):
+    """Output paths read by the optional named samplers."""
+    return [path for spec in (config.get("samplers") or {}).values() for path in spec["inputs"].values()]
+
+
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
-    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults"}, "configuration")
+    _keys(raw, set(DEFAULT) | {"adversarial_terms", "samplers", "defaults"}, "configuration")
     raw = dict(raw)
     if "adversarial" in raw:
         raw["adversarial"] = _drop_removed_fields(raw["adversarial"], "adversarial")
@@ -328,7 +373,7 @@ def resolve_config(raw):
         if key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
-        elif key == "adversarial_terms":
+        elif key in ("adversarial_terms", "samplers"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
             allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
@@ -489,7 +534,9 @@ def resolve_config(raw):
         paths.extend((term["real"], term["fake"], *term["inputs"].values()))
     # Particle IDs have their own validation below, including their field name
     # in errors and requiring an output of the selected inference graph.
+    _resolve_samplers(result)
     inference_paths = sampling_bindings({k: v for k, v in sampling.items() if k != 'particle_ids'}, preview=True)
+    inference_paths += sampler_bindings(result)
     paths += inference_paths + evaluation_bindings(result)
     for path in paths:
         if not isinstance(path, str) or not path or not all(path.split('.')):
@@ -587,7 +634,10 @@ def _listed_values(config, keys):
 
 
 def config_values(config):
-    return _listed_values(config, DEFAULT)
+    values = _listed_values(config, DEFAULT)
+    if config.get("samplers"):
+        values["samplers"] = deepcopy(config["samplers"])
+    return values
 
 
 def numerical_values(config):
@@ -671,6 +721,17 @@ def load_config(path):
         path = path / "config.toml"
     with path.open("rb") as stream:
         raw = tomllib.load(stream)
+    return resolve_config_at(raw, path.parent)
+
+
+def resolve_config_at(raw, base):
+    """Inline ``file``/``network_files`` references relative to ``base``, then resolve.
+
+    ``load_config`` uses this for a TOML file; a programmatic caller holding the
+    same raw tables resolves them to the identical configuration.
+    """
+    base = Path(base)
+    raw = deepcopy(raw)
     for spec in raw.get("components", {}).values():
         args = spec.get("args", {})
         network_files = args.pop('network_files', {})
@@ -683,11 +744,11 @@ def load_config(path):
             for name, file in network_files.items():
                 if not isinstance(file, str):
                     raise ValueError('args.network_files paths must be strings')
-                sources[name] = read_source(path.parent / file)
+                sources[name] = read_source(base / file)
         if spec.get("factory") == "hndl" and "file" in args:
             if "source" in args:
                 raise ValueError("HNDL component must specify exactly one of source or file")
-            args["source"] = read_source(path.parent / args.pop("file"))
+            args["source"] = read_source(base / args.pop("file"))
     return resolve_config(raw)
 
 

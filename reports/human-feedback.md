@@ -9,6 +9,19 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 24. A public Python API (raised 2026-09-26)
+
+Owner: "i want to figure out an api for hypergan. i think the reason people would
+use it is for common recipes, interface into training metrics/evaluations/samples,
+multi-gpu training support, i'm not sure what else. it should be very simple to
+train your own network with it."
+
+- [~] Proposal for review: [python-api-2026-09-26.md](python-api-2026-09-26.md), on
+  branch `docs/python-api-proposal`. It covers recipes, your own `nn.Module`/HNDL
+  networks, the `Run` reader for metrics, previews and evaluations, background runs,
+  `gpus=`, and a `Generator` for inference, and lists 7 decisions for the owner.
+- [ ] Owner decisions recorded, then implementation in the proposal's 8 steps.
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved

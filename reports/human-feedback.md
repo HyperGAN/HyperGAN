@@ -35,6 +35,20 @@ unfamiliar with torchrun; 7 functional style preferred. "lets think about this m
 - [ ] Rework the proposal to be modality-agnostic, with extension points for data,
   samplers, metrics and evaluations; images become one set of plugins.
 
+Owner follow-up, 2026-09-26: output types are open ("any"). The viewer can focus on
+pixels, metrics and evaluations, but nothing assumes a type. Easy helpers for common
+types (audio, video, image), yet a network's output need not be one of them: it could
+be latent data of various shapes, or a LoRA. Asked "what copy?" (about copying code into the
+run). Metrics are cheap, computed anyway and often part of the formulation; evaluations are
+expensive and often, but not necessarily, holdout. Multi-host GPU training is a
+separate future task, but the API must not lock it out. `hg.train` is good so far,
+except passing `generator=`/`discriminator=`: "what happens when you have encoder,
+multiple discriminators, multiple generators, etc etc".
+
+- [ ] Replace fixed generator/discriminator arguments with a general network graph
+  plus losses, keeping a shorthand for the one-G/one-D case.
+- [ ] Record the multi-host constraints the API must respect.
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved

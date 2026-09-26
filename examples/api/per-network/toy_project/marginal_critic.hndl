@@ -1,0 +1,6 @@
+# Unconditional critic for 2-D samples; referenced by path, never inlined in the saved recipe.
+linear(32)
+leaky_relu(0.2)
+linear(32)
+leaky_relu(0.2)
+linear()

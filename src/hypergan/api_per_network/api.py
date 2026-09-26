@@ -117,7 +117,9 @@ def explain(recipe):
             for judge in declaration.judges:
                 lines.append(f'  judges: real {judge.real} vs fake {judge.fake}'
                              + (f' (weight {judge.weight})' if judge.weight is not None else ''))
-            lines.append(f'  penalty: {declaration.penalty}')
+            penalty = declaration.penalty
+            lines.append('  penalty: ' + ('none' if penalty is None else 'k3p(' + ', '.join(
+                f'{key}={value}' for key, value in vars(penalty).items() if value is not None) + ')'))
         else:
             own = [l.id or l.factory if l.kind == 'objective' else f'adversarial({l.critic})'
                    for l in declaration.losses]
@@ -185,6 +187,24 @@ def metrics(run_or_path, names=None):
             if names is None or name in names:
                 result.setdefault(name, []).append((event['step'], number))
     return result
+
+
+def observations(run_or_path):
+    """Why a value is or is not there: [(step, id, status, reason)] for custom metrics,
+    evaluations and previews (queued, dropped, scheduled, skipped, ...)."""
+    rows = []
+    for event in _events(_run_path(run_or_path)):
+        kind = event.get('event')
+        for name, status in (event.get('measurement_status') or {}).items():
+            if status.get('status') not in ('available', 'unavailable'):
+                rows.append((event['step'], name, status.get('status'), status.get('reason')))
+        if kind in ('evaluation_scheduled', 'evaluation_skipped', 'evaluation_complete'):
+            rows.append((event['step'], event.get('metric_id', 'evaluation'), kind.split('_', 1)[1],
+                         event.get('reason')))
+        elif kind in ('preview', 'preview_skipped'):
+            rows.append((event['step'], 'preview', 'published' if kind == 'preview' else 'skipped',
+                         event.get('reason')))
+    return rows
 
 
 def evaluations(run_or_path):

@@ -496,5 +496,8 @@ def _lift_observations(raw):
 
 
 def relative_file(path, directory):
-    """A saved config references HNDL files relative to itself."""
-    return os.path.relpath(Path(path).resolve(), Path(directory).resolve())
+    """A saved config references HNDL files relative to itself when they share a tree."""
+    path, directory = Path(path).resolve(), Path(directory).resolve()
+    if os.path.commonpath([path, directory]) in (os.sep, str(Path.home())):
+        return str(path)
+    return os.path.relpath(path, directory)

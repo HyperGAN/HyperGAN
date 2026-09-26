@@ -20,10 +20,10 @@ viewer, resume, fingerprints and replicated execution are unchanged.
 from .declare import *  # noqa: F401,F403
 from .declare import __all__ as _declared
 from .api import (  # noqa: F401
-    Preview, Run, catalog, evaluate, evaluations, explain, fingerprint, load, metrics, previews, resume,
-    run, samples, save, train, validate)
+    Preview, Run, catalog, evaluate, evaluations, explain, fingerprint, load, metrics, observations, previews,
+    resume, run, samples, save, train, validate)
 from .lowering import lift, lower  # noqa: F401
 
 __all__ = list(_declared) + ['Preview', 'Run', 'catalog', 'evaluate', 'evaluations', 'explain', 'fingerprint',
-                             'lift', 'load', 'lower', 'metrics', 'previews', 'resume', 'run', 'samples', 'save',
-                             'train', 'validate']
+                             'lift', 'load', 'lower', 'metrics', 'observations', 'previews', 'resume', 'run',
+                             'samples', 'save', 'train', 'validate']

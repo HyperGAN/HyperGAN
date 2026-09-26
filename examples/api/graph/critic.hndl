@@ -1,0 +1,6 @@
+# A small critic for 2-D samples; the input shape comes from the graph.
+linear(64)
+leaky_relu(0.2)
+linear(64)
+leaky_relu(0.2)
+linear()

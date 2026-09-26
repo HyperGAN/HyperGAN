@@ -1,0 +1,68 @@
+# HyperGAN config written by hypergan.graph (hg.save). Train it with `hypergan train` or hg.train.
+# Networks and data are referenced by import path; edit those modules, not copies.
+# hg.save replaces this file only while it is unedited; after editing it here, load it with hg.load.
+# body-sha256: fdd412a17e01081140cf1ed65aeb26dc1df2d745c746977a2c361e2ea5099f68
+
+schema_version = 1
+name = "demo/multi-network"
+
+[data]
+factory = "paired_linear"
+args = { dimensions = 2, scale = 2.0, offset = 0.0 }
+
+[components.generator]
+factory = "my_project:ConditionalGenerator"
+args = {}
+inputs = { z = "latent", code = "components.encoder.mu" }
+
+[components.discriminator]
+factory = "my_project:PairCritic"
+args = {}
+inputs = { x = "candidate", condition = "batch.condition" }
+
+[components.encoder]
+factory = "my_project:Encoder"
+args = { code = 4 }
+inputs = { x = "batch.condition" }
+
+[components.marginal]
+factory = "hndl"
+args = { file = "critic.hndl", output_shape = ["B", 1], input_shape = ["B", 2] }
+inputs = { x = "candidate" }
+
+[components.decoder]
+factory = "my_project:Decoder"
+args = {}
+inputs = { code = "components.encoder.mu" }
+
+[prior]
+kind = "particles"
+args = { z_dim = 4 }
+
+[[objectives]]
+id = "reconstruction"
+factory = "l1"
+inputs = { input = "components.decoder", target = "batch.condition" }
+weight = 1.0
+detach = ["target"]
+
+[[objectives]]
+id = "paired"
+factory = "mse"
+inputs = { input = "generated", target = "batch.real" }
+weight = 0.1
+detach = ["target"]
+
+[[adversarial_terms]]
+id = "marginal"
+component = "marginal"
+weight = 0.5
+real = "batch.real"
+fake = "generated"
+penalty = true
+penalty_coeff = 1.0
+
+[training]
+steps = 10
+batch_size = 16
+device = "cpu"

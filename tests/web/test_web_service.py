@@ -846,6 +846,21 @@ def test_model_route_merges_recorded_network_detail(tmp_path):
         assert 'unreadable' in body['networks'][0]['graph']['reason']
 
 
+def test_model_summary_cache_follows_the_attempt(tmp_path):
+    manifest = configured_run(tmp_path)
+    session = LocalSession(8123, auth='none')
+    with TestClient(create_app(tmp_path, session), base_url=session.origin) as client:
+        service = client.app.state.observations
+        first = client.get('/api/v1/runs/run/model').json()
+        assert first['warnings'] == []
+        # A new attempt with the same configuration, catalog and model.json.
+        service.manifest = {**service.manifest, 'attempt_index': 2, 'warnings': ['new attempt warning'],
+                            'source': {**manifest['source'], 'hypergan_commit': 'abcdef1234567'}}
+        body = client.get('/api/v1/runs/run/model').json()
+        assert body['warnings'] == ['new attempt warning'] and body['run']['attempt_index'] == 2
+        assert body['provenance']['hypergan_commit'] == 'abcdef1234567'
+
+
 def test_model_route_without_configuration_is_not_found(tmp_path):
     fixture_run(tmp_path)
     session = LocalSession(8123, auth='none')

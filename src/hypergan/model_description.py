@@ -39,8 +39,10 @@ K3P_EQUATIONS = {
     'A': 'mean(‖∇D(real)‖²/d) + mean(relu(‖∇D(fake)‖/√d − κ)²)',
     'B': 'mean(relu(‖∇D(real)‖ − κ)²) + mean(relu(‖∇D(fake)‖ − κ)²)',
     'P': 'mean(‖∇D(real) − ∇D̄(real)‖²/d),  D̄ = EMA critic (anchor_decay)',
-    's': 'max(0, min(1, 2r) − 2f)/(1 − 2f),  r = critic LR / max critic LR, f = network LR floor',
-    'penalty': 'c/2 · (s·A + (1 − s)·(B + P)), applied every lazy_k steps with coefficient lazy_k·c',
+    's': 'max(0, min(1, 2r) − 2f)/(1 − 2f),  r = critic LR / max critic LR, '
+         'f = network LR floor if it is below 0.5, else 0',
+    'penalty': 'c/2 · (s·A + (1 − s)·(B + w·P)),  w = anchor_weight; '
+               'applied every lazy_k steps with coefficient lazy_k·c',
     'd_total': 'Σ terms weight·d_adversarial + Σ penalized critics penalty',
     'g_total': 'Σ terms weight·g_adversarial + prior regularizer + Σ objectives weight·objective',
 }
@@ -61,18 +63,21 @@ def _is_local_path(text):
 
 
 def redact(value):
-    """Absolute local paths become '…/basename'; relative paths and digests are kept."""
+    """Absolute local paths become '…/basename', whole values or embedded in a string
+    ('--root=/home/…', 'file:///…'); relative paths, URLs and digests are kept."""
     if isinstance(value, Mapping):
         return {str(k): redact(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [redact(v) for v in value]
     if _is_local_path(value):
         return '…/' + re.split(r'[\\/]', value.rstrip('/\\'))[-1]
+    if isinstance(value, str) and '/' in value:
+        return redact_text(value)
     return value
 
 
 _QUOTED_PATH = re.compile(r"""(["'])((?:/|~/)[^"'\n]*)\1""")
-_BARE_PATH = re.compile(r'(?<![\w.~/…])(?:~/|/)(?:[\w.\-]+/)+([\w.\-]+)')
+_BARE_PATH = re.compile(r'(?<![\w.~/…])(?:file://)?(?:~/|/)(?:[\w.\-]+/)+([\w.\-]+)')
 
 
 def _redact_source(text):
@@ -81,7 +86,7 @@ def _redact_source(text):
 
 
 def redact_text(text):
-    """Diagnostics: quoted and bare absolute paths."""
+    """Quoted and bare absolute paths anywhere in the text (URLs other than file:// are kept)."""
     return _BARE_PATH.sub(lambda m: '…/' + m.group(1), _redact_source(str(text)))
 
 
@@ -162,7 +167,7 @@ def _known_sources():
 
 
 def _source_view(text, parameters=None, kind='inline'):
-    shown = _redact_source(text[:MAX_SOURCE_CHARS])
+    shown = redact_text(text[:MAX_SOURCE_CHARS])
     view = {'kind': kind, 'text': shown, 'truncated': len(text) > MAX_SOURCE_CHARS,
             'lines': text.count('\n') + 1, 'sections': _sections(shown),
             'file': _known_sources().get(hashlib.sha256(_normalized(text).encode()).hexdigest())}
@@ -232,6 +237,20 @@ def _particlegan_version(manifest):
             or (manifest.get('runtime') or {}).get('particlegan'))
 
 
+def _blend_floor(training):
+    """K3P blend floor f as ParticleGAN 0.8 resolves it (Recipe._penalty_options).
+
+    The floor is network_lr_floor, else lr_floor; f = floor below 0.5 and 0 otherwise.
+    Returns (f, floor); f is None when the floor is not a number.
+    """
+    floor = training.get('network_lr_floor')
+    if floor is None:
+        floor = training.get('lr_floor')
+    if not _number(floor):
+        return None, floor
+    return (float(floor) if floor < 0.5 else 0.0), floor
+
+
 def _formulation(config, manifest):
     """K3P for ParticleGAN 0.8 configurations; recorded fields shown verbatim otherwise."""
     penalty, adversarial = _section(config, 'gradient_penalty'), _section(config, 'adversarial')
@@ -239,16 +258,27 @@ def _formulation(config, manifest):
     version = _particlegan_version(manifest)
     legacy = any(k in penalty for k in LEGACY_PENALTY_KEYS) or any(k in adversarial for k in ('loss_type', 'mode'))
     raw = {'adversarial': redact(adversarial), 'gradient_penalty': redact(penalty)}
-    floor = training.get('network_lr_floor')
     if not legacy:
-        return {'family': 'k3p', 'name': 'K3P', 'loss': 'RpGAN logistic (relativistic paired)',
-                'particlegan': version or '≥0.8 (configuration schema)', 'equations': dict(K3P_EQUATIONS),
-                'parameters': {'coeff': penalty.get('coeff'), 'kappa': penalty.get('kappa'),
-                               'lazy_k': penalty.get('lazy_k'), 'anchor_weight': penalty.get('anchor_weight'),
-                               'anchor_decay': penalty.get('anchor_decay'),
-                               'blend_floor_f': floor if floor is not None else training.get('lr_floor'),
-                               'adversarial_weight': adversarial.get('weight')},
-                'raw': raw}
+        equations, notes = dict(K3P_EQUATIONS), []
+        f, floor = _blend_floor(training)
+        if _number(floor) and f == 0.0 and floor >= 0.5:
+            equations['s'] = f's = 1 (A form only): the network LR floor {floor:g} keeps the LR above half its peak'
+            notes.append(f'The network LR floor is {floor:g} (≥ 0.5), so ParticleGAN uses blend floor f = 0 '
+                         'and s stays 1: the penalty is always the A form.')
+        anchor = penalty.get('anchor_weight')
+        if _number(anchor) and anchor == 0:
+            equations['P'] = 'off: anchor_weight = 0 (no EMA critic)'
+            equations['penalty'] = 'c/2 · (s·A + (1 − s)·B), applied every lazy_k steps with coefficient lazy_k·c'
+        result = {'family': 'k3p', 'name': 'K3P', 'loss': 'RpGAN logistic (relativistic paired)',
+                  'particlegan': version or '≥0.8 (configuration schema)', 'equations': equations,
+                  'parameters': {'coeff': penalty.get('coeff'), 'kappa': penalty.get('kappa'),
+                                 'lazy_k': penalty.get('lazy_k'), 'anchor_weight': anchor,
+                                 'anchor_decay': penalty.get('anchor_decay'), 'blend_floor_f': f,
+                                 'adversarial_weight': adversarial.get('weight')},
+                  'raw': raw}
+        if notes:
+            result['note'] = ' '.join(notes)
+        return result
     loss, mode = adversarial.get('loss_type', 'logistic'), adversarial.get('mode', 'rp')
     equations = ({k: K3P_EQUATIONS[k] for k in ('d_adversarial', 'g_adversarial', 'd_total', 'g_total')}
                  if (loss, mode) == ('logistic', 'rp') else {})
@@ -274,6 +304,35 @@ def _adversarial_terms(config):
                       'penalty_coeff': term.get('penalty_coeff', penalty.get('coeff')) if term.get('penalty') else None,
                       'implicit': False})
     return terms
+
+
+def _prior_table(config):
+    """Whether training gives the prior a trainable table (a prior optimizer group).
+
+    Mirrors objective_program.compile_legacy_program: the prior group holds the
+    prior parameters that require grad; a Gaussian prior has none and
+    ``args.learnable = false`` stores the table as a buffer. Returns (trainable, reason).
+    """
+    prior = _section(config, 'prior')
+    if prior.get('kind') == 'gaussian':
+        return False, 'Gaussian prior has no trainable table'
+    if (prior.get('args') or {}).get('learnable', True) is False:
+        return False, 'the prior table is frozen (args.learnable = false)'
+    return True, None
+
+
+def _latent_damping(config):
+    """Latent damping as ReferenceTrainer applies it: only on a plain, learnable particle table."""
+    rate = _section(config, 'optimizer').get('latent_damping_max_rate')
+    kind = _section(config, 'prior').get('kind')
+    trainable, reason = _prior_table(config)
+    if kind != 'particles':
+        reason = f'applies only to a plain particle prior (kind = "particles"), not "{kind}"'
+    elif trainable and _number(rate) and rate == 0:
+        reason = 'max rate is 0'
+    if reason is None:
+        return {'status': 'applied', 'max_rate': rate}
+    return {'status': 'not applied', 'max_rate': rate, 'reason': reason}
 
 
 def _losses(config, family):
@@ -303,10 +362,14 @@ def _losses(config, family):
                           **series('loss/g_adversarial')})
     spread = _section(config, 'prior_regularizer')
     if spread and _section(config, 'prior').get('kind') != 'gaussian':
-        generator.append({'id': 'prior_regularizer', 'kind': 'particle_spread', 'weight': spread.get('weight'),
-                          'target_std': spread.get('target_std'), 'eps': spread.get('eps'), 'rows': spread.get('rows'),
-                          'active': _number(spread.get('weight')) and spread['weight'] > 0,
-                          'metric': 'loss/prior_regularizer', 'metric_note': None})
+        trainable, reason = _prior_table(config)
+        weighted = _number(spread.get('weight')) and spread['weight'] > 0
+        entry = {'id': 'prior_regularizer', 'kind': 'particle_spread', 'weight': spread.get('weight'),
+                 'target_std': spread.get('target_std'), 'eps': spread.get('eps'), 'rows': spread.get('rows'),
+                 'active': bool(weighted and trainable), 'metric': 'loss/prior_regularizer', 'metric_note': None}
+        if weighted and not trainable:
+            entry['inactive_reason'] = f'{reason}: no gradient reaches it'
+        generator.append(entry)
     for term in config.get('objectives') or ():
         oid = _objective_id(term)
         generator.append({'id': oid, 'kind': term.get('factory'), 'weight': term.get('weight'),
@@ -342,12 +405,16 @@ def _optimizers(config, family):
     critics = list(dict.fromkeys(['discriminator'] + [t.get('component') for t in config.get('adversarial_terms') or ()]))
     generator_groups = [name for name, role in roles(config).items() if role not in ('critic', 'alias')]
     k3p = family == 'k3p'
+    trainable, reason = _prior_table(config)
+    prior_group = ({'lr': _product(optimizer.get('lr'), optimizer.get('prior_lr_mult')),
+                    'lr_mult': optimizer.get('prior_lr_mult'), 'betas': optimizer.get('prior_betas')}
+                   if trainable else unavailable(reason))
     return {
         'generator': {'type': 'K3PGeneratorAdam' if k3p else 'Adam', 'implementation': optimizer.get('implementation'),
                       'lr': optimizer.get('lr'), 'betas': optimizer.get('betas'), 'components': generator_groups,
-                      'latent_damping_max_rate': optimizer.get('latent_damping_max_rate')},
-        'prior': {'lr': _product(optimizer.get('lr'), optimizer.get('prior_lr_mult')),
-                  'lr_mult': optimizer.get('prior_lr_mult'), 'betas': optimizer.get('prior_betas')},
+                      'latent_damping_max_rate': optimizer.get('latent_damping_max_rate'),
+                      'latent_damping': _latent_damping(config)},
+        'prior': prior_group,
         'critic': {'type': 'K3PCriticAdam' if k3p else 'Adam', 'implementation': optimizer.get('implementation'),
                    'lr': _product(optimizer.get('lr'), optimizer.get('d_lr_mult')), 'lr_mult': optimizer.get('d_lr_mult'),
                    'betas': optimizer.get('betas'), 'components': critics,
@@ -467,10 +534,11 @@ def _sanitize_graph(graph, *, origin):
     result['origin'] = origin
     result['status'] = str(result.get('status', 'unavailable'))[:32]
     subgraphs = []
-    for sub in (graph.get('subgraphs') or [])[:MAX_SUBGRAPHS]:
+    listed = lambda value: value if isinstance(value, list) else []
+    for sub in listed(graph.get('subgraphs'))[:MAX_SUBGRAPHS]:
         if not isinstance(sub, dict):
             continue
-        nodes = [n for n in (sub.get('nodes') or [])[:MAX_NODES] if isinstance(n, dict)]
+        nodes = [n for n in listed(sub.get('nodes'))[:MAX_NODES] if isinstance(n, dict)]
         subgraphs.append({**{k: redact(sub[k]) for k in ('module_path', 'node_count', 'nodes_truncated',
                                                           'semantic_digest', 'input_shape', 'output_shape',
                                                           'parameters') if k in sub},

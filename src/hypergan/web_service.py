@@ -194,7 +194,7 @@ class ObservationService:
 
         Built from the recorded configuration plus, when training or a backfill
         wrote one for this exact configuration, the bounded model.json detail.
-        Cached until the configuration, the catalog or that file changes.
+        Cached until the configuration, the catalog, that file or the attempt changes.
         """
         from .model_description import MAX_MODEL_BYTES, MODEL_FILE, describe_run
         from .metrics import read_catalog
@@ -206,7 +206,12 @@ class ObservationService:
             signature = (info.st_mtime_ns, info.st_size)
         except OSError:
             signature = None
-        key = (manifest.get('config_sha256'), manifest.get('metrics_catalog'), signature)
+        # The document also carries per-attempt manifest fields (provenance,
+        # warnings, attempt and step counts), so they are part of the key.
+        attempt = json.dumps([manifest.get(k) for k in ('attempt_id', 'attempt_index', 'total_steps',
+                                                         'global_batch_size', 'source', 'runtime', 'warnings')],
+                             sort_keys=True, default=str)
+        key = (manifest.get('config_sha256'), manifest.get('metrics_catalog'), signature, attempt)
         if self._model_cache is not None and self._model_cache[0] == key:
             return self._model_cache[1]
         recorded = None

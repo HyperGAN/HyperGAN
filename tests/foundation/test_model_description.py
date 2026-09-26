@@ -101,12 +101,20 @@ def test_local_paths_are_redacted_everywhere():
     assert redact({'root': '/home/me/data', 'rel': 'data/x', 'w': ['~/w.pth', 'C:\\m\\x.pt']}) == {
         'root': '…/data', 'rel': 'data/x', 'w': ['…/w.pth', '…/x.pt']}
     assert redact_text('E: /home/me/r18.pth does not exist') == 'E: …/r18.pth does not exist'
+    # Paths embedded in a value; relative paths, metric ids and web URLs are kept.
+    assert redact(['--root=/home/me/secret/x', 'file:///home/me/secret/y', 'examples/networks/a.hndl',
+                   'loss/d_total', 'https://github.com/HyperGAN/HyperGAN']) == [
+        '--root=…/x', '…/y', 'examples/networks/a.hndl', 'loss/d_total', 'https://github.com/HyperGAN/HyperGAN']
     config = json.loads(json.dumps(resolve_config({})))
     config['data']['args']['root'] = '/home/someone/private/data'
-    config['components']['generator']['args']['source'] += '\n# weights "/mnt/private/x.pth"\n'
+    config['data']['args'].update(cmd='--root=/home/someone/private/x', uri='file:///home/someone/private/y')
+    config['components']['generator']['args']['source'] += (
+        '\n# weights "/mnt/private/x.pth"\n# trained from /home/someone/private/data.npz\n')
     manifest = {'config': config, 'warnings': ['cache at /home/someone/cache/file.bin']}
-    text = json.dumps(describe_run(manifest), ensure_ascii=False)
+    result = describe_run(manifest)
+    text = json.dumps(result, ensure_ascii=False)
     assert 'private' not in text and 'someone' not in text and '…/data' in text
+    assert '# trained from …/data.npz' in result['networks'][0]['source']['text']
 
 
 def test_recorded_detail_merges_only_for_the_same_configuration():
@@ -161,3 +169,79 @@ def test_backfill_captures_nodes_when_pretrained_weights_are_missing():
     graph = build_networks(config)['components']['discriminator']
     assert graph['status'] == 'captured' and 'E_PRETRAINED' in graph['reason']
     assert graph['subgraphs'][0]['nodes'] and '/path/to' not in json.dumps(graph)
+
+
+def _training_view(config):
+    """What training builds for this configuration: penalty options, prior group, latent table."""
+    pytest.importorskip('torch')
+    particlegan = pytest.importorskip('particlegan')
+    if not hasattr(particlegan, 'learning_rate_scales'):
+        pytest.skip('needs ParticleGAN 0.8')
+    from particlegan import ParticlePrior
+    from hypergan.recipes import make_prior
+    from hypergan.training import particlegan_recipe
+    prior = make_prior({**config['prior'], 'args': {**config['prior']['args'], 'num_particles': 8}
+                        if config['prior']['kind'] != 'gaussian' else config['prior']['args']}, device='cpu')
+    trainable = tuple(p for p in prior.parameters() if p.requires_grad)
+    table = getattr(prior, 'z', None)
+    damped = (type(prior) is ParticlePrior and table is not None and table.requires_grad and trainable == (table,)
+              and config['optimizer']['latent_damping_max_rate'] > 0)
+    return particlegan_recipe(config)._penalty_options(), bool(trainable), damped
+
+
+def _check_against_training(config):
+    options, prior_group, damped = _training_view(config)
+    result = describe_config(config)
+    parameters = result['formulation']['parameters']
+    assert parameters['blend_floor_f'] == pytest.approx(options['lr_floor'])
+    for key in ('coeff', 'kappa', 'lazy_k', 'anchor_weight'):
+        assert parameters[key] == pytest.approx(options[key]), key
+    assert (result['optimizers']['prior'].get('status') != 'unavailable') == prior_group
+    assert (result['optimizers']['generator']['latent_damping']['status'] == 'applied') == damped
+    spread = [t for t in result['losses']['generator'] if t['id'] == 'prior_regularizer']
+    if spread:
+        assert spread[0]['active'] == (prior_group and config['prior_regularizer']['weight'] > 0)
+    return result
+
+
+@pytest.mark.parametrize('path', EXAMPLES, ids=lambda p: p.stem)
+def test_example_description_matches_what_training_builds(path):
+    _check_against_training(load_config(path))
+
+
+def test_constant_lr_floor_blends_nothing_and_says_so():
+    config = resolve_config({'training': {'lr_floor': 1.0, 'network_lr_floor': None}})
+    result = _check_against_training(config)
+    assert result['formulation']['parameters']['blend_floor_f'] == 0.0
+    assert 'A form' in result['formulation']['note'] and 's = 1' in result['formulation']['equations']['s']
+
+
+def test_gaussian_and_frozen_priors_have_no_prior_group_or_damping():
+    gaussian = resolve_config({'prior': {'kind': 'gaussian', 'args': {'z_dim': 4}}, 'prior_regularizer': {'weight': 0}})
+    result = _check_against_training(gaussian)
+    assert result['optimizers']['prior'] == {'status': 'unavailable', 'reason': 'Gaussian prior has no trainable table'}
+    assert result['optimizers']['generator']['latent_damping']['status'] == 'not applied'
+    frozen = resolve_config({'prior': {'args': {'num_particles': 64, 'z_dim': 4, 'learnable': False}},
+                             'optimizer': {'latent_damping_max_rate': 0.5}})
+    result = _check_against_training(frozen)
+    assert 'frozen' in result['optimizers']['prior']['reason']
+    spread = next(t for t in result['losses']['generator'] if t['id'] == 'prior_regularizer')
+    assert spread['active'] is False and 'frozen' in spread['inactive_reason']
+    assert 'frozen' in result['optimizers']['generator']['latent_damping']['reason']
+
+
+def test_anchor_weight_appears_in_the_penalty_and_zero_turns_it_off():
+    result = describe_config(resolve_config({}))
+    assert 'w·P' in result['formulation']['equations']['penalty']
+    config = resolve_config({'gradient_penalty': {'anchor_weight': 0.0}})
+    equations = describe_config(config)['formulation']['equations']
+    assert 'P' not in equations['penalty'].split('(', 1)[1] and equations['P'].startswith('off')
+
+
+def test_malformed_recorded_graph_lists_are_ignored():
+    config = resolve_config({})
+    recorded = {'config_sha256': 'a' * 64, 'components': {'generator': {
+        'status': 'built', 'subgraphs': {'x': 1}}, 'discriminator': {'status': 'built', 'subgraphs': [{'nodes': {'a': 1}}]}}}
+    merged = describe_run({'config': config, 'config_sha256': 'a' * 64}, recorded=recorded)
+    assert merged['networks'][0]['graph']['subgraphs'] == []
+    assert merged['networks'][1]['graph']['subgraphs'][0]['nodes'] == []

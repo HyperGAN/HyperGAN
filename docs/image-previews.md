@@ -113,14 +113,19 @@ The browser reads only indexed artifact IDs. PNG framing, dimensions, byte count
 and digest are checked before inline delivery; authentication, path/link checks,
 same-origin policy and `nosniff` remain in force. SVG/HTML and other media are
 never rendered as images. The shelf renders at most 20 named groups, one image per
-group, and loads images lazily. Each name shows its most recent version; earlier
+group. Each name shows its most recent version; earlier
 retained versions are reached with that group's history slider (keyboard
 supported), which shows the step of the version being viewed. The slider spans
 the whole retained history, from the earliest sample to the latest. While it
 shows the latest sample it follows new publications; once it is moved to an
 earlier sample it holds that exact sample, matched by its step, even as newer
 samples arrive and shift every slider position. The **Latest** button resumes
-following. Unknown modalities remain downloads. There is no arbitrary file/image URL input.
+following. Scrubbing never blanks the picture: the one on screen stays until the
+chosen version is fetched and decoded, then swaps in (the card is marked
+`aria-busy` meanwhile). The four versions on either side of the slider position
+are fetched ahead, and up to 64 decoded pictures (64 megapixels in all) are kept
+so moving back and forth swaps instantly. Unknown modalities remain downloads.
+There is no arbitrary file/image URL input.
 
 ## The raw tensor behind a picture
 

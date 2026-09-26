@@ -66,6 +66,7 @@ def viewer():
                 return self.send(200,run)
             if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in control.get('catalog',METRICS).items()}})
             if '/artifacts/' in path:
+                time.sleep(control.get('asset_delay',{}).get(path.rsplit('/',1)[-1],0))
                 asset=control['assets'].get(path.rsplit('/',1)[-1])
                 mime='application/json' if asset and asset[:1]==b'{' else 'image/png'
                 return self.send(404,{'error':'Not found'}) if asset is None else self.send(200,asset,mime)
@@ -308,18 +309,18 @@ def test_named_samples_group_with_latest_image_and_history_slider(viewer):
     slider.focus()
     page.keyboard.press('Home')
     generated.locator('.sample-position').filter(has_text='Version 1 of 3 · step 10').wait_for()
-    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-10')
+    generated.locator('img[src$="/artifacts/g-10"]').wait_for()
     assert generated.get_by_role('button', name='Latest').is_visible()
     # An older picture published no numbers of its own, so it offers no tensor.
     assert generated.get_by_role('link', name='Download raw tensor (JSON, shape 1 × 2)').count() == 0
     assert generated.locator('.sample-note').count() == 0
     page.keyboard.press('ArrowRight')
     generated.locator('.sample-position').filter(has_text='Version 2 of 3 · step 20').wait_for()
-    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-20')
+    generated.locator('img[src$="/artifacts/g-20"]').wait_for()
     assert 'Image grid · Step 20' in generated.locator('span').first.inner_text()
     generated.get_by_role('button', name='Latest').click()
     generated.locator('.sample-position').filter(has_text='Version 3 of 3').wait_for()
-    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-30')
+    generated.locator('img[src$="/artifacts/g-30"]').wait_for()
     assert raw.is_visible()
     page.wait_for_function(
         "() => [...document.querySelectorAll('#artifact-items img')].every(i => i.naturalWidth === 1)")
@@ -389,7 +390,7 @@ def test_sample_slider_follows_latest_and_holds_an_earlier_pick(viewer):
     image(40)
     published()
     position.filter(has_text='Version 4 of 4 \u00b7 step 40 \u00b7 latest').wait_for()
-    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-40')
+    generated.locator('img[src$="/artifacts/g-40"]').wait_for()
     assert slider.get_attribute('max') == '3'
     # Scrub back to an earlier sample.
     slider.focus()
@@ -402,7 +403,7 @@ def test_sample_slider_follows_latest_and_holds_an_earlier_pick(viewer):
     image(50)
     published()
     position.filter(has_text='Version 1 of 4 \u00b7 step 20').wait_for()
-    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-20')
+    generated.locator('img[src$="/artifacts/g-20"]').wait_for()
     assert (slider.get_attribute('min'), slider.get_attribute('max')) == ('0', '3')
     # Latest resumes following, so the next sample advances the slider again.
     generated.get_by_role('button', name='Latest').click()
@@ -410,7 +411,51 @@ def test_sample_slider_follows_latest_and_holds_an_earlier_pick(viewer):
     image(60)
     published()
     position.filter(has_text='Version 5 of 5 \u00b7 step 60 \u00b7 latest').wait_for()
-    assert generated.locator('img').get_attribute('src').endswith('/artifacts/g-60')
+    generated.locator('img[src$="/artifacts/g-60"]').wait_for()
+    assert not errors
+
+
+def test_sample_slider_keeps_a_picture_on_screen_while_the_next_loads(viewer):
+    """Scrubbing never blanks the card: the shown picture stays until the next is decoded."""
+    from hypergan.image_grids import encode_png
+    page, control, condition, errors = viewer
+    for step in range(10, 130, 10):
+        identifier = f'g-{step}'
+        control['assets'][identifier] = encode_png(bytes([step, 0, 0]), 1, 1, 3, {'step': step})
+        control['artifacts'][identifier] = {
+            'role': 'sample', 'modality': 'image', 'media_type': 'image/png', 'name': 'g',
+            'bytes': len(control['assets'][identifier]), 'width': 1, 'height': 1,
+            'provenance': {'step': step, 'sample_sequence': step // 10, 'name': 'g'}}
+    # The oldest picture is slow to arrive and is not a neighbour of the latest.
+    control['asset_delay'] = {'g-10': 1.0}
+    login(page)
+    generated = page.locator('#artifact-items li[data-sample="g"][data-modality="image"]')
+    generated.locator('img[src$="/artifacts/g-120"]').wait_for()
+    # Neighbours of the slider position are fetched ahead.
+    page.wait_for_function("() => performance.getEntriesByType('resource')"
+                           ".some(e => e.name.endsWith('/artifacts/g-80'))")
+    assert not any(path.endswith('/artifacts/g-10') for path in control['paths'])
+    page.evaluate("""() => {
+        const body = document.querySelector('li[data-sample="g"] .sample-body');
+        window.blanked = false;
+        new MutationObserver(() => {
+            if (!body.querySelector('img.image-grid')) window.blanked = true;
+        }).observe(body, {childList: true, subtree: true});
+    }""")
+    slider = generated.locator('input[type="range"]')
+    slider.focus()
+    page.keyboard.press('Home')
+    generated.locator('.sample-position').filter(has_text='Version 1 of 12 · step 10').wait_for()
+    # Still loading: the previous picture stays and the card says it is busy.
+    assert generated.locator('.sample-body').get_attribute('aria-busy') == 'true'
+    assert generated.locator('img.image-grid').get_attribute('src').endswith('/artifacts/g-120')
+    generated.locator('img[src$="/artifacts/g-10"]').wait_for()
+    assert generated.locator('.sample-body').get_attribute('aria-busy') is None
+    # Prefetched neighbours swap in at once; the card never went without a picture.
+    page.keyboard.press('ArrowRight')
+    generated.locator('img[src$="/artifacts/g-20"]').wait_for()
+    assert page.evaluate('window.blanked') is False
+    assert generated.locator('img.image-grid').count() == 1
     assert not errors
 
 

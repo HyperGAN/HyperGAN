@@ -348,14 +348,23 @@ function sampleGroups(artifacts) {
   );
 }
 function renderArtifacts(artifacts) {
+  // Each card keeps what it shows until its next picture is decoded, so a
+  // re-render (a new sample arriving) never blanks an image on screen.
+  const shown = new Map(
+    [...$("artifact-items").children].map((li) => [
+      li.dataset.key,
+      li.querySelector(".sample-body"),
+    ]),
+  );
   $("artifact-items").replaceChildren();
   const groups = sampleGroups(artifacts);
   $("artifacts").hidden = !groups.length;
   for (const group of groups.slice(0, MAX_SAMPLE_GROUPS))
-    $("artifact-items").append(renderSampleGroup(group));
+    $("artifact-items").append(renderSampleGroup(group, shown.get(group.key)));
 }
-function renderSampleGroup(group) {
+function renderSampleGroup(group, shownBody) {
   const li = document.createElement("li");
+  li.dataset.key = group.key;
   li.dataset.sample = group.name;
   li.dataset.modality = group.modality;
   const info = document.createElement("div");
@@ -367,6 +376,7 @@ function renderSampleGroup(group) {
   li.append(info);
   const body = document.createElement("div");
   body.className = "sample-body";
+  if (shownBody) body.append(...shownBody.childNodes);
   li.append(body);
   const pinned = state.sampleVersions.get(group.key);
   // No pin means "follow the latest", so a newly published sample is shown.
@@ -380,6 +390,9 @@ function renderSampleGroup(group) {
   let history = null;
   let position = null;
   let latestButton = null;
+  // Requests count slider moves; `displayed` is the newest one on screen.
+  let requested = 0;
+  let displayed = 0;
   if (group.versions.length > 1) {
     history = document.createElement("div");
     history.className = "sample-history";
@@ -432,10 +445,150 @@ function renderSampleGroup(group) {
         (latest ? " · latest" : "");
       latestButton.hidden = latest;
     }
-    body.replaceChildren(sampleVersion(group, version));
+    // Keep the picture on screen until the chosen one is decoded, then swap;
+    // a frame that finishes while the slider moves on is shown only if it is
+    // newer than what is on screen, so dragging still gives feedback.
+    const request = ++requested;
+    const path = gridImagePath(version);
+    if (!path || cachedImage(path) || !body.hasChildNodes()) {
+      display(request, version);
+      if (path) prefetchImages(group, index);
+      return;
+    }
+    prefetchImages(group, index);
+    body.setAttribute("aria-busy", "true");
+    imageEntry(path).promise.then((loaded) => {
+      // A load dropped or failed after the slider moved on shows nothing; a
+      // failed chosen picture renders so the card can say it is unavailable.
+      if (!loaded && request !== requested) return;
+      if (request > displayed && body.isConnected) display(request, version);
+    });
+  }
+  function display(request, version) {
+    displayed = request;
+    if (request === requested) body.removeAttribute("aria-busy");
+    // Detach first so the decoded picture on screen can be reused rather than
+    // copied; nothing paints between the two calls.
+    body.replaceChildren();
+    body.append(sampleVersion(group, version));
   }
   show(index);
   return li;
+}
+// Decoded sample images by URL, least recently used first. Scrubbing swaps in
+// an already decoded picture, and the neighbours of the slider position are
+// fetched ahead. Bounded by entry count and by decoded pixels.
+const IMAGE_CACHE_ENTRIES = 64;
+const IMAGE_CACHE_PIXELS = 64 * 1024 * 1024;
+const IMAGE_PREFETCH = 4;
+const IMAGE_LOADS = 4;
+const imageCache = new Map();
+let imageQueue = [];
+let imageLoads = 0;
+function gridImagePath({ id, artifact }) {
+  if (
+    artifact.status === "unavailable" ||
+    artifact.modality !== "image" || artifact.media_type !== "image/png" ||
+    !Number.isSafeInteger(artifact.bytes) || artifact.bytes <= 0 || artifact.bytes > 8388608 ||
+    ![artifact.width, artifact.height].every((n) => Number.isSafeInteger(n) && n > 0 && n <= 4096) ||
+    artifact.width * artifact.height > 4194304
+  )
+    return null;
+  return `/api/v1${base()}/artifacts/${encodeURIComponent(id)}`;
+}
+function cachedImage(path) {
+  const entry = imageCache.get(path);
+  if (!entry?.image) return null;
+  imageCache.delete(path);
+  imageCache.set(path, entry);
+  return entry.image;
+}
+function imageEntry(path, pixels = 0) {
+  let entry = imageCache.get(path);
+  if (!entry) {
+    entry = { path, pixels, owner: null, started: false, image: null };
+    entry.promise = new Promise((resolve) => (entry.resolve = resolve));
+    imageCache.set(path, entry);
+  }
+  return entry;
+}
+function prefetchImages(group, index) {
+  // The chosen picture first, then its neighbours nearest first. Queued loads
+  // this card no longer wants are dropped before they start.
+  const wanted = [];
+  for (let offset = 0; offset <= IMAGE_PREFETCH; offset++)
+    for (const at of offset ? [index + offset, index - offset] : [index]) {
+      const version = group.versions[at];
+      const path = version && gridImagePath(version);
+      if (path)
+        wanted.push(
+          imageEntry(path, version.artifact.width * version.artifact.height),
+        );
+    }
+  const keep = new Set(wanted);
+  imageQueue = imageQueue.filter((entry) => {
+    if (entry.owner !== group.key || keep.has(entry)) return true;
+    imageCache.delete(entry.path);
+    entry.resolve(false);
+    return false;
+  });
+  const fresh = wanted.filter((entry) => !entry.started && !entry.image);
+  for (const entry of fresh) entry.owner = group.key;
+  imageQueue = [...fresh, ...imageQueue.filter((entry) => !keep.has(entry))];
+  pumpImages();
+}
+function pumpImages() {
+  while (imageLoads < IMAGE_LOADS && imageQueue.length) {
+    const entry = imageQueue.shift();
+    const image = new Image();
+    image.decoding = "async";
+    image.src = entry.path;
+    imageLoads++;
+    decodeImage(entry, image).finally(() => {
+      imageLoads--;
+      pumpImages();
+    });
+  }
+}
+function adoptImage(path, image, pixels) {
+  // A picture rendered straight into a card is also the cache's copy, so the
+  // same URL is not fetched twice.
+  const entry = imageEntry(path, pixels);
+  if (entry.started || entry.image) return;
+  imageQueue = imageQueue.filter((queued) => queued !== entry);
+  decodeImage(entry, image);
+}
+function decodeImage(entry, image) {
+  entry.started = true;
+  return image.decode().then(
+    () => {
+      entry.image = image;
+      entry.pixels = image.naturalWidth * image.naturalHeight;
+      trimImageCache();
+      entry.resolve(true);
+    },
+    () => {
+      // Rendering the <img> itself reports the failure in the card.
+      if (imageCache.get(entry.path) === entry) imageCache.delete(entry.path);
+      entry.resolve(false);
+    },
+  );
+}
+function trimImageCache() {
+  let entries = 0;
+  let pixels = 0;
+  for (const entry of imageCache.values())
+    if (entry.image) {
+      entries++;
+      pixels += entry.pixels;
+    }
+  for (const [path, entry] of imageCache) {
+    if (entries <= IMAGE_CACHE_ENTRIES && pixels <= IMAGE_CACHE_PIXELS) break;
+    if (!entry.image || entry.image.isConnected) continue;
+    imageCache.delete(path);
+    entries--;
+    pixels -= entry.pixels;
+  }
 }
 function sampleKind(group, artifact) {
   // Say what the file is, not which internal role/modality pair produced it.
@@ -466,20 +619,19 @@ function sampleVersion(group, { id, artifact, tensor }) {
   download.className = "text-link";
   download.textContent = "Download";
   controls.append(download);
-  if (
-    artifact.modality === "image" && artifact.media_type === "image/png" &&
-    Number.isSafeInteger(artifact.bytes) && artifact.bytes > 0 && artifact.bytes <= 8388608 &&
-    [artifact.width, artifact.height].every((n) => Number.isSafeInteger(n) && n > 0 && n <= 4096) &&
-    artifact.width * artifact.height <= 4194304
-  ) {
-    const image = document.createElement("img");
+  if (gridImagePath({ id, artifact })) {
+    // A decoded picture from the cache paints at once; anything else loads as usual.
+    const cached = cachedImage(path);
+    const image = cached
+      ? cached.isConnected ? cached.cloneNode() : cached
+      : document.createElement("img");
     image.className = "image-grid";
     image.alt = `Sample ${group.name} image grid at step ${fmt(artifact.provenance?.step)}`;
     image.width = artifact.width;
     image.height = artifact.height;
-    image.loading = "lazy";
     image.decoding = "async";
-    image.src = path;
+    if (image.getAttribute("src") !== path) image.src = path;
+    if (!cached) adoptImage(path, image, artifact.width * artifact.height);
     image.onerror = () => {
       const error = document.createElement("p");
       error.textContent = "Image unavailable or removed by preview retention.";

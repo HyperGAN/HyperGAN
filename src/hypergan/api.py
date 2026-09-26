@@ -138,19 +138,19 @@ def _relocated(spec, base, destination):
         if isinstance(file, str) and not Path(file).is_absolute():
             if base is None:
                 raise ModelFileError('A model with relative hndl paths needs a base directory to be saved elsewhere')
+            import os
             source = (base / file).resolve()
-            try:
-                network['hndl'] = Path(source).relative_to(destination).as_posix()
-            except ValueError:
-                import os
-                network['hndl'] = Path(os.path.relpath(source, destination)).as_posix()
+            shared = Path(os.path.commonpath([source, destination]))
+            # Relative when the files share a project directory, else absolute.
+            network['hndl'] = (Path(os.path.relpath(source, destination)).as_posix()
+                               if shared != Path(shared.anchor) else source.as_posix())
     return spec
 
 
 def dumps(model):
     """The model file text (TOML)."""
     model = _model(model)
-    return _dumps(model.spec, comment=None)
+    return _dumps(model.spec, table_depth=3)
 
 
 def save(model, path):
@@ -161,7 +161,7 @@ def save(model, path):
     spec = _relocated(model.spec, model.base, path.parent.resolve())
     if is_model_file(spec):
         spec = {'format': FORMAT, **{k: v for k, v in spec.items() if k != 'format'}}
-    path.write_text(_dumps(spec))
+    path.write_text(_dumps(spec, table_depth=3))
     return path
 
 

@@ -83,12 +83,12 @@ def _inline_candidate(value):
     return isinstance(value, dict) and simple(value) and len(_inline(value)) <= _INLINE_WIDTH
 
 
-def _table(lines, path, table, header):
+def _table(lines, path, table, header, table_depth):
     scalars, tables, arrays = [], [], []
     for name, value in table.items():
         if value is None:
             continue
-        if _is_table(value) and value and not _inline_candidate(value):
+        if _is_table(value) and value and (len(path) + 1 < table_depth or not _inline_candidate(value)):
             tables.append((name, value))
         elif _is_table_array(value):
             arrays.append((name, value))
@@ -102,20 +102,24 @@ def _table(lines, path, table, header):
     for name, value in tables:
         child = path + [name]
         lines.append('')
-        _table(lines, child, value, '[' + '.'.join(_key(p) for p in child) + ']')
+        _table(lines, child, value, '[' + '.'.join(_key(p) for p in child) + ']', table_depth)
     for name, value in arrays:
         child = path + [name]
         for item in value:
             lines.append('')
             lines.append('[[' + '.'.join(_key(p) for p in child) + ']]')
-            _table(lines, child, item, None)
+            _table(lines, child, item, None, table_depth)
 
 
-def dumps(document, *, comment=None):
-    """Serialize a mapping as TOML text."""
+def dumps(document, *, comment=None, table_depth=0):
+    """Serialize a mapping as TOML text.
+
+    Tables nested fewer than ``table_depth`` levels deep always get a
+    ``[header]``; deeper small tables of scalars are written inline.
+    """
     if not isinstance(document, dict):
         raise TypeError('A TOML document must be a mapping')
     lines = [f'# {line}'.rstrip() for line in comment.splitlines()] if comment else []
-    _table(lines, [], document, None)
+    _table(lines, [], document, None, table_depth)
     text = '\n'.join(lines).lstrip('\n')
     return re.sub(r'\n{3,}', '\n\n', text) + '\n'

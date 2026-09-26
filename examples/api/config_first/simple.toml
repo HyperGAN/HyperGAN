@@ -1,0 +1,47 @@
+# Demo 1: the simplest model. One generator (your nn.Module), one critic
+# (HNDL in a file next to this one), the built-in 2-D Gaussian grid.
+format = "hypergan-model/1"
+name = "demo/simple"
+
+[data]
+builtin = "gaussian_grid"
+args = { side = 5, noise = 0.02 }
+
+[prior]
+kind = "particles"
+z_dim = 4
+num_particles = 256
+
+[networks.generator]
+role = "generator"
+module = "toy_project:MLPGenerator"
+args = { z_dim = 4, hidden = 64, out_dim = 2 }
+inputs = { x = "latent" }
+
+[networks.critic]
+role = "critic"
+hndl = "critic.hndl"
+input_shape = ["B", 2]
+output_shape = ["B", 1]
+inputs = { x = "candidate" }
+
+# Every loss the model trains, in one list.
+[[losses]]
+type = "adversarial"
+critic = "critic"
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+weight = 1.0
+
+[train]
+steps = 20
+batch_size = 64
+seed = 42
+device = "cpu"
+lr = 0.001
+
+[sampling]
+count = 16
+seed = 123

@@ -1,0 +1,6 @@
+# A small 2-D critic, shared by the demo model files.
+linear(64)
+leaky_relu(0.2)
+linear(64)
+leaky_relu(0.2)
+linear()

@@ -2,6 +2,7 @@
 
 Constructor paths are trusted Python code, imported only by train/sample.
 """
+from collections.abc import Mapping
 from copy import deepcopy
 import dataclasses
 import functools
@@ -304,9 +305,36 @@ def _resolve_adversarial_terms(result):
     result["adversarial_terms"] = terms
 
 
+_SAMPLER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}")
+
+
+def _resolve_samplers(result):
+    """Optional read-side samplers: observation settings, absent means not stored.
+
+    A sampler maps a recorded sample (preview or fresh inference output) to
+    something viewable. It never runs in the training loop, so it is recorded
+    with the run (``config_values``) but is not part of the numerical fingerprint.
+    """
+    if "samplers" not in result:
+        return
+    samplers = result["samplers"]
+    if not isinstance(samplers, dict) or not samplers or len(samplers) > 16:
+        raise ValueError("samplers must be a table of 1-16 named samplers")
+    for name, spec in samplers.items():
+        location = f"samplers.{name}"
+        if not isinstance(name, str) or _SAMPLER_NAME.fullmatch(name) is None:
+            raise ValueError(f"{location}: sampler names are 1-32 letters, digits, dots, underscores or hyphens")
+        _keys(spec, {"fn", "args"}, location)
+        _factory(spec.get("fn"), (), f"{location}.fn")
+        spec.setdefault("args", {})
+        if not isinstance(spec["args"], dict):
+            raise ValueError(f"{location}.args must be a table")
+        json.dumps(spec["args"], allow_nan=False)
+
+
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
-    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults"}, "configuration")
+    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers"}, "configuration")
     raw = dict(raw)
     if "adversarial" in raw:
         raw["adversarial"] = _drop_removed_fields(raw["adversarial"], "adversarial")
@@ -328,7 +356,7 @@ def resolve_config(raw):
         if key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
-        elif key == "adversarial_terms":
+        elif key in ("adversarial_terms", "samplers"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
             allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
@@ -484,6 +512,7 @@ def resolve_config(raw):
                    for column in comparison)):
         raise ValueError('sampling.comparison requires two to four labelled image bindings')
     _resolve_adversarial_terms(result)
+    _resolve_samplers(result)
     paths = [p for c in components.values() for p in c["inputs"].values()] + [p for t in result["objectives"] for p in t["inputs"].values()]
     for term in result.get("adversarial_terms", ()):
         paths.extend((term["real"], term["fake"], *term["inputs"].values()))
@@ -573,21 +602,24 @@ def resolve_config(raw):
     return result
 
 
-def _listed_values(config, keys):
+def _listed_values(config, keys, *, observation=False):
     """Copy listed keys. Include extra adversarial terms only when that list is non-empty.
 
     A legacy resolved config and an old checkpoint both lack the key. Looking it
-    up with ``get`` keeps those hashes identical and does not KeyError.
+    up with ``get`` keeps those hashes identical and does not KeyError. Samplers
+    are observation settings: recorded with the run, never fingerprinted.
     """
     values = {key: deepcopy(config[key]) for key in keys}
     terms = config.get("adversarial_terms")
     if terms:
         values["adversarial_terms"] = deepcopy(terms)
+    if observation and config.get("samplers"):
+        values["samplers"] = deepcopy(config["samplers"])
     return values
 
 
 def config_values(config):
-    return _listed_values(config, DEFAULT)
+    return _listed_values(config, DEFAULT, observation=True)
 
 
 def numerical_values(config):
@@ -666,11 +698,26 @@ def fingerprint(config):
 
 
 def load_config(path):
+    """Resolve a recipe or model file path, or an in-memory recipe/model mapping.
+
+    Model files (``[networks]`` with roles and a ``[[losses]]`` list, see
+    ``hypergan.model_file``) are lowered to a recipe first, so every consumer of
+    a resolved configuration (fingerprints, resume, the viewer, replicated
+    workers) sees the same recipe whichever form was written.
+    """
+    from .model_file import is_model_file, lower
+    if isinstance(path, Mapping):
+        raw = deepcopy(dict(path))
+        if {"warnings", "qualification"} & raw.keys():
+            raw = config_values(raw)
+        return resolve_config(lower(raw) if is_model_file(raw) else raw)
     path = Path(path)
     if path.is_dir():
         path = path / "config.toml"
     with path.open("rb") as stream:
         raw = tomllib.load(stream)
+    if is_model_file(raw):
+        return resolve_config(lower(raw, base=path.parent))
     for spec in raw.get("components", {}).values():
         args = spec.get("args", {})
         network_files = args.pop('network_files', {})

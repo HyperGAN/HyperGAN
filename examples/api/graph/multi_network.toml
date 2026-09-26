@@ -1,7 +1,7 @@
 # HyperGAN config written by hypergan.graph (hg.save). Train it with `hypergan train` or hg.train.
 # Networks and data are referenced by import path; edit those modules, not copies.
 # hg.save replaces this file only while it is unedited; after editing it here, load it with hg.load.
-# body-sha256: fdd412a17e01081140cf1ed65aeb26dc1df2d745c746977a2c361e2ea5099f68
+# body-sha256: 4546aac646ee2c317073b80d97ebf05705495bac6c036b98924884ab097103be
 
 schema_version = 1
 name = "demo/multi-network"
@@ -12,12 +12,10 @@ args = { dimensions = 2, scale = 2.0, offset = 0.0 }
 
 [components.generator]
 factory = "my_project:ConditionalGenerator"
-args = {}
 inputs = { z = "latent", code = "components.encoder.mu" }
 
 [components.discriminator]
 factory = "my_project:PairCritic"
-args = {}
 inputs = { x = "candidate", condition = "batch.condition" }
 
 [components.encoder]
@@ -32,7 +30,6 @@ inputs = { x = "candidate" }
 
 [components.decoder]
 factory = "my_project:Decoder"
-args = {}
 inputs = { code = "components.encoder.mu" }
 
 [prior]

@@ -64,7 +64,17 @@ class SingleProcessExecution:
                 self._trainer.streams[name].set_state(state)
         return ExecutionInfo(step=self._trainer.step, data_identity=contract['identity'],
                              recovery_reasons=reasons, checkpoint_metadata=metadata,
-                             environment={'runtime': runtime_info(self._trainer.device), 'source': source_info()})
+                             environment={'runtime': runtime_info(self._trainer.device), 'source': source_info()},
+                             model=self._model_description())
+
+    def _model_description(self):
+        from .model_description import record_networks
+        try:
+            return record_networks(self._trainer.graph, fingerprint(self._config))
+        except Exception as exc:  # advisory viewer detail; never fail the attempt for it
+            import warnings
+            warnings.warn(f'Network description unavailable: {exc}', RuntimeWarning)
+            return None
 
     def restore(self, run_dir, checkpoint, run_id, config_sha256):
         target, info, state = read_checkpoint(run_dir, checkpoint)

@@ -319,6 +319,46 @@ value yet shows `—`. The same three progress metrics are chartable under
 Learning curves and printed on the CLI progress line; see
 [observation](observation.md#training-progress-metrics) for their definitions.
 
+### Model tab
+
+Beside **Metrics**, the **Model** tab (`#model` links straight to it) shows what
+the run trains, read from the configuration recorded in its manifest:
+
+- **GAN formulation**: K3P (RpGAN logistic with the K3P critic penalty) with its
+  penalty parameters and equations, plus the prior. The blend floor `f` is the
+  value ParticleGAN uses: the network LR floor below 0.5, otherwise 0 (then
+  `s = 1` and the penalty is always the A form). Runs recorded before
+  ParticleGAN 0.8 show their recorded penalty fields instead.
+- **Losses**: each player's terms with weights, bindings and detach points.
+  Every term names the metric series that records it; select one to chart it
+  under Metrics. When the view already charts 8 series, the one selected
+  longest ago makes room and a notice names it. Several adversarial terms share
+  one summed series, and the tab says so.
+- **Optimizers & hyperparameters**: generator, prior and critic groups,
+  learning-rate schedule, noise and EMA. A Gaussian or frozen
+  (`learnable = false`) prior has no prior group, and latent damping is marked
+  not applied unless the prior is a learnable plain particle table.
+- **Networks**: one card per component with its role, input → output contract,
+  matched source file, parameter totals, a per-layer table (op, output shape,
+  parameters, source line, grouped by the source's comment paragraphs) and the
+  raw HNDL source.
+- **Data & training**: the remaining settings and configuration warnings.
+
+The per-layer table needs torch and hndl, so the viewer never computes it:
+training writes `RUN/model.json` when it builds the networks. For runs started
+before that, record it once with
+
+```bash
+hypergan model RUN --write      # builds each component on the meta device
+hypergan model RUN              # prints the description without writing
+```
+
+A `model.json` recorded for a different configuration is ignored. Absolute
+local paths (data roots, weight files, paths inside argument strings such as
+`--root=/…` or `file:///…`, and paths in HNDL source and comments) are shown as
+`…/basename`. The data
+comes from `GET /api/v1/runs/{run_id}/model`.
+
 ### Checkpoint metrics and projection progress
 
 Run responses and stream heartbeats expose `durable_event_boundary` when the

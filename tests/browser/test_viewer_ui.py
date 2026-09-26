@@ -64,12 +64,14 @@ def viewer():
                 if control.get('progress',True):
                     run.update(steps_per_second=12.5,training_seconds=5025.4,samples_seen=control['step']*32,global_batch_size=32)
                 return self.send(200,run)
-            if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
+            if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in control.get('catalog',METRICS).items()}})
             if '/artifacts/' in path:
                 asset=control['assets'].get(path.rsplit('/',1)[-1])
                 mime='application/json' if asset and asset[:1]==b'{' else 'image/png'
                 return self.send(404,{'error':'Not found'}) if asset is None else self.send(200,asset,mime)
             if path.endswith('/artifacts'):return self.send(200,{'schema_version':1,'artifacts':control['artifacts']})
+            if path.endswith('/model'):
+                return self.send(200,control['model']) if control.get('model') else self.send(404,{'error':'No model configuration recorded for this run'})
             if path.endswith('/views'):return self.send(200,{'map_revision':MAP})
             if path.endswith('/bootstrap'):
                 if control['pending'] and not control['release']:return self.send(202,{'status':'pending'})
@@ -426,3 +428,90 @@ def test_headline_stats_report_throughput_training_time_and_samples(viewer):
             ('steps-per-second','training-time','samples-seen')]==['—','—','—']
     assert page.locator('#samples-batch').inner_text()=='Updates × global batch'
     assert not errors
+
+
+def model_document(metrics=METRICS):
+    from hypergan.config import resolve_config
+    from hypergan.model_description import describe_run
+    config = resolve_config({})
+    rows = [{'id': f'n{i}', 'op': op, 'category': category, 'line': i + 2, 'out': {'out': ['B', 64]},
+             'params': params, 'trainable_params': params, 'trainable': True}
+            for i, (op, category, params) in enumerate([('linear', 'core', 320), ('leaky_relu', 'activation', 0)])]
+    recorded = {'config_sha256': 'e' * 64, 'origin': 'recorded', 'components': {'generator': {
+        'status': 'built', 'parameters': {'total': 320, 'trainable': 320, 'frozen': 0},
+        'subgraphs': [{'module_path': 'network', 'node_count': 2, 'nodes': rows}]}}}
+    model = describe_run({'config': config, 'config_sha256': 'e' * 64, 'run_id': RUN},
+                         recorded=recorded, catalog={'metrics': dict.fromkeys(metrics, {})})
+    return model
+
+
+def test_model_tab_shows_formulation_losses_networks_and_plots_a_loss(viewer):
+    page, control, condition, errors = viewer
+    control['model'] = model_document()
+    login(page)
+    assert page.locator('#tab-metrics').get_attribute('aria-selected') == 'true'
+    assert page.locator('#panel-model').is_hidden()
+    page.locator('#tab-model').click()
+    page.locator('.model-network').first.wait_for()
+    assert page.locator('#tab-model').get_attribute('aria-selected') == 'true'
+    assert page.locator('#panel-metrics').is_hidden()
+    assert page.evaluate('location.hash') == '#model'
+    text = page.locator('#model-content').inner_text()
+    for expected in ('K3P', 'RpGAN logistic', 'Discriminator (critic)', 'k3p_penalty', 'K3PGeneratorAdam',
+                     'hypergan/networks/reference.hndl', 'gaussian_grid'):
+        assert expected in text
+    generator = page.locator('.model-network').first
+    generator.locator('.model-layers summary').click()
+    assert generator.locator('.model-layers tbody tr').count() >= 2
+    assert 'B × 64' in generator.locator('.model-layers').inner_text()
+    generator.locator('.model-source summary').click()
+    assert 'linear(64)' in generator.locator('.model-source code').inner_text()
+    # The discriminator has no recorded detail and says why instead.
+    assert 'Layer detail unavailable' in page.locator('.model-network').nth(1).inner_text()
+    # A loss row puts its series on the Metrics tab; a series outside the catalog is plain text.
+    assert page.locator('.model-table code', has_text='loss/d_adversarial').count() == 1
+    page.locator('.model-table button', has_text='loss/gradient_penalty').click()
+    assert page.locator('#tab-metrics').get_attribute('aria-selected') == 'true'
+    assert page.locator('#panel-metrics').is_visible()
+    assert page.locator('input[value="loss/gradient_penalty"]').is_checked()
+    # Charts hidden behind the Model tab are resized to the visible panel again.
+    page.wait_for_function("document.querySelector('.chart-canvas canvas').getBoundingClientRect().width > 200")
+    assert not errors
+
+
+def test_model_tab_plots_a_loss_when_the_view_already_holds_eight_series(viewer):
+    page, control, condition, errors = viewer
+    extra = ['loss/prior_regularizer', 'diversity/generated_rms', 'diversity/ratio', 'diversity/pooled4_ratio',
+             'throughput/steps_per_second', 'loss/d_adversarial']
+    control['catalog'] = {**METRICS, **{metric: metric for metric in extra}}
+    control['model'] = model_document(control['catalog'])
+    login(page)
+    assert page.locator('#metric-list input:checked').count() == 8
+    page.locator('#tab-model').click()
+    page.locator('.model-table button', has_text='loss/d_adversarial').click()
+    assert page.locator('#panel-metrics').is_visible()
+    assert page.locator('input[value="loss/d_adversarial"]').is_checked()
+    assert not page.locator('input[value="loss/g_total"]').is_checked()
+    assert page.locator('#metric-list input:checked').count() == 8
+    # The notice says what was replaced and outlives the view reload.
+    notice = page.locator('#notice', has_text='in place of loss/g_total')
+    notice.wait_for()
+    page.wait_for_function("document.querySelector('#coverage').textContent === 'History loaded'")
+    assert any('d_adversarial' in p for p in control['paths'] if '/bootstrap' in p)
+    assert notice.is_visible()
+    assert not errors
+
+
+def test_model_tab_keyboard_and_missing_configuration(viewer):
+    page, control, condition, errors = viewer
+    login(page)
+    page.locator('#tab-metrics').focus()
+    page.keyboard.press('ArrowRight')
+    assert page.evaluate('document.activeElement.id') == 'tab-model'
+    page.locator('#model-status', has_text='No model configuration is recorded').wait_for()
+    assert page.locator('#model-content').inner_text() == ''
+    page.keyboard.press('ArrowLeft')
+    assert page.locator('#panel-metrics').is_visible() and page.locator('#panel-model').is_hidden()
+    assert page.locator('.chart-canvas canvas').count() == 3
+    assert not errors
+

@@ -97,7 +97,13 @@
           ><small id="d-step">No published value</small>
         </article>
       </section>
-      <div class="workspace-grid">
+      <nav class="tabs" role="tablist" aria-label="Workspace views">
+        <button id="tab-metrics" class="tab" type="button" role="tab" aria-selected="true"
+          aria-controls="panel-metrics">Metrics</button
+        ><button id="tab-model" class="tab" type="button" role="tab" aria-selected="false"
+          aria-controls="panel-model" tabindex="-1">Model</button>
+      </nav>
+      <div id="panel-metrics" class="workspace-grid" role="tabpanel" aria-labelledby="tab-metrics">
         <aside class="catalog">
           <div class="section-title">
             <h2>Metrics</h2>
@@ -204,6 +210,10 @@
           </section>
         </section>
       </div>
+      <section id="panel-model" class="model-panel" role="tabpanel" aria-labelledby="tab-model" tabindex="-1" hidden>
+        <p id="model-status" class="model-status" role="status" hidden></p>
+        <div id="model-content"></div>
+      </section>
       <footer>
         <span>HyperGAN · Local experiment workspace</span
         ><span id="stream-position">Waiting for stream</span>

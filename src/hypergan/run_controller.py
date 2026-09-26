@@ -34,6 +34,9 @@ class ExecutionInfo:
     recovery_reasons: list
     checkpoint_metadata: dict
     environment: dict | None = None
+    # Advisory per-layer network description (model_description.record_networks),
+    # written as <run>/model.json for the viewer; None when the adapter has none.
+    model: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -223,6 +226,17 @@ def _cleanup_validation_failure(execution):
                 cleanup()
             except BaseException:
                 pass
+
+
+def _record_model(run_dir, model):
+    """Network detail is advisory: a failure to record it never stops training."""
+    if model is None:
+        return
+    try:
+        from .model_description import MODEL_FILE
+        atomic_json(Path(run_dir) / MODEL_FILE, model)
+    except (OSError, TypeError, ValueError) as exc:
+        warnings.warn(f'Network description was not recorded: {exc}', RuntimeWarning)
 
 
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
@@ -556,6 +570,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             manifest.update(environment)
         manifest.setdefault('initial_source', _json_value(manifest.get('source', {})))
         manifest.setdefault('initial_source_origin', 'run-start')
+        _record_model(run_dir, info.model)
         from .interval_evaluation import IntervalEvaluations
         def evaluation_event(event, **values):
             nonlocal custom_publications

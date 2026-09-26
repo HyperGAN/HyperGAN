@@ -270,6 +270,7 @@ the `nn.Module` generator and `ItemData` from the recorded recipe.
 
 - `tests/foundation/test_api_poc_config_first.py`: 51 fast tests pass in 2.5 s. They cover: writer round trips over every example, lowering, the packaged reference fingerprint, save/load/Python-built fingerprints, override by loss id, 10 named errors, samplers not in the fingerprint, metric/evaluation lowering, the item-data resume/rollback/nested collation, the adapters, training plus metric reading plus sampling, stop-and-continue with item data matching an uninterrupted run, and training the multi-network model. One `heavy` test (metric and evaluation workers, previews, samplers) passes in 10.8 s with `-m heavy`.
 - Fast foundation suite: 783 passed, 16 failed. The same 16 fail on the base commit exported from `bff6de3d` (plus one provenance test there, because an export has no git metadata). All of them are `python -I` subprocesses that cannot import a PYTHONPATH checkout, plus the wheel-only distribution test. This is the known environment issue in the CPU-suite memory note. None is caused by this branch.
+- Heavy suite (`-m heavy`, foundation + reference, run because `load_config` changed): 172 passed, 18 failed in 17 min. Those 18 (CLI and installed-entrypoint acceptance tests that start `python -I -m hypergan`) also fail on the base export (18 failed in 2 s: `No module named hypergan`). They are environmental, not regressions.
 
 ## Changes to existing code (small, separate)
 

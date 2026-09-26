@@ -49,6 +49,16 @@ multiple discriminators, multiple generators, etc etc".
   plus losses, keeping a shorthand for the one-G/one-D case.
 - [ ] Record the multi-host constraints the API must respect.
 
+Owner, 2026-09-26: do not move or copy user code into the run ("the user may be
+editing the wrong one"); instead "there may be a config file that can be loaded
+easily", as HNDL and TOML config already are. Asked for a side-by-side comparison of
+explicit roles versus roles derived from losses, with a recommendation; unsure whether
+losses should be listed together or attached per network. Requested three API proofs
+of concept built in a workflow, reviewed, with the best one recommended as the base for
+iteration.
+
+- [~] Three API proofs of concept, a review and a recommendation.
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved

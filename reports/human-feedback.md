@@ -9,6 +9,66 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 24. A public Python API (raised 2026-09-26)
+
+Owner: "i want to figure out an api for hypergan. i think the reason people would
+use it is for common recipes, interface into training metrics/evaluations/samples,
+multi-gpu training support, i'm not sure what else. it should be very simple to
+train your own network with it."
+
+- [~] Proposal for review: [python-api-2026-09-26.md](python-api-2026-09-26.md), on
+  branch `docs/python-api-proposal`. It covers recipes, your own `nn.Module`/HNDL
+  networks, the `Run` reader for metrics, previews and evaluations, background runs,
+  `gpus=`, and a `Generator` for inference, and lists 7 decisions for the owner.
+- [ ] Owner decisions recorded, then implementation in the proposal's 8 steps.
+
+Owner review, 2026-09-26: "i don't think we should assume images. the things that
+intersect with images are sampling, evaluations, etc etc. it's just what we have right
+now. but you should be able to add custom samplers, evaluations, metrics, data
+loaders..." Answers to the proposal's decisions:
+1 (blocking default) undecided; 2 (`__main__` networks) "probably copy in";
+3 (recipes) needs more thought; 4 asked what the no-downloads rule is (it was never an
+owner rule, only a stance in the docs); 5 (torch `Dataset`) yes: the user writes only
+the dataset loading, while workers and the like stay outside it; 6 (multi-host)
+unfamiliar with torchrun; 7 functional style preferred. "lets think about this more."
+
+- [ ] Rework the proposal to be modality-agnostic, with extension points for data,
+  samplers, metrics and evaluations; images become one set of plugins.
+
+Owner follow-up, 2026-09-26: output types are open ("any"). The viewer can focus on
+pixels, metrics and evaluations, but nothing assumes a type. Easy helpers for common
+types (audio, video, image), yet a network's output need not be one of them: it could
+be latent data of various shapes, or a LoRA. Asked "what copy?" (about copying code into the
+run). Metrics are cheap, computed anyway and often part of the formulation; evaluations are
+expensive and often, but not necessarily, holdout. Multi-host GPU training is a
+separate future task, but the API must not lock it out. `hg.train` is good so far,
+except passing `generator=`/`discriminator=`: "what happens when you have encoder,
+multiple discriminators, multiple generators, etc etc".
+
+- [ ] Replace fixed generator/discriminator arguments with a general network graph
+  plus losses, keeping a shorthand for the one-G/one-D case.
+- [ ] Record the multi-host constraints the API must respect.
+
+Owner, 2026-09-26: do not move or copy user code into the run ("the user may be
+editing the wrong one"); instead "there may be a config file that can be loaded
+easily", as HNDL and TOML config already are. Asked for a side-by-side comparison of
+explicit roles versus roles derived from losses, with a recommendation; unsure whether
+losses should be listed together or attached per network. Requested three API proofs
+of concept built in a workflow, reviewed, with the best one recommended as the base for
+iteration.
+
+- [x] Three API proofs of concept, a review and a recommendation: branches
+  `poc/api-config-first`, `poc/api-graph` and `poc/api-per-network`, reviewed in
+  [python-api-pocs-2026-09-26.md](python-api-pocs-2026-09-26.md). The review recommends
+  iterating from config-first, with explicit roles checked against the losses, and one
+  list of losses.
+- [ ] Owner decisions on that review's section 8.
+
+Owner, 2026-09-26: "we'll want to consider how we can change the cli to use this same api".
+
+- [~] The CLI becomes a thin layer over the public API (one execution path). Section 7
+  of the review maps each command and flag to its API call.
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved

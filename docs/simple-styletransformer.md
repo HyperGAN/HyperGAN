@@ -69,9 +69,8 @@ and equality of every other training setting.
 HNDL adds `broadcast_mul`, `coordinate_grid`, `fourier_features`, and
 `grid_sample`. The coordinate grids and Fourier table are persistent buffers,
 so checkpoints and EMA copies retain their values. All architecture operations
-are visible in the `.hndl` file. The local training environment imports the
-editable `../hndl` checkout at [commit 7f7cd3d](https://github.com/HyperGAN/HNDL/commit/7f7cd3d539fe4b238102ab7de2a45c7219e74934)
-or later; published HNDL 0.6.0 does not include these operators.
+are visible in the `.hndl` file. These operators were released in HNDL 0.7.0;
+the `train` extra requires HNDL 0.8.0 or newer.
 
 Validation completed:
 

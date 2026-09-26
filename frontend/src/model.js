@@ -176,7 +176,7 @@ export function modelPanel(api, base, { catalog, onPlot }) {
         for (const key of ["kappa", "lazy_k", "anchor_weight", "anchor_decay", "arm", "norm", "target_std", "rows"])
           if (term[key] !== undefined && term[key] !== null) details.push(`${key} ${show(term[key])}`);
         if (term.detach?.length) details.push(`detached: ${term.detach.join(", ")}`);
-        if (term.active === false) details.push("inactive (weight 0)");
+        if (term.active === false) details.push(term.inactive_reason ? `inactive: ${term.inactive_reason}` : "inactive (weight 0)");
         row(body, [term.id, term.kind || "—", `${term.coeff !== undefined ? "c = " : ""}${show(weight)}`,
           details.join(" · ") || "—", seriesCell(term.metric, term.metric_note)],
           term.active === false ? "model-inactive" : undefined);
@@ -200,7 +200,8 @@ export function modelPanel(api, base, { catalog, onPlot }) {
     const { scroll, body } = table(["Group", "Optimizer", "Learning rate", "Betas", "Updates"], "Optimizer groups");
     const g = o.generator || {}, p = o.prior || {}, c = o.critic || {};
     row(body, ["Generator", `${show(g.type)} · ${show(g.implementation)}`, show(g.lr), show(g.betas), (g.components || []).join(", ") || "—"]);
-    row(body, ["Prior", "shares the generator step", `${show(p.lr)} (×${show(p.lr_mult)})`, show(p.betas), "particle table"]);
+    if (p.status === "unavailable") row(body, ["Prior", "no prior group", "—", "—", brief(p.reason || "no trainable table")], "model-inactive");
+    else row(body, ["Prior", "shares the generator step", `${show(p.lr)} (×${show(p.lr_mult)})`, show(p.betas), "particle table"]);
     row(body, ["Critic", `${show(c.type)} · ${show(c.implementation)}`, `${show(c.lr)} (×${show(c.lr_mult)})`, show(c.betas), (c.components || []).join(", ") || "—"]);
     result.append(scroll);
     const grid = node("div", undefined, "model-grid");
@@ -210,7 +211,10 @@ export function modelPanel(api, base, { catalog, onPlot }) {
       ["Network LR floor", o.schedule?.network_lr_floor], ["Network LR horizon cap", o.schedule?.network_lr_horizon_cap],
       ["EMA (G and prior)", o.ema], ["Critic EMA anchor", c.ema_critic],
       ["Critic guard", c.guard ? `ratio ${show(c.guard.ratio)} after ${show(c.guard.min_steps)} steps` : undefined],
-      ["Latent damping max rate", g.latent_damping_max_rate],
+      ["Latent damping", g.latent_damping
+        ? (g.latent_damping.status === "applied" ? `max rate ${show(g.latent_damping.max_rate)}`
+          : `not applied (${g.latent_damping.reason || "inactive"}); configured max rate ${show(g.latent_damping.max_rate)}`)
+        : g.latent_damping_max_rate],
     ]));
     if (o.schedule?.metric) schedule.append(seriesCell(o.schedule.metric));
     const noise = node("article", undefined, "model-card");

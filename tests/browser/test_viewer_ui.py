@@ -64,7 +64,7 @@ def viewer():
                 if control.get('progress',True):
                     run.update(steps_per_second=12.5,training_seconds=5025.4,samples_seen=control['step']*32,global_batch_size=32)
                 return self.send(200,run)
-            if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in METRICS.items()}})
+            if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in control.get('catalog',METRICS).items()}})
             if '/artifacts/' in path:
                 asset=control['assets'].get(path.rsplit('/',1)[-1])
                 mime='application/json' if asset and asset[:1]==b'{' else 'image/png'
@@ -430,7 +430,7 @@ def test_headline_stats_report_throughput_training_time_and_samples(viewer):
     assert not errors
 
 
-def model_document():
+def model_document(metrics=METRICS):
     from hypergan.config import resolve_config
     from hypergan.model_description import describe_run
     config = resolve_config({})
@@ -441,7 +441,7 @@ def model_document():
         'status': 'built', 'parameters': {'total': 320, 'trainable': 320, 'frozen': 0},
         'subgraphs': [{'module_path': 'network', 'node_count': 2, 'nodes': rows}]}}}
     model = describe_run({'config': config, 'config_sha256': 'e' * 64, 'run_id': RUN},
-                         recorded=recorded, catalog={'metrics': dict.fromkeys(METRICS, {})})
+                         recorded=recorded, catalog={'metrics': dict.fromkeys(metrics, {})})
     return model
 
 
@@ -476,6 +476,29 @@ def test_model_tab_shows_formulation_losses_networks_and_plots_a_loss(viewer):
     assert page.locator('input[value="loss/gradient_penalty"]').is_checked()
     # Charts hidden behind the Model tab are resized to the visible panel again.
     page.wait_for_function("document.querySelector('.chart-canvas canvas').getBoundingClientRect().width > 200")
+    assert not errors
+
+
+def test_model_tab_plots_a_loss_when_the_view_already_holds_eight_series(viewer):
+    page, control, condition, errors = viewer
+    extra = ['loss/prior_regularizer', 'diversity/generated_rms', 'diversity/ratio', 'diversity/pooled4_ratio',
+             'throughput/steps_per_second', 'loss/d_adversarial']
+    control['catalog'] = {**METRICS, **{metric: metric for metric in extra}}
+    control['model'] = model_document(control['catalog'])
+    login(page)
+    assert page.locator('#metric-list input:checked').count() == 8
+    page.locator('#tab-model').click()
+    page.locator('.model-table button', has_text='loss/d_adversarial').click()
+    assert page.locator('#panel-metrics').is_visible()
+    assert page.locator('input[value="loss/d_adversarial"]').is_checked()
+    assert not page.locator('input[value="loss/g_total"]').is_checked()
+    assert page.locator('#metric-list input:checked').count() == 8
+    # The notice says what was replaced and outlives the view reload.
+    notice = page.locator('#notice', has_text='in place of loss/g_total')
+    notice.wait_for()
+    page.wait_for_function("document.querySelector('#coverage').textContent === 'History loaded'")
+    assert any('d_adversarial' in p for p in control['paths'] if '/bootstrap' in p)
+    assert notice.is_visible()
     assert not errors
 
 

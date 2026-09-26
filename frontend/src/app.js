@@ -159,17 +159,25 @@ function selectTab(name, { focus = false, remember = true } = {}) {
   // Charts measured nothing while hidden; size them to the visible panel.
   if (name === "metrics") requestAnimationFrame(() => { for (const card of state.charts.values()) card.chart.resize(); });
 }
+// From the Model tab: chart the series, making room by dropping the series
+// selected longest ago when the view already holds its 8.
 function plotMetric(id) {
+  let replaced = null;
   if (!state.selected.has(id)) {
     if (state.selected.size >= 8) {
-      notice("Choose at most 8 metrics for this view; clear one to add this series.");
-      return;
+      replaced = state.selected.values().next().value;
+      state.selected.delete(replaced);
     }
     state.selected.add(id);
     renderCatalog();
     reconfigure();
   }
   selectTab("metrics", { focus: true });
+  if (replaced) {
+    // Kept past the reload, which otherwise clears the notice.
+    state.loadedNotice = `Showing ${id} in place of ${replaced}; a view charts at most 8 series.`;
+    notice(state.loadedNotice);
+  }
 }
 function metricDefinitions() { return state.catalog?.metrics || {}; }
 function trainingSelection() { return [...state.selected]; }
@@ -793,7 +801,8 @@ async function loadBootstrap(epoch) {
       `${fmt(state.bucket)} step${state.bucket === 1 ? "" : "s"} / bucket`;
     $("coverage").textContent = "History loaded";
     markViewUpdated();
-    notice("");
+    notice(state.loadedNotice || "");
+    state.loadedNotice = null;
     render();
     stopStream();
     openStream(epoch);

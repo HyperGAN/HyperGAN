@@ -221,18 +221,21 @@ def test_slider_reaches_the_first_sample_of_a_whole_run_history(real_viewer):
     generated.locator('.sample-position').filter(has_text='Version 60 of 60').wait_for()
     slider = generated.locator('input[type="range"]')
     assert (slider.get_attribute('min'), slider.get_attribute('max')) == ('0', '59')
-    # One picture per name at a time, so scrubbing fetches the shown step only
-    # and a long history never downloads itself up front.
+    # One picture per name at a time. Scrubbing fetches the shown step and its
+    # four nearest neighbours ahead, so a long history never downloads itself
+    # up front: at most five pictures per name here.
     assert page.locator('img.image-grid').count() == 2
+    page.wait_for_timeout(500)
     fetched = [url for url in requests if '/artifacts/' in url]
-    assert len(fetched) <= 4, fetched
+    assert len(fetched) <= 10, fetched
     slider.focus()
     page.keyboard.press('Home')
     page.get_by_role('img', name='Sample g image grid at step 500', exact=True).wait_for()
     assert 'Version 1 of 60 · step 500' in generated.locator('.sample-position').inner_text()
     page.keyboard.press('End')
     generated.locator('.sample-position').filter(has_text='Version 60 of 60').wait_for()
-    assert len([url for url in requests if '/artifacts/' in url]) <= 8
+    # Only the first five of 'g' were new; the latest ones were still cached.
+    assert len([url for url in requests if '/artifacts/' in url]) <= 15
     assert not errors
 
 

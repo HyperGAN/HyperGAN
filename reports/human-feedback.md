@@ -95,6 +95,28 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 
 ## Done
 
+### 23. Sample image slider flashes while scrubbing; always show a picture and buffer ahead (raised 2026-09-25)
+
+Owner: "when i use the image slider in the webui it flashes, i want it to always show an
+image and buffer better or something."
+
+Cause: every slider move replaced the card's `<img>` with a new lazily loaded element, so
+the card was empty until the new PNG arrived and decoded; a new sample arriving rebuilt
+every card the same way.
+
+- [x] Keep the picture on screen until the chosen version is fetched and decoded, then
+  swap it in (`aria-busy` while waiting); stale loads are dropped, and a frame that
+  finishes mid-drag shows only if it is newer than the one on screen
+  (`frontend/src/app.js` `renderSampleGroup` `show`/`display`).
+- [x] Re-rendering the shelf when a sample arrives carries each card's shown picture over,
+  so following the latest never blanks either (`renderArtifacts`).
+- [x] Buffer ahead: the four versions either side of the slider are fetched and decoded
+  ahead (four loads at a time, queued loads this card no longer wants are dropped), and a
+  least-recently-used cache keeps up to 64 decoded pictures / 64 megapixels.
+- [x] Browser tests: a slow picture keeps the previous one and the card never goes
+  without an image; neighbours are prefetched; the whole-run history still only fetches
+  a bounded window (`tests/browser/test_viewer_ui.py`, `test_viewer_integration.py`).
+
 ### 21. Update to ParticleGAN 0.8.0: new formulation and API (raised 2026-09-25)
 
 **Status:** Implemented in [#385](https://github.com/HyperGAN/HyperGAN/pull/385). Known issue: the CUDA interval-evaluation acceptance test is order-dependent (see the PR).

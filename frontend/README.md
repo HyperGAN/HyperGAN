@@ -17,7 +17,9 @@ retained, a range slider (with keyboard support and a `Latest` button) scrubs
 back through them. A scrubbed position is kept while newer versions arrive and
 falls back to the newest version once retention removes it. At most 20 groups
 and 100 versions per group are rendered, and only the selected version of a
-group is in the DOM.
+group is in the DOM. The shown picture stays until the next one is decoded, the
+four versions either side of the slider are fetched ahead, and a bounded cache
+of decoded pictures makes scrubbing back and forth instant.
 
 An explicitly requested JSON tensor preview is limited to 64 KiB, eight axes and 4,096 finite
 values; it validates the declared shape and shows at most 128 numbers. Unknown

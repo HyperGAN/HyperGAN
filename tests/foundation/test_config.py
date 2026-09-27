@@ -220,13 +220,13 @@ def test_sampling_view_does_not_make_a_dormant_trainable_component_reachable():
 def test_particlegan_defaults_fill_only_omitted_fields_without_torch():
     check = """
 import sys
-from hypergan.config import PARTICLEGAN_DEFAULT_FIELDS, resolve_config
+from hypergan.config import PARTICLEGAN_ABSENT_FIELDS, PARTICLEGAN_DEFAULT_FIELDS, resolve_config
 config = resolve_config({'defaults': 'particlegan', 'optimizer': {'lr': 0.001}})
 assert 'torch' not in sys.modules and 'particlegan' not in sys.modules
 from particlegan import Recipe
 recipe = Recipe()
 for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items():
-    expected = getattr(recipe, field)
+    expected = getattr(recipe, field, PARTICLEGAN_ABSENT_FIELDS.get(field))
     if expected is None and field == 'prior_betas':
         expected = recipe.betas
     expected = list(expected) if isinstance(expected, tuple) else expected

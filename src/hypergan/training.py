@@ -23,8 +23,14 @@ from particlegan.training import input_noise_std, output_noise_std
 
 from .recipes import ComponentGraph, construct, make_prior, execution_device, move_tensors
 from .checkpoints import data_contract
+from .config import PARTICLEGAN_ABSENT_FIELDS
 from .numerical_policy import apply_backend_policy
 from .objective_program import compile_legacy_program, run_native_program
+
+
+# ParticleGAN#217 builds share one DV12 learning-rate controller between the
+# recipe optimizers (and jitter particle draws; see recipes.make_prior).
+LR_CONTROLLER = 'controller' in inspect.signature(Recipe.make_generator_optimizer).parameters
 
 
 class _MetricScalarTransfer:
@@ -128,7 +134,7 @@ def runtime_info(device='cpu'):
 
 def source_info():
     from .provenance import hypergan_source
-    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "407c2f7aad143badfa92ef4e7d5281b95b946542"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
+    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "407c2f7aad143badfa92ef4e7d5281b95b946542"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, "particlegan_formulation": "dv12-ka2" if LR_CONTROLLER else None, **hypergan_source()}
     result["distribution_records"] = {}
     for name in ("hypergan", "particlegan", "hndl"):
         try:
@@ -183,20 +189,36 @@ def _device_optimizer(optimizer):
     return optimizer
 
 
+# Penalty fields only some builds have: (configuration key, refusal when the
+# installed build lacks the field and the value is not what its absence means).
+_OPTIONAL_PENALTY_FIELDS = {
+    'reg_anchor_weight': ('anchor_weight', 'gradient_penalty.anchor_weight must be 0: the installed '
+                          'ParticleGAN has no EMA critic anchor'),
+    'reg_anchor_decay': ('anchor_decay', 'gradient_penalty.anchor_decay must be omitted: the installed '
+                         'ParticleGAN adapts the EMA critic decay (KA2); gradient_penalty.anchor_min_decay bounds it'),
+    'reg_anchor_min_decay': ('anchor_min_decay', 'gradient_penalty.anchor_min_decay must be omitted: the '
+                             'installed ParticleGAN has a fixed EMA critic decay (gradient_penalty.anchor_decay)'),
+}
+
+
 def particlegan_recipe(config):
     """The ParticleGAN recipe holding this configuration's training formulation.
 
     Only update settings are set. Model-shape fields (z_dim, prior kind,
     particle count) keep their defaults and are unused: HyperGAN builds the
-    networks and prior from its own configuration.
+    networks and prior from its own configuration. Penalty fields the
+    installed build lacks are refused unless they hold what their absence means.
     """
     opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
-    anchor = {'reg_anchor_weight': penalty['anchor_weight'], 'reg_anchor_decay': penalty['anchor_decay']}
-    if 'reg_anchor_weight' not in {field.name for field in dataclasses.fields(Recipe)}:
-        if penalty['anchor_weight']:
-            raise ValueError('gradient_penalty.anchor_weight must be 0: the installed ParticleGAN has no '
-                             'EMA critic anchor')
-        anchor = {}
+    fields = {field.name for field in dataclasses.fields(Recipe)}
+    anchor = {}
+    for field, (key, refusal) in _OPTIONAL_PENALTY_FIELDS.items():
+        value = penalty.get(key)
+        if field in fields:
+            if value is not None:
+                anchor[field] = value
+        elif value is not None and value != PARTICLEGAN_ABSENT_FIELDS.get(field):
+            raise ValueError(refusal)
     return Recipe(
         total_steps=training['steps'], batch_size=training['batch_size'],
         lr=opt['lr'], d_lr_mult=opt['d_lr_mult'], prior_lr_mult=opt['prior_lr_mult'],
@@ -248,6 +270,20 @@ def schedule_learning_rates(trainer, completed_steps):
     return network
 
 
+def applied_learning_rates(trainer):
+    """Each role's learning rate in the last update.
+
+    The DV12 controller scales the group LRs inside ``step()`` and records the
+    applied rates; other builds apply the group LRs as scheduled.
+    """
+    rates = {}
+    for optimizer, roles in zip((trainer.opt_g, trainer.opt_d), trainer.lr_roles):
+        applied = getattr(optimizer, 'applied_lrs', None) or [group['lr'] for group in optimizer.param_groups]
+        for role, lr in zip(roles, applied):
+            rates.setdefault('lr_' + role, float(lr))
+    return rates
+
+
 def noise_levels(trainer, completed_steps):
     """(critic input, generator output) noise std for the next update."""
     return input_noise_std(trainer.recipe, completed_steps), output_noise_std(trainer.recipe, completed_steps)
@@ -279,7 +315,6 @@ class ReferenceTrainer:
         self.prior = make_prior(config["prior"], device=self.device).float()
         self.data = construct(config["data"])
         self.recipe = particlegan_recipe(config)
-        self.gan = self.recipe.make_loss()
         self.spread = ParticleRegularizer(**{k: v for k, v in config["prior_regularizer"].items() if k != "rows"})
         self.objectives = [construct(term) for term in config["objectives"]]
         for objective in self.objectives:
@@ -298,10 +333,18 @@ class ReferenceTrainer:
         # Builds without the anchor (ParticleGAN#215) take no ema_critic argument.
         anchor = {'ema_critic': copy.deepcopy(self.critic)} if config["gradient_penalty"]["anchor_weight"] else {}
         self.opt_d = _device_optimizer(self.recipe.make_critic_optimizer(self.critic, **anchor, **optimizer_options))
+        # DV12 builds: one LR controller, owned by the critic optimizer and shared
+        # with the generator optimizer (Recipe.make_optimizers). It reads the real
+        # batch from the penalty's first call per critic step and the payoff from
+        # the loss bound to the critic optimizer; extra adversarial terms use a
+        # plain loss, so the payoff is the implicit discriminator's.
+        self.lr_controller = getattr(self.opt_d, 'controller', None)
+        self.gan = self.recipe.make_loss(self.opt_d) if self.lr_controller is not None else self.recipe.make_loss()
         self.penalty = self.recipe.make_critic_penalty(self.opt_d)
         make_penalty = lambda coeff: self.recipe.make_critic_penalty(self.opt_d, coeff=coeff)
         self.program = compile_legacy_program(
-            self.graph, self.prior, config, self.objectives, self.gan, self.penalty, self.spread, make_penalty)
+            self.graph, self.prior, config, self.objectives, self.gan, self.penalty, self.spread, make_penalty,
+            extra_gan=self.recipe.make_loss())
         groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"]}]
         self.lr_roles = [["generator"], ["critic"] * len(self.opt_d.param_groups)]
         if self.program.prior_parameters:
@@ -311,7 +354,10 @@ class ReferenceTrainer:
         table = getattr(self.prior, "z", None)
         latent_table = table if (type(self.prior) is ParticlePrior and table.requires_grad
                                  and self.program.prior_parameters == (table,)) else None
-        self.opt_g = _device_optimizer(self.recipe.make_generator_optimizer(groups, latent_table=latent_table, **optimizer_options))
+        # The controller gives groups holding prior parameters the prior rate, and
+        # opt_g.step() advances the prior's jitter width.
+        shared = {} if self.lr_controller is None else {'controller': self.lr_controller, 'prior': self.prior}
+        self.opt_g = _device_optimizer(self.recipe.make_generator_optimizer(groups, latent_table=latent_table, **shared, **optimizer_options))
         self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in (self.opt_g, self.opt_d)]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
@@ -342,7 +388,10 @@ class ReferenceTrainer:
         batch = self.batch() if batch is None else move_tensors(batch, self.device)
         if len(batch['real']) != self.config['training']['batch_size']:
             raise ValueError('Data batch length must match training.batch_size')
-        z, ids = self.prior.sample(len(batch['real']), generator=self.streams['prior']) if latent_draw is None else move_tensors(latent_draw, self.device)
+        # Support jitter draws from the noise stream after the prior stream's
+        # indices, as ParticleGAN's GANTrainer draws it from its noise stream.
+        jitter = {'noise_generator': self.streams['noise']} if getattr(self.prior, 'support_jitter', False) else {}
+        z, ids = self.prior.sample(len(batch['real']), generator=self.streams['prior'], **jitter) if latent_draw is None else move_tensors(latent_draw, self.device)
         context = self.graph.generate(z, batch, prior=self.prior)
         if not isinstance(context['generated'], torch.Tensor) or context['generated'].shape != batch['real'].shape:
             raise ValueError(f"Generator output must match real data shape {tuple(batch['real'].shape)}")

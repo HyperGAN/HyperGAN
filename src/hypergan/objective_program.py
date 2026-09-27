@@ -122,12 +122,14 @@ def _penalty_for_term(spec, make_penalty):
     return make_penalty(spec["penalty_coeff"])
 
 
-def compile_legacy_program(graph, prior, config, objectives, gan, penalty, spread, make_penalty=None):
+def compile_legacy_program(graph, prior, config, objectives, gan, penalty, spread, make_penalty=None,
+                           extra_gan=None):
     """Compile today's recipe into ``d-then-g-v1``.
 
     The implicit first term reads the discriminator and its inputs. Optional
-    ``adversarial_terms`` append further terms with that same detach policy.
-    These records are not another training method.
+    ``adversarial_terms`` append further terms with that same detach policy,
+    scored by ``extra_gan`` (default ``gan``). These records are not another
+    training method.
     """
     discriminator = graph.models["discriminator"]
     critic_phase, generator_phase = _legacy_phases()
@@ -139,7 +141,7 @@ def compile_legacy_program(graph, prior, config, objectives, gan, penalty, sprea
         extra_critic, extra_generator = _phases(spec["real"], spec["fake"])
         terms.append(AdversarialTerm(
             module, _routes(spec["inputs"]), spec["weight"], bool(spec["penalty"]),
-            _penalty_for_term(spec, make_penalty), gan,
+            _penalty_for_term(spec, make_penalty), gan if extra_gan is None else extra_gan,
             extra_critic, extra_generator, spec["id"]))
     terms = tuple(terms)
     if len(terms) == 1:
@@ -297,7 +299,7 @@ def _generator_tail(trainer, program, context, ids, fake):
 
 def run_native_program(trainer, batch, latent_draw, generator_batch, generator_latent_draw):
     """Execute ``d-then-g-v1`` from the compiled program."""
-    from .training import ScoredCritic, noise_levels, schedule_learning_rates, update_ema
+    from .training import ScoredCritic, applied_learning_rates, noise_levels, schedule_learning_rates, update_ema
     program = trainer.program
     if program.schedule != "d-then-g-v1":
         raise ValueError(f"Unsupported native schedule {program.schedule}")
@@ -417,5 +419,9 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     row = dict(zip(("d_loss", "d_adversarial", "d_adversarial_weighted",
                     "g_adversarial_weighted", "g_loss", "g_adversarial",
                     "prior_loss", "gradient_penalty"), values[:8]))
-    row.update(event="train", step=step, objectives=values[8:], lr_scale=scale)
+    controller = getattr(trainer, 'lr_controller', None)
+    if controller is not None:
+        # The generator's applied fraction of its peak: schedule times controller.
+        scale = scale * controller.network_scale
+    row.update(event="train", step=step, objectives=values[8:], lr_scale=scale, **applied_learning_rates(trainer))
     return row, detach(batch)

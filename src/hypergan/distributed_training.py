@@ -15,7 +15,7 @@ import torch.distributed as dist
 from .config import config_values, fingerprint, resolve_config
 from .distributed import Collectives
 from .recipes import detach, move_tensors
-from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, schedule_learning_rates, update_ema
+from .training import LR_CONTROLLER, NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, applied_learning_rates, schedule_learning_rates, update_ema
 
 
 class ReplicatedTrainer(ReferenceTrainer):
@@ -36,6 +36,12 @@ class ReplicatedTrainer(ReferenceTrainer):
         config = self._phase('configuration', lambda: resolve_config(config_values(config)))
         from .execution_profiles import validate_replicated_recipe
         self._phase('recipe policy', lambda: validate_replicated_recipe(config))
+
+        def refuse_lr_controller():
+            if LR_CONTROLLER:
+                raise ValueError("Replicated execution does not support the installed ParticleGAN's DV12 "
+                                 'learning-rate controller; train it with native single-process execution')
+        self._phase('learning-rate controller', refuse_lr_controller)
         self._agree('configuration', {'fingerprint': fingerprint(config), 'accumulation_steps': accumulation_steps})
         if world_size < 2:
             raise ValueError('Replicated training requires at least two ranks')
@@ -348,7 +354,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self.checkpoint_ready = True
         values = values.tolist()
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
-        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,
+        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale, **applied_learning_rates(self),
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size, world_size=self.world_size)
         return row, detach(batch)
 
@@ -619,7 +625,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self.step, self.checkpoint_ready = step, True
         values = values.tolist()
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
-        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,
+        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale, **applied_learning_rates(self),
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size,
                    world_size=self.world_size, accumulation_steps=self.accumulation_steps, microbatch_size=self.microbatch_size)
         return row, detach(batch)

@@ -96,11 +96,29 @@ def trainer_state(trainer, last_batch):
         restore_rng(rng)
 
 
+def check_formulation(trainer, state):
+    """Name a ParticleGAN formulation change ahead of the generic resume checks.
+
+    A DV12 build's critic optimizer state carries its LR controller; a K3P-era
+    build's (ParticleGAN 0.8.0) does not. Neither can continue the other's run.
+    """
+    try:
+        saved = 'controller' in state['optimizers'][1]['regularizer']
+    except (KeyError, IndexError, TypeError):
+        return
+    if saved != (getattr(trainer, 'lr_controller', None) is not None):
+        builds = ('a DV12/KA2 ParticleGAN build (ParticleGAN#217)', 'a ParticleGAN build without the DV12 LR controller (e.g. 0.8.0, K3P)')
+        written, installed = builds if saved else builds[::-1]
+        raise ValueError(f'This checkpoint was trained with {written}; the installed one is {installed} and cannot '
+                         'continue it. Resume with the ParticleGAN build that wrote it, or start a new run.')
+
+
 def _restore_trainer(trainer, state):
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
     if not isinstance(state, dict) or set(state) != required:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
+    check_formulation(trainer, state)
     if getattr(trainer, 'device', torch.device('cpu')).type == 'cuda':
         rng = state['rng']
         if not isinstance(rng, dict) or 'cuda' not in rng or 'cuda_device' not in rng:

@@ -3,6 +3,7 @@
 Fixed-runtime recovery is supported; image quality and DDP require separate qualification.
 """
 import copy
+import dataclasses
 import functools
 import hashlib
 import importlib
@@ -190,6 +191,12 @@ def particlegan_recipe(config):
     networks and prior from its own configuration.
     """
     opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
+    anchor = {'reg_anchor_weight': penalty['anchor_weight'], 'reg_anchor_decay': penalty['anchor_decay']}
+    if 'reg_anchor_weight' not in {field.name for field in dataclasses.fields(Recipe)}:
+        if penalty['anchor_weight']:
+            raise ValueError('gradient_penalty.anchor_weight must be 0: the installed ParticleGAN has no '
+                             'EMA critic anchor')
+        anchor = {}
     return Recipe(
         total_steps=training['steps'], batch_size=training['batch_size'],
         lr=opt['lr'], d_lr_mult=opt['d_lr_mult'], prior_lr_mult=opt['prior_lr_mult'],
@@ -197,8 +204,7 @@ def particlegan_recipe(config):
         d_guard_ratio=opt['d_guard_ratio'], d_guard_min_steps=opt['d_guard_min_steps'],
         latent_damping_max_rate=opt['latent_damping_max_rate'],
         reg_coeff=penalty['coeff'], reg_kappa=penalty['kappa'], reg_every=penalty['lazy_k'],
-        reg_anchor_weight=penalty['anchor_weight'], reg_anchor_decay=penalty['anchor_decay'],
-        prior_reg=config['prior_regularizer']['weight'], ema_decay=training['ema'],
+        **anchor, prior_reg=config['prior_regularizer']['weight'], ema_decay=training['ema'],
         lr_anneal_start=training['lr_anneal_start'], lr_floor=training['lr_floor'],
         network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
         input_noise_std=training['input_noise_std'], input_noise_anneal_end=training['input_noise_anneal_end'],
@@ -289,8 +295,9 @@ class ReferenceTrainer:
         # optimizer, one EMA critic (the penalty's anchor) and one handover.
         names = ["discriminator"] + [term["component"] for term in config.get("adversarial_terms") or ()]
         self.critic = torch.nn.ModuleDict({name: self.graph.models[name] for name in dict.fromkeys(names)})
-        ema_critic = copy.deepcopy(self.critic) if config["gradient_penalty"]["anchor_weight"] else None
-        self.opt_d = _device_optimizer(self.recipe.make_critic_optimizer(self.critic, ema_critic=ema_critic, **optimizer_options))
+        # Builds without the anchor (ParticleGAN#215) take no ema_critic argument.
+        anchor = {'ema_critic': copy.deepcopy(self.critic)} if config["gradient_penalty"]["anchor_weight"] else {}
+        self.opt_d = _device_optimizer(self.recipe.make_critic_optimizer(self.critic, **anchor, **optimizer_options))
         self.penalty = self.recipe.make_critic_penalty(self.opt_d)
         make_penalty = lambda coeff: self.recipe.make_critic_penalty(self.opt_d, coeff=coeff)
         self.program = compile_legacy_program(

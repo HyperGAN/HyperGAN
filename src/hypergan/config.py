@@ -156,6 +156,10 @@ PARTICLEGAN_DEFAULT_FIELDS = {
     ("training", "output_noise_warmup"): "output_noise_warmup",
 }
 
+# Recipe fields a ParticleGAN build may lack, with the value their absence
+# means. Builds without the EMA critic anchor (ParticleGAN#215) have no anchor.
+PARTICLEGAN_ABSENT_FIELDS = {"reg_anchor_weight": 0.0, "reg_anchor_decay": DEFAULT["gradient_penalty"]["anchor_decay"]}
+
 # Fields ParticleGAN 0.8 removed. Its only formulation is RpGAN logistic with
 # the K3P critic penalty, so a loss that names exactly that is dropped; any
 # other value, and every penalty technique field, is refused.
@@ -193,7 +197,7 @@ def particlegan_defaults():
     sys.modules[name] = module
     try:
         spec.loader.exec_module(module)
-        recipe = {field.name: field.default for field in dataclasses.fields(module.Recipe)}
+        recipe = {**PARTICLEGAN_ABSENT_FIELDS, **{field.name: field.default for field in dataclasses.fields(module.Recipe)}}
     finally:
         del sys.modules[name]
     if recipe["prior_betas"] is None:

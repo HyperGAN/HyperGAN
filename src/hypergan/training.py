@@ -472,7 +472,7 @@ def _implementation(trainer):
     objects = [hypergan.checkpoints, hypergan.config, hypergan.metrics, hypergan.recipes,
                hypergan.run_controller, hypergan.single_execution, hypergan.numerical_policy, ReferenceTrainer,
                GANLoss, GradientPenalty, ParticleRegularizer, Recipe, learning_rate_scales, input_noise_std,
-               type(trainer.penalty),
+               type(trainer.penalty), *[type(c) for c in (getattr(trainer, 'lr_controller', None),) if c is not None],
                type(trainer.data), type(trainer.prior), *[type(x) for x in trainer.graph.modules()],
                *[x if inspect.isfunction(x) else type(x) for x in trainer.objectives]]
     specifications = [trainer.config['data'], *trainer.config['components'].values(), *trainer.config['objectives']]

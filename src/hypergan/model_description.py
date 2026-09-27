@@ -46,6 +46,27 @@ K3P_EQUATIONS = {
     'd_total': 'Σ terms weight·d_adversarial + Σ penalized critics penalty',
     'g_total': 'Σ terms weight·g_adversarial + prior regularizer + Σ objectives weight·objective',
 }
+# ParticleGAN#217 builds: the KA2 penalty and the DV12 learning-rate
+# controller (ParticleGAN docs/k3p.md on that build). Recognized from the
+# recorded source, or from gradient_penalty.anchor_min_decay, which only
+# those builds resolve.
+DV12_EQUATIONS = {
+    'd_adversarial': K3P_EQUATIONS['d_adversarial'],
+    'g_adversarial': K3P_EQUATIONS['g_adversarial'],
+    'A': K3P_EQUATIONS['A'],
+    'B': 'mean(relu(‖∇D(real)‖ − κ)²) + mean(relu(‖∇D(fake)‖ − κ)²) + W·w·P,  w = anchor_weight',
+    'P': 'mean(‖∇D(real) − ∇D̄(real)‖²/d),  D̄ = EMA critic, decay 1 − α·(1 − anchor_min_decay)',
+    'W, α': 'W (0 or 1) and the tracking rate α follow the critic\'s Adam moment surprise; '
+            'W stays 1 while the real data is not moving',
+    'penalty': 'c/2 · A for the first 799 applied calls, then c/2 · (A/2 + B/2); '
+               'applied every lazy_k steps with coefficient lazy_k·c',
+    'learning rates': 'G = lr·(.01 + .99m)·gt,  prior = lr·prior_lr_mult·(.05 + .95m)·gt,  '
+                      'D = lr·d_lr_mult·(.01 + .99m)·gt/(1 + pe²),  times the optional schedule',
+    'm, gt, pe': 'DV12 controller state: mobility, game trust (moment surprise) and payoff error '
+                 '(EMA of max(0, g_adversarial − d_adversarial)/log 2)',
+    'd_total': K3P_EQUATIONS['d_total'],
+    'g_total': K3P_EQUATIONS['g_total'],
+}
 LEGACY_PENALTY_KEYS = ('arm', 'norm', 'target_anneal', 'total_steps', 'method', 'fd_eps')
 # ParticleGAN 0.8 Recipe defaults (docs/k3p.md): infer `defaults = "particlegan"` on
 # manifests that do not record it. A tuned run reports "unknown".
@@ -251,13 +272,33 @@ def _blend_floor(training):
     return (float(floor) if floor < 0.5 else 0.0), floor
 
 
+def _dv12(config, manifest):
+    return ((manifest.get('source') or {}).get('particlegan_formulation') == 'dv12-ka2'
+            or 'anchor_min_decay' in _section(config, 'gradient_penalty'))
+
+
 def _formulation(config, manifest):
-    """K3P for ParticleGAN 0.8 configurations; recorded fields shown verbatim otherwise."""
+    """DV12/KA2 or K3P for ParticleGAN 0.8 configurations; recorded fields shown verbatim otherwise."""
     penalty, adversarial = _section(config, 'gradient_penalty'), _section(config, 'adversarial')
     training = _section(config, 'training')
     version = _particlegan_version(manifest)
     legacy = any(k in penalty for k in LEGACY_PENALTY_KEYS) or any(k in adversarial for k in ('loss_type', 'mode'))
     raw = {'adversarial': redact(adversarial), 'gradient_penalty': redact(penalty)}
+    if not legacy and _dv12(config, manifest):
+        equations = dict(DV12_EQUATIONS)
+        anchor = penalty.get('anchor_weight')
+        if _number(anchor) and anchor == 0:
+            equations['P'] = 'off: anchor_weight = 0 (no EMA critic)'
+        return {'family': 'dv12', 'name': 'DV12 + KA2', 'loss': 'RpGAN logistic (relativistic paired)',
+                'particlegan': version or '0.8 (ParticleGAN#217 build)', 'equations': equations,
+                'parameters': {'coeff': penalty.get('coeff'), 'kappa': penalty.get('kappa'),
+                               'lazy_k': penalty.get('lazy_k'), 'anchor_weight': anchor,
+                               'anchor_min_decay': penalty.get('anchor_min_decay', 'build default'),
+                               'adversarial_weight': adversarial.get('weight')},
+                'note': 'Learning rates are the DV12 controller\'s fractions of each group\'s peak, chosen '
+                        'every update from training signals; the applied rates are the optimizer/lr_* series. '
+                        'Particle draws are jittered inside each particle\'s cell.',
+                'raw': raw}
     if not legacy:
         equations, notes = dict(K3P_EQUATIONS), []
         f, floor = _blend_floor(training)
@@ -339,9 +380,9 @@ def _losses(config, family):
     terms = _adversarial_terms(config)
     several = len(terms) > 1
     penalty = _section(config, 'gradient_penalty')
-    penalty_kind = 'k3p_penalty' if family == 'k3p' else 'penalty_' + str(penalty.get('arm', 'legacy'))
-    penalty_fields = (('kappa', 'lazy_k', 'anchor_weight', 'anchor_decay') if family == 'k3p'
-                      else ('kappa', 'lazy_k', 'arm', 'norm'))
+    penalty_kind = {'k3p': 'k3p_penalty', 'dv12': 'ka2_penalty'}.get(family, 'penalty_' + str(penalty.get('arm', 'legacy')))
+    penalty_fields = {'k3p': ('kappa', 'lazy_k', 'anchor_weight', 'anchor_decay'),
+                      'dv12': ('kappa', 'lazy_k', 'anchor_weight', 'anchor_min_decay')}.get(family, ('kappa', 'lazy_k', 'arm', 'norm'))
 
     def series(metric):
         if several:
@@ -404,7 +445,7 @@ def _optimizers(config, family):
     optimizer, training = _section(config, 'optimizer'), _section(config, 'training')
     critics = list(dict.fromkeys(['discriminator'] + [t.get('component') for t in config.get('adversarial_terms') or ()]))
     generator_groups = [name for name, role in roles(config).items() if role not in ('critic', 'alias')]
-    k3p = family == 'k3p'
+    k3p = family in ('k3p', 'dv12')
     trainable, reason = _prior_table(config)
     prior_group = ({'lr': _product(optimizer.get('lr'), optimizer.get('prior_lr_mult')),
                     'lr_mult': optimizer.get('prior_lr_mult'), 'betas': optimizer.get('prior_betas')}

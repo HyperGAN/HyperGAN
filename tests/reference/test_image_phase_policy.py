@@ -17,7 +17,7 @@ from tests.hndl_fixtures import fixture_network
 from hypergan.checkpoints import restore_trainer, trainer_state
 from hypergan.config import config_values, resolve_config
 from hypergan.execution_profiles import resolve_execution_profile
-from hypergan.training import ReferenceTrainer, update_ema
+from hypergan.training import LR_CONTROLLER, ReferenceTrainer, update_ema
 
 
 class Encoder(torch.nn.Module):
@@ -79,6 +79,9 @@ def close(left, right, *, exact=False):
         assert len(left) == len(right)
         for a, b in zip(left, right):
             close(a, b, exact=exact)
+    elif isinstance(left, float) and not exact:
+        # Host scalars read from those tensors (e.g. a DV12 controller's statistics).
+        assert left == pytest.approx(right, rel=2e-6, abs=2e-7)
     else:
         assert left == right
 
@@ -89,12 +92,15 @@ def test_independent_phases_match_direct_updates_and_encoder_only_gradient_routi
     prior = copy.deepcopy(trainer.prior)
     ema_g, ema_e, ema_prior = [copy.deepcopy(module) for module in (g, e, prior)]
     opt, recipe = trainer.config['optimizer'], trainer.recipe
+    od = recipe.make_critic_optimizer(d, ema_critic=copy.deepcopy(d), fused=True)
+    # DV12 builds share the critic optimizer's LR controller and read the payoff from its loss.
+    shared = {'controller': od.controller, 'prior': prior} if LR_CONTROLLER else {}
     og = recipe.make_generator_optimizer(
         [{'params': [*g.parameters(), *e.parameters()], 'lr': opt['lr']},
          {'params': prior.parameters(), 'lr': opt['lr'] * opt['prior_lr_mult'], 'betas': tuple(opt['prior_betas'])}],
-        fused=True)
-    od = recipe.make_critic_optimizer(d, ema_critic=copy.deepcopy(d), fused=True)
+        fused=True, **shared)
     penalty = recipe.make_critic_penalty(od)
+    gan = recipe.make_loss(od) if LR_CONTROLLER else trainer.gan
     data_rng = torch.Generator().manual_seed(441)
     d_ids, g_ids = torch.arange(8), torch.arange(8, 16)
     for step in range(1, 5):
@@ -105,14 +111,14 @@ def test_independent_phases_match_direct_updates_and_encoder_only_gradient_routi
             fake = g(prior(d_ids, eps=d_eps))
         od.zero_grad(set_to_none=True)
         dp = penalty(d, d_real, fake)
-        dl = trainer.gan.d_loss(d(d_real), d(fake)) + dp
+        dl = gan.d_loss(d(d_real), d(fake)) + dp
         dl.backward()
         od.step()
         d.requires_grad_(False)
         og.zero_grad(set_to_none=True)
         with torch.no_grad():
             dr = d(g_real)
-        gl = trainer.gan.g_loss(d(g(prior(g_ids, eps=g_eps))), dr)
+        gl = gan.g_loss(d(g(prior(g_ids, eps=g_eps))), dr)
         encoded = e(g_real, prior.means(), prior.sigma)
         g.requires_grad_(False)
         rec = (g(encoded) - g_real).square().mean()

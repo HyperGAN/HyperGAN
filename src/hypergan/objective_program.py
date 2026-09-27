@@ -419,9 +419,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     row = dict(zip(("d_loss", "d_adversarial", "d_adversarial_weighted",
                     "g_adversarial_weighted", "g_loss", "g_adversarial",
                     "prior_loss", "gradient_penalty"), values[:8]))
-    controller = getattr(trainer, 'lr_controller', None)
-    if controller is not None:
-        # The generator's applied fraction of its peak: schedule times controller.
-        scale = scale * controller.network_scale
+    # lr_scale is the schedule's network multiplier; lr_* are the rates applied,
+    # which a DV12 build's controller scales further.
     row.update(event="train", step=step, objectives=values[8:], lr_scale=scale, **applied_learning_rates(trainer))
     return row, detach(batch)

@@ -109,7 +109,7 @@ def test_frozen_snapshot_has_no_live_tensor_or_custom_container_aliases(tmp_path
                 for value in model.parameters():
                     value.add_(10)
                 for value in model.buffers():
-                    value.add_(10)
+                    value.logical_not_() if value.dtype == torch.bool else value.add_(10)
             batch['real'].add_(10)
         trainer.config['sampling']['seed'] += 1
         assert _digest(frozen) == fingerprint

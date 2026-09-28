@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import torch
 
-from .checkpoints import capture_rng, read_checkpoint, restore_rng, restore_trainer, write_checkpoint
+from .checkpoints import capture_rng, check_formulation, read_checkpoint, restore_rng, restore_trainer, write_checkpoint
 from .checkpoint_compatibility import CURRENT_VERSION, validate_runtime, validate_implementation
 from .config import config_values, fingerprint, resume_compatible
 from .metrics import validate_update_scalars
@@ -103,6 +103,7 @@ class SingleProcessExecution:
                          'current_implementation': _implementation(self._trainer)}
         runtime_warnings = validate_runtime(info['runtime'], current_runtime, **migration)
         self._open()
+        check_formulation(self._trainer, state)
         contract, reasons = _recovery_contract(self._trainer)
         if reasons:
             raise ValueError('Recovery unsupported: ' + '; '.join(reasons))

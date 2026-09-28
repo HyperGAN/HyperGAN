@@ -237,6 +237,19 @@ no noise. The removed fields `adversarial.loss_type`/`mode` are accepted only as
 `gradient_penalty` field (`arm`, `norm`, `method`, ...) is refused with the
 field named. Runs trained before ParticleGAN 0.8 cannot resume under it.
 
+A ParticleGAN build with the DV12 learning-rate controller and KA2 penalty
+(the ParticleGAN#217 candidate default) trains the same way GANTrainer does.
+One controller, kept in the critic optimizer's state, sets every update's
+generator, prior and critic rates as fractions of their configured peaks; the
+optional schedule still multiplies the peaks, so `optimizer/lr_scale` remains
+the schedule's multiplier and `optimizer/lr_generator`, `lr_prior` and
+`lr_critic` record the applied rates. KA2 adapts the EMA critic's decay down to
+`gradient_penalty.anchor_min_decay` (.9), which only such builds resolve;
+`anchor_decay` must stay omitted there, and `anchor_min_decay` is refused by
+builds without it. Particle draws are jittered inside each particle's cell,
+from the noise stream. Checkpoints do not resume across the formulation
+change, and replicated execution refuses the controller.
+
 Critic input noise is added inside the critic, so the penalty differentiates
 the clean input and the EMA critic sees the same noise. Output noise is added
 to the fake sample the critic scores, not to objectives or previews. Recipes

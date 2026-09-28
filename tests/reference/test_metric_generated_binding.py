@@ -113,3 +113,37 @@ def test_invalid_or_unavailable_evaluation_output_rejected(binding):
     config['metrics']['custom']['distance']['evaluation']['generated'] = binding
     with pytest.raises(ValueError, match='evaluation.generated|component binding'):
         resolve_config(config)
+
+
+def noisy_sampling(config, std=.1):
+    config['sampling']['output_noise'] = True
+    config['training'].update(output_noise_std=std, output_noise_warmup=0.0)
+    return config
+
+
+def test_output_noise_sampling_adds_the_training_output_noise_to_snapshot_metrics(tmp_path):
+    config = recipe()
+    config['metrics']['custom']['distance']['evaluation'].update(generated='components.reconstruction', sample_count=4096,
+                                                                 batch_size=512)
+    trainer, _, path = snapshot(tmp_path, config)
+    clean = evaluate(path, trainer.config['metrics']['custom']['distance'], trainer.artifact_identity)
+    assert clean['value'] == 0 and 'output_noise_std' not in clean['protocol']
+    trainer, _, path = snapshot(tmp_path, noisy_sampling(config))
+    spec = trainer.config['metrics']['custom']['distance']
+    noisy = evaluate(path, spec, trainer.artifact_identity)
+    assert noisy['protocol']['output_noise_std'] == .1
+    assert noisy['value'] == pytest.approx(.01, rel=.1)
+    assert evaluate(path, spec, trainer.artifact_identity)['value'] == noisy['value']
+
+
+def test_output_noise_sampling_in_previews_and_config():
+    from hypergan.previews import render_preview
+    batch = {'real': torch.zeros(4, 2)}
+    clean = render_preview(ReferenceTrainer(resolve_config(recipe())), batch, {'run_id': 'run'})
+    noisy = render_preview(ReferenceTrainer(resolve_config(noisy_sampling(recipe()))), batch, {'run_id': 'run'})
+    difference = torch.tensor(noisy['samples']) - torch.tensor(clean['samples'])
+    assert 0 < difference.std() < .2
+    config = recipe()
+    config['sampling']['output_noise'] = 1
+    with pytest.raises(ValueError, match='sampling.output_noise must be boolean'):
+        resolve_config(config)

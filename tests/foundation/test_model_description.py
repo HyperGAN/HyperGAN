@@ -27,7 +27,8 @@ def test_every_example_describes(path):
     text = json.dumps(result, allow_nan=False)
     assert not LOCAL_PATH.search(text), 'absolute local path leaked'
     assert len(text) < 256 * 1024
-    assert result['formulation']['family'] == 'k3p'
+    # Only DV12 builds (ParticleGAN#217) resolve anchor_min_decay.
+    assert result['formulation']['family'] == ('dv12' if 'anchor_min_decay' in config['gradient_penalty'] else 'k3p')
     assert result['formulation']['parameters']['coeff'] == config['gradient_penalty']['coeff']
     names = [entry['name'] for entry in result['networks']]
     assert names == list(config['components'])
@@ -221,3 +222,15 @@ def test_malformed_recorded_graph_lists_are_ignored():
     merged = describe_run({'config': config, 'config_sha256': 'a' * 64}, recorded=recorded)
     assert merged['networks'][0]['graph']['subgraphs'] == []
     assert merged['networks'][1]['graph']['subgraphs'][0]['nodes'] == []
+
+
+def test_dv12_builds_describe_the_controller_and_ka2_not_k3p():
+    config = resolve_config({})
+    for manifest in ({'source': {'particlegan_formulation': 'dv12-ka2'}},
+                     {'config': {**config, 'gradient_penalty': {**config['gradient_penalty'], 'anchor_min_decay': 0.9}}}):
+        result = describe_run({'config': config, 'config_sha256': 'c' * 64, 'run_id': 'run', **manifest})
+        formulation = result['formulation']
+        assert formulation['family'] == 'dv12' and 's' not in formulation['equations']
+        assert 'learning rates' in formulation['equations'] and 'anchor_decay' not in formulation['parameters']
+        penalty = next(term for term in result['losses']['discriminator'] if term['id'] == 'adversarial:penalty')
+        assert penalty['kind'] == 'ka2_penalty' and 'anchor_min_decay' in penalty

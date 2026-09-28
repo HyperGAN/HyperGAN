@@ -149,6 +149,10 @@ def render_preview(trainer, batch, identity):
             latent, ids = prior.sample(count, generator=torch.Generator().manual_seed(seed))
             context = graph.generate(latent, normalized, prior=prior)
             values = generation_output(graph, context, trainer.config['sampling'])
+            if trainer.config['sampling'].get('output_noise', False):
+                from .training import sampling_output_noise_std, with_noise
+                values = with_noise(values, sampling_output_noise_std(trainer.config, trainer.step),
+                                    torch.Generator().manual_seed(seed + 1))
             ids = generation_particle_ids(graph, context, ids, trainer.config['sampling'])
             views = {name: graph.resolve(binding, context) for name, binding
                      in trainer.config['sampling'].get('views', {}).items()}

@@ -156,6 +156,17 @@ PARTICLEGAN_DEFAULT_FIELDS = {
     ("training", "output_noise_warmup"): "output_noise_warmup",
 }
 
+# Recipe fields a ParticleGAN build may lack, with the value their absence
+# means. Builds without the EMA critic anchor (ParticleGAN#215) have no anchor;
+# DV12/KA2 builds (ParticleGAN#217) adapt the anchor's decay and have no fixed one.
+PARTICLEGAN_ABSENT_FIELDS = {"reg_anchor_weight": 0.0, "reg_anchor_decay": DEFAULT["gradient_penalty"]["anchor_decay"]}
+
+# Fields only some builds have and HyperGAN has no default for: `defaults =
+# "particlegan"` fills them when the installed Recipe has the field, and they
+# are otherwise left out, so configurations resolved for other builds are
+# unchanged. The KA2 EMA critic's fastest tracking decay (ParticleGAN#217).
+PARTICLEGAN_OPTIONAL_FIELDS = {("gradient_penalty", "anchor_min_decay"): "reg_anchor_min_decay"}
+
 # Fields ParticleGAN 0.8 removed. Its only formulation is RpGAN logistic with
 # the K3P critic penalty, so a loss that names exactly that is dropped; any
 # other value, and every penalty technique field, is refused.
@@ -193,13 +204,15 @@ def particlegan_defaults():
     sys.modules[name] = module
     try:
         spec.loader.exec_module(module)
-        recipe = {field.name: field.default for field in dataclasses.fields(module.Recipe)}
+        recipe = {**PARTICLEGAN_ABSENT_FIELDS, **{field.name: field.default for field in dataclasses.fields(module.Recipe)}}
     finally:
         del sys.modules[name]
     if recipe["prior_betas"] is None:
         recipe["prior_betas"] = recipe["betas"]
+    fields = {**PARTICLEGAN_DEFAULT_FIELDS,
+              **{key: field for key, field in PARTICLEGAN_OPTIONAL_FIELDS.items() if field in recipe}}
     return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]
-            for key, field in PARTICLEGAN_DEFAULT_FIELDS.items()}
+            for key, field in fields.items()}
 
 
 def _keys(value, allowed, location):
@@ -331,7 +344,8 @@ def resolve_config(raw):
         elif key == "adversarial_terms":
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
-            allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
+            allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison', 'output_noise'} if key == 'sampling' else set())
+            allowed |= {field for section, field in PARTICLEGAN_OPTIONAL_FIELDS if section == key}
             _keys(value, allowed, key)
             result[key].update(deepcopy(value))
         else:
@@ -392,6 +406,9 @@ def resolve_config(raw):
     _positive(penalty["lazy_k"], "gradient_penalty.lazy_k", integer=True)
     if type(penalty["anchor_decay"]) not in (int, float) or not 0 <= penalty["anchor_decay"] < 1:
         raise ValueError("gradient_penalty.anchor_decay must be in [0, 1)")
+    if "anchor_min_decay" in penalty and (type(penalty["anchor_min_decay"]) not in (int, float)
+                                          or not 0 <= penalty["anchor_min_decay"] < 1):
+        raise ValueError("gradient_penalty.anchor_min_decay must be in [0, 1)")
     if result["prior_regularizer"]["rows"] not in {"sampled_unique", "full"}:
         raise ValueError("prior_regularizer.rows must be sampled_unique or full")
     for key in ("weight", "target_std"):
@@ -464,6 +481,8 @@ def resolve_config(raw):
         _positive(result[section]["seed"], f"{section}.seed", integer=True, zero=True)
     _positive(result["sampling"]["count"], "sampling.count", integer=True)
     sampling = result['sampling']
+    if type(sampling.get('output_noise', False)) is not bool:
+        raise ValueError('sampling.output_noise must be boolean')
     if 'generated' in sampling and (not isinstance(sampling['generated'], str)
             or not sampling['generated'].startswith('components.')
             or len(sampling['generated'].split('.')) < 2):

@@ -84,7 +84,7 @@ def move_tensors(value, device):
 
 
 def make_prior(spec, *, device=None):
-    from particlegan import GaussianPrior, MoGParticlePrior, ParticlePrior, calibrate_mog_sigma
+    from particlegan import GaussianPrior, MoGParticlePrior, ParticlePrior, Recipe, calibrate_mog_sigma
     args = dict(spec['args'])
     initial_device = 'cpu' if spec.get('initialization_device') == 'cpu' else device
     if initial_device is not None:
@@ -107,6 +107,10 @@ def make_prior(spec, *, device=None):
             prior.d0.copy_(distance)
             prior.sigma_rel = float(sigma_rel)
     else:
+        if spec['kind'] == 'particles' and getattr(Recipe, '_support_jitter', False):
+            # DV12 builds (ParticleGAN#217) jitter particle draws inside their
+            # cells, as Recipe.make_prior builds the table.
+            args.setdefault('support_jitter', True)
         prior = {"particles": ParticlePrior, "gaussian": GaussianPrior}[spec["kind"]](**args)
     return prior.to(device) if device is not None else prior
 

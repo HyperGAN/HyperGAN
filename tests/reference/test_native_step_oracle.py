@@ -80,9 +80,10 @@ def _close(left, right):
 
 
 def _assert_rows(produced, reference):
-    assert produced.keys() == reference.keys()
-    for key, value in produced.items():
-        assert value == reference[key]
+    # The executor also records each role's applied LR; the frozen oracle predates them.
+    assert set(produced) - set(reference) <= {'lr_generator', 'lr_prior', 'lr_critic'}
+    for key, value in reference.items():
+        assert produced[key] == value
 
 
 def _assert_trainers(produced, reference):

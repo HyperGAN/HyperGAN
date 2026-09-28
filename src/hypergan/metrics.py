@@ -79,11 +79,16 @@ def _available(config):
         'loss/gradient_penalty': ('gradient_penalty', 'D gradient penalty contribution', 'loss'),
         'loss/prior_regularizer': ('prior_loss', 'G prior regularizer contribution', 'loss'),
         'optimizer/lr_scale': ('lr_scale', 'Learning rate multiplier', 'ratio'),
+        'optimizer/lr_generator': ('lr_generator', 'Generator learning rate (applied)', 'learning_rate'),
+        'optimizer/lr_critic': ('lr_critic', 'Critic learning rate (applied)', 'learning_rate'),
         'timing/step_seconds': ('step_seconds', 'Complete update duration', 'seconds'),
         'timing/training_seconds': ('training_seconds', 'Time spent training', 'seconds'),
         'throughput/steps_per_second': ('steps_per_second', 'Steps per second', 'steps/second'),
         'progress/samples_seen': ('samples_seen', 'Samples seen', 'samples'),
     }
+    prior = config['prior']
+    if prior['kind'] != 'gaussian' and prior['args'].get('learnable', True) is not False:
+        specs['optimizer/lr_prior'] = ('lr_prior', 'Prior learning rate (applied)', 'learning_rate')
     for term in config['objectives']:
         name = objective_id(term)
         specs['loss/objectives/' + name] = ('objective:' + name, name + ' contribution', 'loss')

@@ -344,7 +344,7 @@ def resolve_config(raw):
         elif key == "adversarial_terms":
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
-            allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
+            allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison', 'output_noise'} if key == 'sampling' else set())
             allowed |= {field for section, field in PARTICLEGAN_OPTIONAL_FIELDS if section == key}
             _keys(value, allowed, key)
             result[key].update(deepcopy(value))
@@ -481,6 +481,8 @@ def resolve_config(raw):
         _positive(result[section]["seed"], f"{section}.seed", integer=True, zero=True)
     _positive(result["sampling"]["count"], "sampling.count", integer=True)
     sampling = result['sampling']
+    if type(sampling.get('output_noise', False)) is not bool:
+        raise ValueError('sampling.output_noise must be boolean')
     if 'generated' in sampling and (not isinstance(sampling['generated'], str)
             or not sampling['generated'].startswith('components.')
             or len(sampling['generated'].split('.')) < 2):

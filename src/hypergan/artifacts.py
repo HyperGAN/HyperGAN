@@ -150,6 +150,10 @@ def _sample(run_dir, count, seed, output, *, inputs):
         z, ids = prior.sample(count, generator=rng)
         context = graph.generate(z, normalized, prior=prior)
         values = generation_output(graph, context, config['sampling'])
+        if config['sampling'].get('output_noise', False):
+            from .training import sampling_output_noise_std, with_noise
+            values = with_noise(values, sampling_output_noise_std(config, state.get('step', 0)),
+                                torch.Generator().manual_seed(seed + 1))
         ids = generation_particle_ids(graph, context, ids, config['sampling'])
     if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
         raise ValueError(f"Generator must return a tensor with {count} samples")

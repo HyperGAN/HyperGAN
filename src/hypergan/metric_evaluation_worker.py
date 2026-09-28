@@ -80,6 +80,11 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                      *factory_modules, evaluate_snapshot, apply_backend_policy])
     data_rng = torch.Generator().manual_seed(seed + 1)
     prior_rng = torch.Generator(device=device).manual_seed(seed + 2)
+    output_noise = 0.0
+    if config['sampling'].get('output_noise', False):
+        from .training import sampling_output_noise_std, with_noise
+        output_noise = sampling_output_noise_std(config, saved['step'])
+        noise_rng = torch.Generator(device=device).manual_seed(seed + 3)
     count = 0
     observed_backend = None
     runtime = {'torch': torch.__version__, 'numpy': np.__version__, 'device': str(device),
@@ -103,6 +108,8 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
             observed_backend = effective_backend
             runtime['backend'] = effective_backend
             generated = graph.resolve(generated_binding, graph.generate(z, batch, prior=prior))
+            if output_noise:
+                generated = with_noise(generated, output_noise, noise_rng)
             if (not isinstance(generated, torch.Tensor) or generated.ndim < 1 or len(generated) != size
                     or generated.numel() > MAX_BATCH_ELEMENTS or not torch.isfinite(generated).all()
                     or not torch.isfinite(batch['real']).all()):
@@ -115,6 +122,8 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                 'evaluation': evaluation, 'ema': True, 'sources': code,
                 'generated_binding': generated_binding,
                 'runtime': runtime}
+    if config['sampling'].get('output_noise', False):
+        protocol['output_noise_std'] = output_noise
     with torch.inference_mode():
         value = instance.evaluate(batches=batches(), context={'sample_count': evaluation['sample_count'],
                                   'seed': seed, 'step': saved['step'], 'snapshot_sha256': snapshot_sha256,

@@ -284,6 +284,18 @@ def applied_learning_rates(trainer):
     return rates
 
 
+def sampling_output_noise_std(config, completed_steps):
+    """Generator output-noise std added to samples after ``completed_steps``.
+
+    ``sampling.output_noise = true`` samples by ParticleGAN's sampling law
+    (ParticleGAN#220): the training output noise at the current step is part of
+    the model's samples. Off (the default), samples are the clean generator output.
+    """
+    if not config['sampling'].get('output_noise', False):
+        return 0.0
+    return output_noise_std(particlegan_recipe(config), completed_steps)
+
+
 def noise_levels(trainer, completed_steps):
     """(critic input, generator output) noise std for the next update."""
     return input_noise_std(trainer.recipe, completed_steps), output_noise_std(trainer.recipe, completed_steps)

@@ -279,7 +279,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_sec
                 'preview_name': sample_name(preview_name), 'previews': [], 'observation_errors': [],
                 'rng_streams': {name: config['training']['seed'] + offset for name, offset in [
                     ('data', config['training']['data_seed_offset']),
-                    ('prior', config['training']['prior_seed_offset']), ('penalty', 3), ('noise', 5)]}}
+                    ('prior', config['training']['prior_seed_offset']), ('penalty', 3)]}}
         manifest['rng_streams']['sampling'] = config['sampling']['seed']
         _apply_execution(manifest, descriptor)
         with run_lock(run_dir):

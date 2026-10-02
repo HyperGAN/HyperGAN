@@ -68,3 +68,31 @@ The launcher uses physical GPU 0 and the separate run directory
 Previews are every 100 steps and checkpoints every 1000. It uses the existing
 local CIFAR dataset and pinned ResNet/Inception checkpoints. Training is left
 for the user to launch. This is a fresh architecture, not a checkpoint resume.
+
+## ParticleGAN 0.7 viewer demo
+
+The local [pg07/lr2e-4 demo config](../examples/cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.toml)
+preserves the original pg07 run's networks, 65,536 particles, 128-dimensional
+latent, batch 64, seeds, 200,000-step schedule and evaluation protocols. Its
+learning rate is `0.0002`; other defaults come from ParticleGAN 0.7.0.
+
+```bash
+../training-runs/start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh --check
+../training-runs/start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh
+```
+
+The [launcher](../scripts/start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh)
+also works directly from this repository. It uses `particlegan07-env` and the
+existing `worktrees/develop-pg07-lazy16` checkout, which preserves the 0.7
+trainer while retaining the viewer's sample history and Model tab. Current
+`develop` requires ParticleGAN 0.8 and cannot train this recipe directly.
+The config names the compatible checkout's network files and local CIFAR and
+hash-pinned ResNet/Inception assets.
+
+The demo uses physical GPU 0 by default, opens the viewer, publishes previews
+every 100 steps, saves checkpoints every 1000 and evaluates 50K-sample FID every
+10,000. Artifacts go to
+`/mnt/ml7tb/hypergan-training-runs/train-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo`;
+repeating the launcher resumes that run. `--check` constructs the runtime
+without training updates. For a bounded live demonstration, append
+`--stop-after-steps 1000`; this preserves the full learning-rate schedule.

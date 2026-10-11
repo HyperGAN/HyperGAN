@@ -9,6 +9,38 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 25. The viewer starts but never stops (raised 2026-10-11)
+
+Owner: "there's an http server that starts but doesn't stop. it's kinda weird usability."
+
+Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) section 1. Keep item 5's
+behaviour (results stay viewable after training) but have one dashboard per runs root
+instead of one leaked viewer per run.
+
+- [ ] `train` reuses the root's dashboard (fixed port) instead of starting a viewer per
+  run, and restarts it when its version differs.
+- [ ] `hypergan view ROOT [--status|--stop]`; `stop-server --all` clears viewers left from
+  before the change.
+- [ ] The projector stops checking a run once it has finished; a queue of N runs leaves
+  at most one viewer.
+- [ ] Owner decision D1 (start the dashboard from `train` when not on a terminal?).
+
+### 26. An experiment needs both a shell launcher and a config file (raised 2026-10-11)
+
+Owner: "whenever we start an experiment in ~/dev/hypergan/training-runs we usually have a
+folder, config file, and shell file per experiment. the folder is generated but the shell
+and config is sorta annoying to need both."
+
+Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) section 2 and Phase 1.
+
+- [ ] A workspace `hypergan.toml` (runs root, `${paths}`, GPU aliases, named envs, default
+  cadence and retention).
+- [ ] `extends`, `[run]`, `[checkpoints]`, a default run directory and `name` taken from
+  the file stem, `--set k=v`, with a fingerprint-equality test over the existing TOMLs.
+- [ ] `[run].devices` and env re-exec, so `hypergan train X.toml` replaces `start-X.sh`.
+- [ ] `RUN/launch/<attempt>.json` and `RUN/config-source/` provenance.
+- [ ] Owner decisions D2–D5.
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved

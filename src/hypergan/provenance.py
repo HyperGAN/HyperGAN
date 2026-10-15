@@ -50,9 +50,10 @@ def hypergan_source(package_dir=None):
 
 
 def inspect_git_repository(path):
-
     """Query git commit, dirty status, and provenance for a given directory."""
     path = Path(path).resolve()
+    if path.is_file():
+        path = path.parent
     result = {'commit': None, 'dirty': None, 'provenance': 'unknown'}
     try:
         commit = subprocess.check_output(
@@ -110,7 +111,34 @@ def write_launch_provenance(run_dir, attempt=1, metadata=None):
             else:
                 data[k] = v
 
-    temp_file.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    if "worktree_git" not in data and metadata:
+        wt = metadata.get("worktree")
+        if not wt and "src_paths" in metadata:
+            s_paths = metadata["src_paths"]
+            if isinstance(s_paths, (list, tuple)) and s_paths:
+                wt = s_paths[0]
+            elif isinstance(s_paths, (str, Path)):
+                wt = s_paths
+
+        if wt:
+            if isinstance(wt, (str, Path)):
+                wt_path = Path(wt).resolve()
+                repo_root = wt_path.parent if wt_path.name == "src" else wt_path
+                git_info = inspect_git_repository(repo_root)
+                data["worktree_git"] = git_info
+                repo_name = repo_root.name or "worktree"
+                data["git"][repo_name] = git_info
+            elif isinstance(wt, (list, tuple)):
+                git_dict = {}
+                for item in wt:
+                    item_path = Path(item).resolve()
+                    repo_root = item_path.parent if item_path.name == "src" else item_path
+                    repo_name = repo_root.name or "worktree"
+                    git_dict[repo_name] = inspect_git_repository(repo_root)
+                data["worktree_git"] = git_dict
+                data["git"].update(git_dict)
+
+    temp_file.write_text(json.dumps(data, indent=2, sort_keys=True, default=str), encoding="utf-8")
     temp_file.replace(target_file)
     return target_file
 
@@ -121,10 +149,22 @@ def snapshot_config_sources(run_dir, source_files):
     target_dir = run_dir / "config-source"
     target_dir.mkdir(parents=True, exist_ok=True)
 
+    copied = {}
     for src in source_files or []:
         p = Path(src).resolve()
         if p.is_file():
-            shutil.copy2(p, target_dir / p.name)
+            dest_name = p.name
+            target_p = target_dir / dest_name
+            if target_p.exists() and copied.get(target_p) != p:
+                parent_prefix = p.parent.name
+                candidate = f"{parent_prefix}_{dest_name}" if parent_prefix else f"sub_{dest_name}"
+                idx = 1
+                while (target_dir / candidate).exists() and copied.get(target_dir / candidate) != p:
+                    candidate = f"{parent_prefix}_{idx}_{dest_name}" if parent_prefix else f"sub_{idx}_{dest_name}"
+                    idx += 1
+                target_p = target_dir / candidate
+            shutil.copy2(p, target_p)
+            copied[target_p] = p
 
     return target_dir
 

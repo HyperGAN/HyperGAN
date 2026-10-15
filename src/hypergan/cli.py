@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 
 from . import __version__
@@ -222,14 +223,14 @@ def _parser():
     train.add_argument("config", type=Path)
     train.add_argument("--run-dir", type=Path, required=False, default=None, help="new run directory, or an existing run to resume")
     train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
-    train.add_argument("--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+    train.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
                        help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
     _run_options(train)
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
     resume.add_argument("run_dir", type=Path)
     resume.add_argument("--checkpoint", type=Path, help="choose an older checkpoint within this run")
     resume.add_argument("--config", type=Path, help="verify exact compatibility with this configuration")
-    resume.add_argument("--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+    resume.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
                        help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
     _run_options(resume)
     sample = commands.add_parser("sample", help="Sample a saved reference model (requires the train extra)")
@@ -287,6 +288,7 @@ def _check_reexec(run_spec, ws_data):
 
     ws_data = ws_data or {}
     envs = ws_data.get("envs", {})
+    ws_root = Path(ws_data.get("workspace", {}).get("root", ".")).resolve()
 
     target_python = None
     target_src_paths = []
@@ -296,18 +298,45 @@ def _check_reexec(run_spec, ws_data):
     if isinstance(env_ref, str):
         if env_ref in envs:
             env_conf = envs[env_ref]
-            if "python" in env_conf:
-                target_python = str(Path(env_conf["python"]).resolve())
-            if "src" in env_conf:
-                src_val = env_conf["src"]
+            py_val = env_conf.get("interpreter") or env_conf.get("python")
+            if py_val:
+                py_str = str(py_val).strip()
+                cand = Path(py_str)
+                if cand.is_absolute():
+                    target_python = str(cand)
+                elif "/" in py_str or (ws_root / cand).exists():
+                    target_python = str((ws_root / cand).absolute())
+                else:
+                    w = shutil.which(py_str)
+                    if w:
+                        target_python = str(Path(w).absolute())
+                    else:
+                        target_python = str((ws_root / cand).absolute())
+
+            src_val = env_conf.get("worktree") or env_conf.get("src")
+            if src_val is not None:
                 if isinstance(src_val, (list, tuple)):
-                    target_src_paths.extend([str(Path(s).resolve()) for s in src_val])
-                elif isinstance(src_val, str):
-                    target_src_paths.append(str(Path(src_val).resolve()))
+                    raw_list = list(src_val)
+                elif isinstance(src_val, (str, Path)):
+                    raw_list = [src_val]
+                else:
+                    raw_list = []
+                for s in raw_list:
+                    sp = Path(s)
+                    if not sp.is_absolute():
+                        sp = ws_root / sp
+                    sp = sp.resolve()
+                    if (sp / "src").is_dir():
+                        p_str = str((sp / "src").resolve())
+                    else:
+                        p_str = str(sp)
+                    if p_str not in target_src_paths:
+                        target_src_paths.append(p_str)
+
             if "env" in env_conf and isinstance(env_conf["env"], dict):
                 target_env_vars.update({k: str(v) for k, v in env_conf["env"].items()})
         elif Path(env_ref).is_file():
-            target_python = str(Path(env_ref).resolve())
+            target_python = str(Path(env_ref).absolute())
     elif isinstance(env_ref, dict):
         target_env_vars.update({k: str(v) for k, v in env_ref.items()})
 
@@ -316,10 +345,18 @@ def _check_reexec(run_spec, ws_data):
         target_env_vars.update({k: str(v) for k, v in run_spec["env"].items()})
 
     needs_reexec = False
-    if target_python and Path(sys.executable).resolve() != Path(target_python).resolve():
-        needs_reexec = True
+    if target_python:
+        tp = Path(target_python)
+        venv_cfg = tp.parent.parent / "pyvenv.cfg"
+        if venv_cfg.is_file():
+            if Path(sys.prefix).resolve() != tp.parent.parent.resolve():
+                needs_reexec = True
+        else:
+            if Path(sys.executable).resolve() != tp.resolve():
+                needs_reexec = True
+    resolved_head = [str(Path(x).resolve()) for x in sys.path[:len(target_src_paths) + 3] if x]
     for p in target_src_paths:
-        if p not in sys.path[:len(target_src_paths)]:
+        if str(Path(p).resolve()) not in resolved_head:
             needs_reexec = True
             break
     for k, v in target_env_vars.items():
@@ -361,6 +398,13 @@ def _reconstruct_argv_for_reexec(argv, old_config_str, new_config_str, run_dir_s
     old_p = Path(old_config_str).resolve()
     while idx < len(argv):
         arg = argv[idx]
+        if arg in ("--set", "-s"):
+            idx += 2 if idx + 1 < len(argv) else 1
+            continue
+        elif arg.startswith("--set=") or arg.startswith("-s="):
+            idx += 1
+            continue
+
         if arg == "--run-dir":
             has_run_dir = True
             new_args.extend([arg, argv[idx + 1]])
@@ -588,13 +632,21 @@ def _dispatch(args, *, output=None):
                 if needs_reexec:
                     if os.environ.get("_HYPERGAN_REEXEC") == "1":
                         unsatisfied = []
-                        if target_py and Path(sys.executable).resolve() != Path(target_py).resolve():
-                            unsatisfied.append(f"python (current: {sys.executable}, target: {target_py})")
+                        if target_py:
+                            tp = Path(target_py)
+                            venv_cfg = tp.parent.parent / "pyvenv.cfg"
+                            if venv_cfg.is_file():
+                                if Path(sys.prefix).resolve() != tp.parent.parent.resolve():
+                                    unsatisfied.append(f"python venv (current: {sys.prefix}, target: {tp.parent.parent})")
+                            else:
+                                if Path(sys.executable).resolve() != tp.resolve():
+                                    unsatisfied.append(f"python (current: {sys.executable}, target: {target_py})")
                         for k, v in target_envs.items():
                             if os.environ.get(k) != str(v):
                                 unsatisfied.append(f"env var {k} (current: {os.environ.get(k)!r}, target: {v!r})")
+                        resolved_head = [str(Path(x).resolve()) for x in sys.path[:len(target_srcs) + 3] if x]
                         for p in target_srcs:
-                            if p not in sys.path[:len(target_srcs)]:
+                            if str(Path(p).resolve()) not in resolved_head:
                                 unsatisfied.append(f"src path {p} not in sys.path")
                         raise RuntimeError(
                             f"Re-exec loop detected: process was already re-executed with _HYPERGAN_REEXEC=1, "
@@ -609,12 +661,16 @@ def _dispatch(args, *, output=None):
                     snapshot_config_sources(args.run_dir, sources)
 
                     attempt = _determine_attempt(args.run_dir)
-                    write_launch_provenance(args.run_dir, attempt=attempt, metadata={
+                    meta = {
                         "argv": list(sys.argv),
                         "executable": target_py or sys.executable,
                         "run": run_spec,
                         "environment": target_envs,
-                    })
+                    }
+                    if target_srcs:
+                        meta["src_paths"] = target_srcs
+                        meta["worktree"] = target_srcs[0]
+                    write_launch_provenance(args.run_dir, attempt=attempt, metadata=meta)
 
                     lowered = hg.lower(m)
                     from .toml_writer import dumps as _dumps

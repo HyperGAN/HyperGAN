@@ -274,43 +274,61 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
         environment = execution.environment()
         run_dir.mkdir(parents=True, exist_ok=True)
         sync_directory(run_dir.parent)
-        try:
-            from .provenance import write_launch_provenance, snapshot_config_sources, determine_attempt
-            from .model_file import collect_source_files
-            from .workspace import find_workspace
-
-            attempt = determine_attempt(run_dir)
-            launch_file = run_dir / "launch" / f"{attempt:04d}.json"
-            if not launch_file.is_file():
-                write_launch_provenance(run_dir, attempt=attempt, metadata={
-                    "run": config.get("run", {}),
-                })
-            src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
-            if src_p and Path(src_p).is_file():
-                cfg_p = Path(src_p).resolve()
-                ws_p = find_workspace(cfg_p)
-                sources = collect_source_files(cfg_p, ws_p.parent if ws_p else None)
-                snapshot_config_sources(run_dir, sources)
-        except Exception:
-            pass
-        if os.environ.get("_HYPERGAN_REEXEC") == "1":
-            os.environ.pop("_HYPERGAN_REEXEC", None)
-        manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
-                'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
-                'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
-                'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
-                'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
-                'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
-                'preview_every': preview_every, 'preview_keep': preview_keep,
-                'preview_keep_source': preview_keep_source,
-                'preview_name': sample_name(preview_name), 'previews': [], 'observation_errors': [],
-                'rng_streams': {name: config['training']['seed'] + offset for name, offset in [
-                    ('data', config['training']['data_seed_offset']),
-                    ('prior', config['training']['prior_seed_offset']), ('penalty', 3), ('noise', 5)]}}
-        manifest['rng_streams']['sampling'] = config['sampling']['seed']
-        _apply_execution(manifest, descriptor)
         with run_lock(run_dir):
             managed = True
+            try:
+                from .provenance import write_launch_provenance, snapshot_config_sources, determine_attempt
+                from .model_file import collect_source_files
+                from .workspace import find_workspace
+
+                attempt = determine_attempt(run_dir)
+                launch_file = run_dir / "launch" / f"{attempt:04d}.json"
+                if not launch_file.is_file():
+                    meta = {
+                        "run": config.get("run", {}),
+                    }
+                    src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
+                    if src_p and Path(src_p).is_file():
+                        cfg_p = Path(src_p).resolve()
+                        ws_p = find_workspace(cfg_p)
+                        if ws_p:
+                            try:
+                                from .workspace import load_workspace
+                                ws_d = load_workspace(ws_p)
+                                r_env = config.get("run", {}).get("env")
+                                if isinstance(r_env, str) and r_env in ws_d.get("envs", {}):
+                                    e_conf = ws_d["envs"][r_env]
+                                    wt = e_conf.get("worktree") or e_conf.get("src")
+                                    if wt:
+                                        meta["worktree"] = wt
+                            except Exception:
+                                pass
+                    write_launch_provenance(run_dir, attempt=attempt, metadata=meta)
+                src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
+                if src_p and Path(src_p).is_file():
+                    cfg_p = Path(src_p).resolve()
+                    ws_p = find_workspace(cfg_p)
+                    sources = collect_source_files(cfg_p, ws_p.parent if ws_p else None)
+                    snapshot_config_sources(run_dir, sources)
+            except Exception:
+                pass
+            if os.environ.get("_HYPERGAN_REEXEC") == "1":
+                os.environ.pop("_HYPERGAN_REEXEC", None)
+            os.environ.pop("_HYPERGAN_REEXEC_ATTEMPT", None)
+            manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
+                    'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
+                    'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
+                    'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
+                    'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
+                    'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
+                    'preview_every': preview_every, 'preview_keep': preview_keep,
+                    'preview_keep_source': preview_keep_source,
+                    'preview_name': sample_name(preview_name), 'previews': [], 'observation_errors': [],
+                    'rng_streams': {name: config['training']['seed'] + offset for name, offset in [
+                        ('data', config['training']['data_seed_offset']),
+                        ('prior', config['training']['prior_seed_offset']), ('penalty', 3), ('noise', 5)]}}
+            manifest['rng_streams']['sampling'] = config['sampling']['seed']
+            _apply_execution(manifest, descriptor)
             return execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_after_steps, on_event,
                                execution=execution, context=context)
     except BaseException:
@@ -394,12 +412,33 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
                             durable_event_boundary=checkpoint_info.get('event_boundary'),
                             checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
                             resumed_from=str(restored.checkpoint_path), steps=restored.step)
+            if os.environ.get("_HYPERGAN_REEXEC") == "1":
+                os.environ.pop("_HYPERGAN_REEXEC", None)
+            os.environ.pop("_HYPERGAN_REEXEC_ATTEMPT", None)
             try:
                 from .provenance import write_launch_provenance, determine_attempt
                 attempt = determine_attempt(run_dir)
-                write_launch_provenance(run_dir, attempt=attempt, metadata={
+                meta = {
                     "run": config.get("run", {}),
-                })
+                }
+                src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
+                if src_p and Path(src_p).is_file():
+                    cfg_p = Path(src_p).resolve()
+                    from .workspace import find_workspace
+                    ws_p = find_workspace(cfg_p)
+                    if ws_p:
+                        try:
+                            from .workspace import load_workspace
+                            ws_d = load_workspace(ws_p)
+                            r_env = config.get("run", {}).get("env")
+                            if isinstance(r_env, str) and r_env in ws_d.get("envs", {}):
+                                e_conf = ws_d["envs"][r_env]
+                                wt = e_conf.get("worktree") or e_conf.get("src")
+                                if wt:
+                                    meta["worktree"] = wt
+                        except Exception:
+                            pass
+                write_launch_provenance(run_dir, attempt=attempt, metadata=meta)
             except Exception:
                 pass
         except BaseException:

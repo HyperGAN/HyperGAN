@@ -354,4 +354,94 @@ python = "/nonexistent/bin/python"
     assert "Re-exec loop detected" in p.stderr
 
 
+def test_check_reexec_schema_interpreter_and_worktree(tmp_path):
+    from hypergan.cli import _check_reexec
+    import hypergan.api as hg
+
+    wt_dir = tmp_path / "my_worktree"
+    (wt_dir / "src").mkdir(parents=True)
+    venv_dir = tmp_path / "my_venv"
+    (venv_dir / "bin").mkdir(parents=True)
+    (venv_dir / "pyvenv.cfg").write_text("home = /usr/bin\nversion = 3.14.7\n")
+    fake_py = venv_dir / "bin" / "python"
+    fake_py.write_text("#!/bin/sh\n")
+
+    ws_data = {
+        "workspace": {"root": str(tmp_path)},
+        "envs": {
+            "default": {"interpreter": "python"},
+            "env_schema_new": {
+                "interpreter": str(fake_py),
+                "worktree": str(wt_dir),
+            },
+            "env_schema_legacy": {
+                "python": str(fake_py),
+                "src": str(wt_dir / "src"),
+            },
+        },
+    }
+
+    # Test new schema (interpreter + worktree)
+    needs_reexec, target_py, target_srcs, target_envs = _check_reexec({"env": "env_schema_new"}, ws_data)
+    assert needs_reexec is True
+    assert target_py == str(fake_py.absolute())
+    assert target_srcs == [str((wt_dir / "src").resolve())]
+
+    # Test legacy schema (python + src)
+    needs_reexec_leg, target_py_leg, target_srcs_leg, _ = _check_reexec({"env": "env_schema_legacy"}, ws_data)
+    assert needs_reexec_leg is True
+    assert target_py_leg == str(fake_py.absolute())
+    assert target_srcs_leg == [str((wt_dir / "src").resolve())]
+
+    # Test default python (interpreter = "python")
+    needs_reexec_def, target_py_def, target_srcs_def, _ = _check_reexec({"env": "default"}, ws_data)
+    assert needs_reexec_def is False
+
+    # Test against real training-runs/hypergan.toml if available
+    real_ws_file = Path("/home/martyn/dev/hypergan/training-runs/hypergan.toml")
+    if real_ws_file.is_file():
+        real_ws = hg.load_workspace(real_ws_file)
+        # pg08 specifies interpreter
+        needs_pg08, py_pg08, srcs_pg08, _ = _check_reexec({"env": "pg08"}, real_ws)
+        assert needs_pg08 is True
+        assert "particlegan08-env/bin/python" in py_pg08
+
+        # pg07 specifies interpreter + worktree
+        needs_pg07, py_pg07, srcs_pg07, _ = _check_reexec({"env": "pg07"}, real_ws)
+        assert needs_pg07 is True
+        assert "particlegan07-env/bin/python" in py_pg07
+        assert any("develop-pg07-lazy16" in s for s in srcs_pg07)
+
+
+def test_reconstruct_argv_for_reexec_strips_set_flags():
+    from hypergan.cli import _reconstruct_argv_for_reexec
+
+    # Test standard --set and -s with separate KEY=VALUE argument
+    argv = [
+        "hypergan", "train", "model.toml",
+        "--set", "losses[0].weight=0.5",
+        "-s", "train.lr_floor=1.0",
+        "--steps", "50",
+    ]
+    new_argv = _reconstruct_argv_for_reexec(argv, "model.toml", "run_dir/recipe.toml", "run_dir")
+    assert "--set" not in new_argv
+    assert "-s" not in new_argv
+    assert "losses[0].weight=0.5" not in new_argv
+    assert "train.lr_floor=1.0" not in new_argv
+    assert new_argv == ["train", "run_dir/recipe.toml", "--steps", "50", "--run-dir", "run_dir"]
+
+    # Test inline --set=... and -s=...
+    argv_inline = [
+        "python", "-m", "hypergan", "train", "model.toml",
+        "--set=losses[0].weight=0.5",
+        "-s=networks.generator.hidden=128",
+        "--run-dir", "/explicit/run",
+    ]
+    new_argv_inline = _reconstruct_argv_for_reexec(argv_inline, "model.toml", "run_dir/recipe.toml", "/explicit/run")
+    assert not any(a.startswith("--set") for a in new_argv_inline)
+    assert not any(a.startswith("-s") for a in new_argv_inline)
+    assert new_argv_inline == ["train", "run_dir/recipe.toml", "--run-dir", "/explicit/run"]
+
+
+
 

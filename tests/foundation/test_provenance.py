@@ -127,3 +127,94 @@ def test_inspect_git_repository_live_and_non_git(tmp_path):
     assert len(res2['commit']) == 40
     assert res2['dirty'] is False
 
+
+def test_write_launch_provenance_records_worktree_git_metadata(tmp_path):
+    from hypergan.provenance import write_launch_provenance
+
+    # Create a git worktree repository
+    wt_repo = tmp_path / "custom_worktree"
+    wt_repo.mkdir()
+    (wt_repo / "file.txt").write_text("hello\n")
+    _git(wt_repo, 'init')
+    _git(wt_repo, 'add', '.')
+    _git(wt_repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+         'commit', '-m', 'fixture commit')
+    commit = _git(wt_repo, 'rev-parse', 'HEAD')
+
+    # Test with worktree metadata
+    run_dir = tmp_path / "run"
+    target = write_launch_provenance(run_dir, attempt=1, metadata={"worktree": wt_repo})
+    data = json.loads(target.read_text(encoding="utf-8"))
+    assert "worktree_git" in data
+    assert data["worktree_git"]["commit"] == commit
+    assert data["worktree_git"]["dirty"] is False
+    assert data["worktree_git"]["provenance"] == "git"
+    assert "custom_worktree" in data["git"]
+    assert data["git"]["custom_worktree"]["commit"] == commit
+
+    # Test with src_paths pointing to src/ inside worktree
+    (wt_repo / "src").mkdir()
+    run_dir2 = tmp_path / "run2"
+    target2 = write_launch_provenance(run_dir2, attempt=1, metadata={"src_paths": [wt_repo / "src"]})
+    data2 = json.loads(target2.read_text(encoding="utf-8"))
+    assert "worktree_git" in data2
+    assert data2["worktree_git"]["commit"] == commit
+
+
+def test_run_train_writes_provenance_inside_run_lock(tmp_path):
+    from hypergan.run_controller import run_train
+    from hypergan.run_state import run_lock
+    from hypergan.config import resolve_config
+    import hypergan.api as hg
+
+    # Create a simple valid configuration
+    config_file = tmp_path / "model.toml"
+    hg.save(hg.override(hg.load(Path(__file__).resolve().parents[2] / "examples" / "paired-linear.toml"),
+                        {"training": {"device": "cpu", "steps": 1}}), config_file)
+    cfg = resolve_config(hg.lower(hg.load(config_file)))
+    cfg["_source_path"] = str(config_file)
+
+    run_dir = tmp_path / "concurrent_run"
+    run_dir.mkdir(parents=True)
+
+    # Acquire lock externally simulating a concurrent training process
+    with run_lock(run_dir):
+        with pytest.raises(RuntimeError, match="Run is already locked"):
+            from hypergan.single_execution import SingleProcessExecution
+            run_train(cfg, run_dir, steps=1, execution_factory=SingleProcessExecution)
+
+        # Confirm that no launch provenance or config snapshots were created while locked
+        assert not (run_dir / "launch").exists()
+        assert not (run_dir / "config-source").exists()
+
+    # Now with lock released, run_train succeeds and creates provenance inside lock
+    from hypergan.single_execution import SingleProcessExecution
+    result = run_train(cfg, run_dir, steps=1, execution_factory=SingleProcessExecution)
+    assert result is not None
+    assert (run_dir / "launch" / "0001.json").is_file()
+    assert (run_dir / "config-source" / "model.toml").is_file()
+
+
+def test_snapshot_config_sources_collision_disambiguation(tmp_path):
+    from hypergan.provenance import snapshot_config_sources
+
+    run_dir = tmp_path / "run"
+    dir_a = tmp_path / "models_a"
+    dir_b = tmp_path / "models_b"
+    dir_a.mkdir()
+    dir_b.mkdir()
+
+    file_a = dir_a / "base.toml"
+    file_b = dir_b / "base.toml"
+    file_a.write_text("# Config A\nname = 'a'\n")
+    file_b.write_text("# Config B\nname = 'b'\n")
+
+    snapshot_config_sources(run_dir, [file_a, file_b])
+    cfg_src = run_dir / "config-source"
+    files = sorted([p.name for p in cfg_src.iterdir()])
+    assert "base.toml" in files
+    assert "models_b_base.toml" in files
+    assert (cfg_src / "base.toml").read_text() == file_a.read_text()
+    assert (cfg_src / "models_b_base.toml").read_text() == file_b.read_text()
+
+

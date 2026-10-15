@@ -364,4 +364,44 @@ def test_api_checkpoints_and_export(tmp_path):
     assert report["retained_count"] == 1
 
 
+def test_api_load_inference(tmp_path):
+    import json
+    import torch
+    from hypergan.config import resolve_config
+    from hypergan.recipes import ComponentGraph, make_prior
+
+    run_dir = tmp_path / "run"
+    ckpt_dir = run_dir / "checkpoints" / "att-1-step-00000100-uuid1"
+    ckpt_dir.mkdir(parents=True)
+    cfg = resolve_config({
+        "components": {
+            "generator": {"factory": "linear", "args": {"in_features": 2, "out_features": 2}, "inputs": {"z": "latent"}},
+            "discriminator": {"factory": "linear", "args": {"in_features": 2, "out_features": 1}, "inputs": {"x": "candidate"}},
+        }
+    })
+    cg = ComponentGraph(cfg["components"])
+    gen_sd = {f"models.generator.{k}": v for k, v in cg.models["generator"].state_dict().items()}
+    prior = make_prior(cfg["prior"], device="cpu")
+    state = {
+        "step": 100,
+        "ema_graph": gen_sd,
+        "ema_prior": prior.state_dict(),
+        "buffers": {"ema_graph": {}, "ema_prior": {}},
+        "last_batch": {},
+    }
+    torch.save(state, ckpt_dir / "state.pt")
+    (ckpt_dir / "manifest.json").write_text(json.dumps({
+        "step": 100,
+        "config": cfg,
+    }), encoding="utf-8")
+
+    out_pt = hg.export(run_dir, checkpoint="latest")
+    loaded_state, loaded_cfg, graph, loaded_prior, sha = hg.load_inference(out_pt.parent)
+    assert loaded_state["kind"] == "ema-inference"
+    assert loaded_state["step"] == 100
+    assert graph is not None
+    assert loaded_prior is not None
+    assert sha is not None
+
+
 

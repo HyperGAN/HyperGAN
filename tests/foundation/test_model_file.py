@@ -19,6 +19,10 @@ def test_torch_free_lowering():
 import sys
 import hypergan.model_file as mf
 assert 'torch' not in sys.modules, "torch should not be imported prior to lowering"
+res_minimal = mf.lower({'format': 'hypergan-model/1', 'name': 'test', 'checkpoints': {'keep_last': 2}})
+assert 'torch' not in sys.modules, "torch must remain unimported during minimal lowering"
+assert res_minimal['checkpoints']['keep_last'] == 2
+
 raw = {
     'format': 'hypergan-model/1',
     'data': {'builtin': 'gaussian_grid'},
@@ -27,12 +31,15 @@ raw = {
         'd': {'role': 'critic', 'module': 'my_module:Critic', 'inputs': {'x': 'candidate'}},
     },
     'losses': [{'type': 'adversarial', 'critic': 'd'}],
+    'checkpoints': {'keep_last': 3, 'keep_best': False},
 }
 assert mf.is_model_file(raw) is True
 lowered = mf.lower(raw)
 assert 'components' in lowered
 assert 'generator' in lowered['components']
 assert 'discriminator' in lowered['components']
+assert lowered['checkpoints']['keep_last'] == 3
+assert lowered['checkpoints']['keep_best'] is None
 assert 'torch' not in sys.modules, "torch must remain unimported during model lowering"
 """
     result = subprocess.run(

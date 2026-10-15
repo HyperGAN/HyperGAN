@@ -43,7 +43,7 @@ def _setup_run(run_dir: Path, step: int = 1000, status: str = "running", train_d
         },
         "sampling": {},
         "training": {
-            "device": train_device,
+            "device": "cuda:0" if "," in str(train_device) else train_device,
         },
     })
     cfg_hash = fingerprint(cfg)
@@ -168,6 +168,16 @@ def test_device_collision_warning_detection(tmp_path, monkeypatch):
     evaluate(run_dir, metric_id="fid50k_train", devices="cuda:1")
     assert not any(w.get("code") == "DEVICE_COLLISION" for w in recorded_warnings)
 
+    recorded_warnings.clear()
+    # Multi-GPU training on "0,1": evaluating on "0" collides, "2" does not
+    run_multi, _ = _setup_run(tmp_path / "run_multi", step=2000, status="running", train_device="0,1")
+    evaluate(run_multi, metric_id="fid50k_train", devices="0")
+    assert any(w.get("code") == "DEVICE_COLLISION" for w in recorded_warnings)
+
+    recorded_warnings.clear()
+    evaluate(run_multi, metric_id="fid50k_train", devices="2")
+    assert not any(w.get("code") == "DEVICE_COLLISION" for w in recorded_warnings)
+
 
 def test_evaluate_step_resolution(tmp_path, monkeypatch):
     run_dir, cfg = _setup_run(tmp_path / "run", step=1000, status="complete", train_device="cuda:0")
@@ -204,3 +214,61 @@ def test_evaluate_step_resolution(tmp_path, monkeypatch):
     # Evaluate targeting step 500
     evaluate(run_dir, metric_id="fid50k_train", checkpoint=500, devices="cpu")
     assert evaluated_step["step"] == 500
+
+
+def test_step_named_stream_discovery_and_recovery(tmp_path):
+    import asyncio
+    from hypergan.web_service import ObservationService
+    from hypergan.metric_evaluation import _recover_abandoned
+
+    run_dir, cfg = _setup_run(tmp_path / "run_disc", step=1000, status="running")
+    # Simulate a real completed evaluation event and stream.json on disk
+    eval_id = "step-00001000-" + "f" * 32
+    eval_dir = run_dir / "metrics" / "evaluations" / eval_id
+    eval_dir.mkdir(parents=True)
+    stream_id = "evaluation:" + eval_id
+    event = {
+        "schema_version": 2, "event": "evaluation", "run_id": "test-run-m2",
+        "attempt_id": eval_id, "sequence": 1, "stream_id": stream_id,
+        "stream_generation": eval_id, "step": 1000, "seconds": 0.5,
+        "catalog": "c" * 64, "metrics": {"fid50k_train": 12.3}, "status": "complete",
+        "source_position_known": True, "evaluation_id": eval_id,
+    }
+    encoded = json.dumps(event).encode() + b"\n"
+    (eval_dir / "events.jsonl").write_bytes(encoded)
+    stream_record = {
+        "schema_version": 1,
+        "stream_id": stream_id,
+        "stream_generation": eval_id,
+        "run_id": "test-run-m2",
+        "path": f"metrics/evaluations/{eval_id}/events.jsonl",
+        "role": "measurement",
+        "modality": "scalar",
+    }
+    atomic_json(eval_dir / "stream.json", stream_record)
+
+    # ObservationService should discover it without ValueError
+    obs = ObservationService(run_dir)
+    obs.run_id = "test-run-m2"
+    asyncio.run(obs._discover())
+    assert stream_id in obs.streams
+
+    # Test _recover_abandoned on an interrupted step-named evaluation
+    abandoned_id = "step-00001000-" + "e" * 32
+    abandoned_dir = run_dir / "metrics" / "evaluations" / abandoned_id
+    abandoned_dir.mkdir(parents=True)
+    receipt = {
+        "schema_version": 1,
+        "status": "running",
+        "run_id": "test-run-m2",
+        "evaluation_id": abandoned_id,
+        "source_step": 1000,
+        "snapshot_sha256": "s" * 64,
+        "metric_id": "fid50k_train",
+        "catalog": "c" * 64,
+    }
+    atomic_json(abandoned_dir / "receipt.json", receipt)
+    _recover_abandoned(run_dir, "test-run-m2")
+    assert (abandoned_dir / "stream.json").is_file()
+    rec = json.loads((abandoned_dir / "receipt.json").read_text())
+    assert rec["status"] == "failed"

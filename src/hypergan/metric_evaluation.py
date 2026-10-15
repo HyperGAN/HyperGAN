@@ -39,12 +39,35 @@ def _normalize_eval_device(dev):
     return dev_str
 
 
+def _parse_device_set(dev):
+    if dev is None:
+        return {"cuda:0"}
+    if isinstance(dev, (list, tuple, set)):
+        result = set()
+        for item in dev:
+            result.update(_parse_device_set(item))
+        return result
+    if isinstance(dev, int):
+        return {f"cuda:{dev}"}
+    dev_str = str(dev).strip()
+    if not dev_str:
+        return {"cuda:0"}
+    if "," in dev_str:
+        result = set()
+        for part in dev_str.split(","):
+            part = part.strip()
+            if part:
+                result.update(_parse_device_set(part))
+        return result
+    return {_normalize_eval_device(dev_str)}
+
+
 def _devices_conflict(d1, d2):
-    n1 = _normalize_eval_device(d1) if d1 else "cuda:0"
-    n2 = _normalize_eval_device(d2) if d2 else "cuda:0"
-    if n1 == "cpu" or n2 == "cpu":
-        return False
-    return n1 == n2
+    s1 = _parse_device_set(d1)
+    s2 = _parse_device_set(d2)
+    s1.discard("cpu")
+    s2.discard("cpu")
+    return bool(s1 & s2)
 
 
 def _sha256(path):
@@ -176,14 +199,15 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
         else:
             raise ValueError(f"No state.pt or model.pt in checkpoint {checkpoint_dir}")
 
-    evaluation_id = uuid.uuid4().hex
+    raw_uuid = uuid.uuid4().hex
+    dir_name = f"step-{step:08d}-{raw_uuid}"
+    evaluation_id = dir_name
     bundle_dict.setdefault('identity', {})
     bundle_dict['identity']['evaluation_id'] = evaluation_id
     if not bundle_dict['identity'].get('attempt_id'):
         bundle_dict['identity']['attempt_id'] = attempt_id
     if not bundle_dict['identity'].get('run_id'):
         bundle_dict['identity']['run_id'] = manifest['run_id']
-    dir_name = f"step-{step:08d}-{evaluation_id}"
     directory = root / 'metrics' / 'evaluations' / dir_name
     directory.mkdir(parents=True, exist_ok=False)
     snapshot = directory / 'snapshot.pt'
@@ -283,12 +307,13 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
     return receipt
 
 
-def _recover_abandoned(root, run_id):
+def _recover_abandoned(root, run_id=None):
     """Run-lock ownership proves no previous evaluator for this run is active.
 
     Completed registered results are immutable. A stopped coordinator's pending
     evaluation is a failed observation, never a resumable partial accumulator.
     """
+    root = Path(root)
     if (root / 'metrics').is_symlink():
         raise ValueError('Metrics directory must not be a symlink')
     directory = root / 'metrics' / 'evaluations'
@@ -296,6 +321,14 @@ def _recover_abandoned(root, run_id):
         return
     if directory.is_symlink():
         raise ValueError('Evaluation directory must not be a symlink')
+    if run_id is None:
+        manifest_path = root / 'manifest.json'
+        if manifest_path.is_file():
+            try:
+                manifest_data = json.loads(manifest_path.read_text(encoding='utf-8'))
+                run_id = manifest_data.get('run_id')
+            except Exception:
+                pass
     for path in directory.iterdir():
         if not _EVAL_DIR_RE.match(path.name):
             continue
@@ -310,8 +343,21 @@ def _recover_abandoned(root, run_id):
         if receipt_path.is_symlink() or receipt_path.stat().st_size > 65536:
             raise ValueError('Evaluation receipt must be a bounded ordinary file')
         receipt = json.loads(receipt_path.read_text())
-        if receipt.get('run_id') != run_id or receipt.get('evaluation_id') != path.name:
+        effective_run_id = run_id if run_id is not None else receipt.get('run_id')
+        if run_id is not None and receipt.get('run_id') != run_id:
             raise ValueError('Abandoned evaluation identity differs from its run')
+
+        eval_id = str(receipt.get('evaluation_id', ''))
+        step = receipt.get('source_step')
+        expected_names = {eval_id}
+        if eval_id:
+            if isinstance(step, int):
+                expected_names.add(f"step-{step:08d}-{eval_id}")
+            if path.name.endswith(f"-{eval_id}"):
+                expected_names.add(path.name)
+        if path.name not in expected_names:
+            raise ValueError('Abandoned evaluation identity differs from its run')
+
         if receipt.get('status') in ('complete', 'failed', 'cancelled'):
             event_path = path / 'events.jsonl'
             if event_path.is_symlink() or not event_path.is_file() or event_path.stat().st_size > 65536:
@@ -319,10 +365,11 @@ def _recover_abandoned(root, run_id):
             encoded = event_path.read_bytes()
             event = json.loads(encoded)
             if (hashlib.sha256(encoded).hexdigest() != receipt.get('event_sha256')
-                    or event.get('run_id') != run_id or event.get('evaluation_id') != path.name):
+                    or (run_id is not None and event.get('run_id') != run_id)
+                    or event.get('evaluation_id') not in expected_names):
                 raise ValueError('Unregistered evaluation event integrity mismatch')
-            atomic_json(path / 'stream.json', {'schema_version': 1, 'stream_id': event['stream_id'],
-                'stream_generation': path.name, 'run_id': run_id,
+            atomic_json(path / 'stream.json', {'schema_version': 1, 'stream_id': 'evaluation:' + path.name,
+                'stream_generation': path.name, 'run_id': effective_run_id,
                 'path': event_path.relative_to(root).as_posix(), 'role': 'measurement',
                 'modality': 'histogram' if event.get('distributions') else 'scalar'})
             (path / 'snapshot.pt').unlink(missing_ok=True)
@@ -330,7 +377,7 @@ def _recover_abandoned(root, run_id):
         if receipt.get('status') != 'running':
             raise ValueError('Unsupported evaluation receipt status')
         reason = 'Evaluation ended before result publication; restart explicitly with a new evaluation ID'
-        event = {'schema_version': 2, 'event': 'evaluation', 'run_id': run_id,
+        event = {'schema_version': 2, 'event': 'evaluation', 'run_id': effective_run_id,
                  'attempt_id': receipt.get('attempt_id', path.name), 'sequence': 1, 'stream_id': 'evaluation:' + path.name,
                  'stream_generation': path.name, 'catalog': receipt['catalog'],
                  'step': receipt.get('source_step', 0), 'seconds': 0.0, 'metrics': {}, 'status': 'failed',
@@ -352,7 +399,7 @@ def _recover_abandoned(root, run_id):
         receipt.update(status='failed', result={'error': reason}, event_sha256=hashlib.sha256(encoded).hexdigest())
         atomic_json(receipt_path, receipt)
         atomic_json(path / 'stream.json', {'schema_version': 1, 'stream_id': event['stream_id'],
-            'stream_generation': path.name, 'run_id': run_id,
+            'stream_generation': path.name, 'run_id': effective_run_id,
             'path': event_path.relative_to(root).as_posix(), 'role': 'measurement', 'modality': 'scalar'})
         (path / 'snapshot.pt').unlink(missing_ok=True)
 

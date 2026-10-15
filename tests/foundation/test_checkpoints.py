@@ -136,6 +136,9 @@ def test_resolve_checkpoint_targets(tmp_path):
         }
         (ed / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
 
+    norm_false = normalize_checkpoint_policy({"keep_best": False})
+    assert norm_false["keep_best"] is None
+
     best_resolved = resolve_checkpoint(run_dir, "best")
     assert best_resolved == c300  # Tie broke in favor of higher step (300)
 
@@ -143,6 +146,34 @@ def test_resolve_checkpoint_targets(tmp_path):
     assert resolve_checkpoint(run_dir, str(c100)) == c100
     assert resolve_checkpoint(run_dir, str(c100 / "state.pt")) == c100
     assert resolve_checkpoint(run_dir, c200.name) == c200
+
+    # 7. Test metric direction: discriminator_loss contains "is", must minimize (lower is better)
+    eval_dir_loss = tmp_path / "run_loss" / "metrics" / "evaluations"
+    ckpt_dir_loss = tmp_path / "run_loss" / "checkpoints"
+    ckpt_dir_loss.mkdir(parents=True)
+    c1_l = ckpt_dir_loss / "att-1-step-00000100-u1"
+    c2_l = ckpt_dir_loss / "att-1-step-00000200-u2"
+    _make_dummy_checkpoint(c1_l, 100)
+    _make_dummy_checkpoint(c2_l, 200)
+    el1 = eval_dir_loss / "step-00000100-e1"
+    el2 = eval_dir_loss / "step-00000200-e2"
+    el1.mkdir(parents=True)
+    el2.mkdir(parents=True)
+    (el1 / "receipt.json").write_text(json.dumps({"status": "complete", "metric_id": "discriminator_loss", "source_step": 100, "result": {"value": 0.3, "step": 100}}), encoding="utf-8")
+    (el2 / "receipt.json").write_text(json.dumps({"status": "complete", "metric_id": "discriminator_loss", "source_step": 200, "result": {"value": 0.8, "step": 200}}), encoding="utf-8")
+    assert resolve_checkpoint(tmp_path / "run_loss", "best") == c1_l  # 0.3 < 0.8
+
+    # 8. Test manifest.json keep_best config override
+    manifest = {
+        "run_id": "test-run",
+        "config": {
+            "checkpoints": {
+                "keep_best": {"metric": "discriminator_loss", "mode": "min", "count": 1}
+            }
+        }
+    }
+    (tmp_path / "run_loss" / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    assert resolve_checkpoint(tmp_path / "run_loss", "best") == c1_l
 
 
 def test_extract_ema_bundle_and_export(tmp_path):

@@ -79,6 +79,65 @@ UPDATE_SCALARS = ('d_loss', 'g_loss', 'd_adversarial', 'g_adversarial', 'd_adver
                   'g_adversarial_weighted', 'gradient_penalty', 'prior_loss', 'lr_scale', 'step', 'step_seconds')
 _ID = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}')
 
+DEFAULT_CHECKPOINT_POLICY = {
+    'keep_last': 3,
+    'keep_best': {'metric': 'fid50k_train', 'mode': 'min', 'count': 2},
+    'keep_every': 50000,
+    'export_bundle': 'on_eval',
+}
+
+
+def normalize_checkpoint_policy(policy=None):
+    """Normalize a [checkpoints] retention policy dict, expanding shorthands and filling defaults."""
+    if policy is None:
+        policy = {}
+    if not isinstance(policy, dict):
+        raise ValueError(f"Checkpoint retention policy must be a dict, got {type(policy).__name__}")
+
+    unknown = set(policy) - {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
+    if unknown:
+        raise ValueError(f"Unknown field(s) in checkpoint retention policy: {', '.join(sorted(unknown))}")
+
+    keep_last = policy.get('keep_last', 3)
+    if not isinstance(keep_last, int) or isinstance(keep_last, bool) or keep_last < 0:
+        raise ValueError("keep_last must be a non-negative integer")
+
+    keep_every = policy.get('keep_every', 50000)
+    if keep_every is not None and (not isinstance(keep_every, int) or isinstance(keep_every, bool) or keep_every < 0):
+        raise ValueError("keep_every must be a non-negative integer or None")
+
+    export_bundle = policy.get('export_bundle', 'on_eval')
+    if export_bundle is not None and export_bundle not in ('on_eval', 'never', 'on_checkpoint'):
+        raise ValueError("export_bundle must be one of 'on_eval', 'never', 'on_checkpoint', or None")
+
+    raw_best = policy.get('keep_best', {'metric': 'fid50k_train', 'mode': 'min', 'count': 2})
+    if raw_best is None or raw_best is False or raw_best == 0:
+        keep_best = None
+    elif isinstance(raw_best, int) and not isinstance(raw_best, bool):
+        if raw_best < 0:
+            raise ValueError("keep_best count must be a non-negative integer")
+        keep_best = {'metric': 'fid50k_train', 'mode': 'min', 'count': raw_best}
+    elif isinstance(raw_best, dict):
+        metric = raw_best.get('metric', 'fid50k_train')
+        if not isinstance(metric, str):
+            raise ValueError("keep_best.metric must be a string")
+        mode = raw_best.get('mode', 'min')
+        if mode not in ('min', 'max'):
+            raise ValueError("keep_best.mode must be 'min' or 'max'")
+        count = raw_best.get('count', 2 if 'metric' not in raw_best else 1)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ValueError("keep_best.count must be a non-negative integer")
+        keep_best = {'metric': metric, 'mode': mode, 'count': count}
+    else:
+        raise ValueError("keep_best must be an integer count or table with {metric, mode, count}")
+
+    return {
+        'keep_last': keep_last,
+        'keep_best': keep_best,
+        'keep_every': keep_every,
+        'export_bundle': export_bundle,
+    }
+
 
 class ModelFileError(ValueError):
     """A model file field is missing, unknown or inconsistent; the message names it."""
@@ -515,7 +574,9 @@ class _Lowering:
                 raise ModelFileError('checkpoints.export_bundle must be a string')
         if 'keep_best' in table:
             v = table['keep_best']
-            if isinstance(v, int) and not isinstance(v, bool):
+            if v is False or v is None:
+                pass
+            elif isinstance(v, int) and not isinstance(v, bool):
                 if v < 0:
                     raise ModelFileError('checkpoints.keep_best count must be a non-negative integer')
             elif isinstance(v, dict):
@@ -570,7 +631,6 @@ class _Lowering:
             recipe['metrics'] = metrics
         if 'checkpoints' in raw:
             self.checkpoints(raw['checkpoints'])
-            from .checkpoints import normalize_checkpoint_policy
             recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])
         recipe['format'] = FORMAT
         recipe['name_map'] = dict(self.names)
@@ -585,6 +645,11 @@ def lower(raw, base=None):
     is read into the recipe, as the engine does for ``file``; nothing else is
     read and no Python is imported.
     """
+    if not isinstance(raw, dict) or not is_model_file(raw):
+        res = deepcopy(raw) if isinstance(raw, dict) else raw
+        if isinstance(res, dict) and 'checkpoints' in res:
+            res['checkpoints'] = normalize_checkpoint_policy(res['checkpoints'])
+        return res
     return _Lowering(raw, base).run()
 
 

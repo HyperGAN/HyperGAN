@@ -249,64 +249,7 @@ def read_checkpoint(run_dir, checkpoint=None):
         raise ValueError(f'Invalid or incomplete training checkpoint: {exc}') from exc
 
 
-DEFAULT_CHECKPOINT_POLICY = {
-    'keep_last': 3,
-    'keep_best': {'metric': 'fid50k_train', 'mode': 'min', 'count': 2},
-    'keep_every': 50000,
-    'export_bundle': 'on_eval',
-}
-
-
-def normalize_checkpoint_policy(policy=None):
-    """Normalize a [checkpoints] retention policy dict, expanding shorthands and filling defaults."""
-    if policy is None:
-        policy = {}
-    if not isinstance(policy, dict):
-        raise ValueError(f"Checkpoint retention policy must be a dict, got {type(policy).__name__}")
-
-    unknown = set(policy) - {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
-    if unknown:
-        raise ValueError(f"Unknown field(s) in checkpoint retention policy: {', '.join(sorted(unknown))}")
-
-    keep_last = policy.get('keep_last', 3)
-    if not isinstance(keep_last, int) or isinstance(keep_last, bool) or keep_last < 0:
-        raise ValueError("keep_last must be a non-negative integer")
-
-    keep_every = policy.get('keep_every', 50000)
-    if keep_every is not None and (not isinstance(keep_every, int) or isinstance(keep_every, bool) or keep_every < 0):
-        raise ValueError("keep_every must be a non-negative integer or None")
-
-    export_bundle = policy.get('export_bundle', 'on_eval')
-    if export_bundle is not None and export_bundle not in ('on_eval', 'never', 'on_checkpoint'):
-        raise ValueError("export_bundle must be one of 'on_eval', 'never', 'on_checkpoint', or None")
-
-    raw_best = policy.get('keep_best', {'metric': 'fid50k_train', 'mode': 'min', 'count': 2})
-    if raw_best is None or raw_best is False or raw_best == 0:
-        keep_best = None
-    elif isinstance(raw_best, int) and not isinstance(raw_best, bool):
-        if raw_best < 0:
-            raise ValueError("keep_best count must be a non-negative integer")
-        keep_best = {'metric': 'fid50k_train', 'mode': 'min', 'count': raw_best}
-    elif isinstance(raw_best, dict):
-        metric = raw_best.get('metric', 'fid50k_train')
-        if not isinstance(metric, str):
-            raise ValueError("keep_best.metric must be a string")
-        mode = raw_best.get('mode', 'min')
-        if mode not in ('min', 'max'):
-            raise ValueError("keep_best.mode must be 'min' or 'max'")
-        count = raw_best.get('count', 2 if 'metric' not in raw_best else 1)
-        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-            raise ValueError("keep_best.count must be a non-negative integer")
-        keep_best = {'metric': metric, 'mode': mode, 'count': count}
-    else:
-        raise ValueError("keep_best must be an integer count or table with {metric, mode, count}")
-
-    return {
-        'keep_last': keep_last,
-        'keep_best': keep_best,
-        'keep_every': keep_every,
-        'export_bundle': export_bundle,
-    }
+from .model_file import DEFAULT_CHECKPOINT_POLICY, normalize_checkpoint_policy
 
 
 def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest") -> Path:
@@ -398,11 +341,36 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
         if not eval_records:
             raise ValueError("No evaluation records available to determine best checkpoint; pass explicit step or latest")
 
-        fid_records = [r for r in eval_records if "fid" in r["metric_id"].lower()]
-        records = fid_records if fid_records else eval_records
+        # Check if manifest.json specifies keep_best config
+        target_metric = None
+        target_mode = None
+        manifest_path = run_dir / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                m_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                keep_best_cfg = m_data.get("config", {}).get("checkpoints", {}).get("keep_best")
+                if isinstance(keep_best_cfg, dict):
+                    target_metric = keep_best_cfg.get("metric")
+                    target_mode = keep_best_cfg.get("mode")
+            except Exception:
+                pass
 
-        sample_metric = records[0]["metric_id"].lower()
-        mode_min = not any(k in sample_metric for k in ("accuracy", "acc", "score", "is"))
+        if target_metric:
+            records = [r for r in eval_records if r["metric_id"] == target_metric or r["metric_id"].lower() == target_metric.lower()]
+            if not records:
+                if "fid" in target_metric.lower():
+                    records = [r for r in eval_records if "fid" in r["metric_id"].lower()]
+                if not records:
+                    records = eval_records
+        else:
+            fid_records = [r for r in eval_records if "fid" in r["metric_id"].lower()]
+            records = fid_records if fid_records else eval_records
+
+        if target_mode in ("min", "max"):
+            mode_min = (target_mode == "min")
+        else:
+            sample_metric = records[0]["metric_id"].lower()
+            mode_min = not (sample_metric in ('is', 'inception_score', 'score', 'acc', 'accuracy') or sample_metric.endswith(('_is', '_score', '_acc', '_accuracy')))
 
         # Sort: best value first; deterministic tie-breaker: highest step
         if mode_min:

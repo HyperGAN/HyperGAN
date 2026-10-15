@@ -691,8 +691,7 @@ def load_inference(run_dir):
     prior and the verified bundle SHA256.
     """
     import torch
-    from .component_graph import ComponentGraph
-    from .priors import make_prior
+    from .recipes import ComponentGraph, make_prior
     from .config import resolve_config
 
     run_dir = Path(run_dir)

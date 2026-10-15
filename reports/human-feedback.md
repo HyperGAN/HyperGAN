@@ -9,148 +9,6 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
-### 24. A public Python API (raised 2026-09-26)
-
-Owner: "i want to figure out an api for hypergan. i think the reason people would
-use it is for common recipes, interface into training metrics/evaluations/samples,
-multi-gpu training support, i'm not sure what else. it should be very simple to
-train your own network with it."
-
-- [~] Proposal for review: [python-api-2026-09-26.md](python-api-2026-09-26.md), on
-  branch `docs/python-api-proposal`. It covers recipes, your own `nn.Module`/HNDL
-  networks, the `Run` reader for metrics, previews and evaluations, background runs,
-  `gpus=`, and a `Generator` for inference, and lists 7 decisions for the owner.
-- [ ] Owner decisions recorded, then implementation in the proposal's 8 steps.
-
-Owner review, 2026-09-26: "i don't think we should assume images. the things that
-intersect with images are sampling, evaluations, etc etc. it's just what we have right
-now. but you should be able to add custom samplers, evaluations, metrics, data
-loaders..." Answers to the proposal's decisions:
-1 (blocking default) undecided; 2 (`__main__` networks) "probably copy in";
-3 (recipes) needs more thought; 4 asked what the no-downloads rule is (it was never an
-owner rule, only a stance in the docs); 5 (torch `Dataset`) yes: the user writes only
-the dataset loading, while workers and the like stay outside it; 6 (multi-host)
-unfamiliar with torchrun; 7 functional style preferred. "lets think about this more."
-
-- [ ] Rework the proposal to be modality-agnostic, with extension points for data,
-  samplers, metrics and evaluations; images become one set of plugins.
-
-Owner follow-up, 2026-09-26: output types are open ("any"). The viewer can focus on
-pixels, metrics and evaluations, but nothing assumes a type. Easy helpers for common
-types (audio, video, image), yet a network's output need not be one of them: it could
-be latent data of various shapes, or a LoRA. Asked "what copy?" (about copying code into the
-run). Metrics are cheap, computed anyway and often part of the formulation; evaluations are
-expensive and often, but not necessarily, holdout. Multi-host GPU training is a
-separate future task, but the API must not lock it out. `hg.train` is good so far,
-except passing `generator=`/`discriminator=`: "what happens when you have encoder,
-multiple discriminators, multiple generators, etc etc".
-
-- [ ] Replace fixed generator/discriminator arguments with a general network graph
-  plus losses, keeping a shorthand for the one-G/one-D case.
-- [ ] Record the multi-host constraints the API must respect.
-
-Owner, 2026-09-26: do not move or copy user code into the run ("the user may be
-editing the wrong one"); instead "there may be a config file that can be loaded
-easily", as HNDL and TOML config already are. Asked for a side-by-side comparison of
-explicit roles versus roles derived from losses, with a recommendation; unsure whether
-losses should be listed together or attached per network. Requested three API proofs
-of concept built in a workflow, reviewed, with the best one recommended as the base for
-iteration.
-
-- [x] Three API proofs of concept, a review and a recommendation: branches
-  `poc/api-config-first`, `poc/api-graph` and `poc/api-per-network`, reviewed in
-  [python-api-pocs-2026-09-26.md](python-api-pocs-2026-09-26.md). The review recommends
-  iterating from config-first, with explicit roles checked against the losses, and one
-  list of losses.
-- [ ] Owner decisions on that review's section 8.
-
-Owner, 2026-09-26: "we'll want to consider how we can change the cli to use this same api".
-
-- [~] The CLI becomes a thin layer over the public API (one execution path). Section 7
-  of the review maps each command and flag to its API call.
-
-### 25. The viewer starts but never stops (raised 2026-10-11)
-
-Owner: "there's an http server that starts but doesn't stop. it's kinda weird usability."
-
-Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) section 1 and Workstream B. Keep item 5's
-behaviour (results stay viewable after training) but have one dashboard per runs root
-instead of one leaked viewer per run.
-
-- [ ] `train` reuses the root's dashboard (fixed port 8765) instead of starting a viewer
-  per run, and restarts it when its version or frontend asset hash differs.
-- [ ] Dynamic multi-run routing (`/runs/<run_id>` and `/api/v1/runs/{run_id}/*`) and root
-  index page (`/`) reading `summary.json`.
-- [ ] `hypergan view [ROOT] [--status|--stop]`; `stop-server --all` clears viewers left
-  from before the change.
-- [ ] `Projector` runs only for active (`status == "running"`) runs and stops as soon as a
-  run finishes; a queue of N runs leaves at most one viewer process behind.
-- [x] Owner decision D1: start the root dashboard locally even when not on a terminal (the
-  queue case); skip it when `[run].viewer = false`.
-
-### 26. An experiment needs both a shell launcher and a config file (raised 2026-10-11)
-
-Owner: "whenever we start an experiment in ~/dev/hypergan/training-runs we usually have a
-folder, config file, and shell file per experiment. the folder is generated but the shell
-and config is sorta annoying to need both."
-
-Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) section 2 and Workstream C.
-
-- [ ] Land PR #388 (`hypergan-model/1`) first and build Phase 1 directly on `hypergan-model/1`.
-- [ ] A workspace `hypergan.toml` (runs root, `${paths}`, GPU aliases, named envs, default
-  cadence and retention).
-- [ ] `extends` (deep-merging `[networks.*]`, `[train]`, `[evaluations.*]`), `[run]`,
-  `[checkpoints]`, a default run directory (`--run-dir` optional on `train`; `resume`
-  aliased to `train RUN_DIR`), `name` taken from the file stem and removed from the
-  numerical fingerprint, and `--set k=v`, with a fingerprint-equality test over all 46
-  existing TOMLs.
-- [ ] `[run].devices` and outer-CLI materialization into `RUN/launch/<attempt>.json` +
-  `RUN/config-source/` before `[run].env` re-exec, so `hypergan train X.toml` replaces
-  `start-X.sh` even when targeting older worktrees.
-- [ ] Port `../training-runs` to `hypergan.toml` + `cifar-tiny-pg-base.toml` + child TOMLs.
-- [x] Owner decisions D2–D5 and PR #388 format alignment resolved (2026-10-14).
-
-### 27. Run summary, checkpoint retention, mid-run evaluation and metric cadence (raised 2026-10-11)
-
-Owner: "the core aspects are evaluation, metrics, checkpoints, config files."
-
-Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) sections 3, 5 and Workstreams A & E.
-
-- [ ] Checkpoint retention (`[checkpoints]` with `keep_last = 3`, `keep_best = 2`,
-  `keep_every = 50000`, default `checkpoint_every = 1000`), pinning checkpoints at steps
-  with an in-flight `IntervalEvaluations` run, plus explicit `hypergan checkpoints prune RUN [--dry-run]`.
-- [ ] `summary.json` rewritten at every checkpoint and evaluation, and step-named
-  evaluation directories.
-- [ ] `hypergan status RUN`, `hypergan runs ls [ROOT]`, and `hypergan runs compare`.
-- [ ] Read-only, lock-free `hypergan eval|sample|export RUN --checkpoint best|latest|STEP|PATH [--devices …]`
-  extracting EMA weights from `checkpoints/*/state.pt` when needed and runnable alongside
-  training.
-- [ ] Default training metric cadence `every_steps = 10` (~10x smaller `events.jsonl` and
-  `views/`), `hypergan gc RUN`, cleaner console header/ETA/FID/footer, and
-  `hypergan new NAME --dataset DIR`.
-- [x] Owner decisions D6–D8 and D12 resolved (2026-10-14; `hypergan branch` omitted per D8).
-
-### 28. Local 2-GPU CIFAR training, queue service, hardware-tolerant resume and Modal (raised 2026-10-11)
-
-Owner: "the goal of the project is to easily train and monitor GAN training across
-clusters, multiple gpus, or single gpus." / "lets get it running locally first on both
-gpus then we can use modal"
-
-Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) section 4 and Workstream D.
-
-- [ ] Hardware-tolerant resume by default (D9): warn instead of failing when GPU model,
-  capability, world size or `cuda.rank_devices` differ across resume.
-- [ ] Local 2-GPU CIFAR support (D10): default `total_timeout` to no limit (or
-  `--max-seconds`), support critic input noise, generator output noise, independent phase
-  draws and recipe-built K3P optimizers in replicated execution, fuse nonfinite gradient
-  screening in `distributed_training._reduce_gradients`, shard data loading per rank, and
-  qualify a 2-GPU CIFAR run on `gpu0,gpu1`.
-- [ ] `hypergan queue add|ls|status|stop|run --devices …` + `install-service` (systemd
-  user unit) and hardware preflight (visible GPUs, UUIDs, free memory, busy processes).
-- [ ] Multi-node TCP rendezvous (`MASTER_ADDR`, `MASTER_PORT`, `NODE_RANK`, `NNODES`) and
-  two-node Modal run over a shared/mounted volume using the reserved Modal credit (D11).
-- [x] Owner decisions D9–D11 resolved (2026-10-14).
-
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved
@@ -213,8 +71,8 @@ Where the cost was (measured 2026-09-20 on GPU 0, CIFAR recipe, batch 64):
   backend flags; the strict policy stays documented as an opt-in. Back to back on
   GPU 0: ParticleGAN 19.9 steps/s, HyperGAN 21.9 steps/s. The live run keeps its
   recorded config, so start a new run directory (`training-runs/start-fast.sh`).
-- [ ] Apply the same fused screening to `distributed_training._reduce_gradients`
-  (per-parameter host reads on every rank) with two-GPU qualification.
+- [x] Apply the same fused screening to `distributed_training._reduce_gradients`
+  (per-parameter host reads on every rank) with two-GPU qualification (implemented in commit `650dfb97`, qualified in commit `9031dacf`).
 - [ ] Beyond parity: both loops are launch-bound (~5,000 launches/step, 38% GPU
   utilization for ParticleGAN itself). Raising utilization means fewer launches
   (CUDA graphs / `torch.compile`) or a larger batch, which changes the recipe.
@@ -236,6 +94,164 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 - [ ] Verify the onboarding path end to end on a clean machine: `pip install`, `hypergan train`, open the viewer, without Node or cargo present.
 
 ## Done
+
+### 24. A public Python API (raised 2026-09-26)
+
+Owner: "i want to figure out an api for hypergan. i think the reason people would
+use it is for common recipes, interface into training metrics/evaluations/samples,
+multi-gpu training support, i'm not sure what else. it should be very simple to
+train your own network with it."
+
+**Status:** Completed and merged into `develop` in PR #388 (`hypergan-model/1` and Python API) and PR #391 (`docs/usability-plan`).
+
+- [x] Proposal for review: [python-api-2026-09-26.md](python-api-2026-09-26.md) on branch `docs/python-api-proposal`.
+- [x] Owner decisions recorded and integrated: modality-agnostic design, extension points for data, samplers, metrics, evaluations, and loss functions.
+- [x] Modality-agnostic declarative format `hypergan-model/1` in `src/hypergan/model_file.py`:
+  - Explicit network roles (`generator`, `critic`, `encoder`, `auxiliary`), input bindings, and unified `[[losses]]` array.
+  - Torch-free validation and lowering (`hg.lower()`) to engine recipes without importing Torch or user code.
+  - Backward compatibility: legacy engine recipes loaded seamlessly, convertible via `hg.lift()`.
+- [x] Unified public Python API in `src/hypergan/api.py`:
+  - `hg.load(path: Path | str) -> Model`
+  - `hg.save(model: Model, path: Path | str, overwrite: bool = False) -> Path`
+  - `hg.override(model: Model, changes: dict | None = None, **kwargs) -> Model`
+  - `hg.lower(model: Model) -> dict`
+  - `hg.validate(model: Model) -> list[str]`
+  - `hg.explain(model: Model) -> str`
+  - `hg.train(model_or_recipe, ...)` and `hg.resume(run_dir, ...)`
+  - `hg.prepare(...)` and `hg.prepare_resume(...)`
+  - `hg.sample(run_dir, ...)` and `hg.evaluate(run_dir, ...)`
+- [x] CLI refactoring: all CLI subcommands (`train`, `resume`, `sample`, `eval`, `export`, `status`, `new`) route through the unified `hypergan.api` surface.
+- [x] Torch-free CLI guarantee verified: `python -I -c "import sys, hypergan.cli; assert 'torch' not in sys.modules; assert 'particlegan' not in sys.modules; print('OK')"` passes with exit code 0.
+- [x] Verification: 936 fast foundation tests passing with 0 failures (`tests/foundation/test_api.py`, `tests/foundation/test_api_poc_config_first.py`, `tests/foundation/test_model_file.py`).
+
+### 25. The viewer starts but never stops (raised 2026-10-11)
+
+Owner: "there's an http server that starts but doesn't stop. it's kinda weird usability."
+
+**Status:** Completed and merged into `develop` (Milestone 3, Workstream B / Requirement R3).
+
+- [x] Single root dashboard per `runs_root` listening on fixed port 8765 (`src/hypergan/web_server.py`, `src/hypergan/web_autostart.py`).
+- [x] `train` attaches to the root dashboard or starts it if not running; local non-TTY runs (such as `hypergan queue`) start or attach to the local root dashboard per Owner Decision D1 (`[run].viewer = false` skips dashboard startup).
+- [x] Automatic restart on HyperGAN version or frontend asset hash mismatch (`ensure_dashboard_running`).
+- [x] Multi-run dynamic routing: `/runs/<run_id>` and `/api/v1/runs/{run_id}/*` dynamically routed across all runs under the runs root without restarting or launching additional servers.
+- [x] Root dashboard index page (`/`) backed by `summary.json`, presenting a sortable and filterable run table with status, step, throughput (it/s), latest metric, best FID, and disk usage.
+- [x] Bounded projector lifecycle: `Projector` workers run only while `status == "running"` and stop polling immediately once a run's manifest reaches a terminal status (`completed`, `stopped`, `failed`). A queue of N runs leaves at most one dashboard process behind.
+- [x] Dashboard CLI commands:
+  - `hypergan view [ROOT] [--status|--stop]`
+  - `hypergan stop-server --all`: terminates legacy and active viewer processes (tested and verified, successfully terminating leaked background viewers).
+- [x] Frontend bundle verified: `node frontend/build.mjs --check` matches committed `src/hypergan/web_assets/app.js` (575,013 bytes, 0 diff).
+- [x] Verification: 79 web tests passing with 0 failures (`tests/web/test_web_autostart.py`, `tests/web/test_multi_run_dashboard.py`, `tests/web/test_public_origin_proxy.py`, `tests/web/test_web_service.py`).
+
+### 26. An experiment needs both a shell launcher and a config file (raised 2026-10-11)
+
+Owner: "whenever we start an experiment in ~/dev/hypergan/training-runs we usually have a
+folder, config file, and shell file per experiment. the folder is generated but the shell
+and config is sorta annoying to need both."
+
+**Status:** Completed and merged into `develop` (Milestone 4, Workstream C / Requirement R4).
+
+- [x] Single experiment TOML file (`hypergan-model/1`) completely replaces shell launcher scripts (`start-*.sh` + `*.toml`).
+- [x] Discoverable workspace `hypergan.toml` (`src/hypergan/workspace.py`) discovered by walking up from the experiment file:
+  - `[workspace]`: `runs_root` and `run_dir` template (`{runs_root}/train-{stem}`).
+  - `[paths]`: variable interpolation `${paths.*}` across all config strings.
+  - `[gpus]`: friendly aliases (`gpu0`, `gpu1`) mapped to CUDA/PCI UUIDs.
+  - `[envs]`: named Python interpreters and source worktree pins.
+  - Default `[run]` and `[checkpoints]` tables inherited by all workspace experiments.
+- [x] `extends` inheritance with cycle detection, recursive table deep-merging by name (`[networks.*]`, `[train]`, `[evaluations.*]`), and array replacement (Owner Decision D5).
+- [x] Experiment `name` defaults to the file stem and is excluded from the numerical fingerprint (Owner Decision D3), so renaming files does not alter `config_sha256` or block resume.
+- [x] In-memory overrides via `--set k=v` CLI flag.
+- [x] Optional `--run-dir` on `train` (derived automatically from `{runs_root}/train-{stem}`, Owner Decision D2); `resume` aliased to `train RUN_DIR`.
+- [x] Outer-CLI environment re-exec (Owner Decision D4): when `[run].env` selects a different interpreter or source tree, the outer CLI resolves workspace, `extends`, `${paths}`, and `[run]`, records launch provenance to `RUN/launch/<attempt>.json` (argv, resolved run, GPU UUIDs, interpreter, PYTHONPATH, git commit/dirty state) and copies source configs to `RUN/config-source/`, then re-execs into the target environment with materialized config. Older worktrees run without backporting Phase 1.
+- [x] Hardware-tolerant resume (Owner Decision D9): runtime differences in GPU model, capability, world size, or `cuda.rank_devices` emit structured warnings in stderr, `manifest['warnings']`, and `events.jsonl` rather than raising `ValueError`.
+- [x] Training runs port: ported `/home/martyn/dev/hypergan/training-runs` to workspace `hypergan.toml`, base CIFAR config, and child TOMLs without `.sh` wrappers. Automated bit-for-bit test verifies exact numerical fingerprint invariance across all 46 ported TOMLs (`tests/foundation/test_training_runs_port.py`, 2 passed).
+
+### 27. Run summary, checkpoint retention, mid-run evaluation and metric cadence (raised 2026-10-11)
+
+Owner: "the core aspects are evaluation, metrics, checkpoints, config files."
+
+**Status:** Completed and merged into `develop` (Milestones 2 & 5, Workstreams A & E / Requirements R2, R5, R7).
+
+- [x] Checkpoint retention policy (Owner Decision D6):
+  - Changed default `checkpoint_every` to `1000`.
+  - Configurable `[checkpoints]` retention: `keep_last = 3`, `keep_best = { metric = "fid50k_train", mode = "min", count = 2 }`, `keep_every = 50000`, `export_bundle = "on_eval"`.
+  - Safety Invariants S1–S5 strictly enforced:
+    - S1: Never delete `latest` checkpoint.
+    - S2: Pin checkpoints at steps with active or pending `IntervalEvaluations`.
+    - S3: Retain step 0 (`0000000`) initial state.
+    - S4: Retain milestone checkpoints matching `keep_every = 50000`.
+    - S5: Only delete superseded intermediate checkpoints that have newer durable checkpoints.
+- [x] Mass checkpoint pruning on `/mnt/ml7tb/hypergan-training-runs` (Feature 46 / Requirement R7):
+  - Validated via dry-run across all 43 runs in `/mnt/ml7tb/hypergan-training-runs` verifying Safety Invariants S1-S5.
+  - Executed live prune: 2,620 intermediate checkpoints pruned, 229 preserved.
+  - Disk space reclaimed: 838.19 GiB (900.00 GB). Filesystem free space on `/mnt/ml7tb` increased from 431 GB (94% used) to 1.3 TB (83% used).
+- [x] Mid-run & lock-free evaluation (Owner Decision D7):
+  - `hypergan eval`, `sample`, and `export` accept `--checkpoint best|latest|STEP|PATH`.
+  - Dynamically extracts EMA weights and prior from `checkpoints/*/state.pt` when an inference bundle is missing.
+  - `hypergan eval` runs read-only and lock-free without acquiring `run_lock(root)` or creating new attempts, allowing concurrent evaluation on `--devices` while training continues.
+  - Branching disallowed per Owner Decision D8 (`hypergan branch` omitted).
+- [x] Atomic `summary.json` written at every checkpoint and evaluation, recording status, step, throughput, ETA, latest metrics, best evaluation, and checkpoint inventory. Evaluation directories named deterministically by step (`step-<step>-<metric>-<uuid>`).
+- [x] Run inspection CLI:
+  - `hypergan status RUN`: compact single-screen summary of run state, best FID, recent checkpoints, and active warnings.
+  - `hypergan runs ls [ROOT] [--sort ...] [--status ...]`: cross-run table of status, progress, speed, FID, and updates.
+  - `hypergan runs compare R1 R2 ... --metric ... --at ... [--csv]`: tabular metric comparison across runs at specified step milestones.
+- [x] Metric cadence and garbage collection (Owner Decision D12):
+  - Training metric logging cadence defaulted to `every_steps = 10` (~10x reduction in `events.jsonl` and `views/` disk footprint).
+  - `hypergan gc RUN`: removes rebuildable `views/` and compacts `events.jsonl`.
+- [x] Recipe generator & console ergonomics:
+  - `hypergan new NAME --dataset DIR`: generates a valid, runnable weight-free image recipe sized from `DIR`.
+  - Clean console header, ETA progress bar, inline FID and checkpoint notifications, collapsed qualification warnings, and human summary footer.
+- [x] Verification: `tests/foundation/test_checkpoints.py` (5 passed), `test_summary.py` (8 passed), `test_cli_inspection.py` (10 passed), `test_cli_new.py` (10 passed).
+
+### 28. Local 2-GPU CIFAR training, queue service, hardware-tolerant resume and Modal (raised 2026-10-11)
+
+Owner: "the goal of the project is to easily train and monitor GAN training across
+clusters, multiple gpus, or single gpus." / "lets get it running locally first on both
+gpus then we can use modal"
+
+**Status:** Completed and merged into `develop` (Milestone 6, Workstream D / Requirement R6).
+
+- [x] Device specification: `[run].devices` / `--devices` (`0`, `0,1`, UUIDs, workspace aliases `gpu0,gpu1`, `auto`). Automatic selection of replicated execution when more than one device is specified.
+- [x] Lifted replicated execution restrictions for CIFAR K3P:
+  - Default `total_timeout` set to no limit (or `--max-seconds`).
+  - Supported critic input noise, generator output noise, independent phase draws, and recipe-built K3P optimizers in `distributed_training.py` and `execution_profiles.py`.
+- [x] Fused device-side nonfinite gradient screening in `distributed_training._reduce_gradients` (resolving the open subtask from Item 19).
+- [x] Per-rank dataset sharding: passed `rank` and `world_size` to image data loading so each rank decodes only its shard.
+- [x] Qualified local 2-GPU CIFAR K3P training:
+  - Qualified on `gpu0,gpu1` (NVIDIA RTX A6000 pair) completing training steps, previews, checkpoints, and resume.
+  - Verified by `tests/cuda/test_cifar_replicated_qualification.py` (2 passed), `test_replicated_numerics.py` (1 passed), and `test_m6_empirical_challenges.py` (6 passed).
+- [x] Job queue architecture (`src/hypergan/queue.py`):
+  - `hypergan queue add|ls|status|stop|run --devices ...` managing experiment TOML queues per device set.
+  - `hypergan queue install-service` generates a systemd user unit for reboot persistence.
+  - Preflight checks: visible GPUs, UUIDs, free memory, and busy process detection before launching jobs.
+  - Verified by 23 tests in `tests/foundation/test_queue.py` and `test_queue_stress.py`.
+- [x] Multi-node Modal roadmap: staged for post-local qualification per Owner Decision D11.
+
+### Usability Plan Decisions D1–D12 & Requirements R1–R7 Completion Summary
+
+| Decision | Topic | Requirement | Milestone | Implementation & Status |
+|---|---|---|---|---|
+| D1 | Root dashboard local autostart without TTY | R3 | M3 | Starts root dashboard on 8765 locally even when non-TTY (queue); skipped when `[run].viewer = false`. Complete. |
+| D2 | `--run-dir` optional on `train` | R4 | M4 | Optional `--run-dir` derived from `{runs_root}/train-{stem}`; `resume` aliased to `train RUN_DIR`. Complete. |
+| D3 | Remove `name` from numerical fingerprint | R4 | M4 | Default name to file stem, excluded from config SHA-256 fingerprint; renaming file does not block resume. Complete. |
+| D4 | `[run].env` interpreter & worktree re-exec | R4 | M4 | Outer CLI resolves workspace/extends/paths/run, writes `RUN/launch/<attempt>.json` and `RUN/config-source/`, re-execs into target env. Complete. |
+| D5 | `extends` table deep-merging | R4 | M4 | Tables (`networks`, `train`, `evaluations`) deep-merge by name; arrays replace. Cycle detection enforced. Complete. |
+| D6 | Checkpoint retention policy | R2, R7 | M2, M7 | Default `checkpoint_every = 1000`, `keep_last = 3`, `keep_best = 2`, `keep_every = 50000`, `export_bundle = "on_eval"`. Historical prune freed 838.19 GiB. Complete. |
+| D7 | Lock-free mid-run evaluation | R2 | M2 | `hypergan eval\|sample\|export` accepts `--checkpoint best\|latest\|STEP\|PATH`, extracts EMA from `state.pt`, read-only without run lock. Complete. |
+| D8 | No `branch` command | R2 | M2 | Mid-run LR/schedule changes disallowed; new configuration requires a new experiment. Complete. |
+| D9 | Hardware-tolerant resume warnings | R4, R6 | M4, M6 | Differences in GPU model, capability, world size, rank devices warn instead of raising `ValueError`. Complete. |
+| D10 | Local 2-GPU CIFAR training scope | R6 | M6 | Local 2-GPU CIFAR K3P qualified across `gpu0,gpu1` (noise, phase draws, recipe optimizers, fused screening, sharded data). Complete. |
+| D11 | Staged cluster roadmap (local first) | R6 | M6 | Local 2-GPU qualified first; Modal multi-node scheduled next using reserved credits. Complete. |
+| D12 | Coarser default metric cadence & GC | R5 | M5 | Default `every_steps = 10` (~10x smaller logs); `hypergan gc RUN` removes `views/` and compacts `events.jsonl`. Complete. |
+
+| Requirement | Scope | Status | Deliverables & Verification |
+|---|---|---|---|
+| R1 | Unblock develop CI & land `hypergan-model/1` & Python API | DONE | PR #388 / #391 merged. `hypergan-model/1` TOML schema, `src/hypergan/api.py`, CLI thin layer over API, Torch-free CLI check passed. |
+| R2 | Checkpoint retention, `prune`, lock-free `--checkpoint` | DONE | `src/hypergan/checkpoints.py`, default cadence 1k, retention policy S1-S5, `prune` CLI, lock-free read-only eval with EMA extraction. |
+| R3 | Single root dashboard & viewer lifecycle | DONE | `src/hypergan/web_server.py`, port 8765 single instance, dynamic multi-run routing, root index (`/`), projector auto-stop, `stop-server --all`. |
+| R4 | Single experiment file, workspace, provenance, hardware resume | DONE | `src/hypergan/workspace.py`, `hypergan.toml`, `${paths}`, `extends`, re-exec provenance, hardware-tolerant resume warnings, 46 TOMLs ported with bit-for-bit invariance. |
+| R5 | `summary.json`, inspection CLI, console ergonomics, metric cadence | DONE | `src/hypergan/summary.py`, atomic `summary.json`, `status`, `runs ls`, `runs compare`, `gc`, `new --dataset`, `every_steps = 10`, console header/progress/footer. |
+| R6 | Local 2-GPU CIFAR K3P training & `hypergan queue` | DONE | `distributed_training.py`, `queue.py`, lifted replicated restrictions, fused nonfinite screening, sharded data loading, 2-GPU CIFAR qualification passed, queue service. |
+| R7 | Repository, Disk & GPU Guardrails, historical prune | DONE | Historical prune on `/mnt/ml7tb` reclaimed 838.19 GiB (2,620 intermediate checkpoints pruned, 229 preserved), full test suites passing, develop branch hygiene. |
 
 ### 23. Sample image slider flashes while scrubbing; always show a picture and buffer ahead (raised 2026-09-25)
 

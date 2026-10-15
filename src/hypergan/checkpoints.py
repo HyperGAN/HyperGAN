@@ -617,6 +617,28 @@ def prune_checkpoints(
 
     ckpt_root = run_dir / 'checkpoints'
     if not ckpt_root.is_dir():
+        child_runs = [d for d in run_dir.iterdir() if d.is_dir() and (d / 'checkpoints').is_dir()]
+        if child_runs:
+            total_retained = []
+            total_deleted = []
+            total_reclaimed = 0
+            for crun in sorted(child_runs, key=lambda p: p.name):
+                sub_res = prune_checkpoints(crun, policy=policy, dry_run=dry_run)
+                total_retained.extend(sub_res.get('retained', []))
+                total_deleted.extend(sub_res.get('deleted', []))
+                total_reclaimed += sub_res.get('reclaimed_bytes', 0)
+            return {
+                'run_dir': str(run_dir),
+                'dry_run': dry_run,
+                'retained_count': len(total_retained),
+                'deleted_count': len(total_deleted),
+                'retained': total_retained,
+                'deleted': total_deleted,
+                'reclaimed_bytes': total_reclaimed,
+                'pruned': total_deleted,
+                'pruned_count': len(total_deleted),
+                'bytes_reclaimed': total_reclaimed,
+            }
         return {
             'run_dir': str(run_dir),
             'dry_run': dry_run,
@@ -741,6 +763,11 @@ def prune_checkpoints(
     for c in checkpoints:
         if c['step'] in pinned_steps:
             retained_reasons[c['name']].add('active_evaluation')
+
+    # S3: Retain step 0 (initial state)
+    for c in checkpoints:
+        if c['step'] == 0:
+            retained_reasons[c['name']].add('step_zero')
 
     # S4: Keep milestones (keep_every)
     keep_every = policy.get('keep_every')

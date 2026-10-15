@@ -32,6 +32,8 @@ try:
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
+from .workspace import find_workspace, load_workspace, interpolate_variables, resolve_device_aliases
+
 PACKAGED = Path(__file__).with_name('models')
 
 __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
@@ -44,7 +46,9 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
            'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
-           'find_runs_root', 'stop_projector']
+           'find_runs_root', 'stop_projector',
+           'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases']
+
 
 
 # --------------------------------------------------------------------------- model files

@@ -5,7 +5,6 @@ Never imports torch, particlegan, or training execution dependencies.
 """
 import csv
 from datetime import datetime, timezone
-import fcntl
 import hashlib
 import io
 import json
@@ -52,9 +51,16 @@ def check_run_active(run_dir: Union[Path, str]) -> Tuple[bool, Optional[int]]:
     if lock_file.exists():
         try:
             with lock_file.open("a+b") as f:
+                f.seek(0)
                 try:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    if os.name == "nt":
+                        import msvcrt
+                        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                     is_active = False
                 except (BlockingIOError, OSError):
                     is_active = True

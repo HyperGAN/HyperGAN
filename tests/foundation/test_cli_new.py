@@ -167,3 +167,60 @@ def test_new_without_dataset_generates_reference_gaussian_grid(tmp_path):
     m = hg.load(ref_path)
     assert "gaussian" in m.spec["name"]
     assert "data" in m.spec
+
+
+def test_new_dataset_nonsquare_resolution_snapping(tmp_path):
+    dataset_dir = tmp_path / "nonsquare_images"
+    for i in range(5):
+        _create_dummy_image(dataset_dir / f"img_{i}.png", size=(64, 48), mode="RGB")
+
+    recipe_path = tmp_path / "nonsquare_model.toml"
+    res = run_cli(tmp_path, "new", recipe_path, "--dataset", dataset_dir, isolated=False)
+    assert res.returncode == 0, res.stderr
+    assert recipe_path.is_file()
+
+    m = hg.load(recipe_path)
+    # max(64, 48) = 64 -> snapped to preset 64
+    assert m.spec["data"]["args"]["height"] == 64
+    assert m.spec["data"]["args"]["width"] == 64
+    assert m.spec["data"]["args"]["resize"] == "center_crop"
+    assert m.spec["networks"]["generator"]["output_shape"] == ["B", 3, 64, 64]
+    assert m.spec["networks"]["discriminator"]["input_shape"] == ["B", 3, 64, 64]
+
+    warnings = hg.validate(m)
+    assert isinstance(warnings, list)
+
+    # Train for 1 step to ensure HNDL lowers cleanly and no E_CONSTRAINT error occurs
+    run_dir = tmp_path / "run_nonsquare"
+    train_res = run_cli(tmp_path, "train", recipe_path, "--run-dir", run_dir, "--steps", "1",
+                        "--set", "train.device=cpu", "--no-server", isolated=False)
+    assert train_res.returncode == 0, train_res.stderr
+
+
+def test_new_dataset_nonpreset_resolution_snapping(tmp_path):
+    dataset_dir = tmp_path / "nonpreset_images"
+    for i in range(5):
+        _create_dummy_image(dataset_dir / f"img_{i}.png", size=(48, 48), mode="RGB")
+
+    recipe_path = tmp_path / "nonpreset_model.toml"
+    res = run_cli(tmp_path, "new", recipe_path, "--dataset", dataset_dir, isolated=False)
+    assert res.returncode == 0, res.stderr
+    assert recipe_path.is_file()
+
+    m = hg.load(recipe_path)
+    # max(48, 48) = 48 -> snapped to preset 64
+    assert m.spec["data"]["args"]["height"] == 64
+    assert m.spec["data"]["args"]["width"] == 64
+    assert m.spec["data"]["args"]["resize"] == "center_crop"
+    assert m.spec["networks"]["generator"]["output_shape"] == ["B", 3, 64, 64]
+    assert m.spec["networks"]["discriminator"]["input_shape"] == ["B", 3, 64, 64]
+
+    warnings = hg.validate(m)
+    assert isinstance(warnings, list)
+
+    # Train for 1 step to ensure HNDL lowers cleanly and no E_CONSTRAINT error occurs
+    run_dir = tmp_path / "run_nonpreset"
+    train_res = run_cli(tmp_path, "train", recipe_path, "--run-dir", run_dir, "--steps", "1",
+                        "--set", "train.device=cpu", "--no-server", isolated=False)
+    assert train_res.returncode == 0, train_res.stderr
+

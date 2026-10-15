@@ -53,13 +53,24 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
 
     has_varying = any(w != target_w or h != target_h for w, h in zip(widths, heights))
 
+    max_dim = max(target_w, target_h)
+    if max_dim <= 32:
+        preset_res = 32
+    elif max_dim <= 64:
+        preset_res = 64
+    elif max_dim <= 128:
+        preset_res = 128
+    else:
+        preset_res = 256
+
     return {
         "count": len(image_paths),
         "width": target_w,
         "height": target_h,
+        "preset_res": preset_res,
         "channels": channels,
         "mode": mode,
-        "resize": "center_crop" if has_varying else "center_crop",
+        "resize": "center_crop",
     }
 
 
@@ -218,6 +229,17 @@ def generate_recipe(name: str,
     h = info["height"]
     c = info["channels"]
     mode = info["mode"]
+    preset_res = info.get("preset_res")
+    if preset_res is None:
+        max_dim = max(w, h)
+        if max_dim <= 32:
+            preset_res = 32
+        elif max_dim <= 64:
+            preset_res = 64
+        elif max_dim <= 128:
+            preset_res = 128
+        else:
+            preset_res = 256
 
     # Target path resolution
     if output_path is None:
@@ -247,7 +269,7 @@ def generate_recipe(name: str,
             except ValueError:
                 root_str = str(dataset_path)
 
-    gen_source, disc_source = get_hndl_templates(w, h, c)
+    gen_source, disc_source = get_hndl_templates(preset_res, preset_res, c)
 
     spec: Dict[str, Any] = {
         "format": "hypergan-model/1",
@@ -256,8 +278,8 @@ def generate_recipe(name: str,
             "builtin": "image_folder",
             "args": {
                 "root": root_str,
-                "height": h,
-                "width": w,
+                "height": preset_res,
+                "width": preset_res,
                 "mode": mode,
                 "resize": "center_crop",
             },
@@ -272,13 +294,13 @@ def generate_recipe(name: str,
                 "role": "generator",
                 "inputs": {"z": "latent"},
                 "input_shape": ["B", 128],
-                "output_shape": ["B", c, h, w],
+                "output_shape": ["B", c, preset_res, preset_res],
                 "source": gen_source,
             },
             "discriminator": {
                 "role": "critic",
                 "inputs": {"x": "candidate"},
-                "input_shape": ["B", c, h, w],
+                "input_shape": ["B", c, preset_res, preset_res],
                 "output_shape": ["B", 1],
                 "source": disc_source,
             },

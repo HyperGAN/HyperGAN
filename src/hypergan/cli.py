@@ -876,7 +876,8 @@ def _dispatch(args, *, output=None):
                     dev = train_sec.get("device", "cuda")
                     dashboard_url = getattr(args, "_dashboard_url", None)
                     _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url)
-                output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
+                human_footer = (not is_resume_cmd) and not getattr(args, "progress_json", False)
+                output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir, human=human_footer)
         elif args.command == "sample":
             s = hg.sample(args.run_dir, count=args.count, seed=args.seed, output=args.output,
                           checkpoint=getattr(args, "checkpoint", None))

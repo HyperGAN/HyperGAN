@@ -33,7 +33,7 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 from .workspace import find_workspace, load_workspace, interpolate_variables, resolve_device_aliases
-from .model_file import resolve_inheritance
+from .model_file import resolve_inheritance, collect_source_files
 
 PACKAGED = Path(__file__).with_name('models')
 
@@ -49,7 +49,7 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
-           'resolve_inheritance']
+           'resolve_inheritance', 'collect_source_files']
 
 
 

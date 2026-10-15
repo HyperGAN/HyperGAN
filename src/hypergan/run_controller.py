@@ -253,7 +253,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
         raw['training']['steps'] = steps
         config = resolve_config(raw)
     run_dir = Path(run_dir).resolve()
-    if run_dir.exists():
+    if (run_dir / 'manifest.json').exists():
         raise FileExistsError(f'Run directory already exists: {run_dir}')
     prepare_custom(config)
     qualification = dict(config['qualification'])
@@ -266,7 +266,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
     try:
         descriptor = _configure_attempt(execution, context, preview_every, on_event)
         environment = execution.environment()
-        run_dir.mkdir(parents=True, exist_ok=False)
+        run_dir.mkdir(parents=True, exist_ok=True)
         sync_directory(run_dir.parent)
         manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
                 'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),

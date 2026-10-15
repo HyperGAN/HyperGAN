@@ -284,4 +284,74 @@ def test_cli_stop_server_all(tmp_path):
     assert "Traceback" not in res_err.stderr
 
 
+def test_cli_train_optional_run_dir_and_provenance(tmp_path):
+    ws_file = tmp_path / "hypergan.toml"
+    runs_dir = tmp_path / "custom_runs"
+    ws_file.write_text(f"""
+[workspace]
+root = "{tmp_path}"
+runs_root = "{runs_dir}"
+""")
+    config = tmp_path / "my_experiment.toml"
+    run_cli(tmp_path, "new", config, "--device", "cpu")
+
+    # Train without --run-dir; should default to {runs_root}/train-{stem}
+    train_res = run_cli(tmp_path, "train", config, "--steps", "1", "--no-server", isolated=False)
+    assert train_res.returncode == 0, train_res.stderr
+
+    expected_run = runs_dir / "train-my_experiment"
+    assert expected_run.is_dir()
+    assert (expected_run / "manifest.json").is_file()
+
+    # Verify launch provenance and config snapshot were written
+    launch_json = expected_run / "launch" / "0001.json"
+    assert launch_json.is_file()
+    launch_data = json.loads(launch_json.read_text(encoding="utf-8"))
+    assert launch_data["attempt"] == 1
+    assert "hypergan" in launch_data["git"]
+
+    config_source = expected_run / "config-source"
+    assert config_source.is_dir()
+    assert (config_source / "my_experiment.toml").is_file()
+    assert (config_source / "hypergan.toml").is_file()
+
+
+def test_cli_set_bracket_normalization(tmp_path):
+    from hypergan.cli import _normalize_set_key, _parse_set_value, _parse_set_overrides
+
+    assert _normalize_set_key("layers[0].width") == "layers.0.width"
+    assert _normalize_set_key("networks[generator][hidden]") == "networks.generator.hidden"
+    assert _parse_set_value("true") is True
+    assert _parse_set_value("false") is False
+    assert _parse_set_value("null") is None
+    assert _parse_set_value("123") == 123
+    assert _parse_set_value("1.5e-3") == 0.0015
+    assert _parse_set_value("[1, 2, 3]") == [1, 2, 3]
+
+    overrides = _parse_set_overrides(["layers[0].width=128", "enabled=true"])
+    assert overrides == {"layers.0.width": 128, "enabled": True}
+
+
+def test_cli_reexec_loop_detection_raises_runtime_error(tmp_path):
+    import os
+    ws_file = tmp_path / "hypergan.toml"
+    ws_file.write_text("""
+[workspace]
+root = "."
+
+[envs.fake]
+python = "/nonexistent/bin/python"
+""")
+    config = tmp_path / "reexec_model.toml"
+    run_cli(tmp_path, "new", config, "--device", "cpu")
+    content = config.read_text(encoding="utf-8")
+    config.write_text(content + '\n[run]\nenv = "fake"\n')
+
+    cmd = [sys.executable, "-m", "hypergan", "train", str(config), "--run-dir", str(tmp_path / "run")]
+    env = dict(os.environ, _HYPERGAN_REEXEC="1")
+    p = subprocess.run(cmd, cwd=tmp_path, capture_output=True, text=True, env=env)
+    assert p.returncode != 0
+    assert "Re-exec loop detected" in p.stderr
+
+
 

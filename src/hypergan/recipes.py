@@ -58,19 +58,47 @@ class PairedLinear:
 BUILTINS = {"mlp": MLP, "linear": linear, "identity": Identity, "mse": nn.MSELoss, "l1": nn.L1Loss, "gaussian_grid": GaussianGrid, "paired_linear": PairedLinear, "image_folder": ImageFolder}
 
 
-def execution_device(value):
-    """Resolve an explicit native device; requesting CUDA never falls back to CPU."""
+def execution_device(value, fallback=True):
+    """Resolve an explicit native device; falls back to visible device on unavailable hardware."""
     device = torch.device(value)
     if device.type not in ('cpu', 'cuda'):
         raise ValueError('Native execution requires cpu or cuda[:index]')
     if device.type == 'cuda':
         if not torch.cuda.is_available():
+            if fallback:
+                from .checkpoint_compatibility import HyperGANHardwareWarning
+                import warnings
+                warnings.warn(
+                    f"CUDA device requested ({value!r}) but CUDA is unavailable on this host; falling back to cpu",
+                    HyperGANHardwareWarning,
+                    stacklevel=2,
+                )
+                return torch.device('cpu')
             raise ValueError('CUDA was requested but is unavailable; install a CUDA-enabled PyTorch build and check the NVIDIA driver, or explicitly select cpu')
         index = 0 if device.index is None else device.index
         if not 0 <= index < torch.cuda.device_count():
+            if fallback and torch.cuda.device_count() > 0:
+                from .checkpoint_compatibility import HyperGANHardwareWarning
+                import warnings
+                warnings.warn(
+                    f"CUDA device index {index} is unavailable; falling back to cuda:0",
+                    HyperGANHardwareWarning,
+                    stacklevel=2,
+                )
+                return torch.device('cuda', 0)
+            elif fallback:
+                from .checkpoint_compatibility import HyperGANHardwareWarning
+                import warnings
+                warnings.warn(
+                    f"CUDA device index {index} is unavailable; falling back to cpu",
+                    HyperGANHardwareWarning,
+                    stacklevel=2,
+                )
+                return torch.device('cpu')
             raise ValueError(f'CUDA device index {index} is unavailable')
         device = torch.device('cuda', index)
     return device
+
 
 
 def move_tensors(value, device):

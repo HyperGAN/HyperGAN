@@ -189,7 +189,7 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
     run_dir = Path(run_dir).resolve()
-    if run_dir.exists():
+    if (run_dir / 'manifest.json').is_file():
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=profile, service_policy=service_policy, checkpoint_every=checkpoint_every,
             max_seconds=max_seconds, stop_after_steps=stop_after_steps,

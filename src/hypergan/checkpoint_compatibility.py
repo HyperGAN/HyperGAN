@@ -24,13 +24,32 @@ PARTICLEGAN_060_MIGRATION = {
         '79c4449d804f1b701dde8d4578c676ef31ceb4806f12705b8a237cec821d0cc9'),
 }
 
-# Which physical card a run sits on is recorded so an attempt can be traced back
-# to hardware, but it does not change what the saved state means. Two identical
-# GPUs in one machine enumerate in an unstable order unless CUDA_DEVICE_ORDER
-# pins it, so a restart can hand device 0 to the other card. These key paths,
-# and only these, identify the card rather than the numerical runtime; a
-# difference confined to them warns and resumes instead of rejecting.
-DEVICE_IDENTITY_KEYS = frozenset({'cuda.uuid', 'cuda.visible_devices'})
+class HyperGANHardwareWarning(RuntimeWarning):
+    """Structured warning emitted when running or resuming on differing hardware or topology."""
+    pass
+
+
+# Keys identifying physical hardware topology or device enumeration.
+# Differences in these keys emit HyperGANHardwareWarning and permit resume (Decision D9).
+HARDWARE_TOLERANCE_KEYS = frozenset({
+    'cuda.name',
+    'cuda.capability',
+    'cuda.rank_devices',
+    'world_size',
+    'device',
+    'platform',
+    'machine',
+    'cuda.uuid',
+    'cuda.visible_devices',
+    'cuda.nccl',
+})
+
+DEVICE_IDENTITY_KEYS = HARDWARE_TOLERANCE_KEYS
+
+
+def _is_hardware_tolerant(path: str) -> bool:
+    return path in HARDWARE_TOLERANCE_KEYS or path.startswith('cuda.rank_devices.')
+
 
 # Other keys in `runtime` decide behavior and stay hard failures: device
 # type, dtype, world size, torch/cuda/cudnn versions, the deterministic, tf32 and
@@ -131,21 +150,34 @@ def validate_runtime(saved, current, *, warn=None, saved_implementation=None,
     if not differences and not upgraded:
         return []
     incompatible = [difference for difference in differences
-                    if difference[0] not in DEVICE_IDENTITY_KEYS]
+                    if not _is_hardware_tolerant(difference[0])]
     if incompatible:
         raise ValueError(
             'Resume runtime/topology differs from checkpoint: ' + _describe(incompatible) +
             '. Resume with the runtime that wrote the checkpoint, or start a new run directory.')
-    messages = [_device_identity_warning(saved, differences)] if differences else []
+    hardware_diffs = [difference for difference in differences
+                      if _is_hardware_tolerant(difference[0])]
+    messages = []
+    if hardware_diffs:
+        card = saved.get('cuda') if isinstance(saved.get('cuda'), dict) else {}
+        is_only_uuid_visible = all(d[0] in {'cuda.uuid', 'cuda.visible_devices'} for d in hardware_diffs)
+        if is_only_uuid_visible and card.get('name'):
+            messages.append(_device_identity_warning(saved, hardware_diffs))
+        else:
+            messages.append(
+                f'Resuming on differing hardware/topology: {_describe(hardware_diffs)}. '
+                'The numerical runtime settings are unchanged, so the checkpoint restores as saved.'
+            )
     if upgraded:
         messages.append('Resuming ParticleGAN 0.5.0 state with the audited 0.6.0 explicit-sigma '
                         'implementation; saved centers, sigma and read settings restore unchanged.')
     for message in messages:
         if warn is None:
-            warnings.warn(message, RuntimeWarning, stacklevel=2)
+            warnings.warn(message, HyperGANHardwareWarning, stacklevel=2)
         else:
             warn(message)
     return messages
+
 
 
 def _particlegan_060_upgrade(saved, current):

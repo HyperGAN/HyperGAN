@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -219,7 +220,7 @@ def _parser():
     convert.add_argument("--output", type=Path, required=True, help="output model.toml destination")
     train = commands.add_parser("train", help="Create a run or resume its latest checkpoint with the same configuration")
     train.add_argument("config", type=Path)
-    train.add_argument("--run-dir", type=Path, required=True, help="new run directory, or an existing run to resume")
+    train.add_argument("--run-dir", type=Path, required=False, default=None, help="new run directory, or an existing run to resume")
     train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
     train.add_argument("--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
                        help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
@@ -241,19 +242,151 @@ def _parser():
     return parser
 
 
+def _parse_set_value(raw: str) -> object:
+    val = raw.strip()
+    if val.lower() == "true":
+        return True
+    if val.lower() == "false":
+        return False
+    if val.lower() in ("null", "none"):
+        return None
+    try:
+        return json.loads(val)
+    except (json.JSONDecodeError, ValueError):
+        pass
+    if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+        return val[1:-1]
+    return val
+
+
+def _normalize_set_key(key: str) -> str:
+    key = re.sub(r'\[([^\]]+)\]', r'.\1', key)
+    return key.strip().strip('.')
+
+
 def _parse_set_overrides(items):
     overrides = {}
     for item in items or []:
         if "=" not in item:
             raise ValueError(f"Invalid --set override {item!r}; expected KEY=VALUE")
         key, raw_val = item.split("=", 1)
-        key = key.strip()
-        try:
-            val = json.loads(raw_val)
-        except (json.JSONDecodeError, ValueError):
-            val = raw_val
-        overrides[key] = val
+        norm_key = _normalize_set_key(key)
+        val = _parse_set_value(raw_val)
+        overrides[norm_key] = val
     return overrides
+
+
+def _check_reexec(run_spec, ws_data):
+    """Determine if re-exec is required based on [run].env or workspace env profiles.
+    
+    Returns:
+        (needs_reexec, target_python, target_src_paths, target_env_vars)
+    """
+    if not isinstance(run_spec, dict):
+        return False, None, [], {}
+
+    ws_data = ws_data or {}
+    envs = ws_data.get("envs", {})
+
+    target_python = None
+    target_src_paths = []
+    target_env_vars = {}
+
+    env_ref = run_spec.get("env")
+    if isinstance(env_ref, str):
+        if env_ref in envs:
+            env_conf = envs[env_ref]
+            if "python" in env_conf:
+                target_python = str(Path(env_conf["python"]).resolve())
+            if "src" in env_conf:
+                src_val = env_conf["src"]
+                if isinstance(src_val, (list, tuple)):
+                    target_src_paths.extend([str(Path(s).resolve()) for s in src_val])
+                elif isinstance(src_val, str):
+                    target_src_paths.append(str(Path(src_val).resolve()))
+            if "env" in env_conf and isinstance(env_conf["env"], dict):
+                target_env_vars.update({k: str(v) for k, v in env_conf["env"].items()})
+        elif Path(env_ref).is_file():
+            target_python = str(Path(env_ref).resolve())
+    elif isinstance(env_ref, dict):
+        target_env_vars.update({k: str(v) for k, v in env_ref.items()})
+
+    # [run.env] inline table if present
+    if "env" in run_spec and isinstance(run_spec["env"], dict):
+        target_env_vars.update({k: str(v) for k, v in run_spec["env"].items()})
+
+    needs_reexec = False
+    if target_python and Path(sys.executable).resolve() != Path(target_python).resolve():
+        needs_reexec = True
+    for p in target_src_paths:
+        if p not in sys.path[:len(target_src_paths)]:
+            needs_reexec = True
+            break
+    for k, v in target_env_vars.items():
+        if os.environ.get(k) != str(v):
+            needs_reexec = True
+            break
+
+    return needs_reexec, target_python, target_src_paths, target_env_vars
+
+
+def _determine_attempt(run_dir: Path) -> int:
+    reexec_att = os.environ.get("_HYPERGAN_REEXEC_ATTEMPT")
+    if reexec_att:
+        try:
+            return int(reexec_att)
+        except ValueError:
+            pass
+    launch_dir = run_dir / "launch"
+    if launch_dir.is_dir():
+        existing = [p for p in launch_dir.glob("*.json") if re.fullmatch(r"\d{4}\.json", p.name)]
+        if existing:
+            return max(int(p.stem) for p in existing) + 1
+    return 1
+
+
+def _reconstruct_argv_for_reexec(argv, old_config_str, new_config_str, run_dir_str):
+    new_args = []
+    idx = 0
+    if len(argv) > 0:
+        if "hypergan" not in Path(argv[0]).name:
+            if len(argv) >= 3 and argv[1] == "-m" and argv[2] == "hypergan":
+                idx = 3
+            else:
+                idx = 1
+        else:
+            idx = 1
+
+    has_run_dir = False
+    old_p = Path(old_config_str).resolve()
+    while idx < len(argv):
+        arg = argv[idx]
+        if arg == "--run-dir":
+            has_run_dir = True
+            new_args.extend([arg, argv[idx + 1]])
+            idx += 2
+            continue
+        elif arg.startswith("--run-dir="):
+            has_run_dir = True
+            new_args.append(arg)
+            idx += 1
+            continue
+
+        try:
+            if Path(arg).resolve() == old_p:
+                new_args.append(new_config_str)
+                idx += 1
+                continue
+        except Exception:
+            pass
+        new_args.append(arg)
+        idx += 1
+
+    if not has_run_dir:
+        new_args.extend(["--run-dir", run_dir_str])
+
+    return new_args
+
 
 
 def _print_json(value):
@@ -425,14 +558,110 @@ def _dispatch(args, *, output=None):
                            preview_name=args.preview_name)
             sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
             if args.command == "train":
+                config_path = args.config.resolve()
+                if args.run_dir is None:
+                    ws_path = hg.find_workspace(config_path)
+                    if ws_path:
+                        ws_data = hg.load_workspace(ws_path)
+                        ws_sec = ws_data.get("workspace", {})
+                        if "run_dir" in ws_sec:
+                            run_dir_str = hg.interpolate_variables(ws_sec["run_dir"], ws_data, {"stem": config_path.stem, "name": config_path.stem})
+                            args.run_dir = Path(run_dir_str).resolve()
+                        elif "runs_root" in ws_sec:
+                            args.run_dir = (Path(ws_sec["runs_root"]) / f"train-{config_path.stem}").resolve()
+                        else:
+                            args.run_dir = (Path.cwd() / f"train-{config_path.stem}").resolve()
+                    else:
+                        args.run_dir = (Path.cwd() / f"train-{config_path.stem}").resolve()
+                else:
+                    args.run_dir = args.run_dir.resolve()
+
                 m = hg.load(args.config)
                 if sets:
                     m = hg.override(m, sets)
+
+                run_spec = m.spec.get("run", {}) if isinstance(m.spec, dict) else {}
+                ws_path = hg.find_workspace(config_path)
+                ws_data = hg.load_workspace(ws_path) if ws_path else {}
+
+                needs_reexec, target_py, target_srcs, target_envs = _check_reexec(run_spec, ws_data)
+                if needs_reexec:
+                    if os.environ.get("_HYPERGAN_REEXEC") == "1":
+                        unsatisfied = []
+                        if target_py and Path(sys.executable).resolve() != Path(target_py).resolve():
+                            unsatisfied.append(f"python (current: {sys.executable}, target: {target_py})")
+                        for k, v in target_envs.items():
+                            if os.environ.get(k) != str(v):
+                                unsatisfied.append(f"env var {k} (current: {os.environ.get(k)!r}, target: {v!r})")
+                        for p in target_srcs:
+                            if p not in sys.path[:len(target_srcs)]:
+                                unsatisfied.append(f"src path {p} not in sys.path")
+                        raise RuntimeError(
+                            f"Re-exec loop detected: process was already re-executed with _HYPERGAN_REEXEC=1, "
+                            f"but target environment conditions remain unsatisfied: {', '.join(unsatisfied)}"
+                        )
+
+                    args.run_dir.mkdir(parents=True, exist_ok=True)
+                    from .provenance import write_launch_provenance, snapshot_config_sources
+                    from .model_file import collect_source_files
+
+                    sources = collect_source_files(config_path, ws_path.parent if ws_path else None)
+                    snapshot_config_sources(args.run_dir, sources)
+
+                    attempt = _determine_attempt(args.run_dir)
+                    write_launch_provenance(args.run_dir, attempt=attempt, metadata={
+                        "argv": list(sys.argv),
+                        "executable": target_py or sys.executable,
+                        "run": run_spec,
+                        "environment": target_envs,
+                    })
+
+                    lowered = hg.lower(m)
+                    from .toml_writer import dumps as _dumps
+                    recipe_text = _dumps(lowered, table_depth=3)
+                    (args.run_dir / "recipe.toml").write_text(recipe_text, encoding="utf-8")
+
+                    new_env = os.environ.copy()
+                    new_env["_HYPERGAN_REEXEC"] = "1"
+                    new_env["_HYPERGAN_REEXEC_ATTEMPT"] = f"{attempt:04d}"
+                    for k, v in target_envs.items():
+                        new_env[k] = str(v)
+                    if target_srcs:
+                        cur_pp = new_env.get("PYTHONPATH", "")
+                        prefix = ":".join(target_srcs)
+                        new_env["PYTHONPATH"] = f"{prefix}:{cur_pp}" if cur_pp else prefix
+
+                    target_executable = target_py or sys.executable
+                    new_argv = _reconstruct_argv_for_reexec(sys.argv, str(args.config), str(args.run_dir / "recipe.toml"), str(args.run_dir))
+                    os.execve(target_executable, [target_executable, "-m", "hypergan", *new_argv], new_env)
+
+                if os.environ.get("_HYPERGAN_REEXEC") == "1":
+                    os.environ.pop("_HYPERGAN_REEXEC", None)
+                else:
+                    args.run_dir.mkdir(parents=True, exist_ok=True)
+                    from .provenance import write_launch_provenance, snapshot_config_sources
+                    from .model_file import collect_source_files
+                    sources = collect_source_files(config_path, ws_path.parent if ws_path else None)
+                    snapshot_config_sources(args.run_dir, sources)
+                    attempt = _determine_attempt(args.run_dir)
+                    write_launch_provenance(args.run_dir, attempt=attempt, metadata={
+                        "argv": list(sys.argv),
+                        "executable": sys.executable,
+                        "run": run_spec,
+                    })
+
                 prepared = hg.prepare(m, args.run_dir, args.steps, **options)
             else:
+                args.run_dir = args.run_dir.resolve()
                 m = hg.load(args.config) if args.config else None
                 if m and sets:
                     m = hg.override(m, sets)
+                from .provenance import write_launch_provenance
+                attempt = _determine_attempt(args.run_dir)
+                write_launch_provenance(args.run_dir, attempt=attempt, metadata={
+                    "argv": list(sys.argv),
+                    "executable": sys.executable,
+                })
                 prepared = hg.prepare_resume(args.run_dir, args.checkpoint, m, steps=getattr(args, "steps", None), sets=sets, **options)
             _warnings(prepared.config)
             from .metrics import manual_evaluation_hint, manual_evaluation_reminder

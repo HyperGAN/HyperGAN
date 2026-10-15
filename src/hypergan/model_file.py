@@ -809,3 +809,50 @@ def resolve_inheritance(
 
     return merged
 
+
+def collect_source_files(config_path: Path | str, workspace_root: Path | str | None = None) -> list[Path]:
+    """Collect the chain of source configuration files for provenance snapshotting."""
+    sources = []
+    seen = set()
+
+    def _walk(path_val: Path | str):
+        p = Path(path_val).resolve()
+        if p in seen or not p.is_file():
+            return
+        seen.add(p)
+        try:
+            with p.open('rb') as f:
+                data = tomllib.load(f)
+            if isinstance(data, dict) and 'extends' in data:
+                parent_ref = data['extends']
+                cand = (p.parent / parent_ref).resolve()
+                if not cand.is_file() and workspace_root is not None:
+                    cand = (Path(workspace_root).resolve() / parent_ref).resolve()
+                if not cand.is_file():
+                    cand = (Path.cwd() / parent_ref).resolve()
+                if not cand.is_file():
+                    cand = (Path(__file__).resolve().parent / "models" / parent_ref).resolve()
+                    if not cand.is_file() and not parent_ref.endswith(".toml"):
+                        cand = (Path(__file__).resolve().parent / "models" / f"{parent_ref}.toml").resolve()
+                if cand.is_file():
+                    _walk(cand)
+        except Exception:
+            pass
+        sources.append(p)
+
+    ws_file = None
+    if workspace_root is not None:
+        cand_ws = Path(workspace_root) / "hypergan.toml"
+        if cand_ws.is_file():
+            ws_file = cand_ws.resolve()
+    else:
+        from .workspace import find_workspace
+        ws_file = find_workspace(config_path)
+
+    if ws_file and ws_file.is_file():
+        sources.append(ws_file)
+        seen.add(ws_file)
+
+    _walk(config_path)
+    return sources
+

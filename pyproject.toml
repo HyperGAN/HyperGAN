@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77,<83"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
-train = ["hndl>=0.8.0", "particlegan @ git+https://github.com/255BITS/ParticleGAN.git@develop", "torch>=2.6,<3", "numpy>=1.26,<3"]
+train = ["hndl>=0.8.0", "particlegan>=0.8.0,<0.9", "torch>=2.6,<3", "numpy>=1.26,<3"]
 image = ["Pillow>=11,<13"]
 cifar = ["torchvision>=0.21,<1"]
 fid = ["torch-fidelity==0.3.0", "torchvision>=0.21,<1", "scipy>=1.10,<1.18"]
@@ -34,7 +34,7 @@ include-package-data = false
 
 [tool.setuptools.package-data]
 "hypergan.metrics_reducer" = ["assets/*.wasm", "assets/*.json", "assets/*.js", "assets/*.html", "assets/*.txt"]
-"hypergan" = ["networks/*.hndl", "models/*.toml","_build_provenance.json", "web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json"]
+"hypergan" = ["networks/*.hndl", "models/*.toml", "_build_provenance.json", "web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

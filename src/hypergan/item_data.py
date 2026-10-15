@@ -111,19 +111,26 @@ class ItemData:
             self._cursor += take
         return result
 
-    def __call__(self, batch_size, *, generator):
+    def __call__(self, batch_size, *, generator, rank=0, world_size=1):
         import torch
         if type(batch_size) is not int or batch_size < 1:
             raise ValueError('batch_size must be a positive integer')
+        sharded = world_size is not None and world_size > 1
+        local_batch_size = (batch_size // world_size) if sharded else batch_size
         saved = (self._epoch, self._cursor, self._epoch_seed, generator.get_state())
         try:
             indices = self.indices(batch_size, generator)
+            if sharded:
+                start = rank * local_batch_size
+                load_indices = indices[start:start + local_batch_size]
+            else:
+                load_indices = indices
             if self.workers:
                 if self._pool is None:
                     self._pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix='item-data')
-                items = list(self._pool.map(self._load, indices))
+                items = list(self._pool.map(self._load, load_indices))
             else:
-                items = [self._load(index) for index in indices]
+                items = [self._load(index) for index in load_indices]
             items = [item if isinstance(item, (dict, list, tuple)) else {'real': item} for item in items]
             batch = collate(items)
             if not isinstance(batch, dict) or not isinstance(batch.get('real'), torch.Tensor):

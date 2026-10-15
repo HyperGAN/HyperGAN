@@ -50,9 +50,11 @@ class CIFAR10Data:
         self.labels = torch.from_numpy(np.concatenate(labels))
         self.cursor = 0
 
-    def __call__(self, batch_size, *, generator):
+    def __call__(self, batch_size, *, generator, rank=0, world_size=1):
         if type(batch_size) is not int or batch_size <= 0:
             raise ValueError('CIFAR batch_size must be a positive integer')
+        sharded = world_size is not None and world_size > 1
+        local_batch_size = (batch_size // world_size) if sharded else batch_size
         device = generator.device
         if self.images.device != device:
             self.images = self.images.to(device)
@@ -63,12 +65,18 @@ class CIFAR10Data:
             if self.cursor + batch_size > len(self.images):
                 raise StopIteration('CIFAR sequential evaluation exhausted; it never wraps or repeats')
             ids = torch.arange(self.cursor, self.cursor + batch_size, device=device)
-        x = self.images[ids].float() / 127.5 - 1
-        if self.horizontal_flip:
-            flip = torch.rand((len(x), 1, 1, 1), device=device, generator=generator) < .5
-            x = torch.where(flip, x.flip(-1), x)
         self.cursor += batch_size
-        return {'real': x, 'labels': self.labels[ids]}
+        if sharded:
+            start = rank * local_batch_size
+            local_ids = ids[start:start + local_batch_size]
+        else:
+            local_ids = ids
+        x = self.images[local_ids].float() / 127.5 - 1
+        if self.horizontal_flip:
+            flip = torch.rand((batch_size, 1, 1, 1), device=device, generator=generator) < .5
+            local_flip = flip[start:start + local_batch_size] if sharded else flip
+            x = torch.where(local_flip, x.flip(-1), x)
+        return {'real': x, 'labels': self.labels[local_ids]}
 
     def state_dict(self):
         return {'cursor': self.cursor}

@@ -15,7 +15,7 @@ import torch.distributed as dist
 from .config import config_values, fingerprint, resolve_config
 from .distributed import Collectives
 from .recipes import detach, move_tensors
-from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, schedule_learning_rates, update_ema
+from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, noise_levels, schedule_learning_rates, update_ema, with_noise
 
 
 class ReplicatedTrainer(ReferenceTrainer):
@@ -82,10 +82,12 @@ class ReplicatedTrainer(ReferenceTrainer):
         rank_seed = (config['training']['seed'] + 104729 * self.rank) % (2 ** 63)
         torch.manual_seed(rank_seed)
         random.seed(rank_seed)
-        np.random.seed(rank_seed % (2 ** 32))
-        for offset, name in enumerate(('data', 'prior', 'penalty'), 1):
-            self.streams[name].manual_seed(((config['training']['seed'] if name == 'data' else rank_seed) + offset) % (2 ** 63))
-        # Replicated recipes have no noise schedule; the stream is still rank-owned.
+        settings = config['training']
+        data_offset = settings.get('data_seed_offset', 1)
+        prior_offset = settings.get('prior_seed_offset', 2)
+        self.streams['data'].manual_seed((config['training']['seed'] + data_offset) % (2 ** 63))
+        self.streams['prior'].manual_seed((rank_seed + prior_offset) % (2 ** 63))
+        self.streams['penalty'].manual_seed((rank_seed + 3) % (2 ** 63))
         self.streams['noise'].manual_seed((rank_seed + NOISE_SEED_OFFSET) % (2 ** 63))
         self._phase('initial CUDA completion', self._synchronize)
         self.checkpoint_ready = True
@@ -175,10 +177,6 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._agree(name, self._phase(name + ' validation', self._replica_digest))
 
     def batch(self):
-        # Duplicate decoding is intentional in this correctness-first strategy:
-        # all workers advance ONE identical global sampler before rank slicing.
-        full = self._phase('global data draw', lambda: self.data(self.global_batch_size, generator=self.streams['data']))
-        self._agree('global data draw', self._phase('global data digest', lambda: self._digest(full)))
         def shard(value):
             if isinstance(value, torch.Tensor):
                 if value.ndim == 0:
@@ -192,7 +190,24 @@ class ReplicatedTrainer(ReferenceTrainer):
             if isinstance(value, (tuple, list)):
                 return type(value)(shard(item) for item in value)
             return value
-        batch = self._phase('global data slicing', lambda: move_tensors(shard(full), self.device))
+
+        def draw():
+            try:
+                return self.data(self.global_batch_size, generator=self.streams['data'], rank=self.rank, world_size=self.world_size)
+            except TypeError:
+                return self.data(self.global_batch_size, generator=self.streams['data'])
+
+        data_draw = self._phase('data draw', draw)
+        if isinstance(data_draw, dict) and isinstance(data_draw.get('real'), torch.Tensor):
+            if len(data_draw['real']) == self.local_batch_size:
+                batch = move_tensors(data_draw, self.device)
+            elif len(data_draw['real']) == self.global_batch_size:
+                batch = self._phase('global data slicing', lambda: move_tensors(shard(data_draw), self.device))
+            else:
+                raise ValueError(f"Data returned 'real' tensor with length {len(data_draw['real'])}; expected {self.local_batch_size} or {self.global_batch_size}")
+        else:
+            raise ValueError("Data must return a dictionary containing tensor 'real'")
+
         self._phase('local data validation', lambda: self._validate_batch(batch))
         return batch
 
@@ -208,24 +223,57 @@ class ReplicatedTrainer(ReferenceTrainer):
     def _parameters(self, optimizer):
         return [parameter for group in optimizer.param_groups for parameter in group['params']]
 
+    def _unscale(self, device):
+        if not hasattr(self, '_unscale_scalars'):
+            self._unscale_scalars = {}
+        if device not in self._unscale_scalars:
+            self._unscale_scalars[device] = torch.ones((), dtype=torch.float32, device=device)
+        return self._unscale_scalars[device]
+
+    def _gradient_flags(self, parameters):
+        fused, flags = {}, []
+        for parameter in parameters:
+            gradient = parameter.grad
+            if gradient is None:
+                continue
+            if gradient.is_floating_point() and gradient.layout == torch.strided:
+                fused.setdefault((gradient.device, gradient.dtype), []).append(gradient)
+            else:
+                flags.append(torch.isfinite(gradient).all().logical_not().to(device=self.device, dtype=torch.int32))
+        for (device, _), gradients in fused.items():
+            found = torch.zeros((), dtype=torch.float32, device=device)
+            torch._amp_foreach_non_finite_check_and_unscale_(gradients, found, self._unscale(device))
+            flags.append(found.to(device=self.device, dtype=torch.int32))
+        return flags
+
     def _reduce_gradients(self, optimizer, name):
         parameters = self._parameters(optimizer)
-        self._agree(name + ' parameter inventory', [(tuple(p.shape), str(p.dtype), p.requires_grad) for p in parameters])
-        def validate():
-            for parameter in parameters:
-                if parameter.grad is not None and (parameter.grad.layout != torch.strided or not torch.isfinite(parameter.grad).all()):
-                    raise ValueError('Nonfinite or sparse gradient; optimizer step refused')
-        self._phase(name + ' gradients', validate)
-        presence = torch.tensor([p.grad is not None for p in parameters], dtype=torch.int64, device=self.device)
-        dist.all_reduce(presence)
-        for count, parameter in zip(presence.tolist(), parameters):
+        present = [p.grad is not None for p in parameters]
+        sparse = any(p.grad.layout != torch.strided for p in parameters if p.grad is not None)
+
+        found_flags = self._gradient_flags(parameters)
+        local_nonfinite = torch.tensor(1, dtype=torch.int32, device=self.device) if sparse else (
+            torch.stack(found_flags).sum().clamp(max=1) if found_flags else torch.zeros((), dtype=torch.int32, device=self.device)
+        )
+
+        control = torch.empty(len(parameters) + 1, dtype=torch.int32, device=self.device)
+        control[0] = local_nonfinite
+        control[1:] = torch.tensor(present, dtype=torch.int32, device=self.device)
+        dist.all_reduce(control, op=dist.ReduceOp.SUM)
+
+        status = control.tolist()
+        if status[0] > 0:
+            for p in parameters:
+                p.grad = None
+            raise ValueError('Nonfinite or sparse gradient; optimizer step refused')
+
+        for count, parameter in zip(status[1:], parameters):
             if count:
                 gradient = torch.zeros_like(parameter) if parameter.grad is None else parameter.grad.detach().contiguous()
                 dist.all_reduce(gradient)
                 parameter.grad = gradient / self.world_size
             else:
                 parameter.grad = None
-        self._phase(name + ' reduced gradients', validate)
 
     def _finite_optimizer(self, optimizer):
         for parameter in self._parameters(optimizer):
@@ -265,26 +313,32 @@ class ReplicatedTrainer(ReferenceTrainer):
             return self._accumulated_update(batch, latent_draw)
         cfg, step = self.config, self.step + 1
         settings = cfg['training']
+        independent = settings.get('phase_draws') == 'independent'
         scale = schedule_learning_rates(self, step - 1)
+        input_std, output_std = noise_levels(self, step - 1)
+        noise_stream = self.streams['noise']
 
         self._agree('input source', {'sample_data': batch is None, 'sample_prior': latent_draw is None})
         if batch is None:
             batch = self.batch()
 
-        def prepare():
-            local_batch = batch
+        def prepare(b, l_draw):
+            local_batch = b
             self._validate_batch(local_batch)
-            z, ids = self.prior.sample(self.local_batch_size, generator=self.streams['prior']) if latent_draw is None else latent_draw
+            z, ids = self.prior.sample(self.local_batch_size, generator=self.streams['prior']) if l_draw is None else l_draw
             if not isinstance(z, torch.Tensor) or z.device != self.device or z.ndim < 1 or len(z) != self.local_batch_size or not torch.isfinite(z).all():
                 raise ValueError('Latent draw must contain finite local-batch values on the rank device')
             if ids is not None and (not isinstance(ids, torch.Tensor) or ids.dtype != torch.int64 or ids.ndim != 1 or len(ids) != self.local_batch_size):
                 raise ValueError('Prior IDs must be an int64 vector of local_batch_size')
             context = self.graph.generate(z, local_batch)
-            fake, real = context['generated'], local_batch['real']
-            if not isinstance(fake, torch.Tensor) or fake.shape != real.shape or not torch.isfinite(fake).all():
+            raw_fake, real = context['generated'], local_batch['real']
+            if not isinstance(raw_fake, torch.Tensor) or raw_fake.shape != real.shape or not torch.isfinite(raw_fake).all():
                 raise ValueError('Generator output must be finite and match local real data shape')
+            fake = with_noise(raw_fake, output_std, noise_stream)
+            context['generated'] = fake
             return local_batch, context, fake, real, ids
-        batch, context, fake, real, ids = self._phase('batch and generator forward', prepare)
+
+        batch, context, fake, real, ids = self._phase('batch and generator forward', lambda: prepare(batch, latent_draw))
         self._agree('real data shape', (tuple(real.shape), str(real.dtype)))
         self._agree('prior kind', ids is None)
         selected = None
@@ -293,7 +347,9 @@ class ReplicatedTrainer(ReferenceTrainer):
         critic = lambda value: self.graph.critic(value, context)
         self.opt_d.zero_grad(set_to_none=True)
         dr, df, d_penalty = self._phase('discriminator forward and penalty', lambda: (
-            critic(real), critic(fake.detach()), self.penalty(self._scored_critic(context), real, fake.detach())))
+            critic(with_noise(real, input_std, noise_stream)),
+            critic(with_noise(fake.detach(), input_std, noise_stream)),
+            self.penalty(self._scored_critic(context, input_noise=(input_std, noise_stream)), real, fake.detach())))
         dr, df = self._logits(dr, df)
         d_adversarial = self.gan.d_loss(dr, df)
         d_adversarial_weighted = cfg['adversarial']['weight'] * d_adversarial
@@ -307,16 +363,27 @@ class ReplicatedTrainer(ReferenceTrainer):
         flags = [p.requires_grad for p in discriminator.parameters()]
         discriminator.requires_grad_(False)
         try:
+            if independent:
+                gen_batch = self.batch()
+                gen_batch, gen_context, gen_fake, gen_real, gen_ids = self._phase(
+                    'generator batch and forward', lambda: prepare(gen_batch, None))
+                gen_selected = None if gen_ids is None else self.collectives.unique_indices(gen_ids, num_rows=len(self.prior.z))
+            else:
+                gen_batch, gen_context, gen_fake, gen_real, gen_selected = batch, context, fake, real, selected
+
+            gen_critic = lambda value: self.graph.critic(value, gen_context)
             self.opt_g.zero_grad(set_to_none=True)
-            gf, gr = self._phase('generator critic forward', lambda: (critic(fake), critic(real).detach()))
+            gf, gr = self._phase('generator critic forward', lambda: (
+                gen_critic(with_noise(gen_fake, input_std, noise_stream)),
+                gen_critic(with_noise(gen_real, input_std, noise_stream)).detach()))
             gr, gf = self._logits(gr, gf)
             g_adversarial = self.gan.g_loss(gf, gr)
             def remaining_losses():
-                rows = None if selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[selected]
-                prior_loss = self.spread(rows) if rows is not None else fake.new_zeros(())
+                rows = None if gen_selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[gen_selected]
+                prior_loss = self.spread(rows) if rows is not None else gen_fake.new_zeros(())
                 objective_losses = []
                 for term, objective in zip(cfg['objectives'], self.objectives):
-                    inputs = {arg: self.graph.resolve(path, context) for arg, path in term['inputs'].items()}
+                    inputs = {arg: self.graph.resolve(path, gen_context) for arg, path in term['inputs'].items()}
                     for arg in term['detach']:
                         inputs[arg] = detach(inputs[arg])
                     value = objective(**inputs)
@@ -352,9 +419,13 @@ class ReplicatedTrainer(ReferenceTrainer):
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size, world_size=self.world_size)
         return row, detach(batch)
 
-    def _scored_critic(self, context):
-        return ScoredCritic(self.graph.models['discriminator'],
-                            lambda module, value: self.graph.critic(value, context, module=module))
+    def _scored_critic(self, context, input_noise=(0, None)):
+        std, stream = input_noise
+        def score(module, value):
+            if std and stream is not None:
+                value = with_noise(value, std, stream)
+            return self.graph.critic(value, context, module=module)
+        return ScoredCritic(self.graph.models['discriminator'], score)
 
     def _check_accumulation(self):
         # Arbitrary Python forwards cannot be proved sample independent. Keep

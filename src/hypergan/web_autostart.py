@@ -472,7 +472,7 @@ def _broker(root, private, launch_id):
         with _launch_lock(private):
             ownership.enter_context(run_lock(private / 'service'))
             state = _read_state(private, locked=True)
-            if state['launch_id'] != launch_id or state['status'] == 'stopped':
+            if not state or state['launch_id'] != launch_id or state['status'] == 'stopped':
                 return
         # Metadata publication can fail after children are already reaped.
         # Credential cleanup must run regardless, before the lifetime lock exits.
@@ -577,7 +577,7 @@ def stop_viewer(root, *, launch_id=None, timeout=8):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         current = _read_state(private)
-        if current['launch_id'] != launch_id or (not _locked(private) and current['status'] != 'starting'):
+        if not current or current['launch_id'] != launch_id or (not _locked(private) and current['status'] != 'starting'):
             return {'status': 'stopped', 'server_instance_id': state.get('server_instance_id')}
         time.sleep(.05)
     raise RuntimeError('Viewer shutdown timed out; inspect ' + str(private / 'viewer.log'))
@@ -622,8 +622,13 @@ def probe_dashboard(host: str = "127.0.0.1", port: int = DEFAULT_VIEWER_PORT,
         res = conn.getresponse()
         body = res.read(65536)
         conn.close()
-    except (ConnectionRefusedError, socket.timeout, TimeoutError, OSError):
+    except ConnectionRefusedError:
         return None
+    except OSError as exc:
+        import errno
+        if getattr(exc, 'errno', None) == errno.ECONNREFUSED:
+            return None
+        return {'alien': True}
     except Exception:
         return {'alien': True}
 
@@ -674,6 +679,7 @@ def launch_dashboard_daemon(runs_root: Path, port: int = DEFAULT_VIEWER_PORT,
 
 def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWER_PORT,
                              host: str = "0.0.0.0", auth: str = "none",
+                             public_origin: str | None = None,
                              check_version: bool = True, run_id: str | None = None) -> str:
     """Ensure a persistent root dashboard is running on port 8765 for runs_root.
 
@@ -689,7 +695,13 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
         runs_root = runs_root.parent
 
     probed = probe_dashboard("127.0.0.1", port)
-    if probed is not None:
+    if probed is None:
+        owner = get_port_owner(port)
+        if owner:
+            pid, comm = owner
+            raise OSError(f"Port {port} is already in use by PID {pid} ({comm}); "
+                          f"specify a different root or stop conflicting process")
+    elif probed is not None:
         if probed.get('alien'):
             owner = get_port_owner(port)
             if owner:
@@ -731,7 +743,7 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
                                   f"stop it with 'hypergan view {remote_root} --stop' or specify a different root.")
 
     if probed is None:
-        launch_dashboard_daemon(runs_root, port=port, host=host, auth=auth)
+        launch_dashboard_daemon(runs_root, port=port, host=host, auth=auth, public_origin=public_origin)
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
             probed = probe_dashboard("127.0.0.1", port)
@@ -820,9 +832,25 @@ def stop_all_servers(force: bool = False) -> list[int]:
                     if current_uid is not None and stat_info.st_uid != current_uid:
                         continue
                     cmdline_bytes = Path(f'/proc/{pid}/cmdline').read_bytes()
-                    cmdline = cmdline_bytes.replace(b'\0', b' ').decode('utf-8', errors='ignore')
-                    if ('hypergan.web_autostart' in cmdline or
-                        ('hypergan' in cmdline and any(cmd in cmdline for cmd in ('serve', 'view', 'Projector')))):
+                    tokens = [t.decode('utf-8', errors='ignore') for t in cmdline_bytes.split(b'\0') if t]
+                    if not tokens:
+                        continue
+                    is_web_server = False
+                    if any(mod in tokens for mod in ('hypergan.web_autostart', 'hypergan.web_server')):
+                        is_web_server = True
+                    elif len(tokens) >= 2:
+                        exe = Path(tokens[0]).name
+                        if exe == 'hypergan' or (exe.startswith('python') and len(tokens) >= 3 and tokens[1] in ('-m', 'hypergan')):
+                            subcmd = None
+                            for tok in tokens[1:]:
+                                if not tok.startswith('-'):
+                                    if tok == 'hypergan':
+                                        continue
+                                    subcmd = tok
+                                    break
+                            if subcmd in ('view', 'serve'):
+                                is_web_server = True
+                    if is_web_server:
                         killed_pids.add(pid)
                 except (OSError, PermissionError, ProcessLookupError):
                     pass

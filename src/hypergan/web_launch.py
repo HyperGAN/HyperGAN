@@ -40,20 +40,28 @@ def bind_available(port=None, host="0.0.0.0", *, attempts=1):
     Does not hunt across port range. If the target port is occupied, raises an
     actionable OSError identifying the conflicting process.
     """
+    if isinstance(port, str) and isinstance(host, int):
+        port, host = host, port
     target_port = DEFAULT_VIEWER_PORT if port is None else port
-    try:
-        return bind_server(target_port, host)
-    except OSError as error:
-        if target_port == 0:
-            raise
-        from .web_autostart import get_port_owner
-        owner = get_port_owner(target_port)
-        if owner:
-            pid, comm = owner
-            raise OSError(f"Port {target_port} is already in use by PID {pid} ({comm}); "
-                          f"specify a different root or stop conflicting process") from error
-        raise OSError(f"Port {target_port} is already in use; "
-                      f"specify a different root or stop conflicting process") from error
+    last_error = None
+    for attempt in range(max(1, attempts)):
+        try:
+            return bind_server(target_port, host)
+        except OSError as error:
+            last_error = error
+            if attempt < attempts - 1:
+                import time
+                time.sleep(0.05)
+    if target_port == 0:
+        raise last_error
+    from .web_autostart import get_port_owner
+    owner = get_port_owner(target_port)
+    if owner:
+        pid, comm = owner
+        raise OSError(f"Port {target_port} is already in use by PID {pid} ({comm}); "
+                      f"specify a different root or stop conflicting process") from last_error
+    raise OSError(f"Port {target_port} is already in use; "
+                  f"specify a different root or stop conflicting process") from last_error
 
 
 def bind_loopback(port=0):

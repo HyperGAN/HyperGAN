@@ -281,11 +281,28 @@ def _training_viewer(args, *, config=None):
         from .web_dev import enable
 
         enable()
-    from .web_autostart import training_viewer
+    from .ports import DEFAULT_VIEWER_PORT
+    from .web_autostart import training_viewer, ensure_dashboard_running, find_runs_root
+
+    run_dir = Path(args.run_dir).resolve()
+    runs_root = find_runs_root(run_dir)
+    required = bool(args.server or args.open or args.server_port is not None
+                    or args.server_host is not None or args.auth is not None
+                    or args.public_origin is not None)
+    try:
+        ensure_dashboard_running(runs_root, port=args.server_port or DEFAULT_VIEWER_PORT,
+                                 host=args.server_host or '0.0.0.0',
+                                 auth=args.auth or 'none',
+                                 public_origin=args.public_origin,
+                                 check_version=True,
+                                 run_id=run_dir.name if run_dir != runs_root else None)
+    except Exception as exc:
+        if required:
+            raise
+        print(f"warning: viewer unavailable: {exc}; training continues headless", file=sys.stderr)
+
     return training_viewer(args.run_dir,
-                           required=args.server or args.open or args.server_port is not None
-                           or args.server_host is not None or args.auth is not None
-                           or args.public_origin is not None,
+                           required=required,
                            port=args.server_port, host=args.server_host, auth=args.auth,
                            public_origin=args.public_origin, open_browser=args.open,
                            config=config)

@@ -114,16 +114,14 @@ def _free_base(count):
 
 
 def test_default_port_is_stable_and_steps_past_occupied_ports(monkeypatch):
-    """One bookmarked URL survives restarts; a busy default moves by one."""
+    """Port 8765 is fixed default; occupied port raises actionable OSError with PID."""
     from hypergan import web_launch
-    base = _free_base(3)
+    base = _free_base(1)
     monkeypatch.setattr(web_launch, 'DEFAULT_VIEWER_PORT', base)
     with web_launch.bind_available(host='127.0.0.1') as first:
         assert first.getsockname()[1] == base
-        with web_launch.bind_available(host='127.0.0.1') as second:
-            assert second.getsockname()[1] == base + 1
-            with web_launch.bind_available(host='127.0.0.1') as third:
-                assert third.getsockname()[1] == base + 2
+        with pytest.raises(OSError, match=rf"Port {base} is already in use by PID \d+"):
+            web_launch.bind_available(host='127.0.0.1')
     # Releasing the default returns the next launch to the same stable port.
     with web_launch.bind_available(host='127.0.0.1') as repeated:
         assert repeated.getsockname()[1] == base
@@ -134,7 +132,7 @@ def test_exhausted_default_range_names_the_conflict(monkeypatch):
     base = _free_base(1)
     monkeypatch.setattr(web_launch, 'DEFAULT_VIEWER_PORT', base)
     with web_launch.bind_server(base, '127.0.0.1'):
-        with pytest.raises(OSError, match=f'No free viewer port in {base}..{base}'):
+        with pytest.raises(OSError, match=rf"Port {base} is already in use by PID \d+"):
             web_launch.bind_available(host='127.0.0.1', attempts=1)
 
 

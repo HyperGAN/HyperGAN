@@ -506,3 +506,83 @@ def test_stop_projector_and_stop_all_servers(tmp_path):
     killed = stop_all_servers()
     assert isinstance(killed, list)
 
+
+def test_stop_viewer_handles_none_state_without_type_error(tmp_path, monkeypatch):
+    """Verify that stop_viewer handles unlinked/None state.json without TypeError."""
+    from hypergan.web_autostart import stop_viewer, _registry
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    private = _registry(run_dir)
+    private.mkdir(parents=True, exist_ok=True)
+    initial_state = {
+        'schema_version': 1, 'launch_id': 'test_launch_id',
+        'status': 'starting', 'mode': 'dashboard', 'root': str(run_dir),
+        'started_at': time.time(),
+    }
+    atomic_json(private / 'state.json', initial_state)
+
+    calls = [0]
+    orig_read_state = __import__('hypergan.web_autostart', fromlist=['_read_state'])._read_state
+
+    def mock_read_state(priv, locked=False):
+        calls[0] += 1
+        if calls[0] > 1:
+            return None  # Simulate state.json unlinked during shutdown
+        return orig_read_state(priv, locked=locked)
+
+    monkeypatch.setattr('hypergan.web_autostart._read_state', mock_read_state)
+    result = stop_viewer(run_dir, launch_id='test_launch_id', timeout=2)
+    assert result['status'] == 'stopped'
+
+
+def test_probe_dashboard_silent_socket_returns_alien():
+    """Verify probe_dashboard classifies a resetting/silent TCP listener as alien rather than free port."""
+    from hypergan.web_autostart import probe_dashboard
+    import socket, threading
+
+    # Create an alien TCP listener on loopback that immediately closes incoming sockets
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(('127.0.0.1', 0))
+    srv.listen(5)
+    port = srv.getsockname()[1]
+    stop_event = threading.Event()
+
+    def accept_loop():
+        srv.settimeout(0.2)
+        while not stop_event.is_set():
+            try:
+                conn, _ = srv.accept()
+                conn.close()
+            except OSError:
+                pass
+
+    t = threading.Thread(target=accept_loop, daemon=True)
+    t.start()
+    try:
+        probed = probe_dashboard("127.0.0.1", port=port, timeout=0.3)
+        assert probed == {'alien': True}
+    finally:
+        stop_event.set()
+        t.join(timeout=1)
+        srv.close()
+
+
+def test_ensure_dashboard_running_alien_raises_oserror_immediately(tmp_path):
+    """Alien port occupancy must immediately raise OSError naming PID/comm without 10s timeout."""
+    from hypergan.web_autostart import ensure_dashboard_running
+    import socket, threading
+
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.bind(('127.0.0.1', 0))
+    srv.listen(5)
+    port = srv.getsockname()[1]
+
+    start = time.monotonic()
+    try:
+        with pytest.raises(OSError, match=rf"Port {port} is already in use"):
+            ensure_dashboard_running(tmp_path, port=port)
+        elapsed = time.monotonic() - start
+        assert elapsed < 3.0, f"ensure_dashboard_running hung for {elapsed:.2f}s instead of raising immediately"
+    finally:
+        srv.close()
+

@@ -136,7 +136,14 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
         latest_fid_str = f"{latest_fid_val:.2f}" if latest_fid_val is not None else "—"
         best_fid_val = r.get("best_fid")
         best_step_val = r.get("best_step")
-        best_fid_str = f"{best_fid_val:.2f}" + (f" @ {best_step_val}k" if best_step_val is not None else "") if best_fid_val is not None else "—"
+        if best_fid_val is not None:
+            if best_step_val is not None:
+                step_suffix = f" @ {best_step_val / 1000:.1f}k" if best_step_val >= 1000 else f" @ step {best_step_val:,}"
+            else:
+                step_suffix = ""
+            best_fid_str = f"{best_fid_val:.2f}{step_suffix}"
+        else:
+            best_fid_str = "—"
         disk_str = html.escape(str(r.get("disk_formatted", "—")))
         url = html.escape(str(r.get("url", f"/runs/{run_id}")))
 
@@ -268,11 +275,39 @@ class ServiceRegistry:
         self._lock = asyncio.Lock()
 
     def is_single(self) -> bool:
-        return (self.root / "manifest.json").is_file()
+        if (self.root / "manifest.json").is_file():
+            return True
+        try:
+            if self.root.is_dir() and any((d / "manifest.json").is_file() for d in self.root.iterdir() if d.is_dir()):
+                return False
+        except OSError:
+            pass
+        from .web_autostart import find_runs_root
+        if find_runs_root(self.root) != self.root:
+            return True
+        if (self.root / "events.jsonl").is_file() or (self.root / "launch").is_dir() or (self.root / "checkpoints").is_dir():
+            return True
+        try:
+            if not self.root.exists():
+                return True
+            subdirs = [d for d in self.root.iterdir() if d.is_dir() and not d.name.startswith('.')]
+            if not subdirs:
+                return True
+        except OSError:
+            return True
+        return False
 
     def resolve_run_dir(self, run_id: str) -> Path | None:
         if not run_id:
             return None
+        root_resolved = self.root.resolve()
+        candidate = (self.root / run_id).resolve()
+        try:
+            if not candidate.is_relative_to(root_resolved):
+                raise FileNotFoundError(f"Unknown run identity: {run_id}")
+        except ValueError:
+            raise FileNotFoundError(f"Unknown run identity: {run_id}")
+
         if self.is_single():
             try:
                 manifest = read_json(self.root, "manifest.json")
@@ -284,14 +319,13 @@ class ServiceRegistry:
             return None
 
         # Check direct subdirectory
-        candidate = self.root / run_id
-        if candidate.is_dir() and (candidate / "manifest.json").is_file():
+        if candidate.is_dir() and not candidate.is_symlink() and (candidate / "manifest.json").is_file():
             return candidate
 
         # Scan subdirectories
         try:
             for entry in self.root.iterdir():
-                if entry.is_dir() and (entry / "manifest.json").is_file():
+                if entry.is_dir() and not entry.is_symlink() and (entry / "manifest.json").is_file():
                     if entry.name == run_id:
                         return entry
                     try:
@@ -351,12 +385,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
 
     root = Path(run_dir).resolve()
     registry = ServiceRegistry(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
-    single_service = None
-    if registry.is_single():
-        single_service = ObservationService(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
-        registry.services[root.name] = single_service
-        if single_service.run_id:
-            registry.services[single_service.run_id] = single_service
+    single_service = ObservationService(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
+    registry.services[root.name] = single_service
 
     dev = dev_assets() if dev is None else dev
     if dev.active:
@@ -403,10 +433,25 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         from .metrics_reducer import descriptor
 
         source = hypergan_source()
+        manifest_file = root / "manifest.json"
+        if manifest_file.is_file():
+            if single_service.run_id is None:
+                try:
+                    m = read_json(root, "manifest.json")
+                    if m.get("run_id"):
+                        single_service.run_id = m["run_id"]
+                        single_service.manifest = m
+                        registry.services[m["run_id"]] = single_service
+                except Exception:
+                    pass
+
         runs = discover_runs(root)
-        single_svc = registry.services.get(root.name) or next(iter(registry.services.values()), None) if registry.is_single() else None
-        run_id = single_svc.run_id if single_svc else None
-        status = single_svc.manifest.get('status') if single_svc else ('ready' if runs else 'waiting')
+        if registry.is_single():
+            run_id = single_service.run_id
+            status = single_service.manifest.get('status', 'waiting')
+        else:
+            run_id = None
+            status = 'ready' if runs else 'waiting'
 
         return JSONResponse({
             'schema_version': 1,
@@ -587,7 +632,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
 
     async def error_handler(request, exc):
         code = 404 if isinstance(exc, FileNotFoundError) else 400
-        return JSONResponse({'error': str(exc)}, status_code=code)
+        return JSONResponse({'error': str(exc)}, status_code=code, headers={'Cache-Control': 'no-store'})
 
     routes = [
         Route('/', root_index),

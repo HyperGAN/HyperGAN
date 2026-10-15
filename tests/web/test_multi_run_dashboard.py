@@ -248,3 +248,42 @@ def test_read_run_summary_atomic_fallback(tmp_path):
     assert summary_corrupt is not None
     assert summary_corrupt['run_id'] == 'fallback_run'
     assert summary_corrupt['step'] == 42
+
+
+def test_render_run_index_step_formatting(tmp_path):
+    from hypergan.web_server import render_run_index_html
+    runs = [
+        {"run_id": "r1", "name": "Run 1", "status": "running", "step": 120, "total_steps": 500,
+         "best_fid": 15.2, "best_step": 120},
+        {"run_id": "r2", "name": "Run 2", "status": "running", "step": 50000, "total_steps": 100000,
+         "best_fid": 12.4, "best_step": 50000},
+    ]
+    html_out = render_run_index_html(runs, tmp_path)
+    # Step 120 (< 1000) should be '@ step 120', NOT '@ 120k'
+    assert "15.20 @ step 120" in html_out
+    assert "120k" not in html_out
+    # Step 50000 (>= 1000) should be formatted with 'k' suffix
+    assert "12.40 @ 50.0k" in html_out
+
+
+def test_service_registry_path_traversal_guard(tmp_path):
+    from hypergan.web_server import ServiceRegistry
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    create_mock_run(runs_root, "legit_run")
+
+    registry = ServiceRegistry(runs_root)
+    # Direct candidate traversal outside runs_root must raise FileNotFoundError
+    with pytest.raises(FileNotFoundError, match="Unknown run identity"):
+        registry.resolve_run_dir("../../etc/passwd")
+    with pytest.raises(FileNotFoundError, match="Unknown run identity"):
+        registry.resolve_run_dir("../sibling_dir")
+
+    session = LocalSession(8765)
+    app = create_app(runs_root, session=session)
+    with TestClient(app, base_url=session.origin) as client:
+        # Unknown run returns 404 JSON with no-store
+        res = client.get("/api/v1/runs/nonexistent_run_id/status")
+        assert res.status_code == 404
+        assert res.headers["cache-control"] == "no-store"
+        assert "Unknown run identity: nonexistent_run_id" in res.json().get("error", "")

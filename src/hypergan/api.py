@@ -33,6 +33,7 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 from .workspace import find_workspace, load_workspace, interpolate_variables, resolve_device_aliases
+from .model_file import resolve_inheritance
 
 PACKAGED = Path(__file__).with_name('models')
 
@@ -47,7 +48,9 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
-           'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases']
+           'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
+           'resolve_inheritance']
+
 
 
 
@@ -82,7 +85,22 @@ def load(path):
         path = path / 'model.toml' if (path / 'model.toml').is_file() else path / 'config.toml'
     with path.open('rb') as stream:
         spec = tomllib.load(stream)
+
+    if isinstance(spec, dict):
+        ws_path = find_workspace(path)
+        ws_dict = load_workspace(ws_path) if ws_path else None
+        ws_root = ws_path.parent if ws_path else None
+
+        if 'extends' in spec:
+            spec = resolve_inheritance(spec, config_path=path, workspace_root=ws_root)
+        elif is_model_file(spec) and 'name' not in spec:
+            spec['name'] = path.stem
+
+        if ws_dict is not None:
+            spec = interpolate_variables(spec, ws_dict)
+
     return Model(spec, base=path.parent.resolve(), path=path.resolve())
+
 
 
 def packaged(name):
@@ -1015,6 +1033,12 @@ def lift(raw, *, base=None):
     model_spec = {'format': FORMAT, 'networks': networks, 'losses': losses}
     if 'name' in raw:
         model_spec['name'] = raw['name']
+    if 'defaults' in raw:
+        model_spec['defaults'] = raw['defaults']
+    if 'run' in raw:
+        model_spec['run'] = deepcopy(raw['run'])
+    if 'checkpoints' in raw:
+        model_spec['checkpoints'] = deepcopy(raw['checkpoints'])
     if 'data' in raw:
         data = deepcopy(raw['data'])
         if data.get('factory') == 'hypergan.item_data:ItemData' and 'dataset' in data.get('args', {}):
@@ -1035,11 +1059,13 @@ def lift(raw, *, base=None):
             model_spec['penalty'] = penalty_table
     if 'sampling' in raw:
         sampling_spec = deepcopy(raw['sampling'])
+        sampling_spec.pop('output_noise', None)
         if 'generated' in sampling_spec:
             sampling_spec['output'] = sampling_spec.pop('generated')
         model_spec['sampling'] = sampling_spec
     if 'samplers' in raw:
         model_spec['samplers'] = deepcopy(raw['samplers'])
+
 
     if 'metrics' in raw:
         metrics_table = deepcopy(raw['metrics'])

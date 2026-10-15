@@ -10,8 +10,9 @@ import pytest
 from hypergan.config import (
     DEFAULT, config_values, fingerprint, load_config, numerical_values, resolve_config, resume_compatible, write_default)
 
-# The default recipe under the ParticleGAN 0.8 (K3P) formulation.
-LEGACY_FINGERPRINT = "9df4cec15093ff394b613b5b0e08e28b01b686ff810e8fa406212c1327f8ef8e"
+# The default recipe under the ParticleGAN 0.8 (K3P) formulation (without 'name' per Decision D3).
+LEGACY_FINGERPRINT = "8edda59414e07e02d1c02529c85fed3831f4029e5c4d8269dcceeede8604849c"
+
 
 
 def test_default_roundtrip_without_runtime(tmp_path):

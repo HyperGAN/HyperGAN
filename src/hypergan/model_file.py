@@ -52,11 +52,17 @@ from copy import deepcopy
 from pathlib import Path
 import re
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
+
 from .network_config import read_source
 
 FORMAT = 'hypergan-model/1'
 TOP_LEVEL = {'format', 'name', 'defaults', 'data', 'prior', 'networks', 'losses', 'penalty', 'train',
-             'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints'}
+             'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'extends'}
+
 CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
 ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
 RESERVED = {'latent', 'batch', 'generated', 'candidate', 'prior', 'components', 'update', 'evaluation',
@@ -404,7 +410,9 @@ class _Lowering:
             elif kind == 'prior':
                 _table(loss, location, {'type', 'weight', 'target_std', 'eps', 'rows'})
                 recipe['prior_regularizer'] = {key: value for key, value in loss.items() if key != 'type'}
-                recipe['prior_regularizer'].setdefault('weight', 1.0)
+                if self.raw.get('defaults') != 'particlegan':
+                    recipe['prior_regularizer'].setdefault('weight', 1.0)
+
             else:
                 raise ModelFileError(f'{location}.type must be adversarial, objective, reconstruction or prior')
 
@@ -632,7 +640,10 @@ class _Lowering:
         if 'checkpoints' in raw:
             self.checkpoints(raw['checkpoints'])
             recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])
+        if 'run' in raw:
+            recipe['run'] = deepcopy(raw['run'])
         recipe['format'] = FORMAT
+
         recipe['name_map'] = dict(self.names)
         self._validate_loss_graph(recipe, losses)
         return recipe
@@ -662,3 +673,139 @@ def model_warnings(raw):
             loss.get('type') == 'prior' for loss in losses):
         warnings.append('No type = "prior" loss is listed, so the learnable prior table has no spread regularizer (weight 0).')
     return warnings
+
+
+def _deep_merge(base, override):
+    """Deep merge dictionaries; scalars and lists are replaced by override."""
+    if isinstance(base, dict) and isinstance(override, dict):
+        result = deepcopy(base)
+        for k, v in override.items():
+            if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+                result[k] = _deep_merge(result[k], v)
+            else:
+                result[k] = deepcopy(v)
+        return result
+    return deepcopy(override)
+
+
+def _anchor_relative_paths(spec, base_dir):
+    """Anchor relative file paths (not starting with '${') to base_dir."""
+    if isinstance(spec, dict):
+        res = {}
+        for k, v in spec.items():
+            if isinstance(v, str):
+                if not v.startswith("${") and not Path(v).is_absolute() and (base_dir / v).exists():
+                    res[k] = str((base_dir / v).resolve())
+                else:
+                    res[k] = v
+            else:
+                res[k] = _anchor_relative_paths(v, base_dir)
+        return res
+    elif isinstance(spec, list):
+        return [_anchor_relative_paths(item, base_dir) for item in spec]
+    return deepcopy(spec)
+
+
+def resolve_inheritance(
+    model_dict: dict,
+    config_path: Path | str | None = None,
+    workspace_root: Path | str | None = None,
+    _chain: tuple = (),
+) -> dict:
+    """Recursively resolve 'extends' inheritance for model files.
+
+    Parent configurations are merged recursively (tables deep-merged by name,
+    scalars and arrays replaced). Relative paths are anchored to the declaring file.
+    Circular inheritance chains raise ValueError.
+    """
+    model_dict = deepcopy(model_dict)
+    curr_canon = str(Path(config_path).resolve()) if config_path is not None else None
+    if curr_canon is not None:
+        if curr_canon in _chain:
+            chain_str = " -> ".join(list(_chain) + [curr_canon])
+            raise ValueError(f"Circular inheritance detected: {chain_str}")
+        new_chain = _chain + (curr_canon,)
+    else:
+        new_chain = _chain
+
+    if "extends" not in model_dict:
+        if "name" not in model_dict and config_path is not None:
+            model_dict["name"] = Path(config_path).stem
+        return model_dict
+
+    parent_ref = model_dict.pop("extends")
+    parent_path = None
+    ref_as_path = Path(parent_ref)
+
+    if ref_as_path.is_absolute() and ref_as_path.is_file():
+        parent_path = ref_as_path.resolve()
+    else:
+        # Search candidates in order:
+        # 1. relative to config_path.parent
+        if config_path is not None:
+            cand = (Path(config_path).resolve().parent / parent_ref).resolve()
+            if cand.is_file():
+                parent_path = cand
+        # 2. relative to workspace_root
+        if parent_path is None and workspace_root is not None:
+            cand = (Path(workspace_root).resolve() / parent_ref).resolve()
+            if cand.is_file():
+                parent_path = cand
+        # 3. relative to current working directory
+        if parent_path is None:
+            cand = (Path.cwd() / parent_ref).resolve()
+            if cand.is_file():
+                parent_path = cand
+        # 4. packaged model in hypergan/models
+        if parent_path is None:
+            packaged_dir = Path(__file__).resolve().parent / "models"
+            cand = (packaged_dir / parent_ref).resolve()
+            if cand.is_file():
+                parent_path = cand
+            elif not parent_ref.endswith(".toml"):
+                cand = (packaged_dir / f"{parent_ref}.toml").resolve()
+                if cand.is_file():
+                    parent_path = cand
+
+    if parent_path is None:
+        raise FileNotFoundError(
+            f"Inherited configuration '{parent_ref}' not found (searched relative to config directory, "
+            f"workspace root, current directory, and packaged models)"
+        )
+
+    parent_canon = str(parent_path)
+    if parent_canon in new_chain:
+        chain_str = " -> ".join(list(new_chain) + [parent_canon])
+        raise ValueError(f"Circular inheritance detected: {chain_str}")
+
+    with parent_path.open("rb") as f:
+        parent_raw = tomllib.load(f)
+
+    if not isinstance(parent_raw, dict):
+        raise ValueError(f"Inherited parent {parent_path} must be a TOML table")
+
+    # Recursively resolve any extends in parent
+    parent_resolved = resolve_inheritance(
+        parent_raw,
+        config_path=parent_path,
+        workspace_root=workspace_root,
+        _chain=new_chain,
+    )
+
+    # Anchor any relative paths in parent to parent_path.parent
+    parent_anchored = _anchor_relative_paths(parent_resolved, parent_path.parent)
+
+    # Deep merge parent (base) and model_dict (override)
+    merged = _deep_merge(parent_anchored, model_dict)
+    merged.pop("extends", None)
+
+    if "name" not in model_dict:
+        if config_path is not None:
+            merged["name"] = Path(config_path).stem
+        elif "name" in parent_resolved:
+            merged["name"] = parent_resolved["name"]
+        else:
+            merged["name"] = "custom/model"
+
+    return merged
+

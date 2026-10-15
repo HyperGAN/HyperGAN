@@ -645,7 +645,8 @@ def config_values(config):
 
 
 def numerical_values(config):
-    return _listed_values(config, (key for key in DEFAULT if key != "metrics"))
+    return _listed_values(config, (key for key in DEFAULT if key not in ("metrics", "name")))
+
 
 
 def resume_compatible(config, original, *, include_observation=False):
@@ -727,20 +728,37 @@ def load_config(path):
     a resolved configuration (fingerprints, resume, the viewer, replicated
     workers) sees the same recipe whichever form was written.
     """
-    from .model_file import is_model_file, lower
+    from .model_file import is_model_file, lower, resolve_inheritance
+    from .workspace import find_workspace, load_workspace, interpolate_variables
     if isinstance(path, Mapping):
         raw = deepcopy(dict(path))
         if {"warnings", "qualification"} & raw.keys():
             raw = config_values(raw)
+        if "extends" in raw:
+            raw = resolve_inheritance(raw)
         return resolve_config(lower(raw) if is_model_file(raw) else raw)
     path = Path(path)
     if path.is_dir():
         path = path / "model.toml" if (path / "model.toml").is_file() else path / "config.toml"
     with path.open("rb") as stream:
         raw = tomllib.load(stream)
+
+    ws_path = find_workspace(path)
+    ws_dict = load_workspace(ws_path) if ws_path else None
+    ws_root = ws_path.parent if ws_path else None
+
+    if isinstance(raw, dict) and "extends" in raw:
+        raw = resolve_inheritance(raw, config_path=path, workspace_root=ws_root)
+    elif isinstance(raw, dict) and is_model_file(raw) and "name" not in raw:
+        raw["name"] = path.stem
+
+    if ws_dict is not None and isinstance(raw, dict):
+        raw = interpolate_variables(raw, ws_dict)
+
     if is_model_file(raw):
         return resolve_config(lower(raw, base=path.parent))
     return resolve_config_at(raw, path.parent)
+
 
 
 def resolve_config_at(raw, base):

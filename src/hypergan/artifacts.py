@@ -70,7 +70,7 @@ def save_bundle(run_dir, trainer, batch):
     sync_directory(run_dir)
 
 
-def sample(run_dir, count=16, seed=42, output=None, *, inputs=None):
+def sample(run_dir, count=16, seed=42, output=None, *, inputs=None, checkpoint=None):
     """Sample with supplied batched inputs, or explicitly recorded example conditions.
 
     Custom component constructors are executable trusted Python, even though state
@@ -93,7 +93,7 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None):
             torch.manual_seed(seed)
             random.seed(seed)
             np.random.seed(seed % (2**32))
-            return _sample(run_dir, count, seed, output, inputs=inputs)
+            return _sample(run_dir, count, seed, output, inputs=inputs, checkpoint=checkpoint)
     finally:
         random.setstate(python_state)
         np.random.set_state(numpy_state)
@@ -101,20 +101,29 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None):
             torch.cuda.set_device(cuda_device)
 
 
-def _sample(run_dir, count, seed, output, *, inputs):
+def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
     run_dir = Path(run_dir)
-    bundle_dir = run_dir
-    manifest_path = run_dir / "manifest.json"
-    if manifest_path.is_file():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest.get("bundle_path"):
-            path = Path(manifest["bundle_path"])
-            bundle_dir = (path if path.is_absolute() else run_dir / path).parent
-    path = bundle_dir / "model.pt"
-    expected = (bundle_dir / "model.sha256").read_text().strip()
-    if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-        raise ValueError("Inference artifact hash mismatch")
-    state = torch.load(path, map_location="cpu", weights_only=True)
+    target_bundle = run_dir / "model.pt"
+    if checkpoint is not None or not target_bundle.is_file():
+        from .checkpoints import resolve_checkpoint, extract_ema_bundle
+        target = checkpoint if checkpoint is not None else "latest"
+        ckpt_dir = resolve_checkpoint(run_dir, target)
+        state = extract_ema_bundle(ckpt_dir)
+        source_file = ckpt_dir / "model.pt" if (ckpt_dir / "model.pt").is_file() else ckpt_dir / "state.pt"
+        expected = hashlib.sha256(source_file.read_bytes()).hexdigest() if source_file.is_file() else ""
+    else:
+        bundle_dir = run_dir
+        manifest_path = run_dir / "manifest.json"
+        if manifest_path.is_file():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest.get("bundle_path"):
+                path = Path(manifest["bundle_path"])
+                bundle_dir = (path if path.is_absolute() else run_dir / path).parent
+        path = bundle_dir / "model.pt"
+        expected = (bundle_dir / "model.sha256").read_text().strip()
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise ValueError("Inference artifact hash mismatch")
+        state = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(state, dict) or state.get("schema_version") != 1 or state.get("kind") != "ema-inference":
         raise ValueError("Unsupported inference artifact schema")
     for key in ("config", "components", "model_states", "prior", "example_inputs"):

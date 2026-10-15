@@ -41,7 +41,8 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'train', 'resume', 'open_run', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
            'lift', 'load_recipe', 'describe', 'data_check', 'preflight', 'serve', 'viewer_status',
-           'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint']
+           'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
+           'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle']
 
 
 # --------------------------------------------------------------------------- model files
@@ -777,11 +778,11 @@ def samples(run, *, name=None):
     return sorted(result, key=lambda item: item.step)
 
 
-def sample(run, count=16, seed=0, *, inputs=None, output=None):
-    """Fresh samples from the run's final EMA model (a new file beside the run)."""
+def sample(run, count=16, seed=0, *, inputs=None, output=None, checkpoint=None):
+    """Fresh samples from the run's final EMA model (or target checkpoint)."""
     from .artifacts import sample as draw
     run = _run(run)
-    path = Path(draw(run.path, count=count, seed=seed, inputs=inputs, output=output))
+    path = Path(draw(run.path, count=count, seed=seed, inputs=inputs, output=output, checkpoint=checkpoint))
     payload = json.loads(path.read_text())
     return Sample(step=payload['step'], name='sample', data=_tensor(payload['samples']),
                   inputs={key: _tensor(value) for key, value in payload.get('inputs', {}).items()},
@@ -805,11 +806,48 @@ def view(item, sampler, *, run=None):
     return fn(item, **args)
 
 
-def evaluate(run, metric_id, *, model=None):
-    """Run one snapshot evaluation now on a finished run; returns its receipt."""
+def evaluate(run, metric_id=None, *, checkpoint=None, devices=None, model=None, config=None, bundle=None):
+    """Run one snapshot evaluation now on a run (finished or running); returns its receipt."""
     from .metric_evaluation import evaluate as run_evaluation
     run = _run(run)
-    return run_evaluation(run.path, metric_id, config_path=lower(model) if model is not None else None)
+    config_p = lower(model) if model is not None else config
+    return run_evaluation(run.path, metric_id, checkpoint=checkpoint, devices=devices,
+                          config_path=config_p, bundle=bundle)
+
+
+def _run_path(value):
+    if isinstance(value, Run):
+        return value.path
+    if isinstance(value, (str, Path)):
+        return Path(value)
+    return _run(value).path
+
+
+def export(run, checkpoint="latest", output=None):
+    """Export a standalone EMA inference model bundle from a run checkpoint."""
+    from .checkpoints import resolve_checkpoint as _resolve, export_checkpoint_bundle as _export
+    run_dir = _run_path(run)
+    ckpt_dir = _resolve(run_dir, target=checkpoint)
+    dest, _ = _export(ckpt_dir, output_dir=output or run_dir)
+    return dest
+
+
+def prune_checkpoints(run, policy=None, dry_run=False):
+    """Prune obsolete checkpoints in run under the retention policy."""
+    from .checkpoints import prune_checkpoints as _prune
+    return _prune(_run_path(run), policy=policy, dry_run=dry_run)
+
+
+def resolve_checkpoint(run, target="latest"):
+    """Resolve target ('latest', 'best', step int/str, or path) to a checkpoint directory."""
+    from .checkpoints import resolve_checkpoint as _resolve
+    return _resolve(_run_path(run), target=target)
+
+
+def extract_ema_bundle(checkpoint_dir, manifest=None):
+    """Extract EMA weights from checkpoint_dir into an in-memory bundle."""
+    from .checkpoints import extract_ema_bundle as _extract
+    return _extract(checkpoint_dir, manifest=manifest)
 
 
 # --------------------------------------------------------------------------- viewables

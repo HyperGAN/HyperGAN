@@ -56,7 +56,8 @@ from .network_config import read_source
 
 FORMAT = 'hypergan-model/1'
 TOP_LEVEL = {'format', 'name', 'defaults', 'data', 'prior', 'networks', 'losses', 'penalty', 'train',
-             'sampling', 'samplers', 'metrics', 'evaluations'}
+             'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints'}
+CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
 ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
 RESERVED = {'latent', 'batch', 'generated', 'candidate', 'prior', 'components', 'update', 'evaluation',
             'reference'}
@@ -498,6 +499,38 @@ class _Lowering:
                     f"Network {orig_name!r} has role = 'generator' but no adversarial or objective loss trains it"
                 )
 
+    def checkpoints(self, table):
+        _table(table, 'checkpoints', CHECKPOINT_FIELDS)
+        if 'keep_last' in table:
+            v = table['keep_last']
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                raise ModelFileError('checkpoints.keep_last must be a non-negative integer')
+        if 'keep_every' in table:
+            v = table['keep_every']
+            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+                raise ModelFileError('checkpoints.keep_every must be a non-negative integer')
+        if 'export_bundle' in table:
+            v = table['export_bundle']
+            if not isinstance(v, str):
+                raise ModelFileError('checkpoints.export_bundle must be a string')
+        if 'keep_best' in table:
+            v = table['keep_best']
+            if isinstance(v, int) and not isinstance(v, bool):
+                if v < 0:
+                    raise ModelFileError('checkpoints.keep_best count must be a non-negative integer')
+            elif isinstance(v, dict):
+                _table(v, 'checkpoints.keep_best', {'metric', 'mode', 'count'})
+                if 'metric' in v and not isinstance(v['metric'], str):
+                    raise ModelFileError('checkpoints.keep_best.metric must be a string')
+                if 'mode' in v and v['mode'] not in ('min', 'max'):
+                    raise ModelFileError("checkpoints.keep_best.mode must be 'min' or 'max'")
+                if 'count' in v:
+                    cnt = v['count']
+                    if not isinstance(cnt, int) or isinstance(cnt, bool) or cnt < 0:
+                        raise ModelFileError('checkpoints.keep_best.count must be a non-negative integer')
+            else:
+                raise ModelFileError('checkpoints.keep_best must be an integer count or table with {metric, mode, count}')
+
     def run(self):
         raw = self.raw
         _table(raw, 'model file', TOP_LEVEL)
@@ -535,6 +568,10 @@ class _Lowering:
             metrics['custom'] = custom
         if metrics:
             recipe['metrics'] = metrics
+        if 'checkpoints' in raw:
+            self.checkpoints(raw['checkpoints'])
+            from .checkpoints import normalize_checkpoint_policy
+            recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])
         recipe['format'] = FORMAT
         recipe['name_map'] = dict(self.names)
         self._validate_loss_graph(recipe, losses)

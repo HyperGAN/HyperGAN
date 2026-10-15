@@ -447,7 +447,7 @@ class ReplicatedExecution:
 
 
 def run_train(config_path, run_dir, steps=None, *, profile, service_policy=None,
-              checkpoint_every=100, max_seconds=None, stop_after_steps=None,
+              checkpoint_every=1000, max_seconds=None, stop_after_steps=None,
               on_event=None, preview_every=0, preview_keep=None, preview_keep_source=None,
               preview_name=None):
     """Internal shared-controller training; numerical imports remain in workers."""

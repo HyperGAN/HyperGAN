@@ -1,0 +1,206 @@
+"""Unit and integration tests for lock-free read-only metric evaluation,
+concurrent execution under active run lock, S2 step pinning, and device collision detection."""
+import json
+from pathlib import Path
+import pytest
+import torch
+
+from hypergan.config import fingerprint, resolve_config
+from hypergan.metric_evaluation import evaluate
+from hypergan.run_state import atomic_json, run_lock
+from hypergan.checkpoints import prune_checkpoints
+
+
+def _setup_run(run_dir: Path, step: int = 1000, status: str = "running", train_device: str = "cuda:0"):
+    run_dir.mkdir(parents=True, exist_ok=True)
+    cfg = resolve_config({
+        "metrics": {
+            "custom": {
+                "fid50k_train": {
+                    "factory": "math:sin",
+                    "mode": "snapshot",
+                    "inputs": {"generated": "evaluation.generated"},
+                    "evaluation": {
+                        "device": "cuda:0",
+                        "sample_count": 64,
+                        "batch_size": 32,
+                        "seed": 42,
+                        "data": {"factory": "gaussian_grid", "args": {}},
+                        "generated": "components.generator.output",
+                    },
+                }
+            }
+        },
+        "components": {
+            "generator": {
+                "factory": "linear",
+                "inputs": {"z": "latent"},
+            },
+            "discriminator": {
+                "factory": "linear",
+                "inputs": {"x": "candidate"},
+            },
+        },
+        "sampling": {},
+        "training": {
+            "device": train_device,
+        },
+    })
+    cfg_hash = fingerprint(cfg)
+    manifest = {
+        "run_id": "test-run-m2",
+        "attempt_id": "att-1",
+        "status": status,
+        "config": cfg,
+        "config_sha256": cfg_hash,
+        "runtime": {
+            "device": train_device,
+        },
+    }
+    atomic_json(run_dir / "manifest.json", manifest)
+
+    # Make checkpoint
+    ckpt_dir = run_dir / "checkpoints" / f"att-1-step-{step:08d}-uuid1"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+    state = {
+        "step": step,
+        "ema_graph": {"models.generator.weight": torch.randn(2, 2)},
+        "ema_prior": {"prior_param": torch.randn(2)},
+        "buffers": {"ema_graph": {}, "ema_prior": {}},
+        "last_batch": {},
+    }
+    torch.save(state, ckpt_dir / "state.pt")
+    ckpt_manifest = {
+        "run_id": "test-run-m2",
+        "attempt_id": "att-1",
+        "step": step,
+        "config": cfg,
+    }
+    atomic_json(ckpt_dir / "manifest.json", ckpt_manifest)
+    atomic_json(run_dir / "checkpoints" / "latest.json", {"checkpoint": ckpt_dir.name})
+    return run_dir, cfg
+
+
+def test_lock_free_evaluation_under_active_run_lock(tmp_path, monkeypatch):
+    run_dir, cfg = _setup_run(tmp_path / "run", step=1000, status="running", train_device="cuda:0")
+
+    # Mock _evaluate_pinned to verify directory, snapshot, pre-execution receipt, and S2 pinning
+    recorded_pre_receipt = {}
+    recorded_directory = {}
+
+    def mock_evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, warnings=None):
+        recorded_directory["path"] = directory
+        recorded_directory["snapshot_exists_during_eval"] = snapshot.is_file()
+        receipt_path = directory / "receipt.json"
+        recorded_pre_receipt.update(json.loads(receipt_path.read_text(encoding="utf-8")))
+
+        # Invariant S2 verification: while this eval is running, prune_checkpoints must retain step 1000!
+        prune_rep = prune_checkpoints(root, policy={"keep_last": 0, "keep_every": 0})
+        retained_steps = {r["step"] for r in prune_rep["retained"]}
+        assert 1000 in retained_steps, "Active evaluation step was not pinned by Invariant S2!"
+
+        # Return mock complete receipt
+        result_receipt = {
+            "status": "complete",
+            "metric_id": metric_id,
+            "source_step": identity["source_step"],
+            "evaluation_id": identity["evaluation_id"],
+            "warnings": warnings or [],
+        }
+        atomic_json(receipt_path, result_receipt)
+        return result_receipt
+
+    runtime_mock = {
+        "fid50k_train": {
+            "descriptor": {"kind": "scalar"},
+            "factory_sources": {"module": "a" * 64},
+            "protocol": "hypergan-metric/v1",
+        }
+    }
+    monkeypatch.setattr("hypergan.metric_evaluation.prepare_custom", lambda c: c.setdefault("_metric_runtime", runtime_mock))
+    monkeypatch.setattr("hypergan.metric_evaluation._evaluate_pinned", mock_evaluate_pinned)
+
+    # 1. Acquire run_lock as training would
+    with run_lock(run_dir):
+        # 2. Call evaluate() concurrently on another device without error
+        receipt = evaluate(run_dir, metric_id="fid50k_train", devices="cuda:1")
+
+    # 3. Verify execution and S2 pinning receipt
+    assert receipt["status"] == "complete"
+    assert receipt["source_step"] == 1000
+    assert recorded_pre_receipt["status"] == "running"
+    assert recorded_pre_receipt["source_step"] == 1000
+    assert recorded_directory["snapshot_exists_during_eval"] is True
+
+    # 4. Verify step-named directory formatting
+    eval_dir = recorded_directory["path"]
+    assert eval_dir.name.startswith("step-00001000-")
+
+    # 5. Verify snapshot was unlinked in finally:
+    assert not (eval_dir / "snapshot.pt").exists()
+
+
+def test_device_collision_warning_detection(tmp_path, monkeypatch):
+    run_dir, cfg = _setup_run(tmp_path / "run", step=2000, status="running", train_device="cuda:0")
+
+    recorded_warnings = []
+
+    def mock_evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, warnings=None):
+        recorded_warnings.extend(warnings or [])
+        return {"status": "complete", "warnings": warnings or []}
+
+    runtime_mock = {
+        "fid50k_train": {
+            "descriptor": {"kind": "scalar"},
+            "factory_sources": {"module": "a" * 64},
+            "protocol": "hypergan-metric/v1",
+        }
+    }
+    monkeypatch.setattr("hypergan.metric_evaluation.prepare_custom", lambda c: c.setdefault("_metric_runtime", runtime_mock))
+    monkeypatch.setattr("hypergan.metric_evaluation._evaluate_pinned", mock_evaluate_pinned)
+
+    # Running training is on cuda:0; evaluating on cuda:0 (or 0) must record DEVICE_COLLISION
+    evaluate(run_dir, metric_id="fid50k_train", devices="cuda:0")
+    assert any(w.get("code") == "DEVICE_COLLISION" for w in recorded_warnings)
+
+    recorded_warnings.clear()
+    # Evaluating on cuda:1 when training is on cuda:0 has no collision
+    evaluate(run_dir, metric_id="fid50k_train", devices="cuda:1")
+    assert not any(w.get("code") == "DEVICE_COLLISION" for w in recorded_warnings)
+
+
+def test_evaluate_step_resolution(tmp_path, monkeypatch):
+    run_dir, cfg = _setup_run(tmp_path / "run", step=1000, status="complete", train_device="cuda:0")
+
+    # Add a second checkpoint for step 500
+    ckpt_500 = run_dir / "checkpoints" / "att-1-step-00000500-uuid500"
+    ckpt_500.mkdir(parents=True, exist_ok=True)
+    state = {
+        "step": 500,
+        "ema_graph": {"models.generator.weight": torch.randn(2, 2)},
+        "ema_prior": {"prior_param": torch.randn(2)},
+        "buffers": {"ema_graph": {}, "ema_prior": {}},
+        "last_batch": {},
+    }
+    torch.save(state, ckpt_500 / "state.pt")
+    atomic_json(ckpt_500 / "manifest.json", {"run_id": "test-run-m2", "step": 500, "config": cfg})
+
+    evaluated_step = {}
+
+    def mock_evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, warnings=None):
+        evaluated_step["step"] = identity["source_step"]
+        return {"status": "complete", "step": identity["source_step"]}
+
+    runtime_mock = {
+        "fid50k_train": {
+            "descriptor": {"kind": "scalar"},
+            "factory_sources": {"module": "a" * 64},
+            "protocol": "hypergan-metric/v1",
+        }
+    }
+    monkeypatch.setattr("hypergan.metric_evaluation.prepare_custom", lambda c: c.setdefault("_metric_runtime", runtime_mock))
+    monkeypatch.setattr("hypergan.metric_evaluation._evaluate_pinned", mock_evaluate_pinned)
+
+    # Evaluate targeting step 500
+    evaluate(run_dir, metric_id="fid50k_train", checkpoint=500, devices="cpu")
+    assert evaluated_step["step"] == 500

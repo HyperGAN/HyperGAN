@@ -239,7 +239,7 @@ def _record_model(run_dir, model):
         warnings.warn(f'Network description was not recorded: {exc}', RuntimeWarning)
 
 
-def run_train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
+def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_seconds=None,
           stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
           preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""
@@ -309,7 +309,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             raise ValueError('Run manifest has no supported full recovery contract')
         if 'execution' in manifest and not isinstance(manifest['execution'], dict):
             raise ValueError('Run manifest execution identity must be a dictionary')
-        checkpoint_every = manifest.get('checkpoint_every', 100) if checkpoint_every is None else checkpoint_every
+        checkpoint_every = manifest.get('checkpoint_every', 1000) if checkpoint_every is None else checkpoint_every
         preview_every = manifest.get('preview_every', 0) if preview_every is None else preview_every
         preview_keep, preview_keep_source = resolve_preview_keep(manifest, preview_keep, preview_keep_source)
         preview_name = manifest.get('preview_name') if preview_name is None else preview_name
@@ -617,6 +617,12 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                             possible_lost_steps=0)
             publish()
             emit('checkpoint', checkpoint_path=str(path), request_ids=list(request_ids or []))
+            try:
+                retention_policy = config.get('checkpoints')
+                from .checkpoints import prune_checkpoints
+                prune_checkpoints(run_dir, policy=retention_policy, dry_run=False)
+            except Exception as exc:
+                warnings.warn(f'Automatic checkpoint pruning failed: {exc}', RuntimeWarning)
             return path, None
 
         def observer_error(source, error, *, step=None):

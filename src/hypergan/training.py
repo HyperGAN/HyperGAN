@@ -444,7 +444,7 @@ def _recovery_contract(trainer):
     return contract, reasons
 
 
-def train(config_path, run_dir, steps=None, *, checkpoint_every=100, max_seconds=None,
+def train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_seconds=None,
           stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
           preview_keep_source=None, preview_name=None):
     """Create a run; budgets stop only at complete D/G/EMA update boundaries."""

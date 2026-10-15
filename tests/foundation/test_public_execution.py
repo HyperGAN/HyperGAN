@@ -298,7 +298,7 @@ def test_train_control_defaults_distinguish_omission_from_disable(tmp_path):
     disabled = _parser().parse_args(['train', 'config', '--run-dir', 'run', '--no-previews'])
     assert disabled.preview_every == 0
     prepared = prepare_train(project(tmp_path), tmp_path / 'run')
-    assert prepared.controls['checkpoint_every'] == 100
+    assert prepared.controls['checkpoint_every'] == 1000
     assert prepared.controls['preview_every'] == 0
     # A bound nobody asked for is recorded as the default, so a later release can
     # change it without a run being pinned to the value of the day.

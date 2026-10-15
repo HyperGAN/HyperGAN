@@ -71,7 +71,7 @@ def _run_options(parser):
     parser.add_argument("--dev", "--viewer-dev", dest="viewer_dev", action="store_true",
                         help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     parser.add_argument("--checkpoint-every", type=_positive_int,
-                        help="save a complete checkpoint every N updates (default: 100; existing runs inherit)")
+                        help="save a complete checkpoint every N updates (default: 1000; existing runs inherit)")
     parser.add_argument("--max-seconds", type=_positive_seconds,
                         help="stop at an update boundary after this attempt's wall-time budget")
     parser.add_argument("--stop-after-steps", type=_positive_int,
@@ -97,8 +97,24 @@ def _run_options(parser):
                              "(default: g; the real batch is published as x)")
 
 
+class _CustomParser(argparse.ArgumentParser):
+    def parse_args(self, args=None, namespace=None):
+        if args is None:
+            args = sys.argv[1:]
+        if len(args) >= 2 and args[0] == "checkpoint" and args[1] == "prune":
+            args = ["checkpoints", *args[1:]]
+        return super().parse_args(args, namespace)
+
+    def parse_known_args(self, args=None, namespace=None):
+        if args is None:
+            args = sys.argv[1:]
+        if len(args) >= 2 and args[0] == "checkpoint" and args[1] == "prune":
+            args = ["checkpoints", *args[1:]]
+        return super().parse_known_args(args, namespace)
+
+
 def _parser():
-    parser = argparse.ArgumentParser(
+    parser = _CustomParser(
         prog="hypergan", description="Create, validate, and run reproducible GAN projects."
     )
     parser.add_argument("--version", action="version", version=f"hypergan {__version__}")
@@ -173,6 +189,15 @@ def _parser():
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
     checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
+    checkpoints = commands.add_parser("checkpoints", help="Inspect and manage run checkpoints")
+    checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True)
+    prune = checkpoints_subs.add_parser("prune", help="Prune obsolete checkpoints under the retention policy")
+    prune.add_argument("run_dir", type=Path, help="path to run directory")
+    prune.add_argument("--dry-run", action="store_true", help="evaluate retention without deleting any files")
+    export = commands.add_parser("export", help="Export a standalone EMA inference model bundle from a run checkpoint")
+    export.add_argument("run_dir", type=Path, help="run directory")
+    export.add_argument("--checkpoint", default="latest", help="target checkpoint: best, latest, step number, or path")
+    export.add_argument("-o", "--output", type=Path, help="output file or directory (default: <run_dir>/model.pt)")
     convert = commands.add_parser("convert", help="Convert legacy engine recipe to hypergan-model/1 TOML")
     convert.add_argument("recipe", type=Path, help="path to legacy recipe TOML")
     convert.add_argument("--output", type=Path, required=True, help="output model.toml destination")
@@ -188,7 +213,7 @@ def _parser():
     resume.add_argument("--checkpoint", type=Path, help="choose an older checkpoint within this run")
     resume.add_argument("--config", type=Path, help="verify exact compatibility with this configuration")
     resume.add_argument("--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                        help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
+                       help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
     _run_options(resume)
     sample = commands.add_parser("sample", help="Sample a saved reference model (requires the train extra)")
     sample.add_argument("run_dir", type=Path)
@@ -196,6 +221,7 @@ def _parser():
     sample.add_argument("--seed", type=int, default=42)
     sample.add_argument("--output", type=Path)
     sample.add_argument("--sampler", help="sampler name declared in [samplers], or module:function import path")
+    sample.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
     return parser
 
 
@@ -273,7 +299,7 @@ def _dispatch(args, *, output=None):
             _print_json(hg.events(args.run_dir, cursor=args.cursor, limit=args.limit, max_bytes=args.max_bytes))
         elif args.command == "metrics":
             _print_json(hg.catalog(args.run_dir, revision=args.revision))
-        elif args.command == "evaluate":
+        elif args.command in {"evaluate", "eval"}:
             from .evaluation_cli import run_evaluate
             _print_json(run_evaluate(args))
         elif args.command == "serve":
@@ -299,6 +325,12 @@ def _dispatch(args, *, output=None):
                 _print_json(hg.checkpoint_status(args.run_dir, args.status))
             else:
                 _print_json(hg.request_checkpoint(args.run_dir, attempt_id=args.attempt_id, request_id=args.request_id))
+        elif args.command == "checkpoints":
+            if getattr(args, "checkpoints_command", None) == "prune":
+                _print_json(hg.prune_checkpoints(args.run_dir, dry_run=args.dry_run))
+        elif args.command == "export":
+            out = hg.export(args.run_dir, checkpoint=args.checkpoint, output=args.output)
+            print(out)
         elif args.command == "data-check":
             _print_json(hg.data_check(args.config, output=args.output))
         elif args.command == "preflight":
@@ -363,7 +395,8 @@ def _dispatch(args, *, output=None):
             with _training_viewer(args):
                 output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":
-            s = hg.sample(args.run_dir, count=args.count, seed=args.seed, output=args.output)
+            s = hg.sample(args.run_dir, count=args.count, seed=args.seed, output=args.output,
+                          checkpoint=getattr(args, "checkpoint", None))
             if getattr(args, "sampler", None):
                 view_obj = hg.view(s, args.sampler, run=args.run_dir)
                 if hasattr(view_obj, "save") and args.output:

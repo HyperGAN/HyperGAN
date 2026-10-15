@@ -31,6 +31,7 @@ MAX_BOOTSTRAPS = 8
 MAX_PREVIEWS = 4096
 PREVIEW_INDEX_BYTES = 16 * 1048576
 _HEX = re.compile('[0-9a-f]{64}\\Z')
+_EVAL_DIR_RE = re.compile(r'^(?:step-\d{8}-[A-Za-z0-9_-]+|[0-9a-f]{32})\Z')
 
 
 def _json(value):
@@ -404,7 +405,7 @@ class ObservationService:
                     continue
                 if kind == 'projection' and _HEX.fullmatch(path.name) and (path / 'projection.json').is_file():
                     self._register('projection:' + path.name)
-                elif kind == 'evaluation' and re.fullmatch('[0-9a-f]{32}', path.name) and (path / 'stream.json').is_file():
+                elif kind == 'evaluation' and _EVAL_DIR_RE.fullmatch(path.name) and (path / 'stream.json').is_file():
                     stream_id = 'evaluation:' + path.name
                     if stream_id in self.streams:
                         continue
@@ -534,7 +535,7 @@ class ObservationService:
             raise ValueError('Viewer has reached its 32-consumer limit')
         if stream_id != '*' and stream_id != 'training' and not (
                 (stream_id.startswith('projection:') and _HEX.fullmatch(stream_id[11:])) or
-                (stream_id.startswith('evaluation:') and re.fullmatch('[0-9a-f]{32}', stream_id[11:]))):
+                (stream_id.startswith('evaluation:') and _EVAL_DIR_RE.fullmatch(stream_id[11:]))):
             raise ValueError('Invalid stream selector')
         subscriber = Subscriber(stream_id)
         self.subscribers.add(subscriber)

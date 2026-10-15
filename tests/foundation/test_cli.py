@@ -197,3 +197,45 @@ def test_cli_resume_with_malformed_set_fails_cleanly(tmp_path):
     assert "Invalid --set override 'bad_set'; expected KEY=VALUE" in result.stderr
     assert "Traceback" not in result.stderr
 
+
+def test_cli_checkpoints_prune(tmp_path):
+    run_dir = tmp_path / "run"
+    ckpt_dir = run_dir / "checkpoints" / "att-1-step-00000100-uuid1"
+    ckpt_dir.mkdir(parents=True)
+    (ckpt_dir / "manifest.json").write_text(json.dumps({"step": 100}), encoding="utf-8")
+    (ckpt_dir / "state.pt").write_bytes(b"dummy")
+
+    # hypergan checkpoints prune RUN_DIR --dry-run
+    res1 = run_cli(tmp_path, "checkpoints", "prune", run_dir, "--dry-run", isolated=False)
+    assert res1.returncode == 0, res1.stderr
+    data1 = json.loads(res1.stdout)
+    assert data1["dry_run"] is True
+    assert data1["retained_count"] == 1
+
+    # alias: hypergan checkpoint prune RUN_DIR --dry-run
+    res2 = run_cli(tmp_path, "checkpoint", "prune", run_dir, "--dry-run", isolated=False)
+    assert res2.returncode == 0, res2.stderr
+    data2 = json.loads(res2.stdout)
+    assert data2["dry_run"] is True
+    assert data2["retained_count"] == 1
+
+
+def test_cli_eval_help_and_export(tmp_path):
+    # Verify eval alias and flags in help
+    res_eval = run_cli(tmp_path, "eval", "--help", isolated=False)
+    assert res_eval.returncode == 0, res_eval.stderr
+    assert "--checkpoint" in res_eval.stdout
+    assert "--devices" in res_eval.stdout
+
+    res_evaluate = run_cli(tmp_path, "evaluate", "--help", isolated=False)
+    assert res_evaluate.returncode == 0, res_evaluate.stderr
+    assert "--checkpoint" in res_evaluate.stdout
+    assert "--devices" in res_evaluate.stdout
+
+    # Verify export help
+    res_exp_help = run_cli(tmp_path, "export", "--help", isolated=False)
+    assert res_exp_help.returncode == 0, res_exp_help.stderr
+    assert "--checkpoint" in res_exp_help.stdout
+    assert "--output" in res_exp_help.stdout
+
+

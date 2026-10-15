@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from pathlib import Path
 import time
 import uuid
@@ -20,6 +21,30 @@ from .run_state import atomic_json, run_lock, sync_directory
 
 # Large transformer generators include position buffers as well as parameters.
 MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
+_EVAL_DIR_RE = re.compile(r'^(?:step-\d{8}-[A-Za-z0-9_-]+|[0-9a-f]{32})$')
+
+
+def _normalize_eval_device(dev):
+    if isinstance(dev, int):
+        return f"cuda:{dev}"
+    dev_str = str(dev).strip().lower()
+    if dev_str.isdigit():
+        return f"cuda:{dev_str}"
+    if dev_str.startswith("gpu") and dev_str[3:].isdigit():
+        return f"cuda:{dev_str[3:]}"
+    if dev_str == "cpu":
+        return "cpu"
+    if dev_str == "cuda":
+        return "cuda:0"
+    return dev_str
+
+
+def _devices_conflict(d1, d2):
+    n1 = _normalize_eval_device(d1) if d1 else "cuda:0"
+    n2 = _normalize_eval_device(d2) if d2 else "cuda:0"
+    if n1 == "cpu" or n2 == "cpu":
+        return False
+    return n1 == n2
 
 
 def _sha256(path):
@@ -53,75 +78,139 @@ def _write_catalog(root, catalog):
     return revision
 
 
-def evaluate(run_dir, metric_id, *, config_path=None, bundle=None):
-    """Manually evaluate one configured snapshot metric; no retries or downloads.
+def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_path=None, bundle=None):
+    """Manually evaluate one configured snapshot metric lock-free and read-only.
 
     Each invocation starts a new evaluation ID. A failure publishes a failed
     receipt and source event; on_error=fail then raises with that receipt path.
-    Training and evaluation cannot own this run simultaneously. The default
-    evaluator device is CUDA; CPU correctness fixtures opt in in configuration.
+    Can run concurrently with training without taking run_lock.
     """
+    import torch
     root = Path(run_dir).resolve()
-    with run_lock(root):
-        manifest = json.loads((root / 'manifest.json').read_text())
-        _recover_abandoned(root, manifest['run_id'])
-        if manifest.get('status') not in ('complete', 'stopped', 'failed', 'interrupted'):
-            raise ValueError('Standalone evaluation requires a terminal run; training and evaluation are serialized')
-        config = load_config(config_path) if config_path is not None else resolve_config(manifest['config'])
-        if fingerprint(config) != manifest['config_sha256']:
-            raise ValueError('Evaluation configuration changes the numerical recipe')
-        specs = enabled_custom(config)
-        if metric_id not in specs or specs[metric_id]['mode'] != 'snapshot':
-            raise ValueError('Select an enabled custom metric with mode="snapshot"')
-        # Resolve only this selected factory; unrelated disabled/failed factories
-        # cannot be executed as a side effect of a manual evaluation.
-        selected = dict(config)
-        selected['metrics'] = dict(config['metrics'], preset='none', custom={metric_id: specs[metric_id]},
-                                   disable=[], overrides={})
-        prepare_custom(selected)
-        spec = specs[metric_id]
-        candidate = Path(bundle or manifest.get('bundle_path', ''))
+    manifest_path = root / 'manifest.json'
+    if not manifest_path.is_file():
+        raise ValueError(f"Run directory missing manifest.json: {root}")
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+
+    allowed_statuses = ('running', 'complete', 'stopped', 'failed', 'interrupted', 'initializing')
+    if manifest.get('status') not in allowed_statuses:
+        raise ValueError(f"Cannot evaluate run with status: {manifest.get('status')}")
+
+    config = load_config(config_path) if config_path is not None else load_config(manifest['config'])
+    if fingerprint(config) != manifest['config_sha256']:
+        raise ValueError('Evaluation configuration changes the numerical recipe')
+
+    specs = enabled_custom(config)
+    snapshot_specs = {k: v for k, v in specs.items() if v.get('mode') == 'snapshot'}
+    if not snapshot_specs:
+        raise ValueError('No custom snapshot metrics enabled in configuration')
+
+    if metric_id is None:
+        if len(snapshot_specs) == 1:
+            metric_id = next(iter(snapshot_specs))
+        else:
+            raise ValueError(f'--metric required; available: {sorted(list(snapshot_specs.keys()))}')
+    elif metric_id not in snapshot_specs:
+        raise ValueError(f'Metric {metric_id!r} not enabled with mode="snapshot" (available: {sorted(list(snapshot_specs.keys()))})')
+
+    selected = dict(config)
+    selected['metrics'] = dict(config['metrics'], preset='none', custom={metric_id: snapshot_specs[metric_id]},
+                               disable=[], overrides={})
+    prepare_custom(selected)
+    spec = snapshot_specs[metric_id]
+
+    warnings_list = []
+    if devices is not None:
+        eval_device = _normalize_eval_device(devices)
+        spec.setdefault('evaluation', {})['device'] = eval_device
+    else:
+        eval_device = spec.get('evaluation', {}).get('device', 'cuda')
+
+    train_device = manifest.get('runtime', {}).get('device') or config.get('training', {}).get('device', 'cuda')
+    if manifest.get('status') == 'running' and _devices_conflict(eval_device, train_device):
+        msg = f"warning: evaluation shares device '{eval_device}' with active training run; may cause GPU contention"
+        sys.stderr.write(msg + '\n')
+        warnings_list.append({
+            'code': 'DEVICE_COLLISION',
+            'message': msg,
+            'evaluation_device': eval_device,
+            'training_device': train_device,
+        })
+
+    # Resolve bundle or checkpoint
+    from .checkpoints import resolve_checkpoint, extract_ema_bundle
+    source_file = None
+    bundle_dict = None
+    step = 0
+    attempt_id = manifest.get('attempt_id', 'eval')
+
+    if bundle is not None:
+        candidate = Path(bundle)
         if not candidate.is_absolute():
             candidate = root / candidate
         if candidate.is_dir():
             candidate = candidate / 'model.pt'
-        path = candidate.resolve()
-        if candidate != path or not path.is_relative_to(root / 'attempts') or not path.is_file():
-            raise ValueError('Select an immutable EMA model.pt bundle inside this run attempts directory')
-        if not 0 < path.stat().st_size <= MAX_SNAPSHOT_BYTES:
-            raise ValueError('Evaluation snapshot exceeds the 512 MiB limit')
-        checksum = path.parent / 'model.sha256'
-        if checksum.is_symlink() or not checksum.is_file() or checksum.stat().st_size > 128:
-            raise ValueError('EMA bundle checksum must be a bounded ordinary file')
-        expected_hash = checksum.read_text().strip()
-        if re.fullmatch(r'[0-9a-f]{64}', expected_hash) is None:
-            raise ValueError('Invalid EMA bundle checksum')
-        evaluation_id = uuid.uuid4().hex
-        directory = root / 'metrics' / 'evaluations' / evaluation_id
-        directory.mkdir(parents=True, exist_ok=False)
-        snapshot = directory / 'snapshot.pt'
-        identity = {'run_id': manifest['run_id'], 'evaluation_id': evaluation_id,
-                    'source_bundle': path.relative_to(root).as_posix()}
-        initial_catalog = _write_catalog(root, metric_catalog(selected))
-        atomic_json(directory / 'receipt.json', {'schema_version': 1, 'status': 'running', **identity,
-                                               'snapshot_sha256': expected_hash, 'metric_id': metric_id,
-                                               'catalog': initial_catalog})
-        try:
-            with path.open('rb') as source, snapshot.open('xb') as destination:
-                _copy_snapshot(source, destination)
-                destination.flush()
-                os.fsync(destination.fileno())
-            if snapshot.stat().st_size > MAX_SNAPSHOT_BYTES or _sha256(snapshot) != expected_hash:
-                raise ValueError('EMA bundle bytes do not match their immutable checksum')
-            return _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity)
-        finally:
-            # Complete/failed results keep the immutable bundle digest/provenance,
-            # not an extra copy of large model weights. Original bundle stays put.
-            snapshot.unlink(missing_ok=True)
-            _recover_abandoned(root, manifest['run_id'])
+        if candidate.is_file():
+            source_file = candidate.resolve()
+            bundle_dict = torch.load(source_file, map_location='cpu', weights_only=True)
+            step = bundle_dict.get('step', 0)
+            attempt_id = bundle_dict.get('identity', {}).get('attempt_id', attempt_id)
+
+    if bundle_dict is None:
+        target = checkpoint if checkpoint is not None else 'latest'
+        checkpoint_dir = resolve_checkpoint(root, target)
+        state_file = checkpoint_dir / 'state.pt'
+        model_file = checkpoint_dir / 'model.pt'
+        if state_file.is_file():
+            source_file = state_file
+            ckpt_manifest_path = checkpoint_dir / 'manifest.json'
+            ckpt_manifest = json.loads(ckpt_manifest_path.read_text(encoding='utf-8')) if ckpt_manifest_path.is_file() else manifest
+            step = ckpt_manifest.get('step', 0)
+            attempt_id = ckpt_manifest.get('attempt_id', attempt_id)
+            bundle_dict = extract_ema_bundle(checkpoint_dir, manifest=ckpt_manifest)
+        elif model_file.is_file():
+            source_file = model_file
+            bundle_dict = torch.load(model_file, map_location='cpu', weights_only=True)
+            step = bundle_dict.get('step', 0)
+            attempt_id = bundle_dict.get('identity', {}).get('attempt_id', attempt_id)
+        else:
+            raise ValueError(f"No state.pt or model.pt in checkpoint {checkpoint_dir}")
+
+    evaluation_id = uuid.uuid4().hex
+    bundle_dict.setdefault('identity', {})
+    bundle_dict['identity']['evaluation_id'] = evaluation_id
+    if not bundle_dict['identity'].get('attempt_id'):
+        bundle_dict['identity']['attempt_id'] = attempt_id
+    if not bundle_dict['identity'].get('run_id'):
+        bundle_dict['identity']['run_id'] = manifest['run_id']
+    dir_name = f"step-{step:08d}-{evaluation_id}"
+    directory = root / 'metrics' / 'evaluations' / dir_name
+    directory.mkdir(parents=True, exist_ok=False)
+    snapshot = directory / 'snapshot.pt'
+    torch.save(bundle_dict, snapshot)
+    expected_hash = _sha256(snapshot)
+
+    source_bundle_str = source_file.relative_to(root).as_posix() if source_file and source_file.is_relative_to(root) else str(source_file or "")
+    identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
+                'evaluation_id': evaluation_id, 'source_step': step,
+                'source_bundle': source_bundle_str}
+    initial_catalog = _write_catalog(root, metric_catalog(selected))
+    receipt_running = {
+        'schema_version': 1, 'status': 'running', **identity,
+        'snapshot_sha256': expected_hash, 'metric_id': metric_id,
+        'catalog': initial_catalog,
+    }
+    if warnings_list:
+        receipt_running['warnings'] = warnings_list
+    atomic_json(directory / 'receipt.json', receipt_running)
+
+    try:
+        return _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, warnings=warnings_list)
+    finally:
+        snapshot.unlink(missing_ok=True)
 
 
-def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, *, cancellation_event=None, timeout=None):
+def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, *, cancellation_event=None, timeout=None, warnings=None):
     """Evaluate and register owned immutable bytes; caller owns run coordination."""
     from .cpu_worker_service import CPUServiceCancelled, CPUWorkerService
     spec = selected['metrics']['custom'][metric_id]
@@ -180,6 +269,8 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
     receipt = {'schema_version': 1, 'status': status, **identity, 'metric_id': metric_id,
                'catalog': revision, 'snapshot_sha256': expected_hash, 'seconds': elapsed,
                'result': result, 'event_sha256': hashlib.sha256(encoded).hexdigest()}
+    if warnings:
+        receipt['warnings'] = warnings
     atomic_json(directory / 'receipt.json', receipt)
     atomic_json(directory / 'stream.json', {'schema_version': 1,
         'stream_id': event['stream_id'], 'stream_generation': evaluation_id,
@@ -206,7 +297,7 @@ def _recover_abandoned(root, run_id):
     if directory.is_symlink():
         raise ValueError('Evaluation directory must not be a symlink')
     for path in directory.iterdir():
-        if re.fullmatch(r'[0-9a-f]{32}', path.name) is None:
+        if not _EVAL_DIR_RE.match(path.name):
             continue
         if path.is_symlink() or not path.is_dir():
             raise ValueError('Evaluation entries must be ordinary directories')

@@ -35,7 +35,7 @@ except ModuleNotFoundError:  # Python 3.10
 PACKAGED = Path(__file__).with_name('models')
 
 __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
-           'load', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
+           'model', 'load', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
            'train', 'resume', 'open_run', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
@@ -111,6 +111,39 @@ def from_dict(spec, base=None):
     return Model(deepcopy(spec), base=Path(base).resolve() if base is not None else None)
 
 
+def model(name='custom/model', *, data=None, prior=None, networks=None, losses=None,
+          penalty=None, train=None, sampling=None, samplers=None, metrics=None,
+          evaluations=None, defaults=None, base=None, **kwargs):
+    """Keyword constructor for a Model (front end over from_dict)."""
+    spec = {'format': kwargs.pop('format', FORMAT)}
+    if name is not None:
+        spec['name'] = name
+    if defaults is not None:
+        spec['defaults'] = defaults
+    if data is not None:
+        spec['data'] = data
+    if prior is not None:
+        spec['prior'] = prior
+    if networks is not None:
+        spec['networks'] = networks
+    if losses is not None:
+        spec['losses'] = losses
+    if penalty is not None:
+        spec['penalty'] = penalty
+    if train is not None:
+        spec['train'] = train
+    if sampling is not None:
+        spec['sampling'] = sampling
+    if samplers is not None:
+        spec['samplers'] = samplers
+    if metrics is not None:
+        spec['metrics'] = metrics
+    if evaluations is not None:
+        spec['evaluations'] = evaluations
+    spec.update(kwargs)
+    return from_dict(spec, base=base)
+
+
 def _segment(container, key, location):
     if isinstance(container, list):
         if key.isdigit() and int(key) < len(container):
@@ -130,9 +163,28 @@ def override(model, changes=None, /, **sections):
     ``"losses.reconstruction.weight"``. Keyword sections deep-merge tables:
     ``override(model, train={"steps": 10})``.
     """
+    from .model_file import OPTIMIZER_FIELDS, is_model_file
     model = _model(model)
     spec = deepcopy(model.spec)
+    is_model = is_model_file(spec)
+
+    norm_changes = {}
     for dotted, value in (changes or {}).items():
+        if not is_model and (dotted.startswith('train.') or dotted.startswith('training.')):
+            field = dotted.split('.', 1)[1]
+            if field in OPTIMIZER_FIELDS and 'optimizer' in spec:
+                norm_changes[f'optimizer.{field}'] = value
+            elif 'training' in spec:
+                norm_changes[f'training.{field}'] = value
+            else:
+                norm_changes[dotted] = value
+        elif is_model and dotted.startswith('training.'):
+            field = dotted.split('.', 1)[1]
+            norm_changes[f'train.{field}'] = value
+        else:
+            norm_changes[dotted] = value
+
+    for dotted, value in norm_changes.items():
         parts = dotted.split('.')
         target = spec
         for depth, part in enumerate(parts[:-1]):
@@ -276,7 +328,10 @@ def explain(model):
             factory = spec.get('factory', net_spec.get('hndl') or net_spec.get('module') or 'unknown')
             if role == 'critic':
                 group = 'critic Adam (shared by all critics), lr = optimizer.lr * d_lr_mult'
-            elif role == 'frozen':
+            elif 'reuse' in net_spec or 'reuse' in spec:
+                reuse_target = net_spec.get('reuse') or spec.get('reuse')
+                group = f'parameters of {reuse_target}'
+            elif net_spec.get('trainable') is False or spec.get('trainable') is False or net_spec.get('freeze_parameters') or spec.get('freeze_parameters') or role == 'frozen':
                 group = 'none (frozen)'
             elif role == 'shared':
                 group = f'parameters of {spec.get("reuse")}'
@@ -493,9 +548,39 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
                    profile=None, service_policy=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
-                   preview_name=None, **extra):
+                   preview_name=None, sets=None, **extra):
     """Validate and prepare a run resumption, returning a PreparedExecution."""
     from .execution import prepare_resume as _prepare_resume
+    run_path = Path(run_dir).resolve()
+    if sets:
+        if model is None:
+            if (run_path / 'model.toml').is_file():
+                model = load(run_path / 'model.toml')
+            elif (run_path / 'config.toml').is_file():
+                model = load(run_path / 'config.toml')
+            elif (run_path / 'manifest.json').is_file():
+                with (run_path / 'manifest.json').open('rb') as f:
+                    manifest = json.load(f)
+                saved_config = manifest.get('config')
+                if not isinstance(saved_config, dict):
+                    raise ValueError(f"Run {run_dir} has no recorded configuration in manifest.json")
+                model = from_dict(saved_config, base=run_path)
+            else:
+                raise ValueError(f"Run directory {run_dir} does not exist or has no configuration")
+        normalized_sets = {}
+        for k, v in sets.items():
+            if k.startswith('training.') and hasattr(model, 'spec') and 'train' in model.spec:
+                normalized_sets['train.' + k[len('training.'):]] = v
+            elif k.startswith('train.') and hasattr(model, 'spec') and 'training' in model.spec and 'train' not in model.spec:
+                normalized_sets['training.' + k[len('train.'):]] = v
+            else:
+                normalized_sets[k] = v
+        model = override(model, normalized_sets)
+        if steps is None:
+            step_val = normalized_sets.get('train.steps', normalized_sets.get('training.steps'))
+            if step_val is not None:
+                steps = int(step_val)
+
     config_path = lower(model) if model is not None else None
     pe = preview_every if preview_every is not None else previews
     return _prepare_resume(run_dir, checkpoint=checkpoint, config_path=config_path, steps=steps,
@@ -796,21 +881,33 @@ def load_recipe(path):
 def lift(raw, *, base=None):
     """Lift an engine recipe dictionary into a Model conforming to hypergan-model/1."""
     from .config import DEFAULT
+    from .model_file import PENALTY_FIELDS
     raw = deepcopy(raw)
     base = Path.cwd() if base is None else Path(base)
     components = raw.get('components', {}) or deepcopy(DEFAULT.get('components', {}))
     networks = {}
     losses = []
 
+    critics_in_terms = {term.get('component') for term in raw.get('adversarial_terms', [])}
+    if 'discriminator' in components:
+        critics_in_terms.add('discriminator')
+
     for name, spec in components.items():
-        role = 'critic' if name == 'discriminator' or any(term.get('component') == name for term in raw.get('adversarial_terms', [])) else (
-            'generator' if name == 'generator' else 'encoder'
-        )
-        if spec.get('trainable') is False:
-            role = 'frozen'
+        if name == 'discriminator' or name in critics_in_terms:
+            role = 'critic'
+        elif name == 'generator':
+            role = 'generator'
+        elif 'encoder' in name or spec.get('factory', '').endswith('Encoder'):
+            role = 'encoder'
+        else:
+            role = 'auxiliary'
+
         net = {'role': role, 'inputs': dict(spec.get('inputs', {}))}
+        if 'trainable' in spec:
+            net['trainable'] = spec['trainable']
+        if 'freeze_parameters' in spec:
+            net['freeze_parameters'] = spec['freeze_parameters']
         if 'reuse' in spec:
-            net['role'] = 'shared'
             net['reuse'] = spec['reuse']
         elif spec.get('factory') == 'hndl':
             args = dict(spec.get('args', {}))
@@ -830,15 +927,26 @@ def lift(raw, *, base=None):
                 net['args'] = dict(spec['args'])
         networks[name] = net
 
+    adv_idx = None
     if 'adversarial' in raw:
+        adv_idx = len(losses)
         losses.append({'type': 'adversarial', 'critic': 'discriminator', 'weight': raw['adversarial'].get('weight', 1.0)})
     elif 'discriminator' in components:
+        adv_idx = len(losses)
         losses.append({'type': 'adversarial', 'critic': 'discriminator', 'weight': 1.0})
+
+    if adv_idx is not None and 'gradient_penalty' in raw and 'coeff' in raw['gradient_penalty']:
+        losses[adv_idx]['penalty'] = float(raw['gradient_penalty']['coeff'])
+
     for term in raw.get('adversarial_terms', []):
         entry = {'type': 'adversarial', 'critic': term['component'], 'weight': term.get('weight', 1.0)}
         for k in ('real', 'fake', 'inputs', 'id'):
             if k in term:
                 entry[k] = term[k]
+        if term.get('penalty') is False:
+            entry['penalty'] = 0.0
+        elif term.get('penalty_coeff') is not None:
+            entry['penalty'] = float(term['penalty_coeff'])
         losses.append(entry)
 
     for term in raw.get('objectives', []):
@@ -872,12 +980,102 @@ def lift(raw, *, base=None):
             model_spec['data'] = data
     if 'prior' in raw:
         model_spec['prior'] = deepcopy(raw['prior'])
-    if 'training' in raw:
-        model_spec['train'] = deepcopy(raw['training'])
+    if 'training' in raw or 'optimizer' in raw:
+        train_table = deepcopy(raw.get('training', {}))
+        if 'optimizer' in raw:
+            train_table.update(deepcopy(raw['optimizer']))
+        model_spec['train'] = train_table
+    gp = raw.get('penalty') or raw.get('gradient_penalty')
+    if gp:
+        penalty_table = {k: deepcopy(v) for k, v in gp.items() if k != 'coeff' and k in PENALTY_FIELDS}
+        if penalty_table:
+            model_spec['penalty'] = penalty_table
+    if 'sampling' in raw:
+        sampling_spec = deepcopy(raw['sampling'])
+        if 'generated' in sampling_spec:
+            sampling_spec['output'] = sampling_spec.pop('generated')
+        model_spec['sampling'] = sampling_spec
     if 'samplers' in raw:
         model_spec['samplers'] = deepcopy(raw['samplers'])
+
     if 'metrics' in raw:
-        model_spec['metrics'] = deepcopy(raw['metrics'])
+        metrics_table = deepcopy(raw['metrics'])
+        custom = metrics_table.pop('custom', {})
+        scalar_custom = {}
+        evaluations = {}
+        for name, metric in custom.items():
+            if 'evaluation' in metric or 'mode' in metric or 'trigger' in metric:
+                eval_entry = {}
+                if 'factory' in metric:
+                    eval_entry['factory'] = metric['factory']
+                if 'fn' in metric:
+                    eval_entry['fn'] = metric['fn']
+                if 'args' in metric:
+                    eval_entry['args'] = deepcopy(metric['args'])
+                if 'inputs' in metric:
+                    norm_inputs = {}
+                    for ik, iv in metric['inputs'].items():
+                        if iv == 'evaluation.generated':
+                            norm_inputs[ik] = 'generated'
+                        elif iv == 'evaluation.reference':
+                            norm_inputs[ik] = 'reference'
+                        else:
+                            norm_inputs[ik] = iv
+                    eval_entry['inputs'] = norm_inputs
+                if metric.get('trigger') == 'interval' and 'every_steps' in metric:
+                    eval_entry['every'] = metric['every_steps']
+                elif 'every_steps' in metric and metric.get('trigger') != 'manual':
+                    eval_entry['every'] = metric['every_steps']
+                for k in ('timeout', 'on_error', 'label', 'unit', 'direction', 'description', 'reduce', 'kind'):
+                    if k in metric:
+                        eval_entry[k] = metric[k]
+                proto = metric.get('evaluation', {})
+                if isinstance(proto, str):
+                    eval_entry.setdefault('kind', proto)
+                    proto = {}
+                elif not isinstance(proto, dict):
+                    proto = {}
+                if 'device' in proto:
+                    eval_entry['device'] = proto['device']
+                elif 'device' in metric:
+                    eval_entry['device'] = metric['device']
+                if 'sample_count' in proto:
+                    eval_entry['samples'] = proto['sample_count']
+                elif 'samples' in proto:
+                    eval_entry['samples'] = proto['samples']
+                elif 'sample_count' in metric:
+                    eval_entry['samples'] = metric['sample_count']
+                elif 'samples' in metric:
+                    eval_entry['samples'] = metric['samples']
+                if 'batch_size' in proto:
+                    eval_entry['batch_size'] = proto['batch_size']
+                elif 'batch_size' in metric:
+                    eval_entry['batch_size'] = metric['batch_size']
+                if 'seed' in proto:
+                    eval_entry['seed'] = proto['seed']
+                elif 'seed' in metric:
+                    eval_entry['seed'] = metric['seed']
+                proto_data = proto.get('data') or metric.get('data')
+                if proto_data is not None:
+                    d = deepcopy(proto_data)
+                    if d.get('factory') == 'hypergan.item_data:ItemData' and 'dataset' in d.get('args', {}):
+                        eval_entry['data'] = {'dataset': d['args']['dataset'], **{k: v for k, v in d['args'].items() if k != 'dataset'}}
+                    else:
+                        eval_entry['data'] = d
+                if 'output' in proto:
+                    eval_entry['output'] = proto['output']
+                elif 'output' in metric:
+                    eval_entry['output'] = metric['output']
+                evaluations[name] = eval_entry
+            else:
+                scalar_custom[name] = metric
+
+        if scalar_custom:
+            metrics_table['custom'] = scalar_custom
+        if metrics_table:
+            model_spec['metrics'] = metrics_table
+        if evaluations:
+            model_spec['evaluations'] = evaluations
 
     return Model(model_spec, base=base)
 

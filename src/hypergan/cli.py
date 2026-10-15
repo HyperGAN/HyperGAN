@@ -203,7 +203,7 @@ def _parse_set_overrides(items):
     overrides = {}
     for item in items or []:
         if "=" not in item:
-            raise argparse.ArgumentTypeError(f"Invalid --set override {item!r}; expected KEY=VALUE")
+            raise ValueError(f"Invalid --set override {item!r}; expected KEY=VALUE")
         key, raw_val = item.split("=", 1)
         key = key.strip()
         try:
@@ -349,7 +349,7 @@ def _dispatch(args, *, output=None):
                 m = hg.load(args.config) if args.config else None
                 if m and sets:
                     m = hg.override(m, sets)
-                prepared = hg.prepare_resume(args.run_dir, args.checkpoint, m, steps=getattr(args, "steps", None), **options)
+                prepared = hg.prepare_resume(args.run_dir, args.checkpoint, m, steps=getattr(args, "steps", None), sets=sets, **options)
             _warnings(prepared.config)
             from .metrics import manual_evaluation_hint, manual_evaluation_reminder
 
@@ -378,7 +378,7 @@ def _dispatch(args, *, output=None):
         else:
             print(f"error: {exc}", file=sys.stderr)
         return 1
-    except (OSError, ValueError, TypeError, RuntimeError, ImportError) as exc:
+    except (OSError, ValueError, TypeError, RuntimeError, ImportError, KeyError, argparse.ArgumentTypeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0

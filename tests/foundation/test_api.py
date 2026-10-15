@@ -105,3 +105,95 @@ def test_packaged_list():
     assert isinstance(models, list)
     names = {m['name'] for m in models}
     assert 'gaussian-grid' in names
+
+
+def test_model_constructor():
+    m = hg.model(
+        name='test/custom-gan',
+        data={'factory': 'gaussian_grid', 'args': {'dim': 2}},
+        prior={'kind': 'particles', 'args': {'z_dim': 16}},
+        networks={
+            'g': hg.module(dummy_fn, inputs={'x': 'latent'}, role='generator'),
+            'd': hg.module(dummy_fn, inputs={'x': 'candidate'}, role='critic'),
+        },
+        losses=[
+            {'type': 'adversarial', 'generator': 'g', 'critic': 'd'},
+        ],
+        train={'device': 'cpu', 'steps': 100},
+    )
+    assert isinstance(m, hg.Model)
+    assert m.spec['format'] == 'hypergan-model/1'
+    assert m.spec['name'] == 'test/custom-gan'
+    assert 'g' in m.spec['networks']
+    assert 'd' in m.spec['networks']
+    assert m.spec['train']['steps'] == 100
+
+
+def test_lift_role_assignment_and_reuse():
+    cifar_path = ROOT / 'examples' / 'cifar-pretrained-sagan.toml'
+    if cifar_path.is_file():
+        recipe = hg.load_recipe(cifar_path)
+        lifted = hg.lift(recipe, base=cifar_path.parent)
+        assert lifted.spec['format'] == 'hypergan-model/1'
+        valid_roles = {'generator', 'critic', 'encoder', 'auxiliary'}
+        for net_name, net in lifted.spec.get('networks', {}).items():
+            role = net.get('role')
+            assert role in valid_roles, f"Component {net_name} has invalid role {role!r}"
+            assert role not in ('shared', 'frozen')
+        explained = hg.explain(lifted)
+        assert isinstance(explained, str)
+
+
+def test_lift_snapshot_metrics_partitioning():
+    legacy = {
+        'schema_version': 1,
+        'components': {
+            'generator': {'factory': 'hndl', 'args': {'source': 'linear(2)\n'}, 'inputs': {'x': 'latent'}},
+            'discriminator': {'factory': 'hndl', 'args': {'source': 'linear(1)\n'}, 'inputs': {'x': 'candidate'}},
+        },
+        'metrics': {
+            'custom': {
+                'my_scalar': {'weight': 1.0},
+                'fid_snapshot': {'trigger': 'every_steps', 'evaluation': 'fid', 'interval': 100},
+            }
+        }
+    }
+    lifted = hg.lift(legacy)
+    assert 'fid_snapshot' in lifted.spec.get('evaluations', {})
+    assert 'my_scalar' in lifted.spec.get('metrics', {}).get('custom', {})
+    assert 'fid_snapshot' not in lifted.spec.get('metrics', {}).get('custom', {})
+
+
+def test_lift_preserves_hyperparameters_and_sampling():
+    dcgan_path = ROOT / 'examples' / 'dcgan-128.toml'
+    recipe = hg.load_recipe(dcgan_path)
+    lifted = hg.lift(recipe, base=dcgan_path.parent)
+    assert 'train' in lifted.spec
+    assert lifted.spec['train']['lr'] == recipe['optimizer']['lr']
+    assert 'sampling' in lifted.spec
+    assert lifted.spec['sampling']['count'] == recipe['sampling']['count']
+    from hypergan.config import fingerprint, numerical_values, resolve_config
+    import json
+    orig_res = resolve_config(recipe)
+    lowered_res = hg.resolve(lifted)
+    assert fingerprint(orig_res) == fingerprint(lowered_res)
+    assert json.dumps(numerical_values(lowered_res), sort_keys=True) == json.dumps(numerical_values(orig_res), sort_keys=True)
+
+    # Test recipe where sampling has generated mapped to output
+    ae_path = ROOT / 'examples' / 'logos-ae-gan-256.toml'
+    ae_recipe = hg.load_recipe(ae_path)
+    ae_lifted = hg.lift(ae_recipe, base=ae_path.parent)
+    assert 'output' in ae_lifted.spec['sampling']
+    assert 'generated' not in ae_lifted.spec['sampling']
+
+
+def test_lift_all_examples():
+    example_files = list((ROOT / 'examples').glob('*.toml'))
+    assert len(example_files) >= 20
+    for path in example_files:
+        recipe = hg.load_recipe(path)
+        lifted = hg.lift(recipe, base=path.parent)
+        assert lifted.spec['format'] == 'hypergan-model/1'
+        warnings = hg.validate(lifted)
+        assert isinstance(warnings, list)
+

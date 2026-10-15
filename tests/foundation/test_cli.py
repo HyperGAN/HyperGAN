@@ -10,9 +10,13 @@ import sysconfig
 import pytest
 
 
-def run_cli(tmp_path, *args):
+def run_cli(tmp_path, *args, isolated=True):
+    cmd = [sys.executable]
+    if isolated:
+        cmd.append("-I")
+    cmd.extend(["-m", "hypergan", *map(str, args)])
     return subprocess.run(
-        [sys.executable, "-I", "-m", "hypergan", *map(str, args)],
+        cmd,
         cwd=tmp_path, text=True, capture_output=True, timeout=30,
     )
 
@@ -147,3 +151,49 @@ def test_cli_convert_subcommand(tmp_path):
     validated = run_cli(tmp_path, "validate", out_model)
     assert validated.returncode == 0, validated.stderr
     assert json.loads(validated.stdout)["format"] == "hypergan-model/1"
+
+
+def test_cli_set_malformed_fails_cleanly(tmp_path):
+    config = tmp_path / "model.toml"
+    run_cli(tmp_path, "new", config, "--device", "cpu")
+    result = run_cli(tmp_path, "train", config, "--run-dir", tmp_path / "run", "--set", "missing_equal", "--no-server")
+    assert result.returncode != 0
+    assert "Invalid --set override 'missing_equal'; expected KEY=VALUE" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_set_invalid_keypath_fails_cleanly(tmp_path):
+    config = tmp_path / "model.toml"
+    run_cli(tmp_path, "new", config, "--device", "cpu")
+    result = run_cli(tmp_path, "train", config, "--run-dir", tmp_path / "run", "--set", "losses.nonexistent.penalty=0.5", "--no-server")
+    assert result.returncode != 0
+    assert "error:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_resume_without_config_applies_set_overrides(tmp_path):
+    config = tmp_path / "model.toml"
+    run_dir = tmp_path / "run"
+    run_cli(tmp_path, "new", config, "--device", "cpu")
+    train_res = run_cli(tmp_path, "train", config, "--run-dir", run_dir, "--steps", "1", "--set", "train.lr_floor=1.0", "--no-server", isolated=False)
+    assert train_res.returncode == 0, train_res.stderr
+
+    resume_res = run_cli(tmp_path, "resume", run_dir, "--set", "train.steps=2", "--no-server", isolated=False)
+    assert resume_res.returncode == 0, resume_res.stderr
+    data = json.loads(resume_res.stdout)
+    assert data["status"] == "complete"
+    assert data["steps"] == 2
+
+
+def test_cli_resume_with_malformed_set_fails_cleanly(tmp_path):
+    config = tmp_path / "model.toml"
+    run_dir = tmp_path / "run"
+    run_cli(tmp_path, "new", config, "--device", "cpu")
+    run_cli(tmp_path, "train", config, "--run-dir", run_dir, "--steps", "1", "--set", "train.lr_floor=1.0", "--no-server", isolated=False)
+
+    result = run_cli(tmp_path, "resume", run_dir, "--set", "bad_set", "--no-server", isolated=False)
+    assert result.returncode != 0
+    assert "error:" in result.stderr
+    assert "Invalid --set override 'bad_set'; expected KEY=VALUE" in result.stderr
+    assert "Traceback" not in result.stderr
+

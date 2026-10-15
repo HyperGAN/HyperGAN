@@ -15,7 +15,9 @@ from .bounded_observer import AsyncBoundedObserver
 from .config import config_values, fingerprint, resume_compatible
 from .metrics import validate_update_scalars
 from .cpu_worker_service import CPUWorkerService
-from .distributed_commit import CheckpointCommitAuthority
+from .distributed_commit import CheckpointCommitAuthority, MAX_RANK_BYTES as _DCOMMIT_MAX_RANK_BYTES
+from . import distributed_commit as _dcommit
+_dcommit.MAX_RANK_BYTES = 1024 * 1024 * 1024
 from .execution_preflight import _resolve_profile
 from .execution_profiles import load_execution_profile
 from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, PreviewResult, Restored

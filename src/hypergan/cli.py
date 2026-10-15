@@ -800,14 +800,119 @@ def _dispatch(args, *, output=None):
             if is_run_dir:
                 args.run_dir = target_path
                 config_override = getattr(args, "config", None) if is_resume_cmd else None
-                if config_override is None:
-                    if (args.run_dir / "recipe.toml").is_file():
-                        config_override = args.run_dir / "recipe.toml"
-                    elif (args.run_dir / "model.toml").is_file():
-                        config_override = args.run_dir / "model.toml"
+                manifest_p = args.run_dir / "manifest.json"
+                manifest_data = {}
+                if manifest_p.is_file():
+                    try:
+                        manifest_data = json.loads(manifest_p.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                if not manifest_data:
+                    if config_override is None:
+                        if (args.run_dir / "recipe.toml").is_file():
+                            config_override = args.run_dir / "recipe.toml"
+                        elif (args.run_dir / "model.toml").is_file():
+                            config_override = args.run_dir / "model.toml"
                 m = hg.load(config_override) if config_override else None
                 if m and sets:
                     m = hg.override(m, sets)
+
+                run_spec = {}
+                if m and isinstance(m.spec, dict):
+                    run_spec = m.spec.get("run", {})
+                elif manifest_data and isinstance(manifest_data.get("config"), dict):
+                    run_spec = manifest_data["config"].get("run", {})
+                if not run_spec:
+                    recipe_p = args.run_dir / "recipe.toml"
+                    if recipe_p.is_file():
+                        try:
+                            import tomllib
+                            r_data = tomllib.loads(recipe_p.read_text(encoding="utf-8"))
+                            if isinstance(r_data, dict):
+                                run_spec = r_data.get("run", {})
+                        except Exception:
+                            pass
+                if not run_spec:
+                    launch_dir = args.run_dir / "launch"
+                    if launch_dir.is_dir():
+                        l_files = sorted(launch_dir.glob("*.json"))
+                        if l_files:
+                            try:
+                                l_obj = json.loads(l_files[-1].read_text(encoding="utf-8"))
+                                run_spec = l_obj.get("run", {})
+                            except Exception:
+                                pass
+
+                ws_path = hg.find_workspace(args.run_dir)
+                if not ws_path:
+                    launch_dir = args.run_dir / "launch"
+                    if launch_dir.is_dir():
+                        l_files = sorted(launch_dir.glob("*.json"))
+                        for lf in reversed(l_files):
+                            try:
+                                l_obj = json.loads(lf.read_text(encoding="utf-8"))
+                                for a in l_obj.get("argv", []):
+                                    if a.endswith(".toml") and Path(a).is_file():
+                                        cand_ws = hg.find_workspace(Path(a))
+                                        if cand_ws:
+                                            ws_path = cand_ws
+                                            break
+                                if ws_path:
+                                    break
+                            except Exception:
+                                pass
+                if not ws_path and os.environ.get("HYPERGAN_WORKSPACE"):
+                    ws_path = Path(os.environ["HYPERGAN_WORKSPACE"])
+                ws_data = hg.load_workspace(ws_path) if ws_path else {}
+
+                needs_reexec, target_py, target_srcs, target_envs = _check_reexec(run_spec, ws_data)
+                if needs_reexec:
+                    if os.environ.get("_HYPERGAN_REEXEC") == "1":
+                        unsatisfied = []
+                        if target_py:
+                            tp = Path(target_py)
+                            venv_cfg = tp.parent.parent / "pyvenv.cfg"
+                            if venv_cfg.is_file():
+                                if Path(sys.prefix).resolve() != tp.parent.parent.resolve():
+                                    unsatisfied.append(f"python venv (current: {sys.prefix}, target: {tp.parent.parent})")
+                            else:
+                                if Path(sys.executable).resolve() != tp.resolve():
+                                    unsatisfied.append(f"python (current: {sys.executable}, target: {target_py})")
+                        for k, v in target_envs.items():
+                            if os.environ.get(k) != str(v):
+                                unsatisfied.append(f"env var {k} (current: {os.environ.get(k)!r}, target: {v!r})")
+                        resolved_head = [str(Path(x).resolve()) for x in sys.path[:len(target_srcs) + 3] if x]
+                        for p in target_srcs:
+                            if str(Path(p).resolve()) not in resolved_head:
+                                unsatisfied.append(f"src path {p} not in sys.path")
+                        raise RuntimeError(
+                            f"Re-exec loop detected: process was already re-executed with _HYPERGAN_REEXEC=1, "
+                            f"but target environment conditions remain unsatisfied: {', '.join(unsatisfied)}"
+                        )
+
+                    attempt = _determine_attempt(args.run_dir)
+                    new_env = os.environ.copy()
+                    new_env["_HYPERGAN_REEXEC"] = "1"
+                    new_env["_HYPERGAN_REEXEC_ATTEMPT"] = f"{attempt:04d}"
+                    if ws_path:
+                        new_env["HYPERGAN_WORKSPACE"] = str(ws_path)
+                    for k, v in target_envs.items():
+                        new_env[k] = str(v)
+                    if target_srcs:
+                        cur_pp = new_env.get("PYTHONPATH", "")
+                        prefix = ":".join(target_srcs)
+                        new_env["PYTHONPATH"] = f"{prefix}:{cur_pp}" if cur_pp else prefix
+
+                    target_executable = target_py or sys.executable
+                    raw_args = list(sys.argv)
+                    if len(raw_args) >= 3 and raw_args[1] == "-m" and raw_args[2] == "hypergan":
+                        exec_argv = [target_executable, "-m", "hypergan", *raw_args[3:]]
+                    elif "hypergan" in Path(raw_args[0]).name:
+                        exec_argv = [target_executable, "-m", "hypergan", *raw_args[1:]]
+                    else:
+                        exec_argv = [target_executable, *raw_args[1:]]
+                    os.execve(target_executable, exec_argv, new_env)
+
                 prepared = hg.prepare_resume(args.run_dir, getattr(args, "checkpoint", None), m, steps=getattr(args, "steps", None), sets=sets, **options)
             else:
                 config_path = target_path
@@ -888,6 +993,8 @@ def _dispatch(args, *, output=None):
                     new_env = os.environ.copy()
                     new_env["_HYPERGAN_REEXEC"] = "1"
                     new_env["_HYPERGAN_REEXEC_ATTEMPT"] = f"{attempt:04d}"
+                    if ws_path:
+                        new_env["HYPERGAN_WORKSPACE"] = str(ws_path)
                     for k, v in target_envs.items():
                         new_env[k] = str(v)
                     if target_srcs:

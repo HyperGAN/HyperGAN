@@ -20,13 +20,16 @@ from .checkpoints import capture_rng, restore_rng
 from .config import resolve_config
 from .distributed_checkpoints import (distributed_checkpoint_identity, distributed_runtime_info,
     prepare_distributed_checkpoint, restore_distributed_checkpoint)
+from . import distributed_checkpoints as _dc
+_dc.MAX_RANK_BYTES = 1024 * 1024 * 1024
 from .distributed_training import ReplicatedTrainer
 from .training import _recovery_contract, source_info
 from .replicated_execution import MAX_SAMPLE_COUNT
 
 MAX_INFORMATION_BYTES = 40 * 1024
-MAX_BUNDLE_BYTES = 256 * 1024 * 1024
-MAX_SAMPLE_BYTES = 2 * 1024 * 1024
+MAX_BUNDLE_BYTES = 1024 * 1024 * 1024
+MAX_SAMPLE_BYTES = 64 * 1024 * 1024
+
 
 
 def _encoded(value):

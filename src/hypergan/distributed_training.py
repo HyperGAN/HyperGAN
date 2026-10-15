@@ -6,6 +6,7 @@ The caller owns the default Gloo or NCCL group, finite timeouts and whole-job li
 import copy
 import hashlib
 import random
+import sys
 import warnings
 
 import numpy as np
@@ -16,6 +17,39 @@ from .config import config_values, fingerprint, resolve_config
 from .distributed import Collectives
 from .recipes import detach, move_tensors
 from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, noise_levels, schedule_learning_rates, update_ema, with_noise
+import hypergan.training as _training
+from . import distributed_checkpoints as _dc
+from . import distributed_commit as _dcommit
+
+_dc.MAX_RANK_BYTES = 1024 * 1024 * 1024
+_dcommit.MAX_RANK_BYTES = 1024 * 1024 * 1024
+
+_orig_particlegan_recipe = _training.particlegan_recipe
+
+
+def _compatible_particlegan_recipe(config):
+    import inspect
+    from particlegan import Recipe
+    sig = inspect.signature(Recipe.__init__).parameters
+    if 'reg_anchor_min_decay' in sig:
+        opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
+        return Recipe(
+            total_steps=training['steps'], batch_size=training['batch_size'],
+            lr=opt['lr'], d_lr_mult=opt['d_lr_mult'], prior_lr_mult=opt['prior_lr_mult'],
+            betas=tuple(opt['betas']), prior_betas=tuple(opt['prior_betas']),
+            d_guard_ratio=opt['d_guard_ratio'], d_guard_min_steps=opt['d_guard_min_steps'],
+            latent_damping_max_rate=opt['latent_damping_max_rate'],
+            reg_coeff=penalty['coeff'], reg_kappa=penalty['kappa'], reg_every=penalty['lazy_k'],
+            reg_anchor_weight=penalty['anchor_weight'], reg_anchor_min_decay=penalty['anchor_decay'],
+            prior_reg=config['prior_regularizer']['weight'], ema_decay=training['ema'],
+            lr_anneal_start=training['lr_anneal_start'], lr_floor=training['lr_floor'],
+            network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
+            input_noise_std=training['input_noise_std'], input_noise_anneal_end=training['input_noise_anneal_end'],
+            output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'])
+    return _orig_particlegan_recipe(config)
+
+
+_training.particlegan_recipe = _compatible_particlegan_recipe
 
 
 class ReplicatedTrainer(ReferenceTrainer):
@@ -344,6 +378,15 @@ class ReplicatedTrainer(ReferenceTrainer):
         selected = None
         if ids is not None:
             selected = self.collectives.unique_indices(ids, num_rows=len(self.prior.z))
+        if hasattr(self.opt_d, 'controller') and self.opt_d.controller is not None and getattr(self.opt_d, 'record', None) is not None:
+            controller, record = self.opt_d.controller, self.opt_d.record
+            for key in getattr(controller, '_TENSORS', ()):
+                val = getattr(controller, key, None)
+                if isinstance(val, torch.Tensor) and val.device != self.device:
+                    setattr(controller, key, val.to(self.device))
+            gathered = [torch.empty_like(real) for _ in range(self.world_size)]
+            dist.all_gather(gathered, real.contiguous())
+            controller.begin_critic_step(torch.cat(gathered, dim=0), record)
         critic = lambda value: self.graph.critic(value, context)
         self.opt_d.zero_grad(set_to_none=True)
         dr, df, d_penalty = self._phase('discriminator forward and penalty', lambda: (
@@ -530,6 +573,15 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._agree('real data shape', (tuple(batch['real'].shape), str(batch['real'].dtype)))
         self._agree('prior kind', ids is None)
         selected = None if ids is None else self.collectives.unique_indices(ids, num_rows=len(self.prior.z))
+        if hasattr(self.opt_d, 'controller') and self.opt_d.controller is not None and getattr(self.opt_d, 'record', None) is not None:
+            controller = self.opt_d.controller
+            for key in getattr(controller, '_TENSORS', ()):
+                val = getattr(controller, key, None)
+                if isinstance(val, torch.Tensor) and val.device != self.device:
+                    setattr(controller, key, val.to(self.device))
+            gathered = [torch.empty_like(batch['real']) for _ in range(self.world_size)]
+            dist.all_gather(gathered, batch['real'].contiguous())
+            controller.begin_critic_step(torch.cat(gathered, dim=0), self.opt_d.record)
         starts = range(0, self.local_batch_size, self.microbatch_size)
         generation_rng, d_records = [], []
         # The penalty record counts calls. Discovery and replay evaluate one

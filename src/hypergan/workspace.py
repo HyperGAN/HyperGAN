@@ -238,6 +238,12 @@ def resolve_device_aliases(
     for item in raw_items:
         if item in gpu_map:
             resolved.append(str(gpu_map[item]))
+        elif item.startswith("gpu") and item[3:].isdigit():
+            if gpu_map:
+                raise ValueError(
+                    f"Unknown GPU alias '{item}'; defined aliases in hypergan.toml: {sorted(gpu_map.keys())}"
+                )
+            resolved.append(item[3:])
         elif item.startswith("gpu") and gpu_map and item not in gpu_map:
             raise ValueError(
                 f"Unknown GPU alias '{item}'; defined aliases in hypergan.toml: {sorted(gpu_map.keys())}"

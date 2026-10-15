@@ -143,21 +143,31 @@ def _apply_devices(devices, config, profile, context_path):
     if devices is None:
         if isinstance(config, dict):
             devices = config.get("run", {}).get("devices")
-    if devices is None and context_path is not None:
-        try:
-            from .workspace import find_workspace, load_workspace
-            ws_path = find_workspace(context_path)
-            if ws_path:
-                ws_data = load_workspace(ws_path)
-                devices = ws_data.get("run", {}).get("devices")
-        except Exception:
-            pass
+
+    from .workspace import find_workspace, load_workspace, resolve_device_aliases
+    env_ws = os.environ.get("HYPERGAN_WORKSPACE")
+    source_p = config.get("_source_path") if isinstance(config, dict) else None
+    ws_path = None
+    for cand in (env_ws, source_p, context_path, Path.cwd()):
+        if cand is not None:
+            try:
+                p = Path(cand)
+                if p.is_file() and p.name == "hypergan.toml":
+                    ws_path = p
+                else:
+                    ws_path = find_workspace(p)
+                if ws_path:
+                    break
+            except Exception:
+                pass
+    ws_data = load_workspace(ws_path) if ws_path else {}
+
+    if devices is None and ws_data:
+        devices = ws_data.get("run", {}).get("devices")
+
     if devices is None:
         return profile, devices
 
-    from .workspace import find_workspace, load_workspace, resolve_device_aliases
-    ws_path = find_workspace(context_path) if context_path else None
-    ws_data = load_workspace(ws_path) if ws_path else {}
     resolved = resolve_device_aliases(devices, ws_data)
 
     dev_list = [d.strip() for d in (resolved if isinstance(resolved, list) else resolved.split(",")) if d.strip()]

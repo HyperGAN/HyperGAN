@@ -336,47 +336,77 @@ class ImageFolder:
         old_rng = generator.get_state()
         indices, pixels, futures = [], [], []
         try:
-            candidates = []
-            while len(candidates) < batch_size:
-                if self._cursor == len(self._permutation):
-                    self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
-                    self._cursor = 0
-                    self._epoch += 1
-                index = self._permutation[self._cursor]
-                self._cursor += 1
-                if index not in self._excluded:
-                    candidates.append(index)
+            if not sharded:
+                while len(pixels) < batch_size:
+                    candidates = []
+                    while len(candidates) < batch_size - len(pixels):
+                        if self._cursor == len(self._permutation):
+                            self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
+                            self._cursor = 0
+                            self._epoch += 1
+                        index = self._permutation[self._cursor]
+                        self._cursor += 1
+                        if index not in self._excluded:
+                            candidates.append(index)
+                    futures = []
+                    if self.workers:
+                        pool = self._executor()
+                        for index in candidates:
+                            entry = self.entries[index]
+                            prefetched = self._pending.pop(index, None)
+                            futures.append(pool.submit(self._pixels, entry) if prefetched is None
+                                           else pool.submit(self._verified_prefetch, entry, prefetched))
+                    for position, index in enumerate(candidates):
+                        if index in self._excluded:
+                            continue
+                        try:
+                            value = futures[position].result() if self.workers else self._pixels(self.entries[index])
+                        except ImageDataError as exc:
+                            if self.bad_image_policy != 'skip':
+                                raise
+                            self._exclude_image(index, exc)
+                        else:
+                            pixels.append(value)
+                            indices.append(index)
+                            self._bad_image_streak = 0
+                    wait(futures)
+            else:
+                candidates = []
+                while len(candidates) < batch_size:
+                    if self._cursor == len(self._permutation):
+                        self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
+                        self._cursor = 0
+                        self._epoch += 1
+                    index = self._permutation[self._cursor]
+                    self._cursor += 1
+                    if index not in self._excluded:
+                        candidates.append(index)
 
-            if sharded:
                 start = rank * local_batch_size
                 load_candidates = candidates[start:start + local_batch_size]
-            else:
-                load_candidates = candidates
 
-            futures = []
-            if self.workers:
-                pool = self._executor()
-                for index in load_candidates:
-                    entry = self.entries[index]
-                    prefetched = self._pending.pop(index, None)
-                    futures.append(pool.submit(self._pixels, entry) if prefetched is None
-                                   else pool.submit(self._verified_prefetch, entry, prefetched))
-            # Resolve in sampler order, never worker completion order. Only
-            # consumed failures enter checkpoint state; speculative ones wait.
-            for position, index in enumerate(load_candidates):
-                if index in self._excluded:
-                    continue
-                try:
-                    value = futures[position].result() if self.workers else self._pixels(self.entries[index])
-                except ImageDataError as exc:
-                    if self.bad_image_policy != 'skip':
-                        raise
-                    self._exclude_image(index, exc)
-                else:
-                    pixels.append(value)
-                    indices.append(index)
-                    self._bad_image_streak = 0
-            wait(futures)
+                futures = []
+                if self.workers:
+                    pool = self._executor()
+                    for index in load_candidates:
+                        entry = self.entries[index]
+                        prefetched = self._pending.pop(index, None)
+                        futures.append(pool.submit(self._pixels, entry) if prefetched is None
+                                       else pool.submit(self._verified_prefetch, entry, prefetched))
+                for position, index in enumerate(load_candidates):
+                    if index in self._excluded:
+                        continue
+                    try:
+                        value = futures[position].result() if self.workers else self._pixels(self.entries[index])
+                    except ImageDataError as exc:
+                        if self.bad_image_policy != 'skip':
+                            raise
+                        self._exclude_image(index, exc)
+                    else:
+                        pixels.append(value)
+                        indices.append(index)
+                        self._bad_image_streak = 0
+                wait(futures)
             # Start the next reads before CPU normalization/assembly, too.
             self._prefetch(local_batch_size)
             channels = 3 if self.mode == "RGB" else 1

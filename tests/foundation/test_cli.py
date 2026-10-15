@@ -1,6 +1,7 @@
 """Exercise installed entrypoints from outside the source checkout."""
 
 import json
+from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -33,7 +34,11 @@ def test_help_and_version_are_lightweight(tmp_path):
 
 
 def test_console_entrypoint(tmp_path):
-    executable = shutil.which("hypergan", path=sysconfig.get_path("scripts"))
+    executable = (
+        shutil.which("hypergan", path=sysconfig.get_path("scripts"))
+        or shutil.which("hypergan")
+        or shutil.which("hypergan", path=sysconfig.get_path("scripts", "posix_user"))
+    )
     assert executable, "installed console entrypoint was not generated"
     result = subprocess.run([executable, "version"], cwd=tmp_path, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
@@ -44,7 +49,7 @@ def test_create_validate_and_no_overwrite(tmp_path):
     project = tmp_path / "my project"
     created = run_cli(tmp_path, "new", project)
     assert created.returncode == 0, created.stderr
-    config_path = project / "config.toml"
+    config_path = project / "model.toml" if (project / "model.toml").is_file() else project / "config.toml"
     original = config_path.read_bytes()
     validated = run_cli(tmp_path, "validate", project)
     assert validated.returncode == 0, validated.stderr
@@ -131,3 +136,14 @@ def test_invalid_new_device_leaves_no_project(tmp_path):
     assert result.returncode != 0
     assert "training.device" in result.stderr
     assert not project.exists()
+
+
+def test_cli_convert_subcommand(tmp_path):
+    legacy = Path(__file__).resolve().parents[2] / "examples" / "paired-linear.toml"
+    out_model = tmp_path / "converted_model.toml"
+    result = run_cli(tmp_path, "convert", legacy, "--output", out_model)
+    assert result.returncode == 0, result.stderr
+    assert out_model.is_file()
+    validated = run_cli(tmp_path, "validate", out_model)
+    assert validated.returncode == 0, validated.stderr
+    assert json.loads(validated.stdout)["format"] == "hypergan-model/1"

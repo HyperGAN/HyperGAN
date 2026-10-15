@@ -1,6 +1,7 @@
 """Configuration checks run without importing the numerical runtime."""
 from copy import deepcopy
 import importlib.util
+from pathlib import Path
 import sys
 import subprocess
 
@@ -237,3 +238,17 @@ assert 'defaults' not in config
     assert resolve_config({"defaults": "hypergan"}) == resolve_config({})
     with pytest.raises(ValueError, match="defaults must be"):
         resolve_config({"defaults": "other"})
+
+
+def test_all_examples_load_with_load_config():
+    examples_dir = Path(__file__).resolve().parents[2] / "examples"
+    for example in sorted(examples_dir.glob("*.toml")):
+        resolved = load_config(example)
+        assert isinstance(resolved, dict)
+        assert "components" in resolved
+
+
+def test_mixed_networks_and_components_rejected():
+    from hypergan.model_file import ModelFileError
+    with pytest.raises(ModelFileError, match="Cannot mix 'networks'"):
+        load_config({"networks": {}, "components": {}})

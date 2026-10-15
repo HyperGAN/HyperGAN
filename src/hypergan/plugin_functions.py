@@ -80,3 +80,15 @@ class SnapshotFunction:
         if self.kind == 'histogram':
             return {'edges': [float(x) for x in value['edges']], 'counts': [float(x) for x in value['counts']]}
         return float(value)
+
+
+class FunctionLoss:
+    """Calls function(**inputs, **args); holds no state."""
+    resume_stateless = True
+
+    def __init__(self, fn, args=None):
+        self.fn = import_object(fn) if isinstance(fn, str) else fn
+        self.args = dict(args or {})
+
+    def __call__(self, **inputs):
+        return self.fn(**inputs, **self.args)

@@ -61,7 +61,7 @@ ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
 RESERVED = {'latent', 'batch', 'generated', 'candidate', 'prior', 'components', 'update', 'evaluation',
             'reference'}
 NETWORK_FIELDS = {'role', 'hndl', 'source', 'module', 'reuse', 'args', 'inputs', 'input_shape', 'output_shape',
-                  'trainable', 'freeze_parameters'}
+                  'trainable', 'freeze_parameters', 'optimizer'}
 OPTIMIZER_FIELDS = {'lr', 'd_lr_mult', 'prior_lr_mult', 'betas', 'prior_betas', 'implementation',
                     'd_guard_ratio', 'd_guard_min_steps', 'latent_damping_max_rate'}
 TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'ema', 'lr_anneal_start', 'lr_floor',
@@ -85,7 +85,34 @@ class ModelFileError(ValueError):
 
 def is_model_file(raw):
     """Model files have ``networks``; engine recipes have ``components``."""
+    if isinstance(raw, dict) and 'networks' in raw and 'components' in raw:
+        raise ModelFileError("Cannot mix 'networks' (hypergan-model/1) and 'components' (legacy engine recipe) in the same file")
     return isinstance(raw, dict) and 'networks' in raw and 'components' not in raw
+
+
+def producer(path):
+    """The network whose output a binding reads directly, if any."""
+    parts = path.split('.')
+    if parts[0] in ('generated', 'candidate'):
+        return 'generator'
+    if parts[0] == 'components' and len(parts) > 1:
+        return parts[1]
+    return None
+
+
+def upstream(path, components, *, seen=None):
+    """Networks a binding's value depends on (reuse follows the shared parameters)."""
+    seen = set() if seen is None else seen
+    source = producer(path)
+    if source is None or source in seen or source not in components:
+        return seen
+    seen.add(source)
+    spec = components[source]
+    if 'reuse' in spec:
+        seen.add(spec['reuse'])
+    for value in spec.get('inputs', {}).values():
+        upstream(value, components, seen=seen)
+    return seen
 
 
 def _table(value, location, allowed=None):
@@ -120,6 +147,10 @@ class _Lowering:
             if not isinstance(name, str) or not name.isidentifier() or name in RESERVED:
                 raise ModelFileError(f'Network name {name!r} must be a Python identifier and not one of {", ".join(sorted(RESERVED))}')
             _table(spec, f'networks.{name}', NETWORK_FIELDS)
+            if 'optimizer' in spec:
+                role = spec.get('role')
+                group = 'critic Adam (shared by all critics)' if role == 'critic' else 'generator-side Adam'
+                raise ModelFileError(f"Engine limit: networks.{name} is trained by {group}; per-network optimizers are not yet supported. Remove optimizer= from {name}.")
             role = spec.get('role')
             if role not in ROLES:
                 raise ModelFileError(f'networks.{name}.role must be one of {", ".join(ROLES)}')
@@ -184,6 +215,9 @@ class _Lowering:
             if 'input_shape' in spec or 'output_shape' in spec:
                 raise ModelFileError(f'{location}: input_shape/output_shape describe HNDL networks; pass module settings in args')
             factory = spec['module']
+            if callable(factory):
+                from .api import import_path
+                factory = import_path(factory, f'{location}.module')
         else:
             factory = 'hndl'
             if kind == 'hndl':
@@ -228,7 +262,11 @@ class _Lowering:
     def prior(self, spec):
         spec = _table(deepcopy(spec), 'prior')
         result = {key: spec.pop(key) for key in PRIOR_FIELDS if key in spec}
-        result['args'] = spec
+        args = spec.pop('args', {})
+        if not isinstance(args, dict):
+            raise ModelFileError('prior.args must be a table')
+        args.update(spec)
+        result['args'] = args
         return result
 
     def losses(self, losses, recipe):
@@ -270,7 +308,7 @@ class _Lowering:
                 seen_ids.add(term['id'])
                 recipe.setdefault('adversarial_terms', []).append(term)
             elif kind in ('objective', 'reconstruction'):
-                _table(loss, location, {'type', 'id', 'fn', 'args', 'inputs', 'input', 'target', 'weight', 'detach'})
+                _table(loss, location, {'type', 'id', 'fn', 'args', 'inputs', 'input', 'target', 'weight', 'detach', 'owner', 'network'})
                 if not isinstance(loss.get('id'), str) or _ID.fullmatch(loss['id']) is None:
                     raise ModelFileError(f'{location}.id is required: it names the loss in metrics (loss/objectives/<id>)')
                 if loss['id'] in seen_ids:
@@ -286,10 +324,22 @@ class _Lowering:
                     inputs = {'input': self.bind(loss['input'], f'{location}.input')}
                     if 'target' in loss:
                         inputs['target'] = self.bind(loss['target'], f'{location}.target')
-                term = {'id': loss['id'], 'factory': loss.get('fn', 'mse'), 'inputs': inputs,
-                        'weight': loss.get('weight', 1.0), 'args': deepcopy(loss.get('args', {}))}
+                fn = loss.get('fn', 'mse')
+                if callable(fn):
+                    from .api import import_path
+                    fn = import_path(fn, f'{location}.fn')
+                args = deepcopy(loss.get('args', {}))
+                if fn in ('mse', 'l1'):
+                    factory = fn
+                else:
+                    factory = 'hypergan.plugin_functions:FunctionLoss'
+                    args['fn'] = fn
+                term = {'id': loss['id'], 'factory': factory, 'inputs': inputs,
+                        'weight': loss.get('weight', 1.0), 'args': args}
                 if 'detach' in loss:
                     term['detach'] = list(loss['detach'])
+                if 'owner' in loss or 'network' in loss:
+                    term['owner'] = loss.get('owner') or loss.get('network')
                 recipe['objectives'].append(term)
             elif kind == 'prior':
                 _table(loss, location, {'type', 'weight', 'target_std', 'eps', 'rows'})
@@ -326,10 +376,21 @@ class _Lowering:
         result = {}
         for name, sampler in _table(spec, 'samplers').items():
             location = f'samplers.{name}'
-            _table(sampler, location, {'fn', 'args'})
-            if not isinstance(sampler.get('fn'), str):
+            _table(sampler, location, {'fn', 'factory', 'args', 'inputs', 'count', 'seed'})
+            fn = sampler.get('fn') or sampler.get('factory')
+            if callable(fn):
+                from .api import import_path
+                fn = import_path(fn, f'{location}.fn')
+            if not isinstance(fn, str):
                 raise ModelFileError(f'{location}.fn must name a function by module:object')
-            result[name] = {'fn': sampler['fn'], 'args': deepcopy(sampler.get('args', {}))}
+            entry = {'fn': fn, 'args': deepcopy(sampler.get('args', {}))}
+            if 'inputs' in sampler:
+                entry['inputs'] = self.bind_all(sampler['inputs'], f'{location}.inputs')
+            if 'count' in sampler:
+                entry['count'] = sampler['count']
+            if 'seed' in sampler:
+                entry['seed'] = sampler['seed']
+            result[name] = entry
         return result
 
     def metrics(self, spec):
@@ -391,6 +452,52 @@ class _Lowering:
             custom[name] = lowered
         return custom
 
+    def _validate_loss_graph(self, recipe, losses):
+        components = recipe['components']
+        reach = {name: set() for name in components}
+        critics = {self.names[name] for name, s in self.networks.items() if s.get('role') == 'critic'}
+
+        for term in recipe.get('objectives', []):
+            detached = set(term.get('detach', ['target'] if 'target' in term['inputs'] else []))
+            seen = set()
+            for key, path in term['inputs'].items():
+                if key not in detached:
+                    upstream(path, components, seen=seen)
+            owner = term.get('owner')
+            if owner is not None:
+                lowered_owner = self.names.get(owner, owner)
+                if lowered_owner not in seen:
+                    raise ModelFileError(
+                        f"networks.{owner}: loss {term.get('id', term['factory'])!r} reads "
+                        f"{sorted(term['inputs'].values())}, which do not depend on {owner}"
+                    )
+            else:
+                trainable_reached = {name for name in seen if components[name].get('trainable', True) and name not in critics}
+                if not trainable_reached:
+                    raise ModelFileError(
+                        f"Objective loss {term['id']!r} reads {sorted(term['inputs'].values())}, "
+                        f"which do not depend on any trainable generator or encoder"
+                    )
+            for name in seen:
+                reach[name].add(f"loss {term['id']}")
+
+        for term in recipe.get('adversarial_terms', []):
+            fake = term['fake']
+            for name in upstream(fake, components):
+                reach[name].add(f"fooling {term['component']}")
+        if 'adversarial' in recipe:
+            disc_inputs = components.get('discriminator', {}).get('inputs', {})
+            if any(p == 'candidate' or p.startswith('candidate.') or producer(p) == 'generator' for p in disc_inputs.values()):
+                for name in upstream('generated', components):
+                    reach[name].add('fooling discriminator')
+
+        for orig_name, lowered_name in self.names.items():
+            role = self.networks[orig_name].get('role')
+            if role == 'generator' and not reach.get(lowered_name):
+                raise ModelFileError(
+                    f"Network {orig_name!r} has role = 'generator' but no adversarial or objective loss trains it"
+                )
+
     def run(self):
         raw = self.raw
         _table(raw, 'model file', TOP_LEVEL)
@@ -428,6 +535,9 @@ class _Lowering:
             metrics['custom'] = custom
         if metrics:
             recipe['metrics'] = metrics
+        recipe['format'] = FORMAT
+        recipe['name_map'] = dict(self.names)
+        self._validate_loss_graph(recipe, losses)
         return recipe
 
 

@@ -200,7 +200,7 @@ def particlegan_defaults():
     if recipe["prior_betas"] is None:
         recipe["prior_betas"] = recipe["betas"]
     return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]
-            for key, field in PARTICLEGAN_DEFAULT_FIELDS.items()}
+            for key, field in PARTICLEGAN_DEFAULT_FIELDS.items() if field in recipe}
 
 
 def _keys(value, allowed, location):
@@ -324,17 +324,36 @@ def _resolve_samplers(result):
         location = f"samplers.{name}"
         if not isinstance(name, str) or _SAMPLER_NAME.fullmatch(name) is None:
             raise ValueError(f"{location}: sampler names are 1-32 letters, digits, dots, underscores or hyphens")
-        _keys(spec, {"fn", "args"}, location)
-        _factory(spec.get("fn"), (), f"{location}.fn")
+        _keys(spec, {"fn", "factory", "args", "inputs", "count", "seed"}, location)
+        factory = spec.get("fn") or spec.get("factory")
+        if factory is not None:
+            _factory(factory, (), f"{location}.fn")
+            spec["fn"] = factory
         spec.setdefault("args", {})
         if not isinstance(spec["args"], dict):
             raise ValueError(f"{location}.args must be a table")
         json.dumps(spec["args"], allow_nan=False)
+        if "inputs" in spec:
+            inputs = spec["inputs"]
+            if not isinstance(inputs, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in inputs.items()):
+                raise ValueError(f"{location}.inputs must bind argument names to output paths")
+        if "count" in spec:
+            _positive(spec["count"], f"{location}.count", integer=True)
+            if spec["count"] > 1024:
+                raise ValueError(f"{location}.count must be at most 1024")
+        if "seed" in spec:
+            _positive(spec["seed"], f"{location}.seed", integer=True, zero=True)
+
+
+def sampler_bindings(config):
+    """Output paths read by the optional named samplers."""
+    return [path for spec in (config.get("samplers") or {}).values()
+            for path in (spec.get("inputs") or {}).values()]
 
 
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
-    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers"}, "configuration")
+    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers", "format", "name_map"}, "configuration")
     raw = dict(raw)
     if "adversarial" in raw:
         raw["adversarial"] = _drop_removed_fields(raw["adversarial"], "adversarial")
@@ -356,7 +375,7 @@ def resolve_config(raw):
         if key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
-        elif key in ("adversarial_terms", "samplers"):
+        elif key in ("adversarial_terms", "samplers", "format", "name_map"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
             allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
@@ -592,7 +611,8 @@ def resolve_config(raw):
     if result['metrics']['custom']:
         warnings.append("Custom metrics execute trusted Python in bounded workers; input/output and deadlines are bounded, arbitrary allocations or descendants are not sandboxed.")
     warnings.extend(evaluation_warnings(result))
-    match = {k: v for k, v in result.items() if k != "metrics"} == {k: v for k, v in DEFAULT.items() if k != "metrics"}
+    ignored_for_match = {"metrics", "format", "name_map", "samplers"}
+    match = {k: v for k, v in result.items() if k not in ignored_for_match} == {k: v for k, v in DEFAULT.items() if k not in ignored_for_match}
     if not match:
         warnings.append("Custom resolved recipe: runnable combinations are unqualified until separately evaluated.")
     if any(":" in s["factory"] for s in components.values()) or ":" in result["data"]["factory"] or any(":" in t["factory"] for t in result["objectives"]):
@@ -609,12 +629,14 @@ def _listed_values(config, keys, *, observation=False):
     up with ``get`` keeps those hashes identical and does not KeyError. Samplers
     are observation settings: recorded with the run, never fingerprinted.
     """
-    values = {key: deepcopy(config[key]) for key in keys}
+    values = {key: deepcopy(config[key]) for key in keys if key in config}
     terms = config.get("adversarial_terms")
     if terms:
         values["adversarial_terms"] = deepcopy(terms)
-    if observation and config.get("samplers"):
-        values["samplers"] = deepcopy(config["samplers"])
+    if observation:
+        for key in ("samplers", "format", "name_map"):
+            if config.get(key) is not None:
+                values[key] = deepcopy(config[key])
     return values
 
 
@@ -713,11 +735,22 @@ def load_config(path):
         return resolve_config(lower(raw) if is_model_file(raw) else raw)
     path = Path(path)
     if path.is_dir():
-        path = path / "config.toml"
+        path = path / "model.toml" if (path / "model.toml").is_file() else path / "config.toml"
     with path.open("rb") as stream:
         raw = tomllib.load(stream)
     if is_model_file(raw):
         return resolve_config(lower(raw, base=path.parent))
+    return resolve_config_at(raw, path.parent)
+
+
+def resolve_config_at(raw, base):
+    """Inline ``file``/``network_files`` references relative to ``base``, then resolve.
+
+    ``load_config`` uses this for a TOML file; a programmatic caller holding the
+    same raw tables resolves them to the identical configuration.
+    """
+    base = Path(base)
+    raw = deepcopy(raw)
     for spec in raw.get("components", {}).values():
         args = spec.get("args", {})
         network_files = args.pop('network_files', {})
@@ -730,11 +763,14 @@ def load_config(path):
             for name, file in network_files.items():
                 if not isinstance(file, str):
                     raise ValueError('args.network_files paths must be strings')
-                sources[name] = read_source(path.parent / file)
+                target_file = Path(file) if Path(file).is_absolute() else base / file
+                sources[name] = read_source(target_file)
         if spec.get("factory") == "hndl" and "file" in args:
             if "source" in args:
                 raise ValueError("HNDL component must specify exactly one of source or file")
-            args["source"] = read_source(path.parent / args.pop("file"))
+            file = args.pop("file")
+            target_file = Path(file) if Path(file).is_absolute() else base / file
+            args["source"] = read_source(target_file)
     return resolve_config(raw)
 
 

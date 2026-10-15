@@ -173,22 +173,45 @@ def _parser():
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
     checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
+    convert = commands.add_parser("convert", help="Convert legacy engine recipe to hypergan-model/1 TOML")
+    convert.add_argument("recipe", type=Path, help="path to legacy recipe TOML")
+    convert.add_argument("--output", type=Path, required=True, help="output model.toml destination")
     train = commands.add_parser("train", help="Create a run or resume its latest checkpoint with the same configuration")
     train.add_argument("config", type=Path)
     train.add_argument("--run-dir", type=Path, required=True, help="new run directory, or an existing run to resume")
     train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
+    train.add_argument("--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                       help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
     _run_options(train)
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
     resume.add_argument("run_dir", type=Path)
     resume.add_argument("--checkpoint", type=Path, help="choose an older checkpoint within this run")
     resume.add_argument("--config", type=Path, help="verify exact compatibility with this configuration")
+    resume.add_argument("--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                        help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
     _run_options(resume)
     sample = commands.add_parser("sample", help="Sample a saved reference model (requires the train extra)")
     sample.add_argument("run_dir", type=Path)
     sample.add_argument("--count", type=_positive_int, default=16)
     sample.add_argument("--seed", type=int, default=42)
     sample.add_argument("--output", type=Path)
+    sample.add_argument("--sampler", help="sampler name declared in [samplers], or module:function import path")
     return parser
+
+
+def _parse_set_overrides(items):
+    overrides = {}
+    for item in items or []:
+        if "=" not in item:
+            raise argparse.ArgumentTypeError(f"Invalid --set override {item!r}; expected KEY=VALUE")
+        key, raw_val = item.split("=", 1)
+        key = key.strip()
+        try:
+            val = json.loads(raw_val)
+        except (json.JSONDecodeError, ValueError):
+            val = raw_val
+        overrides[key] = val
+    return overrides
 
 
 def _print_json(value):
@@ -233,155 +256,82 @@ def main(argv=None):
 
 def _dispatch(args, *, output=None):
     try:
+        from . import api as hg
+
         if args.command == "version":
             print(f"hypergan {__version__}")
         elif args.command == "inspect":
-            path = args.path / "manifest.json" if args.path.is_dir() else args.path
-            with path.open(encoding="utf-8") as stream:
-                manifest = json.load(stream)
-            if not isinstance(manifest, dict):
-                raise ValueError("run manifest must contain a JSON object")
-            _print_json(manifest)
+            run = hg.open_run(args.path)
+            _print_json(run.manifest)
         elif args.command == "model":
-            from .model_description import MODEL_FILE, build_networks, describe_run, load
-
-            manifest, config = load(args.path)
-            if args.write and not (args.path.is_dir() and manifest):
-                raise ValueError("--write needs a run directory")
-            if not isinstance(config, dict):
-                raise ValueError("No model configuration recorded for this run")
-            recorded = None
-            if args.networks or args.write:
-                recorded = build_networks(config, manifest.get("config_sha256"))
+            desc = hg.describe(args.path, networks=args.networks, write=args.write)
             if args.write:
-                from .run_state import atomic_json
-
-                atomic_json(args.path / MODEL_FILE, recorded)
+                from .model_description import MODEL_FILE
                 print(f"wrote {args.path / MODEL_FILE}", file=sys.stderr)
-            _print_json(describe_run(manifest if manifest else {"config": config}, recorded=recorded))
+            _print_json(desc)
         elif args.command == "events":
-            from .run_events import read_event_page
-
-            _print_json(read_event_page(args.run_dir, args.cursor, limit=args.limit, max_bytes=args.max_bytes))
+            _print_json(hg.events(args.run_dir, cursor=args.cursor, limit=args.limit, max_bytes=args.max_bytes))
         elif args.command == "metrics":
-            from .metrics import read_catalog
-
-            _print_json(read_catalog(args.run_dir, args.revision))
+            _print_json(hg.catalog(args.run_dir, revision=args.revision))
         elif args.command == "evaluate":
             from .evaluation_cli import run_evaluate
-
             _print_json(run_evaluate(args))
         elif args.command == "serve":
-            from .web_dev import enable
-            from .web_launch import serve
-
-            if args.dev:
-                enable()
-            serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
-                  session_file=args.session_file, open_browser=args.open,
-                  public_origin=args.public_origin)
+            hg.serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
+                     session_file=args.session_file, open_browser=args.open,
+                     public_origin=args.public_origin, dev=args.dev)
         elif args.command == "server-status":
-            from .web_autostart import viewer_status
-
-            _print_json(viewer_status(args.run_dir))
+            _print_json(hg.viewer_status(args.run_dir))
         elif args.command == "stop-server":
-            from .web_autostart import stop_viewer
-
-            _print_json(stop_viewer(args.run_dir))
+            _print_json(hg.stop_viewer(args.run_dir))
         elif args.command == "contributions":
-            from .event_views import MapSpec, read_projection_page
-
-            _print_json(read_projection_page(args.run_dir, args.map_revision or MapSpec().revision,
-                                            args.cursor, limit=args.limit, max_bytes=args.max_bytes))
+            _print_json(hg.contributions(args.run_dir, map_revision=args.map_revision,
+                                        cursor=args.cursor, limit=args.limit, max_bytes=args.max_bytes))
         elif args.command == "project":
-            from .event_views import MapSpec, Projector
-            import time
-
-            spec = MapSpec(**json.loads(args.map_spec.read_text(encoding="utf-8"))) if args.map_spec else MapSpec()
-            # Reopen before the custom worker's five-minute lifetime expires.
-            # Its durable projection frame is the only restart watermark.
-            following = True
-            while following:
-                opened = time.monotonic()
-                with Projector(args.run_dir, spec) as projector:
-                    while True:
-                        progress = projector.project(limit=args.limit)
-                        if args.follow and progress["documents"]:
-                            print(json.dumps(dict(progress, map_revision=spec.revision)), flush=True)
-                        if not args.follow and not progress["has_more"]:
-                            _print_json(dict(progress, map_revision=spec.revision))
-                            following = False
-                            break
-                        if time.monotonic() - opened >= 240:
-                            break
-                        if not progress["has_more"]:
-                            time.sleep(0.25)
+            res = hg.project(args.run_dir, map_spec=args.map_spec, follow=args.follow, limit=args.limit,
+                             on_progress=lambda p: (print(json.dumps(p), flush=True) if args.follow else _print_json(p)))
+            if not args.follow and res is not None:
+                _print_json(res)
         elif args.command == "checkpoint":
-            from .run_requests import checkpoint_request_status, submit_checkpoint_request
-
             if args.status is not None:
                 if args.attempt_id is not None:
                     raise ValueError("--attempt-id cannot be combined with --status")
-                _print_json(checkpoint_request_status(args.run_dir, args.status))
+                _print_json(hg.checkpoint_status(args.run_dir, args.status))
             else:
-                with (args.run_dir / "manifest.json").open(encoding="utf-8") as stream:
-                    manifest = json.load(stream)
-                if not isinstance(manifest, dict) or not manifest.get("run_id") or not manifest.get("attempt_id"):
-                    raise ValueError("Run manifest has no run/attempt identity for a checkpoint request")
-                if manifest.get("status") != "running":
-                    if args.request_id is None:
-                        raise ValueError("Run is not running; use resume to continue a stopped run")
-                    try:
-                        checkpoint_request_status(args.run_dir, args.request_id)
-                    except FileNotFoundError as exc:
-                        raise ValueError("Run is not running; use resume to continue a stopped run") from exc
-                _print_json(submit_checkpoint_request(args.run_dir, run_id=manifest["run_id"],
-                                                      attempt_id=args.attempt_id or manifest["attempt_id"],
-                                                      request_id=args.request_id))
+                _print_json(hg.request_checkpoint(args.run_dir, attempt_id=args.attempt_id, request_id=args.request_id))
         elif args.command == "data-check":
-            from .config import load_config
-            from .data import ImageFolder
-
-            config = load_config(args.config)
-            if config["data"]["factory"] != "image_folder":
-                raise ValueError("data-check currently supports data.factory='image_folder'")
-            data = ImageFolder(**config["data"]["args"])
-            manifest = {"schema_version": 1, "data": data.resume_identity(), "inventory": data.inventory}
-            if args.output is not None:
-                with args.output.open("x", encoding="utf-8") as stream:
-                    json.dump(manifest, stream, indent=2, allow_nan=False)
-                    stream.write("\n")
-            _print_json(manifest)
+            _print_json(hg.data_check(args.config, output=args.output))
         elif args.command == "preflight":
-            from .config import load_config
-            from .execution_profiles import load_execution_profile
-
-            config = load_config(args.config)
-            _warnings(config)
-            from .execution_preflight import _resolve_profile
-            profile = (load_execution_profile(args.profile, config) if args.profile is not None
-                       else _resolve_profile(None, config))
-            if args.runtime:
-                from .execution_preflight import preflight
-
-                _print_json(preflight(config, profile))
-            else:
-                _print_json({"schema_version": 1, "stage": "structural", "profile": profile,
-                             "runtime_checked": False})
-        elif args.command in {"new", "validate", "recipes"}:
-            from . import config
-
+            cfg = hg.load(args.config)
+            _warnings(hg.resolve(cfg))
+            _print_json(hg.preflight(cfg, profile=args.profile, runtime=args.runtime))
+        elif args.command in {"new", "validate", "recipes", "convert"}:
             if args.command == "new":
-                print(config.write_default(args.path, device=args.device))
+                from .config import validate_device
+                validate_device(args.device)
+                m = hg.packaged("gaussian-grid")
+                if args.device:
+                    m = hg.override(m, {"train.device": args.device})
+                dest = args.path / "model.toml" if (args.path.is_dir() or args.path.suffix != ".toml") else args.path
+                if dest.exists():
+                    raise FileExistsError(f"{dest} already exists; choose a new path")
+                saved = hg.save(m, dest)
+                print(saved)
             elif args.command == "recipes":
-                _print_json(config.list_recipes())
+                _print_json(hg.packaged_list())
+            elif args.command == "convert":
+                raw = hg.load_recipe(args.recipe)
+                m = hg.lift(raw, base=args.recipe.parent)
+                saved = hg.save(m, args.output)
+                print(saved)
             else:
-                resolved = config.load_config(args.path)
-                _warnings(resolved)
-                _print_json(resolved)
+                m = hg.load(args.path)
+                warnings = hg.validate(m)
+                for warning in warnings:
+                    print(f"warning: {warning}", file=sys.stderr)
+                _print_json(hg.resolve(m))
         elif args.command in {"train", "resume"}:
-            from .execution import SERVICE_TIMEOUTS, prepare_train, prepare_resume
-
+            from .execution import SERVICE_TIMEOUTS
             options = dict(profile=args.profile,
                            service_policy={name: getattr(args, name) for name in SERVICE_TIMEOUTS
                                            if getattr(args, name) is not None},
@@ -389,15 +339,20 @@ def _dispatch(args, *, output=None):
                            stop_after_steps=args.stop_after_steps,
                            preview_every=args.preview_every, preview_keep=args.preview_keep,
                            preview_name=args.preview_name)
+            sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
             if args.command == "train":
-                prepared = prepare_train(args.config, args.run_dir, args.steps, **options)
+                m = hg.load(args.config)
+                if sets:
+                    m = hg.override(m, sets)
+                prepared = hg.prepare(m, args.run_dir, args.steps, **options)
             else:
-                prepared = prepare_resume(args.run_dir, args.checkpoint, args.config, **options)
+                m = hg.load(args.config) if args.config else None
+                if m and sets:
+                    m = hg.override(m, sets)
+                prepared = hg.prepare_resume(args.run_dir, args.checkpoint, m, steps=getattr(args, "steps", None), **options)
             _warnings(prepared.config)
             from .metrics import manual_evaluation_hint, manual_evaluation_reminder
 
-            # The generic warnings block is easy to skim past, so an all-manual
-            # evaluation setup also gets one distinct line naming the exact edit.
             labels = {"run": str(args.run_dir),
                       "config_path": str(args.config) if getattr(args, "config", None) else "CONFIG"}
             hint = manual_evaluation_hint(prepared.config, **labels)
@@ -408,9 +363,12 @@ def _dispatch(args, *, output=None):
             with _training_viewer(args):
                 output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":
-            from .artifacts import sample
-
-            print(sample(args.run_dir, count=args.count, seed=args.seed, output=args.output))
+            s = hg.sample(args.run_dir, count=args.count, seed=args.seed, output=args.output)
+            if getattr(args, "sampler", None):
+                view_obj = hg.view(s, args.sampler, run=args.run_dir)
+                if hasattr(view_obj, "save") and args.output:
+                    view_obj.save(args.output)
+            print(s.path)
     except KeyboardInterrupt:
         print("error: interrupted", file=sys.stderr)
         return 130

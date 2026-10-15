@@ -1,0 +1,91 @@
+# Demo 2: encoder + generator + two critics + a reconstruction loss.
+# Tiny vectors; an item-level synthetic dataset from toy_project.py.
+format = "hypergan-model/1"
+name = "demo/encoder-two-critics"
+
+[data]
+dataset = "toy_project:PairedVectors"   # item-level: HyperGAN batches, shuffles, resumes
+args = { size = 512, dims = 2 }
+
+[prior]
+kind = "particles"
+z_dim = 4
+num_particles = 64
+
+[networks.encoder]
+role = "encoder"                         # trains with the generator's optimizer
+source = "linear(8)\nleaky_relu(0.2)\nlinear()"
+input_shape = ["B", 2]
+output_shape = ["B", 2]
+inputs = { input = "batch.condition" }
+
+[networks.decoder]
+role = "generator"
+source = """
+concat(x, condition)
+linear(16)
+leaky_relu(0.2)
+linear(16)
+leaky_relu(0.2)
+linear()
+"""
+input_shape = { x = ["B", 4], condition = ["B", 2] }
+output_shape = ["B", 2]
+inputs = { x = "latent", condition = "encoder" }
+
+[networks.pair_critic]
+role = "critic"                          # judges (sample, condition) pairs
+source = """
+concat(x, condition)
+linear(16)
+leaky_relu(0.2)
+linear()
+"""
+input_shape = { x = ["B", 2], condition = ["B", 2] }
+output_shape = ["B", 1]
+inputs = { x = "candidate", condition = "batch.condition" }
+
+[networks.marginal_critic]
+role = "critic"                          # judges samples alone
+hndl = "critic.hndl"
+input_shape = ["B", 2]
+output_shape = ["B", 1]
+inputs = { x = "candidate" }
+
+# Everything the model optimizes, in one place.
+[[losses]]
+type = "adversarial"
+critic = "pair_critic"
+penalty = 1.0
+
+[[losses]]
+type = "adversarial"
+critic = "marginal_critic"
+weight = 0.5
+penalty = 0.5
+
+[[losses]]
+type = "reconstruction"
+id = "reconstruction"
+fn = "l1"
+input = "generated"
+target = "batch.real"
+weight = 1.0
+
+[[losses]]
+type = "prior"
+weight = 1.0
+
+[penalty]
+kappa = 1.0
+lazy_k = 1
+
+[train]
+steps = 12
+batch_size = 16
+seed = 42
+device = "cpu"
+
+[sampling]
+count = 8
+seed = 123

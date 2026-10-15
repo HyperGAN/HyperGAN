@@ -1,0 +1,48 @@
+# The packaged 2-D Gaussian-grid reference as a model file: the same numerical
+# recipe as `hypergan new` (hypergan.config.DEFAULT), so it has the reference
+# fingerprint. Copy it with hypergan.api.save to start your own model.
+format = "hypergan-model/1"
+name = "reference/100gaussians"
+
+[data]
+builtin = "gaussian_grid"
+args = { side = 10, noise = 0.015 }
+
+[prior]
+kind = "particles"
+z_dim = 4
+num_particles = 20000
+
+[networks.generator]
+role = "generator"
+hndl = "../networks/reference.hndl"
+input_shape = ["B", 4]
+output_shape = ["B", 2]
+inputs = { x = "latent" }
+
+[networks.discriminator]
+role = "critic"
+hndl = "../networks/reference.hndl"
+input_shape = ["B", 2]
+output_shape = ["B", 1]
+inputs = { x = "candidate" }
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+weight = 1.0
+
+[train]
+steps = 5
+batch_size = 16
+seed = 42
+device = "cpu"
+
+[sampling]
+count = 256
+seed = 123

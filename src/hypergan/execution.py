@@ -238,7 +238,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             # Resolved defaults are part of the recorded configuration, so a default
             # that changed between releases surfaces here instead of silently applying.
             remedy = ('`hypergan resume RUN --config CONFIG` continues this run with changed '
-                      'observation settings' if changed == ['metrics'] else
+                      'observation settings' if set(changed) <= {'metrics', 'samplers'} else
                       'use a new run directory for a different numerical configuration')
             raise ValueError('Training configuration differs from the original run in '
                              + ', '.join(changed) + '; ' + remedy)

@@ -1,0 +1,77 @@
+# Demo 3: your own data loader, sampler, metric and evaluation.
+# Each is a plain class or function in toy_project.py, named by import path.
+format = "hypergan-model/1"
+name = "demo/extensions"
+
+[data]
+dataset = "toy_project:GridPoints"     # __len__ + __getitem__: nothing else
+args = { side = 5, noise = 0.02, size = 2048, split = "train" }
+shuffle = true
+
+[prior]
+kind = "particles"
+z_dim = 4
+num_particles = 256
+
+[networks.generator]
+role = "generator"
+module = "toy_project:MLPGenerator"
+inputs = { x = "latent" }
+
+[networks.critic]
+role = "critic"
+hndl = "critic.hndl"
+input_shape = ["B", 2]
+output_shape = ["B", 1]
+inputs = { x = "candidate" }
+
+[[losses]]
+type = "adversarial"
+critic = "critic"
+
+[[losses]]
+type = "prior"
+
+[train]
+steps = 20
+batch_size = 64
+seed = 42
+device = "cpu"
+lr = 0.001
+
+[sampling]
+count = 16
+seed = 123
+
+# What people look at: maps any generator output to a viewable (image here).
+[samplers.scatter]
+fn = "toy_project:scatter"
+args = { size = 64 }
+
+# A cheap metric: a function of values the update computes anyway.
+[metrics.custom.d_over_g]
+fn = "toy_project:d_over_g"
+inputs = { d = "d_loss", g = "g_loss" }
+every_steps = 10
+direction = "none"
+
+# Expensive evaluations from an EMA snapshot, on held-out items.
+[evaluations.modes]
+fn = "toy_project:modes_covered"
+args = { side = 5 }
+every = 10
+device = "cpu"
+samples = 256
+batch_size = 64
+seed = 7
+direction = "maximize"
+data = { dataset = "toy_project:GridPoints", args = { side = 5, size = 512, split = "holdout" } }
+
+[evaluations.nearest]                  # no `every`: runs only when asked
+fn = "toy_project:mean_nearest_distance"
+device = "cpu"
+samples = 256
+batch_size = 64
+seed = 7
+direction = "minimize"
+data = { dataset = "toy_project:GridPoints", args = { side = 5, size = 512, split = "holdout" } }

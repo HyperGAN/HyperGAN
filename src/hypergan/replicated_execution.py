@@ -47,13 +47,17 @@ def _profile(value, config):
 def _policy(profile, values):
     defaults = {'startup_timeout': profile['preflight']['timeout'],
                 'command_timeout': profile['preflight']['timeout'],
-                'collective_timeout': profile['preflight']['collective_timeout'], 'total_timeout': 3600.0,
+                'collective_timeout': profile['preflight']['collective_timeout'],
+                'total_timeout': None,
                 'observer_timeout': 5.0, 'preview_timeout': 60.0}
     if values is not None:
         if not isinstance(values, dict) or set(values) - defaults.keys():
             raise ValueError('Unknown replicated service_policy field')
         defaults.update(values)
     for key, value in defaults.items():
+        if key == 'total_timeout' and (value is None or (isinstance(value, (int, float)) and math.isinf(value))):
+            defaults[key] = None
+            continue
         try:
             valid = type(value) in (int, float) and math.isfinite(value) and value > 0
         except OverflowError:

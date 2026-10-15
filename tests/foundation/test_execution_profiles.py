@@ -30,6 +30,25 @@ def test_replicated_recipe_rejects_extra_adversarial_terms():
         validate_replicated_recipe(extra)
 
 
+def test_replicated_recipe_allows_cifar_k3p_policies():
+    from hypergan.execution_profiles import validate_replicated_recipe
+    cifar_k3p = resolve_config({
+        "training": {
+            "phase_draws": "independent",
+            "data_rng_device": "execution",
+            "data_seed_offset": 5,
+            "prior_seed_offset": 10,
+            "input_noise_std": 0.5,
+            "output_noise_std": 0.029,
+            "backend": {"deterministic_algorithms": False},
+        },
+        "optimizer": {
+            "implementation": "torch_fused_adam",
+        },
+    })
+    validate_replicated_recipe(cifar_k3p)
+
+
 def test_single_defaults_and_replicated_effective_batch():
     single = resolve(raw())
     assert single == {'schema_version': 1, 'execution': {

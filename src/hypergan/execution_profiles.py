@@ -20,16 +20,12 @@ def validate_replicated_recipe(config):
     if config.get('adversarial_terms'):
         raise ValueError('Replicated execution rejects extra adversarial_terms; those terms require native execution')
     training = config['training']
-    if (training.get('phase_draws', 'shared') != 'shared'
-            or training.get('data_rng_device', 'cpu') != 'cpu'
-            or training.get('data_seed_offset', 1) != 1
-            or training.get('prior_seed_offset', 2) != 2
-            or training.get('backend')
-            or config.get('optimizer', {}).get('implementation', 'device_adam') != 'device_adam'
-            or training.get('input_noise_std', 0) or training.get('output_noise_std', 0)
-            or any('reuse' in spec or any(path.startswith('prior.') for path in spec['inputs'].values())
-                   for spec in config['components'].values())):
-        raise ValueError('Independent phase draws, custom RNG/backend policy, fused Adam, critic input or generator output noise and reused/prior-bound components currently require native execution; replicated/accumulated image execution is not qualified')
+    if (training.get('phase_draws', 'shared') not in ('shared', 'independent')
+            or training.get('data_rng_device', 'cpu') not in ('cpu', 'execution')
+            or config.get('optimizer', {}).get('implementation', 'device_adam') not in ('device_adam', 'torch_fused_adam')
+            or any('reuse' in spec or any(path.startswith('prior.') for path in spec.get('inputs', {}).values())
+                   for spec in config.get('components', {}).values())):
+        raise ValueError('Reused/prior-bound components and unsupported numerical policies currently require native execution; replicated/accumulated image execution is not qualified')
 
 
 def _table(value, name, allowed, required=()):

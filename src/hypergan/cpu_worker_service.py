@@ -276,8 +276,10 @@ def _broker_main(sock, identity, world_size, limits, bootstrap, started, initial
                     if not parent.is_alive():
                         raise EOFError('CPU service coordinator died; stopping owned ranks')
                     now = time.monotonic()
-                    if now >= started + limits['total_timeout']:
-                        raise TimeoutError('CPU service total deadline exceeded (including idle time)')
+                    total_timeout = limits.get('total_timeout')
+                    if total_timeout is not None and math.isfinite(total_timeout):
+                        if now >= started + total_timeout:
+                            raise TimeoutError('CPU service total deadline exceeded (including idle time)')
                     if phase != 'idle' and now >= deadline:
                         raise TimeoutError(f'CPU service {phase} deadline exceeded')
                     for rank, channel in enumerate(channels):
@@ -386,6 +388,8 @@ class CPUWorkerService:
         limits = dict(startup_timeout=startup_timeout, command_timeout=command_timeout,
                       collective_timeout=collective_timeout, total_timeout=total_timeout)
         for name, value in limits.items():
+            if name == 'total_timeout' and value is None:
+                continue
             try:
                 valid = type(value) in (int, float) and math.isfinite(value) and value > 0
             except OverflowError:
@@ -460,7 +464,8 @@ class CPUWorkerService:
         finally:
             remote.close()
         try:
-            result = self._reply('__start__', max(0, started + min(self._limits['startup_timeout'], self._limits['total_timeout']) - time.monotonic()) + 5)
+            total_limit = self._limits['total_timeout'] if (self._limits.get('total_timeout') is not None and math.isfinite(self._limits['total_timeout'])) else float('inf')
+            result = self._reply('__start__', max(0, started + min(self._limits['startup_timeout'], total_limit) - time.monotonic()) + 5)
             if result['kind'] != 'ready':
                 raise RuntimeError('CPU service did not become ready')
             self.worker_pids = result['worker_pids']

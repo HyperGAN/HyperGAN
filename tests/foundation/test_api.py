@@ -197,3 +197,130 @@ def test_lift_all_examples():
         warnings = hg.validate(lifted)
         assert isinstance(warnings, list)
 
+
+def test_lift_lower_scalar_metrics_roundtrip():
+    """Verify hg.lift(hg.lower(m)) roundtrip succeeds for models with custom scalar metrics."""
+    m = hg.model(
+        data={'builtin': 'gaussian_grid'},
+        prior={'kind': 'gaussian', 'z_dim': 4},
+        networks={
+            'generator': {'role': 'generator', 'source': 'linear(2)\n', 'input_shape': ['B', 4], 'output_shape': ['B', 2], 'inputs': {'x': 'latent'}},
+            'discriminator': {'role': 'critic', 'source': 'linear(1)\n', 'input_shape': ['B', 2], 'output_shape': ['B', 1], 'inputs': {'x': 'candidate'}},
+        },
+        losses=[{'type': 'adversarial', 'critic': 'discriminator', 'penalty': 1.0}],
+        metrics={
+            'custom': {
+                'step_duration': {
+                    'factory': 'hypergan.plugin_functions:ScalarFunction',
+                    'inputs': {'step_seconds': 'step_seconds'},
+                },
+                'custom_scalar_fn': {
+                    'fn': 'math:sin',
+                    'inputs': {'x': 'step'},
+                    'every_steps': 20,
+                    'label': 'Sin Step',
+                },
+            }
+        }
+    )
+    lowered = hg.lower(m)
+    assert 'metrics' in lowered
+    assert 'custom' in lowered['metrics']
+    assert lowered['metrics']['custom']['step_duration']['mode'] == 'scalar'
+    assert lowered['metrics']['custom']['custom_scalar_fn']['mode'] == 'scalar'
+
+    lifted = hg.lift(lowered)
+    assert 'evaluations' not in lifted.spec or len(lifted.spec.get('evaluations', {})) == 0
+    assert 'metrics' in lifted.spec
+    assert 'step_duration' in lifted.spec['metrics']['custom']
+    assert 'custom_scalar_fn' in lifted.spec['metrics']['custom']
+    assert 'mode' not in lifted.spec['metrics']['custom']['step_duration']
+    assert 'mode' not in lifted.spec['metrics']['custom']['custom_scalar_fn']
+
+    warnings = hg.validate(lifted)
+    assert isinstance(warnings, list)
+    lowered_again = hg.lower(lifted)
+    assert lowered_again['metrics']['custom'] == lowered['metrics']['custom']
+
+
+def test_lift_factory_snapshot_evaluations_presentation_fields():
+    """Verify that lifting factory snapshot evaluations omits presentation fields per model_file.py:414."""
+    recipe = {
+        'schema_version': 1,
+        'name': 'test/factory-presentation-preservation',
+        'data': {'factory': 'gaussian_grid', 'args': {}},
+        'prior': {'kind': 'gaussian', 'args': {'z_dim': 4}},
+        'components': {
+            'generator': {'factory': 'hndl', 'args': {'source': 'linear(2)\n', 'input_shape': ['B', 4], 'output_shape': ['B', 2]}, 'inputs': {'x': 'latent'}},
+            'discriminator': {'factory': 'hndl', 'args': {'source': 'linear(1)\n', 'input_shape': ['B', 2], 'output_shape': ['B', 1]}, 'inputs': {'x': 'candidate'}},
+        },
+        'prior_regularizer': {'weight': 0.0},
+        'metrics': {
+            'custom': {
+                'fid_metric': {
+                    'factory': 'hypergan.image_metrics:InceptionFID',
+                    'label': 'FID Score',
+                    'unit': 'score',
+                    'direction': 'minimize',
+                    'mode': 'snapshot',
+                    'trigger': 'interval',
+                    'every_steps': 1000,
+                    'timeout': 60,
+                    'on_error': 'fail',
+                    'inputs': {'generated': 'evaluation.generated', 'reference': 'evaluation.reference'},
+                    'evaluation': {
+                        'device': 'cpu',
+                        'sample_count': 128,
+                        'batch_size': 64,
+                        'seed': 42,
+                        'data': {'factory': 'gaussian_grid', 'args': {}},
+                    }
+                },
+                'fn_eval': {
+                    'fn': 'math:sin',
+                    'label': 'Sin Eval',
+                    'unit': 'rad',
+                    'direction': 'maximize',
+                    'mode': 'snapshot',
+                    'trigger': 'manual',
+                    'inputs': {'generated': 'evaluation.generated', 'reference': 'evaluation.reference'},
+                    'evaluation': {
+                        'sample_count': 64,
+                        'batch_size': 32,
+                        'seed': 123,
+                        'data': {'factory': 'gaussian_grid', 'args': {}},
+                    }
+                }
+            }
+        }
+    }
+
+    lifted = hg.lift(recipe)
+    evals = lifted.spec.get('evaluations', {})
+    assert 'fid_metric' in evals
+    assert 'fn_eval' in evals
+
+    fid_entry = evals['fid_metric']
+    assert fid_entry['factory'] == 'hypergan.image_metrics:InceptionFID'
+    for forbidden in ('label', 'unit', 'direction', 'description', 'reduce', 'kind'):
+        assert forbidden not in fid_entry
+
+    assert fid_entry.get('timeout') == 60
+    assert fid_entry.get('on_error') == 'fail'
+    assert fid_entry.get('every') == 1000
+    assert fid_entry.get('device') == 'cpu'
+
+    fn_entry = evals['fn_eval']
+    assert fn_entry['fn'] == 'math:sin'
+    assert fn_entry.get('label') == 'Sin Eval'
+    assert fn_entry.get('unit') == 'rad'
+    assert fn_entry.get('direction') == 'maximize'
+
+    warnings = hg.validate(lifted)
+    assert isinstance(warnings, list)
+    lowered = hg.lower(lifted)
+    assert 'fid_metric' in lowered['metrics']['custom']
+    assert 'fn_eval' in lowered['metrics']['custom']
+    assert lowered['metrics']['custom']['fid_metric']['factory'] == 'hypergan.image_metrics:InceptionFID'
+
+

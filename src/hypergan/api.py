@@ -1004,7 +1004,7 @@ def lift(raw, *, base=None):
         scalar_custom = {}
         evaluations = {}
         for name, metric in custom.items():
-            if 'evaluation' in metric or 'mode' in metric or 'trigger' in metric:
+            if 'evaluation' in metric or metric.get('mode') == 'snapshot' or metric.get('trigger') in ('interval', 'manual'):
                 eval_entry = {}
                 if 'factory' in metric:
                     eval_entry['factory'] = metric['factory']
@@ -1026,12 +1026,17 @@ def lift(raw, *, base=None):
                     eval_entry['every'] = metric['every_steps']
                 elif 'every_steps' in metric and metric.get('trigger') != 'manual':
                     eval_entry['every'] = metric['every_steps']
-                for k in ('timeout', 'on_error', 'label', 'unit', 'direction', 'description', 'reduce', 'kind'):
+                for k in ('timeout', 'on_error'):
                     if k in metric:
                         eval_entry[k] = metric[k]
+                if 'factory' not in eval_entry and eval_entry.get('kind') != 'factory':
+                    for k in ('label', 'unit', 'direction', 'description', 'reduce', 'kind'):
+                        if k in metric:
+                            eval_entry[k] = metric[k]
                 proto = metric.get('evaluation', {})
                 if isinstance(proto, str):
-                    eval_entry.setdefault('kind', proto)
+                    if 'factory' not in eval_entry and eval_entry.get('kind') != 'factory':
+                        eval_entry.setdefault('kind', proto)
                     proto = {}
                 elif not isinstance(proto, dict):
                     proto = {}
@@ -1068,7 +1073,9 @@ def lift(raw, *, base=None):
                     eval_entry['output'] = metric['output']
                 evaluations[name] = eval_entry
             else:
-                scalar_custom[name] = metric
+                scalar_entry = deepcopy(metric)
+                scalar_entry.pop('mode', None)
+                scalar_custom[name] = scalar_entry
 
         if scalar_custom:
             metrics_table['custom'] = scalar_custom

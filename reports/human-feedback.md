@@ -9,6 +9,88 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 25. The viewer starts but never stops (raised 2026-10-11)
+
+Owner: "there's an http server that starts but doesn't stop. it's kinda weird usability."
+
+Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) section 1 and Workstream B. Keep item 5's
+behaviour (results stay viewable after training) but have one dashboard per runs root
+instead of one leaked viewer per run.
+
+- [ ] `train` reuses the root's dashboard (fixed port 8765) instead of starting a viewer
+  per run, and restarts it when its version or frontend asset hash differs.
+- [ ] Dynamic multi-run routing (`/runs/<run_id>` and `/api/v1/runs/{run_id}/*`) and root
+  index page (`/`) reading `summary.json`.
+- [ ] `hypergan view [ROOT] [--status|--stop]`; `stop-server --all` clears viewers left
+  from before the change.
+- [ ] `Projector` runs only for active (`status == "running"`) runs and stops as soon as a
+  run finishes; a queue of N runs leaves at most one viewer process behind.
+- [x] Owner decision D1: start the root dashboard locally even when not on a terminal (the
+  queue case); skip it when `[run].viewer = false`.
+
+### 26. An experiment needs both a shell launcher and a config file (raised 2026-10-11)
+
+Owner: "whenever we start an experiment in ~/dev/hypergan/training-runs we usually have a
+folder, config file, and shell file per experiment. the folder is generated but the shell
+and config is sorta annoying to need both."
+
+Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) section 2 and Workstream C.
+
+- [ ] Land PR #388 (`hypergan-model/1`) first and build Phase 1 directly on `hypergan-model/1`.
+- [ ] A workspace `hypergan.toml` (runs root, `${paths}`, GPU aliases, named envs, default
+  cadence and retention).
+- [ ] `extends` (deep-merging `[networks.*]`, `[train]`, `[evaluations.*]`), `[run]`,
+  `[checkpoints]`, a default run directory (`--run-dir` optional on `train`; `resume`
+  aliased to `train RUN_DIR`), `name` taken from the file stem and removed from the
+  numerical fingerprint, and `--set k=v`, with a fingerprint-equality test over all 46
+  existing TOMLs.
+- [ ] `[run].devices` and outer-CLI materialization into `RUN/launch/<attempt>.json` +
+  `RUN/config-source/` before `[run].env` re-exec, so `hypergan train X.toml` replaces
+  `start-X.sh` even when targeting older worktrees.
+- [ ] Port `../training-runs` to `hypergan.toml` + `cifar-tiny-pg-base.toml` + child TOMLs.
+- [x] Owner decisions D2–D5 and PR #388 format alignment resolved (2026-10-14).
+
+### 27. Run summary, checkpoint retention, mid-run evaluation and metric cadence (raised 2026-10-11)
+
+Owner: "the core aspects are evaluation, metrics, checkpoints, config files."
+
+Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) sections 3, 5 and Workstreams A & E.
+
+- [ ] Checkpoint retention (`[checkpoints]` with `keep_last = 3`, `keep_best = 2`,
+  `keep_every = 50000`, default `checkpoint_every = 1000`), pinning checkpoints at steps
+  with an in-flight `IntervalEvaluations` run, plus explicit `hypergan checkpoints prune RUN [--dry-run]`.
+- [ ] `summary.json` rewritten at every checkpoint and evaluation, and step-named
+  evaluation directories.
+- [ ] `hypergan status RUN`, `hypergan runs ls [ROOT]`, and `hypergan runs compare`.
+- [ ] Read-only, lock-free `hypergan eval|sample|export RUN --checkpoint best|latest|STEP|PATH [--devices …]`
+  extracting EMA weights from `checkpoints/*/state.pt` when needed and runnable alongside
+  training.
+- [ ] Default training metric cadence `every_steps = 10` (~10x smaller `events.jsonl` and
+  `views/`), `hypergan gc RUN`, cleaner console header/ETA/FID/footer, and
+  `hypergan new NAME --dataset DIR`.
+- [x] Owner decisions D6–D8 and D12 resolved (2026-10-14; `hypergan branch` omitted per D8).
+
+### 28. Local 2-GPU CIFAR training, queue service, hardware-tolerant resume and Modal (raised 2026-10-11)
+
+Owner: "the goal of the project is to easily train and monitor GAN training across
+clusters, multiple gpus, or single gpus." / "lets get it running locally first on both
+gpus then we can use modal"
+
+Plan: [usability-plan-2026-10-11.md](usability-plan-2026-10-11.md) section 4 and Workstream D.
+
+- [ ] Hardware-tolerant resume by default (D9): warn instead of failing when GPU model,
+  capability, world size or `cuda.rank_devices` differ across resume.
+- [ ] Local 2-GPU CIFAR support (D10): default `total_timeout` to no limit (or
+  `--max-seconds`), support critic input noise, generator output noise, independent phase
+  draws and recipe-built K3P optimizers in replicated execution, fuse nonfinite gradient
+  screening in `distributed_training._reduce_gradients`, shard data loading per rank, and
+  qualify a 2-GPU CIFAR run on `gpu0,gpu1`.
+- [ ] `hypergan queue add|ls|status|stop|run --devices …` + `install-service` (systemd
+  user unit) and hardware preflight (visible GPUs, UUIDs, free memory, busy processes).
+- [ ] Multi-node TCP rendezvous (`MASTER_ADDR`, `MASTER_PORT`, `NODE_RANK`, `NNODES`) and
+  two-node Modal run over a shared/mounted volume using the reserved Modal credit (D11).
+- [x] Owner decisions D9–D11 resolved (2026-10-14).
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved
@@ -16,7 +98,7 @@ in hypergan, and what the gan formulation is, and what the losses are. i think w
 leverage hndl parsing ... basically i want to easily see what the hyperparams and
 losses and network configuration is, maybe a separate tab from the metrics."
 
-In progress on branch `feat/viewer-model-tab` (not merged into develop yet):
+Merged into develop in `820cede5` (remaining follow-ups below):
 - [x] Torch-free run description from `manifest['config']`: K3P formulation and
   parameters (pre-0.8 runs show their recorded fields), prior, per-player loss terms
   with weights and metric series ids, optimizers/schedule/noise, components with roles
@@ -35,7 +117,7 @@ In progress on branch `feat/viewer-model-tab` (not merged into develop yet):
 - [x] Tests: every `examples/*.toml`, route/auth/OpenAPI, train-time record, browser tab
   (`tests/foundation/test_model_description.py`, `tests/web/test_web_service.py`,
   `tests/reference/test_model_record.py`, `tests/browser/test_viewer_ui.py`).
-- [ ] Owner review in the viewer, then merge into develop.
+- [x] Owner review in the viewer, then merge into develop (`820cede5`).
 - [ ] Record the original `.hndl` file names and `defaults = "particlegan"` in the
   manifest (today the file is matched by content against packaged/example networks and
   the defaults source is inferred).

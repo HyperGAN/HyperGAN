@@ -838,14 +838,22 @@ async function metadata(expectedEpoch = state.epoch) {
   if (activeTab() === "model") model.load().catch((error) => notice(error.message));
   await refreshArtifacts();
 }
+function resolveRunId(fallbackRunId) {
+  const match = location.pathname.match(/\/runs\/([^/]+)/);
+  if (match) {
+    return decodeURIComponent(match[1]);
+  }
+  return fallbackRunId;
+}
 async function connect() {
   connection("Connecting…");
   const capability = await api("/capabilities");
-  if (capability.data.run_id === null) {
+  const runId = resolveRunId(capability.data.run_id);
+  if (!runId) {
     waitForRun();
     return;
   }
-  const run = await api(`/runs/${encodeURIComponent(capability.data.run_id)}`);
+  const run = await api(`/runs/${encodeURIComponent(runId)}`);
   updateRun(run.data);
   await metadata();
   state.selected = new Set(defaults());
@@ -1394,6 +1402,9 @@ $("apply-range").onclick = () => {
 window.addEventListener("pagehide", () => {
   stopStream();
   state.worker?.close();
+});
+window.addEventListener("popstate", () => {
+  connect().catch((error) => notice(error.message));
 });
 connect().catch((error) => {
   if ($("login").hidden) {

@@ -34,29 +34,26 @@ def bind_server(port=0, host="0.0.0.0"):
         raise
 
 
-def bind_available(port=None, host="0.0.0.0", *, attempts=PORT_SEARCH_LIMIT):
-    """Bind the viewer socket, preferring one stable port across restarts.
+def bind_available(port=None, host="0.0.0.0", *, attempts=1):
+    """Bind the viewer socket to fixed default port 8765, or explicit requested port.
 
-    ``None`` requests the default port and permits a bounded upward search, so
-    a bookmarked URL keeps working while a second concurrent run still starts.
-    Every other value is taken literally, including ``0`` for an OS-assigned
-    port: an occupied explicit port is an error, never a silent relocation.
-    Each candidate is bound for real, because probing a port and binding it
-    afterwards leaves a window for another process to take it.
+    Does not hunt across port range. If the target port is occupied, raises an
+    actionable OSError identifying the conflicting process.
     """
-    if port is not None:
-        return bind_server(port, host)
-    if type(attempts) is not int or attempts < 1:
-        raise ValueError('attempts must be a positive integer')
-    last = min(DEFAULT_VIEWER_PORT + attempts, 65536) - 1
-    failure = None
-    for candidate in range(DEFAULT_VIEWER_PORT, last + 1):
-        try:
-            return bind_server(candidate, host)
-        except OSError as error:
-            failure = error
-    raise OSError(f'No free viewer port in {DEFAULT_VIEWER_PORT}..{last} on {host}; '
-                  f'free one or request a port explicitly ({failure})')
+    target_port = DEFAULT_VIEWER_PORT if port is None else port
+    try:
+        return bind_server(target_port, host)
+    except OSError as error:
+        if target_port == 0:
+            raise
+        from .web_autostart import get_port_owner
+        owner = get_port_owner(target_port)
+        if owner:
+            pid, comm = owner
+            raise OSError(f"Port {target_port} is already in use by PID {pid} ({comm}); "
+                          f"specify a different root or stop conflicting process") from error
+        raise OSError(f"Port {target_port} is already in use; "
+                      f"specify a different root or stop conflicting process") from error
 
 
 def bind_loopback(port=0):
@@ -72,9 +69,12 @@ def serve(run_dir, *, port=None, host="0.0.0.0", auth="none", session_file=None,
     from .web_session import LocalSession
 
     root = Path(run_dir).resolve(strict=True)
-    manifest = read_json(root, 'manifest.json')
-    if not isinstance(manifest, dict) or not isinstance(manifest.get('run_id'), str):
-        raise ValueError('Selected directory has no valid run manifest')
+    if (root / 'manifest.json').is_file():
+        manifest = read_json(root, 'manifest.json')
+        if not isinstance(manifest, dict) or not isinstance(manifest.get('run_id'), str):
+            raise ValueError('Selected directory has no valid run manifest')
+    elif not root.is_dir():
+        raise ValueError('Selected directory does not exist')
     if session_file is not None and Path(session_file).resolve().is_relative_to(root):
         raise ValueError('Viewer credentials must be stored outside the run directory')
     with tempfile.TemporaryDirectory(prefix='hypergan-viewer-') as private:

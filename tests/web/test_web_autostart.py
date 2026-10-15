@@ -97,9 +97,9 @@ def test_default_does_not_wait_and_optional_bind_failure_is_independent(tmp_path
     assert 'training continues headless' in capsys.readouterr().err
 
 
-def test_automatic_viewer_keeps_one_url_and_steps_past_a_busy_port(tmp_path):
-    """The supervised broker, not only the launcher, applies the port policy."""
-    from hypergan.ports import DEFAULT_VIEWER_PORT, PORT_SEARCH_LIMIT
+def test_automatic_viewer_keeps_fixed_port_and_shares_dashboard(tmp_path):
+    """The root dashboard uses fixed port 8765, and concurrent runs under root share it."""
+    from hypergan.ports import DEFAULT_VIEWER_PORT
     from hypergan.web_autostart import stop_viewer
     first, second = tmp_path / 'first', tmp_path / 'second'
 
@@ -109,17 +109,16 @@ def test_automatic_viewer_keeps_one_url_and_steps_past_a_busy_port(tmp_path):
     try:
         with training_viewer(first, required=True) as viewer:
             chosen = port_of(viewer)
-        assert DEFAULT_VIEWER_PORT <= chosen < DEFAULT_VIEWER_PORT + PORT_SEARCH_LIMIT
+        assert chosen == DEFAULT_VIEWER_PORT
         assert stop_viewer(first)['status'] == 'stopped'
-        # A restarted run returns to the URL its owner already has open.
+        # A restarted run returns to the fixed port.
         with training_viewer(first, required=True) as restarted:
-            assert port_of(restarted) == chosen
-            assert restarted.info['origin'].endswith(f':{chosen}')
-        # A concurrent run steps past that busy port rather than failing.
-        with training_viewer(second, required=True) as concurrent:
-            other = port_of(concurrent)
-            assert other != chosen
-            assert DEFAULT_VIEWER_PORT <= other < DEFAULT_VIEWER_PORT + PORT_SEARCH_LIMIT
+            assert port_of(restarted) == DEFAULT_VIEWER_PORT
+            assert restarted.info['origin'].endswith(f':{DEFAULT_VIEWER_PORT}')
+            # A concurrent run under the same runs root shares that dashboard on port 8765.
+            with training_viewer(second, required=True) as concurrent:
+                other = port_of(concurrent)
+                assert other == DEFAULT_VIEWER_PORT
     finally:
         stop_viewer(first)
         stop_viewer(second)
@@ -408,3 +407,102 @@ def test_credential_cleanup_waits_for_own_active_reader(tmp_path, monkeypatch):
     assert not reader.is_alive() and not remover.is_alive()
     assert not failures, failures
     assert cleaned.is_set()
+
+
+def test_get_port_owner_detects_listening_process():
+    from hypergan.web_autostart import get_port_owner
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    try:
+        owner = get_port_owner(port)
+        assert owner is not None
+        pid, comm = owner
+        assert pid == os.getpid()
+    finally:
+        listener.close()
+
+
+def test_bind_available_raises_actionable_error_on_conflict():
+    from hypergan.web_launch import bind_available
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("0.0.0.0", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    try:
+        with pytest.raises(OSError, match=f"Port {port} is already in use by PID {os.getpid()}"):
+            bind_available(port)
+    finally:
+        listener.close()
+
+
+def test_ensure_dashboard_running_auto_restart_on_version_mismatch(tmp_path, monkeypatch):
+    from hypergan.web_autostart import ensure_dashboard_running
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+
+    probed_state = {
+        "version": "0.1.0-outdated",
+        "asset_hash": "old_hash",
+        "runs_root": str(runs_root.resolve()),
+        "status": "ready",
+    }
+    stop_called = []
+    launch_called = []
+
+    monkeypatch.setattr("hypergan.web_autostart.probe_dashboard", lambda *args, **kwargs: probed_state)
+    monkeypatch.setattr("hypergan.web_autostart.stop_dashboard", lambda root: stop_called.append(root))
+    monkeypatch.setattr("hypergan.web_autostart.launch_dashboard_daemon", lambda *args, **kwargs: launch_called.append(args))
+
+    # The probe after launch should return the new version so loop terminates
+    probe_count = 0
+    def mock_probe(*args, **kwargs):
+        nonlocal probe_count
+        probe_count += 1
+        if probe_count > 1:
+            return {"version": "2.0.0a1", "status": "ready"}
+        return probed_state
+
+    monkeypatch.setattr("hypergan.web_autostart.probe_dashboard", mock_probe)
+
+    url = ensure_dashboard_running(runs_root, check_version=True, run_id="my_run")
+    assert stop_called == [runs_root.resolve()]
+    assert len(launch_called) == 1
+    assert "8765/runs/my_run" in url
+
+
+def test_projector_clean_shutdown_on_terminal_manifest(tmp_path):
+    from hypergan.web_autostart import _project, _StopFlag
+    run_dir = tmp_path / "run_complete"
+    run_dir.mkdir()
+    manifest = {
+        'schema_version': 1,
+        'run_id': 'run_complete',
+        'status': 'complete',
+        'metrics_catalog': 'rev1',
+    }
+    atomic_json(run_dir / 'manifest.json', manifest)
+
+    import multiprocessing as mp
+    context = mp.get_context('spawn')
+    stop = _StopFlag(context)
+
+    # _project should notice manifest status is 'complete' and exit cleanly
+    start = time.monotonic()
+    _project(run_dir, stop)
+    elapsed = time.monotonic() - start
+    assert elapsed < 5.0, "Projector did not terminate within timeout on terminal status"
+
+
+def test_stop_projector_and_stop_all_servers(tmp_path):
+    from hypergan.web_autostart import stop_projector, stop_all_servers
+    run_dir = tmp_path / "run_proj"
+    run_dir.mkdir()
+    # Should not raise even if no projector is running
+    stop_projector(run_dir)
+
+    # stop_all_servers sweeps and returns list of PIDs
+    killed = stop_all_servers()
+    assert isinstance(killed, list)
+

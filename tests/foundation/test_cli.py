@@ -239,3 +239,49 @@ def test_cli_eval_help_and_export(tmp_path):
     assert "--output" in res_exp_help.stdout
 
 
+def test_cli_view_subcommand(tmp_path):
+    # Verify help output for hypergan view
+    res_help = run_cli(tmp_path, "view", "--help", isolated=False)
+    assert res_help.returncode == 0, res_help.stderr
+    assert "--status" in res_help.stdout
+    assert "--stop" in res_help.stdout
+    assert "--port" in res_help.stdout
+
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+
+    # hypergan view [ROOT] --status when not running
+    res_status = run_cli(tmp_path, "view", runs_root, "--status", isolated=False)
+    assert res_status.returncode == 0, res_status.stderr
+    status_data = json.loads(res_status.stdout)
+    assert status_data["status"] == "not_running"
+
+    # hypergan view [ROOT] --stop when not running
+    res_stop = run_cli(tmp_path, "view", runs_root, "--stop", isolated=False)
+    assert res_stop.returncode == 0, res_stop.stderr
+    stop_data = json.loads(res_stop.stdout)
+    assert stop_data["status"] == "not_running"
+
+
+def test_cli_stop_server_all(tmp_path):
+    # Verify help for hypergan stop-server
+    res_help = run_cli(tmp_path, "stop-server", "--help", isolated=False)
+    assert res_help.returncode == 0, res_help.stderr
+    assert "--all" in res_help.stdout
+
+    # hypergan stop-server --all
+    res_all = run_cli(tmp_path, "stop-server", "--all", isolated=False)
+    assert res_all.returncode == 0, res_all.stderr
+    data = json.loads(res_all.stdout)
+    assert data["status"] == "stopped"
+    assert isinstance(data["killed_pids"], list)
+    assert "count" in data
+
+    # hypergan stop-server without run_dir or --all fails cleanly
+    res_err = run_cli(tmp_path, "stop-server", isolated=False)
+    assert res_err.returncode != 0
+    assert "error: run_dir is required unless --all is specified" in res_err.stderr
+    assert "Traceback" not in res_err.stderr
+
+
+

@@ -11,12 +11,149 @@ import os
 from pathlib import Path
 import signal
 import sys
+import socket
 import subprocess
 import hashlib
 from types import SimpleNamespace
 import tempfile
 import threading
 import time
+
+from .ports import DEFAULT_VIEWER_PORT
+
+TERMINAL_STATUSES = {'complete', 'stopped', 'failed', 'interrupted'}
+
+
+def get_port_owner(port: int) -> tuple[int, str] | None:
+    """Inspect /proc (or ss/lsof fallback) to identify the process listening on port."""
+    if not isinstance(port, int) or port <= 0:
+        return None
+    port_hex = f"{port:04X}"
+    target_inodes = set()
+    for net_path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(net_path, encoding="utf-8") as handle:
+                for line in handle:
+                    parts = line.split()
+                    if len(parts) >= 10:
+                        local_addr = parts[1]
+                        st = parts[3]
+                        if local_addr.endswith(":" + port_hex) and st == "0A":
+                            target_inodes.add(parts[9])
+        except (OSError, UnicodeError):
+            pass
+
+    if target_inodes:
+        try:
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit():
+                    continue
+                fd_dir = f"/proc/{entry}/fd"
+                try:
+                    for fd in os.listdir(fd_dir):
+                        try:
+                            link = os.readlink(f"{fd_dir}/{fd}")
+                            if any(link == f"socket:[{ino}]" for ino in target_inodes):
+                                comm = ""
+                                try:
+                                    comm = Path(f"/proc/{entry}/comm").read_text(encoding="utf-8").strip()
+                                except OSError:
+                                    pass
+                                return (int(entry), comm or "unknown")
+                        except (OSError, UnicodeError):
+                            pass
+                except (OSError, PermissionError):
+                    pass
+        except OSError:
+            pass
+
+    # Fallback to ss command
+    try:
+        proc = subprocess.run(["ss", "-lptn", f"sport = :{port}"],
+                              capture_output=True, text=True, timeout=1.0)
+        if proc.returncode == 0:
+            import re
+            m = re.search(r'users:\(\("([^"]+)",pid=(\d+)', proc.stdout)
+            if m:
+                return (int(m.group(2)), m.group(1))
+            m2 = re.search(r'pid=(\d+)', proc.stdout)
+            if m2:
+                return (int(m2.group(1)), "unknown")
+    except Exception:
+        pass
+
+    # Fallback to lsof command
+    try:
+        proc = subprocess.run(["lsof", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fpcn"],
+                              capture_output=True, text=True, timeout=1.0)
+        if proc.returncode == 0:
+            lines = proc.stdout.splitlines()
+            pid, comm = None, "unknown"
+            for line in lines:
+                if line.startswith("p") and line[1:].isdigit():
+                    pid = int(line[1:])
+                elif line.startswith("c"):
+                    comm = line[1:]
+            if pid is not None:
+                return (pid, comm)
+    except Exception:
+        pass
+
+    return None
+
+
+def find_runs_root(path: Path | str | None = None, is_run: bool | None = None) -> Path:
+    """Resolve the runs root directory for a given path.
+
+    Checks parent directories for a workspace hypergan.toml defining runs_root,
+    or falls back to the parent directory of a run (a directory containing manifest.json
+    or a run directory under a runs folder), or the path itself.
+    """
+    if path is None:
+        p = Path.cwd().resolve()
+    else:
+        p = Path(path).resolve()
+
+    # 1. Walk up to find hypergan.toml workspace
+    curr = p if not (p / "manifest.json").is_file() else p.parent
+    while True:
+        workspace_file = curr / "hypergan.toml"
+        if workspace_file.is_file():
+            try:
+                import tomllib
+                data = tomllib.loads(workspace_file.read_text(encoding="utf-8"))
+                workspace_section = data.get("workspace", {})
+                if isinstance(workspace_section, dict) and "runs_root" in workspace_section:
+                    runs_root_val = workspace_section["runs_root"]
+                    return (curr / runs_root_val).resolve()
+            except Exception:
+                pass
+        parent = curr.parent
+        if parent == curr:
+            break
+        curr = parent
+
+    # 2. Check if explicitly marked as run or has manifest.json or does not exist yet
+    if is_run is False:
+        return p
+    if is_run is True or (p / "manifest.json").is_file() or not p.exists():
+        return p.parent
+
+    # If p has subdirs containing manifest.json, p is already runs_root:
+    try:
+        if p.is_dir() and any((d / "manifest.json").is_file() for d in p.iterdir() if d.is_dir()):
+            return p
+    except OSError:
+        pass
+
+    # If p.parent has subdirs with manifest.json, p is likely a run under p.parent:
+    try:
+        if p.parent.is_dir() and any((d / "manifest.json").is_file() for d in p.parent.iterdir() if d.is_dir()):
+            return p.parent
+    except OSError:
+        pass
+
+    return p
 
 
 class _StopFlag:
@@ -81,25 +218,118 @@ def _server(root, listener, session, stop):
 
 def _project(root, stop):
     from .event_views import Projector
+    from .web_files import read_json
 
     threading.Thread(target=_watch_parent, daemon=True).start()
-    while not (root / 'manifest.json').is_file():
-        if stop.wait(0.1):
-            return
-    with Projector(root, allow_device_change=True) as projector:
-        drain_deadline = None
-        while True:
-            if stop.is_set():
-                if drain_deadline is None:
-                    drain_deadline = time.monotonic() + 1
-                if time.monotonic() >= drain_deadline:
-                    return
-            progress = projector.project(limit=100)
-            if not progress['has_more']:
-                if stop.wait(0.1):
-                    # One final bounded page catches the last training event.
-                    projector.project(limit=100)
-                    return
+
+    has_sub_runs = False
+    try:
+        has_sub_runs = any((d / 'manifest.json').is_file() for d in root.iterdir() if d.is_dir())
+    except OSError:
+        pass
+
+    if not has_sub_runs:
+        while not (root / 'manifest.json').is_file():
+            if stop.wait(0.1):
+                return
+            if (root / '.stop_projector').exists():
+                return
+            try:
+                if any((d / 'manifest.json').is_file() for d in root.iterdir() if d.is_dir()):
+                    has_sub_runs = True
+                    break
+            except OSError:
+                pass
+
+    if not has_sub_runs and (root / 'manifest.json').is_file():
+        with Projector(root, allow_device_change=True) as projector:
+            drain_deadline = None
+            while True:
+                if stop.is_set() or (root / '.stop_projector').exists():
+                    if drain_deadline is None:
+                        drain_deadline = time.monotonic() + 1
+                    if time.monotonic() >= drain_deadline:
+                        return
+                progress = projector.project(limit=100)
+                if not progress['has_more']:
+                    if (root / 'manifest.json').is_file():
+                        try:
+                            manifest = read_json(root, 'manifest.json')
+                            if manifest.get('status') in TERMINAL_STATUSES:
+                                projector.project(limit=100)
+                                return
+                        except (OSError, ValueError):
+                            pass
+                    if stop.wait(0.1) or (root / '.stop_projector').exists():
+                        # One final bounded page catches the last training event.
+                        projector.project(limit=100)
+                        return
+    else:
+        active_projectors = {}
+        try:
+            while not stop.wait(0.1):
+                if (root / '.stop_projector').exists():
+                    break
+                try:
+                    candidates = [d for d in root.iterdir() if d.is_dir() and (d / 'manifest.json').is_file()]
+                except OSError:
+                    candidates = []
+                for run_dir in candidates:
+                    key = str(run_dir.resolve())
+                    try:
+                        manifest = read_json(run_dir, 'manifest.json')
+                        status = manifest.get('status')
+                    except (OSError, ValueError):
+                        continue
+                    if status == 'running':
+                        if key not in active_projectors:
+                            try:
+                                p = Projector(run_dir, allow_device_change=True)
+                                p.__enter__()
+                                active_projectors[key] = p
+                            except Exception:
+                                pass
+                        if key in active_projectors:
+                            try:
+                                active_projectors[key].project(limit=100)
+                            except Exception:
+                                pass
+                    elif status in TERMINAL_STATUSES and key in active_projectors:
+                        try:
+                            active_projectors[key].project(limit=100)
+                        except Exception:
+                            pass
+                        try:
+                            active_projectors[key].__exit__(None, None, None)
+                        except Exception:
+                            pass
+                        del active_projectors[key]
+        finally:
+            for p in active_projectors.values():
+                try:
+                    p.__exit__(None, None, None)
+                except Exception:
+                    pass
+            active_projectors.clear()
+
+
+def stop_projector(run_dir: Path | str) -> None:
+    """Request projector shutdown for run_dir and release resources."""
+    run_dir = Path(run_dir).resolve()
+    try:
+        (run_dir / '.stop_projector').touch(exist_ok=True)
+    except OSError:
+        pass
+    runs_root = find_runs_root(run_dir)
+    private = _registry(runs_root)
+    state = _read_state(private)
+    if state and isinstance(state.get('processes'), dict):
+        proj_pid = state['processes'].get('projector')
+        if proj_pid:
+            try:
+                os.kill(proj_pid, signal.SIGTERM)
+            except OSError:
+                pass
 
 
 def _registry(root):
@@ -202,6 +432,12 @@ def _running(private, state):
 def _receipt(root, session, mode, status, children):
     from .run_state import atomic_json
     if not (root / 'manifest.json').is_file():
+        try:
+            for subdir in root.iterdir():
+                if subdir.is_dir() and (subdir / 'manifest.json').is_file():
+                    _receipt(subdir, session, mode, status, children)
+        except OSError:
+            pass
         return
     observations = root / 'observations'
     if observations.is_symlink():
@@ -273,7 +509,12 @@ def _broker(root, private, launch_id):
             while not stop.wait(.1):
                 if (private / ('stop-' + launch_id)).exists():
                     break
-                failed = [name for name, child in children.items() if not child.is_alive()]
+                failed = []
+                for name, child in children.items():
+                    if not child.is_alive():
+                        if name == 'projector' and child.exitcode == 0:
+                            continue
+                        failed.append(name)
                 if failed:
                     publish('failed', 'Viewer process exited: ' + ', '.join(failed))
                     break
@@ -283,9 +524,14 @@ def _broker(root, private, launch_id):
                     elif time.monotonic() >= deadline:
                         publish('failed', 'Viewer did not become ready within 10 seconds')
                         break
-                if not receipt_exists and (root / 'manifest.json').is_file():
-                    publish(state['status'])
-                    receipt_exists = True
+                if session is not None and not receipt_exists:
+                    try:
+                        _receipt(root, session, state['mode'], state['status'], children)
+                        if (root / 'manifest.json').is_file() or (
+                                root.is_dir() and any((d / 'manifest.json').is_file() for d in root.iterdir() if d.is_dir())):
+                            receipt_exists = True
+                    except (OSError, ValueError):
+                        pass
         except BaseException as exc:
             publish('failed', f'{type(exc).__name__}: {exc}')
         finally:
@@ -306,7 +552,15 @@ def _broker(root, private, launch_id):
 def stop_viewer(root, *, launch_id=None, timeout=8):
     """Stop only the registered incarnation; never signal a PID from a file."""
     from .run_state import atomic_json
-    private = _registry(root)
+    runs_root = find_runs_root(root)
+    private = _registry(runs_root)
+    if runs_root != Path(root).resolve():
+        candidate = _registry(root)
+        if (candidate / 'state.json').is_file():
+            c_state = _read_state(candidate)
+            r_state = _read_state(private) if (private / 'state.json').is_file() else None
+            if c_state and (_running(candidate, c_state) or not r_state or not _running(private, r_state)):
+                private = candidate
     with _launch_lock(private):
         state = _read_state(private, locked=True)
         if not state or (launch_id is not None and state['launch_id'] != launch_id):
@@ -331,7 +585,15 @@ def stop_viewer(root, *, launch_id=None, timeout=8):
 
 def viewer_status(root):
     """Read launch/connection information without starting a viewer or training."""
-    private = _registry(root)
+    runs_root = find_runs_root(root)
+    private = _registry(runs_root)
+    if runs_root != Path(root).resolve():
+        candidate = _registry(root)
+        if (candidate / 'state.json').is_file():
+            c_state = _read_state(candidate)
+            r_state = _read_state(private) if (private / 'state.json').is_file() else None
+            if c_state and (_running(candidate, c_state) or not r_state or not _running(private, r_state)):
+                private = candidate
     state = _read_state(private)
     if state is None:
         return {'status': 'not_running'}
@@ -339,6 +601,268 @@ def viewer_status(root):
     if not _running(private, state) and state['status'] not in {'stopped', 'failed'}:
         result['status'] = 'not_running'
     return result
+
+
+def probe_dashboard(host: str = "127.0.0.1", port: int = DEFAULT_VIEWER_PORT,
+                    auth_token: str | None = None, timeout: float = 0.5) -> dict | None:
+    """Probe dashboard on host:port for capabilities.
+
+    Returns capabilities dict if running HyperGAN dashboard,
+    None if port is free / connection refused,
+    or dict with {'alien': True} if occupied by non-HyperGAN process.
+    """
+    import http.client
+    connect_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
+    try:
+        conn = http.client.HTTPConnection(connect_host, port, timeout=timeout)
+        headers = {}
+        if auth_token:
+            headers['Authorization'] = f'Bearer {auth_token}'
+        conn.request('GET', '/api/v1/capabilities', headers=headers)
+        res = conn.getresponse()
+        body = res.read(65536)
+        conn.close()
+    except (ConnectionRefusedError, socket.timeout, TimeoutError, OSError):
+        return None
+    except Exception:
+        return {'alien': True}
+
+    if res.status == 200:
+        try:
+            data = json.loads(body.decode('utf-8'))
+            if isinstance(data, dict) and ('api_version' in data or 'server_instance_id' in data):
+                return data
+        except Exception:
+            pass
+        return {'alien': True}
+    elif res.status == 401:
+        return {'status': 'auth_required', 'auth_required': True}
+    else:
+        return {'alien': True}
+
+
+def launch_dashboard_daemon(runs_root: Path, port: int = DEFAULT_VIEWER_PORT,
+                            host: str = "0.0.0.0", auth: str = "none",
+                            public_origin: str | None = None) -> None:
+    from .run_state import atomic_json
+    from .web_session import normalize_public_origin
+    import secrets
+
+    runs_root = Path(runs_root).resolve()
+    private = _registry(runs_root)
+    public_origin = normalize_public_origin(public_origin)
+    with _launch_lock(private):
+        state = _read_state(private, locked=True)
+        if _running(private, state):
+            return
+        if state:
+            (private / ('session-' + state['launch_id'] + '.json')).unlink(missing_ok=True)
+        launch_id = secrets.token_hex(16)
+        state = {'schema_version': 1, 'launch_id': launch_id,
+                 'root': str(runs_root), 'host': host, 'auth': auth, 'port': port,
+                 'public_origin': public_origin, 'mode': 'dashboard',
+                 'status': 'starting', 'started_at': time.time()}
+        atomic_json(private / 'state.json', state)
+        options = {'start_new_session': True} if os.name != 'nt' else {
+            'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS}
+        with (private / 'viewer.log').open('ab') as log:
+            subprocess.Popen([
+                sys.executable, '-m', 'hypergan.web_autostart',
+                str(runs_root), str(private), launch_id
+            ], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, **options)
+
+
+def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWER_PORT,
+                             host: str = "0.0.0.0", auth: str = "none",
+                             check_version: bool = True, run_id: str | None = None) -> str:
+    """Ensure a persistent root dashboard is running on port 8765 for runs_root.
+
+    - Probes port 8765 on loopback.
+    - If server is running: checks version, git_commit, and asset_hash against current checkout.
+      If mismatch detected, cleanly stops old dashboard with stop_dashboard(runs_root) and starts fresh daemon.
+    - If no server is running: starts background daemon bound to port 8765 for runs_root.
+    - Returns URL http://localhost:8765 (or http://localhost:8765/runs/<run_id> when called with specific run).
+    """
+    runs_root = Path(runs_root).resolve()
+    if (runs_root / 'manifest.json').is_file() and run_id is None:
+        run_id = runs_root.name
+        runs_root = runs_root.parent
+
+    probed = probe_dashboard("127.0.0.1", port)
+    if probed is not None:
+        if probed.get('alien'):
+            owner = get_port_owner(port)
+            if owner:
+                pid, comm = owner
+                raise OSError(f"Port {port} is already in use by PID {pid} ({comm}); "
+                              f"specify a different root or stop conflicting process")
+            raise OSError(f"Port {port} is already in use; specify a different root or stop conflicting process")
+
+        if check_version:
+            from . import __version__
+            from .web_assets import compute_asset_hash
+            from .provenance import hypergan_source
+
+            local_version = __version__
+            local_hash = compute_asset_hash()
+            local_commit = hypergan_source().get('hypergan_commit')
+
+            mismatch = False
+            reasons = []
+            if probed.get('version') != local_version:
+                mismatch = True
+                reasons.append(f"version {probed.get('version')} != {local_version}")
+            if local_hash != 'unknown' and probed.get('asset_hash') and probed.get('asset_hash') != local_hash:
+                mismatch = True
+                reasons.append(f"asset_hash {probed.get('asset_hash', '')[:8]} != {local_hash[:8]}")
+            if local_commit and probed.get('git_commit') and probed.get('git_commit') != local_commit:
+                mismatch = True
+                reasons.append(f"git_commit {probed.get('git_commit', '')[:8]} != {local_commit[:8]}")
+
+            if mismatch:
+                print(f"Restarting dashboard on port {port} ({', '.join(reasons)})...", file=sys.stderr, flush=True)
+                stop_dashboard(runs_root)
+                time.sleep(0.3)
+                probed = None
+            else:
+                remote_root = probed.get('runs_root')
+                if remote_root and Path(remote_root).resolve() != runs_root.resolve():
+                    raise OSError(f"Port {port} is already running a dashboard for root '{remote_root}'; "
+                                  f"stop it with 'hypergan view {remote_root} --stop' or specify a different root.")
+
+    if probed is None:
+        launch_dashboard_daemon(runs_root, port=port, host=host, auth=auth)
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            probed = probe_dashboard("127.0.0.1", port)
+            if probed and not probed.get('alien'):
+                break
+            time.sleep(0.1)
+        if not probed or probed.get('alien'):
+            raise RuntimeError(f"Dashboard failed to start on port {port} within 10 seconds")
+
+    url = f"http://localhost:{port}"
+    if run_id:
+        url = f"{url}/runs/{run_id}"
+    return url
+
+
+def stop_dashboard(runs_root: Path | str, timeout: float = 8.0) -> dict:
+    runs_root = Path(runs_root).resolve()
+    return stop_viewer(runs_root, timeout=timeout)
+
+
+def dashboard_status(runs_root: Path | str) -> dict:
+    runs_root = Path(runs_root).resolve()
+    info = viewer_status(runs_root)
+    if info.get('status') == 'ready':
+        port = info.get('port') or DEFAULT_VIEWER_PORT
+        probed = probe_dashboard("127.0.0.1", port)
+        if probed and not probed.get('alien'):
+            info.update({
+                'version': probed.get('version'),
+                'git_commit': probed.get('git_commit'),
+                'asset_hash': probed.get('asset_hash'),
+                'run_count': probed.get('run_count', 0),
+            })
+    return info
+
+
+def stop_all_servers(force: bool = False) -> list[int]:
+    """Terminate all legacy per-run viewers, root dashboards, supervisors, and leaked projectors across the host."""
+    killed_pids = set()
+    current_pid = os.getpid()
+    current_uid = os.getuid() if hasattr(os, 'getuid') else None
+
+    # 1. Sweep /tmp/hypergan-viewers-* directories
+    tmp_dir = Path(tempfile.gettempdir())
+    for viewers_dir in tmp_dir.glob('hypergan-viewers-*'):
+        if not viewers_dir.is_dir():
+            continue
+        try:
+            for reg in viewers_dir.iterdir():
+                if not reg.is_dir():
+                    continue
+                state_file = reg / 'state.json'
+                if state_file.is_file():
+                    try:
+                        state = json.loads(state_file.read_text(encoding='utf-8'))
+                        sup_pid = state.get('supervisor_pid')
+                        if sup_pid and sup_pid != current_pid:
+                            killed_pids.add(sup_pid)
+                        processes = state.get('processes', {})
+                        if isinstance(processes, dict):
+                            for p_pid in processes.values():
+                                if isinstance(p_pid, int) and p_pid != current_pid:
+                                    killed_pids.add(p_pid)
+                        launch_id = state.get('launch_id')
+                        if launch_id:
+                            try:
+                                (reg / f'stop-{launch_id}').touch(mode=0o600)
+                            except OSError:
+                                pass
+                    except Exception:
+                        pass
+        except OSError:
+            pass
+
+    # 2. Inspect host process table via /proc for hypergan processes owned by current user
+    if os.path.exists('/proc'):
+        try:
+            for entry in os.listdir('/proc'):
+                if not entry.isdigit():
+                    continue
+                pid = int(entry)
+                if pid == current_pid:
+                    continue
+                try:
+                    stat_info = os.stat(f'/proc/{pid}')
+                    if current_uid is not None and stat_info.st_uid != current_uid:
+                        continue
+                    cmdline_bytes = Path(f'/proc/{pid}/cmdline').read_bytes()
+                    cmdline = cmdline_bytes.replace(b'\0', b' ').decode('utf-8', errors='ignore')
+                    if ('hypergan.web_autostart' in cmdline or
+                        ('hypergan' in cmdline and any(cmd in cmdline for cmd in ('serve', 'view', 'Projector')))):
+                        killed_pids.add(pid)
+                except (OSError, PermissionError, ProcessLookupError):
+                    pass
+        except OSError:
+            pass
+
+    # 3. Terminate candidate processes gracefully first (SIGTERM), then forcibly (SIGKILL)
+    active_killed = []
+    for pid in killed_pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            active_killed.append(pid)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    if active_killed:
+        time.sleep(0.5)
+        for pid in active_killed:
+            try:
+                os.kill(pid, 0)
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+
+    # 4. Clean up registry directories
+    for viewers_dir in tmp_dir.glob('hypergan-viewers-*'):
+        if not viewers_dir.is_dir():
+            continue
+        try:
+            for reg in viewers_dir.iterdir():
+                if reg.is_dir():
+                    for f in reg.glob('session-*.json'):
+                        f.unlink(missing_ok=True)
+                    for f in reg.glob('stop-*'):
+                        f.unlink(missing_ok=True)
+                    (reg / 'state.json').unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    return sorted(active_killed)
 
 
 class Viewer:
@@ -356,7 +880,9 @@ class Viewer:
         # rather than inside a detached supervisor whose failure is a log line.
         public_origin = normalize_public_origin(public_origin)
         self.root = Path(root).resolve()
-        self.private = _registry(root)
+        self.runs_root = find_runs_root(root)
+        target_port = DEFAULT_VIEWER_PORT if port is None else port
+        self.private = _registry(self.runs_root)
         self.process = None
         self.ready = threading.Event()
         self.failed = threading.Event()
@@ -369,7 +895,7 @@ class Viewer:
                 if ((host is not None and host != state['host']) or
                     (auth is not None and auth != state['auth']) or
                     (public_origin is not None and public_origin != state.get('public_origin')) or
-                    (port and port != int(state.get('origin', ':0').rsplit(':', 1)[1]) and port != state['port'])):
+                    (target_port and target_port != int(state.get('origin', ':0').rsplit(':', 1)[1]) and target_port != state['port'])):
                     raise ValueError('Existing viewer has different bind/auth settings; use hypergan stop-server RUN first')
             else:
                 if state:
@@ -382,12 +908,12 @@ class Viewer:
                 # repeats the same selection, so a port lost in between is
                 # re-searched for a default request and an actionable error
                 # for an explicitly requested one.
-                with bind_available(port, host):
+                with bind_available(target_port, host):
                     pass
                 if auth not in {'none', 'token'}:
                     raise ValueError("auth must be 'none' or 'token'")
                 state = {'schema_version': 1, 'launch_id': secrets.token_hex(16),
-                         'root': str(self.root), 'host': host, 'auth': auth, 'port': port,
+                         'root': str(self.runs_root), 'host': host, 'auth': auth, 'port': target_port,
                          'public_origin': public_origin,
                          'mode': mode, 'status': 'starting', 'started_at': time.time()}
                 atomic_json(self.private / 'state.json', state)
@@ -396,7 +922,7 @@ class Viewer:
                 with (self.private / 'viewer.log').open('ab') as log:
                     try:
                         self.process = subprocess.Popen([sys.executable, '-m', 'hypergan.web_autostart',
-                            str(self.root), str(self.private), state['launch_id']], stdin=subprocess.DEVNULL,
+                            str(self.runs_root), str(self.private), state['launch_id']], stdin=subprocess.DEVNULL,
                             stdout=log, stderr=log, close_fds=True, **options)
                     except BaseException:
                         state['status'] = 'failed'
@@ -463,7 +989,10 @@ class Viewer:
 
 @contextmanager
 def training_viewer(root, *, required=False, port=None, host=None, auth=None, open_browser=False,
-                    public_origin=None):
+                    public_origin=None, config=None):
+    if config and isinstance(config, dict) and config.get('run', {}).get('viewer') is False:
+        yield None
+        return
     if not required:
         from importlib.util import find_spec
         if any(find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):

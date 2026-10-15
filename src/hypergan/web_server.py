@@ -1,7 +1,10 @@
 """Optional loopback ASGI server; browser and external clients share one API."""
+import asyncio
 from contextlib import asynccontextmanager
+import html
 import json
 from pathlib import Path
+import time
 
 from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
 from .web_files import read_artifact, read_json, _open
@@ -9,6 +12,325 @@ from .web_service import ObservationService, MapSpec, ViewSpec
 from .web_session import LocalSession
 
 STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css'}
+
+_disk_cache: dict[Path, tuple[float, int]] = {}
+
+
+def get_run_disk_bytes(run_dir: Path, ttl_seconds: float = 20.0) -> int:
+    now = time.monotonic()
+    if run_dir in _disk_cache:
+        cached_time, cached_val = _disk_cache[run_dir]
+        if now - cached_time < ttl_seconds:
+            return cached_val
+    total = 0
+    try:
+        for entry in run_dir.rglob('*'):
+            try:
+                if entry.is_file() and not entry.is_symlink():
+                    total += entry.stat().st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+    _disk_cache[run_dir] = (now, total)
+    return total
+
+
+def format_disk_bytes(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f} MB"
+    return f"{n / (1024 * 1024 * 1024):.2f} GB"
+
+
+def read_run_summary(run_dir: Path) -> dict:
+    run_dir = Path(run_dir).resolve()
+    summary_path = run_dir / "summary.json"
+    manifest_path = run_dir / "manifest.json"
+
+    summary = None
+    if summary_path.is_file():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            summary = None
+
+    manifest = {}
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            manifest = {}
+
+    run_id = (summary.get("run_id") if summary else None) or manifest.get("run_id") or run_dir.name
+    name = (manifest.get("config", {}).get("name") if isinstance(manifest.get("config"), dict) else None) or (summary.get("name") if summary else None) or run_dir.name
+    status = (summary.get("status") if summary else None) or manifest.get("status") or "unknown"
+
+    step = (summary.get("step") if summary and "step" in summary else None)
+    if step is None:
+        step = manifest.get("steps", 0)
+
+    total_steps = (summary.get("total_steps") if summary else None) or manifest.get("total_steps")
+    steps_per_second = ((summary.get("steps_per_second") or summary.get("speed_its")) if summary else None) or manifest.get("steps_per_second") or manifest.get("speed_its")
+
+    latest_fid = None
+    if summary:
+        latest_fid = summary.get("latest_fid") or summary.get("fid_latest")
+        if latest_fid is None and isinstance(summary.get("metrics"), dict):
+            latest_fid = summary["metrics"].get("fid50k_train") or summary["metrics"].get("fid")
+
+    best = summary.get("best") if summary and isinstance(summary.get("best"), dict) else None
+    best_fid = (best.get("value") if best else None) or (summary.get("best_fid") if summary else None) or (summary.get("fid_best") if summary else None)
+    best_step = (best.get("step") if best else None) or (summary.get("best_step") if summary else None)
+
+    disk_bytes = get_run_disk_bytes(run_dir)
+    disk_formatted = format_disk_bytes(disk_bytes)
+
+    return {
+        "run_id": run_id,
+        "name": name,
+        "status": status,
+        "step": step,
+        "total_steps": total_steps,
+        "steps_per_second": steps_per_second,
+        "speed_its": steps_per_second,
+        "latest_fid": latest_fid,
+        "fid_latest": latest_fid,
+        "best_fid": best_fid,
+        "fid_best": best_fid,
+        "best_step": best_step,
+        "disk_bytes": disk_bytes,
+        "disk_formatted": disk_formatted,
+        "url": f"/runs/{run_id}",
+    }
+
+
+def discover_runs(root: Path) -> list[dict]:
+    root = Path(root).resolve()
+    if (root / "manifest.json").is_file():
+        return [read_run_summary(root)]
+    results = []
+    try:
+        for entry in sorted(root.iterdir()):
+            if entry.is_dir() and (entry / "manifest.json").is_file():
+                results.append(read_run_summary(entry))
+    except OSError:
+        pass
+    return results
+
+
+def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
+    rows = []
+    for r in runs:
+        run_id = html.escape(str(r.get("run_id", "unknown")))
+        name = html.escape(str(r.get("name", run_id)))
+        status = html.escape(str(r.get("status", "unknown")))
+        step = r.get("step", 0)
+        total_steps = r.get("total_steps")
+        sps = r.get("steps_per_second")
+        speed_str = f"{sps:.1f} it/s" if sps is not None else "—"
+        latest_fid_val = r.get("latest_fid")
+        latest_fid_str = f"{latest_fid_val:.2f}" if latest_fid_val is not None else "—"
+        best_fid_val = r.get("best_fid")
+        best_step_val = r.get("best_step")
+        best_fid_str = f"{best_fid_val:.2f}" + (f" @ {best_step_val}k" if best_step_val is not None else "") if best_fid_val is not None else "—"
+        disk_str = html.escape(str(r.get("disk_formatted", "—")))
+        url = html.escape(str(r.get("url", f"/runs/{run_id}")))
+
+        if total_steps and total_steps > 0:
+            pct = min(100, max(0, int((step / total_steps) * 100)))
+            progress_html = (f'<div class="progress-bar-container">'
+                             f'<span>{step:,} / {total_steps:,}</span>'
+                             f'<div class="progress-bar"><div class="progress-fill" style="width: {pct}%"></div></div>'
+                             f'</div>')
+        else:
+            progress_html = f'<span>{step:,}</span>'
+
+        rows.append(
+            f'<tr data-status="{status}" data-name="{name}" data-id="{run_id}">'
+            f'  <td><a class="run-link" href="{url}">{name}</a><div class="run-id-sub">{run_id}</div></td>'
+            f'  <td><span class="badge" data-status="{status}">{status}</span></td>'
+            f'  <td>{progress_html}</td>'
+            f'  <td>{speed_str}</td>'
+            f'  <td>{latest_fid_str}</td>'
+            f'  <td>{best_fid_str}</td>'
+            f'  <td>{disk_str}</td>'
+            f'  <td><a class="btn" href="{url}">Observatory →</a></td>'
+            f'</tr>'
+        )
+
+    rows_html = "\n".join(rows) if rows else '<tr id="empty-row"><td colspan="8" class="empty-state">No training runs found in this root directory.</td></tr>'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HyperGAN Runs — Dashboard</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <style>
+    body {{ margin: 0; padding: 0; background: #0b0d13; color: #e2e8f0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }}
+    .container {{ max-width: 1400px; margin: 0 auto; padding: 24px; }}
+    .header {{ display: flex; align-items: center; justify-content: space-between; padding-bottom: 20px; border-bottom: 1px solid #1e2433; margin-bottom: 24px; }}
+    .brand {{ display: flex; align-items: center; gap: 8px; text-decoration: none; color: #fff; font-weight: 700; font-size: 1.1rem; letter-spacing: 0.05em; }}
+    .brand-mark {{ background: #38bdf8; color: #0b0d13; padding: 2px 8px; border-radius: 4px; font-weight: 900; }}
+    .brand-separator {{ color: #475569; }}
+    .brand-detail {{ color: #94a3b8; font-weight: 400; }}
+    .root-path {{ font-family: ui-monospace, monospace; font-size: 0.85rem; color: #64748b; background: #131722; padding: 4px 10px; border-radius: 6px; border: 1px solid #1e2433; }}
+    .controls {{ display: flex; gap: 16px; margin-bottom: 20px; align-items: center; }}
+    .search-input {{ flex: 1; max-width: 400px; background: #131722; border: 1px solid #1e2433; color: #e2e8f0; padding: 8px 14px; border-radius: 6px; font-size: 0.9rem; }}
+    .search-input:focus {{ outline: none; border-color: #38bdf8; }}
+    .filter-select {{ background: #131722; border: 1px solid #1e2433; color: #e2e8f0; padding: 8px 14px; border-radius: 6px; font-size: 0.9rem; }}
+    .run-table {{ width: 100%; border-collapse: separate; border-spacing: 0; background: #131722; border: 1px solid #1e2433; border-radius: 8px; overflow: hidden; }}
+    .run-table th {{ background: #181d2a; padding: 12px 16px; text-align: left; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid #1e2433; }}
+    .run-table td {{ padding: 14px 16px; border-bottom: 1px solid #1e2433; font-size: 0.9rem; }}
+    .run-table tr:last-child td {{ border-bottom: none; }}
+    .run-table tr:hover td {{ background: #181d2a; }}
+    .run-link {{ color: #38bdf8; text-decoration: none; font-weight: 600; display: block; }}
+    .run-link:hover {{ text-decoration: underline; }}
+    .run-id-sub {{ font-family: ui-monospace, monospace; font-size: 0.75rem; color: #64748b; margin-top: 2px; }}
+    .badge {{ display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }}
+    .badge[data-status="running"] {{ background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }}
+    .badge[data-status="complete"] {{ background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }}
+    .badge[data-status="failed"] {{ background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }}
+    .badge[data-status="stopped"], .badge[data-status="interrupted"] {{ background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }}
+    .progress-bar-container {{ display: flex; align-items: center; gap: 8px; }}
+    .progress-bar {{ width: 80px; height: 6px; background: #1e2433; border-radius: 3px; overflow: hidden; }}
+    .progress-fill {{ height: 100%; background: #38bdf8; border-radius: 3px; }}
+    .btn {{ display: inline-block; padding: 6px 12px; background: #1e293b; color: #e2e8f0; text-decoration: none; border-radius: 6px; font-size: 0.8rem; font-weight: 500; border: 1px solid #334155; }}
+    .btn:hover {{ background: #334155; color: #fff; }}
+    .empty-state {{ text-align: center; padding: 48px; color: #64748b; }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <a class="brand" href="/">
+        <span class="brand-mark">H</span> HYPERGAN <span class="brand-separator">/</span> <span class="brand-detail">RUNS</span>
+      </a>
+      <span class="root-path">{html.escape(str(runs_root))}</span>
+    </div>
+    <div class="controls">
+      <input type="text" id="search" class="search-input" placeholder="Filter runs by name or ID…" oninput="filterRows()">
+      <select id="status-filter" class="filter-select" onchange="filterRows()">
+        <option value="">All Statuses</option>
+        <option value="running">Running</option>
+        <option value="complete">Complete</option>
+        <option value="stopped">Stopped</option>
+        <option value="failed">Failed</option>
+      </select>
+    </div>
+    <table class="run-table" id="runs-table">
+      <thead>
+        <tr>
+          <th>Run / Name</th>
+          <th>Status</th>
+          <th>Progress</th>
+          <th>Speed</th>
+          <th>Latest FID</th>
+          <th>Best FID</th>
+          <th>Disk</th>
+          <th>Observatory</th>
+        </tr>
+      </thead>
+      <tbody id="runs-body">
+        {rows_html}
+      </tbody>
+    </table>
+  </div>
+  <script>
+    function filterRows() {{
+      const q = document.getElementById('search').value.toLowerCase();
+      const status = document.getElementById('status-filter').value;
+      const rows = document.querySelectorAll('#runs-body tr');
+      rows.forEach(row => {{
+        const text = (row.getAttribute('data-name') || '').toLowerCase() + ' ' + (row.getAttribute('data-id') || '').toLowerCase();
+        const rowStatus = row.getAttribute('data-status') || '';
+        const matchesQ = text.includes(q);
+        const matchesStatus = !status || rowStatus === status;
+        row.style.display = (matchesQ && matchesStatus) ? '' : 'none';
+      }});
+    }}
+  </script>
+</body>
+</html>"""
+
+
+class ServiceRegistry:
+    def __init__(self, root: Path, poll_seconds: float = 0.25, history_timeout: float = 180.0):
+        self.root = Path(root).resolve()
+        self.poll_seconds = poll_seconds
+        self.history_timeout = history_timeout
+        self.services: dict[str, ObservationService] = {}
+        self._lock = asyncio.Lock()
+
+    def is_single(self) -> bool:
+        return (self.root / "manifest.json").is_file()
+
+    def resolve_run_dir(self, run_id: str) -> Path | None:
+        if not run_id:
+            return None
+        if self.is_single():
+            try:
+                manifest = read_json(self.root, "manifest.json")
+                canonical_id = manifest.get("run_id")
+            except Exception:
+                canonical_id = None
+            if run_id in (canonical_id, self.root.name, "run"):
+                return self.root
+            return None
+
+        # Check direct subdirectory
+        candidate = self.root / run_id
+        if candidate.is_dir() and (candidate / "manifest.json").is_file():
+            return candidate
+
+        # Scan subdirectories
+        try:
+            for entry in self.root.iterdir():
+                if entry.is_dir() and (entry / "manifest.json").is_file():
+                    if entry.name == run_id:
+                        return entry
+                    try:
+                        manifest = read_json(entry, "manifest.json")
+                        if manifest.get("run_id") == run_id:
+                            return entry
+                    except Exception:
+                        pass
+        except OSError:
+            pass
+        return None
+
+    async def get(self, run_id: str) -> ObservationService:
+        async with self._lock:
+            if run_id in self.services:
+                return self.services[run_id]
+            run_dir = self.resolve_run_dir(run_id)
+            if run_dir is None:
+                raise FileNotFoundError(f"Unknown run identity: {run_id}")
+            for svc in self.services.values():
+                if svc.root == run_dir:
+                    self.services[run_id] = svc
+                    return svc
+            svc = ObservationService(run_dir, poll_seconds=self.poll_seconds, history_timeout=self.history_timeout)
+            await svc.start()
+            self.services[run_id] = svc
+            if svc.run_id:
+                self.services[svc.run_id] = svc
+            return svc
+
+    async def close_all(self):
+        async with self._lock:
+            unique = set(self.services.values())
+            self.services.clear()
+            for svc in unique:
+                try:
+                    await svc.close()
+                except Exception:
+                    pass
 
 
 def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=None):
@@ -27,7 +349,15 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             finally:
                 await self.body_iterator.aclose()
 
-    service = ObservationService(run_dir, poll_seconds=poll_seconds, history_timeout=history_timeout)
+    root = Path(run_dir).resolve()
+    registry = ServiceRegistry(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
+    single_service = None
+    if registry.is_single():
+        single_service = ObservationService(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
+        registry.services[root.name] = single_service
+        if single_service.run_id:
+            registry.services[single_service.run_id] = single_service
+
     dev = dev_assets() if dev is None else dev
     if dev.active:
         import sys
@@ -36,15 +366,14 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
 
     @asynccontextmanager
     async def lifespan(app):
-        await service.start()
+        if single_service is not None:
+            await single_service.start()
         try:
             yield
         finally:
-            await service.close()
-
-    def check_run(request):
-        if request.path_params.get('run_id') != service.run_id:
-            raise FileNotFoundError('Unknown run identity')
+            await registry.close_all()
+            if single_service is not None:
+                await single_service.close()
 
     async def session_exchange(request):
         if request.headers.get('content-type', '').split(';')[0] != 'application/json':
@@ -62,66 +391,102 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         except (ValueError, KeyError, TypeError):
             return JSONResponse({'error': 'Invalid or expired viewer credential'}, status_code=401)
         result = JSONResponse({'authenticated': True})
-        # Cookies are keyed by host, so the proxied and the direct authority
-        # already hold separate ones. Only the https channel may carry Secure:
-        # a browser discards a Secure cookie offered over plain-HTTP loopback.
         secure = session.cookie_secure and request.scope.get('state', {}).get('viewer_channel') == 'public'
         result.set_cookie(session.cookie_name, cookie, httponly=True, samesite='strict',
                           secure=secure, max_age=86400, path='/')
         return result
 
     async def capabilities(request):
+        from . import __version__
+        from .provenance import hypergan_source
+        from .web_assets import compute_asset_hash
         from .metrics_reducer import descriptor
-        return JSONResponse({'schema_version': 1, 'api_version': 'v1', 'run_id': service.run_id,
-                             'status': service.manifest.get('status'), 'server_instance_id': session.instance_id,
-                             'auth_mode': session.auth_mode, 'public_origin': session.public_origin,
-                             'transports': ['sse'], 'controls': [], 'reducer': descriptor(),
-                             'limits': {'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
-                                        'bootstrap_bytes': 1048576, 'stream_count': 64,
-                                        'history_seconds': service.history_timeout}})
+
+        source = hypergan_source()
+        runs = discover_runs(root)
+        single_svc = registry.services.get(root.name) or next(iter(registry.services.values()), None) if registry.is_single() else None
+        run_id = single_svc.run_id if single_svc else None
+        status = single_svc.manifest.get('status') if single_svc else ('ready' if runs else 'waiting')
+
+        return JSONResponse({
+            'schema_version': 1,
+            'api_version': 'v1',
+            'run_id': run_id,
+            'status': status,
+            'server_instance_id': session.instance_id,
+            'version': __version__,
+            'git_commit': source.get('hypergan_commit'),
+            'git_dirty': source.get('hypergan_dirty'),
+            'asset_hash': compute_asset_hash(dev._web_assets if dev.active else None),
+            'runs_root': str(root),
+            'run_count': len(runs),
+            'auth_mode': session.auth_mode,
+            'public_origin': session.public_origin,
+            'transports': ['sse'],
+            'controls': [],
+            'reducer': descriptor(),
+            'limits': {
+                'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
+                'bootstrap_bytes': 1048576, 'stream_count': 64,
+                'history_seconds': history_timeout
+            }
+        })
+
+    async def root_index(request):
+        if registry.is_single():
+            return await static(request)
+        runs = discover_runs(root)
+        html_content = render_run_index_html(runs, root)
+        return Response(html_content, media_type='text/html', headers={'Cache-Control': 'no-store'})
+
+    async def run_detail_page(request):
+        run_id = request.path_params.get('run_id')
+        if registry.resolve_run_dir(run_id) is None:
+            raise FileNotFoundError(f'Unknown run identity: {run_id}')
+        return await static(request, asset_override='index.html')
+
+    async def runs_list(request):
+        return JSONResponse(discover_runs(root))
 
     async def run(request):
-        check_run(request)
-        return JSONResponse(service.public_manifest())
+        svc = await registry.get(request.path_params['run_id'])
+        return JSONResponse(svc.public_manifest())
 
     async def model(request):
-        check_run(request)
-        import asyncio
-        return JSONResponse(await asyncio.to_thread(service.model_summary))
+        svc = await registry.get(request.path_params['run_id'])
+        return JSONResponse(await asyncio.to_thread(svc.model_summary))
 
     async def catalog(request):
-        check_run(request)
+        svc = await registry.get(request.path_params['run_id'])
         from .metrics import read_catalog
-        import asyncio
-        revision = request.query_params.get('revision') or service.manifest.get('metrics_catalog')
-        result = await asyncio.to_thread(read_catalog, service.root, revision,
-            _open_file=lambda path: _open(service.root, path.relative_to(service.root).as_posix()))
+        revision = request.query_params.get('revision') or svc.manifest.get('metrics_catalog')
+        result = await asyncio.to_thread(read_catalog, svc.root, revision,
+            _open_file=lambda path: _open(svc.root, path.relative_to(svc.root).as_posix()))
         return JSONResponse(result)
 
     async def events(request):
-        check_run(request)
-        import asyncio
+        svc = await registry.get(request.path_params['run_id'])
         cursor = request.query_params.get('cursor')
         stream_id = request.query_params.get('stream_id', 'training')
         limit = int(request.query_params.get('limit', '100'))
         if not 1 <= limit <= 1000:
             raise ValueError('limit must be in 1..1000')
-        _, _, result = await asyncio.to_thread(service.page, stream_id, cursor, limit=limit)
+        _, _, result = await asyncio.to_thread(svc.page, stream_id, cursor, limit=limit)
         return JSONResponse(result)
 
     async def views(request):
-        check_run(request)
+        svc = await registry.get(request.path_params['run_id'])
         mapping = MapSpec()
         view = ViewSpec(mapping.revision)
-        available = ['projection:' + mapping.revision in service.streams]
+        available = ['projection:' + mapping.revision in svc.streams]
         return JSONResponse({'schema_version': 1, 'map_revision': mapping.revision,
                              'view_revision': view.revision, 'status': 'available' if available[0] else 'missing',
-                             'descriptor': view.descriptor(), 'discovery_error': service.discovery_error,
+                             'descriptor': view.descriptor(), 'discovery_error': svc.discovery_error,
                              'streams': [{'stream_id': s.stream_id, 'cursor': s.cursor,
-                                          'caught_up': s.caught_up, 'error': s.error} for s in service.streams.values()]})
+                                          'caught_up': s.caught_up, 'error': s.error} for s in svc.streams.values()]})
 
     async def bootstrap(request):
-        check_run(request)
+        svc = await registry.get(request.path_params['run_id'])
         params = request.query_params
         series = params.get('series', '').split(',')
         kwargs = dict(series=series, bucket_steps=int(params.get('bucket_steps', '1')),
@@ -129,7 +494,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         if 'step_to' in params:
             kwargs['step_to'] = int(params['step_to'])
         try:
-            job = service.bootstrap(request.path_params['map_revision'], **kwargs)
+            job = svc.bootstrap(request.path_params['map_revision'], **kwargs)
         except LookupError as exc:
             return JSONResponse({'status': 'indexing', 'reason': str(exc)}, status_code=202)
         if job.error:
@@ -139,32 +504,44 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         return JSONResponse(job.result)
 
     async def stream(request):
-        if 'run_id' in request.path_params:
-            check_run(request)
+        run_id = request.path_params.get('run_id')
+        if run_id:
+            svc = await registry.get(run_id)
+        elif registry.is_single():
+            svc = registry.services.get(root.name) or next(iter(registry.services.values()), None)
+            if not svc:
+                svc = await registry.get(root.name)
+        else:
+            async def root_events():
+                yield 'event: ready\ndata: {"status": "ready"}\n\n'.encode('utf-8')
+                while True:
+                    await asyncio.sleep(15.0)
+                    yield 'event: ping\ndata: {}\n\n'.encode('utf-8')
+            return ClosingStream(root_events(), media_type='text/event-stream',
+                                 headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+
         stream_id = request.query_params.get('stream_id', '*')
         cursor = request.query_params.get('cursor')
-        # Validate selectors before StreamingResponse sends its 200 headers.
-        temporary, _ = service.subscribe(stream_id)
-        service.subscribers.remove(temporary)
+        temporary, _ = svc.subscribe(stream_id)
+        svc.subscribers.remove(temporary)
         if cursor is not None:
             from .web_service import cursor_offset
             cursor_offset(cursor)
-        return ClosingStream(service.events(stream_id, cursor), media_type='text/event-stream',
-                                 headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+        return ClosingStream(svc.events(stream_id, cursor), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
     async def artifacts(request):
-        check_run(request)
-        import asyncio
-        await service.refresh_artifacts()
+        svc = await registry.get(request.path_params['run_id'])
+        await svc.refresh_artifacts()
         artifact_id = request.path_params.get('artifact_id')
         if artifact_id is None:
-            return JSONResponse(service.artifact_index())
-        record = service.artifacts.get(artifact_id)
+            return JSONResponse(svc.artifact_index())
+        record = svc.artifacts.get(artifact_id)
         if record is None:
             raise FileNotFoundError('Artifact is not indexed')
         if record.get('status') == 'unavailable':
             raise ValueError(record['reason'])
-        data = await asyncio.to_thread(read_artifact, service.root, record)
+        data = await asyncio.to_thread(read_artifact, svc.root, record)
         if record.get('media_type') == 'image/png' and record.get('modality') == 'image':
             from .image_grids import inspect_png
             await asyncio.to_thread(inspect_png, data)
@@ -176,8 +553,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         return Response(data, media_type='application/octet-stream',
                         headers={'Content-Disposition': 'attachment; filename="artifact.bin"'})
 
-    async def static(request):
-        asset = request.path_params.get('asset', 'index.html')
+    async def static(request, asset_override=None):
+        asset = asset_override or request.path_params.get('asset', 'index.html')
         if asset not in STATIC_ASSETS:
             raise FileNotFoundError('Unknown static asset')
         resource = dev.web_asset(asset)
@@ -212,33 +589,41 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         code = 404 if isinstance(exc, FileNotFoundError) else 400
         return JSONResponse({'error': str(exc)}, status_code=code)
 
-    routes = [Route('/', static), Route('/assets/{asset}', static), Route('/reducers/{asset}', reducer_asset),
-              Route('/api/v1/session', session_exchange, methods=['POST']),
-              Route('/api/v1/capabilities', capabilities), Route('/api/v1/openapi.json', openapi),
-              Route('/api/v1/stream', stream), Route('/api/v1/runs/{run_id}', run),
-              Route('/api/v1/runs/{run_id}/metrics/catalog', catalog),
-              Route('/api/v1/runs/{run_id}/model', model),
-              Route('/api/v1/runs/{run_id}/events', events),
-              Route('/api/v1/runs/{run_id}/views', views),
-              Route('/api/v1/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
-              Route('/api/v1/runs/{run_id}/stream', stream),
-              Route('/api/v1/runs/{run_id}/artifacts', artifacts),
-              Route('/api/v1/runs/{run_id}/artifacts/{artifact_id}', artifacts)]
+    routes = [
+        Route('/', root_index),
+        Route('/runs/{run_id}', run_detail_page),
+        Route('/runs/{run_id}/{path:path}', run_detail_page),
+        Route('/assets/{asset}', static),
+        Route('/reducers/{asset}', reducer_asset),
+        Route('/api/v1/session', session_exchange, methods=['POST']),
+        Route('/api/v1/capabilities', capabilities),
+        Route('/api/v1/openapi.json', openapi),
+        Route('/api/v1/runs', runs_list),
+        Route('/api/v1/stream', stream),
+        Route('/api/v1/runs/{run_id}', run),
+        Route('/api/v1/runs/{run_id}/status', run),
+        Route('/api/v1/runs/{run_id}/metrics/catalog', catalog),
+        Route('/api/v1/runs/{run_id}/model', model),
+        Route('/api/v1/runs/{run_id}/events', events),
+        Route('/api/v1/runs/{run_id}/views', views),
+        Route('/api/v1/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
+        Route('/api/v1/runs/{run_id}/stream', stream),
+        Route('/api/v1/runs/{run_id}/artifacts', artifacts),
+        Route('/api/v1/runs/{run_id}/artifacts/{artifact_id}', artifacts),
+    ]
     if dev.active:
         routes.extend([Route(VERSION_ROUTE, dev_version), Route(RELOAD_ASSET, dev_reload)])
     app = Starlette(routes=routes, lifespan=lifespan,
                     exception_handlers={ValueError: error_handler, FileNotFoundError: error_handler})
-    app.state.observations = service
+    app.state.observations = single_service
 
     class AuthenticatedApp:
         state = app.state
+
         async def __call__(self, scope, receive, send):
             if scope['type'] != 'http':
                 return await app(scope, receive, send)
             request = Request(scope, receive=receive)
-            # Forwarded headers are read only when a public origin is configured;
-            # `match_request` ignores them otherwise, so nothing here is trusted
-            # by default. The channel decides the session cookie's Secure flag.
             channel = session.match_request(request.headers.get('host'), request.headers.get('origin'),
                                             forwarded_proto=request.headers.get('x-forwarded-proto'),
                                             forwarded_host=request.headers.get('x-forwarded-host'))
@@ -247,7 +632,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             scope.setdefault('state', {})['viewer_channel'] = channel
             path = scope['path']
             public = (path == '/' or path.startswith('/assets/') or path.startswith('/reducers/')
-                      or path == '/api/v1/session' or (dev.active and path.startswith('/dev/')))
+                      or path == '/api/v1/session' or path == '/api/v1/runs' or path.startswith('/runs/')
+                      or (dev.active and path.startswith('/dev/')))
             if not public and not session.authenticated(authorization=request.headers.get('authorization'),
                                                        cookie=request.cookies.get(session.cookie_name)):
                 return await JSONResponse({'error': 'Viewer credential required'}, status_code=401)(scope, receive, send)
@@ -257,17 +643,11 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                     present = {name.lower() for name, _ in headers}
                     headers.extend([(b'x-content-type-options', b'nosniff'),
                                     (b'referrer-policy', b'no-referrer'),
-                                    # Every directive is 'self' and every URL the page
-                                    # requests is relative, so 'self' resolves to the
-                                    # public origin behind a proxy with no host pinned
-                                    # here and nothing widened for it.
-                                    (b'content-security-policy', b"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'")])
-                    # A route that already stated its own policy keeps exactly one value.
+                                    (b'content-security-policy', b"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; worker-src 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'")])
                     if b'cache-control' not in present:
                         headers.append((b'cache-control', b'no-store'))
                     message = dict(message, headers=headers)
                 if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
-                    import asyncio
                     try:
                         await asyncio.wait_for(send(message), timeout=5)
                     except asyncio.TimeoutError as exc:
@@ -283,6 +663,7 @@ def openapi_schema(*, auth_mode='token', cookie_name=LocalSession.cookie_name):
     paths = {}
     descriptions = {
         '/capabilities': 'Authenticated server identity and resource limits',
+        '/runs': 'Discovered runs under the root directory with their summaries',
         '/runs/{run_id}': 'Current run manifest',
         '/runs/{run_id}/metrics/catalog': 'Immutable metric definition catalog',
         '/runs/{run_id}/model': 'Run model: GAN formulation, per-player losses with metric ids, optimizers, prior, '

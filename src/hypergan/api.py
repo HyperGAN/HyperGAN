@@ -42,7 +42,9 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
            'lift', 'load_recipe', 'describe', 'data_check', 'preflight', 'serve', 'viewer_status',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
-           'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle']
+           'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
+           'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
+           'find_runs_root', 'stop_projector']
 
 
 # --------------------------------------------------------------------------- model files
@@ -1241,3 +1243,34 @@ def request_checkpoint(run_dir, attempt_id=None, request_id=None):
     return submit_checkpoint_request(run_dir, run_id=manifest["run_id"],
                                      attempt_id=attempt_id or manifest["attempt_id"],
                                      request_id=request_id)
+
+
+def ensure_dashboard_running(runs_root, check_version=True, run_id=None):
+    from .web_autostart import ensure_dashboard_running as autostart_ensure
+    return autostart_ensure(Path(runs_root), check_version=check_version, run_id=run_id)
+
+
+def stop_all_servers(force=False):
+    from .web_autostart import stop_all_servers as autostart_stop_all
+    return autostart_stop_all(force=force)
+
+
+def dashboard_status(runs_root):
+    from .web_autostart import dashboard_status as autostart_dstatus
+    return autostart_dstatus(Path(runs_root))
+
+
+def stop_dashboard(runs_root):
+    from .web_autostart import stop_dashboard as autostart_sstop
+    return autostart_sstop(Path(runs_root))
+
+
+def find_runs_root(path=None):
+    from .web_autostart import find_runs_root as autostart_find
+    return autostart_find(path)
+
+
+def stop_projector(run_dir):
+    from .web_autostart import stop_projector as autostart_sproj
+    return autostart_sproj(Path(run_dir))
+

@@ -177,10 +177,26 @@ def _parser():
     serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
     serve.add_argument("--dev", action="store_true",
                        help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
+    from .ports import DEFAULT_VIEWER_PORT
+    view = commands.add_parser("view", help="Start, inspect, or stop the root dashboard for a runs directory")
+    view.add_argument("root", nargs="?", type=Path, default=None,
+                      help="runs root directory (default: workspace runs_root or current directory)")
+    view_mode = view.add_mutually_exclusive_group()
+    view_mode.add_argument("--status", action="store_true", help="report dashboard status, URL, version, and PID")
+    view_mode.add_argument("--stop", action="store_true", help="cleanly stop the running dashboard")
+    view.add_argument("--port", type=int, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
+    view.add_argument("--host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    view.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
+    view.add_argument("--open", action="store_true", help="open the local viewer in a browser")
+    view.add_argument("--dev", action="store_true",
+                      help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
+    view.add_argument("--public-origin", type=_public_origin, metavar="URL",
+                      help="absolute origin of a TLS proxy in front of the viewer")
     server_status = commands.add_parser("server-status", help="Read the automatic viewer URL, status and log location")
     server_status.add_argument("run_dir", type=Path)
-    stop_server = commands.add_parser("stop-server", help="Stop the persistent automatic viewer for a run")
-    stop_server.add_argument("run_dir", type=Path)
+    stop_server = commands.add_parser("stop-server", help="Stop the persistent automatic viewer or all viewers across the host")
+    stop_server.add_argument("run_dir", type=Path, nargs="?", default=None, help="run or root directory to stop")
+    stop_server.add_argument("--all", action="store_true", help="safely kill all legacy leaked viewers and projectors across the host")
     from .evaluation_cli import add_evaluate_parser
     add_evaluate_parser(commands)
     checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
@@ -249,12 +265,15 @@ def _warnings(config):
         print(f"warning: {warning}", file=sys.stderr)
 
 
-def _training_viewer(args):
+def _training_viewer(args, *, config=None):
     if args.no_server:
         if (args.open or args.server_port is not None or args.server_host is not None
                 or args.auth is not None or args.public_origin is not None or args.viewer_dev):
             raise ValueError("--no-server cannot be combined with --open, --port/--server-port, "
                              "--server-host, --auth, --public-origin or --dev")
+        from contextlib import nullcontext
+        return nullcontext()
+    if config and isinstance(config, dict) and config.get('run', {}).get('viewer') is False:
         from contextlib import nullcontext
         return nullcontext()
     # The supervisor is a detached subprocess; the environment is what reaches it.
@@ -268,7 +287,8 @@ def _training_viewer(args):
                            or args.server_host is not None or args.auth is not None
                            or args.public_origin is not None,
                            port=args.server_port, host=args.server_host, auth=args.auth,
-                           public_origin=args.public_origin, open_browser=args.open)
+                           public_origin=args.public_origin, open_browser=args.open,
+                           config=config)
 
 
 def main(argv=None):
@@ -306,10 +326,25 @@ def _dispatch(args, *, output=None):
             hg.serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
                      session_file=args.session_file, open_browser=args.open,
                      public_origin=args.public_origin, dev=args.dev)
+        elif args.command == "view":
+            root = args.root or hg.find_runs_root(Path.cwd())
+            if args.status:
+                _print_json(hg.dashboard_status(root))
+            elif args.stop:
+                _print_json(hg.stop_dashboard(root))
+            else:
+                hg.serve(root, port=args.port, host=args.host, auth=args.auth,
+                         open_browser=args.open, public_origin=args.public_origin, dev=args.dev)
         elif args.command == "server-status":
             _print_json(hg.viewer_status(args.run_dir))
         elif args.command == "stop-server":
-            _print_json(hg.stop_viewer(args.run_dir))
+            if getattr(args, "all", False):
+                killed = hg.stop_all_servers()
+                _print_json({"status": "stopped", "killed_pids": killed, "count": len(killed)})
+            else:
+                if args.run_dir is None:
+                    raise ValueError("run_dir is required unless --all is specified")
+                _print_json(hg.stop_viewer(args.run_dir))
         elif args.command == "contributions":
             _print_json(hg.contributions(args.run_dir, map_revision=args.map_revision,
                                         cursor=args.cursor, limit=args.limit, max_bytes=args.max_bytes))
@@ -392,7 +427,8 @@ def _dispatch(args, *, output=None):
                 print(f"hint: {hint}", file=sys.stderr)
             output.configure(args.run_dir, progress_every=args.progress_every,
                              evaluation_reminder=manual_evaluation_reminder(prepared.config, **labels))
-            with _training_viewer(args):
+            config_dict = getattr(prepared.config, 'spec', prepared.config)
+            with _training_viewer(args, config=config_dict):
                 output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":
             s = hg.sample(args.run_dir, count=args.count, seed=args.seed, output=args.output,

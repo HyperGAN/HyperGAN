@@ -31,7 +31,7 @@ MAX_BOOTSTRAPS = 8
 MAX_PREVIEWS = 4096
 PREVIEW_INDEX_BYTES = 16 * 1048576
 _HEX = re.compile('[0-9a-f]{64}\\Z')
-_EVAL_DIR_RE = re.compile(r'^(?:step-\d{8}-[A-Za-z0-9_-]+|[0-9a-f]{32})\Z')
+_EVAL_DIR_RE = re.compile(r'^(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})\Z')
 
 
 def _json(value):

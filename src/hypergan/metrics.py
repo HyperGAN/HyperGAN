@@ -23,7 +23,7 @@ PREVIEW_METRICS = {
     'pooled4_reference_rms': ('Real coarse image spread (4x4)', 'data'),
     'pooled4_ratio': ('Generated/real coarse diversity (4x4)', 'ratio'),
 }
-DEFAULT_METRICS = {'preset': 'standard', 'disable': [], 'every_steps': 1, 'overrides': {}, 'custom': {}}
+DEFAULT_METRICS = {'preset': 'standard', 'disable': [], 'every_steps': 10, 'overrides': {}, 'custom': {}}
 MAX_CATALOG_BYTES = 1024 * 1024
 # Completed updates averaged by the published throughput metric. A short
 # trailing window charts cleanly without hiding a sustained slowdown.
@@ -303,6 +303,12 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
     (throughput, cumulative training time, samples seen). A scalar the
     controller cannot measure yet is omitted, never fabricated.
     """
+    has_train_metrics = any(
+        not d['source'].startswith(('custom:', 'preview:'))
+        for d in catalog['metrics'].values()
+    )
+    if not has_train_metrics:
+        return {}, {}, 'disabled'
     if step % config['metrics']['every_steps']:
         return {}, {}, 'cadence'
     if progress is not None and (not isinstance(progress, dict)

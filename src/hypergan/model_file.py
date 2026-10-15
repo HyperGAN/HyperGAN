@@ -60,7 +60,7 @@ except ModuleNotFoundError:  # Python 3.10
 from .network_config import read_source
 
 FORMAT = 'hypergan-model/1'
-TOP_LEVEL = {'format', 'name', 'defaults', 'data', 'prior', 'networks', 'losses', 'penalty', 'train',
+TOP_LEVEL = {'format', 'name', 'defaults', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
              'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'extends'}
 
 CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
@@ -74,7 +74,7 @@ OPTIMIZER_FIELDS = {'lr', 'd_lr_mult', 'prior_lr_mult', 'betas', 'prior_betas', 
 TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'ema', 'lr_anneal_start', 'lr_floor',
                    'network_lr_floor', 'network_lr_horizon_cap', 'input_noise_std', 'input_noise_anneal_end',
                    'output_noise_std', 'output_noise_warmup', 'phase_draws', 'data_rng_device',
-                   'data_seed_offset', 'prior_seed_offset', 'backend'}
+                   'data_seed_offset', 'prior_seed_offset', 'backend', 'every_steps'}
 PENALTY_FIELDS = {'kappa', 'lazy_k', 'anchor_weight', 'anchor_decay'}
 PRIOR_FIELDS = {'kind', 'initialization_device', 'initialization_seed', 'fixed_sigma'}
 BUILTIN_DATA = ('gaussian_grid', 'paired_linear', 'image_folder')
@@ -424,6 +424,8 @@ class _Lowering:
             recipe['optimizer'] = optimizer
         if training:
             recipe['training'] = training
+            if 'every_steps' in training:
+                recipe.setdefault('metrics', {})['every_steps'] = training.pop('every_steps')
 
     def sampling(self, spec):
         _table(spec, 'sampling', {'count', 'seed', 'output', 'particle_ids', 'views', 'comparison'})
@@ -612,6 +614,8 @@ class _Lowering:
         recipe = {'schema_version': 1, 'name': raw.get('name', 'custom/model')}
         if 'defaults' in raw:
             recipe['defaults'] = raw['defaults']
+        if 'data' not in raw and 'dataset' in raw:
+            raw['data'] = raw['dataset']
         if 'data' not in raw:
             raise ModelFileError('data is required (builtin, factory or dataset)')
         recipe['data'] = self.data(raw['data'], 'data')
@@ -637,6 +641,8 @@ class _Lowering:
             metrics['custom'] = custom
         if metrics:
             recipe['metrics'] = metrics
+        if 'every_steps' not in recipe.get('metrics', {}):
+            recipe.setdefault('metrics', {})['every_steps'] = 1
         if 'checkpoints' in raw:
             self.checkpoints(raw['checkpoints'])
             recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])

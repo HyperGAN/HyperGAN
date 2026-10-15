@@ -21,7 +21,7 @@ from .run_state import atomic_json, run_lock, sync_directory
 
 # Large transformer generators include position buffers as well as parameters.
 MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
-_EVAL_DIR_RE = re.compile(r'^(?:step-\d{8}-[A-Za-z0-9_-]+|[0-9a-f]{32})$')
+_EVAL_DIR_RE = re.compile(r'^(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})$')
 
 
 def _normalize_eval_device(dev):
@@ -199,8 +199,9 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
         else:
             raise ValueError(f"No state.pt or model.pt in checkpoint {checkpoint_dir}")
 
-    raw_uuid = uuid.uuid4().hex
-    dir_name = f"step-{step:08d}-{raw_uuid}"
+    sanitized_metric = re.sub(r'[^A-Za-z0-9_-]', '_', metric_id)
+    short_uuid = uuid.uuid4().hex[:8]
+    dir_name = f"step-{step:08d}-{sanitized_metric}-{short_uuid}"
     evaluation_id = dir_name
     bundle_dict.setdefault('identity', {})
     bundle_dict['identity']['evaluation_id'] = evaluation_id
@@ -300,6 +301,12 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
         'stream_id': event['stream_id'], 'stream_generation': evaluation_id,
         'run_id': manifest['run_id'], 'path': (directory / 'events.jsonl').relative_to(root).as_posix(),
         'role': 'measurement', 'modality': descriptor['kind']})
+    if status == 'complete':
+        try:
+            from .summary import write_summary_json
+            write_summary_json(root, manifest)
+        except Exception:
+            pass
     if isinstance(failure, (KeyboardInterrupt, SystemExit)):
         raise failure
     if status == 'failed' and spec['on_error'] == 'fail':

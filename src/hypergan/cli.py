@@ -64,7 +64,7 @@ def _run_options(parser):
     parser.add_argument("--port", "--server-port", dest="server_port", type=int,
                         help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}, "
                              "or the next free port above it; 0 selects any free port)")
-    parser.add_argument("--server-host", help="listen address (default: 0.0.0.0)")
+    parser.add_argument("--host", "--server-host", dest="server_host", default=None, help="listen address (default: 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--public-origin", type=_public_origin, metavar="URL",
                         help="absolute origin of a TLS proxy in front of the viewer, "
@@ -126,6 +126,7 @@ def _parser():
     new = commands.add_parser("new", help="Create a reference project configuration")
     new.add_argument("path", type=Path)
     new.add_argument("--device", default="cuda", help="training device: cuda (default), cuda:N, or explicit cpu")
+    new.add_argument("--dataset", type=Path, default=None, help="directory of images to size and generate recipe for")
     validate = commands.add_parser("validate", help="Validate a project without loading training dependencies")
     validate.add_argument("path", type=Path)
     preflight = commands.add_parser("preflight", help="Check an execution profile before training")
@@ -139,6 +140,26 @@ def _parser():
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
     inspect = commands.add_parser("inspect", help="Read a run manifest without loading model weights")
     inspect.add_argument("path", type=Path)
+    status_cmd = commands.add_parser("status", help="Show a concise, human-friendly status summary of a run")
+    status_cmd.add_argument("run_dir", type=Path, help="path to run directory")
+    status_cmd.add_argument("--json", action="store_true", help="output structured status as JSON")
+    runs = commands.add_parser("runs", help="Inspect and compare experiment runs")
+    runs_subs = runs.add_subparsers(dest="runs_command", required=True)
+    runs_ls = runs_subs.add_parser("ls", help="List runs under root directory")
+    runs_ls.add_argument("root", nargs="?", type=Path, default=None, help="runs root directory")
+    runs_ls.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
+    runs_ls.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
+    runs_ls.add_argument("--json", action="store_true", help="output runs table as JSON array")
+    runs_compare = runs_subs.add_parser("compare", help="Compare multiple runs side-by-side")
+    runs_compare.add_argument("runs", nargs="+", type=Path, help="two or more run directories")
+    runs_compare.add_argument("--metric", required=True, help="metric name to compare (e.g. fid50k_train, loss_g)")
+    runs_compare.add_argument("--at", required=True, help="steps to compare at (e.g. 50k,100k,best,latest)")
+    runs_compare.add_argument("--csv", action="store_true", help="export comparison as CSV")
+    gc_cmd = commands.add_parser("gc", help="Clean rebuildable views and compact events in finished runs")
+    gc_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory to clean")
+    gc_cmd.add_argument("--all", action="store_true", help="clean all runs in workspace runs root")
+    gc_cmd.add_argument("--dry-run", action="store_true", help="calculate reclaimable space without modifying files")
+    gc_cmd.add_argument("--stride", type=_positive_int, default=10, help="compaction stride for routine train events (default: 10)")
     model = commands.add_parser("model", help="Describe a run's formulation, losses, optimizers and networks")
     model.add_argument("path", type=Path, help="run directory, manifest.json or project .toml")
     model.add_argument("--networks", action="store_true",
@@ -167,17 +188,17 @@ def _parser():
     serve = commands.add_parser("serve", help="Serve an existing run over the local API and browser UI (web extra)")
     serve.add_argument("run_dir", type=Path)
     from .ports import DEFAULT_VIEWER_PORT
-    serve.add_argument("--port", type=int,
+    serve.add_argument("--port", "--server-port", dest="port", type=int,
                        help=f"listen port (default: {DEFAULT_VIEWER_PORT}, or the next free port "
                             "above it; 0 selects any free port)")
-    serve.add_argument("--host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    serve.add_argument("--host", "--server-host", dest="host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
     serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--public-origin", type=_public_origin, metavar="URL",
                        help="absolute origin of a TLS proxy in front of the viewer, "
                             "e.g. https://machine.tailnet.ts.net (scheme, host and optional port only)")
     serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
     serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
-    serve.add_argument("--dev", action="store_true",
+    serve.add_argument("--dev", "--viewer-dev", dest="dev", action="store_true",
                        help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     from .ports import DEFAULT_VIEWER_PORT
     view = commands.add_parser("view", help="Start, inspect, or stop the root dashboard for a runs directory")
@@ -186,11 +207,11 @@ def _parser():
     view_mode = view.add_mutually_exclusive_group()
     view_mode.add_argument("--status", action="store_true", help="report dashboard status, URL, version, and PID")
     view_mode.add_argument("--stop", action="store_true", help="cleanly stop the running dashboard")
-    view.add_argument("--port", type=int, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
-    view.add_argument("--host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    view.add_argument("--port", "--server-port", dest="port", type=int, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
+    view.add_argument("--host", "--server-host", dest="host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
     view.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     view.add_argument("--open", action="store_true", help="open the local viewer in a browser")
-    view.add_argument("--dev", action="store_true",
+    view.add_argument("--dev", "--viewer-dev", dest="dev", action="store_true",
                       help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     view.add_argument("--public-origin", type=_public_origin, metavar="URL",
                       help="absolute origin of a TLS proxy in front of the viewer")
@@ -219,20 +240,26 @@ def _parser():
     convert = commands.add_parser("convert", help="Convert legacy engine recipe to hypergan-model/1 TOML")
     convert.add_argument("recipe", type=Path, help="path to legacy recipe TOML")
     convert.add_argument("--output", type=Path, required=True, help="output model.toml destination")
+    def _add_train_and_resume_arguments(p, *, is_resume=False):
+        if is_resume:
+            p.add_argument("run_dir", type=Path, help="existing run directory to resume")
+            p.add_argument("--run-dir", type=Path, required=False, default=None, help="explicit run directory override")
+            p.add_argument("--config", type=Path, default=None, help="verify exact compatibility with this configuration")
+        else:
+            p.add_argument("config", type=Path, help="configuration file or existing run directory to resume")
+            p.add_argument("--run-dir", type=Path, required=False, default=None, help="new run directory, or an existing run to resume")
+            p.add_argument("--config", type=Path, default=None, help="explicit configuration file override")
+        p.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
+        p.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
+        p.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                       help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
+        _run_options(p)
+
     train = commands.add_parser("train", help="Create a run or resume its latest checkpoint with the same configuration")
-    train.add_argument("config", type=Path)
-    train.add_argument("--run-dir", type=Path, required=False, default=None, help="new run directory, or an existing run to resume")
-    train.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
-    train.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                       help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
-    _run_options(train)
+    _add_train_and_resume_arguments(train, is_resume=False)
+
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
-    resume.add_argument("run_dir", type=Path)
-    resume.add_argument("--checkpoint", type=Path, help="choose an older checkpoint within this run")
-    resume.add_argument("--config", type=Path, help="verify exact compatibility with this configuration")
-    resume.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                       help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
-    _run_options(resume)
+    _add_train_and_resume_arguments(resume, is_resume=True)
     sample = commands.add_parser("sample", help="Sample a saved reference model (requires the train extra)")
     sample.add_argument("run_dir", type=Path)
     sample.add_argument("--count", type=_positive_int, default=16)
@@ -438,8 +465,19 @@ def _print_json(value):
 
 
 def _warnings(config):
-    for warning in config.get("warnings", []):
-        print(f"warning: {warning}", file=sys.stderr)
+    warnings = config.get("warnings", [])
+    has_trust_notice = False
+    for warning in warnings:
+        w_lower = warning.lower()
+        if ("unqualified until separately evaluated" in w_lower
+                or "execute trusted python" in w_lower
+                or "configuration is not a sandbox" in w_lower
+                or "bounded workers" in w_lower):
+            has_trust_notice = True
+        else:
+            print(f"warning: {warning}", file=sys.stderr)
+    if has_trust_notice:
+        print("warning: custom recipe executes trusted Python code; combinations are unqualified until evaluated", file=sys.stderr)
 
 
 def _training_viewer(args, *, config=None):
@@ -467,13 +505,15 @@ def _training_viewer(args, *, config=None):
                     or args.server_host is not None or args.auth is not None
                     or args.public_origin is not None)
     try:
-        ensure_dashboard_running(runs_root, port=args.server_port or DEFAULT_VIEWER_PORT,
-                                 host=args.server_host or '0.0.0.0',
-                                 auth=args.auth or 'none',
-                                 public_origin=args.public_origin,
-                                 check_version=True,
-                                 run_id=run_dir.name if run_dir != runs_root else None)
+        url = ensure_dashboard_running(runs_root, port=args.server_port or DEFAULT_VIEWER_PORT,
+                                       host=args.server_host or '0.0.0.0',
+                                       auth=args.auth or 'none',
+                                       public_origin=args.public_origin,
+                                       check_version=True,
+                                       run_id=run_dir.name if run_dir != runs_root else None)
+        args._dashboard_url = url
     except Exception as exc:
+        args._dashboard_url = None
         if required:
             raise
         print(f"warning: viewer unavailable: {exc}; training continues headless", file=sys.stderr)
@@ -483,6 +523,53 @@ def _training_viewer(args, *, config=None):
                            port=args.server_port, host=args.server_host, auth=args.auth,
                            public_origin=args.public_origin, open_browser=args.open,
                            config=config)
+
+
+def _print_training_header(run_dir: Path, experiment_name: str, device: str, dashboard_url: Optional[str] = None):
+    print("=== HyperGAN ===", file=sys.stderr)
+    print(f"Run directory:  {run_dir}", file=sys.stderr)
+    print(f"Experiment:     {experiment_name}", file=sys.stderr)
+
+    device_str = str(device)
+    if "cuda" in device_str.lower():
+        try:
+            import torch
+            dev_idx = 0
+            if ":" in device_str:
+                dev_idx = int(device_str.split(":")[1])
+            if torch.cuda.is_available():
+                prop = torch.cuda.get_device_properties(dev_idx)
+                device_str = f"gpu{dev_idx} (CUDA {dev_idx}: {prop.name})"
+            else:
+                device_str = f"{device_str} (CUDA)"
+        except Exception:
+            device_str = f"{device_str} (CUDA)"
+    elif device_str.lower() == "cpu":
+        device_str = "cpu (CPU)"
+    print(f"Devices:        {device_str}", file=sys.stderr)
+
+    import platform
+    print(f"Environment:    Python {platform.python_version()} ({sys.executable})", file=sys.stderr)
+
+    if dashboard_url:
+        lan_url = None
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            lan_ip = s.getsockname()[0]
+            s.close()
+            if lan_ip and lan_ip != "127.0.0.1" and "localhost" in dashboard_url:
+                lan_url = dashboard_url.replace("localhost", lan_ip).replace("127.0.0.1", lan_ip)
+        except Exception:
+            pass
+        if lan_url:
+            print(f"Dashboard:      {dashboard_url} (or {lan_url})", file=sys.stderr)
+        else:
+            print(f"Dashboard:      {dashboard_url}", file=sys.stderr)
+    else:
+        print("Dashboard:      headless (viewer disabled)", file=sys.stderr)
+
 
 
 def main(argv=None):
@@ -503,6 +590,55 @@ def _dispatch(args, *, output=None):
         elif args.command == "inspect":
             run = hg.open_run(args.path)
             _print_json(run.manifest)
+        elif args.command == "status":
+            res = hg.status(args.run_dir)
+            if args.json:
+                _print_json(res)
+            else:
+                from .inspection import format_run_status
+                print(format_run_status(res))
+        elif args.command == "runs":
+            if args.runs_command == "ls":
+                runs_list = hg.runs_ls(args.root, sort=args.sort, status_filter=args.status)
+                if args.json:
+                    _print_json(runs_list)
+                else:
+                    from .inspection import format_runs_table
+                    print(format_runs_table(runs_list))
+            elif args.runs_command == "compare":
+                comp = hg.runs_compare(args.runs, metric=args.metric, at_steps=args.at)
+                if args.csv:
+                    from .inspection import format_comparison_csv
+                    print(format_comparison_csv(comp), end="")
+                else:
+                    from .inspection import format_comparison_table
+                    print(format_comparison_table(comp))
+        elif args.command == "gc":
+            if args.all:
+                res = hg.gc_all(root=args.run_dir, dry_run=args.dry_run, stride=args.stride)
+                from .inspection import format_bytes
+                cleaned = [r for r in res if not r.get("skipped")]
+                skipped = [r for r in res if r.get("skipped")]
+                cleaned_count = len(cleaned)
+                skipped_count = len(skipped)
+                reclaimed = sum(r.get("total_reclaimed", 0) for r in cleaned)
+                print(f"GC complete across {cleaned_count + skipped_count} runs:")
+                print(f"  Cleaned:  {cleaned_count} runs (reclaimed {format_bytes(reclaimed)})")
+                if skipped_count:
+                    print(f"  Skipped:  {skipped_count} active runs")
+            else:
+                if args.run_dir is None:
+                    raise ValueError("run_dir is required unless --all is specified")
+                res = hg.gc(args.run_dir, dry_run=args.dry_run, stride=args.stride)
+                from .inspection import format_bytes
+                views_str = format_bytes(res.get("views_reclaimed_bytes", 0))
+                events_str = format_bytes(res.get("events_reclaimed_bytes", 0))
+                total_str = format_bytes(res.get("reclaimed_bytes", 0))
+                prefix = "Would clean" if args.dry_run else "Cleaned"
+                print(f"{prefix} run: {args.run_dir}")
+                print(f"  Views removed:     {views_str}")
+                print(f"  Events compacted:  {events_str}")
+                print(f"  Total reclaimed:   {total_str}")
         elif args.command == "model":
             desc = hg.describe(args.path, networks=args.networks, write=args.write)
             if args.write:
@@ -568,16 +704,23 @@ def _dispatch(args, *, output=None):
             _print_json(hg.preflight(cfg, profile=args.profile, runtime=args.runtime))
         elif args.command in {"new", "validate", "recipes", "convert"}:
             if args.command == "new":
-                from .config import validate_device
-                validate_device(args.device)
-                m = hg.packaged("gaussian-grid")
-                if args.device:
-                    m = hg.override(m, {"train.device": args.device})
-                dest = args.path / "model.toml" if (args.path.is_dir() or args.path.suffix != ".toml") else args.path
-                if dest.exists():
-                    raise FileExistsError(f"{dest} already exists; choose a new path")
-                saved = hg.save(m, dest)
-                print(saved)
+                if args.dataset is not None:
+                    from .recipe_generator import generate_recipe
+                    dest = args.path if args.path.suffix == ".toml" else (args.path / "model.toml" if args.path.is_dir() else args.path.with_suffix(".toml"))
+                    name = args.path.stem
+                    saved = generate_recipe(name, args.dataset, dest, device=args.device)
+                    print(saved)
+                else:
+                    from .config import validate_device
+                    validate_device(args.device)
+                    m = hg.packaged("gaussian-grid")
+                    if args.device:
+                        m = hg.override(m, {"train.device": args.device})
+                    dest = args.path / "model.toml" if (args.path.is_dir() or args.path.suffix != ".toml") else args.path
+                    if dest.exists():
+                        raise FileExistsError(f"{dest} already exists; choose a new path")
+                    saved = hg.save(m, dest)
+                    print(saved)
             elif args.command == "recipes":
                 _print_json(hg.packaged_list())
             elif args.command == "convert":
@@ -601,8 +744,30 @@ def _dispatch(args, *, output=None):
                            preview_every=args.preview_every, preview_keep=args.preview_keep,
                            preview_name=args.preview_name)
             sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
-            if args.command == "train":
-                config_path = args.config.resolve()
+            is_resume_cmd = args.command == "resume"
+            target_arg = getattr(args, "run_dir", None) if is_resume_cmd else getattr(args, "config", None)
+            if target_arg is None:
+                target_arg = getattr(args, "config", None) or getattr(args, "run_dir", None)
+            target_path = target_arg.resolve() if target_arg else None
+
+            is_run_dir = is_resume_cmd or (target_path and target_path.is_dir() and (
+                (target_path / "manifest.json").is_file() or (target_path / "recipe.toml").is_file() or (target_path / "summary.json").is_file()
+            ))
+
+            if is_run_dir:
+                args.run_dir = target_path
+                config_override = getattr(args, "config", None) if is_resume_cmd else None
+                if config_override is None:
+                    if (args.run_dir / "recipe.toml").is_file():
+                        config_override = args.run_dir / "recipe.toml"
+                    elif (args.run_dir / "model.toml").is_file():
+                        config_override = args.run_dir / "model.toml"
+                m = hg.load(config_override) if config_override else None
+                if m and sets:
+                    m = hg.override(m, sets)
+                prepared = hg.prepare_resume(args.run_dir, getattr(args, "checkpoint", None), m, steps=getattr(args, "steps", None), sets=sets, **options)
+            else:
+                config_path = target_path
                 if args.run_dir is None:
                     ws_path = hg.find_workspace(config_path)
                     if ws_path:
@@ -620,7 +785,7 @@ def _dispatch(args, *, output=None):
                 else:
                     args.run_dir = args.run_dir.resolve()
 
-                m = hg.load(args.config)
+                m = hg.load(config_path)
                 if sets:
                     m = hg.override(m, sets)
 
@@ -688,21 +853,16 @@ def _dispatch(args, *, output=None):
                         new_env["PYTHONPATH"] = f"{prefix}:{cur_pp}" if cur_pp else prefix
 
                     target_executable = target_py or sys.executable
-                    new_argv = _reconstruct_argv_for_reexec(sys.argv, str(args.config), str(args.run_dir / "recipe.toml"), str(args.run_dir))
+                    new_argv = _reconstruct_argv_for_reexec(sys.argv, str(config_path), str(args.run_dir / "recipe.toml"), str(args.run_dir))
                     os.execve(target_executable, [target_executable, "-m", "hypergan", *new_argv], new_env)
 
                 prepared = hg.prepare(m, args.run_dir, args.steps, **options)
-            else:
-                args.run_dir = args.run_dir.resolve()
-                m = hg.load(args.config) if args.config else None
-                if m and sets:
-                    m = hg.override(m, sets)
-                prepared = hg.prepare_resume(args.run_dir, args.checkpoint, m, steps=getattr(args, "steps", None), sets=sets, **options)
+
             _warnings(prepared.config)
             from .metrics import manual_evaluation_hint, manual_evaluation_reminder
 
             labels = {"run": str(args.run_dir),
-                      "config_path": str(args.config) if getattr(args, "config", None) else "CONFIG"}
+                      "config_path": str(getattr(args, "config", None) or args.run_dir)}
             hint = manual_evaluation_hint(prepared.config, **labels)
             if hint:
                 print(f"hint: {hint}", file=sys.stderr)
@@ -710,6 +870,12 @@ def _dispatch(args, *, output=None):
                              evaluation_reminder=manual_evaluation_reminder(prepared.config, **labels))
             config_dict = getattr(prepared.config, 'spec', prepared.config)
             with _training_viewer(args, config=config_dict):
+                if not getattr(args, "progress_json", False):
+                    exp_name = config_dict.get("name") if isinstance(config_dict, dict) else (target_path.stem if target_path else args.run_dir.name)
+                    train_sec = config_dict.get("train", {}) if isinstance(config_dict, dict) else {}
+                    dev = train_sec.get("device", "cuda")
+                    dashboard_url = getattr(args, "_dashboard_url", None)
+                    _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url)
                 output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir)
         elif args.command == "sample":
             s = hg.sample(args.run_dir, count=args.count, seed=args.seed, output=args.output,

@@ -11,6 +11,7 @@ import io
 import json
 import math
 import os
+from pathlib import Path
 import queue
 import subprocess
 import sys
@@ -345,15 +346,58 @@ class CLIProgress:
             row = dict(event, evaluation_reminder=reminder) if reminder else event
             self.output.stdout.write(json.dumps(row, allow_nan=False) + '\n')
         elif event.get('event') == 'train':
-            metrics = event.get('metrics', {})
-            values = ' '.join(f'{label}={metrics[key]:.6g}' for key, label in
-                              (('loss/d_total', 'D'), ('loss/g_total', 'G')) if key in metrics)
-            details = ' | '.join(_progress_details(event))
-            self.output.stderr.write(f"step {event['step']}" + (f': {values}' if values else '')
-                                     + (f' | {details}' if details else '') + '\n')
+            if event.get('total_steps'):
+                step = event['step']
+                total = event['total_steps']
+                pct = (step / total * 100) if total else 0.0
+                rate = event.get('steps_per_second')
+                rate_str = f"{rate:.1f} it/s" if rate is not None else "-- it/s"
+                remaining_steps = max(0, total - step)
+                if rate and rate > 0 and remaining_steps > 0:
+                    eta_secs = int(remaining_steps / rate)
+                    eta_str = f"{eta_secs // 3600:02d}:{(eta_secs % 3600) // 60:02d}:{eta_secs % 60:02d}"
+                else:
+                    eta_str = "--:--:--"
+                progress_line = f"step {step:,} / {total:,} ({pct:.1f}%) · {rate_str} · ETA {eta_str}"
+                is_atty = hasattr(self.output.stderr, "isatty") and self.output.stderr.isatty()
+                if is_atty:
+                    self.output.stderr.write(f"\r\033[K{progress_line}")
+                    self.output.stderr.flush()
+                else:
+                    self.output.stderr.write(f"{progress_line}\n")
+            else:
+                metrics = event.get('metrics', {})
+                values = ' '.join(f'{label}={metrics[key]:.6g}' for key, label in
+                                  (('loss/d_total', 'D'), ('loss/g_total', 'G')) if key in metrics)
+                details = ' | '.join(_progress_details(event))
+                self.output.stderr.write(f"step {event['step']}" + (f': {values}' if values else '')
+                                         + (f' | {details}' if details else '') + '\n')
             if reminder:
                 self.output.stderr.write(f'reminder: {reminder}\n')
 
+        elif event.get('event') in ('metric', 'preview'):
+            # Suppress routine intermediate metric and preview lines
+            return
+        elif event.get('event') == 'checkpoint':
+            step = event.get('step', '?')
+            path = event.get('checkpoint_path', '')
+            step_str = f"{step:,}" if isinstance(step, int) else str(step)
+            is_atty = hasattr(self.output.stderr, "isatty") and self.output.stderr.isatty()
+            prefix = "\r\033[K" if is_atty else ""
+            self.output.stderr.write(f"{prefix}[CHECKPOINT] step {step_str}: saved to {path}\n")
+        elif event.get('event') in ('evaluation', 'evaluation_result'):
+            step = event.get('step', '?')
+            step_str = f"{step:,}" if isinstance(step, int) else str(step)
+            metric_id = event.get('metric_id') or next(iter(event.get('metrics', {}).keys()), 'eval')
+            val = event.get('value')
+            if val is None and 'metrics' in event:
+                val = event['metrics'].get(metric_id)
+            val_str = f"{val:.2f}" if isinstance(val, (int, float)) else str(val)
+            is_best = event.get('best', False)
+            best_tag = " (new best!)" if is_best else ""
+            is_atty = hasattr(self.output.stderr, "isatty") and self.output.stderr.isatty()
+            prefix = "\r\033[K" if is_atty else ""
+            self.output.stderr.write(f"{prefix}[EVAL] step {step_str}: {metric_id} = {val_str}{best_tag}\n")
         else:
             message = event.get('error') or event.get('reason') or event.get('stop_reason')
             self.output.stderr.write(f"{event.get('event', 'status')} at step {event.get('step', '?')}" +
@@ -387,7 +431,53 @@ class TrainingOutput:
         self.policy = ConsolePolicy(run_dir, progress_every=progress_every)
         self.evaluation_reminder = evaluation_reminder
 
-    def result(self, result, *, run_dir=None):
+    def result(self, result, *, run_dir=None, human=False):
+        if not self.progress_json and human:
+            manifest = result if isinstance(result, dict) else {}
+            status = manifest.get('status', 'complete')
+            step = manifest.get('steps', 0)
+            total_steps = manifest.get('config', {}).get('training', {}).get('steps') or manifest.get('total_steps', step)
+            pct = (step / total_steps * 100) if total_steps else 100.0
+            elapsed_sec = manifest.get('training_seconds') or manifest.get('seconds', 0)
+            dur_str = human_duration(elapsed_sec) or "0s"
+            rate = manifest.get('steps_per_second')
+            rate_str = f"{rate:.1f} it/s" if rate is not None else "-- it/s"
+            run_id = manifest.get('run_id') or (Path(run_dir).name if run_dir else "")
+
+            best_fid_str = None
+            if run_dir:
+                try:
+                    from .summary import read_summary_json
+                    s_data = read_summary_json(run_dir)
+                    if s_data and s_data.get('best'):
+                        b = s_data['best']
+                        best_fid_str = f"{b.get('value', 0):.2f} ({b.get('metric')} at step {b.get('step', 0):,})"
+                except Exception:
+                    pass
+
+            ckpt_path = manifest.get('checkpoint_path') or (f"checkpoints/{step:07d}/state.pt" if step else "--")
+
+            lines = ["=" * 60]
+            if status == "complete":
+                lines.append("Training complete")
+                lines.append(f"  Steps:       {step:,} / {total_steps:,} ({pct:.1f}%)")
+                lines.append(f"  Time:        {dur_str} ({rate_str})")
+                if best_fid_str:
+                    lines.append(f"  Best FID:    {best_fid_str}")
+                lines.append(f"  Checkpoint:  {ckpt_path}")
+                if run_dir:
+                    lines.append(f"  Export:      hypergan export {run_dir} --checkpoint best")
+                    lines.append(f"  Dashboard:   http://localhost:8765/runs/{run_id}")
+            else:
+                lines.append(f"Training {status} at step {step:,}")
+                lines.append(f"  Time elapsed: {dur_str} ({rate_str})")
+                lines.append(f"  Latest checkpoint: {ckpt_path}")
+                if run_dir:
+                    lines.append(f"  Resume run:   hypergan resume {run_dir}")
+            lines.append("=" * 60)
+            self.stdout.write("\n".join(lines) + "\n")
+            return
+
         value = {'event': 'result', 'manifest': result} if self.progress_json else result
         encoded = json.dumps(value, allow_nan=False, sort_keys=not self.progress_json) + '\n'
         if len(encoded.encode('utf-8')) > MAX_LINE_BYTES:

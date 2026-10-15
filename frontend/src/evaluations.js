@@ -348,7 +348,7 @@ export function evaluationShelf(api, base) {
       card.stale = false;
     }
     document.getElementById('evaluations').hidden = items.length === 0
-      && !inventory.some(s => /^evaluation:[0-9a-f]{32}$/.test(s.stream_id));
+      && !inventory.some(s => /^evaluation:(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})$/.test(s.stream_id));
   }
   function update(catalog, currentRun) {
     definitions = catalog?.metrics || {};
@@ -381,7 +381,7 @@ export function evaluationShelf(api, base) {
           cards.clear(); records.clear();
           document.getElementById('evaluation-items').replaceChildren(); runPath = path;
         }
-        const selected = (inventory || []).filter(s => /^evaluation:[0-9a-f]{32}$/.test(s.stream_id)).slice(0, 64);
+        const selected = (inventory || []).filter(s => /^evaluation:(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})$/.test(s.stream_id)).slice(0, 64);
         renderPanel();
         for (const stream of selected) {
           let entry = records.get(stream.stream_id);

@@ -2,6 +2,7 @@
 from concurrent.futures import Future
 from pathlib import Path
 from threading import Event, Thread
+import re
 import tempfile
 import time
 import uuid
@@ -178,6 +179,11 @@ class IntervalEvaluations:
                       evaluation_id=receipt['evaluation_id'])
         record.pop('reason', None)
         self._event(key, 'complete', source['source_step'], evaluation_id=receipt['evaluation_id'])
+        try:
+            from .summary import write_summary_json
+            write_summary_json(self.root, self.manifest)
+        except Exception:
+            pass
 
     def schedule(self):
         step = self.manifest['steps']
@@ -200,7 +206,10 @@ class IntervalEvaluations:
                 self._event(key, 'skipped', step, reason='worker_busy')
                 continue
             identity = {name: self.manifest[name] for name in ('run_id', 'attempt_id', 'attempt_index')}
-            identity.update(evaluation_id=uuid.uuid4().hex, source_step=step)
+            clean_key = re.sub(r'[^A-Za-z0-9_-]', '_', key)
+            short_uuid = uuid.uuid4().hex[:8]
+            eval_id = f"step-{step:08d}-{clean_key}-{short_uuid}"
+            identity.update(evaluation_id=eval_id, source_step=step)
             record.update(status='running', source_step=step, evaluation_id=identity['evaluation_id'])
             record.pop('reason', None)
             try:
@@ -255,6 +264,11 @@ class IntervalEvaluations:
                                       evaluation_id=receipt['evaluation_id'])
                         record.pop('reason', None)
                         self._event(key, 'complete', source['source_step'], evaluation_id=receipt['evaluation_id'])
+                        try:
+                            from .summary import write_summary_json
+                            write_summary_json(self.root, self.manifest)
+                        except Exception:
+                            pass
                 break
             self.poll()
             if self.worker.busy:

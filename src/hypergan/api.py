@@ -49,7 +49,8 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
-           'resolve_inheritance', 'collect_source_files']
+           'resolve_inheritance', 'collect_source_files',
+           'status', 'runs_ls', 'runs_compare', 'gc', 'gc_all', 'compact_events']
 
 
 
@@ -580,21 +581,23 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
     """Validate and prepare a run resumption, returning a PreparedExecution."""
     from .execution import prepare_resume as _prepare_resume
     run_path = Path(run_dir).resolve()
+    if model is None and (sets or steps is not None):
+        if (run_path / 'model.toml').is_file():
+            model = load(run_path / 'model.toml')
+        elif (run_path / 'recipe.toml').is_file():
+            model = load(run_path / 'recipe.toml')
+        elif (run_path / 'config.toml').is_file():
+            model = load(run_path / 'config.toml')
+        elif (run_path / 'manifest.json').is_file():
+            with (run_path / 'manifest.json').open('rb') as f:
+                manifest = json.load(f)
+            saved_config = manifest.get('config')
+            if not isinstance(saved_config, dict):
+                raise ValueError(f"Run {run_dir} has no recorded configuration in manifest.json")
+            model = from_dict(saved_config, base=run_path)
+        else:
+            raise ValueError(f"Run directory {run_dir} does not exist or has no configuration")
     if sets:
-        if model is None:
-            if (run_path / 'model.toml').is_file():
-                model = load(run_path / 'model.toml')
-            elif (run_path / 'config.toml').is_file():
-                model = load(run_path / 'config.toml')
-            elif (run_path / 'manifest.json').is_file():
-                with (run_path / 'manifest.json').open('rb') as f:
-                    manifest = json.load(f)
-                saved_config = manifest.get('config')
-                if not isinstance(saved_config, dict):
-                    raise ValueError(f"Run {run_dir} has no recorded configuration in manifest.json")
-                model = from_dict(saved_config, base=run_path)
-            else:
-                raise ValueError(f"Run directory {run_dir} does not exist or has no configuration")
         normalized_sets = {}
         for k, v in sets.items():
             if k.startswith('training.') and hasattr(model, 'spec') and 'train' in model.spec:
@@ -874,6 +877,42 @@ def extract_ema_bundle(checkpoint_dir, manifest=None):
     """Extract EMA weights from checkpoint_dir into an in-memory bundle."""
     from .checkpoints import extract_ema_bundle as _extract
     return _extract(checkpoint_dir, manifest=manifest)
+
+
+def status(run):
+    """Compile human-friendly status summary for a run."""
+    from .inspection import run_status as _status
+    return _status(_run_path(run))
+
+
+def runs_ls(root=None, sort="fid", status_filter=None):
+    """Discover and list all runs under root with filtering and sorting."""
+    from .inspection import list_runs as _list_runs
+    return _list_runs(root, sort=sort, status_filter=status_filter)
+
+
+def runs_compare(runs, metric="fid50k_train", at_steps=None):
+    """Compare multiple runs for a given metric across step milestones."""
+    from .inspection import compare_runs as _compare_runs
+    return _compare_runs(runs, metric=metric, at_steps=at_steps)
+
+
+def gc(run, dry_run=False, stride=10):
+    """Clean rebuildable views and compact events on a finished run."""
+    from .inspection import gc_run as _gc_run
+    return _gc_run(_run_path(run), dry_run=dry_run, stride=stride)
+
+
+def gc_all(root=None, dry_run=False, stride=10):
+    """Clean all finished runs under root."""
+    from .inspection import gc_all as _gc_all
+    return _gc_all(root, dry_run=dry_run, stride=stride)
+
+
+def compact_events(run, stride=10):
+    """Compact redundant train events in events.jsonl, returning reclaimed bytes."""
+    from .inspection import compact_events as _compact
+    return _compact(_run_path(run), stride=stride)
 
 
 # --------------------------------------------------------------------------- viewables

@@ -138,6 +138,14 @@ def validate_event_boundary(run_dir, info):
     boundary = info.get('event_boundary')
     if boundary is None:
         return
+    manifest_path = Path(run_dir) / 'manifest.json'
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            if manifest.get('events_compacted'):
+                return
+        except Exception:
+            pass
     required = {'schema_version', 'offset', 'sha256', 'run_id', 'attempt_id', 'step', 'sequence'}
     if (not isinstance(boundary, dict) or set(boundary) != required
             or type(boundary['schema_version']) is not int or boundary['schema_version'] != 1

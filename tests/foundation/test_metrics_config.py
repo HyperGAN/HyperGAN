@@ -77,7 +77,7 @@ def test_unsupported_or_ambiguous_metrics_fail_structurally(spec):
 
 
 def test_none_can_explicitly_select_one_and_total_is_independent_of_published_sources():
-    config = resolve_config({'metrics': {'preset': 'none', 'overrides': {'loss/total': {'enabled': True}}}})
+    config = resolve_config({'metrics': {'preset': 'none', 'every_steps': 1, 'overrides': {'loss/total': {'enabled': True}}}})
     values, statuses, mode = select_metrics(config, metric_catalog(config), {'d_loss': 2., 'g_loss': 3.}, 1, .1)
     assert values == {'loss/total': 5.} and not statuses and mode == 'sampled'
     config = resolve_config({'metrics': {'every_steps': 2}})
@@ -85,7 +85,7 @@ def test_none_can_explicitly_select_one_and_total_is_independent_of_published_so
 
 
 def test_zero_coefficients_and_lazy_schedule_do_not_fabricate_raw_values():
-    config = resolve_config({'gradient_penalty': {'lazy_k': 2, 'coeff': 0}, 'adversarial': {'weight': 0}})
+    config = resolve_config({'gradient_penalty': {'lazy_k': 2, 'coeff': 0}, 'adversarial': {'weight': 0}, 'metrics': {'every_steps': 1}})
     row = {'d_adversarial_weighted': 0., 'g_adversarial_weighted': 0., 'd_adversarial': 3., 'g_adversarial': 4., 'gradient_penalty': 0.}
     catalog = metric_catalog(config)
     values, statuses, _ = select_metrics(config, catalog, row, 1, .1)
@@ -199,7 +199,7 @@ def test_throughput_window_averages_recent_updates_without_dividing_by_zero():
 
 def test_progress_scalars_publish_throughput_time_and_samples_seen():
     import math
-    config = resolve_config({})
+    config = resolve_config({'metrics': {'every_steps': 1}})
     catalog = metric_catalog(config)
     row = {'d_loss': 2., 'g_loss': 3.}
     progress = {'samples_seen': 32, 'training_seconds': 5025.5, 'steps_per_second': 12.5}

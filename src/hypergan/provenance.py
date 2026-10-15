@@ -128,3 +128,20 @@ def snapshot_config_sources(run_dir, source_files):
 
     return target_dir
 
+
+def determine_attempt(run_dir: Path | str) -> int:
+    """Determine the next 1-based attempt sequence number for the run."""
+    run_dir = Path(run_dir).resolve()
+    reexec_att = os.environ.get("_HYPERGAN_REEXEC_ATTEMPT")
+    if reexec_att:
+        try:
+            return int(reexec_att)
+        except ValueError:
+            pass
+    launch_dir = run_dir / "launch"
+    if launch_dir.is_dir():
+        existing = [p for p in launch_dir.glob("*.json") if re.fullmatch(r"\d{4}\.json", p.name)]
+        if existing:
+            return max(int(p.stem) for p in existing) + 1
+    return 1
+

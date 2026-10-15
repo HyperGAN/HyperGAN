@@ -6,6 +6,7 @@ Use a Python main guard when selecting a replicated profile.
 """
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 
 from .config import config_values, fingerprint, load_config, resolve_config, resume_compatible
@@ -189,7 +190,7 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
     run_dir = Path(run_dir).resolve()
-    if (run_dir / 'manifest.json').is_file():
+    if run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1":
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=profile, service_policy=service_policy, checkpoint_every=checkpoint_every,
             max_seconds=max_seconds, stop_after_steps=stop_after_steps,

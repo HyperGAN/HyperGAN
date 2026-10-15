@@ -561,7 +561,10 @@ def prepare(model, run_dir, steps=None, *, profile=None, service_policy=None,
     from .execution import prepare_train as _prepare_train
     model = _model(model)
     pe = preview_every if preview_every is not None else previews
-    return _prepare_train(lower(model), run_dir, steps=steps, profile=profile,
+    lowered = lower(model)
+    if getattr(model, 'path', None):
+        lowered['_source_path'] = str(model.path)
+    return _prepare_train(lowered, run_dir, steps=steps, profile=profile,
                           service_policy=service_policy, checkpoint_every=checkpoint_every,
                           max_seconds=max_seconds, stop_after_steps=stop_after_steps,
                           preview_every=pe, preview_keep=preview_keep,

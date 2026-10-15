@@ -80,7 +80,10 @@ def load_workspace(workspace_file: Path | str) -> dict:
     if "runs_root" in ws and "${" in str(ws["runs_root"]):
         ws["runs_root"] = interpolate_variables(ws["runs_root"], data)
     if "run_dir" in ws and "${" in str(ws["run_dir"]):
-        ws["run_dir"] = interpolate_variables(ws["run_dir"], data)
+        try:
+            ws["run_dir"] = interpolate_variables(ws["run_dir"], data)
+        except KeyError:
+            pass
 
     return data
 
@@ -167,15 +170,15 @@ def interpolate_variables(data: Any, workspace_dict: dict, env_vars: dict | None
 
         return _VAR_REGEX.sub(_sub, val)
 
-    def _walk(item: Any) -> Any:
+    def _walk(item: Any, key: Any = None) -> Any:
         if isinstance(item, str):
-            if "${" in item:
+            if "${" in item and key != "source":
                 return _interpolate_string(item)
             return item
         elif isinstance(item, dict):
-            return {k: _walk(v) for k, v in item.items()}
+            return {k: _walk(v, k) for k, v in item.items()}
         elif isinstance(item, list):
-            return [_walk(elem) for elem in item]
+            return [_walk(elem, key) for elem in item]
         return deepcopy(item)
 
     return _walk(data)

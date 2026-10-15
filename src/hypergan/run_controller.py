@@ -6,6 +6,7 @@ from adapters that configure a fenced attempt before constructing workers.
 from dataclasses import dataclass
 import json
 import math
+import os
 from pathlib import Path
 import time
 from typing import Protocol
@@ -247,11 +248,16 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
         raise TypeError('run_train requires an execution_factory')
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
+    src_p = (config_path.get('_source_path') if isinstance(config_path, dict) else None) or (config_path if isinstance(config_path, (str, Path)) else None)
     config = load_config(config_path)
     if steps is not None:
         raw = config_values(config)
         raw['training']['steps'] = steps
+        if src_p:
+            raw['_source_path'] = str(src_p)
         config = resolve_config(raw)
+    elif src_p and isinstance(config, dict) and '_source_path' not in config:
+        config['_source_path'] = str(src_p)
     run_dir = Path(run_dir).resolve()
     if (run_dir / 'manifest.json').exists():
         raise FileExistsError(f'Run directory already exists: {run_dir}')
@@ -268,6 +274,27 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
         environment = execution.environment()
         run_dir.mkdir(parents=True, exist_ok=True)
         sync_directory(run_dir.parent)
+        try:
+            from .provenance import write_launch_provenance, snapshot_config_sources, determine_attempt
+            from .model_file import collect_source_files
+            from .workspace import find_workspace
+
+            attempt = determine_attempt(run_dir)
+            launch_file = run_dir / "launch" / f"{attempt:04d}.json"
+            if not launch_file.is_file():
+                write_launch_provenance(run_dir, attempt=attempt, metadata={
+                    "run": config.get("run", {}),
+                })
+            src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
+            if src_p and Path(src_p).is_file():
+                cfg_p = Path(src_p).resolve()
+                ws_p = find_workspace(cfg_p)
+                sources = collect_source_files(cfg_p, ws_p.parent if ws_p else None)
+                snapshot_config_sources(run_dir, sources)
+        except Exception:
+            pass
+        if os.environ.get("_HYPERGAN_REEXEC") == "1":
+            os.environ.pop("_HYPERGAN_REEXEC", None)
         manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
                 'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
                 'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
@@ -367,6 +394,14 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
                             durable_event_boundary=checkpoint_info.get('event_boundary'),
                             checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
                             resumed_from=str(restored.checkpoint_path), steps=restored.step)
+            try:
+                from .provenance import write_launch_provenance, determine_attempt
+                attempt = determine_attempt(run_dir)
+                write_launch_provenance(run_dir, attempt=attempt, metadata={
+                    "run": config.get("run", {}),
+                })
+            except Exception:
+                pass
         except BaseException:
             _cleanup_validation_failure(execution)
             raise

@@ -353,7 +353,7 @@ def sampler_bindings(config):
 
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
-    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers", "format", "name_map"}, "configuration")
+    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"}, "configuration")
     raw = dict(raw)
     if "adversarial" in raw:
         raw["adversarial"] = _drop_removed_fields(raw["adversarial"], "adversarial")
@@ -375,7 +375,7 @@ def resolve_config(raw):
         if key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
-        elif key in ("adversarial_terms", "samplers", "format", "name_map"):
+        elif key in ("adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
             allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())

@@ -635,33 +635,12 @@ def _dispatch(args, *, output=None):
                     new_argv = _reconstruct_argv_for_reexec(sys.argv, str(args.config), str(args.run_dir / "recipe.toml"), str(args.run_dir))
                     os.execve(target_executable, [target_executable, "-m", "hypergan", *new_argv], new_env)
 
-                if os.environ.get("_HYPERGAN_REEXEC") == "1":
-                    os.environ.pop("_HYPERGAN_REEXEC", None)
-                else:
-                    args.run_dir.mkdir(parents=True, exist_ok=True)
-                    from .provenance import write_launch_provenance, snapshot_config_sources
-                    from .model_file import collect_source_files
-                    sources = collect_source_files(config_path, ws_path.parent if ws_path else None)
-                    snapshot_config_sources(args.run_dir, sources)
-                    attempt = _determine_attempt(args.run_dir)
-                    write_launch_provenance(args.run_dir, attempt=attempt, metadata={
-                        "argv": list(sys.argv),
-                        "executable": sys.executable,
-                        "run": run_spec,
-                    })
-
                 prepared = hg.prepare(m, args.run_dir, args.steps, **options)
             else:
                 args.run_dir = args.run_dir.resolve()
                 m = hg.load(args.config) if args.config else None
                 if m and sets:
                     m = hg.override(m, sets)
-                from .provenance import write_launch_provenance
-                attempt = _determine_attempt(args.run_dir)
-                write_launch_provenance(args.run_dir, attempt=attempt, metadata={
-                    "argv": list(sys.argv),
-                    "executable": sys.executable,
-                })
                 prepared = hg.prepare_resume(args.run_dir, args.checkpoint, m, steps=getattr(args, "steps", None), sets=sets, **options)
             _warnings(prepared.config)
             from .metrics import manual_evaluation_hint, manual_evaluation_reminder

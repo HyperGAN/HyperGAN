@@ -249,6 +249,8 @@ def _parser():
             p.add_argument("config", type=Path, help="configuration file or existing run directory to resume")
             p.add_argument("--run-dir", type=Path, required=False, default=None, help="new run directory, or an existing run to resume")
             p.add_argument("--config", type=Path, default=None, help="explicit configuration file override")
+        p.add_argument("-d", "--devices", default=None,
+                       help="device(s) to train on: 0, 0,1, gpu0,gpu1, auto, cpu")
         p.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
         p.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
         p.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
@@ -267,6 +269,46 @@ def _parser():
     sample.add_argument("--output", type=Path)
     sample.add_argument("--sampler", help="sampler name declared in [samplers], or module:function import path")
     sample.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
+
+    queue_cmd = commands.add_parser("queue", help="Multi-GPU job queue scheduler, runner daemon, and service generator")
+    queue_subs = queue_cmd.add_subparsers(dest="queue_command")
+
+    q_add = queue_subs.add_parser("add", help="Enqueue a training experiment or wait directive")
+    q_add.add_argument("model_file", type=Path, help="path to experiment model TOML (or run directory if --wait)")
+    q_add.add_argument("-d", "--devices", default=None, help="target devices (e.g. gpu0, gpu0,gpu1, 0, 0,1)")
+    q_add.add_argument("--run-dir", type=Path, default=None, help="explicit run directory")
+    q_add.add_argument("--name", default=None, help="optional custom job name")
+    q_add.add_argument("--wait", action="store_true", help="wait for target run directory to complete before proceeding")
+    q_add.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+
+    q_ls = queue_subs.add_parser("ls", help="List jobs from the queue")
+    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled"), default=None, help="filter by status")
+    q_ls.add_argument("--json", action="store_true", help="output JSON format")
+    q_ls.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+
+    q_status = queue_subs.add_parser("status", help="Inspect job details, progress, and live log tail")
+    q_status.add_argument("job_id", nargs="?", default=None, help="job ID to inspect (default: active/latest job)")
+    q_status.add_argument("--lines", type=int, default=20, help="number of log tail lines (default: 20)")
+    q_status.add_argument("--json", action="store_true", help="output JSON format")
+    q_status.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+
+    q_stop = queue_subs.add_parser("stop", help="Cancel queued jobs or signal running job to halt")
+    q_stop.add_argument("job_id", nargs="?", default=None, help="job ID to stop")
+    q_stop.add_argument("--all", action="store_true", help="cancel all queued jobs and halt queue runner")
+    q_stop.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+
+    q_run = queue_subs.add_parser("run", help="Start the sequential queue daemon runner")
+    q_run.add_argument("-d", "--devices", default=None, help="restrict runner to specific device(s)")
+    q_run.add_argument("--poll-interval", type=float, default=5.0, help="seconds between queue checks (default: 5.0)")
+    q_run.add_argument("--once", action="store_true", help="execute available jobs and exit instead of continuous loop")
+    q_run.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+
+    q_svc = queue_subs.add_parser("install-service", help="Generate systemd user service unit")
+    q_svc.add_argument("--user", action="store_true", default=True, help="install as user service in ~/.config/systemd/user (default: true)")
+    q_svc.add_argument("-d", "--devices", default=None, help="bind service runner to specific device(s)")
+    q_svc.add_argument("--name", default=None, help="custom service name")
+    q_svc.add_argument("--dry-run", action="store_true", help="print generated unit file without writing to disk")
+
     return parser
 
 
@@ -739,6 +781,7 @@ def _dispatch(args, *, output=None):
             options = dict(profile=args.profile,
                            service_policy={name: getattr(args, name) for name in SERVICE_TIMEOUTS
                                            if getattr(args, name) is not None},
+                           devices=getattr(args, "devices", None),
                            checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
                            stop_after_steps=args.stop_after_steps,
                            preview_every=args.preview_every, preview_keep=args.preview_keep,
@@ -886,6 +929,43 @@ def _dispatch(args, *, output=None):
                 if hasattr(view_obj, "save") and args.output:
                     view_obj.save(args.output)
             print(s.path)
+        elif args.command == "queue":
+            from .queue import format_queue_table, format_queue_status
+            if getattr(args, "queue_command", None) is None:
+                jobs = hg.queue_ls()
+                print(format_queue_table(jobs))
+                return 0
+
+            if args.queue_command == "add":
+                res = hg.queue_add(
+                    args.model_file,
+                    devices=args.devices,
+                    run_dir=args.run_dir,
+                    name=args.name,
+                    wait=args.wait,
+                    queue_file=getattr(args, "queue_file", None),
+                )
+                print(f"Enqueued {res['id']}: {res['name']} (devices: {res.get('devices') or 'default'}, status: {res['status']})")
+            elif args.queue_command == "ls":
+                jobs = hg.queue_ls(status=args.status, queue_file=getattr(args, "queue_file", None))
+                if getattr(args, "json", False):
+                    _print_json(jobs)
+                else:
+                    print(format_queue_table(jobs))
+            elif args.queue_command == "status":
+                st = hg.queue_status(job_id=args.job_id, queue_file=getattr(args, "queue_file", None), lines=args.lines)
+                if getattr(args, "json", False):
+                    _print_json(st)
+                else:
+                    print(format_queue_status(st))
+            elif args.queue_command == "stop":
+                res = hg.queue_stop(job_id=args.job_id, stop_all=args.all, queue_file=getattr(args, "queue_file", None))
+                print(res["message"])
+            elif args.queue_command == "run":
+                return hg.queue_run(devices=args.devices, poll_interval=args.poll_interval, once=args.once, queue_file=getattr(args, "queue_file", None))
+            elif args.queue_command == "install-service":
+                path, instructions = hg.queue_install_service(user=args.user, devices=args.devices, name=args.name, dry_run=args.dry_run)
+                print(instructions)
     except KeyboardInterrupt:
         print("error: interrupted", file=sys.stderr)
         return 130

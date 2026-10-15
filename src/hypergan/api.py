@@ -50,7 +50,8 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
            'resolve_inheritance', 'collect_source_files',
-           'status', 'runs_ls', 'runs_compare', 'gc', 'gc_all', 'compact_events']
+           'status', 'runs_ls', 'runs_compare', 'gc', 'gc_all', 'compact_events',
+           'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service']
 
 
 
@@ -555,6 +556,7 @@ def _run(value):
 
 
 def prepare(model, run_dir, steps=None, *, profile=None, service_policy=None,
+            devices=None,
             checkpoint_every=None, max_seconds=None, stop_after_steps=None,
             preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
             preview_name=None, **extra):
@@ -566,7 +568,8 @@ def prepare(model, run_dir, steps=None, *, profile=None, service_policy=None,
     if getattr(model, 'path', None):
         lowered['_source_path'] = str(model.path)
     return _prepare_train(lowered, run_dir, steps=steps, profile=profile,
-                          service_policy=service_policy, checkpoint_every=checkpoint_every,
+                          service_policy=service_policy, devices=devices,
+                          checkpoint_every=checkpoint_every,
                           max_seconds=max_seconds, stop_after_steps=stop_after_steps,
                           preview_every=pe, preview_keep=preview_keep,
                           preview_keep_source=preview_keep_source, preview_name=preview_name,
@@ -574,7 +577,7 @@ def prepare(model, run_dir, steps=None, *, profile=None, service_policy=None,
 
 
 def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
-                   profile=None, service_policy=None,
+                   profile=None, service_policy=None, devices=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
                    preview_name=None, sets=None, **extra):
@@ -615,7 +618,7 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
     config_path = lower(model) if model is not None else None
     pe = preview_every if preview_every is not None else previews
     return _prepare_resume(run_dir, checkpoint=checkpoint, config_path=config_path, steps=steps,
-                           profile=profile, service_policy=service_policy,
+                           profile=profile, service_policy=service_policy, devices=devices,
                            checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                            stop_after_steps=stop_after_steps, preview_every=pe,
                            preview_keep=preview_keep, preview_keep_source=preview_keep_source,
@@ -623,19 +626,19 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
 
 
 def train(model, run_dir, *, steps=None, previews=None, preview_every=None, checkpoint_every=None, profile=None,
-          on_event=None, **controls):
+          devices=None, on_event=None, **controls):
     """Train (or continue, if ``run_dir`` exists) and return the ``Run``."""
     pe = preview_every if preview_every is not None else previews
-    prep = prepare(model, run_dir, steps=steps, profile=profile,
+    prep = prepare(model, run_dir, steps=steps, profile=profile, devices=devices,
                    checkpoint_every=checkpoint_every, preview_every=pe, **controls)
     prep.run(on_event=on_event)
     return open_run(run_dir)
 
 
-def resume(run, model=None, *, steps=None, on_event=None, **controls):
+def resume(run, model=None, *, steps=None, devices=None, on_event=None, **controls):
     """Continue a run from its latest checkpoint (optionally with changed observation settings)."""
     run = _run(run)
-    prep = prepare_resume(run.path, model=model, steps=steps, **controls)
+    prep = prepare_resume(run.path, model=model, steps=steps, devices=devices, **controls)
     prep.run(on_event=on_event)
     return open_run(run.path)
 
@@ -1345,4 +1348,37 @@ def find_runs_root(path=None):
 def stop_projector(run_dir):
     from .web_autostart import stop_projector as autostart_sproj
     return autostart_sproj(Path(run_dir))
+
+
+# --------------------------------------------------------------------------- job queue
+
+def queue_add(model_file, devices=None, run_dir=None, name=None, wait=False, queue_file=None):
+    from .queue import queue_add as _add
+    return _add(model_file, devices=devices, run_dir=run_dir, name=name, wait=wait, queue_file=queue_file)
+
+
+def queue_ls(status=None, queue_file=None):
+    from .queue import queue_ls as _ls
+    return _ls(status_filter=status, queue_file=queue_file)
+
+
+def queue_status(job_id=None, queue_file=None, lines=20):
+    from .queue import queue_status as _status
+    return _status(job_id=job_id, queue_file=queue_file, lines=lines)
+
+
+def queue_stop(job_id=None, stop_all=False, queue_file=None):
+    from .queue import queue_stop as _stop
+    return _stop(job_id=job_id, stop_all=stop_all, queue_file=queue_file)
+
+
+def queue_run(devices=None, poll_interval=5.0, once=False, queue_file=None):
+    from .queue import queue_run as _run
+    return _run(devices=devices, poll_interval=poll_interval, once=once, queue_file=queue_file)
+
+
+def queue_install_service(user=True, devices=None, name=None, dry_run=False):
+    from .queue import install_service as _install
+    return _install(user=user, devices=devices, name=name, dry_run=dry_run)
+
 

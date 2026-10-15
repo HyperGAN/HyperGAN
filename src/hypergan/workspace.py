@@ -207,6 +207,33 @@ def resolve_device_aliases(
     else:
         raise ValueError(f"Invalid devices specification: {devices!r}")
 
+    if len(raw_items) == 1 and raw_items[0].lower() == "auto":
+        import sys
+        num_cuda = 0
+        if "torch" in sys.modules:
+            try:
+                import torch
+                num_cuda = torch.cuda.device_count()
+            except Exception:
+                num_cuda = 0
+        else:
+            try:
+                import subprocess
+                res = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader,nounits"],
+                    capture_output=True, text=True, check=True
+                )
+                lines = [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
+                num_cuda = len(lines)
+            except Exception:
+                num_cuda = 0
+        if num_cuda > 1:
+            raw_items = [str(i) for i in range(num_cuda)]
+        elif num_cuda == 1:
+            raw_items = ["0"]
+        else:
+            raw_items = ["cpu"]
+
     resolved = []
     for item in raw_items:
         if item in gpu_map:

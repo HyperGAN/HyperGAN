@@ -139,6 +139,55 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
     return target
 
 
+def _apply_devices(devices, config, profile, context_path):
+    if devices is None:
+        if isinstance(config, dict):
+            devices = config.get("run", {}).get("devices")
+    if devices is None and context_path is not None:
+        try:
+            from .workspace import find_workspace, load_workspace
+            ws_path = find_workspace(context_path)
+            if ws_path:
+                ws_data = load_workspace(ws_path)
+                devices = ws_data.get("run", {}).get("devices")
+        except Exception:
+            pass
+    if devices is None:
+        return profile, devices
+
+    from .workspace import find_workspace, load_workspace, resolve_device_aliases
+    ws_path = find_workspace(context_path) if context_path else None
+    ws_data = load_workspace(ws_path) if ws_path else {}
+    resolved = resolve_device_aliases(devices, ws_data)
+
+    dev_list = [d.strip() for d in (resolved if isinstance(resolved, list) else resolved.split(",")) if d.strip()]
+    if len(dev_list) > 1:
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(dev_list)
+        if profile is None:
+            profile = {
+                "schema_version": 1,
+                "execution": {
+                    "name": "cuda-replicated-nccl",
+                    "world_size": len(dev_list),
+                    "accumulation_steps": 1,
+                }
+            }
+        if isinstance(config, dict) and "training" in config:
+            config["training"]["device"] = "cuda"
+    elif len(dev_list) == 1:
+        if dev_list[0].lower() == "cpu":
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            if isinstance(config, dict) and "training" in config:
+                config["training"]["device"] = "cpu"
+        else:
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            os.environ["CUDA_VISIBLE_DEVICES"] = dev_list[0]
+            if isinstance(config, dict) and "training" in config:
+                config["training"]["device"] = "cuda"
+    return profile, devices
+
+
 @dataclass(frozen=True)
 class PreparedExecution:
     """Validated routing; running rechecks config and checkpoint under controller ownership."""
@@ -152,17 +201,18 @@ class PreparedExecution:
     service_policy: object
     controls: dict
     repeat_train: bool = False
+    devices: object = None
 
     def run(self, *, on_event=None):
         # Revalidate files/options before dispatch: preparation is not a lock and
         # caller code may have changed the config while starting the viewer.
         if self.operation == 'train':
             current = prepare_train(self.config_path, self.run_dir, self.steps,
-                profile=self.profile, service_policy=self.service_policy, **self.controls)
+                profile=self.profile, service_policy=self.service_policy, devices=self.devices, **self.controls)
         else:
             current = prepare_resume(self.run_dir, self.checkpoint, self.config_path,
                 steps=self.steps, _repeat_train=self.repeat_train,
-                profile=self.profile, service_policy=self.service_policy, **self.controls)
+                profile=self.profile, service_policy=self.service_policy, devices=self.devices, **self.controls)
         if current.operation != self.operation:
             raise FileExistsError(f'Run directory appeared after training was prepared: {self.run_dir}')
         if fingerprint(current.config) != fingerprint(self.config) or not _same(_execution(current.profile), _execution(self.profile)):
@@ -184,6 +234,7 @@ class PreparedExecution:
 
 
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
+                  devices=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                   preview_every=None, preview_keep=None, preview_keep_source=None,
                   preview_name=None):
@@ -192,16 +243,18 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     run_dir = Path(run_dir).resolve()
     if run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1":
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
-            profile=profile, service_policy=service_policy, checkpoint_every=checkpoint_every,
-            max_seconds=max_seconds, stop_after_steps=stop_after_steps,
-            preview_every=preview_every, preview_keep=preview_keep,
-            preview_keep_source=preview_keep_source, preview_name=preview_name)
+            profile=profile, service_policy=service_policy, devices=devices,
+            checkpoint_every=checkpoint_every, max_seconds=max_seconds,
+            stop_after_steps=stop_after_steps, preview_every=preview_every,
+            preview_keep=preview_keep, preview_keep_source=preview_keep_source,
+            preview_name=preview_name)
     checkpoint_every = 1000 if checkpoint_every is None else checkpoint_every
     preview_every = 0 if preview_every is None else preview_every
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     preview_name = sample_name(preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     config = _training_config(config_path, steps)
+    profile, devices = _apply_devices(devices, config, profile, run_dir if run_dir else config_path)
     profile = _profile(profile, config)
     policy = _policy(profile, service_policy)
     if _execution(profile) is not None:
@@ -212,11 +265,11 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
                     preview_keep=preview_keep, preview_keep_source=preview_keep_source,
                     preview_name=preview_name)
-    return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls)
+    return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls, False, devices)
 
 
 def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _repeat_train=False,
-                   profile=None, service_policy=None,
+                   profile=None, service_policy=None, devices=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, preview_keep=None, preview_keep_source=None,
                    preview_name=None):
@@ -255,6 +308,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     if profile is None and saved is not None:
         profile = {'schema_version': 1, 'execution': {
             key: saved.get(key) for key in ('name', 'world_size', 'accumulation_steps')}}
+    profile, devices = _apply_devices(devices, config, profile, run_dir if run_dir else config_path)
     profile = _profile(profile, config)
     execution = _execution(profile)
     if not _same(execution, saved):
@@ -270,7 +324,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
                     preview_keep=preview_keep, preview_keep_source=preview_keep_source,
                     preview_name=preview_name)
-    return PreparedExecution('resume', config, run_dir, config_path, checkpoint, steps, profile, policy, controls, _repeat_train)
+    return PreparedExecution('resume', config, run_dir, config_path, checkpoint, steps, profile, policy, controls, _repeat_train, devices)
 
 
 def train(config_path, run_dir, steps=None, *, on_event=None, **options):

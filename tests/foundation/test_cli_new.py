@@ -118,10 +118,10 @@ def test_new_dataset_workspace_path_interpolation(tmp_path):
 
     ws_file.write_text(f"""
 [workspace]
-root = "{tmp_path}"
+root = "{tmp_path.as_posix()}"
 
 [paths]
-data = "{data_dir}"
+data = "{data_dir.as_posix()}"
 """, encoding="utf-8")
 
     recipe_path = tmp_path / "cats_model.toml"
@@ -132,7 +132,7 @@ data = "{data_dir}"
     assert 'root = "${paths.data}/cats"' in recipe_path.read_text(encoding="utf-8")
     # Loaded model resolves ${paths.data} against workspace
     m = hg.load(recipe_path)
-    assert m.spec["data"]["args"]["root"] == str(images_dir.resolve())
+    assert Path(m.spec["data"]["args"]["root"]).resolve() == images_dir.resolve()
 
 
 def test_new_dataset_refuses_empty_directory(tmp_path):

@@ -1,6 +1,6 @@
 # Pinned ParticleGAN develop integration — 2026-10-16
 
-This upgrade starts at HyperGAN develop `f6c2603b9e9858ee695c819dc18d19108c8ef5af` and pins ParticleGAN develop `6a91a49910568720b2fdfd040ee5891c7d2bde46`. Both remote references were verified on 2026-10-16. HNDL is 0.8.2. Original checkouts are unchanged.
+This upgrade starts at HyperGAN develop `f6c2603b9e9858ee695c819dc18d19108c8ef5af` and pins ParticleGAN develop `6189649bc3c3478d452fadafda7ae84e9c668564`. Develop advanced from `6a91a499` during validation via merged PR441; the exact diff changes only three Forge experiment files. Public package/API and recipe/config bytes are unchanged. Both remote references were verified on 2026-10-16. HNDL is 0.8.2. Original checkouts are unchanged.
 
 `particlegan_trainer = "bcap"` opts into the current public default. `"bispf"` selects the exact merged `configs/forge/ideas/bispf-v1.json` trainer settings, with explicit task overrides. `ka2` and `k3p` are also explicit. `defaults = "particlegan"` now resolves the public default preset, rather than silently using bare `Recipe()` field defaults. Concrete numerical settings are retained in the resolved config; each new training checkpoint additionally binds the complete recipe. Legacy configurations without these options keep KA2 and their own numerical settings. The removed ParticleGAN `reg_anchor_decay` argument is mapped to the new `reg_anchor_min_decay` field; its modern meaning is a minimum decay, so historical cross-version trajectories are not claimed identical.
 
@@ -37,3 +37,5 @@ The independent image update oracle compares floating-point diagnostic scalars w
 The demo's HNDL files use repository-relative locations. Spawned queue test workers receive the test-module import root; POSIX flock interoperability is conditional on that platform facility. Viewer tests mock host-wide stop behavior. Windows port ownership uses parsed `netstat` output, and stale/invalid registry PIDs are handled without propagating invalid-parameter errors.
 
 The second matrix pass exposed remaining unconditional POSIX imports in queue and inspection tests. Active-run tests now use the platform-aware run lock; Windows queue mutations acquire an actual `msvcrt` byte lock, including retry-on-contention and release-only-after-acquisition checks. Queue preflight uses the same platform-aware run lock as training. The historical loss-addition order is preserved for exact legacy-oracle compatibility.
+
+The Windows follow-up preserves absolute HNDL references when copying a model across drives, and uses TOML-safe/platform-aware paths in cross-platform fixtures. The latest source/defaults, path and legacy reference checks pass locally (74 tests); consult final exact-head CI for the complete matrix.

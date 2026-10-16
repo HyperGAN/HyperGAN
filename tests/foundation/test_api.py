@@ -322,3 +322,12 @@ def test_lift_factory_snapshot_evaluations_presentation_fields():
     assert 'fid_metric' in lowered['metrics']['custom']
     assert 'fn_eval' in lowered['metrics']['custom']
     assert lowered['metrics']['custom']['fid_metric']['factory'] == 'hypergan.image_metrics:InceptionFID'
+
+
+def test_save_across_windows_drives_keeps_absolute_hndl_reference(tmp_path, monkeypatch):
+    import os
+    def different_drives(paths):
+        raise ValueError("Paths don't have the same drive")
+    monkeypatch.setattr(os.path, 'commonpath', different_drives)
+    relocated = hg._relocated({'networks':{'critic':{'hndl':'critic.hndl'}}}, tmp_path, tmp_path / 'destination')
+    assert relocated['networks']['critic']['hndl'] == (tmp_path / 'critic.hndl').as_posix()

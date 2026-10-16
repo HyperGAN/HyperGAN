@@ -63,7 +63,7 @@ develop = { python = "python", src = "src" }
     ws = load_workspace(ws_file)
     assert ws["workspace"]["root"] == str(tmp_path)
     assert ws["workspace"]["runs_root"] == str((tmp_path / "runs").resolve())
-    assert ws["paths"]["data"] == str(tmp_path / "data")
+    assert Path(ws["paths"]["data"]) == tmp_path / "data"
     assert ws["gpus"]["gpu0"] == "GPU-ed080e41-3193-3755-6756-f3d46c433331"
     assert ws["envs"]["develop"]["python"] == "python"
 

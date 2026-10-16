@@ -39,7 +39,7 @@ def test_clean_5_point_header():
 
     text = buf.getvalue()
     assert "=== HyperGAN ===" in text
-    assert "Run directory:  /tmp/train-demo" in text
+    assert f"Run directory:  {Path('/tmp/train-demo')}" in text
     assert "Experiment:     demo.toml" in text
     assert "Devices:        cpu (CPU)" in text
     assert "Environment:    Python" in text

@@ -1,7 +1,7 @@
 """Explicit develop integration; recorded leaders are experimental, not qualified."""
 from dataclasses import asdict
 
-PARTICLEGAN_COMMIT = "6a91a49910568720b2fdfd040ee5891c7d2bde46"
+PARTICLEGAN_COMMIT = "6189649bc3c3478d452fadafda7ae84e9c668564"
 BCAP_PRESET = dict(critic_formulation='bcap', optimizer_family='dualnorm', reg_arm='b_cap',
                    reg_coeff=1., reg_kappa=1., reg_every=1, lr=.012, d_lr_mult=1.5, prior_lr_mult=2.5,
                    betas=(0.,.999), lr_floor=1., network_lr_floor=1., network_lr_horizon_cap=None,

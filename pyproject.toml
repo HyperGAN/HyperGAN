@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
-train = ["hndl>=0.8.2", "particlegan>=0.8.0,<0.9", "torch>=2.6,<3", "numpy>=1.26,<3"]
+train = ["hndl>=0.8.2", "particlegan @ git+https://github.com/255BITS/ParticleGAN.git@6a91a49910568720b2fdfd040ee5891c7d2bde46", "torch>=2.6,<3", "numpy>=1.26,<3"]
 image = ["Pillow>=11,<13"]
 cifar = ["torchvision>=0.21,<1"]
 fid = ["torch-fidelity==0.3.0", "torchvision>=0.21,<1", "scipy>=1.10,<1.18"]

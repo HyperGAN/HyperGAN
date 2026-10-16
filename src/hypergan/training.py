@@ -127,7 +127,7 @@ def runtime_info(device='cpu'):
 
 def source_info():
     from .provenance import hypergan_source
-    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "407c2f7aad143badfa92ef4e7d5281b95b946542"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
+    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "6a91a49910568720b2fdfd040ee5891c7d2bde46"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
     result["distribution_records"] = {}
     for name in ("hypergan", "particlegan", "hndl"):
         try:
@@ -190,6 +190,14 @@ def particlegan_recipe(config):
     networks and prior from its own configuration.
     """
     opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
+    if config.get('particlegan_trainer'):
+        from .particle_integration import make_recipe
+        from .config import PARTICLEGAN_DEFAULT_FIELDS
+        host = {field: config[section][key] for (section,key),field in PARTICLEGAN_DEFAULT_FIELDS.items()}
+        for key in ('betas','prior_betas'): host[key] = tuple(host[key])
+        return make_recipe(config['particlegan_trainer'], **host, total_steps=training['steps'],
+                           batch_size=training['batch_size'], z_dim=config['prior']['args']['z_dim'],
+                           num_particles=config['prior']['args'].get('num_particles', 1))
     return Recipe(
         total_steps=training['steps'], batch_size=training['batch_size'],
         lr=opt['lr'], d_lr_mult=opt['d_lr_mult'], prior_lr_mult=opt['prior_lr_mult'],
@@ -197,7 +205,7 @@ def particlegan_recipe(config):
         d_guard_ratio=opt['d_guard_ratio'], d_guard_min_steps=opt['d_guard_min_steps'],
         latent_damping_max_rate=opt['latent_damping_max_rate'],
         reg_coeff=penalty['coeff'], reg_kappa=penalty['kappa'], reg_every=penalty['lazy_k'],
-        reg_anchor_weight=penalty['anchor_weight'], reg_anchor_decay=penalty['anchor_decay'],
+        reg_anchor_weight=penalty['anchor_weight'], reg_anchor_min_decay=penalty['anchor_decay'],
         prior_reg=config['prior_regularizer']['weight'], ema_decay=training['ema'],
         lr_anneal_start=training['lr_anneal_start'], lr_floor=training['lr_floor'],
         network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
@@ -273,8 +281,18 @@ class ReferenceTrainer:
         self.prior = make_prior(config["prior"], device=self.device).float()
         self.data = construct(config["data"])
         self.recipe = particlegan_recipe(config)
+        if config.get('particlegan_trainer'):
+            self.recipe.apply_prior_policy(self.prior)
+            if config['optimizer']['implementation'] == 'torch_fused_adam' and self.recipe.optimizer_family != 'adam':
+                raise ValueError('torch_fused_adam is incompatible with the selected recipe optimizer')
         self.gan = self.recipe.make_loss()
-        self.spread = ParticleRegularizer(**{k: v for k, v in config["prior_regularizer"].items() if k != "rows"})
+        if config.get('particlegan_trainer') and self.recipe.effective_critic_formulation == 'bispf':
+            conditional = [v for k,v in config['components']['discriminator']['inputs'].items() if v != 'candidate']
+            if conditional:
+                raise ValueError('BISPF transport coupling needs a reviewed conditional-context contract; use bcap or ka2')
+        self.spread = (self.recipe.make_prior_regularizer(prior=self.prior, weight=self.recipe.prior_reg)
+                       if config.get('particlegan_trainer') else
+                       ParticleRegularizer(**{k: v for k, v in config["prior_regularizer"].items() if k != "rows"}))
         self.objectives = [construct(term) for term in config["objectives"]]
         for objective in self.objectives:
             if isinstance(objective, torch.nn.Module):

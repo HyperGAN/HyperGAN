@@ -281,7 +281,8 @@ def _generator_tail(trainer, program, context, ids, fake):
     if ids is None:
         prior_loss = fake.new_zeros(())
     else:
-        rows = trainer.prior.z if program.prior_rows == "full" else trainer.prior.z[ids.unique()]
+        full = program.prior_rows == "full" or (trainer.config.get('particlegan_trainer') and len(trainer.prior.z) <= 1024)
+        rows = trainer.prior.z if full else trainer.prior.z[ids.unique()]
         prior_loss = program.spread(rows)
     objective_losses = []
     for objective in program.objectives:
@@ -399,7 +400,13 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
             g_adversarial_weighted = _sum_tensors(weighted)
         g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-        g_loss.backward()
+        if trainer.config.get('particlegan_trainer'):
+            from particlegan.optim.constraint_geometry import constraint_geometry_backward
+            if ids is not None and hasattr(trainer.opt_g, 'set_sampled_rows'):
+                trainer.opt_g.set_sampled_rows(trainer.prior.z, ids)
+            constraint_geometry_backward(g_loss, trainer.opt_g, (g_adversarial_weighted,))
+        else:
+            g_loss.backward()
         trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
                                   [("Nonfinite generator/auxiliary gradient; run stopped", program.generator_parameters),
                                    ("Nonfinite prior gradient; run stopped", program.prior_checked)])

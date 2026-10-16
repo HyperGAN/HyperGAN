@@ -2,9 +2,10 @@
 import copy
 import pytest
 import torch
-from hypergan.config import resolve_config
+from hypergan.config import resolve_config, config_values, load_config, fingerprint
 from hypergan.training import ReferenceTrainer
 from hypergan.checkpoints import trainer_state, restore_trainer
+import hypergan.distributed_training  # import order must not override the native recipe factory
 
 
 def config(trainer):
@@ -55,3 +56,68 @@ def test_conditioned_bispf_refused_before_training():
     c=config('bispf')
     c['components']['discriminator']['inputs']['condition']='batch.condition'
     with pytest.raises(ValueError,match='conditional-context'): ReferenceTrainer(c)
+
+
+@pytest.mark.parametrize('trainer',['bcap','bispf','ka2','k3p'])
+def test_recipe_selector_survives_every_configuration_boundary(trainer):
+    c=config(trainer)
+    roundtrip=load_config(config_values(c))
+    assert roundtrip['particlegan_trainer']==trainer
+    assert fingerprint(roundtrip)==fingerprint(c)
+    assert ReferenceTrainer(roundtrip).recipe.critic_formulation==trainer
+    changed=copy.deepcopy(c);changed['particlegan_trainer']='ka2' if trainer!='ka2' else 'bcap'
+    assert fingerprint(changed)!=fingerprint(c)
+
+
+def test_public_training_checkpoint_and_resume_keep_selected_engine(tmp_path):
+    from hypergan.execution import train,resume
+    from hypergan.checkpoints import read_checkpoint
+    c=config('bcap');c['training']['steps']=3
+    first=train(c,tmp_path/'run',stop_after_steps=1,checkpoint_every=1)
+    assert first['config']['particlegan_trainer']=='bcap'
+    payload=read_checkpoint(tmp_path/'run')[2]
+    assert payload['particle_recipe']['critic_formulation']=='bcap'
+    assert 'direction_blend' in payload['optimizers'][0]
+    last=resume(tmp_path/'run')
+    assert last['status']=='complete' and last['steps']==3
+    assert last['config']['particlegan_trainer']=='bcap'
+    with pytest.raises(ValueError,match='configuration|differs|compatible'):
+        other=copy.deepcopy(c);other['particlegan_trainer']='ka2'
+        resume(tmp_path/'run',config_path=other)
+
+
+def test_public_training_refuses_conditional_bispf_before_run_creation(tmp_path):
+    from hypergan.execution import train
+    from pathlib import Path
+    c=config('bispf')
+    c['components']['discriminator']['inputs']['condition']='batch.condition'
+    run=tmp_path/'must-not-exist'
+    with pytest.raises(ValueError,match='conditional-context'): train(c,run)
+    assert not run.exists()
+
+
+def test_replicated_import_never_replaces_the_native_recipe_factory():
+    import importlib
+    import hypergan.training as native
+    import hypergan.distributed_training as replicated
+    factory=native.particlegan_recipe
+    importlib.reload(replicated)
+    assert native.particlegan_recipe is factory
+    for trainer in ('bcap','bispf'):
+        assert ReferenceTrainer(config(trainer)).recipe.critic_formulation==trainer
+
+
+@pytest.mark.parametrize('trainer',['bcap','bispf'])
+def test_replicated_public_execution_refuses_native_only_presets_before_launch(tmp_path,trainer):
+    from hypergan.execution import train
+    c=config(trainer)
+    profile={'schema_version':1,'execution':{'name':'cpu-replicated-gloo'}}
+    run=tmp_path/'not-launched'
+    with pytest.raises(ValueError,match='require native'):
+        train(c,run,profile=profile)
+    assert not run.exists()
+
+
+def test_module_cli_import_is_available_in_the_installed_package():
+    from hypergan.cli import _parser
+    assert _parser().parse_args(['train','config.toml','--no-server']).command=='train'

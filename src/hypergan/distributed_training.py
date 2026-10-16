@@ -17,40 +17,11 @@ from .config import config_values, fingerprint, resolve_config
 from .distributed import Collectives
 from .recipes import detach, move_tensors
 from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, noise_levels, schedule_learning_rates, update_ema, with_noise
-import hypergan.training as _training
 from . import distributed_checkpoints as _dc
 from . import distributed_commit as _dcommit
 
 _dc.MAX_RANK_BYTES = 1024 * 1024 * 1024
 _dcommit.MAX_RANK_BYTES = 1024 * 1024 * 1024
-
-_orig_particlegan_recipe = _training.particlegan_recipe
-
-
-def _compatible_particlegan_recipe(config):
-    import inspect
-    from particlegan import Recipe
-    sig = inspect.signature(Recipe.__init__).parameters
-    if 'reg_anchor_min_decay' in sig:
-        opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
-        return Recipe(
-            total_steps=training['steps'], batch_size=training['batch_size'],
-            lr=opt['lr'], d_lr_mult=opt['d_lr_mult'], prior_lr_mult=opt['prior_lr_mult'],
-            betas=tuple(opt['betas']), prior_betas=tuple(opt['prior_betas']),
-            d_guard_ratio=opt['d_guard_ratio'], d_guard_min_steps=opt['d_guard_min_steps'],
-            latent_damping_max_rate=opt['latent_damping_max_rate'],
-            reg_coeff=penalty['coeff'], reg_kappa=penalty['kappa'], reg_every=penalty['lazy_k'],
-            reg_anchor_weight=penalty['anchor_weight'], reg_anchor_min_decay=penalty['anchor_decay'],
-            prior_reg=config['prior_regularizer']['weight'], ema_decay=training['ema'],
-            lr_anneal_start=training['lr_anneal_start'], lr_floor=training['lr_floor'],
-            network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
-            input_noise_std=training['input_noise_std'], input_noise_anneal_end=training['input_noise_anneal_end'],
-            output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'])
-    return _orig_particlegan_recipe(config)
-
-
-_training.particlegan_recipe = _compatible_particlegan_recipe
-
 
 class ReplicatedTrainer(ReferenceTrainer):
     """One complete D/G/prior/auxiliary/EMA update per global batch.

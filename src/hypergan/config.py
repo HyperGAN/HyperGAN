@@ -607,6 +607,10 @@ def resolve_config(raw):
     for name in reachable - g_reachable - critic_components:
         if components[name]["trainable"]:
             raise ValueError(f"Component {name} is only discriminator conditioning, which is detached; mark it trainable=false or bind it into a generator objective")
+    if result.get('particlegan_trainer') == 'bispf':
+        critics = [result['components']['discriminator'], *result.get('adversarial_terms',())]
+        if any(any(v != 'candidate' for v in spec.get('inputs',{}).values()) for spec in critics):
+            raise ValueError('BISPF transport coupling needs a reviewed conditional-context contract; use bcap or ka2')
     warnings = []
     if result["prior"]["kind"] == "gaussian":
         if result["prior_regularizer"]["weight"] != 0:
@@ -636,6 +640,8 @@ def _listed_values(config, keys, *, observation=False):
     are observation settings: recorded with the run, never fingerprinted.
     """
     values = {key: deepcopy(config[key]) for key in keys if key in config}
+    if 'particlegan_trainer' in config:
+        values['particlegan_trainer'] = deepcopy(config['particlegan_trainer'])
     terms = config.get("adversarial_terms")
     if terms:
         values["adversarial_terms"] = deepcopy(terms)

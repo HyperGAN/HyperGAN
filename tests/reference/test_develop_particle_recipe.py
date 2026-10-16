@@ -121,3 +121,10 @@ def test_replicated_public_execution_refuses_native_only_presets_before_launch(t
 def test_module_cli_import_is_available_in_the_installed_package():
     from hypergan.cli import _parser
     assert _parser().parse_args(['train','config.toml','--no-server']).command=='train'
+
+
+def test_lightweight_recipe_defaults_match_exact_pinned_source():
+    import dataclasses
+    from particlegan.recipes import Recipe
+    from hypergan.particle_integration import PINNED_RECIPE_DEFAULTS
+    assert PINNED_RECIPE_DEFAULTS == {f.name:f.default for f in dataclasses.fields(Recipe)}

@@ -104,6 +104,13 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None, checkpoint=N
 def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
     run_dir = Path(run_dir)
     target_bundle = run_dir / "model.pt"
+    if checkpoint is None and (run_dir / "manifest.json").is_file():
+        manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        if manifest.get("bundle_path"):
+            path = Path(manifest["bundle_path"])
+            target_bundle = path if path.is_absolute() else run_dir / path
+            if not target_bundle.is_file():
+                raise ValueError("Declared inference artifact is missing")
     if checkpoint is not None or not target_bundle.is_file():
         from .checkpoints import resolve_checkpoint, extract_ema_bundle
         target = checkpoint if checkpoint is not None else "latest"
@@ -112,14 +119,8 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
         source_file = ckpt_dir / "model.pt" if (ckpt_dir / "model.pt").is_file() else ckpt_dir / "state.pt"
         expected = hashlib.sha256(source_file.read_bytes()).hexdigest() if source_file.is_file() else ""
     else:
-        bundle_dir = run_dir
-        manifest_path = run_dir / "manifest.json"
-        if manifest_path.is_file():
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if manifest.get("bundle_path"):
-                path = Path(manifest["bundle_path"])
-                bundle_dir = (path if path.is_absolute() else run_dir / path).parent
-        path = bundle_dir / "model.pt"
+        path = target_bundle
+        bundle_dir = path.parent
         expected = (bundle_dir / "model.sha256").read_text().strip()
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise ValueError("Inference artifact hash mismatch")

@@ -180,26 +180,11 @@ def _drop_removed_fields(table, location):
 
 @functools.cache
 def particlegan_defaults(trainer="bcap"):
-    """Installed particlegan.Recipe defaults, keyed by HyperGAN (section, field).
-
-    Reads the dataclass from recipes.py without importing the package, whose
-    __init__ imports Torch; configuration loading stays Torch-free.
-    """
-    package = importlib.util.find_spec("particlegan")
-    if package is None or not package.submodule_search_locations:
-        raise ValueError('defaults = "particlegan" requires ParticleGAN (the train extra)')
-    name = "_hypergan_particlegan_recipes"
-    spec = importlib.util.spec_from_file_location(name, Path(package.submodule_search_locations[0]) / "recipes.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-        recipe = {field.name: field.default for field in dataclasses.fields(module.Recipe)}
-        from .particle_integration import BISPF_LEADER, BCAP_PRESET
-        if trainer == 'bispf': recipe.update(BISPF_LEADER)
-        elif trainer == 'bcap': recipe.update(BCAP_PRESET)
-    finally:
-        del sys.modules[name]
+    """Pinned develop defaults keyed by HyperGAN field, without runtime imports."""
+    from .particle_integration import PINNED_RECIPE_DEFAULTS, BISPF_LEADER, BCAP_PRESET
+    recipe = deepcopy(PINNED_RECIPE_DEFAULTS)
+    if trainer == 'bispf': recipe.update(BISPF_LEADER)
+    elif trainer == 'bcap': recipe.update(BCAP_PRESET)
     if recipe["prior_betas"] is None:
         recipe["prior_betas"] = recipe["betas"]
     return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]
@@ -646,7 +631,7 @@ def _listed_values(config, keys, *, observation=False):
     if terms:
         values["adversarial_terms"] = deepcopy(terms)
     if observation:
-        for key in ("samplers", "format", "name_map"):
+        for key in ("samplers", "format", "name_map", "checkpoints"):
             if config.get(key) is not None:
                 values[key] = deepcopy(config[key])
     return values

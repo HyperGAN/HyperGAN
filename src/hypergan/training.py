@@ -264,7 +264,7 @@ class ReferenceTrainer:
     """Small inspectable state machine; future distributed strategies wrap this contract."""
     def __init__(self, config):
         apply_backend_policy(config)
-        self.device = execution_device(config['training']['device'])
+        self.device = execution_device(config['training']['device'], fallback=False)
         if self.device.type == 'cuda':
             with torch.cuda.device(self.device):
                 self._initialize(config)

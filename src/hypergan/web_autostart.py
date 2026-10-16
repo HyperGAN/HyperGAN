@@ -28,6 +28,22 @@ def get_port_owner(port: int) -> tuple[int, str] | None:
     """Inspect /proc (or ss/lsof fallback) to identify the process listening on port."""
     if not isinstance(port, int) or port <= 0:
         return None
+    if sys.platform == 'win32':
+        # Native Windows has no /proc, ss or lsof. netstat -ano reports the
+        # owning PID for both wildcard IPv4 and bracketed IPv6 listeners.
+        try:
+            result = subprocess.run(['netstat','-ano','-p','tcp'], capture_output=True,
+                                    text=True, timeout=2.0)
+            for line in result.stdout.splitlines() if result.returncode == 0 else ():
+                fields=line.split()
+                if (len(fields)>=5 and fields[0].upper()=='TCP' and fields[-2].upper()=='LISTENING'
+                        and fields[1].rsplit(':',1)[-1]==str(port) and fields[-1].isdigit()
+                        and int(fields[-1])>0):
+                    pid=int(fields[-1])
+                    return pid, Path(sys.executable).name if pid==os.getpid() else 'unknown'
+        except (OSError,subprocess.SubprocessError):
+            pass
+        return None
     port_hex = f"{port:04X}"
     target_inodes = set()
     for net_path in ("/proc/net/tcp", "/proc/net/tcp6"):
@@ -800,12 +816,12 @@ def stop_all_servers(force: bool = False) -> list[int]:
                     try:
                         state = json.loads(state_file.read_text(encoding='utf-8'))
                         sup_pid = state.get('supervisor_pid')
-                        if sup_pid and sup_pid != current_pid:
+                        if type(sup_pid) is int and sup_pid > 1 and sup_pid != current_pid:
                             killed_pids.add(sup_pid)
                         processes = state.get('processes', {})
                         if isinstance(processes, dict):
                             for p_pid in processes.values():
-                                if isinstance(p_pid, int) and p_pid != current_pid:
+                                if type(p_pid) is int and p_pid > 1 and p_pid != current_pid:
                                     killed_pids.add(p_pid)
                         launch_id = state.get('launch_id')
                         if launch_id:
@@ -863,7 +879,7 @@ def stop_all_servers(force: bool = False) -> list[int]:
         try:
             os.kill(pid, signal.SIGTERM)
             active_killed.append(pid)
-        except (ProcessLookupError, PermissionError):
+        except OSError:  # includes Windows ERROR_INVALID_PARAMETER for a stale PID
             pass
 
     if active_killed:

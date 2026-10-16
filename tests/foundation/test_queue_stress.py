@@ -3,7 +3,6 @@ Collision Avoidance, Subprocess Failure Isolation, and Systemd Service Unit Gene
 """
 import configparser
 from datetime import datetime, timezone
-import fcntl
 import json
 import multiprocessing
 import os
@@ -79,8 +78,10 @@ def _multiprocess_status_and_cancel_worker(queue_path_str: str, iterations: int)
         time.sleep(0.005)
 
 
-def test_concurrent_multiprocess_queue_operations(temp_queue):
+def test_concurrent_multiprocess_queue_operations(temp_queue, monkeypatch):
     """Stress-test advisory flock across independent parallel OS processes."""
+    # Spawn must be able to import this test module outside the checkout.
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
     ctx = multiprocessing.get_context("spawn")
     processes = []
 
@@ -321,6 +322,7 @@ def test_active_run_directory_lock_collision_avoidance(temp_queue, tmp_path, mon
     # Acquire an exclusive lock on .run.lock in the run_dir
     lock_file = run_dir / ".run.lock"
     lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR)
+    fcntl = pytest.importorskip("fcntl", reason="POSIX advisory lock interoperability")
     fcntl.flock(lock_fd, fcntl.LOCK_EX)
 
     def _release_lock_after_delay():

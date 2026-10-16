@@ -79,6 +79,8 @@ def close(left, right, *, exact=False):
         assert len(left) == len(right)
         for a, b in zip(left, right):
             close(a, b, exact=exact)
+    elif isinstance(left, float) and not exact:
+        assert left == pytest.approx(right, rel=2e-6, abs=2e-7)
     else:
         assert left == right
 

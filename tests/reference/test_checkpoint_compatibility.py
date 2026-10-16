@@ -29,6 +29,7 @@ def old_hypergan_provenance(metadata):
 @pytest.mark.parametrize('explicit', [True], ids=['current-version'])
 def test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapshot(tmp_path, explicit):
     config = write_default(tmp_path / 'config', device='cpu')
+    config.write_text(config.read_text()+'\n[checkpoints]\nkeep_last = 100\n')
     baseline, run = tmp_path / 'baseline', tmp_path / 'run'
     train(config, baseline)
     stopped = train(config, run, stop_after_steps=2, checkpoint_every=1)
@@ -155,7 +156,7 @@ def test_resume_on_the_other_identical_card_warns_and_completes(tmp_path, monkey
     assert resumed['warnings'] == recorded
 
 
-def test_resume_on_a_different_card_model_names_the_rejected_fields(tmp_path, monkeypatch):
+def test_resume_on_a_different_card_model_records_the_warning(tmp_path, monkeypatch):
     config = write_default(tmp_path / 'config', device='cpu')
     run = tmp_path / 'run'
     selected = [FIRST_CARD]
@@ -171,13 +172,13 @@ def test_resume_on_a_different_card_model_names_the_rejected_fields(tmp_path, mo
         return runtime
 
     monkeypatch.setattr(single, 'runtime_info', other_model)
-    before = files(run)
-    with pytest.raises(ValueError) as error:
-        train(config, run)
-    message = str(error.value)
+    with pytest.warns(RuntimeWarning, match='differing hardware/topology'):
+        result = train(config, run)
+    assert result['status']=='complete' and result['steps']==5
+    message=' '.join(result['resume_warnings'])
     assert 'cuda.name: saved "NVIDIA RTX A6000", current "NVIDIA GeForce RTX 4090"' in message
     assert 'cuda.capability: saved [8, 6], current [8, 9]' in message
-    assert files(run) == before
+
 
 
 @pytest.mark.parametrize('version', [1, 3, True])

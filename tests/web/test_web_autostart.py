@@ -495,13 +495,18 @@ def test_projector_clean_shutdown_on_terminal_manifest(tmp_path):
     assert elapsed < 5.0, "Projector did not terminate within timeout on terminal status"
 
 
-def test_stop_projector_and_stop_all_servers(tmp_path):
+def test_stop_projector_and_stop_all_servers(tmp_path,monkeypatch):
     from hypergan.web_autostart import stop_projector, stop_all_servers
     run_dir = tmp_path / "run_proj"
     run_dir.mkdir()
     # Should not raise even if no projector is running
     stop_projector(run_dir)
 
+    # Isolate this host-wide command from other owners' viewers during tests.
+    import hypergan.web_autostart as module
+    monkeypatch.setattr(module.tempfile,'gettempdir',lambda:str(tmp_path))
+    original_exists=module.os.path.exists
+    monkeypatch.setattr(module.os.path,'exists',lambda p:False if p=='/proc' else original_exists(p))
     # stop_all_servers sweeps and returns list of PIDs
     killed = stop_all_servers()
     assert isinstance(killed, list)
@@ -586,3 +591,30 @@ def test_ensure_dashboard_running_alien_raises_oserror_immediately(tmp_path):
     finally:
         srv.close()
 
+
+
+def test_windows_listener_owner_uses_native_netstat(monkeypatch):
+    import hypergan.web_autostart as module
+    from types import SimpleNamespace
+    monkeypatch.setattr(module.sys,'platform','win32')
+    def netstat(argv,**kwargs):
+        assert argv==['netstat','-ano','-p','tcp']
+        return SimpleNamespace(returncode=0,stdout='  TCP    [::]:48123    [::]:0    LISTENING    4400001\n')
+    monkeypatch.setattr(module.subprocess,'run',netstat)
+    assert module.get_port_owner(48123)==(4400001,'unknown')
+    assert module.get_port_owner(4812) is None
+
+
+def test_stop_all_rejects_invalid_pids_and_tolerates_stale_windows_handle(tmp_path,monkeypatch):
+    import hypergan.web_autostart as module
+    reg=tmp_path/'hypergan-viewers-unit'/'fixture';reg.mkdir(parents=True)
+    (reg/'state.json').write_text(json.dumps({'supervisor_pid':True,'processes':{'bad':0,'group':-1,'stale':4400001}}))
+    monkeypatch.setattr(module.tempfile,'gettempdir',lambda:str(tmp_path))
+    original_exists=module.os.path.exists
+    monkeypatch.setattr(module.os.path,'exists',lambda p:False if p=='/proc' else original_exists(p))
+    calls=[]
+    def stale(pid,sig):
+        calls.append((pid,sig));raise OSError(87,'The parameter is incorrect')
+    monkeypatch.setattr(module.os,'kill',stale)
+    assert module.stop_all_servers()==[]
+    assert calls==[(4400001,signal.SIGTERM)]

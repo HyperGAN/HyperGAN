@@ -399,7 +399,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             g_adversarial = _sum_tensors(unweighted)
             prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
             g_adversarial_weighted = _sum_tensors(weighted)
-        g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+        g_loss = g_adversarial_weighted + sum(objective_losses) + prior_loss
         if trainer.config.get('particlegan_trainer'):
             from particlegan.optim.constraint_geometry import constraint_geometry_backward
             if ids is not None and hasattr(trainer.opt_g, 'set_sampled_rows'):

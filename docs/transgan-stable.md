@@ -257,7 +257,7 @@ default operators, all 128 projections and a full 128px forward/backward pass.
 Convergence remains to be measured.
 
 The `equalized` arguments were released in HNDL 0.7.0; the `train` extra
-requires HNDL 0.8.0 or newer.
+requires HNDL 0.8.2 or newer.
 
 Validation: 963 HNDL CPU tests and 16 HyperGAN tests passed. HNDL generated
 documentation and lint checks passed. CUDA/reduced-precision tests were not

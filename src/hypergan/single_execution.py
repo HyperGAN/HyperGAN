@@ -18,7 +18,7 @@ class SingleProcessExecution:
     def __init__(self, config):
         self._config = config
         apply_backend_policy(config)
-        self._device = execution_device(config['training']['device'])
+        self._device = execution_device(config['training']['device'], fallback=False)
         self._trainer = None
         self._last_batch = None
         self._previous_threads = None

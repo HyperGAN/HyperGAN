@@ -63,6 +63,7 @@ def test_public_origin_reaches_the_automatic_viewer_and_requires_it(monkeypatch,
         with pytest.raises(SystemExit):
             parser.parse_args(['serve', 'run', '--public-origin', bad])
 
+    monkeypatch.setattr(web_autostart, "ensure_dashboard_running", lambda *args, **kwargs: "http://localhost:8765")
     started = {}
     monkeypatch.setattr(web_autostart, 'training_viewer',
                         lambda root, **kwargs: started.setdefault('kwargs', kwargs))
@@ -84,6 +85,7 @@ def test_viewer_dev_reaches_the_detached_supervisor_through_the_environment(monk
     assert parser.parse_args(['resume', 'run']).viewer_dev is False
     assert parser.parse_args(['resume', 'run', '--dev']).viewer_dev is True
 
+    monkeypatch.setattr(web_autostart, "ensure_dashboard_running", lambda *args, **kwargs: "http://localhost:8765")
     started = {}
     monkeypatch.setattr(web_autostart, 'training_viewer',
                         lambda root, **kwargs: started.setdefault('kwargs', kwargs))

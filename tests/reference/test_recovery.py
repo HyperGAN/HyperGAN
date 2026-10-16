@@ -67,7 +67,7 @@ def test_constant_lr_target_extension_preserves_exact_state_and_old_checkpoints(
     from hypergan.execution import train as public_train, resume as public_resume, prepare_resume
 
     config = write_default(tmp_path / 'config', device='cpu')
-    config.write_text(config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0'))
+    config.write_text(config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0') + '\n[checkpoints]\nkeep_last = 100\n[metrics]\nevery_steps = 1\n')
     full, split = tmp_path / 'full', tmp_path / 'split'
     public_train(config, full, steps=6, checkpoint_every=1)
     stopped = public_train(config, split, steps=3, checkpoint_every=1,
@@ -207,7 +207,7 @@ def test_runtime_config_tampering_and_inference_rejected_without_mutation(tmp_pa
     assert manifest_path.read_bytes() == before
     info = Path(stopped['checkpoint_path']) / 'manifest.json'
     value = json.loads(info.read_text())
-    value['runtime']['world_size'] = 2
+    value['runtime']['dtype'] = 'float64'  # numerical semantics remain strict; D9 allows hardware changes
     info.write_text(json.dumps(value))
     with pytest.raises(ValueError, match='runtime/topology'):
         resume(tmp_path / 'run')

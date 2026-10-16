@@ -38,7 +38,7 @@ def test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema():
     prior = copy.deepcopy(trainer.prior)
     ema_g, ema_prior = copy.deepcopy(generator), copy.deepcopy(prior)
     # Pin the upstream recipe to HyperGAN's own defaults; ParticleGAN's differ.
-    recipe = get_recipe(total_steps=5, batch_size=16, **{
+    recipe = get_recipe(trainer="ka2", total_steps=5, batch_size=16, **{
         field: DEFAULT[section][key] for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items()})
     opt_g, opt_d = recipe.make_optimizers(generator, critic, prior, ema_critic=copy.deepcopy(critic))
     gan, penalty, spread = recipe.make_loss(), recipe.make_critic_penalty(opt_d), recipe.make_prior_regularizer()

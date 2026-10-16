@@ -92,6 +92,9 @@ def trainer_state(trainer, last_batch):
                      trainable={name: {key: value.requires_grad for key, value in getattr(trainer, name).named_parameters()} for name in modules},
                      modes={name: {key: module.training for key, module in getattr(trainer, name).named_modules()} for name in modules},
                      last_batch=last_batch)
+        if trainer.config.get('particlegan_trainer'):
+            from dataclasses import asdict
+            state['particle_recipe'] = asdict(trainer.recipe)
         _portable(state)
         return state
     finally:
@@ -101,6 +104,11 @@ def trainer_state(trainer, last_batch):
 def _restore_trainer(trainer, state):
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
+    if trainer.config.get('particlegan_trainer'):
+        from dataclasses import asdict
+        required.add('particle_recipe')
+        if not isinstance(state, dict) or state.get('particle_recipe') != asdict(trainer.recipe):
+            raise ValueError('Checkpoint ParticleGAN recipe differs from trainer')
     if not isinstance(state, dict) or set(state) != required:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if getattr(trainer, 'device', torch.device('cpu')).type == 'cuda':
@@ -139,7 +147,7 @@ def _restore_trainer(trainer, state):
     for optimizer, saved, rates in zip((trainer.opt_g, trainer.opt_d), state['optimizers'], state['base_lrs']):
         # The recipe's optimizers keep their regularization state (EMA critic,
         # LR record, latent-damping history) under 'regularizer'.
-        if set(saved) != {'state', 'param_groups', 'regularizer'} or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
+        if set(saved) != set(optimizer.state_dict()) or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
             raise ValueError('Checkpoint optimizer parameter groups differ from trainer')
         for actual, prior in zip(optimizer.param_groups, saved['param_groups']):
             if len(actual['params']) != len(prior['params']):

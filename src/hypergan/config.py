@@ -136,7 +136,7 @@ PARTICLEGAN_DEFAULT_FIELDS = {
     ("gradient_penalty", "kappa"): "reg_kappa",
     ("gradient_penalty", "lazy_k"): "reg_every",
     ("gradient_penalty", "anchor_weight"): "reg_anchor_weight",
-    ("gradient_penalty", "anchor_decay"): "reg_anchor_decay",
+    ("gradient_penalty", "anchor_decay"): "reg_anchor_min_decay",
     ("prior_regularizer", "weight"): "prior_reg",
     ("optimizer", "lr"): "lr",
     ("optimizer", "d_lr_mult"): "d_lr_mult",
@@ -179,24 +179,12 @@ def _drop_removed_fields(table, location):
 
 
 @functools.cache
-def particlegan_defaults():
-    """Installed particlegan.Recipe defaults, keyed by HyperGAN (section, field).
-
-    Reads the dataclass from recipes.py without importing the package, whose
-    __init__ imports Torch; configuration loading stays Torch-free.
-    """
-    package = importlib.util.find_spec("particlegan")
-    if package is None or not package.submodule_search_locations:
-        raise ValueError('defaults = "particlegan" requires ParticleGAN (the train extra)')
-    name = "_hypergan_particlegan_recipes"
-    spec = importlib.util.spec_from_file_location(name, Path(package.submodule_search_locations[0]) / "recipes.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-        recipe = {field.name: field.default for field in dataclasses.fields(module.Recipe)}
-    finally:
-        del sys.modules[name]
+def particlegan_defaults(trainer="bcap"):
+    """Pinned develop defaults keyed by HyperGAN field, without runtime imports."""
+    from .particle_integration import PINNED_RECIPE_DEFAULTS, BISPF_LEADER, BCAP_PRESET
+    recipe = deepcopy(PINNED_RECIPE_DEFAULTS)
+    if trainer == 'bispf': recipe.update(BISPF_LEADER)
+    elif trainer == 'bcap': recipe.update(BCAP_PRESET)
     if recipe["prior_betas"] is None:
         recipe["prior_betas"] = recipe["betas"]
     return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]
@@ -353,8 +341,10 @@ def sampler_bindings(config):
 
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
-    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"}, "configuration")
+    _keys(raw, set(DEFAULT) | {"particlegan_trainer", "adversarial_terms", "defaults", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"}, "configuration")
     raw = dict(raw)
+    if 'particlegan_trainer' in raw and raw['particlegan_trainer'] not in ('ka2','k3p','bcap','bispf'):
+        raise ValueError('unsupported particlegan_trainer')
     if "adversarial" in raw:
         raw["adversarial"] = _drop_removed_fields(raw["adversarial"], "adversarial")
     if isinstance(raw.get("adversarial_terms"), list):
@@ -366,8 +356,9 @@ def resolve_config(raw):
                          "penalty (K3P); remove " + ", ".join(f"gradient_penalty.{key}" for key in removed))
     source = raw.pop("defaults", "hypergan")
     result = deepcopy(DEFAULT)
-    if source == "particlegan":
-        for (section, key), value in particlegan_defaults().items():
+    if source == "particlegan" or 'particlegan_trainer' in raw:
+        raw.setdefault('particlegan_trainer', 'bcap')
+        for (section, key), value in particlegan_defaults(raw['particlegan_trainer']).items():
             result[section][key] = deepcopy(value)
     elif source != "hypergan":
         raise ValueError('defaults must be "hypergan" or "particlegan"')
@@ -375,7 +366,7 @@ def resolve_config(raw):
         if key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
-        elif key in ("adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"):
+        elif key in ("particlegan_trainer", "adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
             allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
@@ -601,6 +592,10 @@ def resolve_config(raw):
     for name in reachable - g_reachable - critic_components:
         if components[name]["trainable"]:
             raise ValueError(f"Component {name} is only discriminator conditioning, which is detached; mark it trainable=false or bind it into a generator objective")
+    if result.get('particlegan_trainer') == 'bispf':
+        critics = [result['components']['discriminator'], *result.get('adversarial_terms',())]
+        if any(any(v != 'candidate' for v in spec.get('inputs',{}).values()) for spec in critics):
+            raise ValueError('BISPF transport coupling needs a reviewed conditional-context contract; use bcap or ka2')
     warnings = []
     if result["prior"]["kind"] == "gaussian":
         if result["prior_regularizer"]["weight"] != 0:
@@ -630,11 +625,13 @@ def _listed_values(config, keys, *, observation=False):
     are observation settings: recorded with the run, never fingerprinted.
     """
     values = {key: deepcopy(config[key]) for key in keys if key in config}
+    if 'particlegan_trainer' in config:
+        values['particlegan_trainer'] = deepcopy(config['particlegan_trainer'])
     terms = config.get("adversarial_terms")
     if terms:
         values["adversarial_terms"] = deepcopy(terms)
     if observation:
-        for key in ("samplers", "format", "name_map"):
+        for key in ("samplers", "format", "name_map", "checkpoints"):
             if config.get(key) is not None:
                 values[key] = deepcopy(config[key])
     return values

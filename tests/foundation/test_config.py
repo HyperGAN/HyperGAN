@@ -225,8 +225,8 @@ import sys
 from hypergan.config import PARTICLEGAN_DEFAULT_FIELDS, resolve_config
 config = resolve_config({'defaults': 'particlegan', 'optimizer': {'lr': 0.001}})
 assert 'torch' not in sys.modules and 'particlegan' not in sys.modules
-from particlegan import Recipe
-recipe = Recipe()
+from particlegan import get_recipe
+recipe = get_recipe("gan")
 for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items():
     expected = getattr(recipe, field)
     if expected is None and field == 'prior_betas':

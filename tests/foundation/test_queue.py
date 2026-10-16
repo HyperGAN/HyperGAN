@@ -1,4 +1,3 @@
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -314,3 +313,27 @@ def test_cli_queue_commands(temp_queue, monkeypatch, capsys):
     assert ret == 0
     out = capsys.readouterr().out
     assert "Cancelled queued job job-0001" in out
+
+
+@pytest.mark.parametrize('fatal', [False, True])
+def test_windows_queue_lock_retries_contention_and_only_releases_acquired(tmp_path, monkeypatch, fatal):
+    import errno
+    import types
+    import hypergan.queue as queue
+    calls = []
+    def locking(fd, mode, count):
+        calls.append(mode)
+        if len(calls) == 1:
+            raise OSError(errno.EIO if fatal else errno.EACCES, 'fixture')
+    monkeypatch.setattr(queue, 'fcntl', None)
+    monkeypatch.setitem(sys.modules, 'msvcrt', types.SimpleNamespace(locking=locking, LK_NBLCK=1, LK_UNLCK=2))
+    monkeypatch.setattr(queue.time, 'sleep', lambda seconds: None)
+    if fatal:
+        with pytest.raises(OSError, match='fixture'):
+            with queue.queue_lock(tmp_path / 'queue.json'):
+                pytest.fail('unacquired lock entered')
+        assert calls == [1]
+    else:
+        with queue.queue_lock(tmp_path / 'queue.json'):
+            assert calls == [1, 1]
+        assert calls == [1, 1, 2]

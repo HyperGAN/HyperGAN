@@ -32,7 +32,8 @@ def events(run):
 
 def config(tmp_path, name, metrics=''):
     path = write_default(tmp_path / name, device='cpu')
-    path.write_text(path.read_text().replace('num_particles = 20000', 'num_particles = 32') + metrics)
+    metrics = metrics or '\n[metrics]\nevery_steps = 1\n'
+    path.write_text(path.read_text().replace('num_particles = 20000', 'num_particles = 32') + metrics + '\n[checkpoints]\nkeep_last = 100\n')
     return path
 
 

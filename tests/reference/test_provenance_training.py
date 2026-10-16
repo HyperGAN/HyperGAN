@@ -46,4 +46,3 @@ def test_run_train_writes_provenance_inside_run_lock(tmp_path):
     assert result is not None
     assert (run_dir / "launch" / "0001.json").is_file()
     assert (run_dir / "config-source" / "model.toml").is_file()
-

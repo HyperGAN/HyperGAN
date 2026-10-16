@@ -88,4 +88,3 @@ runs_root = "{runs_dir}"
     assert config_source.is_dir()
     assert (config_source / "my_experiment.toml").is_file()
     assert (config_source / "hypergan.toml").is_file()
-

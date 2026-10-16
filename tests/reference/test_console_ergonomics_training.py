@@ -77,4 +77,3 @@ def test_train_cli_human_summary_footer_and_progress_json(tmp_path):
     assert parsed.get("event") == "result"
     assert parsed["manifest"]["status"] == "complete"
     assert parsed["manifest"]["steps"] == 1
-

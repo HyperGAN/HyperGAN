@@ -94,4 +94,3 @@ def test_api_load_inference(tmp_path):
     assert graph is not None
     assert loaded_prior is not None
     assert sha is not None
-

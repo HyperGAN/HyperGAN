@@ -86,4 +86,3 @@ def test_new_dataset_nonpreset_resolution_snapping(tmp_path):
     train_res = run_cli(tmp_path, "train", recipe_path, "--run-dir", run_dir, "--steps", "1",
                         "--set", "train.device=cpu", "--no-server", isolated=False)
     assert train_res.returncode == 0, train_res.stderr
-

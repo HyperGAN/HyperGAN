@@ -6,6 +6,7 @@ Zero torch/particlegan dependencies: can be run and queried from any Python envi
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
+import errno
 import os
 from pathlib import Path
 import shutil
@@ -58,14 +59,33 @@ def queue_lock(queue_path: Path):
     lock_path = queue_path.with_name(queue_path.name + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    acquired = False
     try:
         if fcntl:
             fcntl.flock(fd, fcntl.LOCK_EX)
+        else:
+            import msvcrt
+            # Nonblocking retries avoid msvcrt's fixed ten-attempt deadline.
+            while True:
+                try:
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise
+                    time.sleep(0.01)
+        acquired = True
         yield
     finally:
         try:
-            if fcntl:
+            if not acquired:
+                pass
+            elif fcntl:
                 fcntl.flock(fd, fcntl.LOCK_UN)
+            else:
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
         finally:
             os.close(fd)
 
@@ -500,15 +520,12 @@ def queue_run(
                 if lock_file.is_file():
                     is_locked = False
                     try:
-                        fd = os.open(str(lock_file), os.O_RDWR)
+                        from .run_state import run_lock
                         try:
-                            if fcntl:
-                                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                                fcntl.flock(fd, fcntl.LOCK_UN)
-                        except (BlockingIOError, OSError):
+                            with run_lock(rdir):
+                                pass
+                        except RuntimeError:
                             is_locked = True
-                        finally:
-                            os.close(fd)
                     except Exception:
                         pass
                     if is_locked:

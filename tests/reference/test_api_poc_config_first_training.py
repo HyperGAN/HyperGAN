@@ -111,4 +111,3 @@ def test_extensions_run_metrics_evaluations_previews_and_samplers(tmp_path):
     previews = hg.samples(run)
     assert previews and tuple(previews[0].data.shape) == (16, 2)
     assert hg.view(previews[0], 'scatter', run=run).width == 64
-

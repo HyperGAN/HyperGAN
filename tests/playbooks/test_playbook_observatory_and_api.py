@@ -17,17 +17,32 @@ Covers:
 
 from __future__ import annotations
 
+import json
+import os
 import socket
+import subprocess
+import sys
 import types
 from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
 
-import hypergan.api  # noqa: F401
 import hypergan as hg
+import hypergan.api  # noqa: F401
+import hypergan.cli as cli
 from hypergan.web_server import create_app
 from hypergan.web_session import LocalSession
+
+
+def _invoke_cli(capsys, *args: str) -> tuple[int, str, str]:
+    capsys.readouterr()
+    try:
+        rc = cli.main([str(a) for a in args])
+    except SystemExit as exc:
+        rc = int(exc.code) if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+    captured = capsys.readouterr()
+    return rc or 0, captured.out, captured.err
 
 
 def _free_port() -> int:
@@ -246,3 +261,144 @@ def test_observatory_routes_tag_resolution_and_api_parity(
                         f"Key mismatch between {url_short} ({set(body_short.keys())}) "
                         f"and {url_v1} ({set(body_v1.keys())})"
                     )
+
+
+def test_torch_free_import_and_clean_namespace():
+    """Verify `import hypergan as hg` does not load torch, defines explicit __all__, and does not leak stdlib symbols."""
+    check_code = (
+        "import sys\n"
+        "import hypergan as hg\n"
+        "assert 'torch' not in sys.modules, f'torch leaked into sys.modules: {sys.modules.get(\"torch\")}'\n"
+        "assert hasattr(hg, '__all__') and len(hg.__all__) > 0, '__all__ is missing or empty'\n"
+        "leaked = {'Path', 'dataclass', 'json', 're', 'tomllib'} & set(dir(hg))\n"
+        "assert not leaked, f'Leaked stdlib symbols in dir(hg): {leaked}'\n"
+    )
+    env = os.environ.copy()
+    res = subprocess.run([sys.executable, "-c", check_code], text=True, capture_output=True, env=env)
+    assert res.returncode == 0, res.stderr
+
+
+def test_public_sdk_docstrings():
+    """Verify all public callable functions in hg.__all__ have non-empty docstrings."""
+    missing = []
+    for name in hg.__all__:
+        obj = getattr(hg, name, None)
+        if callable(obj) and not isinstance(obj, type):
+            doc = getattr(obj, "__doc__", None)
+            if not doc or not doc.strip():
+                missing.append(name)
+    assert not missing, f"Missing docstrings on public SDK functions: {missing}"
+
+
+def test_callable_metrics_module_parity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify hg.metrics remains callable before and after `import hypergan.metrics`."""
+    runs_root, run_dir, slug = _seed_trained_run(tmp_path, monkeypatch)
+    import hypergan.metrics
+    assert callable(hg.metrics), "hg.metrics is not callable after import hypergan.metrics"
+    data = hg.metrics(slug)
+    assert isinstance(data, dict)
+
+    from hypergan import metrics
+    assert callable(metrics), "from hypergan import metrics is not callable"
+    assert metrics(slug) == data
+    assert hasattr(hg.metrics, "validate_metrics")
+    assert hasattr(hg.metrics, "compare")
+    assert hasattr(hg.metrics, "get_metric")
+
+
+def test_run_dataclass_properties(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify .slug, .short_id, .run_id, and .name properties on Run dataclass."""
+    runs_root, run_dir, slug = _seed_trained_run(tmp_path, monkeypatch)
+    run = hg.open_run(slug)
+    assert run.slug == slug
+    assert isinstance(run.run_id, str) and len(run.run_id) >= 8
+    assert run.short_id == run.run_id[:8]
+    assert run.name
+    assert run.status in ("complete", "completed", "stopped", "running")
+
+
+def test_train_optional_run_dir_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify `hg.train(model)` with `run_dir=None` creates and saves into `<runs_root>/<slug>`."""
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("HYPERGAN_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("HYPERGAN_HOME", str(state_dir))
+    monkeypatch.chdir(tmp_path)
+
+    model = hg.override(hg.packaged("gaussian-grid"), {"train.steps": 1, "train.device": "cpu"})
+    run = hg.train(model, steps=1, devices="cpu", previews=0)
+    assert run.path.is_dir()
+    assert run.status in ("complete", "completed")
+    assert run.slug
+    assert (run.path / "manifest.json").is_file()
+
+
+def test_top_level_sdk_exports_and_methods_parity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify top-level SDK convenience functions and enhanced arguments."""
+    runs_root, run_dir, slug = _seed_trained_run(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    # 1. hg.list_templates
+    templates = hg.list_templates()
+    assert isinstance(templates, (list, tuple))
+    template_names = [t["name"] if isinstance(t, dict) else t for t in templates]
+    assert "gaussian-grid" in template_names
+
+    # 2. hg.describe_model with Model instance
+    m = hg.packaged("gaussian-grid")
+    desc = hg.describe_model(m)
+    assert isinstance(desc, dict)
+    assert "networks" in desc or "formulation" in desc or "config" in desc
+
+    # 3. hg.diff between two models/configs
+    diff_res = hg.diff(m, m)
+    assert isinstance(diff_res, dict)
+    assert diff_res.get("identical") is True
+
+    # 4. hg.compare with runs
+    comp_res = hg.compare([slug, slug])
+    assert isinstance(comp_res, dict)
+    assert "matrix" in comp_res or "runs" in comp_res
+
+    # 5. hg.prepare_resume by slug
+    prep = hg.prepare_resume(slug)
+    assert prep is not None and prep.operation == "resume"
+
+    # 6. hg.contributions auto-projecting
+    page = hg.contributions(slug)
+    assert isinstance(page, dict)
+    assert "frames" in page or "cursor" in page
+
+    # 7. hg.load_inference by slug
+    inf = hg.load_inference(slug)
+    assert "model_states" in inf
+
+    # 8. hg.sample by slug
+    s = hg.sample(slug, count=2)
+    assert s is not None
+    assert isinstance(s, hg.Sample)
+
+
+def test_view_cli_tag_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    """Verify `hypergan view <tag> --status` and `hypergan view <tag> --stop` resolve custom tags cleanly."""
+    runs_root, run_dir, slug = _seed_trained_run(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+
+    hg.tag(slug, "release-candidate")
+
+    rc_status, out_status, err_status = _invoke_cli(capsys, "view", "release-candidate", "--status")
+    assert rc_status == 0, err_status
+    st_json = json.loads(out_status)
+    assert "status" in st_json
+
+    rc_stop, out_stop, err_stop = _invoke_cli(capsys, "view", "release-candidate", "--stop")
+    assert rc_stop == 0, err_stop
+    stop_json = json.loads(out_stop)
+    assert "status" in stop_json
+
+    # Also resolve by slug
+    rc_slug, out_slug, err_slug = _invoke_cli(capsys, "view", slug, "--status")
+    assert rc_slug == 0, err_slug
+    st_slug_json = json.loads(out_slug)
+    assert "status" in st_slug_json
+

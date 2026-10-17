@@ -7,7 +7,7 @@ from hndl.operators.pretrained import Pretrained
 from particlegan import get_recipe
 
 from hypergan.checkpoints import restore_trainer, trainer_state
-from hypergan.config import config_values, resolve_config
+from hypergan.config import config_values, load_config, resolve_config
 from hypergan.training import ReferenceTrainer, initialize_fresh_parameters, particlegan_recipe
 
 
@@ -66,6 +66,22 @@ def test_complete_preset_factories_roles_references_and_exact_resume():
     equal(wanted, trainer_state(resumed, batch))
 
 
+def test_generated_image_project_uses_the_released_global_recipe(tmp_path):
+    from PIL import Image
+    from hypergan.recipe_generator import generate_recipe
+    data = tmp_path / 'images'
+    data.mkdir()
+    Image.new('RGB', (32, 32)).save(data / 'one.png')
+    path = tmp_path / 'model.toml'
+    generate_recipe('test/images', data, output_path=path, device='cpu')
+    resolved = load_config(path)
+    recipe = particlegan_recipe(resolved)
+    assert recipe.name == 'bispf_optimized'
+    assert (recipe.lr, recipe.prior_reg) == (.012, .01)
+    assert resolved['training']['initialization'] == 'deterministic_orthogonal'
+    assert resolved['training']['seed'] == 0
+
+
 def test_optimizer_law_tamper_is_rejected_before_model_mutation():
     trainer = ReferenceTrainer(config())
     _, batch = trainer.update()
@@ -96,6 +112,19 @@ def test_snapshot_supports_gaussian_prior_without_a_learned_table():
     row, _ = trainer.update()
     assert row['prior_loss'] == 0
     assert all(group['role'] != 'prior' for group in trainer.opt_g.param_groups)
+
+
+def test_prior_optimizer_preserves_its_explicit_adam_epsilon():
+    raw = config_values(config())
+    raw['recipe'].update(optimizer_family='adam', optimizer_smoothing=0.,
+                         optimizer_convolution='none', optimizer_convolution_rule='polar',
+                         constraint_geometry_mode='none', eps=.03, prior_eps=.12)
+    trainer = ReferenceTrainer(resolve_config(raw))
+    assert all(group['eps'] == (.12 if group['role'] == 'prior' else .03)
+               for group in trainer.opt_g.param_groups)
+    assert type(trainer.opt_d) is torch.optim.Adam
+    row, _ = trainer.update()
+    assert torch.isfinite(torch.tensor(row['g_loss']))
 
 
 def test_inference_strict_load_preserves_recipe_prior_reference_buffers(tmp_path):
@@ -145,7 +174,9 @@ def test_public_initialization_preserves_loaded_trunk_and_effective_flags(traina
 
 
 @pytest.mark.parametrize('delta', [{'continuous_policy': 'dv12'}, {'prior_regularizer': 'sigreg'},
-                                  {'constraint_geometry_mode': 'strict_progress'}])
+                                  {'constraint_geometry_mode': 'strict_progress'},
+                                  {'conditioning': 'ucd', 'num_classes': 2},
+                                  {'model': 'ddgan'}])
 def test_unimplemented_recipe_mechanisms_fail_before_training(delta):
     raw = config()
     raw['recipe'].update(delta)

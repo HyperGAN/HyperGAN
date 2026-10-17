@@ -182,7 +182,17 @@ def _device_class(cls):
 
 def _device_optimizer(optimizer):
     """Keep the CPU Adam guard local to actual Adam optimizers."""
-    if isinstance(optimizer, torch.optim.Adam):
+    if (type(optimizer) is torch.optim.Adam
+            and getattr(optimizer, 'recipe_optimizer_family', None) == 'adam'):
+        # ParticleGAN's plain Adam penalty validates the exact optimizer type;
+        # bind only the CPU guard instead of changing the optimizer's class.
+        if all(parameter.device.type == 'cpu' for group in optimizer.param_groups for parameter in group['params']):
+            for guard in ('_accelerator_graph_capture_health_check', '_cuda_graph_capture_health_check'):
+                if hasattr(optimizer, guard):
+                    setattr(optimizer, guard, lambda: None)
+        return optimizer
+    if (isinstance(optimizer, torch.optim.Adam)
+            and getattr(optimizer, 'recipe_optimizer_family', None) != 'adam'):
         optimizer.__class__ = _device_class(type(optimizer))
     return optimizer
 
@@ -248,6 +258,7 @@ def particlegan_recipe(config):
         'reg_coeff_end': recipe.reg_coeff_end is not None,
         'prior_regularizer': recipe.prior_regularizer not in ('vicreg', 'none', 'sbnp', 'moment_tether', 'coulomb'),
         'model': recipe.model != 'gan',
+        'conditioning': recipe.conditioning == 'ucd',
         'encoder_mode': recipe.encoder_mode != 'none',
         'row_policy': recipe.row_policy != 'independent',
     }
@@ -373,6 +384,8 @@ class ReferenceTrainer:
             groups.append({"params": list(self.program.prior_parameters), "lr": opt["lr"] * opt["prior_lr_mult"], "betas": tuple(opt["prior_betas"])})
             if config.get('recipe'):
                 groups[-1]['role'] = 'prior'
+            if self.recipe.prior_eps is not None:
+                groups[-1]['eps'] = self.recipe.prior_eps
         # Latent damping acts on a plain particle table alone in its group.
         table = getattr(self.prior, "z", None)
         latent_table = table if (type(self.prior) is ParticlePrior and table.requires_grad

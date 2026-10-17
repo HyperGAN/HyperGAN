@@ -424,10 +424,9 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
         raise ValueError(f"Unknown starter template {template!r}; choose one of: {choices}")
 
     # Support calling `generate_recipe(data_dir, output_path=..., template=..., resolution=...)`
-    if dataset_dir is None and name is not None:
-        if isinstance(name, Path) or Path(str(name)).is_dir():
-            dataset_dir = name
-            name = None
+    if dataset_dir is None and name is not None and Path(str(name)).is_dir():
+        dataset_dir = name
+        name = None
 
     # Target path and name resolution
     if output_path is not None:

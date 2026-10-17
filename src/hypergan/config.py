@@ -289,12 +289,6 @@ def _spec(value, location, objectives=False):
     value.setdefault("args", {})
     if not isinstance(value["args"], dict):
         raise ValueError(f"{location}.args must be a table")
-    if isinstance(value.get("inputs"), dict) and len(value["inputs"]) == 1:
-        (k, v), = value["inputs"].items()
-        if v == "latent" and k == "z":
-            in_shape = value["args"].get("input_shape")
-            if isinstance(in_shape, (list, tuple)):
-                value["args"]["input_shape"] = {k: list(in_shape)}
     if not objectives and value.get("factory") == "hndl":
         validate_network_args(value["args"], f"{location}.args")
         if "file" in value["args"]:

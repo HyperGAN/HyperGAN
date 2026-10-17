@@ -86,6 +86,7 @@ def test_viewer_dev_reaches_the_detached_supervisor_through_the_environment(monk
     assert parser.parse_args(['resume', 'run', '--dev']).viewer_dev is True
 
     started = {}
+    monkeypatch.setattr(web_autostart, 'ensure_dashboard_running', lambda *args, **kwargs: 'https://box.ts.net')
     monkeypatch.setattr(web_autostart, 'training_viewer',
                         lambda root, **kwargs: started.setdefault('kwargs', kwargs))
     args = parser.parse_args(['resume', str(tmp_path), '--viewer-dev'])

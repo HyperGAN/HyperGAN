@@ -228,6 +228,23 @@ def _drop_removed_fields(table, location):
     return table
 
 
+def _ast_recipe_fields(recipe_path):
+    import ast
+    source = Path(recipe_path).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    fields = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "Recipe":
+            for item in node.body:
+                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                    if item.value is not None:
+                        try:
+                            fields[item.target.id] = ast.literal_eval(item.value)
+                        except (ValueError, TypeError, SyntaxError, MemoryError):
+                            pass
+    return fields
+
+
 @functools.cache
 def particlegan_recipe_fields():
     """Read the installed public preset without importing Torch or ParticleGAN.
@@ -239,12 +256,18 @@ def particlegan_recipe_fields():
     if package is None or not package.submodule_search_locations:
         raise ValueError('defaults = "particlegan" requires ParticleGAN (the train extra)')
     name = "_hypergan_particlegan_recipes"
-    spec = importlib.util.spec_from_file_location(name, Path(package.submodule_search_locations[0]) / "recipes.py")
+    recipe_path = Path(package.submodule_search_locations[0]) / "recipes.py"
+    spec = importlib.util.spec_from_file_location(name, recipe_path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     try:
         spec.loader.exec_module(module)
-        recipe = module.get_recipe_fields()
+        if hasattr(module, "get_recipe_fields"):
+            recipe = module.get_recipe_fields()
+        else:
+            recipe = _ast_recipe_fields(recipe_path)
+    except (ImportError, AttributeError, RuntimeError, TypeError, ValueError):
+        recipe = _ast_recipe_fields(recipe_path)
     finally:
         del sys.modules[name]
     return recipe
@@ -522,7 +545,18 @@ def resolve_config(raw):
                 latent_dim = port_shape[1]
         elif isinstance(gen_in_shape, (list, tuple)) and len(gen_in_shape) >= 2:
             latent_dim = gen_in_shape[1]
-        if latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
+        user_specified_z_dim = (
+            "prior" in raw
+            and isinstance(raw["prior"], dict)
+            and (
+                "z_dim" in raw["prior"]
+                or ("args" in raw["prior"] and isinstance(raw["prior"]["args"], dict) and "z_dim" in raw["prior"]["args"])
+            )
+        )
+        if not user_specified_z_dim and latent_dim is not None and isinstance(latent_dim, int):
+            prior["args"]["z_dim"] = latent_dim
+            prior_z_dim = latent_dim
+        elif latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
             raise ValueError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
 
     _positive(result["adversarial"]["weight"], "adversarial.weight", zero=True)

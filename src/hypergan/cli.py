@@ -139,54 +139,57 @@ def _parser():
     data_check.add_argument("config", type=Path)
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
     inspect = commands.add_parser("inspect", help="Read a run manifest without loading model weights")
-    inspect.add_argument("path", type=Path)
+    inspect.add_argument("path", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or manifest path")
     status_cmd = commands.add_parser("status", help="Show a concise, human-friendly status summary of a run")
-    status_cmd.add_argument("run_dir", type=Path, help="path to run directory")
+    status_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active or latest run)")
     status_cmd.add_argument("--json", action="store_true", help="output structured status as JSON")
     runs = commands.add_parser("runs", help="Inspect and compare experiment runs")
-    runs_subs = runs.add_subparsers(dest="runs_command", required=True)
+    runs.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
+    runs.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
+    runs.add_argument("--json", action="store_true", help="output runs table as JSON array")
+    runs_subs = runs.add_subparsers(dest="runs_command", required=False)
     runs_ls = runs_subs.add_parser("ls", help="List runs under root directory")
     runs_ls.add_argument("root", nargs="?", type=Path, default=None, help="runs root directory")
     runs_ls.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
     runs_ls.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
     runs_ls.add_argument("--json", action="store_true", help="output runs table as JSON array")
     runs_compare = runs_subs.add_parser("compare", help="Compare multiple runs side-by-side")
-    runs_compare.add_argument("runs", nargs="+", type=Path, help="two or more run directories")
+    runs_compare.add_argument("runs", nargs="+", type=Path, help="two or more run directories, slugs, or IDs")
     runs_compare.add_argument("--metric", required=True, help="metric name to compare (e.g. fid50k_train, loss_g)")
     runs_compare.add_argument("--at", required=True, help="steps to compare at (e.g. 50k,100k,best,latest)")
     runs_compare.add_argument("--csv", action="store_true", help="export comparison as CSV")
     gc_cmd = commands.add_parser("gc", help="Clean rebuildable views and compact events in finished runs")
-    gc_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory to clean")
+    gc_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, or ID to clean")
     gc_cmd.add_argument("--all", action="store_true", help="clean all runs in workspace runs root")
     gc_cmd.add_argument("--dry-run", action="store_true", help="calculate reclaimable space without modifying files")
     gc_cmd.add_argument("--stride", type=_positive_int, default=10, help="compaction stride for routine train events (default: 10)")
     model = commands.add_parser("model", help="Describe a run's formulation, losses, optimizers and networks")
-    model.add_argument("path", type=Path, help="run directory, manifest.json or project .toml")
+    model.add_argument("path", nargs="?", type=Path, default=None, help="run directory, slug, short ID, manifest.json or project .toml")
     model.add_argument("--networks", action="store_true",
                        help="also build each component on the meta device for per-layer detail (loads torch)")
     model.add_argument("--write", action="store_true",
                        help="record the per-layer detail as RUN/model.json for the viewer (implies --networks)")
     events = commands.add_parser("events", help="Read a bounded page of run events without loading training")
-    events.add_argument("run_dir", type=Path)
+    events.add_argument("run_dir", nargs="?", type=Path, default=None)
     events.add_argument("--cursor", help="opaque cursor returned by the previous page")
     events.add_argument("--limit", type=_positive_int, default=100)
     events.add_argument("--max-bytes", type=_positive_int, default=1048576)
     metrics = commands.add_parser("metrics", help="Read immutable metric definitions without loading training")
-    metrics.add_argument("run_dir", type=Path)
+    metrics.add_argument("run_dir", nargs="?", type=Path, default=None)
     metrics.add_argument("--revision", help="historical catalog SHA256 (default: active catalog)")
     project = commands.add_parser("project", help="Build Python event-map contributions independently of serving")
-    project.add_argument("run_dir", type=Path)
+    project.add_argument("run_dir", nargs="?", type=Path, default=None)
     project.add_argument("--map-spec", type=Path, help="JSON MapSpec; default selects published scalar metrics")
     project.add_argument("--follow", action="store_true", help="continue projecting newly completed events")
     project.add_argument("--limit", type=_positive_int, default=100, help="documents per bounded work page")
     contributions = commands.add_parser("contributions", help="Read a bounded page of mapped event frames")
-    contributions.add_argument("run_dir", type=Path)
+    contributions.add_argument("run_dir", nargs="?", type=Path, default=None)
     contributions.add_argument("--map-revision", help="map SHA256 (default: built-in scalar map)")
     contributions.add_argument("--cursor", help="last applied projection cursor")
     contributions.add_argument("--limit", type=_positive_int, default=100)
     contributions.add_argument("--max-bytes", type=_positive_int, default=1048576)
     serve = commands.add_parser("serve", help="Serve an existing run over the local API and browser UI (web extra)")
-    serve.add_argument("run_dir", type=Path)
+    serve.add_argument("run_dir", nargs="?", type=Path, default=None)
     from .ports import DEFAULT_VIEWER_PORT
     serve.add_argument("--port", "--server-port", dest="port", type=int,
                        help=f"listen port (default: {DEFAULT_VIEWER_PORT}, or the next free port "
@@ -216,14 +219,14 @@ def _parser():
     view.add_argument("--public-origin", type=_public_origin, metavar="URL",
                       help="absolute origin of a TLS proxy in front of the viewer")
     server_status = commands.add_parser("server-status", help="Read the automatic viewer URL, status and log location")
-    server_status.add_argument("run_dir", type=Path)
+    server_status.add_argument("run_dir", nargs="?", type=Path, default=None)
     stop_server = commands.add_parser("stop-server", help="Stop the persistent automatic viewer or all viewers across the host")
     stop_server.add_argument("run_dir", type=Path, nargs="?", default=None, help="run or root directory to stop")
     stop_server.add_argument("--all", action="store_true", help="safely kill all legacy leaked viewers and projectors across the host")
     from .evaluation_cli import add_evaluate_parser
     add_evaluate_parser(commands)
     checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
-    checkpoint.add_argument("run_dir", type=Path)
+    checkpoint.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active run)")
     operation = checkpoint.add_mutually_exclusive_group()
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
@@ -231,10 +234,10 @@ def _parser():
     checkpoints = commands.add_parser("checkpoints", help="Inspect and manage run checkpoints")
     checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True)
     prune = checkpoints_subs.add_parser("prune", help="Prune obsolete checkpoints under the retention policy")
-    prune.add_argument("run_dir", type=Path, help="path to run directory")
+    prune.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
     prune.add_argument("--dry-run", action="store_true", help="evaluate retention without deleting any files")
     export = commands.add_parser("export", help="Export a standalone EMA inference model bundle from a run checkpoint")
-    export.add_argument("run_dir", type=Path, help="run directory")
+    export.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
     export.add_argument("--checkpoint", default="latest", help="target checkpoint: best, latest, step number, or path")
     export.add_argument("-o", "--output", type=Path, help="output file or directory (default: <run_dir>/model.pt)")
     convert = commands.add_parser("convert", help="Convert legacy engine recipe to hypergan-model/1 TOML")
@@ -242,11 +245,12 @@ def _parser():
     convert.add_argument("--output", type=Path, required=True, help="output model.toml destination")
     def _add_train_and_resume_arguments(p, *, is_resume=False):
         if is_resume:
-            p.add_argument("run_dir", type=Path, help="existing run directory to resume")
+            p.add_argument("run_dir", nargs="?", type=Path, default=None, help="existing run directory, slug, short ID, or name to resume")
             p.add_argument("--run-dir", type=Path, required=False, default=None, help="explicit run directory override")
             p.add_argument("--config", type=Path, default=None, help="verify exact compatibility with this configuration")
         else:
-            p.add_argument("config", type=Path, help="configuration file or existing run directory to resume")
+            p.add_argument("config", type=Path, help="configuration file or existing run directory/slug/ID to resume")
+            p.add_argument("-n", "--name", default=None, help="custom experiment name / slug for the run")
             p.add_argument("--run-dir", type=Path, required=False, default=None, help="new run directory, or an existing run to resume")
             p.add_argument("--config", type=Path, default=None, help="explicit configuration file override")
         p.add_argument("-d", "--devices", default=None,
@@ -263,7 +267,7 @@ def _parser():
     resume = commands.add_parser("resume", help="Continue a complete training checkpoint on its recorded device")
     _add_train_and_resume_arguments(resume, is_resume=True)
     sample = commands.add_parser("sample", help="Sample a saved reference model (requires the train extra)")
-    sample.add_argument("run_dir", type=Path)
+    sample.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active or latest run)")
     sample.add_argument("--count", type=_positive_int, default=16)
     sample.add_argument("--seed", type=int, default=42)
     sample.add_argument("--output", type=Path)
@@ -640,8 +644,9 @@ def _dispatch(args, *, output=None):
                 from .inspection import format_run_status
                 print(format_run_status(res))
         elif args.command == "runs":
-            if args.runs_command == "ls":
-                runs_list = hg.runs_ls(args.root, sort=args.sort, status_filter=args.status)
+            if getattr(args, "runs_command", None) in (None, "ls"):
+                root_arg = getattr(args, "root", None)
+                runs_list = hg.runs_ls(root_arg, sort=args.sort, status_filter=args.status)
                 if args.json:
                     _print_json(runs_list)
                 else:
@@ -669,23 +674,29 @@ def _dispatch(args, *, output=None):
                 if skipped_count:
                     print(f"  Skipped:  {skipped_count} active runs")
             else:
-                if args.run_dir is None:
-                    raise ValueError("run_dir is required unless --all is specified")
-                res = hg.gc(args.run_dir, dry_run=args.dry_run, stride=args.stride)
+                target_run = hg.resolve_run_target(args.run_dir)
+                res = hg.gc(target_run, dry_run=args.dry_run, stride=args.stride)
                 from .inspection import format_bytes
                 views_str = format_bytes(res.get("views_reclaimed_bytes", 0))
                 events_str = format_bytes(res.get("events_reclaimed_bytes", 0))
                 total_str = format_bytes(res.get("reclaimed_bytes", 0))
                 prefix = "Would clean" if args.dry_run else "Cleaned"
-                print(f"{prefix} run: {args.run_dir}")
+                print(f"{prefix} run: {res.get('run_dir', target_run)}")
                 print(f"  Views removed:     {views_str}")
                 print(f"  Events compacted:  {events_str}")
                 print(f"  Total reclaimed:   {total_str}")
         elif args.command == "model":
-            desc = hg.describe(args.path, networks=args.networks, write=args.write)
+            resolved_model_path = args.path
+            if resolved_model_path is None or (not Path(resolved_model_path).exists() and not str(resolved_model_path).endswith(".toml")):
+                try:
+                    resolved_model_path = hg.resolve_run_target(resolved_model_path)
+                except Exception:
+                    if resolved_model_path is None:
+                        raise
+            desc = hg.describe(resolved_model_path, networks=args.networks, write=args.write)
             if args.write:
                 from .model_description import MODEL_FILE
-                print(f"wrote {args.path / MODEL_FILE}", file=sys.stderr)
+                print(f"wrote {Path(resolved_model_path) / MODEL_FILE}", file=sys.stderr)
             _print_json(desc)
         elif args.command == "events":
             _print_json(hg.events(args.run_dir, cursor=args.cursor, limit=args.limit, max_bytes=args.max_bytes))
@@ -695,7 +706,7 @@ def _dispatch(args, *, output=None):
             from .evaluation_cli import run_evaluate
             _print_json(run_evaluate(args))
         elif args.command == "serve":
-            hg.serve(args.run_dir, port=args.port, host=args.host, auth=args.auth,
+            hg.serve(hg.resolve_run_target(args.run_dir), port=args.port, host=args.host, auth=args.auth,
                      session_file=args.session_file, open_browser=args.open,
                      public_origin=args.public_origin, dev=args.dev)
         elif args.command == "view":
@@ -778,6 +789,7 @@ def _dispatch(args, *, output=None):
                 _print_json(hg.resolve(m))
         elif args.command in {"train", "resume"}:
             from .execution import SERVICE_TIMEOUTS
+            from .registry import is_run_dir as _is_valid_run_dir
             options = dict(profile=args.profile,
                            service_policy={name: getattr(args, name) for name in SERVICE_TIMEOUTS
                                            if getattr(args, name) is not None},
@@ -791,11 +803,23 @@ def _dispatch(args, *, output=None):
             target_arg = getattr(args, "run_dir", None) if is_resume_cmd else getattr(args, "config", None)
             if target_arg is None:
                 target_arg = getattr(args, "config", None) or getattr(args, "run_dir", None)
-            target_path = target_arg.resolve() if target_arg else None
 
-            is_run_dir = is_resume_cmd or (target_path and target_path.is_dir() and (
-                (target_path / "manifest.json").is_file() or (target_path / "recipe.toml").is_file() or (target_path / "summary.json").is_file()
-            ))
+            if is_resume_cmd:
+                target_path = hg.resolve_run_target(target_arg)
+                is_run_dir = True
+            else:
+                target_path = target_arg.resolve() if target_arg else None
+                is_run_dir = bool(target_path and target_path.is_dir() and (
+                    (target_path / "manifest.json").is_file() or (target_path / "recipe.toml").is_file() or (target_path / "summary.json").is_file()
+                ))
+                if not is_run_dir and target_arg is not None and not target_path.exists() and not str(target_arg).endswith(".toml"):
+                    try:
+                        cand_resolved = hg.resolve_run_target(target_arg)
+                        if _is_valid_run_dir(cand_resolved):
+                            target_path = cand_resolved
+                            is_run_dir = True
+                    except Exception:
+                        pass
 
             if is_run_dir:
                 args.run_dir = target_path
@@ -916,24 +940,32 @@ def _dispatch(args, *, output=None):
                 prepared = hg.prepare_resume(args.run_dir, getattr(args, "checkpoint", None), m, steps=getattr(args, "steps", None), sets=sets, **options)
             else:
                 config_path = target_path
+                custom_name = getattr(args, "name", None)
                 if args.run_dir is None:
                     ws_path = hg.find_workspace(config_path)
                     if ws_path:
                         ws_data = hg.load_workspace(ws_path)
                         ws_sec = ws_data.get("workspace", {})
+                        runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else Path.cwd().resolve()
+                        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else hg.generate_run_slug(config_path.stem, parent_dir=runs_root)
                         if "run_dir" in ws_sec:
-                            run_dir_str = hg.interpolate_variables(ws_sec["run_dir"], ws_data, {"stem": config_path.stem, "name": config_path.stem})
+                            run_dir_str = hg.interpolate_variables(
+                                ws_sec["run_dir"],
+                                ws_data,
+                                {"stem": config_path.stem, "name": slug_dir_name, "slug": short_slug},
+                            )
                             args.run_dir = Path(run_dir_str).resolve()
-                        elif "runs_root" in ws_sec:
-                            args.run_dir = (Path(ws_sec["runs_root"]) / f"train-{config_path.stem}").resolve()
                         else:
-                            args.run_dir = (Path.cwd() / f"train-{config_path.stem}").resolve()
+                            args.run_dir = (runs_root / slug_dir_name).resolve()
                     else:
-                        args.run_dir = (Path.cwd() / f"train-{config_path.stem}").resolve()
+                        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else hg.generate_run_slug(config_path.stem, parent_dir=Path.cwd())
+                        args.run_dir = (Path.cwd() / slug_dir_name).resolve()
                 else:
                     args.run_dir = args.run_dir.resolve()
 
                 m = hg.load(config_path)
+                if custom_name:
+                    m = hg.override(m, {"name": custom_name})
                 if sets:
                     m = hg.override(m, sets)
 

@@ -84,6 +84,7 @@ def write_launch_provenance(run_dir, attempt=1, metadata=None):
     data = {
         "schema_version": 1,
         "attempt": attempt,
+        "pid": os.getpid(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "argv": list(sys.argv),
         "executable": sys.executable,

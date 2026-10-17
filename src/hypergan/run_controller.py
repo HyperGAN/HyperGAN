@@ -510,7 +510,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
 
     manifest.update(metrics_catalog=catalog_revision, observation_sha256=observation_fingerprint(config))
     manifest.update(attempt_id=attempt_id, attempt_index=index, attempt_dir=str(attempt_dir),
-                    status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
+                    pid=os.getpid(), status='initializing', checkpoint_every=checkpoint_every, stop_reason=None,
                     possible_lost_steps=0, training_seconds=training_baseline,
                     global_batch_size=global_batch_size,
                     samples_seen=manifest['steps'] * global_batch_size)

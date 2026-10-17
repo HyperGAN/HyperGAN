@@ -81,23 +81,31 @@ def check_run_active(run_dir: Union[Path, str]) -> Tuple[bool, Optional[int]]:
             except Exception:
                 pass
 
+    if pid is None:
+        summary = read_summary_json(run_dir)
+        if summary and isinstance(summary.get("pid"), int):
+            pid = summary["pid"]
+        elif (run_dir / "manifest.json").is_file():
+            try:
+                m_data = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+                if isinstance(m_data.get("pid"), int):
+                    pid = m_data["pid"]
+            except Exception:
+                pass
+
+    if is_active and pid is None:
+        from .registry import find_live_pid_for_run
+        pid = find_live_pid_for_run(run_dir)
+
     return is_active, pid
 
 
-def _resolve_run_dir(run_target: Union[Path, str]) -> Path:
-    target = Path(run_target)
-    if target.is_dir() and ((target / "manifest.json").is_file() or (target / "summary.json").is_file()):
-        return target.resolve()
-    # Try resolving relative to workspace runs_root
-    ws = find_workspace(Path.cwd())
-    if ws and ws.runs_root:
-        cand = ws.runs_root / target
-        if cand.is_dir() and ((cand / "manifest.json").is_file() or (cand / "summary.json").is_file()):
-            return cand.resolve()
-    return target.resolve()
+def _resolve_run_dir(run_target: Optional[Union[Path, str]] = None) -> Path:
+    from .registry import resolve_run_target
+    return resolve_run_target(run_target)
 
 
-def run_status(run_dir: Union[Path, str]) -> Dict[str, Any]:
+def run_status(run_dir: Optional[Union[Path, str]] = None) -> Dict[str, Any]:
     """Compile human-friendly status summary for a run (fast-path summary.json or manifest fallback)."""
     resolved_dir = _resolve_run_dir(run_dir)
     if not resolved_dir.is_dir():
@@ -114,9 +122,16 @@ def run_status(run_dir: Union[Path, str]) -> Dict[str, Any]:
         except Exception:
             manifest = {}
 
+    from .registry import extract_or_derive_slug
+
     config = manifest.get("config", {}) if isinstance(manifest.get("config"), dict) else {}
     run_id = (summary.get("run_id") if summary else None) or manifest.get("run_id") or resolved_dir.name
     name = (summary.get("name") if summary else None) or config.get("name") or run_id
+    slug = (
+        (summary.get("slug") if summary else None)
+        or manifest.get("slug")
+        or extract_or_derive_slug(str(run_id), name=str(name), run_dir_name=resolved_dir.name)
+    )
 
     recorded_status = (summary.get("status") if summary else None) or manifest.get("status", "unknown")
     if is_active:
@@ -232,6 +247,8 @@ def run_status(run_dir: Union[Path, str]) -> Dict[str, Any]:
 
     return {
         "run_id": run_id,
+        "short_id": str(run_id)[:8],
+        "slug": slug,
         "name": name,
         "run_dir": str(resolved_dir),
         "status": status_str,
@@ -258,11 +275,14 @@ def format_run_status(info: Dict[str, Any]) -> str:
     """Format status dict into single-screen terminal summary."""
     sps = info.get("steps_per_sec")
     speed_str = f"{sps:.1f} it/s" if (sps is not None and isinstance(sps, (int, float))) else "-- it/s"
+    short_id = info.get("short_id") or str(info["run_id"])[:8]
+    slug = info.get("slug") or short_id
     lines = [
         "=" * 80,
         f"HyperGAN Run Status: {info['run_id']}",
         "=" * 80,
         f"Experiment:  {info['name']}",
+        f"Slug / ID:   {slug} ({short_id})",
         f"Run Dir:     {info['run_dir']}",
         f"Status:      {info['status']}" + (" (active)" if info["active"] else " (stopped/idle)"),
         f"Devices:     {info['devices']}",
@@ -325,32 +345,52 @@ def format_run_status(info: Dict[str, Any]) -> str:
 def list_runs(root: Optional[Union[Path, str]] = None,
               sort: str = "fid",
               status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Discover and list all runs under root with filtering and sorting."""
+    """Discover and list all runs under root (or globally via registry when root is None)."""
+    from .registry import extract_or_derive_slug, find_workspace_runs_root, sync_registry
+
+    candidates: List[Path] = []
     if root is None:
-        ws = find_workspace(Path.cwd())
-        if ws and ws.runs_root and ws.runs_root.is_dir():
-            target_root = ws.runs_root
-        else:
-            target_root = Path.cwd()
+        reg_entries = sync_registry(cwd=Path.cwd())
+        seen_dirs = set()
+        for entry in reg_entries:
+            p = Path(entry["run_dir"]).resolve()
+            if p.is_dir() and str(p) not in seen_dirs:
+                seen_dirs.add(str(p))
+                candidates.append(p)
+        ws_root = find_workspace_runs_root(Path.cwd())
+        for check_root in ([ws_root, Path.cwd().resolve()] if ws_root else [Path.cwd().resolve()]):
+            if check_root and check_root.is_dir():
+                if (check_root / "manifest.json").is_file() or (check_root / "summary.json").is_file():
+                    if str(check_root) not in seen_dirs:
+                        seen_dirs.add(str(check_root))
+                        candidates.append(check_root)
+                else:
+                    try:
+                        for child in check_root.iterdir():
+                            if child.name.startswith(".") or not child.is_dir():
+                                continue
+                            if (child / "manifest.json").is_file() or (child / "summary.json").is_file():
+                                rp = child.resolve()
+                                if str(rp) not in seen_dirs:
+                                    seen_dirs.add(str(rp))
+                                    candidates.append(rp)
+                    except OSError:
+                        pass
     else:
         target_root = Path(root).resolve()
-
-    if not target_root.exists():
-        return []
-
-    # If target_root is itself a run
-    if (target_root / "manifest.json").is_file() or (target_root / "summary.json").is_file():
-        candidates = [target_root]
-    else:
-        candidates = []
-        try:
-            for child in target_root.iterdir():
-                if child.name.startswith(".") or not child.is_dir():
-                    continue
-                if (child / "manifest.json").is_file() or (child / "summary.json").is_file():
-                    candidates.append(child)
-        except OSError:
+        if not target_root.exists():
             return []
+        if (target_root / "manifest.json").is_file() or (target_root / "summary.json").is_file():
+            candidates = [target_root]
+        else:
+            try:
+                for child in target_root.iterdir():
+                    if child.name.startswith(".") or not child.is_dir():
+                        continue
+                    if (child / "manifest.json").is_file() or (child / "summary.json").is_file():
+                        candidates.append(child.resolve())
+            except OSError:
+                return []
 
     runs = []
     for run_dir in candidates:
@@ -367,10 +407,17 @@ def list_runs(root: Optional[Union[Path, str]] = None,
             config = manifest.get("config", {}) if isinstance(manifest.get("config"), dict) else {}
             run_id = (summary.get("run_id") if summary else None) or manifest.get("run_id") or run_dir.name
             name = (summary.get("name") if summary else None) or config.get("name") or run_id
+            slug = (
+                (summary.get("slug") if summary else None)
+                or manifest.get("slug")
+                or extract_or_derive_slug(str(run_id), name=str(name), run_dir_name=run_dir.name)
+            )
 
-            is_active, _ = check_run_active(run_dir)
+            is_active, pid = check_run_active(run_dir)
             status = "running" if is_active else ((summary.get("status") if summary else None) or manifest.get("status", "unknown")).lower()
-            if status == "complete":
+            if not is_active and status in ("running", "initializing") and (run_dir / ".run.lock").exists():
+                status = "stopped"
+            elif status == "complete":
                 status = "completed"
 
             step = (summary.get("step") if summary else None)
@@ -413,9 +460,13 @@ def list_runs(root: Optional[Union[Path, str]] = None,
 
             runs.append({
                 "run_id": run_id,
+                "short_id": str(run_id)[:8],
+                "slug": slug,
                 "run_dir": str(run_dir),
                 "name": name,
                 "status": status,
+                "active": is_active,
+                "pid": pid,
                 "step": step,
                 "total_steps": total_steps,
                 "steps_per_sec": sps,
@@ -442,8 +493,8 @@ def list_runs(root: Optional[Union[Path, str]] = None,
         runs.sort(key=lambda r: (-r["step"], r["name"]))
     elif sort_key == "name":
         runs.sort(key=lambda r: r["name"].lower())
-    else:  # updated
-        runs.sort(key=lambda r: str(r["updated_at"]), reverse=True)
+    else:  # updated (active runs first, then updated_at descending)
+        runs.sort(key=lambda r: (1 if r.get("active") else 0, str(r["updated_at"])), reverse=True)
 
     return runs
 
@@ -453,10 +504,11 @@ def format_runs_table(runs: List[Dict[str, Any]]) -> str:
     if not runs:
         return "No runs found."
 
-    headers = ["Run ID", "Experiment", "Status", "Step", "it/s", "Latest Metric", "Best FID", "Updated"]
+    headers = ["Run ID", "Slug", "Experiment", "Status", "Step", "it/s", "Latest Metric", "Best FID", "Updated"]
     rows = []
     for r in runs:
-        run_id_short = r["run_id"][:8]
+        run_id_short = r.get("short_id") or r["run_id"][:8]
+        slug = r.get("slug") or "--"
         name = r["name"]
         if len(name) > 30:
             name = name[:13] + "..." + name[-14:]
@@ -471,7 +523,7 @@ def format_runs_table(runs: List[Dict[str, Any]]) -> str:
         updated = str(r.get("updated_at", "--"))
         if "T" in updated:
             updated = updated.split(".")[0].replace("T", " ")
-        rows.append([run_id_short, name, status, step_str, sps_str, latest, fid_str, updated])
+        rows.append([run_id_short, slug, name, status, step_str, sps_str, latest, fid_str, updated])
 
     # Dynamic column widths
     widths = [len(h) for h in headers]
@@ -480,7 +532,7 @@ def format_runs_table(runs: List[Dict[str, Any]]) -> str:
             widths[i] = max(widths[i], len(val))
 
     def make_line(items: List[str]) -> str:
-        return "  ".join(items[i].ljust(widths[i]) if i != 3 and i != 4 and i != 6 else items[i].rjust(widths[i]) for i in range(len(items)))
+        return "  ".join(items[i].ljust(widths[i]) if i not in (4, 5, 7) else items[i].rjust(widths[i]) for i in range(len(items)))
 
     table_lines = [
         make_line(headers),
@@ -786,9 +838,9 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
     return max(0, before_size - new_size)
 
 
-def gc_run(run_dir: Union[Path, str], dry_run: bool = False, stride: int = 10) -> Dict[str, Any]:
+def gc_run(run_dir: Optional[Union[Path, str]] = None, dry_run: bool = False, stride: int = 10) -> Dict[str, Any]:
     """Clean rebuildable views and compact events on a finished run."""
-    run_dir = Path(run_dir).resolve()
+    run_dir = _resolve_run_dir(run_dir)
     is_active, _ = check_run_active(run_dir)
     if is_active:
         raise RuntimeError(f"Cannot perform GC on active training run: {run_dir}")
@@ -835,19 +887,24 @@ def gc_all(root: Optional[Union[Path, str]] = None,
            dry_run: bool = False,
            stride: int = 10) -> List[Dict[str, Any]]:
     """Clean all finished runs under root, cleanly skipping active runs."""
+    from .registry import find_workspace_runs_root, sync_registry
+
     if root is None:
-        ws = find_workspace(Path.cwd())
-        target_root = ws.runs_root if ws and ws.runs_root else Path.cwd()
+        ws_root = find_workspace_runs_root(Path.cwd())
+        if ws_root and ws_root.is_dir():
+            target_root = ws_root
+            candidates = [c for c in target_root.iterdir() if c.is_dir() and not c.name.startswith(".") and (c / "manifest.json").is_file()]
+        else:
+            entries = sync_registry(cwd=Path.cwd())
+            candidates = [Path(e["run_dir"]) for e in entries if (Path(e["run_dir"]) / "manifest.json").is_file()]
     else:
         target_root = Path(root).resolve()
-
-    if not target_root.exists():
-        return []
-
-    if (target_root / "manifest.json").is_file():
-        candidates = [target_root]
-    else:
-        candidates = [c for c in target_root.iterdir() if c.is_dir() and not c.name.startswith(".") and (c / "manifest.json").is_file()]
+        if not target_root.exists():
+            return []
+        if (target_root / "manifest.json").is_file():
+            candidates = [target_root]
+        else:
+            candidates = [c for c in target_root.iterdir() if c.is_dir() and not c.name.startswith(".") and (c / "manifest.json").is_file()]
 
     results = []
     for cand in candidates:

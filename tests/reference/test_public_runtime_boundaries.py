@@ -248,12 +248,14 @@ runs_root = "{runs_dir}"
     config = tmp_path / "my_experiment.toml"
     run_cli(tmp_path, "new", config, "--device", "cpu")
 
-    # Train without --run-dir; should default to {runs_root}/train-{stem}
+    # Train without --run-dir; should default to {runs_root}/{stem}-{adj}-{noun}
     train_res = run_cli(tmp_path, "train", config, "--steps", "1", "--no-server", isolated=False)
     assert train_res.returncode == 0, train_res.stderr
 
-    expected_run = runs_dir / "train-my_experiment"
-    assert expected_run.is_dir()
+    created_runs = [d for d in runs_dir.iterdir() if d.is_dir() and d.name.startswith("my_experiment-")]
+    assert len(created_runs) == 1
+    expected_run = created_runs[0]
+    assert len(expected_run.name.split("-")) >= 3
     assert (expected_run / "manifest.json").is_file()
 
     # Verify launch provenance and config snapshot were written
@@ -261,6 +263,7 @@ runs_root = "{runs_dir}"
     assert launch_json.is_file()
     launch_data = json.loads(launch_json.read_text(encoding="utf-8"))
     assert launch_data["attempt"] == 1
+    assert isinstance(launch_data.get("pid"), int)
     assert "hypergan" in launch_data["git"]
 
     config_source = expected_run / "config-source"

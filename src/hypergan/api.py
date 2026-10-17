@@ -241,7 +241,12 @@ def _relocated(spec, base, destination):
                 raise ModelFileError('A model with relative hndl paths needs a base directory to be saved elsewhere')
             import os
             source = (base / file).resolve()
-            shared = Path(os.path.commonpath([source, destination]))
+            try:
+                shared = Path(os.path.commonpath([source, destination]))
+            except ValueError:
+                # Windows volumes have no shared directory or relative path.
+                network['hndl'] = source.as_posix()
+                continue
             # Relative when the files share a project directory, else absolute.
             network['hndl'] = (Path(os.path.relpath(source, destination)).as_posix()
                                if shared != Path(shared.anchor) else source.as_posix())

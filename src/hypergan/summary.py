@@ -6,8 +6,24 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import time
 
 from .run_state import sync_directory
+
+
+def _replace_file(source, destination):
+    # Windows can deny replacement while another handle briefly inspects the
+    # destination. Keep the staged bytes and atomic replacement; retry only
+    # access/sharing/lock violations, with at most .75 seconds of backoff.
+    for attempt in range(11):
+        try:
+            os.replace(source, destination)
+            return
+        except OSError as error:
+            if (os.name != 'nt' or getattr(error, 'winerror', None) not in (5, 32, 33)
+                    or attempt == 10):
+                raise
+            time.sleep(min(.01 * 2 ** attempt, .1))
 
 
 def atomic_write_json(path: Path | str, data: dict) -> None:
@@ -21,7 +37,7 @@ def atomic_write_json(path: Path | str, data: dict) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp_file, path)
+        _replace_file(temp_file, path)
         sync_directory(path.parent)
     finally:
         if os.path.exists(temp_file):

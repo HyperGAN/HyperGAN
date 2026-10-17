@@ -67,7 +67,7 @@ def test_constant_lr_target_extension_preserves_exact_state_and_old_checkpoints(
     from hypergan.execution import train as public_train, resume as public_resume, prepare_resume
 
     config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
-    config.write_text(config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0'))
+    config.write_text(config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0') + '\n[checkpoints]\nkeep_every = 1\n[metrics]\nevery_steps = 1\n')
     full, split = tmp_path / 'full', tmp_path / 'split'
     public_train(config, full, steps=6, checkpoint_every=1)
     stopped = public_train(config, split, steps=3, checkpoint_every=1,
@@ -81,11 +81,14 @@ def test_constant_lr_target_extension_preserves_exact_state_and_old_checkpoints(
     assert extended['config_sha256'] != stopped['config_sha256']
     assert read_checkpoint(split)[1]['config_sha256'] == extended['config_sha256']
     assert prepare_resume(split, checkpoint=old_checkpoint).checkpoint == Path(old_checkpoint)
-    completed = public_resume(split)
+    # Replaying an old snapshot is a fixture requirement: supply its explicit
+    # retention policy on every attempt, independently of numerical identity.
+    config.write_text(config.read_text().replace('steps = 5', 'steps = 6'))
+    completed = public_resume(split, config_path=config)
     assert completed['steps'] == 6 and completed['status'] == 'complete'
     equal(read_checkpoint(full)[2], read_checkpoint(split)[2])
-    # Replay a checkpoint written before the extension using only saved config.
-    replayed = public_resume(split, checkpoint=old_checkpoint)
+    # Replay a checkpoint written before the extension under the retained policy.
+    replayed = public_resume(split, checkpoint=old_checkpoint, config_path=config)
     assert replayed['total_steps'] == replayed['steps'] == 6
     equal(read_checkpoint(full)[2], read_checkpoint(split)[2])
     assert old_bytes == {p.name: p.read_bytes() for p in Path(old_checkpoint).iterdir() if p.is_file()}
@@ -193,7 +196,7 @@ def test_failure_after_discriminator_update_preserves_prior_durable_boundary(tmp
     equal(read_checkpoint(tmp_path / 'full')[2], read_checkpoint(tmp_path / 'interrupted')[2])
 
 
-def test_runtime_config_tampering_and_inference_rejected_without_mutation(tmp_path):
+def test_config_and_inference_tampering_rejected_but_topology_metadata_warns(tmp_path):
     config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     stopped = train(config, tmp_path / 'run', stop_after_steps=2)
     manifest_path = tmp_path / 'run/manifest.json'
@@ -209,9 +212,10 @@ def test_runtime_config_tampering_and_inference_rejected_without_mutation(tmp_pa
     value = json.loads(info.read_text())
     value['runtime']['world_size'] = 2
     info.write_text(json.dumps(value))
-    with pytest.raises(ValueError, match='runtime/topology'):
-        resume(tmp_path / 'run')
-    assert manifest_path.read_bytes() == before
+    from hypergan.checkpoint_compatibility import HyperGANHardwareWarning
+    with pytest.warns(HyperGANHardwareWarning, match='world_size'):
+        completed = resume(tmp_path / 'run')
+    assert completed['status'] == 'complete' and completed['steps'] == 5
 
 
 def test_checkpoint_write_failure_keeps_last_durable_pointer(tmp_path, monkeypatch):

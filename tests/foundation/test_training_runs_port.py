@@ -47,9 +47,10 @@ def test_training_runs_structure(runs_workspace):
     assert (RUNS_DIR / "logos-base.toml").is_file(), "logos-base.toml must exist"
     assert (RUNS_DIR / "logos-transgan-resnet-base.toml").is_file(), "logos-transgan-resnet-base.toml must exist"
 
-    all_tomls = sorted(RUNS_DIR.glob("*.toml"))
-    exp_tomls = [p for p in all_tomls if not p.name.endswith("-base.toml") and p.name != "hypergan.toml"]
+    # New training runs are independent of the archived 46-file port cohort.
+    exp_tomls = [RUNS_DIR / path.name for path in sorted(BACKUP_DIR.glob('*.toml'))]
     assert len(exp_tomls) == 46, f"Expected exactly 46 experiment TOML files, found {len(exp_tomls)}"
+    assert all(path.is_file() for path in exp_tomls)
 
 
 @pytest.fixture
@@ -74,8 +75,7 @@ def published_pg08_defaults(monkeypatch):
 
 
 def test_all_46_ported_experiments_load_validate_and_preserve_fingerprint(runs_workspace, published_pg08_defaults):
-    all_tomls = sorted(RUNS_DIR.glob("*.toml"))
-    exp_tomls = [p for p in all_tomls if not p.name.endswith("-base.toml") and p.name != "hypergan.toml"]
+    exp_tomls = [RUNS_DIR / path.name for path in sorted(BACKUP_DIR.glob('*.toml'))]
 
     mismatches = []
     for ported_path in exp_tomls:

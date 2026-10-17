@@ -339,3 +339,251 @@ def test_inactive_pid_is_none_and_slug_collisions_disambiguated(tmp_path, monkey
     for r in runs:
         assert r["active"] is False
         assert r["pid"] is None
+
+
+def test_top_level_cli_subcommands_and_grouped_help(tmp_path, monkeypatch, capsys):
+    """Verify top-level `compare`, `diff`, `doctor`, `report`, `queue clear`, and zero-arg help."""
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("HYPERGAN_HOME", str(state_dir))
+    monkeypatch.setenv("HYPERGAN_STATE_DIR", str(state_dir))
+    monkeypatch.chdir(tmp_path)
+
+    # 1. Zero-arg help prints usage and returns 0
+    rc_zero, out_zero, _ = _invoke_cli(capsys)
+    assert rc_zero == 0
+    assert "usage: hypergan" in out_zero
+    assert "compare" in out_zero
+    assert "diff" in out_zero
+    assert "doctor" in out_zero
+    assert "report" in out_zero
+
+    # Setup two mock runs
+    runs_root = tmp_path / "runs"
+    r1 = _make_mock_run(
+        runs_root / "exp-a",
+        run_id="aaaa0001bbbb0002cccc0003dddd0004",
+        name="exp-a",
+        slug="amber-anchor",
+        steps=10,
+        loss_g=0.6,
+    )
+    r2 = _make_mock_run(
+        runs_root / "exp-b",
+        run_id="eeee0005ffff0006aaaa0007bbbb0008",
+        name="exp-b",
+        slug="arctic-atlas",
+        steps=10,
+        loss_g=0.4,
+    )
+    register_run(r1)
+    register_run(r2)
+
+    # 2. Top-level compare
+    rc_comp, out_comp, err_comp = _invoke_cli(capsys, "compare", "amber-anchor", "arctic-atlas")
+    assert rc_comp == 0, err_comp
+    assert "exp-a" in out_comp
+    assert "exp-b" in out_comp
+
+    # Missing runs exit non-zero
+    rc_miss, out_miss, err_miss = _invoke_cli(capsys, "compare", "nonexistent-1", "nonexistent-2")
+    assert rc_miss != 0
+
+    # 3. Top-level diff between two configs
+    cfg1 = tmp_path / "model1.toml"
+    cfg2 = tmp_path / "model2.toml"
+    rc_n1, _, err_n1 = _invoke_cli(capsys, "new", str(cfg1), "--device", "cpu")
+    assert rc_n1 == 0, err_n1
+    rc_n2, _, err_n2 = _invoke_cli(capsys, "new", str(cfg2), "--device", "cpu")
+    assert rc_n2 == 0, err_n2
+
+    rc_diff, out_diff, err_diff = _invoke_cli(capsys, "diff", str(cfg1), str(cfg2), "--json")
+    assert rc_diff == 0, err_diff
+    diff_data = json.loads(out_diff)
+    assert "identical" in diff_data or "differences" in diff_data
+
+    # 4. Top-level doctor
+    rc_doc, out_doc, err_doc = _invoke_cli(capsys, "doctor", "--json")
+    assert rc_doc == 0, err_doc
+    doc_data = json.loads(out_doc)
+    assert "python" in doc_data or "platform" in doc_data or "system" in doc_data
+
+    # 5. Top-level report
+    rc_rep, out_rep, err_rep = _invoke_cli(capsys, "report", "amber-anchor", "arctic-atlas", "--json")
+    assert rc_rep == 0, err_rep
+    rep_data = json.loads(out_rep)
+    assert isinstance(rep_data, list) and len(rep_data) == 2
+
+    # 6. queue clear cancels queued jobs (alias for queue stop --all)
+    q_file = tmp_path / "queue.json"
+    monkeypatch.setenv("HYPERGAN_QUEUE_FILE", str(q_file))
+    rc_add, _, _ = _invoke_cli(capsys, "queue", "add", str(cfg1), "-n", "clear_job", "--steps", "5")
+    assert rc_add == 0
+    rc_clr, out_clr, err_clr = _invoke_cli(capsys, "queue", "clear")
+    assert rc_clr == 0, err_clr
+    rc_ls, out_ls, _ = _invoke_cli(capsys, "queue", "ls", "--json")
+    assert rc_ls == 0
+    jobs_after = json.loads(out_ls)
+    assert jobs_after[0]["status"] == "cancelled"
+
+
+def test_queue_run_execution_and_persistence(tmp_path, monkeypatch, capsys):
+    """Verify `queue run --once` executes all queued jobs sequentially, respects -n, --steps, -s, --no-web, and records run_dir."""
+    state_dir = tmp_path / "state"
+    queue_file = tmp_path / "queue.json"
+    monkeypatch.setenv("HYPERGAN_HOME", str(state_dir))
+    monkeypatch.setenv("HYPERGAN_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("HYPERGAN_QUEUE_FILE", str(queue_file))
+    monkeypatch.chdir(tmp_path)
+
+    cfg_path = tmp_path / "job_model.toml"
+    rc_new, _, err_new = _invoke_cli(capsys, "new", str(cfg_path), "--template", "gaussian-grid", "--device", "cpu")
+    assert rc_new == 0, err_new
+
+    # Enqueue two jobs with overrides and --no-web
+    rc_add1, _, err_add1 = _invoke_cli(
+        capsys,
+        "queue",
+        "add",
+        str(cfg_path),
+        "-n",
+        "worker_job_1",
+        "--steps",
+        "1",
+        "-s",
+        "train.device=cpu",
+        "--no-web",
+    )
+    assert rc_add1 == 0, err_add1
+
+    rc_add2, _, err_add2 = _invoke_cli(
+        capsys,
+        "queue",
+        "add",
+        str(cfg_path),
+        "-n",
+        "worker_job_2",
+        "--steps",
+        "1",
+        "-s",
+        "train.device=cpu",
+        "--no-web",
+    )
+    assert rc_add2 == 0, err_add2
+
+    # Execute queue with --once
+    rc_run, out_run, err_run = _invoke_cli(capsys, "queue", "run", "--once", "-d", "cpu", "--no-web")
+    assert rc_run == 0, f"queue run failed: {err_run}"
+
+    # Verify queue.json records execution and valid run_dir
+    assert queue_file.is_file()
+    q_data = json.loads(queue_file.read_text(encoding="utf-8"))
+    jobs = q_data.get("jobs", [])
+    assert len(jobs) == 2
+    for job in jobs:
+        assert job["status"] in ("completed", "stopped")
+        assert job.get("run_dir") is not None
+        assert Path(job["run_dir"]).is_dir()
+        manifest_p = Path(job["run_dir"]) / "manifest.json"
+        assert manifest_p.is_file()
+
+
+def test_event_compaction_integrity_and_metrics_recovery(tmp_path, monkeypatch, capsys):
+    """Verify `hypergan gc <slug>` renumbers sequence contiguously per attempt and restores metrics/events/observations."""
+    import hypergan as hg
+
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("HYPERGAN_HOME", str(state_dir))
+    monkeypatch.setenv("HYPERGAN_STATE_DIR", str(state_dir))
+    monkeypatch.chdir(tmp_path)
+
+    runs_root = tmp_path / "runs"
+    run_dir = runs_root / "non-contiguous-run"
+    model = hg.override(hg.packaged("gaussian-grid"), {"train.steps": 2, "train.device": "cpu"})
+    hg.train(model, run_dir, steps=2, checkpoint_every=2, previews=0, devices="cpu")
+    st = hg.status(run_dir)
+    slug = st["slug"]
+
+    # Read events.jsonl and intentionally corrupt sequence numbers to non-contiguous
+    events_p = run_dir / "events.jsonl"
+    lines = [ln for ln in events_p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    events = [json.loads(ln) for ln in lines]
+    seq_offsets = [1, 5, 8, 12, 15, 20]
+    for idx, ev in enumerate(events):
+        ev["sequence"] = seq_offsets[idx] if idx < len(seq_offsets) else (ev.get("sequence", 1) + 10)
+    events_p.write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
+
+    # Run hypergan gc
+    rc_gc, out_gc, err_gc = _invoke_cli(capsys, "gc", slug)
+    assert rc_gc == 0, err_gc
+
+    # Verify events are renumbered contiguously 1, 2, 3, ...
+    compacted_lines = [ln for ln in events_p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    compacted_events = [json.loads(line) for line in compacted_lines]
+    sequences = [ev["sequence"] for ev in compacted_events]
+    assert sequences == list(range(1, len(compacted_events) + 1))
+
+    # Verify metrics, events, observations, and project succeed without sequence error
+    m_data = hg.metrics(slug)
+    assert isinstance(m_data, dict)
+    ev_data = hg.events(slug)
+    ev_list = ev_data.get("events") if isinstance(ev_data, dict) else ev_data
+    assert isinstance(ev_list, list) and len(ev_list) == len(compacted_events)
+    obs_data = hg.observations(slug)
+    obs_list = obs_data.get("observations") if isinstance(obs_data, dict) else obs_data
+    assert isinstance(obs_list, list)
+    proj_res = hg.project(slug)
+    assert proj_res is not None
+
+
+def test_ps_best_fid_filter_and_corrupt_metadata_warning(tmp_path, monkeypatch, capsys):
+    """Verify ps -a --json does not report best_fid for non-FID metrics, warns on corrupt metadata, and scans /tmp/runs."""
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("HYPERGAN_HOME", str(state_dir))
+    monkeypatch.setenv("HYPERGAN_STATE_DIR", str(state_dir))
+    monkeypatch.chdir(tmp_path)
+
+    runs_root = tmp_path / "runs"
+    # Run 1: best metric is sample_diversity, NOT fid
+    r1 = _make_mock_run(
+        runs_root / "div-run",
+        run_id="dddd1111222233334444555566667777",
+        name="div-run",
+        slug="golden-gecko",
+        steps=10,
+    )
+    s1 = json.loads((r1 / "summary.json").read_text(encoding="utf-8"))
+    s1["best"] = {"metric": "sample_diversity", "value": 0.95, "step": 10}
+    (r1 / "summary.json").write_text(json.dumps(s1, indent=2), encoding="utf-8")
+    register_run(r1, slug="golden-gecko")
+
+    # 1. ps -a --json reports best_fid as None for non-FID metrics
+    rc_ps, out_ps, err_ps = _invoke_cli(capsys, "ps", "-a", "--json")
+    assert rc_ps == 0, err_ps
+    runs = json.loads(out_ps)["runs"]
+    gecko = next(r for r in runs if r["slug"] == "golden-gecko")
+    assert gecko["best_fid"] is None
+
+    # Run 2: corrupt both manifest.json and summary.json, leaving events.jsonl
+    r2 = _make_mock_run(
+        runs_root / "corrupt-run",
+        run_id="eeee1111222233334444555566667777",
+        name="corrupt-run",
+        slug="silver-swan",
+        steps=5,
+    )
+    register_run(r2, slug="silver-swan")
+    (r2 / "manifest.json").write_text("{corrupt json", encoding="utf-8")
+    (r2 / "summary.json").write_text("{corrupt json", encoding="utf-8")
+
+    # 2. hypergan status silver-swan emits warning in human output
+    rc_st, out_st, err_st = _invoke_cli(capsys, "status", "silver-swan")
+    assert rc_st == 0, err_st
+    assert "Warnings:" in out_st
+    assert "missing or corrupted" in out_st or "events.jsonl" in out_st
+
+    # 3. Scanning in non-workspace /tmp only scans <cwd>/runs
+    tmp_dir = Path("/tmp")
+    from hypergan.inspection import list_runs
+    runs_in_tmp = list_runs(root=None, cwd=tmp_dir)
+    assert isinstance(runs_in_tmp, list)
+

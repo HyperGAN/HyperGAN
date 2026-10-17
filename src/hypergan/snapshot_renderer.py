@@ -44,6 +44,19 @@ def render_snapshot(path, descriptor, identity, step, output, *, timeout=60, pub
     The broker monitors coordinator death independently of renderer Python/native
     code. Deadline cleanup has the same finite grace as CPUWorkerService.
     """
+    import sys
+    main_mod = sys.modules.get('__main__')
+    main_file = getattr(main_mod, '__file__', None)
+    is_stdin = (main_file is None or main_file == '<stdin>' or not os.path.exists(main_file))
+    if is_stdin:
+        state = (str(path), descriptor, identity, step, str(output))
+        operation = 'render' if publish_run_dir is None else 'render-publish'
+        payload = None if publish_run_dir is None else {'run_dir': str(publish_run_dir), 'keep': keep}
+        receipt = _handler(state, operation, payload)
+        if publish_run_dir is not None:
+            output = Path(output).with_name('publication.json')
+        return _read_output(output, receipt, identity, step)
+
     service = CPUWorkerService(_factory, _handler,
         args=(str(path), descriptor, identity, step, str(output)),
         run_id=identity['run_id'], attempt_id=identity['attempt_id'], world_size=1,

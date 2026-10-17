@@ -138,6 +138,7 @@ def test_human_summary_footer():
         "steps_per_second": 42.1,
         "run_id": "train-demo",
         "checkpoint_path": "checkpoints/00200000/state.pt",
+        "best_checkpoint": "checkpoints/00200000/state.pt",
         "config": {"training": {"steps": 200000}},
     }
 
@@ -151,6 +152,15 @@ def test_human_summary_footer():
     assert "Export:      hypergan export /tmp/train-demo --checkpoint best" in text
     assert "Dashboard:   http://localhost:8765/runs/train-demo" in text
     assert "============================================================" in text
+
+    # Verify latest fallback when best_checkpoint is absent
+    stdout_buf2 = io.StringIO()
+    output2 = TrainingOutput(stdout=stdout_buf2, stderr=stderr_buf, progress_json=False)
+    manifest_no_best = dict(manifest)
+    manifest_no_best.pop("best_checkpoint", None)
+    output2.result(manifest_no_best, run_dir="/tmp/train-demo", human=True)
+    text2 = stdout_buf2.getvalue()
+    assert "Export:      hypergan export /tmp/train-demo --checkpoint latest" in text2
 
 
 def test_human_summary_footer_interrupted():

@@ -219,8 +219,12 @@ def queue_add(
     devices: str | None = None,
     run_dir: Path | str | None = None,
     name: str | None = None,
+    steps: int | None = None,
+    sets: list[str] | dict | None = None,
+    no_web: bool = False,
     wait: bool = False,
     queue_file: Path | str | None = None,
+    **kwargs,
 ) -> dict:
     """Enqueue a training experiment or wait directive."""
     qpath = find_queue_file(queue_file)
@@ -228,6 +232,18 @@ def queue_add(
         q = load_queue(qpath)
         job_id = f"job-{q.get('next_job_id', 1):04d}"
         q["next_job_id"] = q.get("next_job_id", 1) + 1
+
+        # Normalize sets to list of strings
+        set_items: list[str] = []
+        if sets:
+            if isinstance(sets, dict):
+                set_items = [f"{k}={v}" for k, v in sets.items()]
+            elif isinstance(sets, (list, tuple)):
+                set_items = [str(x) for x in sets]
+            else:
+                set_items = [str(sets)]
+
+        no_web_flag = bool(no_web or kwargs.get("no_server", False))
 
         if wait:
             kind = "wait"
@@ -245,10 +261,14 @@ def queue_add(
         job = {
             "id": job_id,
             "name": job_name,
+            "custom_name": name,
             "kind": kind,
             "model_file": m_file,
             "run_dir": target_run_dir,
             "devices": devices,
+            "steps": int(steps) if steps is not None else None,
+            "sets": set_items,
+            "no_web": no_web_flag,
             "status": "queued",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "started_at": None,
@@ -399,11 +419,59 @@ def queue_stop(
         return {"job_id": job_id, "status": job.get("status"), "message": f"Job {job_id} already has terminal status '{job.get('status')}'"}
 
 
+def queue_clear(queue_file: Path | str | None = None) -> dict:
+    """Cancel all queued jobs and signal runner to halt (alias for queue_stop(stop_all=True))."""
+    return queue_stop(stop_all=True, queue_file=queue_file)
+
+
+def _extract_run_dir_from_log(log_path: Path | str) -> Optional[str]:
+    """Scan training process log output for reported run directory."""
+    log_p = Path(log_path)
+    if not log_p.is_file():
+        return None
+    try:
+        with log_p.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("Run directory:"):
+                    parts = line.split(":", 1)
+                    if len(parts) == 2:
+                        candidate = parts[1].strip()
+                        if candidate:
+                            cand_path = Path(candidate)
+                            if cand_path.is_dir() or cand_path.parent.is_dir():
+                                return str(cand_path.resolve())
+    except Exception:
+        pass
+    return None
+
+
+def _find_run_dir_from_registry(pid: int | None, job_name: str | None) -> Optional[str]:
+    """Inspect registry for active or recent run matching pid or name."""
+    if pid is None and not job_name:
+        return None
+    try:
+        from .registry import _read_registry_unlocked, get_registry_dir
+        reg_dir = get_registry_dir()
+        if reg_dir.is_dir():
+            data = _read_registry_unlocked(reg_dir)
+            for path_str, entry in data.get("runs", {}).items():
+                if pid and entry.get("pid") == pid:
+                    return path_str
+                if job_name and entry.get("name") == job_name:
+                    return path_str
+    except Exception:
+        pass
+    return None
+
+
 def queue_run(
     devices: str | None = None,
     poll_interval: float = 5.0,
     once: bool = False,
+    no_web: bool = False,
     queue_file: Path | str | None = None,
+    json_output: bool = False,
+    **kwargs,
 ) -> int:
     """Daemon scheduler loop executing queued experiments sequentially in subprocesses."""
     qpath = find_queue_file(queue_file)
@@ -416,6 +484,8 @@ def queue_run(
     working_dir = ws_path.parent if ws_path else qpath.parent.parent
 
     stop_requested = False
+    had_failure = False
+    executed_jobs: list[dict] = []
 
     def _sig_handler(signum, frame):
         nonlocal stop_requested
@@ -427,7 +497,8 @@ def queue_run(
     try:
         while not stop_requested:
             if stop_file.is_file():
-                print(f"[queue] Stop file '{stop_file.name}' detected; halting runner.", file=sys.stderr)
+                if not json_output:
+                    print(f"[queue] Stop file '{stop_file.name}' detected; halting runner.", file=sys.stderr)
                 return 0
 
             target_job = None
@@ -443,7 +514,14 @@ def queue_run(
 
             if target_job is None:
                 if once:
-                    return 0
+                    if json_output:
+                        print(json.dumps({
+                            "queue_file": str(qpath),
+                            "total_executed": len(executed_jobs),
+                            "executed": executed_jobs,
+                            "status": "failed" if had_failure else "completed",
+                        }, indent=2))
+                    return 1 if had_failure else 0
                 time.sleep(poll_interval)
                 continue
 
@@ -453,7 +531,8 @@ def queue_run(
             # Hardware preflight check
             avail, reason = check_device_availability(job_devices, ws_data)
             if not avail:
-                print(f"[queue] Hardware busy for {job_id}: {reason}. Retrying in {poll_interval:.1f}s...", file=sys.stderr)
+                if not json_output:
+                    print(f"[queue] Hardware busy for {job_id}: {reason}. Retrying in {poll_interval:.1f}s...", file=sys.stderr)
                 time.sleep(poll_interval)
                 continue
 
@@ -485,6 +564,7 @@ def queue_run(
                             j["status"] = "completed"
                             j["ended_at"] = datetime.now(timezone.utc).isoformat()
                     save_queue(qpath, q)
+                executed_jobs.append({"id": job_id, "name": target_job.get("name"), "status": "completed", "exit_code": 0, "run_dir": target_job.get("run_dir")})
                 continue
 
             # Run lock collision check
@@ -505,7 +585,8 @@ def queue_run(
                     except Exception:
                         pass
                     if is_locked:
-                        print(f"[queue] Run directory {rdir} locked by active process. Retrying in {poll_interval:.1f}s...", file=sys.stderr)
+                        if not json_output:
+                            print(f"[queue] Run directory {rdir} locked by active process. Retrying in {poll_interval:.1f}s...", file=sys.stderr)
                         time.sleep(poll_interval)
                         continue
 
@@ -542,7 +623,24 @@ def queue_run(
             if target_job.get("run_dir"):
                 cmd.extend(["--run-dir", str(target_job["run_dir"])])
 
-            print(f"[queue] Starting {job_id} ({target_job['name']}): {' '.join(cmd)}")
+            custom_name = target_job.get("custom_name") or target_job.get("name")
+            if custom_name and target_job.get("kind") != "wait":
+                cmd.extend(["--name", str(custom_name)])
+
+            if target_job.get("steps") is not None:
+                cmd.extend(["--steps", str(target_job["steps"])])
+
+            sets_list = target_job.get("sets") or target_job.get("set_overrides") or []
+            if isinstance(sets_list, dict):
+                sets_list = [f"{k}={v}" for k, v in sets_list.items()]
+            for s_item in sets_list:
+                cmd.extend(["-s", str(s_item)])
+
+            if target_job.get("no_web") or target_job.get("no_server") or no_web:
+                cmd.append("--no-web")
+
+            if not json_output:
+                print(f"[queue] Starting {job_id} ({target_job['name']}): {' '.join(cmd)}")
             with log_path.open("ab") as log_fp:
                 proc = subprocess.Popen(
                     cmd,
@@ -559,7 +657,45 @@ def queue_run(
                         j["pid"] = proc.pid
                 save_queue(qpath, q)
 
-            exit_code = proc.wait()
+            detected_run_dir = target_job.get("run_dir")
+            exit_code = None
+            while exit_code is None and not stop_requested:
+                try:
+                    exit_code = proc.wait(timeout=0.5)
+                except TypeError:
+                    # Mock objects in tests without timeout argument
+                    exit_code = proc.wait()
+                except subprocess.TimeoutExpired:
+                    pass
+
+                if stop_file.is_file():
+                    try:
+                        proc.send_signal(signal.SIGINT)
+                    except ProcessLookupError:
+                        pass
+
+                if not detected_run_dir:
+                    discovered = _extract_run_dir_from_log(log_path)
+                    if discovered:
+                        detected_run_dir = discovered
+                        with queue_lock(qpath):
+                            q = load_queue(qpath)
+                            for j in q.get("jobs", []):
+                                if j.get("id") == job_id:
+                                    j["run_dir"] = detected_run_dir
+                            save_queue(qpath, q)
+
+            if exit_code is None:
+                exit_code = proc.wait()
+
+            if not detected_run_dir:
+                detected_run_dir = (
+                    _extract_run_dir_from_log(log_path)
+                    or _find_run_dir_from_registry(proc.pid, target_job.get("name"))
+                )
+
+            if exit_code != 0:
+                had_failure = True
 
             with queue_lock(qpath):
                 q = load_queue(qpath)
@@ -568,15 +704,24 @@ def queue_run(
                         j["pid"] = None
                         j["exit_code"] = exit_code
                         j["ended_at"] = datetime.now(timezone.utc).isoformat()
+                        if detected_run_dir:
+                            j["run_dir"] = detected_run_dir
                         if j.get("status") == "running":
                             j["status"] = "completed" if exit_code == 0 else "failed"
                             if exit_code != 0:
                                 j["error"] = f"Process exited with code {exit_code}"
                 save_queue(qpath, q)
 
-            print(f"[queue] Finished {job_id} with exit code {exit_code}")
-            if once:
-                return 0 if exit_code == 0 else 1
+            executed_jobs.append({
+                "id": job_id,
+                "name": target_job.get("name"),
+                "status": "completed" if exit_code == 0 else "failed",
+                "exit_code": exit_code,
+                "run_dir": detected_run_dir,
+            })
+
+            if not json_output:
+                print(f"[queue] Finished {job_id} with exit code {exit_code}")
 
         return 0
     finally:

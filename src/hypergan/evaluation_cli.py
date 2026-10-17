@@ -9,7 +9,7 @@ def add_evaluate_parser(commands):
     parser.add_argument('--config', type=Path, help='recipe with evaluation settings; numerical recipe must match')
     parser.add_argument('--bundle', type=Path, help='older model.pt within this run attempts directory')
     parser.add_argument('--checkpoint', default=None, help='target checkpoint: best, latest, step number, or path')
-    parser.add_argument('--devices', default=None, help='device assignment (e.g. 1, gpu1, cuda:1, cpu)')
+    parser.add_argument('-d', '--devices', default=None, help='device assignment (e.g. 1, gpu1, cuda:1, cpu)')
     return parser
 
 

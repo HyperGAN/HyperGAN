@@ -169,13 +169,20 @@ def _read_events_tail_fallback(run_dir: Path) -> Dict[str, Any]:
                 if isinstance(sps, (int, float)):
                     info["steps_per_sec"] = float(sps)
             elif kind in ("evaluation", "evaluation_complete"):
-                val = ev.get("value")
-                if val is None and isinstance(ev.get("result"), dict):
-                    val = ev["result"].get("value")
-                if isinstance(val, (int, float)) and math.isfinite(val):
-                    if info["best_fid"] is None or float(val) < info["best_fid"]:
-                        info["best_fid"] = float(val)
-                        info["best_step"] = int(ev_step or 0)
+                m_id = str(
+                    ev.get("metric_id")
+                    or ev.get("metric")
+                    or (ev.get("result", {}).get("metric") if isinstance(ev.get("result"), dict) else "")
+                    or ""
+                )
+                if "fid" in m_id.lower():
+                    val = ev.get("value")
+                    if val is None and isinstance(ev.get("result"), dict):
+                        val = ev["result"].get("value")
+                    if isinstance(val, (int, float)) and math.isfinite(val):
+                        if info["best_fid"] is None or float(val) < info["best_fid"]:
+                            info["best_fid"] = float(val)
+                            info["best_step"] = int(ev_step or 0)
             elif kind in ("complete", "completed", "stopped", "failed"):
                 info["status"] = "completed" if kind == "complete" else str(kind)
     except Exception:
@@ -428,6 +435,12 @@ def run_status(
     warnings = list(manifest.get("warnings", []) if isinstance(manifest.get("warnings"), list) else []) + list(
         manifest.get("resume_warnings", []) if isinstance(manifest.get("resume_warnings"), list) else []
     )
+    if not summary and not manifest and (resolved_dir / "events.jsonl").is_file():
+        corrupt_warn = (
+            "Metadata files (manifest.json / summary.json) are missing or corrupted; reconstructed from events.jsonl"
+        )
+        if corrupt_warn not in warnings:
+            warnings.append(corrupt_warn)
 
     return {
         "run_id": run_id,
@@ -676,15 +689,26 @@ def _collect_ps_row(
         sps = manifest.get("steps_per_second") or events_fallback.get("steps_per_sec")
 
     best = summary.get("best") if (summary and isinstance(summary.get("best"), dict)) else None
-    best_fid = (best.get("value") if best else None) or (summary.get("best_fid") if summary else None)
+    best_fid = summary.get("best_fid") if summary else None
+    if best_fid is None and best and isinstance(best, dict):
+        b_metric = str(best.get("metric") or "")
+        if "fid" in b_metric.lower() and isinstance(best.get("value"), (int, float)):
+            best_fid = best.get("value")
     if best_fid is None and (run_path / "metrics" / "evaluations").is_dir():
         for rec in (run_path / "metrics" / "evaluations").glob("*/receipt.json"):
             try:
                 rdata = json.loads(rec.read_text(encoding="utf-8"))
                 if isinstance(rdata, dict) and rdata.get("status") == "complete" and isinstance(rdata.get("result"), dict):
-                    val = rdata["result"].get("value")
-                    if val is not None and (best_fid is None or val < best_fid):
-                        best_fid = val
+                    m_id = str(
+                        rdata.get("metric_id")
+                        or rdata.get("metric")
+                        or (rdata.get("result", {}).get("metric") if isinstance(rdata.get("result"), dict) else "")
+                        or ""
+                    )
+                    if "fid" in m_id.lower():
+                        val = rdata["result"].get("value")
+                        if val is not None and (best_fid is None or val < best_fid):
+                            best_fid = val
             except Exception:
                 continue
     if best_fid is None and events_fallback.get("best_fid") is not None:
@@ -1116,7 +1140,13 @@ def format_comparison_csv(comparison: Dict[str, Any]) -> str:
 
 def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
     """Compact redundant train events in events.jsonl, returning reclaimed bytes."""
+    if not isinstance(stride, int) or stride < 1:
+        raise ValueError("stride must be a positive integer")
     run_dir = Path(run_dir).resolve()
+    is_active, _ = check_run_active(run_dir)
+    if is_active:
+        raise RuntimeError(f"Cannot compact events on active training run: {run_dir}")
+
     events_path = run_dir / "events.jsonl"
     if not events_path.is_file():
         return 0
@@ -1166,10 +1196,22 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
     if last_train_step is not None:
         pinned_steps.add(last_train_step)
 
+    # Read manifest for default run_id / attempt_id if needed
+    manifest_path = run_dir / "manifest.json"
+    manifest_data = {}
+    if manifest_path.is_file():
+        try:
+            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            manifest_data = {}
+
     temp_path = run_dir / f".events.jsonl.compact.{os.getpid()}.tmp"
     digest = hashlib.sha256()
     new_size = 0
     last_event = None
+
+    current_attempt_id = None
+    current_sequence = 0
 
     with events_path.open("rb") as src, temp_path.open("wb") as dst:
         for line in src:
@@ -1178,33 +1220,61 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
             keep = True
             try:
                 ev = json.loads(line)
+                if not isinstance(ev, dict):
+                    continue
                 if ev.get("event") == "train":
                     step = ev.get("step")
                     if step not in pinned_steps and (step % stride != 0):
                         keep = False
             except Exception:
                 keep = True
+                ev = None
 
-            if keep:
-                dst.write(line)
-                digest.update(line)
-                new_size += len(line)
-                try:
-                    last_event = json.loads(line)
-                except Exception:
-                    pass
+            if keep and ev is not None:
+                # Renumber sequence contiguously per attempt_id
+                ev_att = ev.get("attempt_id")
+                if ev_att is not None and ev_att != current_attempt_id:
+                    current_attempt_id = ev_att
+                    current_sequence = 1
+                elif current_attempt_id is None:
+                    current_attempt_id = ev_att or manifest_data.get("attempt_id") or "0001"
+                    current_sequence = 1
+                else:
+                    current_sequence += 1
+
+                ev["sequence"] = current_sequence
+                if ev.get("attempt_id") is None:
+                    ev["attempt_id"] = current_attempt_id
+                if ev.get("run_id") is None and manifest_data.get("run_id"):
+                    ev["run_id"] = manifest_data.get("run_id")
+
+                serialized = (json.dumps(ev, allow_nan=False) + "\n").encode("utf-8")
+                dst.write(serialized)
+                digest.update(serialized)
+                new_size += len(serialized)
+                last_event = ev
+            elif keep and ev is None:
+                line_data = line if line.endswith(b"\n") else line + b"\n"
+                dst.write(line_data)
+                digest.update(line_data)
+                new_size += len(line_data)
 
         dst.flush()
         os.fsync(dst.fileno())
 
     os.replace(temp_path, events_path)
 
-    # Update manifest
-    manifest_path = run_dir / "manifest.json"
+    # Invalidate stale views to prevent cursor mismatch
+    views_dir = run_dir / "views"
+    if views_dir.is_dir():
+        shutil.rmtree(views_dir, ignore_errors=True)
+
+    # Update manifest with boundary and envelope SHA256
     if manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["events_compacted"] = True
+            manifest["envelope_sha256"] = digest.hexdigest()
             if last_event and isinstance(last_event, dict):
                 manifest["durable_event_boundary"] = {
                     "schema_version": 1,

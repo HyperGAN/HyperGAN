@@ -83,6 +83,8 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
     from .web_server import run_socket
     from .web_session import LocalSession
 
+    if hasattr(run_dir, "path"):
+        run_dir = getattr(run_dir, "path")
     if run_dir is None:
         raw_path = _wa.find_runs_root(Path.cwd())
     else:
@@ -239,4 +241,17 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
                     credential_path.unlink(missing_ok=True)
                     signal.signal(signal.SIGTERM, previous_term)
                     signal.signal(signal.SIGINT, previous_int)
+
+
+def dashboard_status(runs_root=None):
+    """Report status of the root dashboard or viewer for a given runs root, run directory, tag, or slug."""
+    from .web_autostart import dashboard_status as _ds
+    return _ds(runs_root)
+
+
+def stop_dashboard(runs_root=None, timeout: float = 8.0):
+    """Cleanly stop the root dashboard or viewer for a given runs root, run directory, tag, or slug."""
+    from .web_autostart import stop_dashboard as _sd
+    return _sd(runs_root, timeout=timeout)
+
 

@@ -939,23 +939,43 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
     return url
 
 
-def stop_dashboard(runs_root: Path | str, timeout: float = 8.0) -> dict:
-    runs_root = Path(runs_root).resolve()
-    return stop_viewer(runs_root, timeout=timeout)
+def _resolve_dashboard_target(runs_root: Path | str | None = None) -> Path:
+    """Resolve a runs root directory, run directory, slug, tag, or short ID to a concrete filesystem Path."""
+    if hasattr(runs_root, "path"):
+        runs_root = getattr(runs_root, "path")
+    if runs_root is None or str(runs_root).strip() == "" or str(runs_root) == "None":
+        return find_runs_root(Path.cwd())
+    raw_path = Path(runs_root)
+    if not raw_path.exists():
+        from .registry import resolve_run_target
+        try:
+            raw_path = resolve_run_target(str(runs_root), allow_latest=(str(runs_root) == "latest"))
+        except Exception:
+            pass
+    return raw_path
 
 
-def dashboard_status(runs_root: Path | str) -> dict:
-    runs_root = Path(runs_root).resolve()
-    info = viewer_status(runs_root)
-    if info.get('status') == 'ready':
-        port = info.get('port') or DEFAULT_VIEWER_PORT
+def stop_dashboard(runs_root: Path | str | None = None, timeout: float = 8.0) -> dict:
+    target = _resolve_dashboard_target(runs_root)
+    if not target.exists():
+        return {"status": "not_running"}
+    return stop_viewer(target.resolve(), timeout=timeout)
+
+
+def dashboard_status(runs_root: Path | str | None = None) -> dict:
+    target = _resolve_dashboard_target(runs_root)
+    if not target.exists():
+        return {"status": "not_running"}
+    info = viewer_status(target.resolve())
+    if info.get("status") == "ready":
+        port = info.get("port") or DEFAULT_VIEWER_PORT
         probed = probe_dashboard("127.0.0.1", port)
-        if probed and not probed.get('alien'):
+        if probed and not probed.get("alien"):
             info.update({
-                'version': probed.get('version'),
-                'git_commit': probed.get('git_commit'),
-                'asset_hash': probed.get('asset_hash'),
-                'run_count': probed.get('run_count', 0),
+                "version": probed.get("version"),
+                "git_commit": probed.get("git_commit"),
+                "asset_hash": probed.get("asset_hash"),
+                "run_count": probed.get("run_count", 0),
             })
     return info
 

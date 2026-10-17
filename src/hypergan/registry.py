@@ -333,7 +333,7 @@ def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
                         if rp.is_dir():
                             if is_run_dir(rp):
                                 run_dirs.append(rp)
-                            else:
+                            elif str(rp) != "/tmp":
                                 roots.append(rp)
                 except Exception:
                     continue
@@ -345,7 +345,7 @@ def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
         if sibling_ws.is_file():
             ws_data = load_workspace(sibling_ws)
             rr = ws_data.get("workspace", {}).get("runs_root")
-            if rr and Path(rr).is_dir():
+            if rr and Path(rr).is_dir() and str(Path(rr).resolve()) != "/tmp":
                 roots.append(Path(rr).resolve())
     except Exception:
         pass
@@ -375,7 +375,7 @@ def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
                         if cand.is_dir() and is_run_dir(cand):
                             resolved = cand.resolve()
                             run_dirs.append(resolved)
-                            if resolved.parent.is_dir():
+                            if resolved.parent.is_dir() and str(resolved.parent) != "/tmp":
                                 roots.append(resolved.parent)
             except OSError:
                 continue
@@ -435,10 +435,17 @@ def _relocate_missing_run_unlocked(
         search_roots.append(ws_p if ws_p.is_dir() else ws_p.parent)
 
     cwd_path = Path(cwd).resolve() if cwd is not None else (_is_isolated_test_env() or Path.cwd().resolve())
+    has_ws = find_workspace(cwd_path) is not None
     ws_cwd_runs = find_workspace_runs_root(cwd_path)
-    if ws_cwd_runs:
+    if ws_cwd_runs and str(ws_cwd_runs) != "/tmp":
         search_roots.append(ws_cwd_runs)
-    search_roots.append(cwd_path)
+    if has_ws:
+        if str(cwd_path) != "/tmp":
+            search_roots.append(cwd_path)
+    else:
+        cwd_runs = cwd_path / "runs"
+        if cwd_runs.is_dir() and str(cwd_runs) != "/tmp":
+            search_roots.append(cwd_runs)
 
     pytest_root = _is_isolated_test_env(cwd_path)
     if pytest_root is not None:
@@ -688,7 +695,9 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
         sps = events_fallback.get("steps_per_sec")
 
     best = summary.get("best") if summary else None
-    best_fid = (best.get("value") if isinstance(best, dict) else None) or (summary.get("best_fid") if summary else None)
+    best_fid = summary.get("best_fid") if summary else None
+    if best_fid is None and isinstance(best, dict) and "fid" in str(best.get("metric", "")).lower():
+        best_fid = best.get("value")
     if best_fid is None and events_fallback:
         best_fid = events_fallback.get("best_fid")
 
@@ -746,6 +755,9 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
             if preserve_key in existing:
                 result[preserve_key] = existing[preserve_key]
     return result
+
+
+_inspect_run_entry = _extract_run_entry
 
 
 def register_run(
@@ -943,15 +955,23 @@ def list_registered_runs(
                     continue
 
         # Workspace runs_root from cwd
+        has_ws = find_workspace(cwd_path) is not None
         ws_runs_root = find_workspace_runs_root(cwd_path)
-        if ws_runs_root and ws_runs_root.is_dir():
+        if ws_runs_root and ws_runs_root.is_dir() and str(ws_runs_root) != "/tmp":
             roots_to_scan.append(ws_runs_root)
 
         # CWD itself
         if is_run_dir(cwd_path):
             direct_run_dirs.append(cwd_path)
-        elif cwd_path.is_dir():
-            roots_to_scan.append(cwd_path)
+        elif has_ws:
+            if cwd_path.is_dir() and str(cwd_path) != "/tmp":
+                roots_to_scan.append(cwd_path)
+        else:
+            # Outside a workspace (no hypergan.toml):
+            # Only scan <cwd>/runs if present; NEVER scan raw cwd (e.g. /tmp)
+            cwd_runs = cwd_path / "runs"
+            if cwd_runs.is_dir() and str(cwd_runs) != "/tmp":
+                roots_to_scan.append(cwd_runs)
 
         # Persisted roots in registry (prune deleted roots gracefully)
         valid_persisted_roots: List[str] = []

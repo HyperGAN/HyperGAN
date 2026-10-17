@@ -289,6 +289,12 @@ def _spec(value, location, objectives=False):
     value.setdefault("args", {})
     if not isinstance(value["args"], dict):
         raise ValueError(f"{location}.args must be a table")
+    if isinstance(value.get("inputs"), dict) and len(value["inputs"]) == 1:
+        (k, v), = value["inputs"].items()
+        if v == "latent":
+            in_shape = value["args"].get("input_shape")
+            if isinstance(in_shape, (list, tuple)):
+                value["args"]["input_shape"] = {k: list(in_shape)}
     if not objectives and value.get("factory") == "hndl":
         validate_network_args(value["args"], f"{location}.args")
         if "file" in value["args"]:
@@ -494,6 +500,37 @@ def resolve_config(raw):
     if "dtype" in result["prior"]["args"] or ("device" in result["prior"]["args"] and result["prior"]["args"]["device"] != result["training"]["device"]):
         raise ValueError("Training owns prior device and float32 dtype; omit prior.args.device/dtype or match training.device")
     _positive(result["prior"]["args"].get("z_dim"), "prior.args.z_dim", integer=True)
+    prior_kind = prior["kind"]
+    allowed_prior_args = {
+        "particles": {"num_particles", "z_dim", "device", "dtype"},
+        "gaussian": {"z_dim", "device", "dtype"},
+        "mog": {"z_dim", "modes", "sigma", "sigma_rel", "device", "dtype"},
+    }.get(prior_kind, {"z_dim", "device", "dtype"})
+    unknown_prior_args = set(prior["args"]) - allowed_prior_args
+    if unknown_prior_args:
+        raise ValueError(f"Unknown prior field(s): {', '.join(sorted(unknown_prior_args))}")
+
+    allowed_prior_fields = {"kind", "args", "initialization_device", "initialization_seed", "fixed_sigma"}
+    unknown_prior_fields = set(prior) - allowed_prior_fields
+    if unknown_prior_fields:
+        raise ValueError(f"Unknown prior field(s): {', '.join(sorted(unknown_prior_fields))}")
+
+    prior_z_dim = prior["args"].get("z_dim")
+    gen_spec = components.get("generator", {})
+    gen_inputs = gen_spec.get("inputs", {})
+    latent_ports = [port for port, path in gen_inputs.items() if path == "latent"]
+    if latent_ports:
+        gen_in_shape = gen_spec.get("args", {}).get("input_shape")
+        latent_dim = None
+        if isinstance(gen_in_shape, dict):
+            port_shape = gen_in_shape.get(latent_ports[0])
+            if isinstance(port_shape, (list, tuple)) and len(port_shape) >= 2:
+                latent_dim = port_shape[1]
+        elif isinstance(gen_in_shape, (list, tuple)) and len(gen_in_shape) >= 2:
+            latent_dim = gen_in_shape[1]
+        if latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
+            raise ValueError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
+
     _positive(result["adversarial"]["weight"], "adversarial.weight", zero=True)
     penalty = result["gradient_penalty"]
     for key in ("coeff", "kappa", "anchor_weight"):
@@ -737,7 +774,65 @@ def numerical_values(config):
 
 
 
-def resume_compatible(config, original, *, include_observation=False):
+class ResumeCompatibility(int):
+    """Boolean-compatible result that carries differing keys when incompatible."""
+    def __new__(cls, compatible, differences=None):
+        val = 1 if compatible else 0
+        obj = super().__new__(cls, val)
+        obj.compatible = bool(compatible)
+        obj.differences = list(differences or [])
+        return obj
+
+    @property
+    def details(self):
+        return self.differences
+
+    def __bool__(self):
+        return self.compatible
+
+    def __repr__(self):
+        if not self.compatible and self.differences:
+            return f"False (diff: {', '.join(self.differences)})"
+        return str(self.compatible)
+
+    def __str__(self):
+        if self.compatible:
+            return "compatible"
+        return f"Resume configuration differs in {', '.join(self.differences)}"
+
+
+def _json_same(a, b):
+    try:
+        return json.dumps(a, sort_keys=True, allow_nan=False) == json.dumps(b, sort_keys=True, allow_nan=False)
+    except Exception:
+        return a == b
+
+
+def _diff_keys(current, saved, prefix=""):
+    diffs = []
+    if isinstance(current, dict) and isinstance(saved, dict):
+        all_keys = sorted(set(current) | set(saved))
+        for k in all_keys:
+            p = f"{prefix}.{k}" if prefix else k
+            if k not in current or k not in saved:
+                diffs.append(p)
+            elif not _json_same(current[k], saved[k]):
+                if isinstance(current[k], dict) and isinstance(saved[k], dict):
+                    diffs.extend(_diff_keys(current[k], saved[k], p))
+                else:
+                    diffs.append(p)
+    elif not _json_same(current, saved):
+        diffs.append(prefix or "config")
+    return diffs
+
+
+def resume_differences(config, original, *, include_observation=False) -> list[str]:
+    """Return the list of specific differing section/keys between two configs for resume."""
+    result = resume_compatible(config, original, include_observation=include_observation)
+    return getattr(result, "differences", [])
+
+
+def resume_compatible(config, original, *, include_observation=False, details=False, return_differences=False):
     """Allow constant-LR extension, pinned-image skip opt-in and pixel caching.
 
     Keep fingerprints unchanged: existing checkpoints retain their original
@@ -752,7 +847,7 @@ def resume_compatible(config, original, *, include_observation=False):
             current.pop('name', None)
             saved.pop('name', None)
         factory = 'hypergan.colorization_data:ColorizationData'
-        if current['data']['factory'] == saved['data']['factory'] == factory:
+        if current.get('data', {}).get('factory') == saved.get('data', {}).get('factory') == factory:
             left, right = current['data']['args'], saved['data']['args']
             # Derived pixels are checked and source hashes still verified on
             # every access. Cache placement/presence cannot change training.
@@ -779,20 +874,33 @@ def resume_compatible(config, original, *, include_observation=False):
                     for key in keys:
                         args.pop(key, None)
         new_steps, old_steps = current['training']['steps'], saved['training']['steps']
+        step_diff = False
         if new_steps != old_steps:
             if (type(new_steps) is not int or type(old_steps) is not int
                     or new_steps < old_steps
                     or not all(_step_independent(values['training']) for values in (current, saved))):
-                return False
-            current['training']['steps'] = old_steps
-            if (isinstance(current.get('recipe'), dict) and isinstance(saved.get('recipe'), dict)
-                    and current['recipe'].get('total_steps') == new_steps
-                    and saved['recipe'].get('total_steps') == old_steps):
-                current['recipe']['total_steps'] = old_steps
-        return (json.dumps(current, sort_keys=True, allow_nan=False)
-                == json.dumps(saved, sort_keys=True, allow_nan=False))
-    except (KeyError, TypeError, ValueError):
-        return False
+                step_diff = True
+            else:
+                current['training']['steps'] = old_steps
+                if (isinstance(current.get('recipe'), dict) and isinstance(saved.get('recipe'), dict)
+                        and current['recipe'].get('total_steps') == new_steps
+                        and saved['recipe'].get('total_steps') == old_steps):
+                    current['recipe']['total_steps'] = old_steps
+
+        diffs = _diff_keys(current, saved)
+        if step_diff and "training.steps" not in diffs:
+            diffs.insert(0, "training.steps")
+
+        compatible = (len(diffs) == 0)
+        res = ResumeCompatibility(compatible, diffs)
+        if details or return_differences:
+            return bool(res), diffs
+        return res
+    except (KeyError, TypeError, ValueError) as exc:
+        res = ResumeCompatibility(False, [str(exc)])
+        if details or return_differences:
+            return False, [str(exc)]
+        return res
 
 
 def _step_independent(training):

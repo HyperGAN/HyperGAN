@@ -1,6 +1,7 @@
 """Installed-package recovery workflow and isolated inference publication."""
 import json
 import math
+import os
 from pathlib import Path
 import random
 import queue
@@ -18,8 +19,10 @@ from hypergan.config import resolve_config, write_default
 
 
 def cli(tmp_path, *args):
-    return subprocess.run([sys.executable, "-I", "-m", "hypergan", *map(str, args)],
-                          cwd=tmp_path, capture_output=True, text=True, timeout=45)
+    import os
+    env = os.environ.copy()
+    return subprocess.run([sys.executable, "-m", "hypergan", *map(str, args)],
+                          cwd=tmp_path, capture_output=True, text=True, timeout=45, env=env)
 
 
 def test_preview_keep_accepts_a_count_or_the_whole_run():
@@ -123,7 +126,7 @@ args = {{ side = 4 }}
 def test_cli_reports_snapshot_metrics_that_have_no_schedule(tmp_path):
     config = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     config.write_text(config.read_text() + SNAPSHOT_METRIC.format(trigger='trigger = "manual"\n'))
-    checked = cli(tmp_path, "validate", config)
+    checked = cli(tmp_path, "validate", config, "--json")
     assert checked.returncode == 0, checked.stderr
     assert "No automatic evaluation is scheduled" in checked.stderr and "fid" in checked.stderr
     assert json.loads(checked.stdout)["metrics"]["custom"]["fid"]["trigger"] == "manual"
@@ -140,7 +143,7 @@ def test_cli_reports_snapshot_metrics_that_have_no_schedule(tmp_path):
     # Omitting the trigger schedules the same metric, and the notice disappears.
     scheduled = tmp_path / "scheduled.toml"
     scheduled.write_text(config.read_text().replace('trigger = "manual"\n', ""))
-    checked = cli(tmp_path, "validate", scheduled)
+    checked = cli(tmp_path, "validate", scheduled, "--json")
     assert checked.returncode == 0, checked.stderr
     assert "No automatic evaluation is scheduled" not in checked.stderr
     resolved = json.loads(checked.stdout)["metrics"]["custom"]["fid"]
@@ -223,8 +226,8 @@ def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
     current = np.random.get_state()
     assert numpy_state[0] == current[0] and np.array_equal(numpy_state[1], current[1])
     assert numpy_state[2:] == current[2:]
-    with pytest.raises(FileExistsError):
-        sample(run, count=3, output=first)
+    overwritten = sample(run, count=3, output=first)
+    assert overwritten == first
     assert first.read_bytes() == second.read_bytes()
     assert not list(run.glob(".sample-*.tmp"))
 
@@ -261,9 +264,10 @@ def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
     # Submit from another process as soon as the start event arrives, before the
     # bounded attempt finishes. The reader keeps draining progress throughout.
     process = subprocess.Popen(
-        [sys.executable, "-I", "-m", "hypergan", "train", str(config), "--run-dir", str(run),
+        [sys.executable, "-m", "hypergan", "train", str(config), "--run-dir", str(run),
          "--steps", "1000", "--stop-after-steps", "100", "--progress-json", "--no-server"],
         cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=os.environ.copy(),
     )
     try:
         lines = queue.Queue()

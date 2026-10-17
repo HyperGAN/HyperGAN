@@ -10,6 +10,8 @@ import json
 import math
 from pathlib import Path
 import re
+import sys
+import types
 
 from .run_state import atomic_json
 from .metric_plugins import DEFAULT_EVALUATION_EVERY_STEPS, validate_custom, enabled_custom
@@ -368,3 +370,37 @@ def validate_update_scalars(row, objective_count):
     if (type(objectives) is not list or len(objectives) != objective_count
             or any(type(value) not in (int, float) or not math.isfinite(value) for value in objectives)):
         raise ValueError('Invalid global objective metrics')
+
+
+def compare(runs, metric="fid50k_train", at_steps=None):
+    """Compare multiple runs for a given metric across step milestones."""
+    from .inspection import compare_runs
+    return compare_runs(runs, metric=metric, at_steps=at_steps)
+
+
+def get_metric(run, name, *, latest=False):
+    """Retrieve scalar time series or latest value for a specific metric from a run."""
+    from .api import metrics as api_metrics
+    series = api_metrics(run, names=[name]).get(name, [])
+    if latest:
+        return series[-1][1] if series else None
+    return series
+
+
+class _MetricsModule(types.ModuleType):
+    """Callable module wrapper allowing hg.metrics(run) and module attribute access."""
+
+    def __call__(self, *args, **kwargs):
+        """Published scalar metrics: ``{name: [(step, value), ...]}`` in step order."""
+        from .api import metrics as api_metrics
+        return api_metrics(*args, **kwargs)
+
+    def __repr__(self):
+        return f"<module '{self.__name__}' (callable metrics)>"
+
+
+# Replace module class in sys.modules so hypergan.metrics is callable as a function
+_self = sys.modules[__name__]
+_self.__class__ = _MetricsModule
+sys.modules[__name__] = _self
+

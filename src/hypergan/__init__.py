@@ -5,7 +5,10 @@ Training dependencies are loaded only when a training or sampling API is used.
 
 __version__ = "2.0.0a1"
 
-from .workspace import find_workspace, load_workspace, interpolate_variables, resolve_device_aliases
+from .api import __all__ as _api_all
+
+__all__ = tuple(_api_all)
+del _api_all
 
 
 def __getattr__(name: str):
@@ -13,22 +16,24 @@ def __getattr__(name: str):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     import importlib
 
-    api = importlib.import_module(".api", __name__)
-    if name == "api":
-        return api
-    if hasattr(api, name):
-        return getattr(api, name)
+    # The metrics module is callable as hg.metrics(run) and provides module attributes
+    if name == "metrics":
+        return importlib.import_module(".metrics", __name__)
+
+    # Guard: only allow public symbols declared in __all__
+    if name in __all__:
+        api = importlib.import_module(".api", __name__)
+        if hasattr(api, name):
+            return getattr(api, name)
+
+    # Allow direct submodule access (e.g. hypergan.cli, hypergan.config)
     try:
         return importlib.import_module(f".{name}", __name__)
     except ImportError:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
 
 
-
 def __dir__() -> list[str]:
-    import importlib
-
-    api = importlib.import_module(".api", __name__)
-    return sorted(set(globals()) | set(dir(api)))
-
-
+    # Return __all__ plus standard module dunder attributes present in globals
+    dunders = {k for k in globals() if k.startswith("__") and k.endswith("__")}
+    return sorted(dunders | set(__all__))

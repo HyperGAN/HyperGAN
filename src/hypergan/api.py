@@ -39,7 +39,7 @@ PACKAGED = Path(__file__).with_name('models')
 
 __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'model', 'load', 'load_bundle', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
-           'validate_config', 'init_project', 'new',
+           'validate_config', 'init_project', 'new', 'list_templates',
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
            'train', 'resume', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
@@ -51,9 +51,9 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
            'resolve_inheritance', 'collect_source_files',
-           'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'list_runs', 'runs', 'runs_ls', 'runs_compare', 'gc', 'prune', 'gc_all', 'compact_events',
+           'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'list_runs', 'runs', 'runs_ls', 'runs_compare', 'compare', 'diff', 'gc', 'prune', 'gc_all', 'compact_events',
            'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
-           'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service']
+           'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service', 'queue_clear']
 
 
 
@@ -569,6 +569,7 @@ def sampler(fn, *, inputs=None, count=None, seed=None, **args):
 
 
 def adversarial(critic, *, weight=1.0, penalty=1.0, real=None, fake=None, inputs=None, id=None):
+    """Define an adversarial loss term binding a critic network to real and generated inputs."""
     loss = {'type': 'adversarial', 'critic': critic, 'weight': weight, 'penalty': penalty}
     for key, value in (('real', real), ('fake', fake), ('inputs', inputs), ('id', id)):
         if value is not None:
@@ -577,6 +578,7 @@ def adversarial(critic, *, weight=1.0, penalty=1.0, real=None, fake=None, inputs
 
 
 def objective(id, fn='mse', *, input=None, target=None, inputs=None, weight=1.0, args=None, type='objective'):
+    """Define a loss objective term computing a loss function over specified input tensors."""
     if callable(fn):
         fn_str = import_path(fn, f'Objective {id}')
     else:
@@ -594,10 +596,12 @@ def objective(id, fn='mse', *, input=None, target=None, inputs=None, weight=1.0,
 
 
 def reconstruction(id='reconstruction', fn='mse', *, input='generated', target='batch.real', weight=1.0):
+    """Define a reconstruction loss term between generated output and a target tensor (default MSE)."""
     return objective(id, fn, input=input, target=target, weight=weight, type='reconstruction')
 
 
 def prior_loss(weight=1.0, **settings):
+    """Define a prior regularization loss term with an optional weight and settings."""
     return {'type': 'prior', 'weight': weight, **settings}
 
 
@@ -611,22 +615,116 @@ class Run:
 
     @property
     def status(self):
+        """Current lifecycle status of the run (running, completed, stopped, etc.)."""
         return self.manifest.get('status')
 
     @property
     def step(self):
+        """Latest recorded training step count."""
         return self.manifest.get('steps')
 
     @property
     def config(self):
+        """Resolved configuration recorded in the run manifest."""
         return self.manifest.get('config')
 
     @property
     def fingerprint(self):
+        """Numerical recipe fingerprint (config_sha256)."""
         return self.manifest.get('config_sha256')
+
+    @property
+    def run_id(self) -> str:
+        """Unique 32-character hexadecimal run identifier."""
+        rid = self.manifest.get('run_id')
+        if rid:
+            return str(rid)
+        summary_p = self.path / 'summary.json'
+        if summary_p.is_file():
+            try:
+                data = json.loads(summary_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and data.get('run_id'):
+                    return str(data['run_id'])
+            except Exception:
+                pass
+        try:
+            from .registry import _read_registry_unlocked, get_registry_dir
+            reg_data = _read_registry_unlocked(get_registry_dir(self.path))
+            entry = reg_data.get('runs', {}).get(str(self.path.resolve()))
+            if entry and entry.get('run_id'):
+                return str(entry['run_id'])
+        except Exception:
+            pass
+        return self.path.name
+
+    @property
+    def short_id(self) -> str:
+        """First 8 characters of the run identifier."""
+        sid = self.manifest.get('short_id')
+        if sid:
+            return str(sid)
+        summary_p = self.path / 'summary.json'
+        if summary_p.is_file():
+            try:
+                data = json.loads(summary_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and data.get('short_id'):
+                    return str(data['short_id'])
+            except Exception:
+                pass
+        return str(self.run_id)[:8]
+
+    @property
+    def name(self) -> str:
+        """Human-readable experiment name or custom tag."""
+        nm = self.manifest.get('name') or (self.manifest.get('config') or {}).get('name')
+        if nm:
+            return str(nm)
+        summary_p = self.path / 'summary.json'
+        if summary_p.is_file():
+            try:
+                data = json.loads(summary_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and data.get('name'):
+                    return str(data['name'])
+            except Exception:
+                pass
+        try:
+            from .registry import _read_registry_unlocked, get_registry_dir
+            reg_data = _read_registry_unlocked(get_registry_dir(self.path))
+            entry = reg_data.get('runs', {}).get(str(self.path.resolve()))
+            if entry and entry.get('name'):
+                return str(entry['name'])
+        except Exception:
+            pass
+        return self.path.name
+
+    @property
+    def slug(self) -> str:
+        """Memorable '<adj>-<noun>' run slug."""
+        sl = self.manifest.get('slug')
+        if sl:
+            return str(sl)
+        summary_p = self.path / 'summary.json'
+        if summary_p.is_file():
+            try:
+                data = json.loads(summary_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and data.get('slug'):
+                    return str(data['slug'])
+            except Exception:
+                pass
+        try:
+            from .registry import _read_registry_unlocked, get_registry_dir
+            reg_data = _read_registry_unlocked(get_registry_dir(self.path))
+            entry = reg_data.get('runs', {}).get(str(self.path.resolve()))
+            if entry and entry.get('slug'):
+                return str(entry['slug'])
+        except Exception:
+            pass
+        from .registry import extract_or_derive_slug
+        return extract_or_derive_slug(str(self.run_id), name=str(self.name), run_dir_name=self.path.name)
 
 
 def open_run(run_dir=None):
+    """Open and load a Run instance and its manifest by directory, slug, tag, or short ID."""
     if run_dir is not None and Path(run_dir).suffix == ".json":
         manifest_path = Path(run_dir).resolve()
         run_path = manifest_path.parent
@@ -648,7 +746,43 @@ def _run(value):
     return value if isinstance(value, Run) else open_run(value)
 
 
-def prepare(model, run_dir, steps=None, *, profile=None, service_policy=None,
+def _run_path(value=None):
+    if isinstance(value, Run):
+        return value.path
+    from .registry import resolve_run_target
+    return resolve_run_target(value)
+
+
+def _default_run_dir(model_obj):
+    """Determine default run directory <runs_root>/<slug> for a Model or path."""
+    cfg_path = getattr(model_obj, "path", None)
+    ws_path = find_workspace(cfg_path or Path.cwd())
+    if ws_path:
+        ws_data = load_workspace(ws_path)
+        ws_sec = ws_data.get("workspace", {})
+        runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else (ws_path.parent / "runs").resolve()
+        stem = cfg_path.stem if cfg_path else (model_obj.name.split("/")[-1] if model_obj.name else "run")
+        custom_name = model_obj.spec.get("name") if (model_obj.spec.get("name") and model_obj.spec.get("name") != "custom/model") else None
+        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else generate_run_slug(stem, parent_dir=runs_root)
+        if "run_dir" in ws_sec:
+            run_dir_str = interpolate_variables(
+                ws_sec["run_dir"],
+                ws_data,
+                {"stem": custom_name or stem, "name": slug_dir_name, "slug": short_slug},
+            )
+            return Path(run_dir_str).resolve()
+        return (runs_root / slug_dir_name).resolve()
+    from .web_autostart import find_runs_root as autostart_find
+    runs_root = autostart_find(Path.cwd())
+    if not runs_root.name == "runs" and (runs_root / "runs").is_dir():
+        runs_root = (runs_root / "runs").resolve()
+    stem = cfg_path.stem if cfg_path else (model_obj.name.split("/")[-1] if model_obj.name else "run")
+    custom_name = model_obj.spec.get("name") if (model_obj.spec.get("name") and model_obj.spec.get("name") != "custom/model") else None
+    slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else generate_run_slug(stem, parent_dir=runs_root)
+    return (runs_root / slug_dir_name).resolve()
+
+
+def prepare(model, run_dir=None, steps=None, *, profile=None, service_policy=None,
             devices=None,
             checkpoint_every=None, max_seconds=None, stop_after_steps=None,
             preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
@@ -656,6 +790,8 @@ def prepare(model, run_dir, steps=None, *, profile=None, service_policy=None,
     """Validate and prepare a training run, returning a PreparedExecution."""
     from .execution import prepare_train as _prepare_train
     model = _model(model)
+    if run_dir is None:
+        run_dir = _default_run_dir(model)
     pe = preview_every if preview_every is not None else previews
     lowered = lower(model)
     if getattr(model, 'path', None):
@@ -710,7 +846,7 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
                    preview_name=None, sets=None, **extra):
     """Validate and prepare a run resumption, returning a PreparedExecution."""
     from .execution import prepare_resume as _prepare_resume
-    run_path = Path(run_dir).resolve()
+    run_path = _run_path(run_dir)
     if model is None and (sets or steps is not None):
         model = _load_stored_run_model(run_path)
     if sets:
@@ -732,7 +868,7 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
 
     config_path = lower(model) if model is not None else None
     pe = preview_every if preview_every is not None else previews
-    return _prepare_resume(run_dir, checkpoint=checkpoint, config_path=config_path, steps=steps,
+    return _prepare_resume(run_path, checkpoint=checkpoint, config_path=config_path, steps=steps,
                            profile=profile, service_policy=service_policy, devices=devices,
                            checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                            stop_after_steps=stop_after_steps, preview_every=pe,
@@ -740,11 +876,17 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
                            preview_name=preview_name, **extra)
 
 
-def train(model, run_dir, *, steps=None, previews=None, preview_every=None, checkpoint_every=None, profile=None,
+def train(model, run_dir=None, *, steps=None, previews=None, preview_every=None, checkpoint_every=None, profile=None,
           devices=None, on_event=None, **controls):
-    """Train (or continue, if ``run_dir`` exists) and return the ``Run``."""
+    """Train (or continue, if ``run_dir`` exists) and return the ``Run``.
+
+    If ``run_dir`` is omitted or None, automatically creates `<runs_root>/<slug>`.
+    """
+    model_obj = _model(model)
+    if run_dir is None:
+        run_dir = _default_run_dir(model_obj)
     pe = preview_every if preview_every is not None else previews
-    prep = prepare(model, run_dir, steps=steps, profile=profile, devices=devices,
+    prep = prepare(model_obj, run_dir, steps=steps, profile=profile, devices=devices,
                    checkpoint_every=checkpoint_every, preview_every=pe, **controls)
     prep.run(on_event=on_event)
     return open_run(run_dir)
@@ -832,28 +974,79 @@ def events(run, cursor=None, limit=100, max_bytes=1048576):
     return read_event_page(run.path, cursor=cursor, limit=limit, max_bytes=max_bytes)
 
 
-def load_inference(run_dir):
+class InferenceBundle(tuple):
+    """Loaded inference bundle supporting both 5-tuple unpacking and dictionary access."""
+
+    def __contains__(self, key):
+        if len(self) > 0 and isinstance(self[0], dict) and key in self[0]:
+            return True
+        return super().__contains__(key)
+
+    def __getitem__(self, item):
+        if isinstance(item, str) and len(self) > 0 and isinstance(self[0], dict) and item in self[0]:
+            return self[0][item]
+        return super().__getitem__(item)
+
+
+def load_inference(target=None):
     """Verify and load a run's EMA inference bundle on CPU in evaluation mode.
 
-    Returns the raw state, its resolved configuration, the component graph, the
-    prior and the verified bundle SHA256.
+    Accepts an exported .pt bundle file, a run directory, slug, tag, short ID, or Run instance.
+    Returns (state_dict, config_dict, ComponentGraph, prior, bundle_sha256).
     """
     import torch
     from .recipes import ComponentGraph, make_prior
     from .config import resolve_config
 
-    run_dir = Path(run_dir)
-    bundle_dir = run_dir
-    manifest_path = run_dir / "manifest.json"
-    if manifest_path.is_file():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest.get("bundle_path"):
-            path = Path(manifest["bundle_path"])
-            bundle_dir = (path if path.is_absolute() else run_dir / path).parent
-    path = bundle_dir / "model.pt"
-    expected = (bundle_dir / "model.sha256").read_text().strip()
-    if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-        raise ValueError("Inference artifact hash mismatch")
+    if isinstance(target, Run):
+        run_dir = target.path
+        is_direct_pt = False
+    elif target is not None and (str(target).endswith(".pt") or (Path(target).is_file() and Path(target).suffix.lower() == ".pt")):
+        is_direct_pt = True
+        pt_path = Path(target).resolve()
+    else:
+        is_direct_pt = False
+        run_dir = _run_path(target)
+
+    if is_direct_pt:
+        path = pt_path
+        checksum_path = pt_path.with_name("model.sha256") if pt_path.name == "model.pt" else pt_path.with_suffix(".sha256")
+        if checksum_path.is_file():
+            expected = checksum_path.read_text(encoding="utf-8").strip()
+            if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                raise ValueError("Inference artifact hash mismatch")
+        else:
+            expected = hashlib.sha256(path.read_bytes()).hexdigest()
+    else:
+        bundle_dir = run_dir
+        manifest_path = run_dir / "manifest.json"
+        if manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest.get("bundle_path"):
+                    bp = Path(manifest["bundle_path"])
+                    bundle_dir = (bp if bp.is_absolute() else run_dir / bp).parent
+            except Exception:
+                pass
+        path = bundle_dir / "model.pt"
+        if not path.is_file():
+            try:
+                from .checkpoints import resolve_checkpoint, export_checkpoint_bundle
+                ckpt_dir = resolve_checkpoint(run_dir, target="latest")
+                path, checksum_path = export_checkpoint_bundle(ckpt_dir, output_dir=run_dir)
+                bundle_dir = run_dir
+            except Exception:
+                pass
+        if not path.is_file():
+            raise FileNotFoundError(f"No inference bundle or checkpoint found for {target or run_dir}")
+        sha_file = bundle_dir / "model.sha256"
+        if sha_file.is_file():
+            expected = sha_file.read_text(encoding="utf-8").strip()
+            if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                raise ValueError("Inference artifact hash mismatch")
+        else:
+            expected = hashlib.sha256(path.read_bytes()).hexdigest()
+
     state = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(state, dict) or state.get("schema_version") != 1 or state.get("kind") != "ema-inference":
         raise ValueError("Unsupported inference artifact schema")
@@ -877,7 +1070,7 @@ def load_inference(run_dir):
         for bname, bval in (state["prior_buffers"] or {}).items():
             if hasattr(prior, bname):
                 getattr(prior, bname).copy_(bval)
-    return state, config, graph, prior, expected
+    return InferenceBundle((state, config, graph, prior, expected))
 
 
 @dataclass(frozen=True)
@@ -925,11 +1118,26 @@ def samples(run, *, name=None):
     return sorted(result, key=lambda item: item.step)
 
 
-def sample(run, count=16, seed=0, *, inputs=None, output=None, checkpoint=None, default_image_png=False):
-    """Fresh samples from the run's final EMA model (or target checkpoint)."""
+def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoint=None, default_image_png=False):
+    """Fresh samples from the run's final EMA model (or target checkpoint or .pt bundle)."""
     from .artifacts import sample as draw
-    run = _run(run)
-    path = Path(draw(run.path, count=count, seed=seed, inputs=inputs, output=output,
+    if isinstance(run, (str, Path)) and (str(run).endswith('.pt') or (Path(run).is_file() and Path(run).suffix.lower() == '.pt')):
+        target_path = Path(run)
+    else:
+        run_obj = _run(run)
+        target_path = run_obj.path
+
+    if seed is None:
+        cfg = getattr(run, "config", None) if isinstance(run, Run) else None
+        if cfg is None and target_path.is_dir() and (target_path / "manifest.json").is_file():
+            try:
+                m_data = json.loads((target_path / "manifest.json").read_text(encoding="utf-8"))
+                cfg = m_data.get("config")
+            except Exception:
+                pass
+        seed = (cfg or {}).get("sampling", {}).get("seed", 42) if isinstance(cfg, dict) else 42
+
+    path = Path(draw(target_path, count=count, seed=seed, inputs=inputs, output=output,
                      checkpoint=checkpoint, default_image_png=default_image_png))
     if path.suffix.lower() == '.png':
         from PIL import Image
@@ -971,13 +1179,6 @@ def evaluate(run, metric_id=None, *, checkpoint=None, devices=None, model=None, 
                           config_path=config_p, bundle=bundle)
 
 
-def _run_path(value=None):
-    if isinstance(value, Run):
-        return value.path
-    from .registry import resolve_run_target
-    return resolve_run_target(value)
-
-
 def resolve_run_target(target=None, *, cwd=None, allow_latest=True, require_active=False):
     """Resolve a run reference (short ID, slug, name, path, @latest, or None for active/latest)."""
     from .registry import resolve_run_target as _resolve_target
@@ -985,16 +1186,19 @@ def resolve_run_target(target=None, *, cwd=None, allow_latest=True, require_acti
 
 
 def register_run(run_dir, **kwargs):
+    """Register a run directory in the global runs registry (runs.json)."""
     from .registry import register_run as _register
     return _register(run_dir, **kwargs)
 
 
 def sync_registry(cwd=None, extra_roots=None):
+    """Synchronize runs in workspace and runs roots into the global registry."""
     from .registry import sync_registry as _sync
     return _sync(cwd=cwd, extra_roots=extra_roots)
 
 
 def generate_run_slug(stem, parent_dir=None):
+    """Generate a unique run name and short '<adj>-<noun>' slug for a model stem."""
     from .registry import generate_run_slug as _gen_slug
     return _gen_slug(stem, parent_dir=parent_dir)
 
@@ -1332,6 +1536,7 @@ def image(tensor, *, low=-1.0, high=1.0):
 
 
 def audio(tensor, *, rate):
+    """Construct an Audio object from a 1D (mono) or 2D (channels, samples) tensor/array with sample rate."""
     import torch
     value = torch.as_tensor(tensor, dtype=torch.float32).detach().cpu()
     channels = 1 if value.ndim == 1 else value.shape[0]
@@ -1565,26 +1770,47 @@ def lift(raw, *, base=None):
 
 
 def describe(path=None, networks=False, write=False):
+    """Describe a model's formulation, losses, optimizers, and network architectures."""
     from .model_description import MODEL_FILE, build_networks, describe_run, load as load_model_desc
-    if path is None or (not Path(path).exists() and not str(path).endswith(".toml")):
-        from .registry import resolve_run_target
-        try:
-            path = resolve_run_target(path)
-        except Exception:
-            if path is None:
-                raise
-    path = Path(path)
-    manifest, config = load_model_desc(path)
-    if write and not (path.is_dir() and manifest):
+    manifest = {}
+    config = None
+    resolved_path = None
+
+    if isinstance(path, Model):
+        config = resolve(path)
+        manifest = {"config": config, "config_sha256": fingerprint(path)}
+    elif isinstance(path, Run):
+        resolved_path = path.path
+        manifest, config = load_model_desc(resolved_path)
+    elif isinstance(path, dict):
+        if "components" in path or "networks" in path:
+            config = path
+            manifest = {"config": config}
+        else:
+            manifest, config = load_model_desc(path)
+    else:
+        if path is None or (not Path(path).exists() and not str(path).endswith(".toml")):
+            from .registry import resolve_run_target
+            try:
+                resolved_path = resolve_run_target(path)
+            except Exception:
+                if path is None:
+                    raise
+                resolved_path = Path(path)
+        else:
+            resolved_path = Path(path)
+        manifest, config = load_model_desc(resolved_path)
+
+    if write and (resolved_path is None or not (resolved_path.is_dir() and manifest)):
         raise ValueError("--write needs a run directory")
     if not isinstance(config, dict):
         raise ValueError("No model configuration recorded for this run")
     recorded = None
     if networks or write:
         recorded = build_networks(config, manifest.get("config_sha256"))
-    if write:
+    if write and resolved_path is not None:
         from .run_state import atomic_json
-        atomic_json(path / MODEL_FILE, recorded)
+        atomic_json(resolved_path / MODEL_FILE, recorded)
     return describe_run(manifest if manifest else {"config": config}, recorded=recorded)
 
 
@@ -1592,6 +1818,7 @@ describe_model = describe
 
 
 def data_check(config, output=None):
+    """Inspect and inventory a dataset folder defined in config, optionally writing a manifest."""
     from .data import ImageFolder
     from .config import load_config
     cfg = resolve(config) if isinstance(config, Model) or is_model_file(config) else load_config(config)
@@ -1611,6 +1838,7 @@ check_data = data_check
 
 
 def preflight(config, profile=None, runtime=False):
+    """Validate execution environment, hardware, and configuration compatibility."""
     from .execution_profiles import load_execution_profile
     from .execution_preflight import _resolve_profile, preflight as run_preflight
     from .config import load_config
@@ -1628,6 +1856,7 @@ def preflight_check(config, profile=None, runtime=True):
 
 
 def serve(run_dir=None, port=None, host="0.0.0.0", auth="none", session_file=None, open_browser=False, public_origin=None, dev=False):
+    """Launch the Web Observatory server for a runs root or run directory."""
     if dev:
         from .web_dev import enable
         enable()
@@ -1639,22 +1868,34 @@ def serve(run_dir=None, port=None, host="0.0.0.0", auth="none", session_file=Non
 
 
 def viewer_status(run_dir=None):
+    """Check the running status and port of a viewer process for a run or runs root."""
     from .web_autostart import viewer_status as autostart_status
     return autostart_status(_run_path(run_dir))
 
 
 def stop_viewer(run_dir=None):
+    """Stop a running viewer process for a run directory."""
     from .web_autostart import stop_viewer as autostart_stop
     return autostart_stop(_run_path(run_dir))
 
 
 def contributions(run_dir=None, map_revision=None, cursor=None, limit=100, max_bytes=1048576):
+    """Read a page of mapped contribution events, auto-projecting if needed."""
     from .event_views import MapSpec, read_projection_page
-    return read_projection_page(_run_path(run_dir), map_revision or MapSpec().revision,
-                                cursor, limit=limit, max_bytes=max_bytes)
+    run_path = _run_path(run_dir)
+    rev = map_revision or MapSpec().revision
+    view_dir = run_path / 'views' / rev
+    if not (view_dir / 'contributions.jsonl').is_file() or not (view_dir / 'metadata.json').is_file():
+        project(run_path)
+    try:
+        return read_projection_page(run_path, rev, cursor, limit=limit, max_bytes=max_bytes)
+    except FileNotFoundError:
+        project(run_path)
+        return read_projection_page(run_path, rev, cursor, limit=limit, max_bytes=max_bytes)
 
 
 def project(run_dir=None, map_spec=None, follow=False, limit=100, on_progress=None):
+    """Project run events into the mapped contribution views."""
     from .event_views import MapSpec, Projector
     import time
     run_path = _run_path(run_dir)
@@ -1680,11 +1921,13 @@ def project(run_dir=None, map_spec=None, follow=False, limit=100, on_progress=No
 
 
 def checkpoint_status(run_dir=None, request_id=None):
+    """Check the status of an asynchronous checkpoint request."""
     from .run_requests import checkpoint_request_status
     return checkpoint_request_status(_run_path(run_dir), request_id)
 
 
 def request_checkpoint(run_dir=None, attempt_id=None, request_id=None):
+    """Submit an asynchronous request for the training process to save a checkpoint."""
     from .run_requests import submit_checkpoint_request
     run_dir = _run_path(run_dir)
     manifest_path = run_dir / "manifest.json"
@@ -1717,65 +1960,191 @@ def request_checkpoint(run_dir=None, attempt_id=None, request_id=None):
                                      request_id=request_id)
 
 
-def ensure_dashboard_running(runs_root, check_version=True, run_id=None):
+def ensure_dashboard_running(runs_root=None, check_version=True, run_id=None):
+    """Ensure the persistent root dashboard is running for runs_root, returning its URL."""
     from .web_autostart import ensure_dashboard_running as autostart_ensure
-    return autostart_ensure(Path(runs_root), check_version=check_version, run_id=run_id)
+    target = Path(runs_root) if runs_root is not None else None
+    return autostart_ensure(target, check_version=check_version, run_id=run_id)
 
 
 def stop_all_servers(force=False):
+    """Terminate all background viewer, dashboard, and supervisor processes on the host."""
     from .web_autostart import stop_all_servers as autostart_stop_all
     return autostart_stop_all(force=force)
 
 
-def dashboard_status(runs_root):
+def dashboard_status(runs_root=None):
+    """Query the status of the persistent Web Observatory dashboard for a runs root or run."""
     from .web_autostart import dashboard_status as autostart_dstatus
-    return autostart_dstatus(Path(runs_root))
+    target = Path(runs_root) if runs_root is not None else None
+    return autostart_dstatus(target)
 
 
-def stop_dashboard(runs_root):
+def stop_dashboard(runs_root=None, timeout=8.0):
+    """Stop the persistent Web Observatory dashboard for a runs root or run."""
     from .web_autostart import stop_dashboard as autostart_sstop
-    return autostart_sstop(Path(runs_root))
+    target = Path(runs_root) if runs_root is not None else None
+    return autostart_sstop(target, timeout=timeout)
 
 
 def find_runs_root(path=None):
+    """Locate the root directory containing training runs for a workspace or path."""
     from .web_autostart import find_runs_root as autostart_find
     return autostart_find(path)
 
 
 def stop_projector(run_dir):
+    """Stop the background projection worker for a run directory."""
     from .web_autostart import stop_projector as autostart_sproj
     return autostart_sproj(Path(run_dir))
 
 
 # --------------------------------------------------------------------------- job queue
 
-def queue_add(model_file, devices=None, run_dir=None, name=None, wait=False, queue_file=None):
+def queue_add(model_file, devices=None, run_dir=None, name=None, steps=None, sets=None, no_web=False, wait=False, queue_file=None, **kwargs):
+    """Enqueue a training experiment or wait directive into the job queue."""
     from .queue import queue_add as _add
-    return _add(model_file, devices=devices, run_dir=run_dir, name=name, wait=wait, queue_file=queue_file)
+    return _add(model_file, devices=devices, run_dir=run_dir, name=name, steps=steps, sets=sets, no_web=no_web, wait=wait, queue_file=queue_file, **kwargs)
 
 
 def queue_ls(status=None, queue_file=None):
+    """List queued, running, and completed jobs from the job queue."""
     from .queue import queue_ls as _ls
     return _ls(status_filter=status, queue_file=queue_file)
 
 
 def queue_status(job_id=None, queue_file=None, lines=20):
+    """Check the execution status and recent logs of a queued job."""
     from .queue import queue_status as _status
     return _status(job_id=job_id, queue_file=queue_file, lines=lines)
 
 
 def queue_stop(job_id=None, stop_all=False, queue_file=None):
+    """Stop or cancel a queued job, or all jobs if stop_all=True."""
     from .queue import queue_stop as _stop
     return _stop(job_id=job_id, stop_all=stop_all, queue_file=queue_file)
 
 
 def queue_run(devices=None, poll_interval=5.0, once=False, queue_file=None):
+    """Process and run jobs sequentially from the queue until drained."""
     from .queue import queue_run as _run
     return _run(devices=devices, poll_interval=poll_interval, once=once, queue_file=queue_file)
 
 
 def queue_install_service(user=True, devices=None, name=None, dry_run=False):
+    """Generate or install a systemd service unit for the HyperGAN queue runner."""
     from .queue import install_service as _install
     return _install(user=user, devices=devices, name=name, dry_run=dry_run)
+
+
+def queue_clear(queue_file=None):
+    """Clear all queued and running jobs in the job queue."""
+    from .queue import queue_clear as _clear
+    return _clear(queue_file=queue_file)
+
+
+# --------------------------------------------------------------------------- convenience exports
+
+def compare(runs, metric="fid50k_train", at_steps=None):
+    """Compare multiple runs for a given metric across step milestones."""
+    return runs_compare(runs, metric=metric, at_steps=at_steps)
+
+
+def _extract_diff_config(target):
+    if isinstance(target, Model):
+        try:
+            return dict(resolve(target))
+        except Exception:
+            return dict(target.spec)
+    if isinstance(target, Run):
+        if target.manifest.get("config") and isinstance(target.manifest["config"], dict):
+            return target.manifest["config"]
+        target = target.path
+    if isinstance(target, dict):
+        if "components" in target or "networks" in target:
+            return target
+        if "config" in target and isinstance(target["config"], dict):
+            return target["config"]
+        return target
+    target_str = str(target)
+    target_p = Path(target_str)
+    if target_str.endswith(".toml") or (target_p.is_file() and target_p.suffix == ".toml"):
+        if not target_p.is_file():
+            raise FileNotFoundError(f"Recipe target '{target_str}' not found")
+        m = load(target_p)
+        try:
+            return dict(resolve(m))
+        except Exception:
+            return getattr(m, "spec", dict(m)) if hasattr(m, "spec") else dict(m)
+    if target_str.endswith(".pt") or (target_p.is_file() and target_p.suffix == ".pt"):
+        if not target_p.is_file():
+            raise FileNotFoundError(f"Checkpoint file '{target_str}' not found")
+        import torch
+        state = torch.load(target_p, map_location="cpu", weights_only=True)
+        if isinstance(state, dict):
+            if "config" in state and isinstance(state["config"], dict):
+                return state["config"]
+            if "model_state_dict" in state:
+                return {k: list(v.shape) for k, v in state["model_state_dict"].items() if hasattr(v, "shape")}
+        return {}
+    resolved = resolve_run_target(target_str)
+    manifest_p = resolved / "manifest.json"
+    if manifest_p.is_file():
+        try:
+            m_data = json.loads(manifest_p.read_text(encoding="utf-8"))
+            if "config" in m_data and isinstance(m_data["config"], dict):
+                return m_data["config"]
+        except Exception:
+            pass
+    recipe_p = resolved / "recipe.toml"
+    if recipe_p.is_file():
+        try:
+            m = load(recipe_p)
+            return dict(resolve(m))
+        except Exception:
+            pass
+    raise FileNotFoundError(f"Run or recipe target '{target_str}' not found or contains no configuration")
+
+
+def _flatten_diff_dict(d, prefix=""):
+    flat = {}
+    if isinstance(d, dict):
+        for k, v in d.items():
+            full = f"{prefix}.{k}" if prefix else str(k)
+            if isinstance(v, dict) and v:
+                flat.update(_flatten_diff_dict(v, full))
+            else:
+                flat[full] = v
+    else:
+        flat[prefix] = d
+    return flat
+
+
+def diff(target_a, target_b):
+    """Compare two configurations, models, runs, or checkpoints, returning differences."""
+    cfg_a = _extract_diff_config(target_a)
+    cfg_b = _extract_diff_config(target_b)
+    flat_a = _flatten_diff_dict(cfg_a)
+    flat_b = _flatten_diff_dict(cfg_b)
+    all_keys = sorted(set(flat_a.keys()) | set(flat_b.keys()))
+    differences = {}
+    for k in all_keys:
+        val_a = flat_a.get(k)
+        val_b = flat_b.get(k)
+        if val_a != val_b:
+            differences[k] = {"a": val_a, "b": val_b}
+    return {
+        "target_a": str(getattr(target_a, "path", target_a)),
+        "target_b": str(getattr(target_b, "path", target_b)),
+        "identical": len(differences) == 0,
+        "differences": differences,
+    }
+
+
+def list_templates():
+    """List available starter templates (e.g. gaussian-grid, dcgan, resnet, tiny-transformer)."""
+    from .recipe_generator import list_starter_templates
+    return list_starter_templates()
+
 
 

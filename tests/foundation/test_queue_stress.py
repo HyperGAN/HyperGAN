@@ -3,7 +3,6 @@ Collision Avoidance, Subprocess Failure Isolation, and Systemd Service Unit Gene
 """
 import configparser
 from datetime import datetime, timezone
-import fcntl
 import json
 import multiprocessing
 import os
@@ -19,6 +18,7 @@ import pytest
 
 import hypergan as hg
 from hypergan import cli
+from hypergan.run_state import run_lock
 from hypergan.queue import (
     find_queue_file,
     queue_lock,
@@ -320,20 +320,18 @@ def test_active_run_directory_lock_collision_avoidance(temp_queue, tmp_path, mon
 
     monkeypatch.setattr(subprocess, "Popen", _MockPopen)
 
-    # Acquire an exclusive lock on .run.lock in the run_dir
-    lock_file = run_dir / ".run.lock"
-    lock_fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR)
-    fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    locked = threading.Event()
 
     def _release_lock_after_delay():
-        time.sleep(0.15)
-        assert state["executed"] is False
-        assert queue_ls(queue_file=temp_queue)[0]["status"] == "queued"
-        fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        os.close(lock_fd)
+        with run_lock(run_dir):
+            locked.set()
+            time.sleep(0.15)
+            assert state["executed"] is False
+            assert queue_ls(queue_file=temp_queue)[0]["status"] == "queued"
 
     helper = threading.Thread(target=_release_lock_after_delay)
     helper.start()
+    assert locked.wait(5)
 
     ret = queue_run(poll_interval=0.04, queue_file=temp_queue, once=True)
     helper.join(timeout=5.0)
@@ -374,7 +372,8 @@ def test_wait_kind_job_completion_flow(temp_queue, tmp_path):
     assert jobs[0]["status"] == "completed"
 
 
-def test_subprocess_failure_isolation_and_runner_continuity(temp_queue, tmp_path, monkeypatch):
+@pytest.mark.parametrize('symlink_allowed', [True, False])
+def test_subprocess_failure_isolation_and_runner_continuity(temp_queue, tmp_path, monkeypatch, symlink_allowed):
     """Verify failing job records status='failed' with exit code and error, and runner cleanly continues to execute subsequent jobs."""
     m1 = tmp_path / "job1_failing.toml"
     m1.write_text('format = "hypergan-model/1"\n', encoding="utf-8")
@@ -406,6 +405,13 @@ def test_subprocess_failure_isolation_and_runner_continuity(temp_queue, tmp_path
             return 0
 
     monkeypatch.setattr(subprocess, "Popen", _MockSequentialPopen)
+    if not symlink_allowed:
+        from types import SimpleNamespace
+        import hypergan.queue as queue_module
+        def denied(*args, **kwargs):
+            raise OSError('symlink privilege unavailable')
+        monkeypatch.setattr(Path, 'symlink_to', denied)
+        monkeypatch.setattr(queue_module, 'os', SimpleNamespace(**{**vars(os), 'name': 'nt'}))
 
     def _monitor_and_stop():
         # Wait until job 2 finishes, then touch .stop file
@@ -453,10 +459,16 @@ def test_subprocess_failure_isolation_and_runner_continuity(temp_queue, tmp_path
     j2_log = Path(job2["log_file"]).read_text(encoding="utf-8")
     assert "Training successful step 100" in j2_log
 
-    # Verify current.log symlink pointed to job2 log
-    current_symlink = temp_queue.parent / "logs" / "current.log"
-    assert current_symlink.is_symlink()
-    assert current_symlink.resolve() == Path(job2["log_file"]).resolve()
+    # The current alias shares job2's live file, including without Windows
+    # symlink privileges. POSIX keeps the original symlink contract.
+    current_log = temp_queue.parent / "logs" / "current.log"
+    assert current_log.is_file()
+    assert current_log.samefile(job2["log_file"])
+    if os.name != 'nt' and symlink_allowed:
+        assert current_log.is_symlink()
+        assert current_log.resolve() == Path(job2["log_file"]).resolve()
+    if not symlink_allowed:
+        assert not current_log.is_symlink()
 
 
 def test_systemd_install_service_syntax_and_validation(tmp_path):

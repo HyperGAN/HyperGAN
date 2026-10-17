@@ -24,10 +24,46 @@ from .ports import DEFAULT_VIEWER_PORT
 TERMINAL_STATUSES = {'complete', 'stopped', 'failed', 'interrupted'}
 
 
+def _windows_port_owner(port):
+    """Read Windows' numeric TCP table without requiring an optional package."""
+    try:
+        table = subprocess.run(['netstat', '-ano'], capture_output=True, text=True, timeout=3.)
+        if table.returncode != 0:
+            return None
+        for line in table.stdout.splitlines():
+            fields = line.split()
+            if (len(fields) != 5 or fields[0].upper() != 'TCP'
+                    or fields[1].rsplit(':', 1)[-1] != str(port)
+                    or fields[2].rsplit(':', 1)[-1] != '0' or not fields[-1].isdigit()):
+                continue
+            # A listener has a zero remote port; avoid localized state names.
+            pid = int(fields[-1])
+            if pid <= 0:
+                continue
+            comm = 'unknown'
+            try:
+                import csv
+                process = subprocess.run(['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+                                         capture_output=True, text=True, timeout=3.)
+                if process.returncode == 0:
+                    for row in csv.reader(process.stdout.splitlines()):
+                        if len(row) >= 2 and row[1] == str(pid):
+                            comm = row[0]
+                            break
+            except (OSError, subprocess.SubprocessError, UnicodeError):
+                pass
+            return pid, comm
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        pass
+    return None
+
+
 def get_port_owner(port: int) -> tuple[int, str] | None:
-    """Inspect /proc (or ss/lsof fallback) to identify the process listening on port."""
+    """Identify a TCP listener via the operating system's process table."""
     if not isinstance(port, int) or port <= 0:
         return None
+    if os.name == 'nt':
+        return _windows_port_owner(port)
     port_hex = f"{port:04X}"
     target_inodes = set()
     for net_path in ("/proc/net/tcp", "/proc/net/tcp6"):
@@ -432,13 +468,14 @@ def _running(private, state):
 def _receipt(root, session, mode, status, children):
     from .run_state import atomic_json
     if not (root / 'manifest.json').is_file():
+        recorded = set()
         try:
             for subdir in root.iterdir():
                 if subdir.is_dir() and (subdir / 'manifest.json').is_file():
-                    _receipt(subdir, session, mode, status, children)
+                    recorded.update(_receipt(subdir, session, mode, status, children))
         except OSError:
             pass
-        return
+        return recorded
     observations = root / 'observations'
     if observations.is_symlink():
         raise ValueError('Viewer observations directory cannot be a symlink')
@@ -449,6 +486,17 @@ def _receipt(root, session, mode, status, children):
          'public_origin': session.public_origin,
          'auth_mode': session.auth_mode, 'bind_host': session.bind_host,
          'processes': {'supervisor': os.getpid(), **{name: child.pid for name, child in children.items()}}})
+    return {root}
+
+
+def _manifest_roots(root):
+    if (root / 'manifest.json').is_file():
+        return {root}
+    try:
+        return {child for child in root.iterdir()
+                if child.is_dir() and (child / 'manifest.json').is_file()}
+    except OSError:
+        return set()
 
 
 def _broker(root, private, launch_id):
@@ -460,6 +508,7 @@ def _broker(root, private, launch_id):
     context = mp.get_context('spawn')
     stop = _StopFlag(context)
     children = {}
+    receipted_roots = set()
     listener = session = None
     credential_path = private / ('session-' + launch_id + '.json')
     def terminate(signum, frame):
@@ -488,7 +537,7 @@ def _broker(root, private, launch_id):
                 atomic_json(private / 'state.json', state)
             if session is not None:
                 try:
-                    _receipt(root, session, state['mode'], status, children)
+                    receipted_roots.update(_receipt(root, session, state['mode'], status, children))
                 except (OSError, ValueError) as exc:
                     print(f'Viewer receipt unavailable: {exc}', file=sys.stderr, flush=True)
         try:
@@ -505,7 +554,6 @@ def _broker(root, private, launch_id):
             listener.close()
             publish('starting')
             deadline = time.monotonic() + 10
-            receipt_exists = False
             while not stop.wait(.1):
                 if (private / ('stop-' + launch_id)).exists():
                     break
@@ -524,14 +572,13 @@ def _broker(root, private, launch_id):
                     elif time.monotonic() >= deadline:
                         publish('failed', 'Viewer did not become ready within 10 seconds')
                         break
-                if session is not None and not receipt_exists:
-                    try:
-                        _receipt(root, session, state['mode'], state['status'], children)
-                        if (root / 'manifest.json').is_file() or (
-                                root.is_dir() and any((d / 'manifest.json').is_file() for d in root.iterdir() if d.is_dir())):
-                            receipt_exists = True
-                    except (OSError, ValueError):
-                        pass
+                if session is not None:
+                    for run_root in _manifest_roots(root) - receipted_roots:
+                        try:
+                            receipted_roots.update(_receipt(
+                                run_root, session, state['mode'], state['status'], children))
+                        except (OSError, ValueError):
+                            pass
         except BaseException as exc:
             publish('failed', f'{type(exc).__name__}: {exc}')
         finally:
@@ -863,10 +910,11 @@ def stop_all_servers(force: bool = False) -> list[int]:
         try:
             os.kill(pid, signal.SIGTERM)
             active_killed.append(pid)
-        except (ProcessLookupError, PermissionError):
+        except OSError:
             pass
 
-    if active_killed:
+    # Windows SIGTERM already uses TerminateProcess and has no SIGKILL.
+    if active_killed and os.name != 'nt':
         time.sleep(0.5)
         for pid in active_killed:
             try:

@@ -3,7 +3,6 @@
 Verifies inspection commands operate correctly, cleanly, and strictly torch-free.
 """
 import csv
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -11,6 +10,8 @@ import subprocess
 import sys
 
 import pytest
+
+from hypergan.run_state import run_lock
 
 
 def run_cli(tmp_path, *args, isolated=True):
@@ -170,13 +171,10 @@ def test_status_active_run_lock(tmp_path):
     run_dir = tmp_path / "run_active"
     _make_mock_run(run_dir, name="active-run", status="running")
 
-    lock_file = run_dir / ".run.lock"
-    with lock_file.open("a+b") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with run_lock(run_dir):
         res = run_cli(tmp_path, "status", run_dir, isolated=False)
         assert res.returncode == 0, res.stderr
         assert "(active)" in res.stdout
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def test_runs_ls_discovery_and_sorting(tmp_path):
@@ -293,13 +291,10 @@ def test_gc_refuses_active_run(tmp_path):
     run_dir = tmp_path / "run_gc_active"
     _make_mock_run(run_dir, status="running")
 
-    lock_file = run_dir / ".run.lock"
-    with lock_file.open("a+b") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with run_lock(run_dir):
         res = run_cli(tmp_path, "gc", run_dir, isolated=False)
         assert res.returncode != 0
         assert "active training run" in res.stderr
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
 def test_gc_dry_run(tmp_path):
@@ -326,12 +321,9 @@ def test_gc_all(tmp_path):
     r2 = runs_dir / "run2"
     _make_mock_run(r2, name="r2", status="running")
 
-    lock_file = r2 / ".run.lock"
-    with lock_file.open("a+b") as f:
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with run_lock(r2):
         res = run_cli(tmp_path, "gc", "--all", runs_dir, isolated=False)
         assert res.returncode == 0, res.stderr
         assert "GC complete across 2 runs:" in res.stdout
         assert "Cleaned:  1 runs" in res.stdout
         assert "Skipped:  1 active runs" in res.stdout
-        fcntl.flock(f.fileno(), fcntl.LOCK_UN)

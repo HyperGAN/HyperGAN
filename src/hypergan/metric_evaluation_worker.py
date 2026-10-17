@@ -59,7 +59,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     for name, model in graph.models.items():
         model.load_state_dict(saved['model_states'][name])
         _restore_buffers(model, saved['model_buffers'][name])
-    prior = make_prior(config['prior'], device='cpu').float().eval().requires_grad_(False)
+    prior = make_prior(config['prior'], device='cpu', recipe=config.get('recipe')).float().eval().requires_grad_(False)
     prior.load_state_dict(saved['prior'])
     _restore_buffers(prior, saved['prior_buffers'])
     graph, prior = graph.to(device), prior.to(device)

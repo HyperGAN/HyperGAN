@@ -103,8 +103,17 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None, checkpoint=N
 
 def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
     run_dir = Path(run_dir)
-    target_bundle = run_dir / "model.pt"
-    if checkpoint is not None or not target_bundle.is_file():
+    bundle_dir = run_dir
+    published_bundle = False
+    manifest_path = run_dir / "manifest.json"
+    if checkpoint is None and manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("bundle_path"):
+            path = Path(manifest["bundle_path"])
+            bundle_dir = (path if path.is_absolute() else run_dir / path).parent
+            published_bundle = True
+    target_bundle = bundle_dir / "model.pt"
+    if checkpoint is not None or (not published_bundle and not target_bundle.is_file()):
         from .checkpoints import resolve_checkpoint, extract_ema_bundle
         target = checkpoint if checkpoint is not None else "latest"
         ckpt_dir = resolve_checkpoint(run_dir, target)
@@ -112,14 +121,9 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
         source_file = ckpt_dir / "model.pt" if (ckpt_dir / "model.pt").is_file() else ckpt_dir / "state.pt"
         expected = hashlib.sha256(source_file.read_bytes()).hexdigest() if source_file.is_file() else ""
     else:
-        bundle_dir = run_dir
-        manifest_path = run_dir / "manifest.json"
-        if manifest_path.is_file():
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if manifest.get("bundle_path"):
-                path = Path(manifest["bundle_path"])
-                bundle_dir = (path if path.is_absolute() else run_dir / path).parent
-        path = bundle_dir / "model.pt"
+        path = target_bundle
+        if not path.is_file():
+            raise ValueError("Published inference artifact is missing")
         expected = (bundle_dir / "model.sha256").read_text().strip()
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise ValueError("Inference artifact hash mismatch")
@@ -137,7 +141,7 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
         graph.models[name].load_state_dict(weights)
         if "model_buffers" in state:
             _restore_buffers(graph.models[name], state["model_buffers"].get(name))
-    prior = make_prior(config["prior"], device='cpu').float().eval().requires_grad_(False)
+    prior = make_prior(config["prior"], device='cpu', recipe=config.get('recipe')).float().eval().requires_grad_(False)
     prior.load_state_dict(state["prior"])
     if "prior_buffers" in state:
         _restore_buffers(prior, state["prior_buffers"])

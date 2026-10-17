@@ -42,7 +42,7 @@ def test_preview_keep_accepts_a_count_or_the_whole_run():
 
 @pytest.mark.heavy
 def test_cli_stop_resume_and_json_progress(tmp_path):
-    config = write_default(tmp_path / "project", device="cpu")
+    config = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     run = tmp_path / "run"
     first = cli(tmp_path, "train", config, "--run-dir", run, "--no-server", "--stop-after-steps", 2,
                 "--checkpoint-every", 1, "--preview-every", 1, "--preview-keep", 2, "--progress-json", "--progress-every", 1)
@@ -121,7 +121,7 @@ args = {{ side = 4 }}
 
 @pytest.mark.heavy
 def test_cli_reports_snapshot_metrics_that_have_no_schedule(tmp_path):
-    config = write_default(tmp_path / "project", device="cpu")
+    config = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     config.write_text(config.read_text() + SNAPSHOT_METRIC.format(trigger='trigger = "manual"\n'))
     checked = cli(tmp_path, "validate", config)
     assert checked.returncode == 0, checked.stderr
@@ -157,7 +157,7 @@ def test_cli_reports_snapshot_metrics_that_have_no_schedule(tmp_path):
 
 @pytest.mark.heavy
 def test_manual_snapshot_metrics_hint_at_launch_and_remind_with_progress(tmp_path):
-    config = write_default(tmp_path / "project", device="cpu")
+    config = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     config.write_text(config.read_text() + SNAPSHOT_METRIC.format(trigger='trigger = "manual"\n'))
     run = tmp_path / "run"
     human = cli(tmp_path, "train", config, "--run-dir", run, "--no-server",
@@ -197,7 +197,7 @@ def test_manual_snapshot_metrics_hint_at_launch_and_remind_with_progress(tmp_pat
     # A scheduled metric, and a recipe with no snapshot metric at all, stay quiet.
     scheduled = tmp_path / "scheduled.toml"
     scheduled.write_text(config.read_text().replace('trigger = "manual"\n', ""))
-    for recipe, directory in ((scheduled, "scheduled-run"), (write_default(tmp_path / "plain", device="cpu"), "plain-run")):
+    for recipe, directory in ((scheduled, "scheduled-run"), (write_default(tmp_path / "plain", device="cpu", defaults='hypergan'), "plain-run")):
         quiet = cli(tmp_path, "train", recipe, "--run-dir", tmp_path / directory, "--no-server",
                     "--stop-after-steps", 2, "--progress-every", 1)
         assert quiet.returncode == 0, quiet.stderr
@@ -207,7 +207,7 @@ def test_manual_snapshot_metrics_hint_at_launch_and_remind_with_progress(tmp_pat
 
 @pytest.mark.heavy
 def test_sampling_preserves_global_rng_and_existing_outputs(tmp_path):
-    config = write_default(tmp_path / "project", device="cpu")
+    config = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     run = tmp_path / "run"
     result = cli(tmp_path, "train", config, "--run-dir", run, "--no-server")
     assert result.returncode == 0, result.stderr
@@ -256,7 +256,7 @@ def test_inference_restores_nonpersistent_registered_buffers(tmp_path):
 
 @pytest.mark.heavy
 def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
-    config = write_default(tmp_path / "project", device="cpu")
+    config = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     run = tmp_path / "run"
     # Submit from another process as soon as the start event arrives, before the
     # bounded attempt finishes. The reader keeps draining progress throughout.
@@ -297,23 +297,30 @@ def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
 
 
 @pytest.mark.heavy
-def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path):
+def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path, monkeypatch):
     """Optional web qualification belongs to the explicitly provisioned web+train job."""
+    # This control trains on CPU. Keep GPU discovery from changing the optional
+    # global CUDA RNG inventory between otherwise identical child processes.
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
     import importlib.util
     if any(importlib.util.find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):
         # Base numerical CI has no web dependencies: prove explicit headless CLI.
-        config = write_default(tmp_path / 'project', device='cpu')
-        result = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server')
+        config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
+        result = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server', '--progress-json')
         assert result.returncode == 0, result.stderr
         assert 'Viewer:' not in result.stderr
-        assert json.loads(result.stdout)['status'] == 'complete'
+        assert json.loads(result.stdout.splitlines()[-1])['manifest']['status'] == 'complete'
         return
-    config = write_default(tmp_path / 'project', device='cpu')
-    headless = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server')
+    config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
+    headless = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server', '--progress-json')
     assert headless.returncode == 0, headless.stderr
     viewed = tmp_path / 'viewed'
+    import socket
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1', 0))
+        viewer_port = listener.getsockname()[1]
     try:
-        first = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'viewed', '--server',
+        first = cli(tmp_path, 'train', config, '--run-dir', viewed, '--server', '--port', viewer_port,
                     '--stop-after-steps', 2, '--progress-json')
         assert first.returncode == 0, first.stderr
         assert 'Viewer:' in first.stderr
@@ -323,9 +330,10 @@ def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path):
         assert initial_status.returncode == 0, initial_status.stderr
         initial_viewer = json.loads(initial_status.stdout)
         assert initial_viewer['status'] == 'ready'
-        resumed = cli(tmp_path, 'resume', viewed, '--server')
+        resumed = cli(tmp_path, 'resume', viewed, '--server', '--port', viewer_port)
         assert resumed.returncode == 0, resumed.stderr
-        expected, actual = json.loads(headless.stdout), json.loads(resumed.stdout)
+        expected = json.loads(headless.stdout.splitlines()[-1])['manifest']
+        actual = json.loads(resumed.stdout)
         assert expected['steps'] == actual['steps'] == 5
         expected_sample = json.loads(Path(expected['sample_path']).read_text())
         actual_sample = json.loads(Path(actual['sample_path']).read_text())

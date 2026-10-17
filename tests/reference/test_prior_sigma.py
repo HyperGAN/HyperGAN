@@ -78,7 +78,7 @@ def test_audited_050_checkpoint_metadata_uses_qualified_resume(tmp_path):
     from hypergan.training import resume, train
     from tests.reference.test_recovery import equal
 
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     config.write_text(config.read_text().replace('kind = "particles"', 'kind = "mog"\nfixed_sigma = 0.2')
                       .replace('num_particles = 20000', 'num_particles = 12'))
     train(config, tmp_path / 'full')

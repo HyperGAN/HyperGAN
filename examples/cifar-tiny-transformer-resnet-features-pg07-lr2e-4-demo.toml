@@ -21,7 +21,7 @@ inputs = { z = "latent" }
 [components.generator.args]
 input_shape = ["B", 128]
 output_shape = ["B", 3, 32, 32]
-file = "/home/martyn/dev/hypergan/worktrees/develop-pg07-lazy16/examples/networks/tiny-transformer-generator-32.hndl"
+file = "networks/tiny-transformer-generator-32.hndl"
 
 # Complete discriminator graph; architecture changes require a fresh run.
 [components.discriminator]
@@ -30,7 +30,7 @@ inputs = { x = "candidate" }
 [components.discriminator.args]
 input_shape = ["B", 3, 32, 32]
 output_shape = ["B", 1]
-file = "/home/martyn/dev/hypergan/worktrees/develop-pg07-lazy16/examples/networks/resnet18-features-discriminator-32.hndl"
+file = "networks/resnet18-features-discriminator-32.hndl"
 [components.discriminator.args.parameters]
 weights_path = "/home/martyn/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
 weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"

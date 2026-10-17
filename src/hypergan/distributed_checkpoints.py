@@ -201,7 +201,7 @@ def _distributed_checkpoint_identity(trainer):
     return _json({'hypergan_checkpoint_version': CURRENT_VERSION,
                   'config': numerical_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
                   'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
-                  'topology': strategy, 'source': source_info()})
+                  'topology': strategy, 'source': source_info(trainer.config)})
 
 
 def distributed_checkpoint_identity(trainer):

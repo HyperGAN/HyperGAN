@@ -28,7 +28,7 @@ class SingleProcessExecution:
         self._previews = None
 
     def environment(self):
-        return {'runtime': runtime_info(self._device), 'source': source_info()}
+        return {'runtime': runtime_info(self._device), 'source': source_info(self._config)}
 
     def _open(self):
         if self._closed:
@@ -57,14 +57,14 @@ class SingleProcessExecution:
             metadata = {'config': config_values(self._config), 'config_sha256': fingerprint(self._config),
                         'runtime': runtime_info(self._trainer.device), 'data_contract': contract,
                         'implementation': _implementation(self._trainer),
-                        'hypergan_checkpoint_version': CURRENT_VERSION, 'source': source_info()}
+                        'hypergan_checkpoint_version': CURRENT_VERSION, 'source': source_info(self._config)}
         finally:
             restore_rng(rng)
             for name, state in streams.items():
                 self._trainer.streams[name].set_state(state)
         return ExecutionInfo(step=self._trainer.step, data_identity=contract['identity'],
                              recovery_reasons=reasons, checkpoint_metadata=metadata,
-                             environment={'runtime': runtime_info(self._trainer.device), 'source': source_info()},
+                             environment={'runtime': runtime_info(self._trainer.device), 'source': source_info(self._config)},
                              model=self._model_description())
 
     def _model_description(self):

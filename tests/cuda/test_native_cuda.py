@@ -131,7 +131,7 @@ def test_fresh_process_cuda_recovery_and_observation_preserve_complete_state(tmp
     (tmp_path/'cuda_fixture.py').write_text(FIXTURE)
     driver=tmp_path/'driver.py'
     driver.write_text(DRIVER)
-    config=write_default(tmp_path/'project',device='cuda:0')
+    config=write_default(tmp_path/'project',device='cuda:0', defaults='hypergan')
     config.write_text(config.read_text().replace('steps = 5','steps = 4').replace('num_particles = 20000','num_particles = 32')
         .replace('count = 256','count = 8').replace('factory = "hndl"','factory = "cuda_fixture:StochasticGenerator"',1)
         .replace('factory = "gaussian_grid"','factory = "cuda_fixture:Data"').replace('side = 10\nnoise = 0.015\n',''))

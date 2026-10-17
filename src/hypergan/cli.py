@@ -567,7 +567,7 @@ def _training_viewer(args, *, config=None):
                            config=config)
 
 
-def _print_training_header(run_dir: Path, experiment_name: str, device: str, dashboard_url: Optional[str] = None):
+def _print_training_header(run_dir: Path, experiment_name: str, device: str, dashboard_url: str | None = None):
     print("=== HyperGAN ===", file=sys.stderr)
     print(f"Run directory:  {run_dir}", file=sys.stderr)
     print(f"Experiment:     {experiment_name}", file=sys.stderr)

@@ -274,6 +274,7 @@ def generate_recipe(name: str,
     spec: Dict[str, Any] = {
         "format": "hypergan-model/1",
         "name": name,
+        "defaults": "particlegan",
         "data": {
             "builtin": "image_folder",
             "args": {
@@ -286,6 +287,7 @@ def generate_recipe(name: str,
         },
         "prior": {
             "kind": "particles",
+            "initialization_seed": 2,
             "z_dim": 128,
             "args": {"num_particles": 10000},
         },
@@ -314,14 +316,14 @@ def generate_recipe(name: str,
             },
             {
                 "type": "prior",
-                "weight": 1.0,
             },
         ],
         "train": {
             "steps": 200000,
             "batch_size": 64,
-            "seed": 42,
+            "seed": 0,
             "device": device,
+            "initialization": "deterministic_orthogonal",
         },
         "metrics": {
             "every_steps": 10,

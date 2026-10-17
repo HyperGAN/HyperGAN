@@ -12,7 +12,7 @@ EXAMPLES = Path(__file__).resolve().parents[2] / 'examples'
 
 
 def test_training_records_network_detail_for_its_configuration(tmp_path):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     train(config, run, steps=1, checkpoint_every=1)
     manifest = json.loads((run / 'manifest.json').read_text())

@@ -12,7 +12,7 @@ from hypergan.run_state import EventJournal
 
 
 def project(tmp_path, device='cpu'):
-    return write_default(tmp_path / 'project', device=device)
+    return write_default(tmp_path / 'project', device=device, defaults='hypergan')
 
 
 def stopped(tmp_path, *, replicated=True):

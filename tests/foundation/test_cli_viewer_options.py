@@ -64,6 +64,7 @@ def test_public_origin_reaches_the_automatic_viewer_and_requires_it(monkeypatch,
             parser.parse_args(['serve', 'run', '--public-origin', bad])
 
     started = {}
+    monkeypatch.setattr(web_autostart, 'ensure_dashboard_running', lambda *args, **kwargs: 'https://box.ts.net')
     monkeypatch.setattr(web_autostart, 'training_viewer',
                         lambda root, **kwargs: started.setdefault('kwargs', kwargs))
     args = parser.parse_args(['resume', str(tmp_path), '--public-origin', 'https://box.ts.net'])

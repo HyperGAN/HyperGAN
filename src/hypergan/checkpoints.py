@@ -10,9 +10,6 @@ import re
 import shutil
 import uuid
 
-import numpy as np
-import torch
-
 from .run_state import atomic_json, sync_directory, validate_event_boundary
 
 SCHEMA = 1
@@ -27,6 +24,8 @@ def file_sha256(path):
 
 
 def capture_rng():
+    import numpy as np
+    import torch
     numpy = np.random.get_state()
     result = {'torch': torch.get_rng_state(), 'python': random.getstate(),
               'numpy': [numpy[0], numpy[1].tolist(), numpy[2], numpy[3], numpy[4]]}
@@ -38,6 +37,8 @@ def capture_rng():
 
 
 def restore_rng(state):
+    import numpy as np
+    import torch
     if 'cuda' in state:
         if (not torch.cuda.is_available() or type(state['cuda']) is not list
                 or len(state['cuda']) != torch.cuda.device_count()
@@ -66,6 +67,7 @@ def data_contract(data, specification):
 
 
 def _portable(value):
+    import torch
     if value is None or type(value) in (bool, int, float, str) or isinstance(value, torch.Tensor):
         return
     if isinstance(value, (list, tuple)):
@@ -99,6 +101,8 @@ def trainer_state(trainer, last_batch):
 
 
 def _restore_trainer(trainer, state):
+    import numpy as np
+    import torch
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
     if not isinstance(state, dict) or set(state) != required:
@@ -119,6 +123,14 @@ def _restore_trainer(trainer, state):
         raise ValueError('Checkpoint requires both optimizer states and base learning rates')
     if set(state['streams']) != set(trainer.streams):
         raise ValueError('Checkpoint named RNG streams differ from trainer')
+    # Validate consumed RNG streams before any model or optimizer is restored.
+    # Local generators leave the process-global streams untouched on failure.
+    for name, stream in trainer.streams.items():
+        torch.Generator(device=stream.device).set_state(state['streams'][name])
+    torch.Generator(device='cpu').set_state(state['rng']['torch'])
+    random.Random().setstate(state['rng']['python'])
+    numpy_state = state['rng']['numpy']
+    np.random.RandomState().set_state((numpy_state[0], np.asarray(numpy_state[1], dtype=np.uint32), *numpy_state[2:]))
     if set(state['modes']) != {'graph', 'prior', 'ema_graph', 'ema_prior'}:
         raise ValueError('Checkpoint module mode inventory differs from trainer')
     for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
@@ -136,14 +148,19 @@ def _restore_trainer(trainer, state):
                 raise ValueError('Checkpoint buffer shape or dtype differs from trainer')
         if set(state['modes'][name]) != dict(getattr(trainer, name).named_modules()).keys():
             raise ValueError('Checkpoint nested module mode inventory differs from trainer')
+        if any(type(value) is not bool for value in (*state['modes'][name].values(), *state['trainable'][name].values())):
+            raise ValueError('Checkpoint module modes and trainability must be boolean')
     for optimizer, saved, rates in zip((trainer.opt_g, trainer.opt_d), state['optimizers'], state['base_lrs']):
         # The recipe's optimizers keep their regularization state (EMA critic,
         # LR record, latent-damping history) under 'regularizer'.
-        if set(saved) != {'state', 'param_groups', 'regularizer'} or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
+        if set(saved) != set(optimizer.state_dict()) or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
             raise ValueError('Checkpoint optimizer parameter groups differ from trainer')
         for actual, prior in zip(optimizer.param_groups, saved['param_groups']):
             if len(actual['params']) != len(prior['params']):
                 raise ValueError('Checkpoint optimizer parameter inventory differs from trainer')
+        validate = getattr(optimizer, 'validate_state_dict', None)
+        if validate is not None:
+            validate(saved)
     if state['base_lrs'] != trainer.base_lrs:
         raise ValueError('Checkpoint base learning rates differ from original configuration')
     for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
@@ -178,6 +195,7 @@ def restore_trainer(trainer, state):
 
 
 def write_checkpoint(run_dir, trainer, last_batch, metadata):
+    import torch
     root = Path(run_dir) / 'checkpoints'
     root.mkdir(exist_ok=True)
     sync_directory(root.parent)
@@ -204,6 +222,7 @@ def write_checkpoint(run_dir, trainer, last_batch, metadata):
 
 
 def _read_checkpoint(run_dir, checkpoint=None):
+    import torch
     root = (Path(run_dir) / 'checkpoints').resolve()
     if checkpoint is None:
         pointer = root / 'latest.json'
@@ -422,6 +441,7 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
 
 def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None) -> dict:
     """Extract an in-memory EMA inference bundle conforming to kind='ema-inference' from a checkpoint."""
+    import torch
     from .config import config_values, sampling_bindings, evaluation_bindings
     path = Path(checkpoint_dir).resolve()
     if path.is_file() and path.name == "model.pt":
@@ -565,6 +585,7 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
 
 def export_checkpoint_bundle(checkpoint_dir: Path | str, output_dir: Path | str) -> tuple[Path, Path]:
     """Export an EMA inference bundle (model.pt + model.sha256) to output directory or file path."""
+    import torch
     ckpt_dir = Path(checkpoint_dir).resolve()
     bundle = extract_ema_bundle(ckpt_dir)
 

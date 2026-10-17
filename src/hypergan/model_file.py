@@ -60,7 +60,7 @@ except ModuleNotFoundError:  # Python 3.10
 from .network_config import read_source
 
 FORMAT = 'hypergan-model/1'
-TOP_LEVEL = {'format', 'name', 'defaults', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
+TOP_LEVEL = {'format', 'name', 'defaults', 'recipe', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
              'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'extends'}
 
 CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
@@ -71,7 +71,7 @@ NETWORK_FIELDS = {'role', 'hndl', 'source', 'module', 'reuse', 'args', 'inputs',
                   'trainable', 'freeze_parameters', 'optimizer'}
 OPTIMIZER_FIELDS = {'lr', 'd_lr_mult', 'prior_lr_mult', 'betas', 'prior_betas', 'implementation',
                     'd_guard_ratio', 'd_guard_min_steps', 'latent_damping_max_rate'}
-TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'ema', 'lr_anneal_start', 'lr_floor',
+TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'initialization', 'ema', 'lr_anneal_start', 'lr_floor',
                    'network_lr_floor', 'network_lr_horizon_cap', 'input_noise_std', 'input_noise_anneal_end',
                    'output_noise_std', 'output_noise_warmup', 'phase_draws', 'data_rng_device',
                    'data_seed_offset', 'prior_seed_offset', 'backend', 'every_steps'}
@@ -614,6 +614,8 @@ class _Lowering:
         recipe = {'schema_version': 1, 'name': raw.get('name', 'custom/model')}
         if 'defaults' in raw:
             recipe['defaults'] = raw['defaults']
+        if 'recipe' in raw:
+            recipe['recipe'] = deepcopy(_table(raw['recipe'], 'recipe'))
         if 'data' not in raw and 'dataset' in raw:
             raw['data'] = raw['dataset']
         if 'data' not in raw:

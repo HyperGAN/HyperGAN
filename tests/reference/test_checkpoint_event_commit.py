@@ -31,7 +31,7 @@ def test_failure_at_publication_stages_has_complete_recoverable_prefix(tmp_path,
     import hypergan.checkpoints as checkpoints
     import hypergan.run_controller as controller
     import hypergan.observation_io as observation_io
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     train(config, tmp_path / 'full')
     original_save = torch.save
     original_rename = Path.rename
@@ -88,7 +88,7 @@ def test_failure_at_publication_stages_has_complete_recoverable_prefix(tmp_path,
 
 
 def test_missing_boundary_fails_before_new_attempt(tmp_path):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     result = train(config, tmp_path / 'run', stop_after_steps=1)
     checkpoint = Path(result['checkpoint_path']) / 'manifest.json'
     info = json.loads(checkpoint.read_text())
@@ -101,7 +101,7 @@ def test_missing_boundary_fails_before_new_attempt(tmp_path):
 
 
 def test_lost_committed_metrics_reject_latest_and_allow_explicit_intact_snapshot(tmp_path):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     train(config, tmp_path / 'full')
     run = tmp_path / 'run'
     train(config, run, stop_after_steps=1)

@@ -209,7 +209,7 @@ inputs = { x = "latent" }
     child = sub_dir / "child.toml"
     child.write_text(f"""
 format = "hypergan-model/1"
-extends = "{parent}"
+extends = "{parent.as_posix()}"
 [train]
 steps = 200
 """)

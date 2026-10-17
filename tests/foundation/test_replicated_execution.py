@@ -32,7 +32,7 @@ import hypergan.replicated_execution
     {'service_policy': {'command_timeout': True}}, {'service_policy': {'collective_timeout': 1000}},
     {'profile': {'schema_version': 1, 'execution': {'name': 'cpu-single'}}}])
 def test_unsupported_controls_fail_before_run_mutation(tmp_path, kwargs):
-    config = write_default(tmp_path / 'project', device="cpu")
+    config = write_default(tmp_path / 'project', device="cpu", defaults='hypergan')
     with pytest.raises(ValueError):
         run_train(config, tmp_path / 'run', **{'profile': PROFILE, **kwargs})
     assert not (tmp_path / 'run').exists()

@@ -111,7 +111,7 @@ def move_tensors(value, device):
     return value
 
 
-def make_prior(spec, *, device=None):
+def make_prior(spec, *, device=None, recipe=None):
     from particlegan import GaussianPrior, MoGParticlePrior, ParticlePrior, calibrate_mog_sigma
     args = dict(spec['args'])
     initial_device = 'cpu' if spec.get('initialization_device') == 'cpu' else device
@@ -136,7 +136,13 @@ def make_prior(spec, *, device=None):
             prior.sigma_rel = float(sigma_rel)
     else:
         prior = {"particles": ParticlePrior, "gaussian": GaussianPrior}[spec["kind"]](**args)
-    return prior.to(device) if device is not None else prior
+    prior = prior.to(device) if device is not None else prior
+    if recipe:
+        # Inference workers must reconstruct persistent recipe-owned buffers
+        # before strict loading, including initial SBNP reference moments.
+        from particlegan import Recipe
+        Recipe(**recipe).apply_prior_policy(prior)
+    return prior
 
 
 def construct(spec):

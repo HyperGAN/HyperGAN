@@ -258,6 +258,17 @@ def _formulation(config, manifest):
     version = _particlegan_version(manifest)
     legacy = any(k in penalty for k in LEGACY_PENALTY_KEYS) or any(k in adversarial for k in ('loss_type', 'mode'))
     raw = {'adversarial': redact(adversarial), 'gradient_penalty': redact(penalty)}
+    recipe = _section(config, 'recipe')
+    if recipe.get('critic_formulation') == 'bispf':
+        loss = recipe.get('loss', 'relativistic')
+        return {'family': 'bispf', 'name': 'BISPF', 'loss': loss,
+                'particlegan': version or '≥0.9 (resolved recipe)',
+                'equations': {'d_total': K3P_EQUATIONS['d_total'], 'g_total': K3P_EQUATIONS['g_total'],
+                              'penalty': 'Elastic Born–Infeld gradient caps and zero-mean logit gauge'},
+                'parameters': {key: penalty.get(key) for key in ('coeff', 'kappa', 'lazy_k', 'anchor_weight')},
+                'raw': {**raw, 'recipe': redact(recipe)},
+                'note': 'Resolved ParticleGAN preset ' + str(recipe.get('name', 'custom')) +
+                        '; image quality is evaluated separately from numerical integration.'}
     if not legacy:
         equations, notes = dict(K3P_EQUATIONS), []
         f, floor = _blend_floor(training)
@@ -314,6 +325,8 @@ def _prior_table(config):
     ``args.learnable = false`` stores the table as a buffer. Returns (trainable, reason).
     """
     prior = _section(config, 'prior')
+    if _section(config, 'recipe').get('prior_update') == 'frozen':
+        return False, 'the prior table is frozen by the ParticleGAN recipe'
     if prior.get('kind') == 'gaussian':
         return False, 'Gaussian prior has no trainable table'
     if (prior.get('args') or {}).get('learnable', True) is False:
@@ -339,7 +352,8 @@ def _losses(config, family):
     terms = _adversarial_terms(config)
     several = len(terms) > 1
     penalty = _section(config, 'gradient_penalty')
-    penalty_kind = 'k3p_penalty' if family == 'k3p' else 'penalty_' + str(penalty.get('arm', 'legacy'))
+    penalty_kind = (family + '_penalty' if family in ('k3p', 'bispf')
+                    else 'penalty_' + str(penalty.get('arm', 'legacy')))
     penalty_fields = (('kappa', 'lazy_k', 'anchor_weight', 'anchor_decay') if family == 'k3p'
                       else ('kappa', 'lazy_k', 'arm', 'norm'))
 
@@ -350,21 +364,22 @@ def _losses(config, family):
 
     discriminator, generator = [], []
     for term in terms:
-        discriminator.append({'id': term['id'], 'kind': 'rpgan_d', 'critic': term['critic'], 'weight': term['weight'],
+        loss = _section(config, 'recipe').get('loss', 'relativistic')
+        discriminator.append({'id': term['id'], 'kind': ('non_saturating_d' if loss == 'non_saturating' else 'rpgan_d'), 'critic': term['critic'], 'weight': term['weight'],
                               'real': term['real'], 'fake': term['fake'], 'detach': ['fake sample'],
                               **series('loss/d_adversarial')})
         if term['penalty_coeff'] is not None:
             discriminator.append({'id': f"{term['id']}:penalty", 'kind': penalty_kind, 'critic': term['critic'],
                                   'coeff': term['penalty_coeff'], **{k: penalty.get(k) for k in penalty_fields},
                                   **series('loss/gradient_penalty')})
-        generator.append({'id': term['id'], 'kind': 'rpgan_g', 'critic': term['critic'], 'weight': term['weight'],
+        generator.append({'id': term['id'], 'kind': ('non_saturating_g' if loss == 'non_saturating' else 'rpgan_g'), 'critic': term['critic'], 'weight': term['weight'],
                           'real': term['real'], 'fake': term['fake'], 'detach': ['real score'],
                           **series('loss/g_adversarial')})
     spread = _section(config, 'prior_regularizer')
     if spread and _section(config, 'prior').get('kind') != 'gaussian':
         trainable, reason = _prior_table(config)
         weighted = _number(spread.get('weight')) and spread['weight'] > 0
-        entry = {'id': 'prior_regularizer', 'kind': 'particle_spread', 'weight': spread.get('weight'),
+        entry = {'id': 'prior_regularizer', 'kind': _section(config, 'recipe').get('prior_regularizer', 'particle_spread'), 'weight': spread.get('weight'),
                  'target_std': spread.get('target_std'), 'eps': spread.get('eps'), 'rows': spread.get('rows'),
                  'active': bool(weighted and trainable), 'metric': 'loss/prior_regularizer', 'metric_note': None}
         if weighted and not trainable:
@@ -409,7 +424,7 @@ def _optimizers(config, family):
     prior_group = ({'lr': _product(optimizer.get('lr'), optimizer.get('prior_lr_mult')),
                     'lr_mult': optimizer.get('prior_lr_mult'), 'betas': optimizer.get('prior_betas')}
                    if trainable else unavailable(reason))
-    return {
+    result = {
         'generator': {'type': 'K3PGeneratorAdam' if k3p else 'Adam', 'implementation': optimizer.get('implementation'),
                       'lr': optimizer.get('lr'), 'betas': optimizer.get('betas'), 'components': generator_groups,
                       'latent_damping_max_rate': optimizer.get('latent_damping_max_rate'),
@@ -430,9 +445,23 @@ def _optimizers(config, family):
                   'generator_output_warmup': training.get('output_noise_warmup')},
         'raw': redact(optimizer),
     }
+    recipe = _section(config, 'recipe')
+    if recipe.get('optimizer_family') == 'dualnorm':
+        for name in ('generator', 'critic'):
+            result[name].update(type='DualNorm', implementation='particlegan',
+                                momentum=recipe.get('optimizer_momentum'),
+                                smoothing=recipe.get('optimizer_smoothing'),
+                                convolution=recipe.get('optimizer_convolution'),
+                                convolution_rule=recipe.get('optimizer_convolution_rule'))
+        result['generator']['constraint_geometry'] = recipe.get('constraint_geometry_mode')
+        if trainable:
+            result['prior']['type'] = 'sampled-row normalization'
+    return result
 
 
 def _defaults_source(config, manifest):
+    if _section(config, 'recipe').get('name'):
+        return 'particlegan (' + str(config['recipe']['name']) + ')'
     recorded = manifest.get('defaults')
     if recorded in ('hypergan', 'particlegan'):
         return recorded

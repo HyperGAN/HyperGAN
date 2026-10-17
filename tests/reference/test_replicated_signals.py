@@ -48,7 +48,7 @@ def states(run):
 @pytest.mark.skipif(os.name == 'nt', reason='POSIX terminal process-group signal contract')
 @pytest.mark.parametrize('mode', ['SIGINT', 'SIGTERM'])
 def test_group_signal_during_update_commits_and_resumes_all_ranks(tmp_path, mode):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     config.write_text(config.read_text().replace('steps = 5', 'steps = 2'))
     full, split = tmp_path / 'full', tmp_path / 'split'
     def invoke(mode, *arguments):

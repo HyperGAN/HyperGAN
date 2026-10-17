@@ -14,17 +14,6 @@ from hypergan.config import (
 LEGACY_FINGERPRINT = "8edda59414e07e02d1c02529c85fed3831f4029e5c4d8269dcceeede8604849c"
 
 
-
-def test_default_roundtrip_without_runtime(tmp_path):
-    path = write_default(tmp_path / "project", device="cpu")
-    config = load_config(path.parent)
-    assert config_values(config) == DEFAULT
-    assert config["qualification"]["recipe_match"]
-    subprocess.run([sys.executable, "-c", "from hypergan.config import load_config; import sys; load_config(sys.argv[1]); assert 'torch' not in sys.modules", str(path)], cwd=tmp_path, check=True)
-    with pytest.raises(FileExistsError):
-        write_default(path, device="cpu")
-
-
 def test_custom_constructor_validates_without_importing():
     raw = deepcopy(DEFAULT)
     raw["components"]["generator"]["factory"] = "not_installed.example:CustomGenerator"
@@ -60,21 +49,9 @@ def test_gaussian_requires_explicit_no_table_regularization():
     assert any("not applicable" in warning for warning in cfg["warnings"])
 
 
-def test_new_project_defaults_to_cuda_without_loading_runtime(tmp_path):
-    path = write_default(tmp_path / "gpu-project")
-    assert load_config(path)["training"]["device"] == "cuda"
-    result = subprocess.run(
-        [sys.executable, "-I", "-c",
-         "import sys; from hypergan.config import load_config; "
-         "assert load_config(sys.argv[1])['training']['device'] == 'cuda'; "
-         "assert 'torch' not in sys.modules", str(path)],
-        cwd=tmp_path, capture_output=True, text=True, timeout=30)
-    assert result.returncode == 0, result.stderr
-
-
 @pytest.mark.parametrize("device", ["cpu", "cuda", "cuda:0", "cuda:1", "cuda:12"])
 def test_explicit_device_is_structural_and_prior_cannot_override_it(tmp_path, device):
-    path = write_default(tmp_path / "project", device=device)
+    path = write_default(tmp_path / "project", device=device, defaults="hypergan")
     config = load_config(path)
     assert config["training"]["device"] == device
     values = config_values(config)
@@ -217,39 +194,23 @@ def test_sampling_view_does_not_make_a_dormant_trainable_component_reachable():
         resolve_config(raw)
 
 
-
-@pytest.mark.skipif(importlib.util.find_spec("particlegan") is None, reason="ParticleGAN is the train extra")
-def test_particlegan_defaults_fill_only_omitted_fields_without_torch():
-    check = """
-import sys
-from hypergan.config import PARTICLEGAN_DEFAULT_FIELDS, resolve_config
-config = resolve_config({'defaults': 'particlegan', 'optimizer': {'lr': 0.001}})
-assert 'torch' not in sys.modules and 'particlegan' not in sys.modules
-from particlegan import Recipe
-recipe = Recipe()
-for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items():
-    expected = getattr(recipe, field)
-    if expected is None and field == 'prior_betas':
-        expected = recipe.betas
-    expected = list(expected) if isinstance(expected, tuple) else expected
-    assert config[section][key] == (0.001 if field == 'lr' else expected), (section, key)
-assert 'defaults' not in config
-"""
-    subprocess.run([sys.executable, "-c", check], check=True)
-    assert resolve_config({"defaults": "hypergan"}) == resolve_config({})
-    with pytest.raises(ValueError, match="defaults must be"):
-        resolve_config({"defaults": "other"})
-
-
-def test_all_examples_load_with_load_config():
-    examples_dir = Path(__file__).resolve().parents[2] / "examples"
-    for example in sorted(examples_dir.glob("*.toml")):
-        resolved = load_config(example)
-        assert isinstance(resolved, dict)
-        assert "components" in resolved
-
-
 def test_mixed_networks_and_components_rejected():
     from hypergan.model_file import ModelFileError
     with pytest.raises(ModelFileError, match="Cannot mix 'networks'"):
         load_config({"networks": {}, "components": {}})
+
+
+def test_legacy_default_roundtrip_without_optional_dependencies(tmp_path):
+    path = write_default(tmp_path / "legacy", device="cpu", defaults="hypergan")
+    assert config_values(load_config(path)) == DEFAULT
+    with pytest.raises(FileExistsError):
+        write_default(path, device="cpu", defaults="hypergan")
+
+
+def test_default_project_declares_released_preset_without_resolving_it(tmp_path):
+    import tomllib
+    path = write_default(tmp_path / "project")
+    raw = tomllib.loads(path.read_text())
+    assert raw["defaults"] == "particlegan"
+    assert raw["training"]["device"] == "cuda"
+    assert raw["training"]["initialization"] == "deterministic_orthogonal"

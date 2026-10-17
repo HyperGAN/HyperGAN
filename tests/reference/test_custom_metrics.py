@@ -76,7 +76,7 @@ def setup(tmp_path, *, args='', timeout=5, cadence=2, on_error='disable'):
     (tmp_path/'metric_probe.py').write_text(PLUGIN)
     driver = tmp_path/'driver.py'
     driver.write_text(DRIVER)
-    config = write_default(tmp_path/'base.toml',device='cpu')
+    config = write_default(tmp_path/'base.toml',device='cpu', defaults='hypergan')
     base = config.read_text().replace('steps = 5','steps = 3').replace('num_particles = 20000','num_particles = 32')
     config.write_text(base)
     (tmp_path/'custom.toml').write_text(base+f'''

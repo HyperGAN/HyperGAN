@@ -15,11 +15,7 @@ import sys
 import time
 from typing import Optional
 
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-
+from ._file_lock import lock_file as _lock_file, unlock_file as _unlock_file
 from .summary import atomic_write_json
 from .workspace import find_workspace, load_workspace, resolve_device_aliases
 
@@ -59,15 +55,13 @@ def queue_lock(queue_path: Path):
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
     try:
-        if fcntl:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
+        _lock_file(fd, blocking=True)
         try:
-            if fcntl:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+            yield
         finally:
-            os.close(fd)
+            _unlock_file(fd)
+    finally:
+        os.close(fd)
 
 
 def load_queue(queue_path: Path) -> dict:
@@ -502,9 +496,8 @@ def queue_run(
                     try:
                         fd = os.open(str(lock_file), os.O_RDWR)
                         try:
-                            if fcntl:
-                                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                                fcntl.flock(fd, fcntl.LOCK_UN)
+                            _lock_file(fd)
+                            _unlock_file(fd)
                         except (BlockingIOError, OSError):
                             is_locked = True
                         finally:
@@ -527,12 +520,19 @@ def queue_run(
                         j["started_at"] = datetime.now(timezone.utc).isoformat()
                 save_queue(qpath, q)
 
-            # Update current.log symlink
+            # Both aliases refer to the live log inode. Windows may require
+            # elevated privileges for symlinks; a hard link does not.
             current_log = logs_dir / "current.log"
             try:
                 if current_log.is_symlink() or current_log.is_file():
                     current_log.unlink()
-                current_log.symlink_to(log_path.name)
+                try:
+                    current_log.symlink_to(log_path.name)
+                except OSError:
+                    if os.name != 'nt':
+                        raise
+                    log_path.touch(exist_ok=True)
+                    os.link(log_path, current_log)
             except Exception:
                 pass
 

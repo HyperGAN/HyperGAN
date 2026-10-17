@@ -172,3 +172,55 @@ def test_read_summary_json_nonexistent_or_invalid(tmp_path):
     assert read_summary_json(tmp_path) is None
     (tmp_path / "summary.json").write_text("not json", encoding="utf-8")
     assert read_summary_json(tmp_path) is None
+
+
+def test_atomic_write_json_retries_windows_sharing_without_changing_visible_state(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+    import hypergan.summary as summary
+    target = tmp_path / 'summary.json'
+    old, new = {'step': 1}, {'step': 2}
+    atomic_write_json(target, old)
+    replacement, attempts, delays = os.replace, [], []
+    def replace(source, destination):
+        attempts.append(source)
+        assert json.loads(target.read_text()) == old
+        assert json.loads(Path(source).read_text()) == new
+        if len(attempts) < 3:
+            error = PermissionError(13, 'temporary Windows sharing conflict')
+            error.winerror = 5 if len(attempts) == 1 else 32
+            raise error
+        replacement(source, destination)
+    monkeypatch.setattr(summary, 'os', SimpleNamespace(**{**vars(os), 'name': 'nt', 'replace': replace}))
+    monkeypatch.setattr(summary, 'time', SimpleNamespace(sleep=delays.append))
+    atomic_write_json(target, new)
+    assert len(attempts) == 3 and len(set(attempts)) == 1
+    assert delays == [.01, .02]
+    assert json.loads(target.read_text()) == new
+    assert not list(tmp_path.glob('*.tmp'))
+
+
+@pytest.mark.parametrize('platform, winerror, expected_attempts', [('nt', 5, 11), ('nt', 17, 1), ('posix', 5, 1)])
+def test_atomic_write_json_propagates_permanent_replace_failure(tmp_path, monkeypatch, platform, winerror, expected_attempts):
+    import os
+    from types import SimpleNamespace
+    import hypergan.summary as summary
+    target = tmp_path / 'summary.json'
+    atomic_write_json(target, {'step': 1})
+    attempts, delays = [], []
+    error = PermissionError(13, 'permanent replace failure')
+    error.winerror = winerror
+    def replace(source, destination):
+        attempts.append(source)
+        assert json.loads(target.read_text()) == {'step': 1}
+        raise error
+    monkeypatch.setattr(summary, 'os', SimpleNamespace(**{**vars(os), 'name': platform, 'replace': replace}))
+    monkeypatch.setattr(summary, 'time', SimpleNamespace(sleep=delays.append))
+    with pytest.raises(PermissionError) as raised:
+        atomic_write_json(target, {'step': 2})
+    assert raised.value is error
+    assert len(attempts) == expected_attempts
+    assert len(delays) == expected_attempts - 1
+    assert sum(delays) <= .75 + 1e-9
+    assert json.loads(target.read_text()) == {'step': 1}
+    assert not list(tmp_path.glob('*.tmp'))

@@ -82,6 +82,23 @@ def test_save_and_load_keep_the_fingerprint_and_reference_hndl_in_place(tmp_path
     assert hg.fingerprint(hg.load(built)) == hg.fingerprint(original)
 
 
+def test_save_on_another_volume_preserves_absolute_hndl_reference(tmp_path, monkeypatch):
+    import os
+    original = hg.load(EXAMPLES / 'two_critics.toml')
+    def different_drives(paths):
+        raise ValueError("Paths don't have the same drive")
+    with monkeypatch.context() as patch:
+        patch.setattr(os.path, 'commonpath', different_drives)
+        saved = hg.save(original, tmp_path / 'elsewhere' / 'model.toml')
+    reloaded = hg.load(saved)
+    source = reloaded.spec['networks']['marginal_critic']['hndl']
+    assert Path(source).is_absolute()
+    assert Path(source) == (EXAMPLES / 'critic.hndl').resolve()
+    assert hg.fingerprint(reloaded) == hg.fingerprint(original)
+    assert fingerprint(load_config(saved)) == hg.fingerprint(original)
+    assert not list(saved.parent.glob('*.hndl'))
+
+
 def test_override_addresses_losses_by_id_and_merges_sections():
     model = hg.load(EXAMPLES / 'two_critics.toml')
     changed = hg.override(model, {'losses.reconstruction.weight': 0.25, 'losses.marginal_critic.penalty': 0.0},

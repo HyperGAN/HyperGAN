@@ -26,10 +26,11 @@ def run_cli(tmp_path, *args, isolated=True):
 def test_clean_5_point_header():
     buf = io.StringIO()
     old_stderr = sys.stderr
+    run_dir = Path("/tmp/train-demo")
     try:
         sys.stderr = buf
         _print_training_header(
-            run_dir=Path("/tmp/train-demo"),
+            run_dir=run_dir,
             experiment_name="demo.toml",
             device="cpu",
             dashboard_url="http://localhost:8765/runs/train-demo",
@@ -39,7 +40,7 @@ def test_clean_5_point_header():
 
     text = buf.getvalue()
     assert "=== HyperGAN ===" in text
-    assert "Run directory:  /tmp/train-demo" in text
+    assert f"Run directory:  {run_dir}" in text
     assert "Experiment:     demo.toml" in text
     assert "Devices:        cpu (CPU)" in text
     assert "Environment:    Python" in text

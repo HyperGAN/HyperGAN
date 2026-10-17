@@ -18,6 +18,15 @@ from ._file_lock import lock_file, unlock_file
 from .summary import atomic_write_json, read_summary_json
 from .workspace import find_workspace, load_workspace
 
+_FID_RE = re.compile(r'(?:^|[^a-z0-9])fid(?:$|[^a-z]|50k)', re.IGNORECASE)
+
+
+def _is_fid_metric(metric_name: Any) -> bool:
+    if not metric_name:
+        return False
+    return bool(_FID_RE.search(str(metric_name)))
+
+
 
 @contextmanager
 def file_lock(lock_path: Path):
@@ -273,6 +282,11 @@ _load_registry_unlocked = _read_registry_unlocked
 
 def _write_registry_unlocked(reg_dir: Path, data: Dict[str, Any]) -> None:
     reg_dir.mkdir(parents=True, exist_ok=True)
+    if "roots" in data and isinstance(data["roots"], list):
+        data["roots"] = [
+            r for r in data["roots"]
+            if str(Path(r).resolve()) != "/tmp" and str(r).strip() != "/tmp"
+        ]
     atomic_write_json(reg_dir / "runs.json", data)
 
 
@@ -419,12 +433,21 @@ def _relocate_missing_run_unlocked(
     old_run_dir = entry.get("run_dir")
     if old_run_dir:
         old_p = Path(old_run_dir)
-        search_roots.append(old_p.parent)
-        if old_p.parent.parent != old_p.parent:
-            search_roots.append(old_p.parent.parent)
+        try:
+            if str(old_p.parent.resolve()) != "/tmp" and str(old_p.parent).strip() != "/tmp":
+                search_roots.append(old_p.parent)
+            if old_p.parent.parent != old_p.parent and str(old_p.parent.parent.resolve()) != "/tmp" and str(old_p.parent.parent).strip() != "/tmp":
+                search_roots.append(old_p.parent.parent)
+        except Exception:
+            pass
 
     if entry.get("runs_root"):
-        search_roots.append(Path(entry["runs_root"]))
+        try:
+            rr = Path(entry["runs_root"])
+            if str(rr.resolve()) != "/tmp" and str(rr).strip() != "/tmp":
+                search_roots.append(rr)
+        except Exception:
+            pass
 
     ws_ref = entry.get("workspace") or entry.get("workspace_root")
     if ws_ref:
@@ -463,7 +486,7 @@ def _relocate_missing_run_unlocked(
     for r in search_roots:
         try:
             rp = r.resolve()
-            if rp.is_dir() and str(rp) not in seen_roots:
+            if rp.is_dir() and str(rp) != "/tmp" and str(rp) not in seen_roots:
                 seen_roots.add(str(rp))
                 unique_roots.append(rp)
         except OSError:
@@ -696,8 +719,14 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
 
     best = summary.get("best") if summary else None
     best_fid = summary.get("best_fid") if summary else None
-    if best_fid is None and isinstance(best, dict) and "fid" in str(best.get("metric", "")).lower():
-        best_fid = best.get("value")
+    if best and isinstance(best, dict):
+        b_metric = str(best.get("metric") or "")
+        if _is_fid_metric(b_metric) and isinstance(best.get("value"), (int, float)):
+            best_fid = best.get("value")
+        elif not _is_fid_metric(b_metric):
+            best_fid = None
+    elif best_fid is not None and isinstance(best, dict) and not _is_fid_metric(best.get("metric", "")):
+        best_fid = None
     if best_fid is None and events_fallback:
         best_fid = events_fallback.get("best_fid")
 
@@ -852,7 +881,11 @@ def register_run(
         _RECENTLY_PRUNED.pop(str(entry.get("run_id", "")), None)
 
         parent_str = str(run_path.parent)
-        if parent_str not in data["roots"]:
+        try:
+            is_tmp = str(Path(parent_str).resolve()) == "/tmp" or parent_str.strip() == "/tmp"
+        except Exception:
+            is_tmp = parent_str.strip() == "/tmp"
+        if not is_tmp and parent_str not in data["roots"]:
             data["roots"].append(parent_str)
         _write_registry_unlocked(reg_dir, data)
         return entry
@@ -976,7 +1009,14 @@ def list_registered_runs(
         # Persisted roots in registry (prune deleted roots gracefully)
         valid_persisted_roots: List[str] = []
         for r_str in list(data.get("roots", [])):
-            rp = Path(r_str)
+            try:
+                rp = Path(r_str)
+                is_tmp = str(rp.resolve()) == "/tmp" or str(r_str).strip() == "/tmp"
+            except Exception:
+                is_tmp = str(r_str).strip() == "/tmp"
+            if is_tmp:
+                changed = True
+                continue
             if rp.is_dir():
                 valid_persisted_roots.append(r_str)
                 if not is_test or str(rp).startswith(str(reg_dir.parent)):
@@ -1034,7 +1074,7 @@ def list_registered_runs(
             if r_str in seen_roots:
                 continue
             seen_roots.add(r_str)
-            if r_str not in data["roots"] and root != cwd_path:
+            if r_str not in data["roots"] and root != cwd_path and r_str != "/tmp":
                 data["roots"].append(r_str)
                 changed = True
             try:

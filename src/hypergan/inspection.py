@@ -19,6 +19,15 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from .summary import atomic_write_json, read_summary_json
 from .workspace import find_workspace
 
+_FID_RE = re.compile(r'(?:^|[^a-z0-9])fid(?:$|[^a-z]|50k)', re.IGNORECASE)
+
+
+def _is_fid_metric(metric_name: Any) -> bool:
+    if not metric_name:
+        return False
+    return bool(_FID_RE.search(str(metric_name)))
+
+
 
 def format_bytes(num_bytes: int) -> str:
     """Format byte count into human-readable unit (B, KB, MB, GB)."""
@@ -175,7 +184,7 @@ def _read_events_tail_fallback(run_dir: Path) -> Dict[str, Any]:
                     or (ev.get("result", {}).get("metric") if isinstance(ev.get("result"), dict) else "")
                     or ""
                 )
-                if "fid" in m_id.lower():
+                if _is_fid_metric(m_id):
                     val = ev.get("value")
                     if val is None and isinstance(ev.get("result"), dict):
                         val = ev["result"].get("value")
@@ -337,8 +346,11 @@ def run_status(
 
     if best:
         b_metric = str(best.get("metric") or "fid50k_train")
-        if "fid" in b_metric.lower() and best_fid is None:
-            best_fid = best.get("value")
+        if _is_fid_metric(b_metric):
+            if best_fid is None:
+                best_fid = best.get("value")
+        else:
+            best_fid = None
         if best_step is None:
             best_step = best.get("step")
         best_checkpoint = best.get("checkpoint")
@@ -352,6 +364,9 @@ def run_status(
                 try:
                     data = json.loads(rec.read_text(encoding="utf-8"))
                     if isinstance(data, dict) and data.get("status") == "complete" and isinstance(data.get("result"), dict):
+                        m_id = str(data.get("metric_id") or data.get("metric") or data["result"].get("metric") or "")
+                        if not _is_fid_metric(m_id):
+                            continue
                         val = data["result"].get("value")
                         s = data.get("source_step") or data["result"].get("step")
                         if val is not None and (best_val is None or val < best_val):
@@ -425,7 +440,7 @@ def run_status(
         if c_step_int in eval_by_step:
             for m_k, m_v in eval_by_step[c_step_int].items():
                 c_metrics.setdefault(m_k, m_v)
-                if "fid" in m_k.lower():
+                if _is_fid_metric(m_k):
                     c_metrics.setdefault("fid50k_train", m_v)
         c_copy["metrics"] = c_metrics
         checkpoints.append(c_copy)
@@ -512,7 +527,7 @@ def format_run_status(info: Dict[str, Any]) -> str:
         b_metric = str(best_obj.get("metric") or "fid50k_train")
         b_val = best_obj["value"]
         b_step = best_obj.get("step") if best_obj.get("step") is not None else info.get("best_step")
-        if "fid" in b_metric.lower():
+        if _is_fid_metric(b_metric):
             best_str = f"Best FID:  {b_val:.2f}"
         else:
             best_str = f"Best {b_metric}:  {b_val:.4g}"
@@ -690,10 +705,15 @@ def _collect_ps_row(
 
     best = summary.get("best") if (summary and isinstance(summary.get("best"), dict)) else None
     best_fid = summary.get("best_fid") if summary else None
-    if best_fid is None and best and isinstance(best, dict):
+    if best and isinstance(best, dict):
         b_metric = str(best.get("metric") or "")
-        if "fid" in b_metric.lower() and isinstance(best.get("value"), (int, float)):
+        if _is_fid_metric(b_metric) and isinstance(best.get("value"), (int, float)):
             best_fid = best.get("value")
+        elif not _is_fid_metric(b_metric):
+            best_fid = None
+    elif best_fid is not None and isinstance(best, dict) and not _is_fid_metric(best.get("metric", "")):
+        best_fid = None
+
     if best_fid is None and (run_path / "metrics" / "evaluations").is_dir():
         for rec in (run_path / "metrics" / "evaluations").glob("*/receipt.json"):
             try:
@@ -705,7 +725,7 @@ def _collect_ps_row(
                         or (rdata.get("result", {}).get("metric") if isinstance(rdata.get("result"), dict) else "")
                         or ""
                     )
-                    if "fid" in m_id.lower():
+                    if _is_fid_metric(m_id):
                         val = rdata["result"].get("value")
                         if val is not None and (best_fid is None or val < best_fid):
                             best_fid = val
@@ -794,7 +814,25 @@ def list_runs(
                 seen_dirs.add(str(p))
                 candidates.append(p)
         ws_root = find_workspace_runs_root(base_cwd)
-        for check_root in ([ws_root, base_cwd] if ws_root else [base_cwd]):
+        has_ws = find_workspace(base_cwd) is not None
+        check_roots: List[Path] = []
+        if ws_root:
+            check_roots.append(ws_root)
+        if has_ws:
+            if str(base_cwd.resolve()) != "/tmp":
+                check_roots.append(base_cwd)
+        else:
+            if str(base_cwd.resolve()) == "/tmp":
+                cwd_runs = base_cwd / "runs"
+                if cwd_runs.is_dir():
+                    check_roots.append(cwd_runs)
+            else:
+                cwd_runs = base_cwd / "runs"
+                if cwd_runs.is_dir():
+                    check_roots.append(cwd_runs)
+                check_roots.append(base_cwd)
+
+        for check_root in check_roots:
             if check_root and check_root.is_dir():
                 if is_run_dir(check_root):
                     if str(check_root) not in seen_dirs:
@@ -1151,6 +1189,9 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
     if not events_path.is_file():
         return 0
 
+    from .run_state import repair_event_tail
+    repair_event_tail(events_path)
+
     before_size = events_path.stat().st_size
     if before_size == 0:
         return 0
@@ -1213,24 +1254,24 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
     current_attempt_id = None
     current_sequence = 0
 
-    with events_path.open("rb") as src, temp_path.open("wb") as dst:
-        for line in src:
-            if not line.strip():
-                continue
-            keep = True
-            try:
-                ev = json.loads(line)
-                if not isinstance(ev, dict):
+    try:
+        with events_path.open("rb") as src, temp_path.open("wb") as dst:
+            for line in src:
+                if not line.strip():
                     continue
+                try:
+                    ev = json.loads(line)
+                    if not isinstance(ev, dict):
+                        continue
+                except Exception:
+                    # Incomplete trailing write or unparseable line: discard during compaction
+                    continue
+
                 if ev.get("event") == "train":
                     step = ev.get("step")
                     if step not in pinned_steps and (step % stride != 0):
-                        keep = False
-            except Exception:
-                keep = True
-                ev = None
+                        continue
 
-            if keep and ev is not None:
                 # Renumber sequence contiguously per attempt_id
                 ev_att = ev.get("attempt_id")
                 if ev_att is not None and ev_att != current_attempt_id:
@@ -1253,16 +1294,13 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
                 digest.update(serialized)
                 new_size += len(serialized)
                 last_event = ev
-            elif keep and ev is None:
-                line_data = line if line.endswith(b"\n") else line + b"\n"
-                dst.write(line_data)
-                digest.update(line_data)
-                new_size += len(line_data)
 
-        dst.flush()
-        os.fsync(dst.fileno())
+            dst.flush()
+            os.fsync(dst.fileno())
 
-    os.replace(temp_path, events_path)
+        os.replace(temp_path, events_path)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
     # Invalidate stale views to prevent cursor mismatch
     views_dir = run_dir / "views"

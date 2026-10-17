@@ -1,6 +1,6 @@
-# Image-folder data
+# Image-folder data (`image_folder`)
 
-`image_folder` loads local images into CPU batches with an explicit shape and preprocessing policy. It supports flat folders, recursive folders and named class directories. It does not download data, provide an image GAN architecture, or qualify image quality.
+`image_folder` loads local images into CPU batches with an explicit shape and preprocessing policy. It supports flat folders, recursive folders and named class directories. It does not download data or qualify image quality.
 
 Install the optional decoder in your active Python environment:
 
@@ -10,7 +10,92 @@ python -m pip install '.[train,image]'
 
 For data inspection alone, `.[image]` is sufficient; folder discovery, decoding and identity inspection do not import torch. These source-install commands refer to this unreleased checkout.
 
-Replace the data section of your recipe with:
+## Automatic Project Scaffolding & Primary Schema (`format = "hypergan-model/1"`)
+
+When you pass `--dataset /path/to/images` to `hypergan new`, HyperGAN scans image headers (without decoding full pixel buffers into RAM), detects the median resolution (`32`, `64`, `128`, or `256`) and color mode (`RGB` or `L`), and generates a complete `format = "hypergan-model/1"` configuration with matching generator and discriminator architectures:
+
+```sh
+hypergan new --project my_gan --template dcgan --dataset /absolute/path/to/images
+```
+
+In `format = "hypergan-model/1"` model files, configure `[data]` (and optional `[evaluations.<id>.data]` for snapshot metrics run via `hypergan eval`) with `builtin = "image_folder"`:
+
+```toml
+format = "hypergan-model/1"
+name = "dcgan"
+defaults = "particlegan"
+
+[data]
+builtin = "image_folder"
+[data.args]
+root = "/absolute/path/to/images"
+height = 64
+width = 64
+mode = "RGB"
+resize = "center_crop"
+interpolation = "bilinear"
+fill = 0
+recursive = true
+labels = false
+shuffle = true
+
+[prior]
+kind = "particles"
+initialization_seed = 2
+z_dim = 128
+[prior.args]
+num_particles = 10000
+
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+input_shape = ["B", 128]
+output_shape = ["B", 3, 64, 64]
+source = """..."""
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 64, 64]
+output_shape = ["B", 1]
+source = """..."""
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda"
+
+[metrics]
+every_steps = 10
+
+# Optional snapshot evaluation metric (used by `hypergan eval <run>`)
+[evaluations.sample_diversity]
+factory = "hypergan.colorization_metrics:SampleDiversityRatio"
+device = "cuda"
+samples = 64
+batch_size = 16
+seed = 123
+[evaluations.sample_diversity.data]
+builtin = "image_folder"
+[evaluations.sample_diversity.data.args]
+root = "/absolute/path/to/images"
+height = 64
+width = 64
+mode = "RGB"
+resize = "center_crop"
+```
+
+When lowered to the low-level engine recipe schema, `builtin = "image_folder"` resolves to `factory = "image_folder"` under `[data]`:
 
 ```toml
 [data]
@@ -28,16 +113,17 @@ labels = false
 shuffle = true
 ```
 
-The generator and discriminator still need compatible image shapes. Substituting this section into the default 2D Gaussian recipe does not create an image model. Height and width are mandatory; there is no silent 64×64 fallback. Relative roots resolve against the process working directory, so absolute paths are easiest to reproduce.
+The generator and discriminator must have compatible image shapes (`["B", C, H, W]`). Substituting `[data]` into the default 2D Gaussian recipe without an image generator/discriminator does not create an image model. Height and width are mandatory; there is no silent 64×64 fallback. Relative roots resolve against the process working directory (or `${paths.data}` when configured in `hypergan.toml`), so absolute or workspace-anchored paths are easiest to reproduce.
 
-Inspect the actual files before training:
+Inspect and verify the actual image files before training using `hypergan validate --data` (or `hypergan data-check`):
 
 ```sh
-hypergan data-check path/to/config.toml
+hypergan validate path/to/config.toml --data
+hypergan validate path/to/config.toml --data --output data-manifest.json
 hypergan data-check path/to/config.toml --output data-manifest.json
 ```
 
-The command reports the inventory, class map, preprocessing and content identity without importing the training runtime. Output files are created exclusively, so an existing manifest is not overwritten. The Python equivalent is `ImageFolder(**args).resume_identity()` plus its `inventory` attribute.
+The command reports the inventory, class map, preprocessing and content identity without importing the training runtime. Output files are created exclusively, so an existing manifest is not overwritten. The Python equivalent is `hg.check_data(model)` or `ImageFolder(**args).resume_identity()` plus its `inventory` attribute.
 
 ## Shape and preprocessing
 

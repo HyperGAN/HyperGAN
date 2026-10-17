@@ -1,12 +1,152 @@
-# Recipe configuration
+# Model & Recipe Configuration (`hypergan-model/1`)
 
-A project is a directory containing `config.toml`, or a TOML file passed directly to `hypergan validate` and `hypergan train`. Run `hypergan new demo` to obtain the complete default configuration. Defaults are resolved into the run manifest so experiments do not depend on hidden CLI settings.
+A HyperGAN project is initialized with `hypergan new --project <dir>` (which creates `hypergan.toml`, `runs/`, and `configs/<template>.toml`), or as a standalone `.toml` model file created with `hypergan new <path>.toml`. Pass a `.toml` file or project directory to `hypergan validate` and `hypergan train`. Defaults are resolved into the run manifest so experiments do not depend on hidden CLI settings.
 
-New projects use native CUDA execution by default (`hypergan new demo --device cuda:1` selects another visible GPU). Use `--device cpu` for a CPU numerical fixture. Supported `training.device` values are `cpu`, `cuda` and `cuda:N`; structural validation does not probe hardware. The historical programmatic `DEFAULT`/empty recipe remains the explicit CPU reference fixture, so hand-written recipes should declare their intended device. The runtime is a bounded numerical reference. It has a configurable component/data interface, not a qualified folder-of-images recipe or a distributed strategy.
+New projects target native CUDA execution by default (`--device cuda:1` selects another visible GPU; `--device cpu` or `hypergan train -d cpu` selects CPU execution for small correctness fixtures).
 
-## Components and I/O
+## Primary Model File Schema (`format = "hypergan-model/1"`)
 
-`components.generator` and `components.discriminator` are required. Other named components can represent an encoder, feature extractor or auxiliary transform. Each component has a `factory`, constructor `args`, explicit forward keyword `inputs`, and a `trainable` flag.
+`hypergan new` generates human-editable model files using `format = "hypergan-model/1"`. During `hypergan validate` and `hypergan train` (or `hg.lower(model)` / `hg.resolve(model)` in Python), HyperGAN lowers this high-level schema into the engine's low-level resolved recipe (`components`, `training`, `optimizer`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, and `metrics.custom`).
+
+```toml
+format = "hypergan-model/1"
+name = "dcgan"
+defaults = "particlegan"
+
+# [data] Dataset source, resolution, and preprocessing
+# Use builtin = "image_folder" (or "gaussian_grid" / "paired_linear"),
+# factory = "pkg.mod:BatchFactory", or dataset = "pkg.mod:ItemDataset"
+[data]
+builtin = "image_folder"
+[data.args]
+root = "./images"
+height = 64
+width = 64
+mode = "RGB"
+resize = "center_crop"
+
+# [prior] Latent particle distribution (particles | mog | gaussian)
+[prior]
+kind = "particles"
+initialization_seed = 2
+z_dim = 128
+[prior.args]
+num_particles = 10000
+
+# [networks] Generator, critic, encoder, or auxiliary networks
+# Each network declares role = "generator" | "critic" | "encoder" | "auxiliary"
+# and one of source = "..." (inline HNDL), hndl = "path.hndl", or module = "pkg.mod:Class"
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+input_shape = ["B", 128]
+output_shape = ["B", 3, 64, 64]
+source = """
+reshape(128, 1, 1)
+deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
+batch_norm()
+relu()
+deconv(256, kernel_size=4, stride=2, padding=1, bias=False)
+batch_norm()
+relu()
+deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
+batch_norm()
+relu()
+deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
+batch_norm()
+relu()
+deconv(3, kernel_size=4, stride=2, padding=1)
+tanh()
+"""
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 64, 64]
+output_shape = ["B", 1]
+source = """
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+"""
+
+# [[losses]] Adversarial, prior spread, reconstruction, and custom objectives
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+
+# [train] Unified training schedule & optimizer hyperparameters
+# Accepts both training fields (steps, batch_size, seed, device, ema, lr_floor, ...)
+# and optimizer fields (lr, d_lr_mult, prior_lr_mult, betas, prior_betas, ...)
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda"
+lr = 0.0002
+initialization = "deterministic_orthogonal"
+
+# [metrics] Scalar training metric cadence and filtering
+[metrics]
+every_steps = 10
+
+# [evaluations.<id>] Snapshot evaluation metrics (run automatically at `every` steps,
+# or on demand via `hypergan eval <run>` / `hypergan evaluate <run> --metric <id>`)
+[evaluations.sample_diversity]
+factory = "hypergan.colorization_metrics:SampleDiversityRatio"
+# Omit `every` for manual evaluation via `hypergan eval`, or set `every = 10000` for periodic runs
+device = "cuda"
+samples = 64
+batch_size = 16
+seed = 123
+[evaluations.sample_diversity.data]
+builtin = "image_folder"
+[evaluations.sample_diversity.data.args]
+root = "./images"
+height = 64
+width = 64
+mode = "RGB"
+resize = "center_crop"
+
+# [checkpoints] Retention and automatic EMA inference bundle export policy
+[checkpoints]
+keep_last = 3
+keep_best = { metric = "fid50k_train", mode = "min", count = 2 }
+keep_every = 50000
+export_bundle = "on_eval"
+
+# [sampling] Periodic EMA preview settings
+[sampling]
+count = 16
+seed = 123
+```
+
+### CLI Overrides (`-s / --set`) and Schema Lowering
+
+Both `hypergan validate` and `hypergan train` accept `-s KEY=VALUE` (`--set KEY=VALUE`) to override configuration fields on the fly without editing the TOML file:
+- `[train]` and `[optimizer]` fields can be addressed interchangeably via `train.<field>`, `training.<field>`, `trainer.<field>`, or `optimizer.<field>` (e.g., `-s train.batch_size=32 -s optimizer.lr=0.0002`).
+- `[[losses]]` entries can be addressed by list index (`losses.0.weight=0.5`), `id` (`losses.reconstruction.weight=0.5`), or `critic` name (`losses.discriminator.penalty=2.0`).
+- `[evaluations.<id>]` entries in `hypergan-model/1` lower automatically into `[metrics.custom.<id>]` with `mode = "snapshot"` in the resolved engine configuration.
+
+The sections below document the resolved low-level engine schema (`components.*`, `training.*`, `optimizer.*`, `metrics.custom.*`) into which `hypergan-model/1` files lower.
+
+---
+
+## Components and I/O (Resolved Low-Level Schema)
+
+`components.generator` and `components.discriminator` are required in the lowered engine recipe. Other named components can represent an encoder, feature extractor or auxiliary transform. Each component has a `factory`, constructor `args`, explicit forward keyword `inputs`, and a `trainable` flag.
 
 Network components use `factory = "hndl"`. The source, input shapes, and output shapes belong in the recipe. HNDL constructs the network when training starts; editing the configuration needs no package rebuild. Data sources, objectives, and particle-routing adapters retain their explicit `module:object` factories. Unknown constructor arguments fail instead of being silently discarded.
 

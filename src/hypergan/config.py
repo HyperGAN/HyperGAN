@@ -292,7 +292,7 @@ def _spec(value, location, objectives=False):
     if not objectives and value.get("factory") == "hndl":
         validate_network_args(value["args"], f"{location}.args")
         if "file" in value["args"]:
-            value["args"]["source"] = read_source(value["args"].pop("file"))
+            value["args"]["source"] = read_source(_resolve_hndl_target(value["args"].pop("file"), None))
     if not isinstance(value.get("inputs"), dict) or not value["inputs"] or not all(isinstance(k, str) and isinstance(v, str) and v for k, v in value["inputs"].items()):
         raise ValueError(f"{location}.inputs must bind argument names to context paths")
     if objectives:
@@ -748,6 +748,9 @@ def resume_compatible(config, original, *, include_observation=False):
     try:
         values = config_values if include_observation else numerical_values
         current, saved = values(config), values(original)
+        if include_observation:
+            current.pop('name', None)
+            saved.pop('name', None)
         factory = 'hypergan.colorization_data:ColorizationData'
         if current['data']['factory'] == saved['data']['factory'] == factory:
             left, right = current['data']['args'], saved['data']['args']
@@ -782,6 +785,10 @@ def resume_compatible(config, original, *, include_observation=False):
                     or not all(_step_independent(values['training']) for values in (current, saved))):
                 return False
             current['training']['steps'] = old_steps
+            if (isinstance(current.get('recipe'), dict) and isinstance(saved.get('recipe'), dict)
+                    and current['recipe'].get('total_steps') == new_steps
+                    and saved['recipe'].get('total_steps') == old_steps):
+                current['recipe']['total_steps'] = old_steps
         return (json.dumps(current, sort_keys=True, allow_nan=False)
                 == json.dumps(saved, sort_keys=True, allow_nan=False))
     except (KeyError, TypeError, ValueError):
@@ -808,6 +815,37 @@ def fingerprint(config):
     return hashlib.sha256(json.dumps(numerical_values(config), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
+def _resolve_hndl_target(file: str | Path, base: Path | None = None) -> Path:
+    """Resolve an HNDL path relative to base, falling back to packaged reference.hndl if relocated."""
+    p = Path(file)
+    if p.is_absolute():
+        return p
+    target = (base / p) if base is not None else p
+    if target.is_file():
+        return target
+    if p.name == "reference.hndl":
+        fallback = Path(__file__).resolve().parent / "networks" / "reference.hndl"
+        if fallback.is_file():
+            return fallback
+    return target
+
+
+def _normalize_model_hndl_paths(raw: dict, base: Path | None = None) -> dict:
+    """Ensure relative reference.hndl paths in model files remain resolvable after config-source snapshotting."""
+    networks = raw.get("networks")
+    if not isinstance(networks, dict):
+        return raw
+    updated = None
+    for name, spec in networks.items():
+        if isinstance(spec, dict) and isinstance(spec.get("hndl"), str):
+            resolved = _resolve_hndl_target(spec["hndl"], base)
+            if resolved != (Path(spec["hndl"]) if Path(spec["hndl"]).is_absolute() else ((base / spec["hndl"]) if base is not None else Path(spec["hndl"]))):
+                if updated is None:
+                    updated = deepcopy(raw)
+                updated["networks"][name]["hndl"] = str(resolved)
+    return updated if updated is not None else raw
+
+
 def load_config(path):
     """Resolve a recipe or model file path, or an in-memory recipe/model mapping.
 
@@ -824,7 +862,10 @@ def load_config(path):
             raw = config_values(raw)
         if "extends" in raw:
             raw = resolve_inheritance(raw)
-        return resolve_config(lower(raw) if is_model_file(raw) else raw)
+        if is_model_file(raw):
+            raw = _normalize_model_hndl_paths(raw, None)
+            return resolve_config(lower(raw))
+        return resolve_config(raw)
     path = Path(path)
     if path.is_dir():
         path = path / "model.toml" if (path / "model.toml").is_file() else path / "config.toml"
@@ -844,6 +885,7 @@ def load_config(path):
         raw = interpolate_variables(raw, ws_dict)
 
     if is_model_file(raw):
+        raw = _normalize_model_hndl_paths(raw, path.parent)
         return resolve_config(lower(raw, base=path.parent))
     return resolve_config_at(raw, path.parent)
 
@@ -874,13 +916,13 @@ def inline_network_sources(raw, base):
             for name, file in network_files.items():
                 if not isinstance(file, str):
                     raise ValueError('args.network_files paths must be strings')
-                target_file = Path(file) if Path(file).is_absolute() else base / file
+                target_file = _resolve_hndl_target(file, base)
                 sources[name] = read_source(target_file)
         if spec.get("factory") == "hndl" and "file" in args:
             if "source" in args:
                 raise ValueError("HNDL component must specify exactly one of source or file")
             file = args.pop("file")
-            target_file = Path(file) if Path(file).is_absolute() else base / file
+            target_file = _resolve_hndl_target(file, base)
             args["source"] = read_source(target_file)
     return raw
 

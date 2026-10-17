@@ -344,6 +344,18 @@ def _add_recipe_comments(body: str, config_name: str) -> str:
     for pattern, replacement in section_comments:
         commented = re.sub(pattern, replacement, commented, count=1)
 
+    if "[evaluations" not in commented:
+        eval_comment = (
+            "\n# [evaluations] Snapshot evaluations for `hypergan eval` (uncomment to enable)\n"
+            "# [evaluations.sample_diversity]\n"
+            '# factory = "hypergan.diversity_metrics:SampleDiversity"\n'
+            "# samples = 64\n"
+            "# batch_size = 16\n"
+            "# seed = 42\n"
+            '# data = { builtin = "gaussian_grid", args = { side = 10, noise = 0.015 } }\n'
+        )
+        commented = commented.rstrip("\n") + "\n" + eval_comment
+
     digest = hashlib.sha256(commented.encode("utf-8")).hexdigest()
     header = (
         "# HyperGAN Experiment Configuration\n"
@@ -426,12 +438,21 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
         raise FileExistsError(f"Recipe file already exists: {target_path}")
 
     if template == "gaussian-grid" and dataset_path is None:
-        from copy import deepcopy
-        from .api import packaged
-        pkg_model = packaged("gaussian-grid")
-        spec = deepcopy(pkg_model.spec)
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            import tomli as tomllib
+        pkg_path = Path(__file__).with_name("models") / "gaussian-grid.toml"
+        with pkg_path.open("rb") as f:
+            spec = tomllib.load(f)
         if device:
             spec.setdefault("train", {})["device"] = device
+        rel_ref = (target_path.parent / ".." / "networks" / "reference.hndl").resolve()
+        if not rel_ref.is_file():
+            abs_ref = str((Path(__file__).resolve().parent / "networks" / "reference.hndl").resolve())
+            for net in spec.get("networks", {}).values():
+                if isinstance(net, dict) and net.get("hndl") == "../networks/reference.hndl":
+                    net["hndl"] = abs_ref
     else:
         # Check workspace data path interpolation
         ws_file = find_workspace(target_path) or find_workspace(Path.cwd())
@@ -540,7 +561,7 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
 def init_project(
     project_dir: Union[str, Path],
     *,
-    template: str = "dcgan",
+    template: Optional[str] = None,
     resolution: Optional[int] = None,
     data_dir: Optional[Union[str, Path]] = None,
     output_config: Optional[Union[str, Path]] = None,
@@ -548,7 +569,9 @@ def init_project(
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """Initialize a HyperGAN project directory with hypergan.toml, runs/, and configs/<template>.toml."""
-    template = (template or "dcgan").strip().lower()
+    if template is None:
+        template = "dcgan" if (data_dir is not None or resolution is not None) else "gaussian-grid"
+    template = template.strip().lower()
     if template not in STARTER_TEMPLATES:
         choices = ", ".join(STARTER_TEMPLATES.keys())
         raise ValueError(f"Unknown starter template {template!r}; choose one of: {choices}")
@@ -567,10 +590,18 @@ def init_project(
             "[workspace]\n"
             "# Directory where training runs are stored (relative to this workspace)\n"
             'runs_root = "runs"\n'
-            "# Naming pattern for new run directories\n"
-            'run_dir = "${runs_root}/${stem}"\n'
+            "# Naming pattern for new run directories (${name} uses -n/--name or falls back to ${stem})\n"
+            'run_dir = "${runs_root}/${name}"\n'
         )
         ws_path.write_text(ws_text, encoding="utf-8")
+
+    if template == "gaussian-grid":
+        import shutil
+        src_hndl = (Path(__file__).resolve().parent / "networks" / "reference.hndl").resolve()
+        dst_hndl = proj_path / "networks" / "reference.hndl"
+        dst_hndl.parent.mkdir(parents=True, exist_ok=True)
+        if src_hndl.is_file() and (not dst_hndl.exists() or overwrite):
+            shutil.copyfile(src_hndl, dst_hndl)
 
     if output_config is not None:
         out_p = Path(output_config)

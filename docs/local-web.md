@@ -1,6 +1,21 @@
-# Local browser and streaming API
+# Web Observatory, Local Browser & Streaming API (`hypergan view`)
 
-Install `hypergan[web]`, then run the projection service and viewer independently:
+Install `hypergan[web]`, then launch the Web Observatory for a runs directory (or any specific run by path, `<slug>`, `<short_id>`, or custom `<tag>`):
+
+```sh
+# Start the Global Runs Dashboard for the workspace runs_root (or current directory)
+hypergan view
+hypergan view my_gan/runs --port 8765 --open
+
+# Or target a specific run directly by slug, short ID, custom tag, or directory
+hypergan view fleet-hawk --port 8765
+
+# Inspect or stop a running dashboard instance
+hypergan view --status
+hypergan view --stop
+```
+
+You can also run the standalone projection service and single-run server independently:
 
 ```sh
 hypergan project runs/example --follow
@@ -8,7 +23,7 @@ hypergan project runs/example --follow
 hypergan serve runs/example --open
 ```
 
-`serve` listens on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
+`hypergan view` and `hypergan serve` listen on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
 working across restarts. If that port is busy, it takes the next free port above it,
 up to 100 ports, and prints the port it actually chose. Select another address with
 `--host 127.0.0.1`, a fixed port with `--port 8123`, or an OS-assigned port with
@@ -16,6 +31,16 @@ up to 100 ports, and prints the port it actually chose. Select another address w
 than a silent move to another port. The printed browser URL uses `127.0.0.1` for a
 wildcard bind; remote browsers use this machine's address with that same port.
 Browser requests remain same-origin.
+
+## Global Runs Dashboard & Live Control Endpoints
+
+When serving a workspace or runs directory (or when runs are registered in the global registry), the Web Observatory exposes both the multi-run dashboard and per-run observatories:
+
+- **`GET /` (Global Runs Dashboard)**: Interactive HTML dashboard listing all discovered and registered runs with client-side search (by name, slug, or ID) and status filtering (`running`, `complete`, `stopped`, `failed`). While any run is active, the dashboard automatically polls `/api/runs` every 3 seconds and updates status badges, progress bars, throughput (`it/s`), latest/best FID, and action buttons in place.
+- **`GET /api/runs` and `GET /api/v1/runs`**: Returns a JSON array of all discovered/registered runs with their `run_id`, `short_id`, `slug`, `name`, `status`, `active`, `running`, `pid`, `step`, `total_steps`, `steps_per_second`, `latest_fid`, `best_fid`, `best_step`, `disk_bytes`, `disk_formatted`, `run_dir`, and `url`.
+- **`GET /runs/<id_or_slug_or_tag>`**: Opens the per-run Web Observatory UI for any run addressed by its full `run_id`, 8-character `short_id`, Docker-style `slug` (e.g. `fleet-hawk`), custom tag (`hypergan tag <run> <tag>`), or directory name. Automatically ensures built-in scalar projections are up to date before serving.
+- **`POST /api/runs/<id>/checkpoint` (and `POST /api/v1/runs/<id>/checkpoint`)**: Submits an immediate durable checkpoint request to an active run at the next update boundary (returns HTTP 400 if the run is not active).
+- **`POST /api/runs/<id>/stop` (and `POST /api/v1/runs/<id>/stop`)**: Gracefully stops an active training run via SIGINT so it saves a checkpoint and halts cleanly (returns HTTP 400 if the run is not active).
 
 ### Remote browsers over plain HTTP
 
@@ -37,7 +62,8 @@ viewer which public origin that proxy serves:
 tailscale serve --bg 8765
 hypergan train project/config.toml --run-dir runs/example \
     --public-origin https://mlserver.tail1234.ts.net
-# or for an existing run:
+# or for an existing run / dashboard:
+hypergan view runs --public-origin https://mlserver.tail1234.ts.net
 hypergan serve runs/example --public-origin https://mlserver.tail1234.ts.net
 ```
 
@@ -49,10 +75,10 @@ run request fail; the option is what makes that one origin acceptable.
 `--public-origin` takes an absolute `http://` or `https://` URL with a host and
 an optional port and nothing else. A path, query, fragment, username or password
 is refused with an error naming the value, and `https://host:443/` is the same
-origin as `https://host`. `train`, `resume` and `serve` all accept it, and, like
+origin as `https://host`. `train`, `resume`, `view` and `serve` all accept it, and, like
 `--server-host` and `--auth`, naming it requires the viewer rather than leaving
 it optional. The supervised viewer is a detached subprocess, so the value
-travels in that viewer's private registry state; `hypergan server-status RUN`,
+travels in that viewer's private registry state; `hypergan view --status`, `hypergan server-status RUN`,
 the startup JSON and the private credential file all report `public_origin`
 beside the direct `origin`.
 
@@ -87,22 +113,28 @@ experiments do not overwrite each other's credentials. These APIs neither start
 training nor execute custom Python maps or numerical metric factories.
 
 `hypergan metrics RUN` reads the current catalog. `hypergan contributions RUN`
-reads bounded mapped frames without installing the web or reducer runtime. A
-missing projection is visible: run `project`, rather than expecting an HTTP
-request to create it. Custom maps use the [event-view contract](event-views.md).
+reads bounded mapped frames without installing the web or reducer runtime. Custom maps use the [event-view contract](event-views.md).
+
+## REST & Streaming API Routes (`/api/v1/*` and `/api/runs/*`)
 
 The `/api/v1/openapi.json` endpoint contains OpenAPI 3.1 routes, query
 parameters and JSON schemas for source events, projection frames, catalogs,
-bootstrap state and SSE envelopes. The browser uses this same public interface:
+bootstrap state and SSE envelopes. Every per-run route is served with full parity under both `/api/v1/runs/{run_id}/*` and `/api/runs/{run_id}/*`, where `{run_id}` accepts the run's `run_id`, `short_id`, `slug`, custom tag (`name`), or directory name:
 
 - `/api/v1/capabilities`: server incarnation, selected run, reducer digest and limits.
-- `/api/v1/runs/{run_id}`: public observed/durable progress summary.
-- `/api/v1/runs/{run_id}/metrics/catalog?revision=...`: current or historical catalog.
-- `/api/v1/runs/{run_id}/events?stream_id=...&cursor=...&limit=100`: bounded raw pages.
-- `/api/v1/runs/{run_id}/views`: built-in view and registered streams.
-- `/api/v1/runs/{run_id}/views/{map_revision}/bootstrap?series=loss%2Fg_total&bucket_steps=100`: historical envelope states.
-- `/api/v1/runs/{run_id}/stream?stream_id=projection:{map_revision}&cursor=...`: SSE continuation.
-- `/api/v1/runs/{run_id}/artifacts`: bounded artifact index; append `/{artifact_id}` to download a digest-verified entry.
+- `/api/runs` & `/api/v1/runs`: list all discovered and registered runs with live status summaries.
+- `/api/runs/{run_id}` & `/api/v1/runs/{run_id}` (and `/status`): public observed/durable progress manifest.
+- `/api/runs/{run_id}/summary` & `/api/v1/runs/{run_id}/summary` (and `/api/runs/{run_id}/metrics` & `/api/v1/runs/{run_id}/metrics`): cached or live run metrics summary (`step`, `steps_per_second`, `latest_fid`, `best_fid`, etc.).
+- `/api/runs/{run_id}/metrics/catalog` & `/api/v1/runs/{run_id}/metrics/catalog?revision=...`: current or historical metric definition catalog.
+- `/api/runs/{run_id}/contributions` & `/api/v1/runs/{run_id}/contributions`: bounded mapped scalar contribution frames.
+- `/api/runs/{run_id}/model` & `/api/v1/runs/{run_id}/model` (and `/architecture`): GAN formulation, losses, optimizers, and HNDL network descriptions.
+- `/api/runs/{run_id}/events` & `/api/v1/runs/{run_id}/events?stream_id=...&cursor=...&limit=100`: bounded raw event pages.
+- `/api/runs/{run_id}/views` & `/api/v1/runs/{run_id}/views`: built-in view and registered streams.
+- `/api/runs/{run_id}/views/{map_revision}/bootstrap` & `/api/v1/runs/{run_id}/views/{map_revision}/bootstrap?series=loss%2Fg_total&bucket_steps=100`: historical envelope states.
+- `/api/runs/{run_id}/stream` & `/api/v1/runs/{run_id}/stream?stream_id=projection:{map_revision}&cursor=...`: SSE continuation.
+- `/api/runs/{run_id}/artifacts` & `/api/v1/runs/{run_id}/artifacts`: bounded artifact index; append `/{artifact_id}` to download a digest-verified entry.
+- `POST /api/runs/{run_id}/checkpoint` & `POST /api/v1/runs/{run_id}/checkpoint`: trigger an immediate checkpoint on an active run.
+- `POST /api/runs/{run_id}/stop` & `POST /api/v1/runs/{run_id}/stop`: gracefully stop an active run.
 
 The global `/api/v1/stream` also reports run creation and future stream
 registrations. This lets an automatically started viewer wait for the first run

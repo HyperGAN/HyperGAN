@@ -177,8 +177,8 @@ def compute_best_evaluation(evaluations: list[dict], checkpoints_by_step: dict |
         mode_min = (target_mode == "min")
     else:
         sample_metric = records[0]["metric"].lower()
-        mode_min = not (sample_metric in ("is", "inception_score", "score", "acc", "accuracy")
-                        or sample_metric.endswith(("_is", "_score", "_acc", "_accuracy")))
+        mode_min = not (sample_metric in ("is", "inception_score", "score", "acc", "accuracy", "sample_diversity", "diversity")
+                        or sample_metric.endswith(("_is", "_score", "_acc", "_accuracy", "_diversity")))
 
     sorted_records = sorted(
         records,
@@ -203,23 +203,37 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
     """Atomically write canonical summary.json for run_dir."""
     run_dir = Path(run_dir).resolve()
     manifest_path = run_dir / "manifest.json"
+    existing_summary = read_summary_json(run_dir) or {}
 
-    if manifest is None and manifest_path.is_file():
+    disk_manifest = {}
+    if manifest_path.is_file() and (
+        manifest is None
+        or not isinstance(manifest, dict)
+        or any(k not in manifest for k in ("config", "status", "steps"))
+    ):
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                disk_manifest = loaded
         except Exception:
-            manifest = {}
-    manifest = manifest or {}
+            disk_manifest = {}
+
+    if manifest is None or not isinstance(manifest, dict):
+        manifest = disk_manifest
+    elif disk_manifest:
+        manifest = {**disk_manifest, **manifest}
 
     config = manifest.get("config", {}) if isinstance(manifest.get("config"), dict) else {}
-    run_id = manifest.get("run_id") or run_dir.name
-    name = config.get("name") or run_id
+    run_id = manifest.get("run_id") or existing_summary.get("run_id") or run_dir.name
+    name = manifest.get("name") or config.get("name") or existing_summary.get("name") or run_id
 
-    resolved_status = status or manifest.get("status", "unknown")
+    resolved_status = status or manifest.get("status") or existing_summary.get("status") or "unknown"
     canonical_status = resolved_status
 
-    step = manifest.get("steps", 0)
-    total_steps = config.get("training", {}).get("steps") or manifest.get("total_steps")
+    step = manifest.get("steps")
+    if step is None:
+        step = existing_summary.get("step", 0)
+    total_steps = config.get("training", {}).get("steps") or manifest.get("total_steps") or existing_summary.get("total_steps")
 
     sps = manifest.get("steps_per_second")
     if sps is not None:
@@ -245,9 +259,17 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
     # Best evaluation
     ckpt_policy = config.get("checkpoints", {})
     best = compute_best_evaluation(eval_list, ckpt_by_step, policy=ckpt_policy)
+    if best is None and isinstance(manifest.get("best_checkpoint"), dict):
+        bc = manifest["best_checkpoint"]
+        if "metric" in bc and "value" in bc:
+            best = {
+                "metric": bc["metric"],
+                "value": bc["value"],
+                "step": bc.get("step"),
+                "checkpoint": bc.get("checkpoint"),
+            }
 
     # Latest metrics
-    existing_summary = read_summary_json(run_dir) or {}
     latest_metrics = dict(existing_summary.get("latest", {}))
     if metrics:
         for k, v in metrics.items():
@@ -260,7 +282,7 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
             latest_metrics[ev["metric"]] = ev["value"]
 
     latest_fid = latest_metrics.get("fid50k_train") or latest_metrics.get("fid")
-    best_fid = best["value"] if best and "fid" in best["metric"].lower() else (best["value"] if best else None)
+    best_fid = best["value"] if (best and "fid" in str(best.get("metric", "")).lower()) else None
     best_step = best["step"] if best else None
 
     from .registry import extract_or_derive_slug

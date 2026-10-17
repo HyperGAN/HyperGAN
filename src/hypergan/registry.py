@@ -76,6 +76,38 @@ def extract_or_derive_slug(run_id: str, name: str = "", run_dir_name: str = "") 
     return slug_from_id(run_id or name or run_dir_name or "default")
 
 
+def _ensure_unique_slug(
+    candidate_slug: str,
+    run_id: str,
+    existing_runs: Union[Dict[str, Any], List[Dict[str, Any]]],
+) -> str:
+    """Ensure candidate_slug does not collide with another run_id in existing_runs."""
+    entries = existing_runs.values() if isinstance(existing_runs, dict) else existing_runs
+    used_slugs = set()
+    rid_str = str(run_id or "")
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        other_id = str(item.get("run_id") or "")
+        other_slug = str(item.get("slug") or "")
+        if other_slug and other_id != rid_str:
+            used_slugs.add(other_slug)
+
+    if candidate_slug and candidate_slug not in used_slugs:
+        return candidate_slug
+
+    for salt in range(1, 256):
+        rehashed = slug_from_id(f"{rid_str}:{salt}")
+        if rehashed not in used_slugs:
+            return rehashed
+
+    base = candidate_slug or slug_from_id(rid_str or "default")
+    idx = 2
+    while f"{base}-{idx}" in used_slugs:
+        idx += 1
+    return f"{base}-{idx}"
+
+
 def generate_run_slug(stem: str, parent_dir: Optional[Union[Path, str]] = None) -> Tuple[str, str]:
     """Generate a unique Docker-style '<stem>-<adj>-<noun>' run name and its '<adj>-<noun>' short slug."""
     clean_stem = re.sub(r"[^a-zA-Z0-9_.-]+", "-", str(stem).strip()).strip("-") or "run"
@@ -183,10 +215,11 @@ def _is_isolated_test_env(cwd: Optional[Union[Path, str]] = None) -> Optional[Pa
 def get_registry_dir(cwd: Optional[Union[Path, str]] = None) -> Path:
     """Return the directory storing the run registry (runs.json and registry.lock).
 
-    Honors HYPERGAN_HOME if set. Automatically isolates pytest temporary directories
-    so unit tests never pollute or read the host user's ~/.local/share/hypergan registry.
+    Honors HYPERGAN_HOME or HYPERGAN_STATE_DIR if set. Automatically isolates pytest
+    temporary directories so unit tests never pollute or read the host user's
+    ~/.local/share/hypergan registry.
     """
-    env_home = os.environ.get("HYPERGAN_HOME")
+    env_home = os.environ.get("HYPERGAN_HOME") or os.environ.get("HYPERGAN_STATE_DIR")
     if env_home:
         return Path(env_home).resolve()
 
@@ -208,6 +241,9 @@ def get_registry_dir(cwd: Optional[Union[Path, str]] = None) -> Path:
     return Path.home() / ".local" / "share" / "hypergan"
 
 
+_get_state_dir = get_registry_dir
+
+
 def _read_registry_unlocked(reg_dir: Path) -> Dict[str, Any]:
     reg_file = reg_dir / "runs.json"
     if reg_file.is_file():
@@ -215,10 +251,24 @@ def _read_registry_unlocked(reg_dir: Path) -> Dict[str, Any]:
             data = json.loads(reg_file.read_text(encoding="utf-8"))
             if isinstance(data, dict) and isinstance(data.get("runs"), dict):
                 data.setdefault("roots", [])
+                seen_entries: List[Dict[str, Any]] = []
+                for k, entry in data["runs"].items():
+                    if isinstance(entry, dict):
+                        rid = str(entry.get("run_id") or k)
+                        raw_slug = str(entry.get("slug") or "") or extract_or_derive_slug(
+                            rid,
+                            name=str(entry.get("name") or ""),
+                            run_dir_name=Path(str(entry.get("run_dir") or k)).name,
+                        )
+                        entry["slug"] = _ensure_unique_slug(raw_slug, rid, seen_entries)
+                        seen_entries.append(entry)
                 return data
         except Exception:
             pass
     return {"schema_version": 1, "runs": {}, "roots": []}
+
+
+_load_registry_unlocked = _read_registry_unlocked
 
 
 def _write_registry_unlocked(reg_dir: Path, data: Dict[str, Any]) -> None:
@@ -264,6 +314,8 @@ def find_live_pid_for_run(run_dir: Path) -> Optional[int]:
 
 def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
     """Discover active runs_roots and run_dirs from viewer state files and /proc on host."""
+    if os.environ.get("HYPERGAN_HOME") or os.environ.get("HYPERGAN_STATE_DIR"):
+        return [], []
     roots: List[Path] = []
     run_dirs: List[Path] = []
 
@@ -329,6 +381,9 @@ def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
                 continue
 
     return roots, run_dirs
+
+
+discover_runs_on_host = _discover_system_roots_and_runs
 
 
 def _read_run_id_fast(run_dir: Path) -> Optional[str]:
@@ -497,6 +552,8 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
     is_active, pid = check_run_active(run_dir)
     if is_active and pid is None:
         pid = find_live_pid_for_run(run_dir)
+    elif not is_active:
+        pid = None
 
     # Tier 1 O(1) cache hit: inactive run with unchanged summary.json st_mtime_ns
     if (
@@ -507,6 +564,10 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
         and existing.get("run_id")
     ):
         if summary_mtime_ns is not None and existing.get("summary_mtime_ns") == summary_mtime_ns:
+            if existing.get("pid") is not None or existing.get("active"):
+                existing = dict(existing)
+                existing["pid"] = None
+                existing["active"] = False
             return existing
 
     mtime = 0.0
@@ -528,6 +589,10 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
         and existing.get("run_dir") == str(run_dir)
         and existing.get("run_id")
     ):
+        if existing.get("pid") is not None or existing.get("active"):
+            existing = dict(existing)
+            existing["pid"] = None
+            existing["active"] = False
         return existing
 
     summary = read_summary_json(run_dir)
@@ -663,7 +728,7 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
         "runs_root": str(run_dir.parent),
         "status": status,
         "active": bool(is_active),
-        "pid": pid,
+        "pid": pid if is_active else None,
         "summary_mtime_ns": summary_mtime_ns if summary is not None else None,
         "step": int(step or 0),
         "max_steps": max_steps_int,
@@ -727,6 +792,11 @@ def register_run(
                 name=entry.get("name", ""),
                 run_dir_name=run_path.name,
             )
+        entry["slug"] = _ensure_unique_slug(
+            str(entry["slug"]),
+            str(entry["run_id"]),
+            {k: v for k, v in data["runs"].items() if k != key},
+        )
         if status is not None:
             entry["status"] = "completed" if status == "complete" else status.lower()
             entry["active"] = entry["status"] == "running"
@@ -735,6 +805,8 @@ def register_run(
             entry["active"] = True
         if pid is not None:
             entry["pid"] = int(pid)
+        elif not entry.get("active"):
+            entry["pid"] = None
         ws_target = workspace or workspace_root
         if ws_target is not None:
             ws_str = str(Path(ws_target).resolve())
@@ -850,6 +922,7 @@ def list_registered_runs(
         _is_isolated_test_env(cwd_path) is not None
         or bool(os.environ.get("PYTEST_CURRENT_TEST"))
         or bool(os.environ.get("HYPERGAN_HOME"))
+        or bool(os.environ.get("HYPERGAN_STATE_DIR"))
     )
 
     with file_lock(reg_dir / "registry.lock"):
@@ -966,6 +1039,11 @@ def list_registered_runs(
             prev = data["runs"].get(key)
             entry = _extract_run_entry(rdir, existing=prev)
             if entry is not None:
+                entry["slug"] = _ensure_unique_slug(
+                    str(entry.get("slug") or ""),
+                    str(entry.get("run_id") or key),
+                    results,
+                )
                 if data["runs"].get(key) != entry:
                     data["runs"][key] = entry
                     changed = True

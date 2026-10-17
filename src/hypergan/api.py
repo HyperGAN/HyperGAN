@@ -19,7 +19,7 @@ model file's import paths point.
 from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
-import inspect
+import inspect as _py_inspect
 import json
 from pathlib import Path
 import re
@@ -38,20 +38,20 @@ from .model_file import resolve_inheritance, collect_source_files
 PACKAGED = Path(__file__).with_name('models')
 
 __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
-           'model', 'load', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
-           'validate_config', 'init_project',
+           'model', 'load', 'load_bundle', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
+           'validate_config', 'init_project', 'new',
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
-           'train', 'resume', 'open_run', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
+           'train', 'resume', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
-           'lift', 'load_recipe', 'describe', 'data_check', 'check_data', 'preflight', 'preflight_check', 'serve', 'viewer_status',
+           'lift', 'load_recipe', 'describe', 'describe_model', 'data_check', 'check_data', 'preflight', 'preflight_check', 'serve', 'viewer_status',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
            'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
            'resolve_inheritance', 'collect_source_files',
-           'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'runs_ls', 'runs_compare', 'gc', 'gc_all', 'compact_events',
+           'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'list_runs', 'runs', 'runs_ls', 'runs_compare', 'gc', 'prune', 'gc_all', 'compact_events',
            'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
            'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service']
 
@@ -83,10 +83,32 @@ def _model(value):
 
 
 def load(path):
-    """Load a model file (or an engine recipe TOML, which loads unchanged)."""
+    """Load a model file, an engine recipe TOML, a run's stored Model, or a .pt bundle."""
+    if isinstance(path, Run):
+        return _load_stored_run_model(path.path)
+    raw = str(path)
     path = Path(path)
+    if path.suffix.lower() == '.pt':
+        return load_bundle(path)
+    if not path.exists() and path.suffix.lower() not in ('.toml', '.pt'):
+        try:
+            resolved_run = resolve_run_target(raw, allow_latest=(raw == 'latest'))
+            if resolved_run.is_dir():
+                return _load_stored_run_model(resolved_run)
+        except Exception:
+            pass
     if path.is_dir():
-        path = path / 'model.toml' if (path / 'model.toml').is_file() else path / 'config.toml'
+        if (path / 'model.toml').is_file():
+            path = path / 'model.toml'
+        elif (path / 'config.toml').is_file():
+            path = path / 'config.toml'
+        elif any(
+            (path / name).exists()
+            for name in ('recipe.toml', 'manifest.json', 'summary.json', 'config-source')
+        ):
+            return _load_stored_run_model(path)
+        else:
+            path = path / 'config.toml'
     with path.open('rb') as stream:
         spec = tomllib.load(stream)
 
@@ -346,6 +368,39 @@ def init_project(project_dir, *, template="dcgan", resolution=None, data_dir=Non
                          output_config=output_config, device=device, overwrite=overwrite)
 
 
+def new(data_dir=None, output_path=None, *, template=None, resolution=None, device="cuda",
+        project=None, overwrite=False, **kwargs):
+    """Scaffold a new HyperGAN model file (or initialize a project directory when project is set)."""
+    if project is not None:
+        return init_project(
+            project,
+            template=template or "dcgan",
+            resolution=resolution,
+            data_dir=data_dir,
+            output_config=output_path,
+            device=device,
+            overwrite=overwrite,
+        )
+    from .recipe_generator import generate_recipe as _generate_recipe
+    ds_dir = data_dir
+    out_p = output_path
+    if out_p is None and ds_dir is not None:
+        p = Path(ds_dir)
+        if p.suffix.lower() == ".toml" or not p.is_dir():
+            out_p = ds_dir
+            ds_dir = None
+    name_arg = str(out_p) if out_p is not None else kwargs.pop("name", None)
+    return _generate_recipe(
+        name=name_arg,
+        template=template or "dcgan",
+        resolution=resolution,
+        dataset_dir=ds_dir,
+        device=device,
+        overwrite=overwrite,
+        **kwargs,
+    )
+
+
 def fingerprint(model):
     """Numerical identity: equal fingerprints train the same recipe."""
     from .config import fingerprint as recipe_fingerprint
@@ -482,8 +537,8 @@ def module(path, *, inputs, role, trainable=None, **args):
         raise ValueError(f"Network must be an importable object or a 'module:object' string, got {path_str!r}")
     if callable(path):
         try:
-            sig = inspect.signature(path)
-            if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+            sig = _py_inspect.signature(path)
+            if not any(p.kind == _py_inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
                 for arg_name in args:
                     if arg_name not in sig.parameters:
                         raise TypeError(f"Network {getattr(path, '__name__', path)} got unexpected keyword argument {arg_name!r}")
@@ -971,16 +1026,84 @@ def extract_ema_bundle(checkpoint_dir, manifest=None):
     return _extract(checkpoint_dir, manifest=manifest)
 
 
+def load_bundle(path_or_run, *, checkpoint="latest", device="cpu"):
+    """Load an exported .pt bundle file or extract the EMA bundle from a run checkpoint."""
+    if isinstance(path_or_run, Run):
+        run_dir = path_or_run.path
+    else:
+        p = Path(path_or_run)
+        if p.suffix.lower() == ".pt" or (p.is_file() and p.name.endswith(".pt")):
+            import torch
+            return torch.load(p, map_location=device, weights_only=True)
+        run_dir = _run_path(path_or_run)
+    try:
+        ckpt_dir = resolve_checkpoint(run_dir, target=checkpoint)
+        return extract_ema_bundle(ckpt_dir)
+    except FileNotFoundError:
+        model_pt = run_dir / "model.pt"
+        if model_pt.is_file():
+            import torch
+            return torch.load(model_pt, map_location=device, weights_only=True)
+        raise
+
+
+def inspect(run=None):
+    """Inspect a run and return its parsed manifest and run identity dictionary."""
+    if isinstance(run, Run):
+        run_path = run.path
+        data = dict(run.manifest)
+    else:
+        try:
+            opened = open_run(run)
+            run_path = opened.path
+            data = dict(opened.manifest)
+        except FileNotFoundError:
+            run_path = _run_path(run)
+            if run_path.is_dir():
+                return status(run_path)
+            raise
+    data.setdefault("run_dir", str(run_path))
+    summary_p = run_path / "summary.json"
+    summary = {}
+    if summary_p.is_file():
+        try:
+            loaded = json.loads(summary_p.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                summary = loaded
+        except Exception:
+            summary = {}
+    if "name" not in data:
+        cfg_name = data.get("config", {}).get("name") if isinstance(data.get("config"), dict) else None
+        data["name"] = summary.get("name") or cfg_name or run_path.name
+    elif summary.get("name") and data.get("name") != summary.get("name"):
+        data["name"] = summary["name"]
+    if "slug" not in data:
+        from .registry import extract_or_derive_slug
+        run_id = str(data.get("run_id") or summary.get("run_id") or run_path.name)
+        data["slug"] = summary.get("slug") or extract_or_derive_slug(run_id, name=str(data.get("name", "")), run_dir_name=run_path.name)
+    if "short_id" not in data and (data.get("run_id") or summary.get("run_id")):
+        data["short_id"] = str(data.get("run_id") or summary.get("run_id"))[:8]
+    if "step" not in data:
+        if "step" in summary:
+            data["step"] = summary["step"]
+        elif "steps" in data:
+            data["step"] = data["steps"]
+    return data
+
+
 def status(run=None):
     """Compile human-friendly status summary for a run."""
     from .inspection import run_status as _status
     return _status(_run_path(run))
 
 
-def ps(all_runs=False, cwd=None):
+def ps(all_runs=False, cwd=None, *, all=None, root=None):
     """List active training runs (or all runs if all_runs=True) enriched with GPU VRAM and queue status."""
+    if all is not None:
+        all_runs = bool(all)
+    target_cwd = root if root is not None else cwd
     from .inspection import ps_runs as _ps
-    return _ps(all_runs=all_runs, cwd=cwd)
+    return _ps(all_runs=all_runs, cwd=target_cwd)
 
 
 def stop(run=None, *, stop_all=False, timeout=15.0):
@@ -989,10 +1112,35 @@ def stop(run=None, *, stop_all=False, timeout=15.0):
     return _stop(run, stop_all=stop_all, timeout=timeout)
 
 
-def logs(run=None, *, tail=50, follow=False, stream=None):
+def logs(run=None, *, tail=50, follow=False, raw=False, stream=None):
     """Read or follow formatted training events from a run."""
+    import io
     from .inspection import read_run_logs as _logs
-    return _logs(run, tail=tail, follow=follow, stream=stream)
+    if stream is None and not follow:
+        frame = _py_inspect.currentframe()
+        caller = frame.f_back if frame is not None else None
+        caller_mod = caller.f_globals.get("__name__", "") if caller is not None else ""
+        target_stream = None if caller_mod.endswith(".cli") or caller_mod == "hypergan.cli" else io.StringIO()
+    else:
+        target_stream = stream
+    if raw:
+        sig = _py_inspect.signature(_logs)
+        if "raw" in sig.parameters:
+            return _logs(run, tail=tail, follow=follow, raw=raw, stream=target_stream)
+        run_dir = _run_path(run)
+        events_file = run_dir / "events.jsonl"
+        if not events_file.is_file():
+            return []
+        raw_lines = [ln for ln in events_file.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
+        if tail and tail > 0:
+            raw_lines = raw_lines[-tail:]
+        out = target_stream or sys.stdout
+        for ln in raw_lines:
+            out.write(ln + "\n")
+        if hasattr(out, "flush"):
+            out.flush()
+        return raw_lines
+    return _logs(run, tail=tail, follow=follow, stream=target_stream)
 
 
 def tag(run, name):
@@ -1087,10 +1235,19 @@ def rm(run, *, force=False):
     }
 
 
-def runs_ls(root=None, sort="fid", status_filter=None):
+def list_runs(root=None, *, sort="updated", status=None, status_filter=None, cwd=None):
     """Discover and list all runs under root with filtering and sorting."""
     from .inspection import list_runs as _list_runs
-    return _list_runs(root, sort=sort, status_filter=status_filter)
+    filt = status if status is not None else status_filter
+    return _list_runs(root, sort=sort, status_filter=filt, cwd=cwd)
+
+
+runs = list_runs
+
+
+def runs_ls(root=None, sort="fid", status_filter=None, *, status=None, cwd=None):
+    """Discover and list all runs under root with filtering and sorting."""
+    return list_runs(root, sort=sort, status=status, status_filter=status_filter, cwd=cwd)
 
 
 def runs_compare(runs, metric="fid50k_train", at_steps=None):
@@ -1099,10 +1256,17 @@ def runs_compare(runs, metric="fid50k_train", at_steps=None):
     return _compare_runs(runs, metric=metric, at_steps=at_steps)
 
 
-def gc(run=None, dry_run=False, stride=10):
-    """Clean rebuildable views and compact events on a finished run."""
+def gc(run=None, dry_run=False, stride=10, *, all_runs=False, all=None):
+    """Clean rebuildable views and compact events on a finished run (or all runs if all_runs=True)."""
+    if all is not None:
+        all_runs = bool(all)
+    if all_runs:
+        return gc_all(root=run, dry_run=dry_run, stride=stride)
     from .inspection import gc_run as _gc_run
     return _gc_run(_run_path(run), dry_run=dry_run, stride=stride)
+
+
+prune = gc
 
 
 def gc_all(root=None, dry_run=False, stride=10):
@@ -1424,6 +1588,9 @@ def describe(path=None, networks=False, write=False):
     return describe_run(manifest if manifest else {"config": config}, recorded=recorded)
 
 
+describe_model = describe
+
+
 def data_check(config, output=None):
     from .data import ImageFolder
     from .config import load_config
@@ -1460,12 +1627,13 @@ def preflight_check(config, profile=None, runtime=True):
     return preflight(config, profile=profile, runtime=runtime)
 
 
-def serve(run_dir, port=None, host="0.0.0.0", auth="none", session_file=None, open_browser=False, public_origin=None, dev=False):
+def serve(run_dir=None, port=None, host="0.0.0.0", auth="none", session_file=None, open_browser=False, public_origin=None, dev=False):
     if dev:
         from .web_dev import enable
         enable()
     from .web_launch import serve as launch_serve
-    launch_serve(Path(run_dir), port=port, host=host, auth=auth,
+    target = find_runs_root(Path.cwd()) if run_dir is None else run_dir
+    launch_serve(target, port=port, host=host, auth=auth,
                  session_file=session_file, open_browser=open_browser,
                  public_origin=public_origin)
 
@@ -1519,11 +1687,25 @@ def checkpoint_status(run_dir=None, request_id=None):
 def request_checkpoint(run_dir=None, attempt_id=None, request_id=None):
     from .run_requests import submit_checkpoint_request
     run_dir = _run_path(run_dir)
-    with (run_dir / "manifest.json").open(encoding="utf-8") as stream:
+    manifest_path = run_dir / "manifest.json"
+    if not manifest_path.is_file():
+        from .inspection import check_run_active
+        if check_run_active(run_dir)[0]:
+            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
+        raise FileNotFoundError(f"Run manifest not found: {manifest_path}")
+    with manifest_path.open(encoding="utf-8") as stream:
         manifest = json.load(stream)
     if not isinstance(manifest, dict) or not manifest.get("run_id") or not manifest.get("attempt_id"):
+        from .inspection import check_run_active
+        if check_run_active(run_dir)[0] or (isinstance(manifest, dict) and manifest.get("status") == "initializing"):
+            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
         raise ValueError("Run manifest has no run/attempt identity for a checkpoint request")
+    if manifest.get("status") == "initializing":
+        raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
     if manifest.get("status") != "running":
+        from .inspection import check_run_active
+        if check_run_active(run_dir)[0] and int(manifest.get("steps", 0) or 0) == 0:
+            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
         if request_id is None:
             raise ValueError("Run is not running; use resume to continue a stopped run")
         try:

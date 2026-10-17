@@ -119,4 +119,3 @@ def test_gaussian_and_frozen_priors_have_no_prior_group_or_damping():
     spread = next(t for t in result['losses']['generator'] if t['id'] == 'prior_regularizer')
     assert spread['active'] is False and 'frozen' in spread['inactive_reason']
     assert 'frozen' in result['optimizers']['generator']['latent_damping']['reason']
-

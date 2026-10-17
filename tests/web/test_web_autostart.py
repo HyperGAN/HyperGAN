@@ -586,3 +586,83 @@ def test_ensure_dashboard_running_alien_raises_oserror_immediately(tmp_path):
     finally:
         srv.close()
 
+
+
+@pytest.mark.parametrize('address', ['127.0.0.1', '[::1]'])
+def test_windows_port_owner_uses_numeric_listener_and_process_tables(monkeypatch, address):
+    from types import SimpleNamespace
+    from hypergan.web_autostart import _windows_port_owner
+    def command(args, **kwargs):
+        if args == ['netstat', '-ano']:
+            return SimpleNamespace(returncode=0, stdout=(
+                'TCP 127.0.0.1:8765 127.0.0.1:9000 ESTABLISHED 11\n'
+                'UDP 0.0.0.0:8765 *:* 22\n'
+                f'TCP {address}:87650 0.0.0.0:0 LISTENING 33\n'
+                f'TCP {address}:8765 0.0.0.0:0 ABHOREN 44\n'))
+        assert args == ['tasklist', '/FI', 'PID eq 44', '/FO', 'CSV', '/NH']
+        return SimpleNamespace(returncode=0, stdout='"python.exe","44","Console","1","10 K"\n')
+    monkeypatch.setattr(subprocess, 'run', command)
+    assert _windows_port_owner(8765) == (44, 'python.exe')
+
+
+def test_windows_port_owner_preserves_pid_if_process_name_query_is_unavailable(monkeypatch):
+    from types import SimpleNamespace
+    from hypergan.web_autostart import _windows_port_owner
+    def command(args, **kwargs):
+        if args[0] == 'tasklist':
+            raise OSError('tasklist unavailable')
+        return SimpleNamespace(returncode=0, stdout='TCP 0.0.0.0:8765 0.0.0.0:0 LISTENING 44\n')
+    monkeypatch.setattr(subprocess, 'run', command)
+    assert _windows_port_owner(8765) == (44, 'unknown')
+
+
+@pytest.mark.parametrize('stale', [False, True])
+def test_stop_all_servers_handles_windows_process_termination(tmp_path, monkeypatch, stale):
+    from types import SimpleNamespace
+    import hypergan.web_autostart as startup
+    registry = tmp_path / 'hypergan-viewers-test' / 'root'
+    registry.mkdir(parents=True)
+    atomic_json(registry / 'state.json', {'supervisor_pid': 44})
+    signals = []
+    def kill(pid, signum):
+        signals.append((pid, signum))
+        if stale:
+            raise OSError(22, 'invalid stale process')
+    monkeypatch.setattr(startup.tempfile, 'gettempdir', lambda: str(tmp_path))
+    monkeypatch.setattr(startup, 'os', SimpleNamespace(
+        name='nt', getpid=lambda: 1, kill=kill, path=SimpleNamespace(exists=lambda path: False)))
+    assert startup.stop_all_servers() == ([] if stale else [44])
+    assert signals == [(44, signal.SIGTERM)]
+    assert not (registry / 'state.json').exists()
+
+
+def test_ready_dashboard_receipts_new_runs_without_rewriting_existing_receipts(tmp_path):
+    from hypergan.web_autostart import stop_viewer
+    runs = tmp_path / 'runs'
+    runs.mkdir()
+    first = runs / 'existing'
+    make_run(first)
+    viewer = Viewer(runs, port=0, host='127.0.0.1', auth='none')
+    try:
+        viewer.wait_ready()
+        name = 'viewer-' + viewer.session.instance_id + '.json'
+        existing = first / 'observations' / name
+        def ready(path):
+            try:
+                value = json.loads(path.read_text())
+                return value if value['status'] == 'ready' else None
+            except OSError:
+                return None
+        previous = until(lambda: ready(existing))
+        modified = existing.stat().st_mtime_ns
+        fresh = runs / 'created-after-ready'
+        make_run(fresh)
+        receipt = until(lambda: ready(fresh / 'observations' / name))
+        assert receipt['server_instance_id'] == previous['server_instance_id']
+        assert receipt['processes'] == previous['processes']
+        assert existing.stat().st_mtime_ns == modified
+        assert viewer.info['status'] == 'ready'
+        assert stop_viewer(runs)['status'] == 'stopped'
+        assert json.loads((fresh / 'observations' / name).read_text())['status'] == 'stopped'
+    finally:
+        stop_viewer(runs)

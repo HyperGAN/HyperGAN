@@ -291,7 +291,7 @@ def _spec(value, location, objectives=False):
         raise ValueError(f"{location}.args must be a table")
     if isinstance(value.get("inputs"), dict) and len(value["inputs"]) == 1:
         (k, v), = value["inputs"].items()
-        if v == "latent":
+        if v == "latent" and k == "z":
             in_shape = value["args"].get("input_shape")
             if isinstance(in_shape, (list, tuple)):
                 value["args"]["input_shape"] = {k: list(in_shape)}
@@ -502,9 +502,9 @@ def resolve_config(raw):
     _positive(result["prior"]["args"].get("z_dim"), "prior.args.z_dim", integer=True)
     prior_kind = prior["kind"]
     allowed_prior_args = {
-        "particles": {"num_particles", "z_dim", "device", "dtype"},
-        "gaussian": {"z_dim", "device", "dtype"},
-        "mog": {"z_dim", "modes", "sigma", "sigma_rel", "device", "dtype"},
+        "particles": {"num_particles", "z_dim", "init_std", "device", "dtype", "learnable"},
+        "gaussian": {"z_dim", "init_std", "device", "dtype"},
+        "mog": {"num_particles", "modes", "z_dim", "init_std", "sigma", "sigma_rel", "device", "dtype", "learnable", "standardize"},
     }.get(prior_kind, {"z_dim", "device", "dtype"})
     unknown_prior_args = set(prior["args"]) - allowed_prior_args
     if unknown_prior_args:

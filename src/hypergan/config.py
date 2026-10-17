@@ -855,6 +855,11 @@ def resolve_config_at(raw, base):
     ``load_config`` uses this for a TOML file; a programmatic caller holding the
     same raw tables resolves them to the identical configuration.
     """
+    return resolve_config(inline_network_sources(raw, base))
+
+
+def inline_network_sources(raw, base):
+    """Snapshot architecture file references without applying trainer defaults."""
     base = Path(base)
     raw = deepcopy(raw)
     for spec in raw.get("components", {}).values():
@@ -877,7 +882,7 @@ def resolve_config_at(raw, base):
             file = args.pop("file")
             target_file = Path(file) if Path(file).is_absolute() else base / file
             args["source"] = read_source(target_file)
-    return resolve_config(raw)
+    return raw
 
 
 def validate_device(device):

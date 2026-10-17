@@ -234,22 +234,32 @@ def override(model, changes=None, /, **sections):
 def _relocated(spec, base, destination):
     """Rewrite relative hndl paths so a saved copy still reads the same files."""
     spec = deepcopy(spec)
+    def relocated(file):
+        if not isinstance(file, str) or Path(file).is_absolute():
+            return file
+        if base is None:
+            raise ModelFileError('A model with relative hndl paths needs a base directory to be saved elsewhere')
+        import os
+        source = (base / file).resolve()
+        try:
+            shared = Path(os.path.commonpath([source, destination]))
+        except ValueError:
+            # Windows volumes have no shared directory or relative path.
+            return source.as_posix()
+        # Relative when the files share a project directory, else absolute.
+        return (Path(os.path.relpath(source, destination)).as_posix()
+                if shared != Path(shared.anchor) else source.as_posix())
+
     for network in (spec.get('networks') or {}).values():
         file = network.get('hndl') if isinstance(network, dict) else None
-        if isinstance(file, str) and not Path(file).is_absolute():
-            if base is None:
-                raise ModelFileError('A model with relative hndl paths needs a base directory to be saved elsewhere')
-            import os
-            source = (base / file).resolve()
-            try:
-                shared = Path(os.path.commonpath([source, destination]))
-            except ValueError:
-                # Windows volumes have no shared directory or relative path.
-                network['hndl'] = source.as_posix()
-                continue
-            # Relative when the files share a project directory, else absolute.
-            network['hndl'] = (Path(os.path.relpath(source, destination)).as_posix()
-                               if shared != Path(shared.anchor) else source.as_posix())
+        if file is not None:
+            network['hndl'] = relocated(file)
+    for component in (spec.get('components') or {}).values():
+        args = component.get('args', {})
+        if component.get('factory') == 'hndl' and 'file' in args:
+            args['file'] = relocated(args['file'])
+        for name, file in args.get('network_files', {}).items():
+            args['network_files'][name] = relocated(file)
     return spec
 
 
@@ -300,7 +310,12 @@ def save(model, path, *, overwrite=False):
 def lower(model):
     """The engine recipe for this model (torch-free, no user code imported)."""
     model = _model(model)
-    return _lower(model.spec, model.base) if is_model_file(model.spec) else deepcopy(model.spec)
+    if is_model_file(model.spec):
+        return _lower(model.spec, model.base)
+    if model.base is not None:
+        from .config import inline_network_sources
+        return inline_network_sources(model.spec, model.base)
+    return deepcopy(model.spec)
 
 
 def resolve(model):

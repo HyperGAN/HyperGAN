@@ -99,6 +99,54 @@ def test_save_on_another_volume_preserves_absolute_hndl_reference(tmp_path, monk
     assert not list(saved.parent.glob('*.hndl'))
 
 
+def test_legacy_file_references_survive_external_cwd_override_and_save(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    project = tmp_path / 'project'
+    project.mkdir()
+    raw = tomllib.loads((ROOT / 'examples' / 'cifar-pretrained-sagan.toml').read_text())
+    critic = ROOT / 'examples' / raw['components']['discriminator']['args']['file']
+    (project / 'critic.hndl').write_bytes(critic.read_bytes())
+    raw['components']['discriminator']['args']['file'] = 'critic.hndl'
+    attention = ROOT / 'src' / 'hypergan' / 'networks' / 'image_attention.hndl'
+    for component in raw['components'].values():
+        files = component.get('args', {}).get('network_files', {})
+        for name, path in files.items():
+            source = ROOT / 'examples' / path
+            (project / source.name).write_bytes(source.read_bytes())
+            files[name] = source.name
+    config = project / 'config.toml'
+    config.write_text(dumps(raw))
+    expected = load_config(config)
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    model = hg.load(config)
+    assert model.spec == raw
+    lowered = hg.lower(model)
+    assert 'network_files' not in lowered['components']['generator']['args']
+    assert lowered['components']['generator']['args']['networks']['image_attention'] == attention.read_text()
+    assert lowered['components']['discriminator']['args']['source'] == critic.read_text()
+    assert lowered['optimizer'] == raw['optimizer']
+    assert hg.resolve(model) == expected
+    assert hg.validate(model) == expected['warnings']
+    assert hg.fingerprint(model) == fingerprint(expected)
+    overridden = hg.override(model, {'training.steps': 10})
+    assert overridden.base == model.base and hg.resolve(overridden)['training']['steps'] == 10
+
+    saved = hg.save(model, elsewhere / 'saved.toml')
+    assert hg.resolve(hg.load(saved)) == expected
+    assert fingerprint(load_config(saved)) == fingerprint(expected)
+    assert not list(elsewhere.glob('*.hndl'))
+    assert 'file' in tomllib.loads(saved.read_text())['components']['discriminator']['args']
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); import hypergan.api as hg; "
+            "assert hg.fingerprint(hg.load(sys.argv[2])) == sys.argv[3]; "
+            "assert not {'torch','hndl','particlegan'} & sys.modules.keys()")
+    subprocess.run([sys.executable, '-I', '-c', code, str(Path(hg.__file__).parents[1]),
+                    str(config), fingerprint(expected)], cwd=elsewhere, check=True)
+
+
 def test_override_addresses_losses_by_id_and_merges_sections():
     model = hg.load(EXAMPLES / 'two_critics.toml')
     changed = hg.override(model, {'losses.reconstruction.weight': 0.25, 'losses.marginal_critic.penalty': 0.0},

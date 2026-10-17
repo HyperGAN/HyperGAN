@@ -29,6 +29,9 @@ def old_hypergan_provenance(metadata):
 @pytest.mark.parametrize('explicit', [True], ids=['current-version'])
 def test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapshot(tmp_path, explicit):
     config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
+    # This control deliberately revisits old snapshots after later writes;
+    # keep every tiny fixture checkpoint instead of using production pruning.
+    config.write_text(config.read_text() + '\n[checkpoints]\nkeep_every = 1\n')
     baseline, run = tmp_path / 'baseline', tmp_path / 'run'
     train(config, baseline)
     stopped = train(config, run, stop_after_steps=2, checkpoint_every=1)
@@ -47,7 +50,7 @@ def test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapsho
     assert files(checkpoint) == historical
     # Selecting this preserved earlier snapshot remains valid after later
     # checkpoints have been written by the current HyperGAN build.
-    replay = resume(run, checkpoint=checkpoint)
+    replay = resume(run, checkpoint=checkpoint, config_path=config)
     assert replay['status'] == 'complete' and replay['attempt_index'] == 3
     equal(read_checkpoint(baseline)[2], read_checkpoint(run)[2])
     assert files(checkpoint) == historical
@@ -155,11 +158,12 @@ def test_resume_on_the_other_identical_card_warns_and_completes(tmp_path, monkey
     assert resumed['warnings'] == recorded
 
 
-def test_resume_on_a_different_card_model_names_the_rejected_fields(tmp_path, monkeypatch):
+def test_resume_on_a_different_card_model_warns_with_fields_and_restores_exact_state(tmp_path, monkeypatch):
     config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
-    run = tmp_path / 'run'
+    baseline, run = tmp_path / 'baseline', tmp_path / 'run'
     selected = [FIRST_CARD]
     one_of_two_identical_cards(monkeypatch, selected)
+    train(config, baseline)
     train(config, run, stop_after_steps=1)
     import hypergan.single_execution as single
     replaced = single.runtime_info
@@ -171,13 +175,16 @@ def test_resume_on_a_different_card_model_names_the_rejected_fields(tmp_path, mo
         return runtime
 
     monkeypatch.setattr(single, 'runtime_info', other_model)
-    before = files(run)
-    with pytest.raises(ValueError) as error:
-        train(config, run)
-    message = str(error.value)
+    from hypergan.checkpoint_compatibility import HyperGANHardwareWarning
+    with pytest.warns(HyperGANHardwareWarning, match='Resuming on differing hardware/topology') as warnings:
+        result = train(config, run)
+    assert result['status'] == 'complete' and result['steps'] == 5
+    message = str(warnings[0].message)
     assert 'cuda.name: saved "NVIDIA RTX A6000", current "NVIDIA GeForce RTX 4090"' in message
     assert 'cuda.capability: saved [8, 6], current [8, 9]' in message
-    assert files(run) == before
+    assert f'cuda.uuid: saved "{FIRST_CARD}", current "{SECOND_CARD}"' in message
+    assert result['resume_warnings'] == [message]
+    equal(read_checkpoint(baseline)[2], read_checkpoint(run)[2])
 
 
 @pytest.mark.parametrize('version', [1, 3, True])

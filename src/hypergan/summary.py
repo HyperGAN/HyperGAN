@@ -263,10 +263,22 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
     best_fid = best["value"] if best and "fid" in best["metric"].lower() else (best["value"] if best else None)
     best_step = best["step"] if best else None
 
+    from .registry import extract_or_derive_slug
+
+    slug = (
+        manifest.get("slug")
+        or existing_summary.get("slug")
+        or extract_or_derive_slug(run_id, name=str(name), run_dir_name=run_dir.name)
+    )
+    pid = manifest.get("pid") or (os.getpid() if canonical_status in ("running", "initializing") else existing_summary.get("pid"))
+
     summary_doc = {
         "run_id": run_id,
+        "short_id": str(run_id)[:8],
+        "slug": slug,
         "name": name,
         "status": canonical_status,
+        "pid": pid,
         "step": step,
         "total_steps": total_steps,
         "steps_per_sec": sps,
@@ -286,4 +298,17 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
 
     target = run_dir / "summary.json"
     atomic_write_json(target, summary_doc)
+    if metrics is None:
+        try:
+            from .registry import register_run
+            register_run(
+                run_dir,
+                run_id=str(run_id),
+                name=str(name),
+                slug=str(slug),
+                status=str(canonical_status),
+                pid=pid if isinstance(pid, int) else None,
+            )
+        except Exception:
+            pass
     return target

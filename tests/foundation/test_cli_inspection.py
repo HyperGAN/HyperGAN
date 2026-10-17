@@ -327,3 +327,87 @@ def test_gc_all(tmp_path):
         assert "GC complete across 2 runs:" in res.stdout
         assert "Cleaned:  1 runs" in res.stdout
         assert "Skipped:  1 active runs" in res.stdout
+
+
+def test_workspace_toml_and_zero_arg_status_and_runs_shorthand(tmp_path):
+    """Verify hypergan.toml runs_root works without AttributeError, and zero-arg status / runs work."""
+    runs_dir = tmp_path / "external_runs"
+    runs_dir.mkdir()
+    (tmp_path / "hypergan.toml").write_text(
+        f'[workspace]\nroot = "{tmp_path}"\nruns_root = "{runs_dir}"\n',
+        encoding="utf-8",
+    )
+
+    r1 = runs_dir / "cifar-amber-fox"
+    _make_mock_run(r1, name="cifar-amber-fox", status="completed", steps=40000, best_fid=19.5)
+    # Give r1 a deterministic UUID run_id in manifest and summary
+    manifest_path = r1 / "manifest.json"
+    m1 = json.loads(manifest_path.read_text(encoding="utf-8"))
+    m1["run_id"] = "a1b2c3d4e5f64789a1b2c3d4e5f64789"
+    manifest_path.write_text(json.dumps(m1, indent=2), encoding="utf-8")
+    from hypergan.summary import write_summary_json
+    write_summary_json(r1, status="completed")
+
+    r2 = runs_dir / "cifar-cobalt-hawk"
+    _make_mock_run(r2, name="cifar-cobalt-hawk", status="running", steps=80000, best_fid=14.2)
+    m2_path = r2 / "manifest.json"
+    m2 = json.loads(m2_path.read_text(encoding="utf-8"))
+    m2["run_id"] = "f9e8d7c6b5a44321f9e8d7c6b5a44321"
+    m2_path.write_text(json.dumps(m2, indent=2), encoding="utf-8")
+    write_summary_json(r2, status="running")
+
+    # 1. `hypergan runs` (without `ls` or directory argument) discovers runs via hypergan.toml & registry
+    res_runs = run_cli(tmp_path, "runs", isolated=False)
+    assert res_runs.returncode == 0, res_runs.stderr
+    assert "cifar-amber-fox" in res_runs.stdout
+    assert "cifar-cobalt-hawk" in res_runs.stdout
+
+    # 2. From an unrelated subdirectory with no local runs/, registry still resolves runs by short ID, slug, @best, @latest
+    other_dir = tmp_path / "some" / "other" / "subdir"
+    other_dir.mkdir(parents=True)
+
+    # Short ID resolution (a1b2c3)
+    res_short = run_cli(other_dir, "status", "a1b2c3", "--json", isolated=False)
+    assert res_short.returncode == 0, res_short.stderr
+    assert json.loads(res_short.stdout)["name"] == "cifar-amber-fox"
+
+    # Docker-style slug resolution (amber-fox)
+    res_slug = run_cli(other_dir, "status", "amber-fox", "--json", isolated=False)
+    assert res_slug.returncode == 0, res_slug.stderr
+    assert json.loads(res_slug.stdout)["name"] == "cifar-amber-fox"
+
+    # @best resolution (lowest FID = 14.2 -> cifar-cobalt-hawk)
+    res_best = run_cli(other_dir, "status", "@best", "--json", isolated=False)
+    assert res_best.returncode == 0, res_best.stderr
+    assert json.loads(res_best.stdout)["name"] == "cifar-cobalt-hawk"
+
+    # 3. Zero-arg `hypergan status` when r2 holds `.run.lock` auto-targets the active run
+    with run_lock(r2):
+        res_zero_active = run_cli(other_dir, "status", "--json", isolated=False)
+        assert res_zero_active.returncode == 0, res_zero_active.stderr
+        data_active = json.loads(res_zero_active.stdout)
+        assert data_active["name"] == "cifar-cobalt-hawk"
+        assert data_active["active"] is True
+
+    # 4. Renaming a run directory on disk updates the registry seamlessly while preserving short ID & slug
+    r1_renamed = runs_dir / "cifar-renamed-v2"
+    r1.rename(r1_renamed)
+    res_renamed = run_cli(other_dir, "status", "a1b2c3", "--json", isolated=False)
+    assert res_renamed.returncode == 0, res_renamed.stderr
+    assert Path(json.loads(res_renamed.stdout)["run_dir"]) == r1_renamed.resolve()
+
+    # 5. Deleting summary.json on r1_renamed falls back gracefully without crashing
+    (r1_renamed / "summary.json").unlink()
+    res_nosum = run_cli(other_dir, "status", "cifar-renamed-v2", "--json", isolated=False)
+    assert res_nosum.returncode == 0, res_nosum.stderr
+
+    # 6. Deleting a run folder completely prunes it from registry and `hypergan runs`
+    import shutil
+    shutil.rmtree(r1_renamed)
+    res_after_del = run_cli(other_dir, "runs", "--json", isolated=False)
+    assert res_after_del.returncode == 0, res_after_del.stderr
+    remaining_ids = [item["short_id"] for item in json.loads(res_after_del.stdout)]
+    assert "a1b2c3d4" not in remaining_ids
+    assert "f9e8d7c6" in remaining_ids
+
+

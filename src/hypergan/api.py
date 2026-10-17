@@ -51,6 +51,7 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
            'resolve_inheritance', 'collect_source_files',
            'status', 'runs_ls', 'runs_compare', 'gc', 'gc_all', 'compact_events',
+           'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
            'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service']
 
 
@@ -557,14 +558,18 @@ class Run:
         return self.manifest.get('config_sha256')
 
 
-def open_run(run_dir):
-    run_dir = Path(run_dir).resolve()
-    if run_dir.is_file():
-        manifest_path = run_dir
-        run_path = run_dir.parent
+def open_run(run_dir=None):
+    if run_dir is not None and Path(run_dir).suffix == ".json":
+        manifest_path = Path(run_dir).resolve()
+        run_path = manifest_path.parent
     else:
-        manifest_path = run_dir / 'manifest.json'
-        run_path = run_dir
+        from .registry import resolve_run_target
+        run_path = resolve_run_target(run_dir)
+        if run_path.is_file():
+            manifest_path = run_path
+            run_path = run_path.parent
+        else:
+            manifest_path = run_path / 'manifest.json'
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict):
         raise ValueError("run manifest must contain a JSON object")
@@ -867,15 +872,35 @@ def evaluate(run, metric_id=None, *, checkpoint=None, devices=None, model=None, 
                           config_path=config_p, bundle=bundle)
 
 
-def _run_path(value):
+def _run_path(value=None):
     if isinstance(value, Run):
         return value.path
-    if isinstance(value, (str, Path)):
-        return Path(value)
-    return _run(value).path
+    from .registry import resolve_run_target
+    return resolve_run_target(value)
 
 
-def export(run, checkpoint="latest", output=None):
+def resolve_run_target(target=None, *, cwd=None, allow_latest=True, require_active=False):
+    """Resolve a run reference (short ID, slug, name, path, @latest, or None for active/latest)."""
+    from .registry import resolve_run_target as _resolve_target
+    return _resolve_target(target, cwd=cwd, allow_latest=allow_latest, require_active=require_active)
+
+
+def register_run(run_dir, **kwargs):
+    from .registry import register_run as _register
+    return _register(run_dir, **kwargs)
+
+
+def sync_registry(cwd=None, extra_roots=None):
+    from .registry import sync_registry as _sync
+    return _sync(cwd=cwd, extra_roots=extra_roots)
+
+
+def generate_run_slug(stem, parent_dir=None):
+    from .registry import generate_run_slug as _gen_slug
+    return _gen_slug(stem, parent_dir=parent_dir)
+
+
+def export(run=None, checkpoint="latest", output=None):
     """Export a standalone EMA inference model bundle from a run checkpoint."""
     from .checkpoints import resolve_checkpoint as _resolve, export_checkpoint_bundle as _export
     run_dir = _run_path(run)
@@ -884,13 +909,13 @@ def export(run, checkpoint="latest", output=None):
     return dest
 
 
-def prune_checkpoints(run, policy=None, dry_run=False):
+def prune_checkpoints(run=None, policy=None, dry_run=False):
     """Prune obsolete checkpoints in run under the retention policy."""
     from .checkpoints import prune_checkpoints as _prune
     return _prune(_run_path(run), policy=policy, dry_run=dry_run)
 
 
-def resolve_checkpoint(run, target="latest"):
+def resolve_checkpoint(run=None, target="latest"):
     """Resolve target ('latest', 'best', step int/str, or path) to a checkpoint directory."""
     from .checkpoints import resolve_checkpoint as _resolve
     return _resolve(_run_path(run), target=target)
@@ -902,7 +927,7 @@ def extract_ema_bundle(checkpoint_dir, manifest=None):
     return _extract(checkpoint_dir, manifest=manifest)
 
 
-def status(run):
+def status(run=None):
     """Compile human-friendly status summary for a run."""
     from .inspection import run_status as _status
     return _status(_run_path(run))
@@ -920,7 +945,7 @@ def runs_compare(runs, metric="fid50k_train", at_steps=None):
     return _compare_runs(runs, metric=metric, at_steps=at_steps)
 
 
-def gc(run, dry_run=False, stride=10):
+def gc(run=None, dry_run=False, stride=10):
     """Clean rebuildable views and compact events on a finished run."""
     from .inspection import gc_run as _gc_run
     return _gc_run(_run_path(run), dry_run=dry_run, stride=stride)
@@ -1221,8 +1246,15 @@ def lift(raw, *, base=None):
     return Model(model_spec, base=base)
 
 
-def describe(path, networks=False, write=False):
+def describe(path=None, networks=False, write=False):
     from .model_description import MODEL_FILE, build_networks, describe_run, load as load_model_desc
+    if path is None or (not Path(path).exists() and not str(path).endswith(".toml")):
+        from .registry import resolve_run_target
+        try:
+            path = resolve_run_target(path)
+        except Exception:
+            if path is None:
+                raise
     path = Path(path)
     manifest, config = load_model_desc(path)
     if write and not (path.is_dir() and manifest):
@@ -1276,31 +1308,32 @@ def serve(run_dir, port=None, host="0.0.0.0", auth="none", session_file=None, op
                  public_origin=public_origin)
 
 
-def viewer_status(run_dir):
+def viewer_status(run_dir=None):
     from .web_autostart import viewer_status as autostart_status
-    return autostart_status(Path(run_dir))
+    return autostart_status(_run_path(run_dir))
 
 
-def stop_viewer(run_dir):
+def stop_viewer(run_dir=None):
     from .web_autostart import stop_viewer as autostart_stop
-    return autostart_stop(Path(run_dir))
+    return autostart_stop(_run_path(run_dir))
 
 
-def contributions(run_dir, map_revision=None, cursor=None, limit=100, max_bytes=1048576):
+def contributions(run_dir=None, map_revision=None, cursor=None, limit=100, max_bytes=1048576):
     from .event_views import MapSpec, read_projection_page
-    return read_projection_page(Path(run_dir), map_revision or MapSpec().revision,
+    return read_projection_page(_run_path(run_dir), map_revision or MapSpec().revision,
                                 cursor, limit=limit, max_bytes=max_bytes)
 
 
-def project(run_dir, map_spec=None, follow=False, limit=100, on_progress=None):
+def project(run_dir=None, map_spec=None, follow=False, limit=100, on_progress=None):
     from .event_views import MapSpec, Projector
     import time
+    run_path = _run_path(run_dir)
     spec = MapSpec(**json.loads(Path(map_spec).read_text(encoding="utf-8"))) if map_spec else MapSpec()
     following = True
     last_progress = None
     while following:
         opened = time.monotonic()
-        with Projector(Path(run_dir), spec) as projector:
+        with Projector(run_path, spec) as projector:
             while True:
                 progress = projector.project(limit=limit)
                 last_progress = dict(progress, map_revision=spec.revision)
@@ -1316,14 +1349,14 @@ def project(run_dir, map_spec=None, follow=False, limit=100, on_progress=None):
     return last_progress
 
 
-def checkpoint_status(run_dir, request_id):
+def checkpoint_status(run_dir=None, request_id=None):
     from .run_requests import checkpoint_request_status
-    return checkpoint_request_status(Path(run_dir), request_id)
+    return checkpoint_request_status(_run_path(run_dir), request_id)
 
 
-def request_checkpoint(run_dir, attempt_id=None, request_id=None):
+def request_checkpoint(run_dir=None, attempt_id=None, request_id=None):
     from .run_requests import submit_checkpoint_request
-    run_dir = Path(run_dir)
+    run_dir = _run_path(run_dir)
     with (run_dir / "manifest.json").open(encoding="utf-8") as stream:
         manifest = json.load(stream)
     if not isinstance(manifest, dict) or not manifest.get("run_id") or not manifest.get("attempt_id"):

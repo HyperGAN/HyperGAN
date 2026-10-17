@@ -29,6 +29,7 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
     widths = []
     heights = []
     has_rgb = False
+    modes_seen = set()
 
     sample_paths = image_paths[:100]
     for img_path in sample_paths:
@@ -37,6 +38,7 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
                 w, h = img.size
                 widths.append(w)
                 heights.append(h)
+                modes_seen.add(img.mode)
                 if img.mode in ("RGB", "RGBA", "CMYK"):
                     has_rgb = True
         except Exception:
@@ -50,6 +52,13 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
 
     mode = "RGB" if has_rgb else "L"
     channels = 3 if has_rgb else 1
+
+    import sys
+    print(f"Detected {len(image_paths)} images ({target_w}x{target_h} {mode})", file=sys.stderr)
+    if "RGBA" in modes_seen:
+        print("warning: dataset contains RGBA images; alpha channels are not supported and will fail validation or training unless converted to RGB or L", file=sys.stderr)
+    elif any(m not in ("RGB", "L") for m in modes_seen):
+        print(f"warning: dataset contains non-RGB images (modes: {', '.join(sorted(modes_seen - {'RGB', 'L'}))}); unsupported modes will fail validation or training unless converted to RGB or L", file=sys.stderr)
 
     has_varying = any(w != target_w or h != target_h for w, h in zip(widths, heights))
 
@@ -326,7 +335,7 @@ h = leaky_relu(h, 0.2)
     return gen.strip(), disc.strip()
 
 
-def _add_recipe_comments(body: str, config_name: str) -> str:
+def _add_recipe_comments(body: str, config_name: str, template: Optional[str] = None, data_spec: Optional[dict] = None) -> str:
     """Inject concise, self-documenting comments above each TOML section."""
     import hashlib
     import re
@@ -345,6 +354,38 @@ def _add_recipe_comments(body: str, config_name: str) -> str:
         commented = re.sub(pattern, replacement, commented, count=1)
 
     if "[evaluations" not in commented:
+        is_image = (
+            template in ("dcgan", "resnet", "tiny-transformer")
+            or (data_spec and data_spec.get("builtin") == "image_folder")
+            or 'builtin = "image_folder"' in body
+        )
+        if is_image:
+            d_args = (data_spec or {}).get("args", {})
+            root_val = d_args.get("root", "./data")
+            h_val = d_args.get("height", 64)
+            w_val = d_args.get("width", 64)
+            m_val = d_args.get("mode", "RGB")
+            r_val = d_args.get("resize", "center_crop")
+            if not d_args:
+                m_root = re.search(r'root\s*=\s*"([^"]+)"', body)
+                if m_root:
+                    root_val = m_root.group(1)
+                m_h = re.search(r'height\s*=\s*(\d+)', body)
+                if m_h:
+                    h_val = int(m_h.group(1))
+                m_w = re.search(r'width\s*=\s*(\d+)', body)
+                if m_w:
+                    w_val = int(m_w.group(1))
+                m_m = re.search(r'mode\s*=\s*"([^"]+)"', body)
+                if m_m:
+                    m_val = m_m.group(1)
+            eval_data_comment = (
+                f'# data = {{ builtin = "image_folder", args = {{ root = "{root_val}", '
+                f'height = {h_val}, width = {w_val}, mode = "{m_val}", resize = "{r_val}" }} }}\n'
+            )
+        else:
+            eval_data_comment = '# data = { builtin = "gaussian_grid", args = { side = 10, noise = 0.015 } }\n'
+
         eval_comment = (
             "\n# [evaluations] Snapshot evaluations for `hypergan eval` (uncomment to enable)\n"
             "# [evaluations.sample_diversity]\n"
@@ -352,7 +393,7 @@ def _add_recipe_comments(body: str, config_name: str) -> str:
             "# samples = 64\n"
             "# batch_size = 16\n"
             "# seed = 42\n"
-            '# data = { builtin = "gaussian_grid", args = { side = 10, noise = 0.015 } }\n'
+            f"{eval_data_comment}"
         )
         commented = commented.rstrip("\n") + "\n" + eval_comment
 
@@ -382,21 +423,46 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
         choices = ", ".join(STARTER_TEMPLATES.keys())
         raise ValueError(f"Unknown starter template {template!r}; choose one of: {choices}")
 
-    # Support calling `generate_recipe(data_dir, output_path=..., template=..., resolution=...)`
-    if dataset_dir is None and name is not None:
-        if isinstance(name, Path) or Path(str(name)).is_dir():
-            dataset_dir = name
-            name = None
-
-    if name is None:
-        if output_path is not None:
-            out_cand = Path(output_path)
-            name = out_cand.stem if out_cand.suffix == ".toml" else out_cand.name
+    # Target path and name resolution
+    if output_path is not None:
+        out_cand = Path(output_path)
+        if out_cand.is_dir():
+            if name is None:
+                name = Path(dataset_dir).resolve().name if dataset_dir is not None else template
+            model_name = Path(name).stem if str(name).endswith(".toml") else str(name)
+            target_path = (out_cand / f"{model_name}.toml").resolve()
+            name = model_name
+        else:
+            if out_cand.suffix.lower() == ".toml":
+                target_path = out_cand.resolve()
+            else:
+                target_path = out_cand.with_suffix(".toml").resolve()
+            if name is None or str(name) == str(output_path):
+                name = target_path.stem
+            else:
+                name = Path(name).stem if str(name).endswith(".toml") else str(name)
+    else:
+        if name is not None:
+            cand = Path(name)
+            if cand.suffix.lower() == ".toml":
+                target_path = cand.resolve()
+                name = cand.stem
+            elif "/" in str(name) or "\\" in str(name):
+                target_path = cand.with_suffix(".toml").resolve()
+                name = cand.stem
+            else:
+                target_path = (Path.cwd() / f"{name}.toml").resolve()
+                name = str(name)
         elif dataset_dir is not None:
             name = Path(dataset_dir).resolve().name
+            target_path = (Path.cwd() / f"{name}.toml").resolve()
         else:
             name = template
-    name = str(name)
+            target_path = (Path.cwd() / f"{name}.toml").resolve()
+
+    while target_path.name.endswith(".toml.toml"):
+        target_path = target_path.with_name(target_path.name[:-5])
+    name = Path(target_path).stem
 
     if dataset_dir is not None:
         dataset_path = Path(dataset_dir).resolve()
@@ -423,16 +489,6 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
         preset_res = int(resolution or 64)
         if preset_res not in (32, 64, 128, 256):
             raise ValueError(f"Unsupported resolution {preset_res}; choose one of 32, 64, 128, 256")
-
-    # Target path resolution
-    if output_path is None:
-        target_path = (Path.cwd() / f"{name}.toml").resolve()
-    else:
-        target_path = Path(output_path).resolve()
-        if target_path.is_dir():
-            target_path = target_path / f"{name}.toml"
-        elif target_path.suffix != ".toml":
-            target_path = target_path.with_suffix(".toml")
 
     if target_path.exists() and not overwrite:
         raise FileExistsError(f"Recipe file already exists: {target_path}")
@@ -503,7 +559,7 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
                 "generator": {
                     "role": "generator",
                     "inputs": {"z": "latent"},
-                    "input_shape": ["B", 128],
+                    "input_shape": {"z": ["B", 128]} if template in ("resnet", "tiny-transformer") else ["B", 128],
                     "output_shape": ["B", c, preset_res, preset_res],
                     "source": gen_source,
                 },
@@ -550,7 +606,7 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
 
     from .toml_writer import dumps as _dumps
     body = _dumps(spec, table_depth=3)
-    text = _add_recipe_comments(body, target_path.name)
+    text = _add_recipe_comments(body, target_path.name, template=template, data_spec=spec.get("data"))
     target_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target_path.with_name(target_path.name + ".tmp")
     tmp_path.write_text(text, encoding="utf-8")
@@ -569,8 +625,8 @@ def init_project(
     overwrite: bool = False,
 ) -> Dict[str, Any]:
     """Initialize a HyperGAN project directory with hypergan.toml, runs/, and configs/<template>.toml."""
-    if template is None:
-        template = "dcgan" if (data_dir is not None or resolution is not None) else "gaussian-grid"
+    if template is None or (template == "dcgan" and data_dir is None and resolution is None):
+        template = "gaussian-grid" if (data_dir is None and resolution is None) else (template or "dcgan")
     template = template.strip().lower()
     if template not in STARTER_TEMPLATES:
         choices = ", ".join(STARTER_TEMPLATES.keys())

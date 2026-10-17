@@ -423,7 +423,8 @@ def resolve_config(raw):
     result = deepcopy(DEFAULT)
     if source == "particlegan":
         result["recipe"] = deepcopy(particlegan_recipe_fields())
-        result['optimizer']['implementation'] = 'recipe'
+        if result['recipe']:
+            result['optimizer']['implementation'] = 'recipe'
         for (section, key), value in particlegan_defaults().items():
             result[section][key] = deepcopy(value)
     elif source != "hypergan":

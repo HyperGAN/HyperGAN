@@ -10,11 +10,12 @@ Verifies:
 """
 
 import json
+from copy import deepcopy
 from pathlib import Path
 import pytest
 
 import hypergan.api as hg
-from hypergan.config import fingerprint, resolve_config
+from hypergan.config import DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, fingerprint, resolve_config
 
 RUNS_DIR = Path("/home/martyn/dev/hypergan/training-runs")
 BACKUP_DIR = RUNS_DIR / ".legacy_toml_backup"
@@ -51,7 +52,28 @@ def test_training_runs_structure(runs_workspace):
     assert len(exp_tomls) == 46, f"Expected exactly 46 experiment TOML files, found {len(exp_tomls)}"
 
 
-def test_all_46_ported_experiments_load_validate_and_preserve_fingerprint(runs_workspace):
+@pytest.fixture
+def published_pg08_defaults(monkeypatch):
+    """Freeze the original port cohort to the published 0.8 K3P contract.
+
+    Both archived recipes and ported model files named the then-current
+    ParticleGAN defaults. Comparing that historical migration under a newer
+    trainer would change the question and rewrite its initialization/recipe
+    identity. Current BISPF defaults have their own configuration tests.
+    """
+    import hypergan.config as configuration
+    original = deepcopy(DEFAULT)
+    original['optimizer'].update(lr=.00425, d_lr_mult=1., prior_lr_mult=2.)
+    original['prior_regularizer']['weight'] = 0.
+    original['training'].update(network_lr_floor=.01, network_lr_horizon_cap=1600,
+                                input_noise_std=.5, output_noise_std=.029)
+    values = {(section, key): deepcopy(original[section][key])
+              for section, key in PARTICLEGAN_DEFAULT_FIELDS}
+    monkeypatch.setattr(configuration, 'particlegan_defaults', lambda: deepcopy(values))
+    monkeypatch.setattr(configuration, 'particlegan_recipe_fields', lambda: {})
+
+
+def test_all_46_ported_experiments_load_validate_and_preserve_fingerprint(runs_workspace, published_pg08_defaults):
     all_tomls = sorted(RUNS_DIR.glob("*.toml"))
     exp_tomls = [p for p in all_tomls if not p.name.endswith("-base.toml") and p.name != "hypergan.toml"]
 

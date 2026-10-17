@@ -81,6 +81,8 @@ def serve(run_dir, *, port=None, host="0.0.0.0", auth="none", session_file=None,
         manifest = read_json(root, 'manifest.json')
         if not isinstance(manifest, dict) or not isinstance(manifest.get('run_id'), str):
             raise ValueError('Selected directory has no valid run manifest')
+        from .web_autostart import ensure_run_projected
+        ensure_run_projected(root)
     elif not root.is_dir():
         raise ValueError('Selected directory does not exist')
     if session_file is not None and Path(session_file).resolve().is_relative_to(root):

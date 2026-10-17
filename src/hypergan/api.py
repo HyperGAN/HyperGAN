@@ -39,18 +39,19 @@ PACKAGED = Path(__file__).with_name('models')
 
 __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
            'model', 'load', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
+           'validate_config', 'init_project',
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
            'train', 'resume', 'open_run', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
-           'lift', 'load_recipe', 'describe', 'data_check', 'preflight', 'serve', 'viewer_status',
+           'lift', 'load_recipe', 'describe', 'data_check', 'check_data', 'preflight', 'preflight_check', 'serve', 'viewer_status',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
            'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
            'resolve_inheritance', 'collect_source_files',
-           'status', 'runs_ls', 'runs_compare', 'gc', 'gc_all', 'compact_events',
+           'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'runs_ls', 'runs_compare', 'gc', 'gc_all', 'compact_events',
            'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
            'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service']
 
@@ -198,6 +199,8 @@ def override(model, changes=None, /, **sections):
 
     norm_changes = {}
     for dotted, value in (changes or {}).items():
+        if dotted.startswith('trainer.'):
+            dotted = 'train.' + dotted[len('trainer.'):]
         if not is_model and (dotted.startswith('train.') or dotted.startswith('training.')):
             field = dotted.split('.', 1)[1]
             if field in OPTIMIZER_FIELDS and 'optimizer' in spec:
@@ -331,6 +334,16 @@ def validate(model):
     resolved = resolve(model)
     extra = model_warnings(model.spec) if is_model_file(model.spec) else []
     return extra + list(resolved['warnings'])
+
+
+validate_config = validate
+
+
+def init_project(project_dir, *, template="dcgan", resolution=None, data_dir=None, output_config=None, device="cuda", overwrite=False):
+    """Initialize a HyperGAN project directory with hypergan.toml, runs/, and configs/<template>.toml."""
+    from .recipe_generator import init_project as _init_project
+    return _init_project(project_dir, template=template, resolution=resolution, data_dir=data_dir,
+                         output_config=output_config, device=device, overwrite=overwrite)
 
 
 def fingerprint(model):
@@ -601,6 +614,40 @@ def prepare(model, run_dir, steps=None, *, profile=None, service_policy=None,
                           **extra)
 
 
+def _load_stored_run_model(run_path: Path):
+    """Load a run's stored Model from recipe.toml, model.toml, config-source/*.toml, or manifest.json."""
+    if (run_path / 'model.toml').is_file():
+        return load(run_path / 'model.toml')
+    if (run_path / 'recipe.toml').is_file():
+        return load(run_path / 'recipe.toml')
+    if (run_path / 'config.toml').is_file():
+        return load(run_path / 'config.toml')
+    cs_dir = run_path / 'config-source'
+    if cs_dir.is_dir():
+        cs_manifest = cs_dir / 'manifest.json'
+        if cs_manifest.is_file():
+            try:
+                cs_data = json.loads(cs_manifest.read_text(encoding='utf-8'))
+                files = cs_data.get('files') or []
+                if files and isinstance(files[0], dict) and files[0].get('snapshot'):
+                    snap = cs_dir / files[0]['snapshot']
+                    if snap.is_file():
+                        return load(snap)
+            except Exception:
+                pass
+        tomls = sorted(cs_dir.rglob('*.toml'))
+        if tomls:
+            return load(tomls[0])
+    if (run_path / 'manifest.json').is_file():
+        with (run_path / 'manifest.json').open('rb') as f:
+            manifest = json.load(f)
+        saved_config = manifest.get('config')
+        if not isinstance(saved_config, dict):
+            raise ValueError(f"Run {run_path} has no recorded configuration in manifest.json")
+        return from_dict(saved_config, base=run_path)
+    raise ValueError(f"Run directory {run_path} does not exist or has no configuration")
+
+
 def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
                    profile=None, service_policy=None, devices=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
@@ -610,24 +657,12 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
     from .execution import prepare_resume as _prepare_resume
     run_path = Path(run_dir).resolve()
     if model is None and (sets or steps is not None):
-        if (run_path / 'model.toml').is_file():
-            model = load(run_path / 'model.toml')
-        elif (run_path / 'recipe.toml').is_file():
-            model = load(run_path / 'recipe.toml')
-        elif (run_path / 'config.toml').is_file():
-            model = load(run_path / 'config.toml')
-        elif (run_path / 'manifest.json').is_file():
-            with (run_path / 'manifest.json').open('rb') as f:
-                manifest = json.load(f)
-            saved_config = manifest.get('config')
-            if not isinstance(saved_config, dict):
-                raise ValueError(f"Run {run_dir} has no recorded configuration in manifest.json")
-            model = from_dict(saved_config, base=run_path)
-        else:
-            raise ValueError(f"Run directory {run_dir} does not exist or has no configuration")
+        model = _load_stored_run_model(run_path)
     if sets:
         normalized_sets = {}
         for k, v in sets.items():
+            if k.startswith('trainer.'):
+                k = 'train.' + k[len('trainer.'):]
             if k.startswith('training.') and hasattr(model, 'spec') and 'train' in model.spec:
                 normalized_sets['train.' + k[len('training.'):]] = v
             elif k.startswith('train.') and hasattr(model, 'spec') and 'training' in model.spec and 'train' not in model.spec:
@@ -958,6 +993,98 @@ def logs(run=None, *, tail=50, follow=False, stream=None):
     """Read or follow formatted training events from a run."""
     from .inspection import read_run_logs as _logs
     return _logs(run, tail=tail, follow=follow, stream=stream)
+
+
+def tag(run, name):
+    """Rename or tag a training run in its manifest, summary, and global registry."""
+    from . import inspection
+    if hasattr(inspection, "tag_run"):
+        res = dict(inspection.tag_run(run, name))
+        run_id = str(res.get("run_id") or res.get("short_id") or "")
+        r_dir = res.get("run_dir", "")
+        r_name = res.get("name", name)
+        res.setdefault("short_id", run_id[:8])
+        res.setdefault("message", f"Tagged {run_id[:8]} as '{r_name}' ({r_dir})")
+        return res
+
+    from .summary import atomic_write_json, read_summary_json
+    run_dir = _run_path(run)
+    if not run_dir.is_dir():
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+    new_name = str(name).strip()
+    if not new_name:
+        raise ValueError("Tag name must be a non-empty string")
+    manifest_p = run_dir / "manifest.json"
+    manifest = {}
+    if manifest_p.is_file():
+        try:
+            manifest = json.loads(manifest_p.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+        manifest["name"] = new_name
+        if isinstance(manifest.get("config"), dict):
+            manifest["config"]["name"] = new_name
+        atomic_write_json(manifest_p, manifest)
+    summary_p = run_dir / "summary.json"
+    summary = read_summary_json(run_dir) or {}
+    if summary_p.is_file() or summary:
+        summary["name"] = new_name
+        atomic_write_json(summary_p, summary)
+    run_id = str(summary.get("run_id") or manifest.get("run_id") or run_dir.name)
+    register_run(run_dir, name=new_name)
+    return {
+        "run_id": run_id,
+        "short_id": run_id[:8],
+        "name": new_name,
+        "run_dir": str(run_dir),
+        "message": f"Tagged {run_id[:8]} as '{new_name}' ({run_dir})",
+    }
+
+
+def rm(run, *, force=False):
+    """Remove a run directory and its registry entry (stops active run if force=True)."""
+    from . import inspection
+    if hasattr(inspection, "remove_run"):
+        res = dict(inspection.remove_run(run, force=force))
+        run_id = str(res.get("run_id") or res.get("short_id") or "")
+        r_dir = res.get("run_dir", "")
+        r_name = res.get("name", Path(r_dir).name if r_dir else "")
+        res.setdefault("short_id", run_id[:8])
+        res.setdefault("message", f"Removed run '{r_name}' ({run_id[:8]}) at {r_dir}")
+        return res
+
+    import shutil
+    from .summary import read_summary_json
+    run_dir = _run_path(run)
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+    is_active, _ = inspection.check_run_active(run_dir)
+    if is_active:
+        if not force:
+            raise RuntimeError(f"Cannot remove active run '{run_dir.name}' without --force")
+        try:
+            stop(run_dir, timeout=10.0)
+        except Exception:
+            pass
+    summary = read_summary_json(run_dir) or {}
+    manifest = {}
+    if (run_dir / "manifest.json").is_file():
+        try:
+            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    run_id = str(summary.get("run_id") or manifest.get("run_id") or run_dir.name)
+    r_name = str(summary.get("name") or manifest.get("name") or manifest.get("config", {}).get("name") or run_dir.name)
+    shutil.rmtree(run_dir)
+    sync_registry(cwd=run_dir.parent)
+    return {
+        "run_id": run_id,
+        "short_id": run_id[:8],
+        "name": r_name,
+        "run_dir": str(run_dir),
+        "removed": True,
+        "message": f"Removed run '{r_name}' ({run_id[:8]}) at {run_dir}",
+    }
 
 
 def runs_ls(root=None, sort="fid", status_filter=None):
@@ -1313,6 +1440,9 @@ def data_check(config, output=None):
     return manifest
 
 
+check_data = data_check
+
+
 def preflight(config, profile=None, runtime=False):
     from .execution_profiles import load_execution_profile
     from .execution_preflight import _resolve_profile, preflight as run_preflight
@@ -1323,6 +1453,11 @@ def preflight(config, profile=None, runtime=False):
     if runtime:
         return run_preflight(cfg, prof)
     return {"schema_version": 1, "stage": "structural", "profile": prof, "runtime_checked": False}
+
+
+def preflight_check(config, profile=None, runtime=True):
+    """Run preflight check on config (defaults to runtime=True)."""
+    return preflight(config, profile=profile, runtime=runtime)
 
 
 def serve(run_dir, port=None, host="0.0.0.0", auth="none", session_file=None, open_browser=False, public_origin=None, dev=False):

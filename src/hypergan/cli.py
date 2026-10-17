@@ -57,7 +57,7 @@ def _run_options(parser):
     from .execution import SERVICE_TIMEOUTS
     for name in SERVICE_TIMEOUTS:
         parser.add_argument("--" + name.replace("_", "-"), type=_positive_seconds,
-                            help="replicated service deadline in seconds (attempt policy)")
+                            help=argparse.SUPPRESS)
     server = parser.add_mutually_exclusive_group()
     server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
     server.add_argument("--no-server", action="store_true", help="train without web imports or listening sockets")
@@ -99,6 +99,9 @@ def _run_options(parser):
                              "(default: g; the real batch is published as x)")
 
 
+_add_run_options = _run_options
+
+
 class _CustomParser(argparse.ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         if args is None:
@@ -123,21 +126,31 @@ def _parser():
     commands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,checkpoint,checkpoints,export,view,queue,model,validate,recipes,gc}",
+        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,validate,recipes,tag,rm,gc,prune}",
     )
     commands.add_parser("version")
     commands.add_parser("recipes", help="List available recipes and qualification status")
     new = commands.add_parser("new", help="Create a starter project or model .toml configuration (does not start training)")
-    new.add_argument("path", nargs="?", type=Path, default=None, help="destination .toml file or project directory")
+    new.add_argument("path", nargs="?", type=Path, default=None, help="destination .toml file, project directory, or dataset directory (when -o is given)")
     new.add_argument("-l", "--list", dest="list_templates", action="store_true", help="list available starter templates and examples")
     new.add_argument("-t", "--template", default=None, choices=("dcgan", "tiny-transformer", "resnet", "gaussian-grid"),
                      help="starter architecture template (default: dcgan with --dataset/--resolution, else gaussian-grid)")
     new.add_argument("-r", "--resolution", type=int, default=None, choices=(32, 64, 128, 256),
                      help="target image resolution (32, 64, 128, 256)")
+    new.add_argument("-o", "--output", type=Path, default=None, help="output .toml file path")
+    new.add_argument("-p", "--project", type=Path, default=None, help="initialize a full HyperGAN project directory with hypergan.toml, runs/, and configs/")
     new.add_argument("--device", default="cuda", help="training device: cuda (default), cuda:N, or explicit cpu")
     new.add_argument("--dataset", type=Path, default=None, help="directory of images to size and generate recipe for")
     validate = commands.add_parser("validate", help="Validate a project without loading training dependencies")
     validate.add_argument("path", type=Path)
+    validate.add_argument("--runtime", action="store_true",
+                          help="also construct the recipe in bounded CPU/CUDA workers (requires train extra)")
+    validate.add_argument("--profile", type=Path, default=None,
+                          help="execution-profile TOML file for --runtime preflight")
+    validate.add_argument("--data", action="store_true",
+                          help="verify dataset directory and emit data inventory manifest")
+    validate.add_argument("--output", type=Path, default=None,
+                          help="write the data manifest to a new file (when --data is passed)")
     preflight = commands.add_parser("preflight")
     preflight.add_argument("config", type=Path)
     preflight.add_argument("--profile", type=Path,
@@ -165,6 +178,14 @@ def _parser():
     stop_cmd.add_argument("--all", action="store_true", help="gracefully stop all active training runs")
     stop_cmd.add_argument("--timeout", type=float, default=15.0, help="seconds to wait for graceful checkpoint shutdown (default: 15)")
     stop_cmd.add_argument("--json", action="store_true", help="output structured JSON")
+    tag_cmd = commands.add_parser("tag", help="Rename or tag a training run in its manifest and global registry")
+    tag_cmd.add_argument("run_dir", type=Path, help="run directory, slug, short ID, or name")
+    tag_cmd.add_argument("name", help="new name or tag for the run")
+    tag_cmd.add_argument("--json", action="store_true", help="output structured JSON")
+    rm_cmd = commands.add_parser("rm", help="Remove a training run directory and its registry entry")
+    rm_cmd.add_argument("run_dir", type=Path, help="run directory, slug, short ID, or name to remove")
+    rm_cmd.add_argument("-f", "--force", action="store_true", help="force removal (stops run first if active)")
+    rm_cmd.add_argument("--json", action="store_true", help="output structured JSON")
     runs = commands.add_parser("runs", help="Inspect and compare experiment runs")
     runs.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
     runs.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
@@ -180,7 +201,7 @@ def _parser():
     runs_compare.add_argument("--metric", required=True, help="metric name to compare (e.g. fid50k_train, loss_g)")
     runs_compare.add_argument("--at", required=True, help="steps to compare at (e.g. 50k,100k,best,latest)")
     runs_compare.add_argument("--csv", action="store_true", help="export comparison as CSV")
-    gc_cmd = commands.add_parser("gc", help="Clean rebuildable views and compact events in finished runs")
+    gc_cmd = commands.add_parser("gc", aliases=["prune"], help="Clean rebuildable views and compact events in finished runs")
     gc_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, or ID to clean")
     gc_cmd.add_argument("--all", action="store_true", help="clean all runs in workspace runs root")
     gc_cmd.add_argument("--dry-run", action="store_true", help="calculate reclaimable space without modifying files")
@@ -247,13 +268,13 @@ def _parser():
     stop_server.add_argument("--all", action="store_true", help="safely kill all legacy leaked viewers and projectors across the host")
     from .evaluation_cli import add_evaluate_parser
     add_evaluate_parser(commands)
-    checkpoint = commands.add_parser("checkpoint", help="Request a checkpoint at the trainer's next safe boundary")
+    checkpoint = commands.add_parser("checkpoint")
     checkpoint.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active run)")
     operation = checkpoint.add_mutually_exclusive_group()
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
     checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
-    checkpoints = commands.add_parser("checkpoints", help="Inspect and manage run checkpoints")
+    checkpoints = commands.add_parser("checkpoints")
     checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True)
     prune = checkpoints_subs.add_parser("prune", help="Prune obsolete checkpoints under the retention policy")
     prune.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
@@ -297,7 +318,9 @@ def _parser():
     sample.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
 
     queue_cmd = commands.add_parser("queue", help="Multi-GPU job queue scheduler, runner daemon, and service generator")
-    queue_subs = queue_cmd.add_subparsers(dest="queue_command")
+    queue_cmd.add_argument("--json", action="store_true", help="output JSON format")
+    queue_cmd.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+    queue_subs = queue_cmd.add_subparsers(dest="queue_command", required=False)
 
     q_add = queue_subs.add_parser("add", help="Enqueue a training experiment or wait directive")
     q_add.add_argument("model_file", type=Path, help="path to experiment model TOML (or run directory if --wait)")
@@ -656,7 +679,8 @@ def _dispatch(args, *, output=None):
         if args.command == "version":
             print(f"hypergan {__version__}")
         elif args.command == "inspect":
-            run = hg.open_run(args.path)
+            target_p = hg.resolve_run_target(None) if args.path is None else args.path
+            run = hg.open_run(target_p)
             _print_json(run.manifest)
         elif args.command == "ps":
             ps_data = hg.ps(all_runs=args.all_runs)
@@ -682,8 +706,48 @@ def _dispatch(args, *, output=None):
                 _print_json(res)
             else:
                 print(res.get("message", f"Stopped {res.get('short_id', '')}"))
+        elif args.command == "tag":
+            from . import inspection
+            if hasattr(inspection, "tag_run"):
+                res = dict(inspection.tag_run(args.run_dir, args.name))
+            else:
+                res = hg.tag(args.run_dir, args.name)
+            run_id_short = str(res.get("short_id") or res.get("run_id", ""))[:8]
+            r_name = res.get("name", args.name)
+            r_dir = res.get("run_dir", str(args.run_dir))
+            res.setdefault("short_id", run_id_short)
+            res.setdefault("message", f"Tagged {run_id_short} as '{r_name}' ({r_dir})")
+            if getattr(args, "json", False) or not sys.stdout.isatty():
+                _print_json(res)
+            else:
+                print(f"Tagged {run_id_short} as '{r_name}' ({r_dir})")
+        elif args.command == "rm":
+            from . import inspection
+            if hasattr(inspection, "remove_run"):
+                res = dict(inspection.remove_run(args.run_dir, force=args.force))
+            else:
+                res = hg.rm(args.run_dir, force=args.force)
+            run_id_short = str(res.get("short_id") or res.get("run_id", ""))[:8]
+            r_dir = res.get("run_dir", str(args.run_dir))
+            r_name = res.get("name", Path(r_dir).name if r_dir else "")
+            res.setdefault("short_id", run_id_short)
+            res.setdefault("message", f"Removed run '{r_name}' ({run_id_short}) at {r_dir}")
+            if getattr(args, "json", False) or not sys.stdout.isatty():
+                _print_json(res)
+            else:
+                print(f"Removed run '{r_name}' ({run_id_short}) at {r_dir}")
         elif args.command == "runs":
-            if getattr(args, "runs_command", None) in (None, "ls"):
+            if getattr(args, "runs_command", None) is None:
+                args.runs_command = "ls"
+                if not hasattr(args, "root"):
+                    args.root = None
+                if not hasattr(args, "sort") or args.sort is None:
+                    args.sort = "updated"
+                if not hasattr(args, "status"):
+                    args.status = None
+                if not hasattr(args, "json"):
+                    args.json = False
+            if args.runs_command == "ls":
                 root_arg = getattr(args, "root", None)
                 runs_list = hg.runs_ls(root_arg, sort=args.sort, status_filter=args.status)
                 if args.json:
@@ -699,7 +763,7 @@ def _dispatch(args, *, output=None):
                 else:
                     from .inspection import format_comparison_table
                     print(format_comparison_table(comp))
-        elif args.command == "gc":
+        elif args.command in {"gc", "prune"}:
             if args.all:
                 res = hg.gc_all(root=args.run_dir, dry_run=args.dry_run, stride=args.stride)
                 from .inspection import format_bytes
@@ -726,12 +790,13 @@ def _dispatch(args, *, output=None):
                 print(f"  Total reclaimed:   {total_str}")
         elif args.command == "model":
             resolved_model_path = args.path
-            if resolved_model_path is None or (not Path(resolved_model_path).exists() and not str(resolved_model_path).endswith(".toml")):
+            if resolved_model_path is None:
+                resolved_model_path = hg.resolve_run_target(None)
+            elif not Path(resolved_model_path).exists() and not str(resolved_model_path).endswith(".toml"):
                 try:
                     resolved_model_path = hg.resolve_run_target(resolved_model_path)
                 except Exception:
-                    if resolved_model_path is None:
-                        raise
+                    pass
             desc = hg.describe(resolved_model_path, networks=args.networks, write=args.write)
             if args.write:
                 from .model_description import MODEL_FILE
@@ -800,17 +865,42 @@ def _dispatch(args, *, output=None):
                     from .recipe_generator import format_starter_templates
                     print(format_starter_templates())
                     return 0
-                if args.path is None:
-                    raise ValueError("path is required (or pass `hypergan new --list` to see starter templates)")
+                proj_dir = getattr(args, "project", None)
                 tmpl = getattr(args, "template", None)
                 res_opt = getattr(args, "resolution", None)
-                if args.dataset is not None or (tmpl is not None and tmpl != "gaussian-grid") or res_opt is not None:
+                out_opt = getattr(args, "output", None)
+                if proj_dir is not None:
+                    dataset_arg = args.dataset if args.dataset is not None else args.path
+                    info = hg.init_project(
+                        proj_dir,
+                        template=tmpl or "dcgan",
+                        resolution=res_opt,
+                        data_dir=dataset_arg,
+                        output_config=out_opt,
+                        device=args.device,
+                    )
+                    print(f"Initialized HyperGAN project in {info['project_dir']}")
+                    print(f"  Workspace config: {info['workspace_config']}")
+                    print(f"  Starter recipe:   {info['recipe_path']}")
+                    print("Next steps:")
+                    for step_cmd in info["next_steps"]:
+                        print(f"  {step_cmd}")
+                    return 0
+                if out_opt is not None and args.path is not None and args.dataset is None:
+                    dataset_arg = args.path
+                    target_dest = out_opt
+                else:
+                    dataset_arg = args.dataset
+                    target_dest = out_opt if out_opt is not None else args.path
+                if target_dest is None:
+                    raise ValueError("path is required (or pass `hypergan new --list` to see starter templates)")
+                if dataset_arg is not None or (tmpl is not None and tmpl != "gaussian-grid") or res_opt is not None:
                     from .recipe_generator import generate_recipe
-                    dest = args.path if args.path.suffix == ".toml" else (args.path / "model.toml" if args.path.is_dir() else args.path.with_suffix(".toml"))
-                    name = args.path.stem
+                    dest = target_dest if target_dest.suffix == ".toml" else (target_dest / "model.toml" if target_dest.is_dir() else target_dest.with_suffix(".toml"))
+                    name = target_dest.stem
                     saved = generate_recipe(
                         name,
-                        args.dataset,
+                        dataset_arg,
                         dest,
                         device=args.device,
                         template=tmpl or "dcgan",
@@ -823,7 +913,7 @@ def _dispatch(args, *, output=None):
                     m = hg.packaged("gaussian-grid")
                     if args.device:
                         m = hg.override(m, {"train.device": args.device})
-                    dest = args.path / "model.toml" if (args.path.is_dir() or args.path.suffix != ".toml") else args.path
+                    dest = target_dest / "model.toml" if (target_dest.is_dir() or target_dest.suffix != ".toml") else target_dest
                     if dest.exists():
                         raise FileExistsError(f"{dest} already exists; choose a new path")
                     saved = hg.save(m, dest)
@@ -840,7 +930,19 @@ def _dispatch(args, *, output=None):
                 warnings = hg.validate(m)
                 for warning in warnings:
                     print(f"warning: {warning}", file=sys.stderr)
-                _print_json(hg.resolve(m))
+                do_runtime = getattr(args, "runtime", False)
+                do_data = getattr(args, "data", False)
+                if do_runtime and do_data:
+                    resolved_cfg = dict(hg.resolve(m))
+                    resolved_cfg["preflight"] = hg.preflight_check(m, profile=getattr(args, "profile", None), runtime=True)
+                    resolved_cfg["data_check"] = hg.check_data(m, output=getattr(args, "output", None))
+                    _print_json(resolved_cfg)
+                elif do_runtime:
+                    _print_json(hg.preflight_check(m, profile=getattr(args, "profile", None), runtime=True))
+                elif do_data:
+                    _print_json(hg.check_data(m, output=getattr(args, "output", None)))
+                else:
+                    _print_json(hg.resolve(m))
         elif args.command in {"train", "resume"}:
             from .execution import SERVICE_TIMEOUTS
             from .registry import is_run_dir as _is_valid_run_dir
@@ -885,13 +987,22 @@ def _dispatch(args, *, output=None):
                         manifest_data = json.loads(manifest_p.read_text(encoding="utf-8"))
                     except Exception:
                         pass
-                if not manifest_data:
-                    if config_override is None:
-                        if (args.run_dir / "recipe.toml").is_file():
-                            config_override = args.run_dir / "recipe.toml"
-                        elif (args.run_dir / "model.toml").is_file():
-                            config_override = args.run_dir / "model.toml"
-                m = hg.load(config_override) if config_override else None
+                needs_stored_cfg = bool(
+                    getattr(args, "steps", None) is not None
+                    or sets
+                    or getattr(args, "eval_every", None) is not None
+                    or getattr(args, "eval_metrics", None) is not None
+                    or not manifest_data
+                )
+                if config_override:
+                    m = hg.load(config_override)
+                elif needs_stored_cfg:
+                    try:
+                        m = hg._load_stored_run_model(args.run_dir)
+                    except Exception:
+                        m = None
+                else:
+                    m = None
                 if m and sets:
                     m = hg.override(m, sets)
 
@@ -1126,9 +1237,15 @@ def _dispatch(args, *, output=None):
         elif args.command == "queue":
             from .queue import format_queue_table, format_queue_status
             if getattr(args, "queue_command", None) is None:
-                jobs = hg.queue_ls()
-                print(format_queue_table(jobs))
-                return 0
+                args.queue_command = "status"
+                if not hasattr(args, "job_id"):
+                    args.job_id = None
+                if not hasattr(args, "lines"):
+                    args.lines = 20
+                if not hasattr(args, "json"):
+                    args.json = False
+                if not hasattr(args, "queue_file"):
+                    args.queue_file = None
 
             if args.queue_command == "add":
                 res = hg.queue_add(
@@ -1147,7 +1264,7 @@ def _dispatch(args, *, output=None):
                 else:
                     print(format_queue_table(jobs))
             elif args.queue_command == "status":
-                st = hg.queue_status(job_id=args.job_id, queue_file=getattr(args, "queue_file", None), lines=args.lines)
+                st = hg.queue_status(job_id=getattr(args, "job_id", None), queue_file=getattr(args, "queue_file", None), lines=getattr(args, "lines", 20))
                 if getattr(args, "json", False):
                     _print_json(st)
                 else:

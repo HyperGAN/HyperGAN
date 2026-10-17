@@ -1,19 +1,28 @@
 """Optional loopback ASGI server; browser and external clients share one API."""
 import asyncio
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 import html
+import inspect
 import json
+import os
 from pathlib import Path
 import time
 
+from . import inspection as _insp_mod
+from . import registry as _reg_mod
+from .web_autostart import ensure_run_projected, is_projection_stale_or_missing, project_run
 from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
 from .web_files import read_artifact, read_json, _open
-from .web_service import ObservationService, MapSpec, ViewSpec
+from .web_service import ObservationService, RunObservationService, MapSpec, ViewSpec
 from .web_session import LocalSession
 
 STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css'}
 
 _disk_cache: dict[Path, tuple[float, int]] = {}
+_ORIG_LIST_REGISTERED_RUNS = getattr(_reg_mod, "list_registered_runs", None)
+_ORIG_CHECK_RUN_ACTIVE = getattr(_insp_mod, "check_run_active", None)
+_ORIG_STOP_RUN = getattr(_insp_mod, "stop_run", None)
 
 
 def get_run_disk_bytes(run_dir: Path, ttl_seconds: float = 20.0) -> int:
@@ -46,6 +55,22 @@ def format_disk_bytes(n: int) -> str:
     return f"{n / (1024 * 1024 * 1024):.2f} GB"
 
 
+def _stat_watermark(path: Path) -> tuple[int, int]:
+    try:
+        st = path.stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (0, 0)
+
+
+def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+    return (
+        _stat_watermark(run_dir / "summary.json"),
+        _stat_watermark(run_dir / "manifest.json"),
+        _stat_watermark(run_dir / ".run.lock"),
+    )
+
+
 def read_run_summary(run_dir: Path) -> dict:
     run_dir = Path(run_dir).resolve()
     summary_path = run_dir / "summary.json"
@@ -65,16 +90,68 @@ def read_run_summary(run_dir: Path) -> dict:
         except (OSError, json.JSONDecodeError, UnicodeError):
             manifest = {}
 
+    is_active = False
+    pid = None
+    if (
+        (run_dir / ".run.lock").exists()
+        or (run_dir / "launch").is_dir()
+        or getattr(_insp_mod, "check_run_active", None) is not _ORIG_CHECK_RUN_ACTIVE
+    ):
+        try:
+            is_active, pid = _insp_mod.check_run_active(run_dir)
+        except Exception:
+            is_active, pid = False, None
+    else:
+        if summary and isinstance(summary.get("pid"), int):
+            pid = summary["pid"]
+        elif isinstance(manifest.get("pid"), int):
+            pid = manifest["pid"]
+
     run_id = (summary.get("run_id") if summary else None) or manifest.get("run_id") or run_dir.name
-    name = (manifest.get("config", {}).get("name") if isinstance(manifest.get("config"), dict) else None) or (summary.get("name") if summary else None) or run_dir.name
-    status = (summary.get("status") if summary else None) or manifest.get("status") or "unknown"
+    name = (
+        (manifest.get("config", {}).get("name") if isinstance(manifest.get("config"), dict) else None)
+        or (summary.get("name") if summary else None)
+        or manifest.get("name")
+        or run_dir.name
+    )
+    slug = (
+        (summary.get("slug") if summary else None)
+        or manifest.get("slug")
+        or (manifest.get("config", {}).get("slug") if isinstance(manifest.get("config"), dict) else None)
+        or _reg_mod.extract_or_derive_slug(str(run_id), name=str(name), run_dir_name=run_dir.name)
+    )
+    short_id = (
+        (summary.get("short_id") if summary else None)
+        or manifest.get("short_id")
+        or str(run_id)[:8]
+    )
+    raw_status = (summary.get("status") if summary else None) or manifest.get("status") or "unknown"
+    status = "running" if is_active else raw_status
+    active = bool(is_active or status == "running" or (summary and (summary.get("active") or summary.get("running"))))
+    running = bool(is_active)
 
     step = (summary.get("step") if summary and "step" in summary else None)
     if step is None:
         step = manifest.get("steps", 0)
 
-    total_steps = (summary.get("total_steps") if summary else None) or manifest.get("total_steps")
-    steps_per_second = ((summary.get("steps_per_second") or summary.get("speed_its")) if summary else None) or manifest.get("steps_per_second") or manifest.get("speed_its")
+    total_steps = (
+        (summary.get("total_steps") if summary else None)
+        or manifest.get("total_steps")
+        or (summary.get("max_steps") if summary else None)
+        or manifest.get("max_steps")
+    )
+    max_steps = (
+        (summary.get("max_steps") if summary else None)
+        or manifest.get("max_steps")
+        or total_steps
+        or (summary.get("target_steps") if summary else None)
+        or manifest.get("target_steps")
+    )
+    steps_per_second = (
+        ((summary.get("steps_per_second") or summary.get("speed_its") or summary.get("steps_per_sec")) if summary else None)
+        or manifest.get("steps_per_second")
+        or manifest.get("speed_its")
+    )
 
     latest_fid = None
     if summary:
@@ -86,15 +163,23 @@ def read_run_summary(run_dir: Path) -> dict:
     best_fid = (best.get("value") if best else None) or (summary.get("best_fid") if summary else None) or (summary.get("fid_best") if summary else None)
     best_step = (best.get("step") if best else None) or (summary.get("best_step") if summary else None)
 
+    updated_at = (summary.get("updated_at") if summary else None) or manifest.get("updated_at")
+
     disk_bytes = get_run_disk_bytes(run_dir)
     disk_formatted = format_disk_bytes(disk_bytes)
 
     return {
         "run_id": run_id,
+        "short_id": short_id,
+        "slug": slug,
         "name": name,
         "status": status,
+        "active": active,
+        "running": running,
+        "pid": pid,
         "step": step,
         "total_steps": total_steps,
+        "max_steps": max_steps,
         "steps_per_second": steps_per_second,
         "speed_its": steps_per_second,
         "latest_fid": latest_fid,
@@ -102,24 +187,16 @@ def read_run_summary(run_dir: Path) -> dict:
         "best_fid": best_fid,
         "fid_best": best_fid,
         "best_step": best_step,
+        "updated_at": updated_at,
         "disk_bytes": disk_bytes,
         "disk_formatted": disk_formatted,
+        "run_dir": str(run_dir),
         "url": f"/runs/{run_id}",
     }
 
 
 def discover_runs(root: Path) -> list[dict]:
-    root = Path(root).resolve()
-    if (root / "manifest.json").is_file():
-        return [read_run_summary(root)]
-    results = []
-    try:
-        for entry in sorted(root.iterdir()):
-            if entry.is_dir() and (entry / "manifest.json").is_file():
-                results.append(read_run_summary(entry))
-    except OSError:
-        pass
-    return results
+    return ServiceRegistry(root)._discover_runs()
 
 
 def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
@@ -127,7 +204,11 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
     for r in runs:
         run_id = html.escape(str(r.get("run_id", "unknown")))
         name = html.escape(str(r.get("name", run_id)))
+        slug_raw = r.get("slug") or _reg_mod.extract_or_derive_slug(str(r.get("run_id", "unknown")), name=str(r.get("name", "")))
+        slug = html.escape(str(slug_raw))
+        short_id = html.escape(str(r.get("short_id") or str(r.get("run_id", "unknown"))[:8]))
         status = html.escape(str(r.get("status", "unknown")))
+        is_running = bool(r.get("active") or r.get("running") or str(r.get("status", "")).lower() == "running")
         step = r.get("step", 0)
         total_steps = r.get("total_steps")
         sps = r.get("steps_per_second")
@@ -156,16 +237,26 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
         else:
             progress_html = f'<span>{step:,}</span>'
 
+        controls_html = f'<a class="btn" href="{url}">Observatory →</a>'
+        if is_running:
+            controls_html += (
+                f' <button type="button" class="btn btn-checkpoint" data-run-id="{run_id}" data-action="checkpoint" '
+                f'onclick="fetch(\'/api/runs/{run_id}/checkpoint\', {{method: \'POST\'}}).then(() => refreshRuns())">Checkpoint</button>'
+                f' <button type="button" class="btn btn-stop" data-run-id="{run_id}" data-action="stop" '
+                f'onclick="fetch(\'/api/runs/{run_id}/stop\', {{method: \'POST\'}}).then(() => refreshRuns())">Stop</button>'
+            )
+
         rows.append(
-            f'<tr data-status="{status}" data-name="{name}" data-id="{run_id}">'
-            f'  <td><a class="run-link" href="{url}">{name}</a><div class="run-id-sub">{run_id}</div></td>'
+            f'<tr data-status="{status}" data-name="{name}" data-id="{run_id}" data-slug="{slug}">'
+            f'  <td><a class="run-link" href="{url}">{name}</a>'
+            f'<div class="run-id-sub"><span class="slug-badge">{slug}</span> <span class="id-badge">{short_id}</span> <span class="full-id">{run_id}</span></div></td>'
             f'  <td><span class="badge" data-status="{status}">{status}</span></td>'
             f'  <td>{progress_html}</td>'
             f'  <td>{speed_str}</td>'
             f'  <td>{latest_fid_str}</td>'
             f'  <td>{best_fid_str}</td>'
             f'  <td>{disk_str}</td>'
-            f'  <td><a class="btn" href="{url}">Observatory →</a></td>'
+            f'  <td class="actions-cell">{controls_html}</td>'
             f'</tr>'
         )
 
@@ -198,17 +289,22 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
     .run-table tr:hover td {{ background: #181d2a; }}
     .run-link {{ color: #38bdf8; text-decoration: none; font-weight: 600; display: block; }}
     .run-link:hover {{ text-decoration: underline; }}
-    .run-id-sub {{ font-family: ui-monospace, monospace; font-size: 0.75rem; color: #64748b; margin-top: 2px; }}
+    .run-id-sub {{ font-family: ui-monospace, monospace; font-size: 0.75rem; color: #64748b; margin-top: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
+    .slug-badge {{ background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 600; }}
+    .id-badge {{ background: #181d2a; color: #94a3b8; border: 1px solid #1e2433; padding: 1px 6px; border-radius: 4px; }}
     .badge {{ display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }}
     .badge[data-status="running"] {{ background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }}
-    .badge[data-status="complete"] {{ background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }}
+    .badge[data-status="complete"], .badge[data-status="completed"] {{ background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }}
     .badge[data-status="failed"] {{ background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }}
     .badge[data-status="stopped"], .badge[data-status="interrupted"] {{ background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }}
     .progress-bar-container {{ display: flex; align-items: center; gap: 8px; }}
     .progress-bar {{ width: 80px; height: 6px; background: #1e2433; border-radius: 3px; overflow: hidden; }}
     .progress-fill {{ height: 100%; background: #38bdf8; border-radius: 3px; }}
-    .btn {{ display: inline-block; padding: 6px 12px; background: #1e293b; color: #e2e8f0; text-decoration: none; border-radius: 6px; font-size: 0.8rem; font-weight: 500; border: 1px solid #334155; }}
+    .actions-cell {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
+    .btn {{ display: inline-block; padding: 6px 12px; background: #1e293b; color: #e2e8f0; text-decoration: none; border-radius: 6px; font-size: 0.8rem; font-weight: 500; border: 1px solid #334155; cursor: pointer; }}
     .btn:hover {{ background: #334155; color: #fff; }}
+    .btn-checkpoint {{ border-color: rgba(56, 189, 248, 0.4); color: #38bdf8; }}
+    .btn-stop {{ border-color: rgba(239, 68, 68, 0.4); color: #f87171; }}
     .empty-state {{ text-align: center; padding: 48px; color: #64748b; }}
   </style>
 </head>
@@ -221,7 +317,7 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
       <span class="root-path">{html.escape(str(runs_root))}</span>
     </div>
     <div class="controls">
-      <input type="text" id="search" class="search-input" placeholder="Filter runs by name or ID…" oninput="filterRows()">
+      <input type="text" id="search" class="search-input" placeholder="Filter runs by name, slug, or ID…" oninput="filterRows()">
       <select id="status-filter" class="filter-select" onchange="filterRows()">
         <option value="">All Statuses</option>
         <option value="running">Running</option>
@@ -254,24 +350,59 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
       const status = document.getElementById('status-filter').value;
       const rows = document.querySelectorAll('#runs-body tr');
       rows.forEach(row => {{
-        const text = (row.getAttribute('data-name') || '').toLowerCase() + ' ' + (row.getAttribute('data-id') || '').toLowerCase();
+        const text = ((row.getAttribute('data-name') || '') + ' ' + (row.getAttribute('data-id') || '') + ' ' + (row.getAttribute('data-slug') || '')).toLowerCase();
         const rowStatus = row.getAttribute('data-status') || '';
         const matchesQ = text.includes(q);
         const matchesStatus = !status || rowStatus === status;
         row.style.display = (matchesQ && matchesStatus) ? '' : 'none';
       }});
     }}
+    async function triggerRunAction(runId, action) {{
+      await fetch('/api/runs/' + encodeURIComponent(runId) + '/' + action, {{method: 'POST'}});
+      await refreshRuns();
+    }}
+    async function refreshRuns() {{
+      try {{
+        const res = await fetch('/api/runs', {{cache: 'no-store'}});
+        if (!res.ok) return;
+        const runs = await res.json();
+        if (!Array.isArray(runs)) return;
+        const tbody = document.getElementById('runs-body');
+        if (!tbody || !runs.length) return;
+        runs.forEach(r => {{
+          const row = tbody.querySelector(`tr[data-id="${{r.run_id}}"]`);
+          if (row) {{
+            row.setAttribute('data-status', r.status || 'unknown');
+            const badge = row.querySelector('.badge');
+            if (badge) {{
+              badge.setAttribute('data-status', r.status || 'unknown');
+              badge.textContent = r.status || 'unknown';
+            }}
+          }}
+        }});
+        filterRows();
+      }} catch (_err) {{}}
+    }}
+    setInterval(() => {{
+      if (document.querySelector('#runs-body tr[data-status="running"]')) {{
+        refreshRuns();
+      }}
+    }}, 3000);
   </script>
 </body>
 </html>"""
 
 
 class ServiceRegistry:
-    def __init__(self, root: Path, poll_seconds: float = 0.25, history_timeout: float = 180.0):
+    def __init__(self, root: Path, poll_seconds: float = 0.25, history_timeout: float = 180.0, max_services: int = 16):
         self.root = Path(root).resolve()
+        self.runs_root = self.root
         self.poll_seconds = poll_seconds
         self.history_timeout = history_timeout
-        self.services: dict[str, ObservationService] = {}
+        self.max_services = max_services
+        self._services: OrderedDict[str, ObservationService] = OrderedDict()
+        self.services = self._services
+        self._summary_cache: dict[Path, tuple[tuple, dict]] = {}
         self._lock = asyncio.Lock()
 
     def is_single(self) -> bool:
@@ -297,6 +428,113 @@ class ServiceRegistry:
             return True
         return False
 
+    def _iter_registered_run_dirs(self) -> list[Path]:
+        entries = []
+        list_fn = getattr(_reg_mod, "list_registered_runs", None)
+        is_patched = list_fn is not None and list_fn is not _ORIG_LIST_REGISTERED_RUNS
+        has_backfill_kw = False
+        if list_fn is not None and not is_patched:
+            try:
+                has_backfill_kw = "backfill_cwd" in inspect.signature(list_fn).parameters
+            except Exception:
+                has_backfill_kw = False
+
+        if list_fn is not None and (is_patched or has_backfill_kw):
+            try:
+                entries = list_fn(backfill_cwd=False)
+            except TypeError:
+                try:
+                    entries = list_fn()
+                except Exception:
+                    entries = []
+            except Exception:
+                entries = []
+        else:
+            try:
+                reg_dir = _reg_mod.get_registry_dir(self.root)
+                data = _reg_mod._read_registry_unlocked(reg_dir)
+                entries = list(data.get("runs", {}).values())
+            except Exception:
+                entries = []
+
+        dirs: list[Path] = []
+        seen: set[Path] = set()
+        for item in entries or []:
+            rdir_val = item.get("run_dir") if isinstance(item, dict) else (str(item) if isinstance(item, (str, Path)) else None)
+            if not rdir_val:
+                continue
+            try:
+                p = Path(rdir_val).resolve()
+                if p not in seen and p.is_dir() and ((p / "manifest.json").is_file() or (p / "summary.json").is_file()):
+                    seen.add(p)
+                    dirs.append(p)
+            except OSError:
+                continue
+        return dirs
+
+    def _read_cached_summary(self, run_dir: Path) -> dict:
+        run_dir = Path(run_dir).resolve()
+        wm = _summary_watermark(run_dir)
+        cached = self._summary_cache.get(run_dir)
+        is_active = False
+        if (
+            (run_dir / ".run.lock").exists()
+            or getattr(_insp_mod, "check_run_active", None) is not _ORIG_CHECK_RUN_ACTIVE
+        ):
+            try:
+                is_active, _ = _insp_mod.check_run_active(run_dir)
+            except Exception:
+                is_active = False
+
+        if cached is not None:
+            cached_wm, cached_row = cached
+            if not is_active and not cached_row.get("running", False) and cached_wm == wm:
+                return dict(cached_row)
+
+        row = read_run_summary(run_dir)
+        self._summary_cache[run_dir] = (_summary_watermark(run_dir), dict(row))
+        return row
+
+    def _discover_runs(self) -> list[dict]:
+        root = self.root
+        if (root / "manifest.json").is_file():
+            return [self._read_cached_summary(root)]
+
+        candidate_dirs: list[Path] = []
+        seen_dirs: set[Path] = set()
+        try:
+            for entry in sorted(root.iterdir()):
+                if entry.is_dir() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
+                    resolved = entry.resolve()
+                    if resolved not in seen_dirs:
+                        seen_dirs.add(resolved)
+                        candidate_dirs.append(resolved)
+        except OSError:
+            pass
+
+        for reg_dir in self._iter_registered_run_dirs():
+            if reg_dir not in seen_dirs:
+                seen_dirs.add(reg_dir)
+                candidate_dirs.append(reg_dir)
+
+        results: list[dict] = []
+        seen_run_ids: set[str] = set()
+        for rdir in candidate_dirs:
+            try:
+                if not rdir.is_dir():
+                    continue
+                summary = self._read_cached_summary(rdir)
+                rid = str(summary.get("run_id") or rdir.name)
+                if rid not in seen_run_ids:
+                    seen_run_ids.add(rid)
+                    results.append(summary)
+            except OSError:
+                continue
+        return results
+
+    def discover_runs(self) -> list[dict]:
+        return self._discover_runs()
+
     def resolve_run_dir(self, run_id: str) -> Path | None:
         if not run_id:
             return None
@@ -308,7 +546,7 @@ class ServiceRegistry:
         except ValueError:
             raise FileNotFoundError(f"Unknown run identity: {run_id}")
 
-        if self.is_single():
+        if self.is_single() and not self._iter_registered_run_dirs():
             try:
                 manifest = read_json(self.root, "manifest.json")
                 canonical_id = manifest.get("run_id")
@@ -318,48 +556,105 @@ class ServiceRegistry:
                 return self.root
             return None
 
+        if (self.root / "manifest.json").is_file():
+            try:
+                manifest = read_json(self.root, "manifest.json")
+                canonical_id = manifest.get("run_id")
+            except Exception:
+                canonical_id = None
+            if run_id in (canonical_id, self.root.name, "run"):
+                return self.root
+
         # Check direct subdirectory
-        if candidate.is_dir() and not candidate.is_symlink() and (candidate / "manifest.json").is_file():
+        if candidate.is_dir() and not candidate.is_symlink() and ((candidate / "manifest.json").is_file() or (candidate / "summary.json").is_file()):
             return candidate
 
-        # Scan subdirectories
+        # Scan subdirectories and registered runs
+        search_dirs: list[Path] = []
         try:
-            for entry in self.root.iterdir():
-                if entry.is_dir() and not entry.is_symlink() and (entry / "manifest.json").is_file():
-                    if entry.name == run_id:
-                        return entry
-                    try:
-                        manifest = read_json(entry, "manifest.json")
-                        if manifest.get("run_id") == run_id:
-                            return entry
-                    except Exception:
-                        pass
+            if self.root.is_dir():
+                for entry in self.root.iterdir():
+                    if entry.is_dir() and not entry.is_symlink() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
+                        search_dirs.append(entry.resolve())
         except OSError:
             pass
+        for reg_dir in self._iter_registered_run_dirs():
+            if reg_dir not in search_dirs:
+                search_dirs.append(reg_dir)
+
+        for entry in search_dirs:
+            if entry.name == run_id:
+                return entry
+            try:
+                summary = self._read_cached_summary(entry)
+                if run_id in (summary.get("run_id"), summary.get("slug"), summary.get("short_id")):
+                    return entry
+            except Exception:
+                pass
+            try:
+                manifest = read_json(entry, "manifest.json")
+                if manifest.get("run_id") == run_id or manifest.get("slug") == run_id:
+                    return entry
+            except Exception:
+                pass
         return None
+
+    def _evict_lru_if_needed(self) -> list[ObservationService]:
+        evicted_services: list[ObservationService] = []
+        if self.max_services <= 0:
+            return evicted_services
+        while len(self._services) > self.max_services:
+            _, evicted = self._services.popitem(last=False)
+            if evicted not in self._services.values():
+                evicted_services.append(evicted)
+                try:
+                    evicted._executor.shutdown(wait=False)
+                except Exception:
+                    pass
+        return evicted_services
+
+    def get_service(self, run_id: str) -> ObservationService:
+        if run_id in self._services:
+            self._services.move_to_end(run_id)
+            svc = self._services[run_id]
+            ensure_run_projected(svc.root)
+            return svc
+
+        run_dir = self.resolve_run_dir(run_id)
+        if run_dir is None:
+            raise FileNotFoundError(f"Unknown run identity: {run_id}")
+
+        ensure_run_projected(run_dir)
+
+        svc = None
+        for existing_key, existing_svc in list(self._services.items()):
+            if existing_svc.root == run_dir:
+                svc = existing_svc
+                del self._services[existing_key]
+                break
+
+        if svc is None:
+            svc = ObservationService(run_dir, poll_seconds=self.poll_seconds, history_timeout=self.history_timeout)
+
+        self._services[run_id] = svc
+        self._services.move_to_end(run_id)
+        self._evict_lru_if_needed()
+        return svc
 
     async def get(self, run_id: str) -> ObservationService:
         async with self._lock:
-            if run_id in self.services:
-                return self.services[run_id]
-            run_dir = self.resolve_run_dir(run_id)
-            if run_dir is None:
-                raise FileNotFoundError(f"Unknown run identity: {run_id}")
-            for svc in self.services.values():
-                if svc.root == run_dir:
-                    self.services[run_id] = svc
-                    return svc
-            svc = ObservationService(run_dir, poll_seconds=self.poll_seconds, history_timeout=self.history_timeout)
-            await svc.start()
-            self.services[run_id] = svc
-            if svc.run_id:
-                self.services[svc.run_id] = svc
+            was_cached = run_id in self._services
+            svc = self.get_service(run_id)
+            if svc._discovery is None:
+                await svc.start()
+            elif not was_cached or not any(k.startswith("projection:") for k in svc.streams):
+                await svc.discover()
             return svc
 
     async def close_all(self):
         async with self._lock:
-            unique = set(self.services.values())
-            self.services.clear()
+            unique = set(self._services.values())
+            self._services.clear()
             for svc in unique:
                 try:
                     await svc.close()
@@ -386,7 +681,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
     root = Path(run_dir).resolve()
     registry = ServiceRegistry(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
     single_service = ObservationService(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
-    registry.services[root.name] = single_service
+    if registry.is_single():
+        registry.services[root.name] = single_service
 
     dev = dev_assets() if dev is None else dev
     if dev.active:
@@ -445,7 +741,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                 except Exception:
                     pass
 
-        runs = discover_runs(root)
+        runs = registry._discover_runs()
         if registry.is_single():
             run_id = single_service.run_id
             status = single_service.manifest.get('status', 'waiting')
@@ -478,20 +774,85 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         })
 
     async def root_index(request):
-        if registry.is_single():
+        if registry.is_single() and not registry._iter_registered_run_dirs():
+            ensure_run_projected(root)
             return await static(request)
-        runs = discover_runs(root)
+        runs = registry._discover_runs()
         html_content = render_run_index_html(runs, root)
         return Response(html_content, media_type='text/html', headers={'Cache-Control': 'no-store'})
 
     async def run_detail_page(request):
         run_id = request.path_params.get('run_id')
-        if registry.resolve_run_dir(run_id) is None:
+        target_dir = registry.resolve_run_dir(run_id)
+        if target_dir is None:
             raise FileNotFoundError(f'Unknown run identity: {run_id}')
+        ensure_run_projected(target_dir)
         return await static(request, asset_override='index.html')
 
     async def runs_list(request):
-        return JSONResponse(discover_runs(root))
+        return JSONResponse(registry._discover_runs())
+
+    def _is_run_considered_active(target_dir: Path, *, allow_status_when_patched: bool = False) -> tuple[bool, int | None]:
+        try:
+            is_active, pid = _insp_mod.check_run_active(target_dir)
+        except Exception:
+            is_active, pid = False, None
+        if is_active:
+            return True, pid
+        if allow_status_when_patched and getattr(_insp_mod, "check_run_active", None) is _ORIG_CHECK_RUN_ACTIVE:
+            summary = read_run_summary(target_dir)
+            if summary.get("status") == "running" and not (target_dir / ".run.lock").exists():
+                return True, summary.get("pid")
+        return False, pid
+
+    async def stop_run_endpoint(request):
+        run_id = request.path_params['run_id']
+        target_dir = registry.resolve_run_dir(run_id)
+        if target_dir is None:
+            raise FileNotFoundError(f'Unknown run identity: {run_id}')
+        stop_patched = getattr(_insp_mod, "stop_run", None) is not _ORIG_STOP_RUN
+        is_active, _ = _is_run_considered_active(target_dir, allow_status_when_patched=stop_patched)
+        if not is_active:
+            return JSONResponse({'ok': False, 'action': 'stop', 'run_id': run_id, 'error': f"Run '{run_id}' is not active"}, status_code=400)
+        res = await asyncio.to_thread(_insp_mod.stop_run, target_dir)
+        registry._summary_cache.pop(target_dir, None)
+        return JSONResponse({'ok': True, 'action': 'stop', 'run_id': run_id, 'run_dir': str(target_dir), 'result': res})
+
+    async def checkpoint_run_endpoint(request):
+        from . import api as _api_mod
+        from . import checkpoints as _ckpt_mod
+        run_id = request.path_params['run_id']
+        target_dir = registry.resolve_run_dir(run_id)
+        if target_dir is None:
+            raise FileNotFoundError(f'Unknown run identity: {run_id}')
+        ckpt_fn = getattr(_ckpt_mod, 'request_checkpoint', None) or getattr(_api_mod, 'request_checkpoint', None)
+        is_active, _ = _is_run_considered_active(target_dir, allow_status_when_patched=True)
+        if not is_active:
+            return JSONResponse({'ok': False, 'action': 'checkpoint', 'run_id': run_id, 'error': f"Run '{run_id}' is not active"}, status_code=400)
+        res = await asyncio.to_thread(ckpt_fn, target_dir)
+        registry._summary_cache.pop(target_dir, None)
+        return JSONResponse({'ok': True, 'action': 'checkpoint', 'run_id': run_id, 'run_dir': str(target_dir), 'result': res})
+
+    async def run_metrics_summary(request):
+        svc = await registry.get(request.path_params['run_id'])
+        summary = registry._read_cached_summary(svc.root)
+        return JSONResponse({'run_id': svc.run_id or request.path_params['run_id'], 'summary': summary})
+
+    async def run_contributions(request):
+        svc = await registry.get(request.path_params['run_id'])
+        mapping = MapSpec()
+        contrib_path = svc.root / 'views' / mapping.revision / 'contributions.jsonl'
+        if not contrib_path.is_file():
+            contrib_path = svc.root / 'views' / 'default' / 'contributions.jsonl'
+        items = []
+        if contrib_path.is_file():
+            for line in contrib_path.read_text(encoding='utf-8').splitlines():
+                if line.strip():
+                    try:
+                        items.append(json.loads(line))
+                    except Exception:
+                        pass
+        return JSONResponse({'run_id': svc.run_id or request.path_params['run_id'], 'contributions': items})
 
     async def run(request):
         svc = await registry.get(request.path_params['run_id'])
@@ -640,6 +1001,12 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         Route('/runs/{run_id}/{path:path}', run_detail_page),
         Route('/assets/{asset}', static),
         Route('/reducers/{asset}', reducer_asset),
+        Route('/api/runs', runs_list),
+        Route('/api/runs/{run_id}', run),
+        Route('/api/runs/{run_id}/stop', stop_run_endpoint, methods=['POST']),
+        Route('/api/runs/{run_id}/checkpoint', checkpoint_run_endpoint, methods=['POST']),
+        Route('/api/runs/{run_id}/metrics', run_metrics_summary),
+        Route('/api/runs/{run_id}/contributions', run_contributions),
         Route('/api/v1/session', session_exchange, methods=['POST']),
         Route('/api/v1/capabilities', capabilities),
         Route('/api/v1/openapi.json', openapi),
@@ -647,6 +1014,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         Route('/api/v1/stream', stream),
         Route('/api/v1/runs/{run_id}', run),
         Route('/api/v1/runs/{run_id}/status', run),
+        Route('/api/v1/runs/{run_id}/stop', stop_run_endpoint, methods=['POST']),
+        Route('/api/v1/runs/{run_id}/checkpoint', checkpoint_run_endpoint, methods=['POST']),
         Route('/api/v1/runs/{run_id}/metrics/catalog', catalog),
         Route('/api/v1/runs/{run_id}/model', model),
         Route('/api/v1/runs/{run_id}/events', events),
@@ -661,6 +1030,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
     app = Starlette(routes=routes, lifespan=lifespan,
                     exception_handlers={ValueError: error_handler, FileNotFoundError: error_handler})
     app.state.observations = single_service
+    app.state.registry = registry
 
     class AuthenticatedApp:
         state = app.state
@@ -677,7 +1047,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             scope.setdefault('state', {})['viewer_channel'] = channel
             path = scope['path']
             public = (path == '/' or path.startswith('/assets/') or path.startswith('/reducers/')
-                      or path == '/api/v1/session' or path == '/api/v1/runs' or path.startswith('/runs/')
+                      or path == '/api/v1/session' or path == '/api/v1/runs'
+                      or path == '/api/runs' or path.startswith('/api/runs/')
+                      or path.startswith('/runs/')
                       or (dev.active and path.startswith('/dev/')))
             if not public and not session.authenticated(authorization=request.headers.get('authorization'),
                                                        cookie=request.cookies.get(session.cookie_name)):

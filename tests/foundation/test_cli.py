@@ -384,3 +384,111 @@ def test_reconstruct_argv_for_reexec_strips_set_flags():
     assert not any(a.startswith("--set") for a in new_argv_inline)
     assert not any(a.startswith("-s") for a in new_argv_inline)
     assert new_argv_inline == ["train", "run_dir/recipe.toml", "--run-dir", "/explicit/run"]
+
+
+def test_cli_train_and_resume_help_hide_rpc_timeout_flags(tmp_path):
+    for subcmd in ("train", "resume"):
+        res = run_cli(tmp_path, subcmd, "--help")
+        assert res.returncode == 0, res.stderr
+        for flag in (
+            "--startup-timeout",
+            "--command-timeout",
+            "--collective-timeout",
+            "--total-timeout",
+            "--observer-timeout",
+            "--preview-timeout",
+        ):
+            assert flag not in res.stdout
+
+
+def test_cli_runs_and_queue_default_subcommands(tmp_path):
+    res_runs = run_cli(tmp_path, "runs", isolated=False)
+    assert res_runs.returncode == 0, res_runs.stderr
+    assert "No runs found" in res_runs.stdout or "Run ID" in res_runs.stdout
+
+    q_file = tmp_path / "queue.json"
+    res_queue = run_cli(tmp_path, "queue", "--queue-file", q_file, isolated=False)
+    assert res_queue.returncode == 0, res_queue.stderr
+    assert "Queue Store:" in res_queue.stdout
+    assert "Total Jobs: 0" in res_queue.stdout
+
+
+def test_cli_validate_runtime_flag(tmp_path):
+    cfg = tmp_path / "toy.toml"
+    res_new = run_cli(tmp_path, "new", cfg, "--device", "cpu", isolated=False)
+    assert res_new.returncode == 0, res_new.stderr
+
+    res_val = run_cli(tmp_path, "validate", cfg, "--runtime", isolated=False)
+    assert res_val.returncode == 0, res_val.stderr
+    report = json.loads(res_val.stdout)
+    assert report["schema_version"] == 1
+    assert report.get("stage") == "runtime" or "workers" in report or "execution" in report
+
+
+def test_cli_tag_prune_rm_and_optional_path_inspect(tmp_path):
+    import hypergan.api as hg
+
+    run_dir = tmp_path / "runs" / "demo_run"
+    run_dir.mkdir(parents=True)
+    manifest = {
+        "schema_version": 1,
+        "run_id": "a1b2c3d4e5f60000",
+        "name": "initial-name",
+        "status": "completed",
+        "steps": 10,
+        "config": {"name": "initial-name", "training": {"steps": 10, "device": "cpu"}},
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    hg.register_run(run_dir)
+
+    # 1. Optional path on inspect (resolves latest registered run)
+    res_insp = run_cli(tmp_path, "inspect", isolated=False)
+    assert res_insp.returncode == 0, res_insp.stderr
+    assert json.loads(res_insp.stdout)["run_id"] == "a1b2c3d4e5f60000"
+
+    # 2. hypergan tag
+    res_tag = run_cli(tmp_path, "tag", run_dir, "promoted-baseline", isolated=False)
+    assert res_tag.returncode == 0, res_tag.stderr
+    tag_out = json.loads(res_tag.stdout)
+    assert tag_out["name"] == "promoted-baseline"
+    assert json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["name"] == "promoted-baseline"
+
+    # 3. hypergan prune (alias for gc)
+    res_prune = run_cli(tmp_path, "prune", run_dir, "--dry-run", isolated=False)
+    assert res_prune.returncode == 0, res_prune.stderr
+    assert "Would clean run:" in res_prune.stdout
+
+    # 4. hypergan rm
+    res_rm = run_cli(tmp_path, "rm", run_dir, isolated=False)
+    assert res_rm.returncode == 0, res_rm.stderr
+    assert not run_dir.exists()
+
+
+def test_cli_resume_steps_without_config_flag(tmp_path):
+    cfg = tmp_path / "toy_resume.toml"
+    run_cli(tmp_path, "new", cfg, "--device", "cpu", isolated=False)
+    run_dir = tmp_path / "run_resume_test"
+
+    # Train 2 steps with constant LR (lr_floor=1.0) and checkpoint_every=1
+    res_train = run_cli(
+        tmp_path, "train", cfg,
+        "--run-dir", run_dir,
+        "--steps", "2",
+        "-s", "train.lr_floor=1.0",
+        "--checkpoint-every", "1",
+        "--no-server",
+        isolated=False,
+    )
+    assert res_train.returncode == 0, res_train.stderr
+
+    # Resume to 4 steps WITHOUT passing --config
+    res_resume = run_cli(
+        tmp_path, "resume", run_dir,
+        "--steps", "4",
+        "--no-server",
+        isolated=False,
+    )
+    assert res_resume.returncode == 0, res_resume.stderr
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["steps"] == 4
+

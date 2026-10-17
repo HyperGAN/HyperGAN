@@ -81,8 +81,9 @@ def test_new_list_templates(isolated_env, capsys):
 def test_scaffold_and_validate_gaussian_grid_project(isolated_env, tmp_path, capsys):
     """Scaffolding a gaussian-grid project and validating both the config file and project directory."""
     proj_dir = tmp_path / "proj_gauss"
+    # When invoked without --dataset or --template, defaults to gaussian-grid (R2-5)
     rc, out, err = _invoke_cli(
-        capsys, "new", "--project", str(proj_dir), "--template", "gaussian-grid", "--device", "cpu"
+        capsys, "new", "--project", str(proj_dir), "--device", "cpu"
     )
     assert rc == 0, err
     cfg_file = proj_dir / "configs" / "gaussian-grid.toml"
@@ -90,9 +91,18 @@ def test_scaffold_and_validate_gaussian_grid_project(isolated_env, tmp_path, cap
     assert (proj_dir / "hypergan.toml").is_file()
     assert (proj_dir / "runs").is_dir()
 
-    # Validate explicit config path
+    # Validate explicit config path without --json prints concise human summary (R2-9)
     rc_cfg, out_cfg, err_cfg = _invoke_cli(capsys, "validate", str(cfg_file))
     assert rc_cfg == 0, err_cfg
+    assert "Valid:" in out_cfg
+    assert "Recipe:" in out_cfg
+    assert "Device:" in out_cfg
+
+    # Validate explicit config path with --json produces parseable JSON dictionary
+    rc_json, out_json, err_json = _invoke_cli(capsys, "validate", str(cfg_file), "--json")
+    assert rc_json == 0, err_json
+    payload = json.loads(out_json)
+    assert isinstance(payload, dict)
 
     # Validate project directory directly
     rc_dir, out_dir, err_dir = _invoke_cli(capsys, "validate", str(proj_dir))
@@ -233,3 +243,84 @@ def test_greenfield_lifecycle_zero_arg_and_cross_directory(isolated_env, tmp_pat
     rm_data = json.loads(out_rm)
     assert rm_data.get("removed") is True
     assert not run_dir.exists()
+
+
+@pytest.mark.parametrize("template_name", ["gaussian-grid", "dcgan", "resnet", "tiny-transformer"])
+def test_all_starter_templates_pass_runtime_and_model_validation(isolated_env, tmp_path, capsys, template_name):
+    """All 4 starter templates must pass validate --runtime and model --networks out of the box (R2-5)."""
+    synth_dir = tmp_path / f"synth_{template_name}"
+    synth_dir.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGB", (32, 32), color=(100, 150, 200))
+    img.save(synth_dir / "sample.png")
+
+    proj_dir = tmp_path / f"proj_{template_name}"
+    cmd = ["new", "--project", str(proj_dir), "--template", template_name, "--device", "cpu"]
+    if template_name != "gaussian-grid":
+        cmd.extend(["--dataset", str(synth_dir)])
+    rc, out, err = _invoke_cli(capsys, *cmd)
+    assert rc == 0, err
+    cfg_file = proj_dir / "configs" / f"{template_name}.toml"
+    assert cfg_file.is_file()
+
+    # 1. validate --runtime passes with exit code 0
+    rc_rt, out_rt, err_rt = _invoke_cli(capsys, "validate", str(cfg_file), "--runtime", "--json")
+    assert rc_rt == 0, f"validate --runtime failed for {template_name}: {err_rt}"
+    rt_data = json.loads(out_rt)
+    assert isinstance(rt_data, dict)
+
+    # 2. model --networks passes without undefined variable 'z'
+    rc_mod, out_mod, err_mod = _invoke_cli(capsys, "model", str(cfg_file), "--networks")
+    assert rc_mod == 0, f"model --networks failed for {template_name}: {err_mod}"
+    net_data = json.loads(out_mod)
+    nets = net_data.get("networks", net_data)
+    net_names = [n["name"] for n in nets] if isinstance(nets, list) else list(nets)
+    assert "generator" in net_names
+
+
+def test_standalone_pt_bundle_sampling_cli(isolated_env, tmp_path, capsys):
+    """Users can sample directly from an exported .pt bundle with --count, --seed, --output (R2-6, R2-11)."""
+    proj_dir = tmp_path / "proj_bundle"
+    rc, _, err = _invoke_cli(capsys, "new", "--project", str(proj_dir), "--device", "cpu")
+    assert rc == 0, err
+    cfg_file = proj_dir / "configs" / "gaussian-grid.toml"
+
+    # Train a 1-step run to produce checkpoint
+    rc_train, _, err_train = _invoke_cli(capsys, "train", str(cfg_file), "--steps", "1", "-d", "cpu", "--no-server")
+    assert rc_train == 0, err_train
+
+    # Export inference bundle
+    bundle_file = tmp_path / "exported_bundle.pt"
+    rc_exp, out_exp, err_exp = _invoke_cli(capsys, "export", "--output", str(bundle_file), "--json")
+    assert rc_exp == 0, err_exp
+    assert bundle_file.is_file()
+
+    # Sample from bundle directly
+    sample_out = tmp_path / "bundle_sample.json"
+    rc_samp, out_samp, err_samp = _invoke_cli(
+        capsys, "sample", str(bundle_file), "--count", "4", "--seed", "42", "--output", str(sample_out), "--json"
+    )
+    assert rc_samp == 0, err_samp
+    assert sample_out.is_file()
+    # Check permissions 0644
+    assert oct(sample_out.stat().st_mode & 0o777) == "0o644"
+    sample_data = json.loads(sample_out.read_text(encoding="utf-8"))
+    assert sample_data.get("count") == 4
+    assert sample_data.get("seed") == 42
+    assert len(sample_data.get("samples", [])) == 4
+
+
+def test_new_dataset_inspection_and_rgba_warning(isolated_env, tmp_path, capsys):
+    """hypergan new --dataset reports count/res/mode to stderr and emits RGBA warning (R2-11)."""
+    rgba_dir = tmp_path / "synth_rgba"
+    rgba_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(4):
+        img = Image.new("RGBA", (16, 16), color=(255, 0, 0, 128))
+        img.save(rgba_dir / f"rgba_{i}.png")
+
+    proj_dir = tmp_path / "proj_rgba"
+    rc, out, err = _invoke_cli(capsys, "new", "--project", str(proj_dir), "--dataset", str(rgba_dir), "--device", "cpu")
+    assert rc == 0, err
+    assert "RGBA" in err or "alpha" in err.lower()
+    assert "4 images" in err or "4" in err
+    assert "16x16" in err
+

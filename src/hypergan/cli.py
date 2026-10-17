@@ -120,29 +120,51 @@ def _parser():
         prog="hypergan", description="Create, validate, and run reproducible GAN projects."
     )
     parser.add_argument("--version", action="version", version=f"hypergan {__version__}")
-    commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("version", help="Show the installed version")
+    commands = parser.add_subparsers(
+        dest="command",
+        required=True,
+        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,checkpoint,checkpoints,export,view,queue,model,validate,recipes,gc}",
+    )
+    commands.add_parser("version")
     commands.add_parser("recipes", help="List available recipes and qualification status")
-    new = commands.add_parser("new", help="Create a reference project configuration")
-    new.add_argument("path", type=Path)
+    new = commands.add_parser("new", help="Create a starter project or model .toml configuration (does not start training)")
+    new.add_argument("path", nargs="?", type=Path, default=None, help="destination .toml file or project directory")
+    new.add_argument("-l", "--list", dest="list_templates", action="store_true", help="list available starter templates and examples")
+    new.add_argument("-t", "--template", default=None, choices=("dcgan", "tiny-transformer", "resnet", "gaussian-grid"),
+                     help="starter architecture template (default: dcgan with --dataset/--resolution, else gaussian-grid)")
+    new.add_argument("-r", "--resolution", type=int, default=None, choices=(32, 64, 128, 256),
+                     help="target image resolution (32, 64, 128, 256)")
     new.add_argument("--device", default="cuda", help="training device: cuda (default), cuda:N, or explicit cpu")
     new.add_argument("--dataset", type=Path, default=None, help="directory of images to size and generate recipe for")
     validate = commands.add_parser("validate", help="Validate a project without loading training dependencies")
     validate.add_argument("path", type=Path)
-    preflight = commands.add_parser("preflight", help="Check an execution profile before training")
+    preflight = commands.add_parser("preflight")
     preflight.add_argument("config", type=Path)
     preflight.add_argument("--profile", type=Path,
                            help="execution-profile TOML file; omitted uses the configured native device")
     preflight.add_argument("--runtime", action="store_true",
                            help="also construct the recipe in bounded CPU/CUDA workers (requires train extra)")
-    data_check = commands.add_parser("data-check", help="Validate an image_folder inventory and preprocessing")
+    data_check = commands.add_parser("data-check")
     data_check.add_argument("config", type=Path)
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
-    inspect = commands.add_parser("inspect", help="Read a run manifest without loading model weights")
+    inspect = commands.add_parser("inspect")
     inspect.add_argument("path", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or manifest path")
+    ps_cmd = commands.add_parser("ps", help="List active training runs, GPU VRAM, and queued jobs (or -a for all runs)")
+    ps_cmd.add_argument("-a", "--all", dest="all_runs", action="store_true", help="show all runs (default shows only active runs)")
+    ps_cmd.add_argument("-q", "--quiet", action="store_true", help="only display short run IDs")
+    ps_cmd.add_argument("--json", action="store_true", help="output structured JSON")
     status_cmd = commands.add_parser("status", help="Show a concise, human-friendly status summary of a run")
     status_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active or latest run)")
     status_cmd.add_argument("--json", action="store_true", help="output structured status as JSON")
+    logs_cmd = commands.add_parser("logs", help="View or follow (-f) live formatted training logs for a run")
+    logs_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active or latest run)")
+    logs_cmd.add_argument("-f", "--follow", action="store_true", help="follow live log output (Ctrl+C detaches without stopping training)")
+    logs_cmd.add_argument("-n", "--tail", type=int, default=50, help="number of recent log lines to show (default: 50)")
+    stop_cmd = commands.add_parser("stop", help="Gracefully stop an active training run (saves checkpoint and halts)")
+    stop_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="active run directory, slug, short ID, or name (default: active run)")
+    stop_cmd.add_argument("--all", action="store_true", help="gracefully stop all active training runs")
+    stop_cmd.add_argument("--timeout", type=float, default=15.0, help="seconds to wait for graceful checkpoint shutdown (default: 15)")
+    stop_cmd.add_argument("--json", action="store_true", help="output structured JSON")
     runs = commands.add_parser("runs", help="Inspect and compare experiment runs")
     runs.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
     runs.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
@@ -169,26 +191,26 @@ def _parser():
                        help="also build each component on the meta device for per-layer detail (loads torch)")
     model.add_argument("--write", action="store_true",
                        help="record the per-layer detail as RUN/model.json for the viewer (implies --networks)")
-    events = commands.add_parser("events", help="Read a bounded page of run events without loading training")
+    events = commands.add_parser("events")
     events.add_argument("run_dir", nargs="?", type=Path, default=None)
     events.add_argument("--cursor", help="opaque cursor returned by the previous page")
     events.add_argument("--limit", type=_positive_int, default=100)
     events.add_argument("--max-bytes", type=_positive_int, default=1048576)
-    metrics = commands.add_parser("metrics", help="Read immutable metric definitions without loading training")
+    metrics = commands.add_parser("metrics")
     metrics.add_argument("run_dir", nargs="?", type=Path, default=None)
     metrics.add_argument("--revision", help="historical catalog SHA256 (default: active catalog)")
-    project = commands.add_parser("project", help="Build Python event-map contributions independently of serving")
+    project = commands.add_parser("project")
     project.add_argument("run_dir", nargs="?", type=Path, default=None)
     project.add_argument("--map-spec", type=Path, help="JSON MapSpec; default selects published scalar metrics")
     project.add_argument("--follow", action="store_true", help="continue projecting newly completed events")
     project.add_argument("--limit", type=_positive_int, default=100, help="documents per bounded work page")
-    contributions = commands.add_parser("contributions", help="Read a bounded page of mapped event frames")
+    contributions = commands.add_parser("contributions")
     contributions.add_argument("run_dir", nargs="?", type=Path, default=None)
     contributions.add_argument("--map-revision", help="map SHA256 (default: built-in scalar map)")
     contributions.add_argument("--cursor", help="last applied projection cursor")
     contributions.add_argument("--limit", type=_positive_int, default=100)
     contributions.add_argument("--max-bytes", type=_positive_int, default=1048576)
-    serve = commands.add_parser("serve", help="Serve an existing run over the local API and browser UI (web extra)")
+    serve = commands.add_parser("serve")
     serve.add_argument("run_dir", nargs="?", type=Path, default=None)
     from .ports import DEFAULT_VIEWER_PORT
     serve.add_argument("--port", "--server-port", dest="port", type=int,
@@ -218,9 +240,9 @@ def _parser():
                       help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     view.add_argument("--public-origin", type=_public_origin, metavar="URL",
                       help="absolute origin of a TLS proxy in front of the viewer")
-    server_status = commands.add_parser("server-status", help="Read the automatic viewer URL, status and log location")
+    server_status = commands.add_parser("server-status")
     server_status.add_argument("run_dir", nargs="?", type=Path, default=None)
-    stop_server = commands.add_parser("stop-server", help="Stop the persistent automatic viewer or all viewers across the host")
+    stop_server = commands.add_parser("stop-server")
     stop_server.add_argument("run_dir", type=Path, nargs="?", default=None, help="run or root directory to stop")
     stop_server.add_argument("--all", action="store_true", help="safely kill all legacy leaked viewers and projectors across the host")
     from .evaluation_cli import add_evaluate_parser
@@ -240,7 +262,7 @@ def _parser():
     export.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
     export.add_argument("--checkpoint", default="latest", help="target checkpoint: best, latest, step number, or path")
     export.add_argument("-o", "--output", type=Path, help="output file or directory (default: <run_dir>/model.pt)")
-    convert = commands.add_parser("convert", help="Convert legacy engine recipe to hypergan-model/1 TOML")
+    convert = commands.add_parser("convert")
     convert.add_argument("recipe", type=Path, help="path to legacy recipe TOML")
     convert.add_argument("--output", type=Path, required=True, help="output model.toml destination")
     def _add_train_and_resume_arguments(p, *, is_resume=False):
@@ -636,6 +658,15 @@ def _dispatch(args, *, output=None):
         elif args.command == "inspect":
             run = hg.open_run(args.path)
             _print_json(run.manifest)
+        elif args.command == "ps":
+            ps_data = hg.ps(all_runs=args.all_runs)
+            if args.json:
+                _print_json(ps_data)
+            else:
+                from .inspection import format_ps_table
+                out_str = format_ps_table(ps_data, all_runs=args.all_runs, quiet=args.quiet)
+                if out_str:
+                    print(out_str)
         elif args.command == "status":
             res = hg.status(args.run_dir)
             if args.json:
@@ -643,6 +674,14 @@ def _dispatch(args, *, output=None):
             else:
                 from .inspection import format_run_status
                 print(format_run_status(res))
+        elif args.command == "logs":
+            hg.logs(args.run_dir, tail=args.tail, follow=args.follow)
+        elif args.command == "stop":
+            res = hg.stop(args.run_dir, stop_all=args.all, timeout=args.timeout)
+            if args.json:
+                _print_json(res)
+            else:
+                print(res.get("message", f"Stopped {res.get('short_id', '')}"))
         elif args.command == "runs":
             if getattr(args, "runs_command", None) in (None, "ls"):
                 root_arg = getattr(args, "root", None)
@@ -757,11 +796,26 @@ def _dispatch(args, *, output=None):
             _print_json(hg.preflight(cfg, profile=args.profile, runtime=args.runtime))
         elif args.command in {"new", "validate", "recipes", "convert"}:
             if args.command == "new":
-                if args.dataset is not None:
+                if getattr(args, "list_templates", False):
+                    from .recipe_generator import format_starter_templates
+                    print(format_starter_templates())
+                    return 0
+                if args.path is None:
+                    raise ValueError("path is required (or pass `hypergan new --list` to see starter templates)")
+                tmpl = getattr(args, "template", None)
+                res_opt = getattr(args, "resolution", None)
+                if args.dataset is not None or (tmpl is not None and tmpl != "gaussian-grid") or res_opt is not None:
                     from .recipe_generator import generate_recipe
                     dest = args.path if args.path.suffix == ".toml" else (args.path / "model.toml" if args.path.is_dir() else args.path.with_suffix(".toml"))
                     name = args.path.stem
-                    saved = generate_recipe(name, args.dataset, dest, device=args.device)
+                    saved = generate_recipe(
+                        name,
+                        args.dataset,
+                        dest,
+                        device=args.device,
+                        template=tmpl or "dcgan",
+                        resolution=res_opt,
+                    )
                     print(saved)
                 else:
                     from .config import validate_device
@@ -1058,11 +1112,12 @@ def _dispatch(args, *, output=None):
                     dev = train_sec.get("device", "cuda")
                     dashboard_url = getattr(args, "_dashboard_url", None)
                     _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url)
-                human_footer = (not is_resume_cmd) and not getattr(args, "progress_json", False)
+                is_tty = bool(getattr(output.stdout.original, "isatty", lambda: False)()) if output and hasattr(output, "stdout") else False
+                human_footer = (not is_resume_cmd or is_tty) and not getattr(args, "progress_json", False)
                 output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir, human=human_footer)
         elif args.command == "sample":
             s = hg.sample(args.run_dir, count=args.count, seed=args.seed, output=args.output,
-                          checkpoint=getattr(args, "checkpoint", None))
+                          checkpoint=getattr(args, "checkpoint", None), default_image_png=True)
             if getattr(args, "sampler", None):
                 view_obj = hg.view(s, args.sampler, run=args.run_dir)
                 if hasattr(view_obj, "save") and args.output:

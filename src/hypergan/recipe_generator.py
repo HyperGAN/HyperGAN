@@ -74,9 +74,84 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
     }
 
 
-def get_hndl_templates(width: int, height: int, channels: int) -> Tuple[str, str]:
-    """Select optimal generator and critic HNDL architecture templates for resolution."""
+STARTER_TEMPLATES = {
+    "dcgan": {
+        "name": "dcgan",
+        "description": "Convolutional DCGAN starter (supports 32, 64, 128, 256px images)",
+        "resolutions": [32, 64, 128, 256],
+    },
+    "tiny-transformer": {
+        "name": "tiny-transformer",
+        "description": "Tiny Transformer generator + conv critic (64 spatial tokens + upsampling)",
+        "resolutions": [32, 64, 128, 256],
+    },
+    "resnet": {
+        "name": "resnet",
+        "description": "Residual upsampling generator + conv critic with skip connections",
+        "resolutions": [32, 64, 128, 256],
+    },
+    "gaussian-grid": {
+        "name": "gaussian-grid",
+        "description": "2D mixture-of-Gaussians toy reference model (no external dataset needed)",
+        "resolutions": [],
+    },
+}
+
+
+def list_starter_templates() -> list[dict[str, Any]]:
+    """Return available starter templates for `hypergan new`."""
+    return list(STARTER_TEMPLATES.values())
+
+
+def format_starter_templates() -> str:
+    """Format starter templates and usage examples for `hypergan new --list`."""
+    lines = [
+        "Available HyperGAN Starter Templates:",
+        "  Template          Resolutions       Description",
+        "  ----------------  ----------------  -----------------------------------------------------------------",
+    ]
+    for t in STARTER_TEMPLATES.values():
+        res_str = ", ".join(str(r) for r in t["resolutions"]) if t["resolutions"] else "N/A (2D toy)"
+        lines.append(f"  {t['name']:<16}  {res_str:<16}  {t['description']}")
+    lines.extend([
+        "",
+        "Examples:",
+        "  hypergan new my_cifar.toml --dataset ./data/cifar10",
+        "  hypergan new my_transformer.toml --template tiny-transformer --resolution 64",
+        "  hypergan new my_resnet.toml --template resnet --dataset ./data/faces",
+        "  hypergan new toy_2d.toml",
+    ])
+    return "\n".join(lines)
+
+
+def _upsample_conv_tail(start_res: int, target_res: int, channels: int) -> str:
+    """Build nearest-neighbor upsample + conv layers from start_res to target_res."""
+    cur = start_res
+    ch = 256
+    blocks = []
+    while cur < target_res:
+        cur *= 2
+        next_ch = max(32, ch // 2)
+        blocks.append(f'h = upsample(h, 2, mode="nearest")')
+        blocks.append(f'h = conv(h, {next_ch}, kernel_size=3, padding=1, name="conv{cur}")')
+        blocks.append("h = leaky_relu(h, 0.2)")
+        ch = next_ch
+    blocks.append(f'h = conv(h, {channels}, kernel_size=3, padding=1, name="rgb")')
+    blocks.append("out = tanh(h)")
+    return "\n".join(blocks)
+
+
+def get_hndl_templates(width: int, height: int, channels: int, template: str = "dcgan") -> Tuple[str, str]:
+    """Select optimal generator and critic HNDL architecture templates for resolution and template style."""
     max_dim = max(width, height)
+    if max_dim <= 32:
+        preset_res = 32
+    elif max_dim <= 64:
+        preset_res = 64
+    elif max_dim <= 128:
+        preset_res = 128
+    else:
+        preset_res = 256
 
     if max_dim <= 32:
         # CIFAR-32 template
@@ -213,33 +288,85 @@ conv(1, kernel_size=4, stride=1, padding=0)
 flatten()
 """
 
+    if template == "tiny-transformer":
+        tail = _upsample_conv_tail(8, preset_res, channels)
+        gen = f"""
+h = linear(z, 16384, name="input_projection")
+h = reshape(h, 64, 256)
+branch = layer_norm(h, name="block0_attention_norm")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=True, out_bias=True, name="block0_attention")
+h = add(h, branch)
+branch = layer_norm(h, name="block0_ffn_norm")
+branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block0_ffn")
+h = add(h, branch)
+branch = layer_norm(h, name="block1_attention_norm")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=True, out_bias=True, name="block1_attention")
+h = add(h, branch)
+branch = layer_norm(h, name="block1_ffn_norm")
+branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block1_ffn")
+h = add(h, branch)
+h = permute(h, 2, 1)
+h = reshape(h, 256, 8, 8)
+{tail}
+"""
+    elif template == "resnet":
+        tail = _upsample_conv_tail(8, preset_res, channels)
+        gen = f"""
+h = linear(z, 16384, name="input_projection")
+h = reshape(h, 256, 8, 8)
+skip = h
+h = conv(h, 256, kernel_size=3, padding=1, name="res0_conv1")
+h = leaky_relu(h, 0.2)
+h = conv(h, 256, kernel_size=3, padding=1, name="res0_conv2")
+h = add(h, skip)
+h = leaky_relu(h, 0.2)
+{tail}
+"""
+
     return gen.strip(), disc.strip()
 
 
 def generate_recipe(name: str,
-                    dataset_dir: Union[Path, str],
+                    dataset_dir: Optional[Union[Path, str]] = None,
                     output_path: Optional[Union[Path, str]] = None,
                     overwrite: bool = False,
-                    device: str = "cuda") -> Path:
-    """Generate and save a runnable hypergan-model/1 recipe for dataset_dir."""
-    dataset_path = Path(dataset_dir).resolve()
-    info = inspect_image_dataset(dataset_path)
+                    device: str = "cuda",
+                    template: str = "dcgan",
+                    resolution: Optional[int] = None) -> Path:
+    """Generate and save a runnable hypergan-model/1 recipe for dataset_dir or template/resolution."""
+    from .config import validate_device
+    validate_device(device)
 
-    w = info["width"]
-    h = info["height"]
-    c = info["channels"]
-    mode = info["mode"]
-    preset_res = info.get("preset_res")
-    if preset_res is None:
-        max_dim = max(w, h)
-        if max_dim <= 32:
-            preset_res = 32
-        elif max_dim <= 64:
-            preset_res = 64
-        elif max_dim <= 128:
-            preset_res = 128
-        else:
-            preset_res = 256
+    template = (template or "dcgan").strip().lower()
+    if template not in STARTER_TEMPLATES:
+        choices = ", ".join(STARTER_TEMPLATES.keys())
+        raise ValueError(f"Unknown starter template {template!r}; choose one of: {choices}")
+
+    if dataset_dir is not None:
+        dataset_path = Path(dataset_dir).resolve()
+        info = inspect_image_dataset(dataset_path)
+        w = info["width"]
+        h = info["height"]
+        c = info["channels"]
+        mode = info["mode"]
+        preset_res = resolution or info.get("preset_res")
+        if preset_res is None:
+            max_dim = max(w, h)
+            if max_dim <= 32:
+                preset_res = 32
+            elif max_dim <= 64:
+                preset_res = 64
+            elif max_dim <= 128:
+                preset_res = 128
+            else:
+                preset_res = 256
+    else:
+        dataset_path = None
+        c = 3
+        mode = "RGB"
+        preset_res = int(resolution or 64)
+        if preset_res not in (32, 64, 128, 256):
+            raise ValueError(f"Unsupported resolution {preset_res}; choose one of 32, 64, 128, 256")
 
     # Target path resolution
     if output_path is None:
@@ -256,20 +383,28 @@ def generate_recipe(name: str,
 
     # Check workspace data path interpolation
     ws_file = find_workspace(target_path) or find_workspace(Path.cwd())
-    root_str = str(dataset_path)
-    if ws_file:
-        from .workspace import load_workspace
-        ws_data = load_workspace(ws_file)
-        paths_sec = ws_data.get("paths", {})
-        if "data" in paths_sec:
-            data_root = Path(paths_sec["data"]).resolve()
-            try:
-                rel = dataset_path.relative_to(data_root)
-                root_str = f"${{paths.data}}/{rel.as_posix()}" if str(rel) != "." else "${paths.data}"
-            except ValueError:
-                root_str = str(dataset_path)
+    if dataset_path is not None:
+        root_str = str(dataset_path)
+        if ws_file:
+            from .workspace import load_workspace
+            ws_data = load_workspace(ws_file)
+            paths_sec = ws_data.get("paths", {})
+            if "data" in paths_sec:
+                data_root = Path(paths_sec["data"]).resolve()
+                try:
+                    rel = dataset_path.relative_to(data_root)
+                    root_str = f"${{paths.data}}/{rel.as_posix()}" if str(rel) != "." else "${paths.data}"
+                except ValueError:
+                    root_str = str(dataset_path)
+    else:
+        root_str = "./data"
+        if ws_file:
+            from .workspace import load_workspace
+            ws_data = load_workspace(ws_file)
+            if "data" in ws_data.get("paths", {}):
+                root_str = "${paths.data}"
 
-    gen_source, disc_source = get_hndl_templates(preset_res, preset_res, c)
+    gen_source, disc_source = get_hndl_templates(preset_res, preset_res, c, template=template)
 
     spec: Dict[str, Any] = {
         "format": "hypergan-model/1",

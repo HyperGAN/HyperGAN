@@ -835,11 +835,20 @@ def samples(run, *, name=None):
     return sorted(result, key=lambda item: item.step)
 
 
-def sample(run, count=16, seed=0, *, inputs=None, output=None, checkpoint=None):
+def sample(run, count=16, seed=0, *, inputs=None, output=None, checkpoint=None, default_image_png=False):
     """Fresh samples from the run's final EMA model (or target checkpoint)."""
     from .artifacts import sample as draw
     run = _run(run)
-    path = Path(draw(run.path, count=count, seed=seed, inputs=inputs, output=output, checkpoint=checkpoint))
+    path = Path(draw(run.path, count=count, seed=seed, inputs=inputs, output=output,
+                     checkpoint=checkpoint, default_image_png=default_image_png))
+    if path.suffix.lower() == '.png':
+        from PIL import Image
+        with Image.open(path) as img:
+            raw_meta = img.info.get('hypergan', '{}')
+            payload = json.loads(raw_meta) if raw_meta else {}
+        return Sample(step=payload.get('step', 0), name='sample', data=None,
+                      inputs={}, particle_ids=payload.get('particle_ids'),
+                      source='inference', path=path, png=path.read_bytes())
     payload = json.loads(path.read_text())
     return Sample(step=payload['step'], name='sample', data=_tensor(payload['samples']),
                   inputs={key: _tensor(value) for key, value in payload.get('inputs', {}).items()},
@@ -931,6 +940,24 @@ def status(run=None):
     """Compile human-friendly status summary for a run."""
     from .inspection import run_status as _status
     return _status(_run_path(run))
+
+
+def ps(all_runs=False, cwd=None):
+    """List active training runs (or all runs if all_runs=True) enriched with GPU VRAM and queue status."""
+    from .inspection import ps_runs as _ps
+    return _ps(all_runs=all_runs, cwd=cwd)
+
+
+def stop(run=None, *, stop_all=False, timeout=15.0):
+    """Gracefully stop an active training run (or all active runs) via SIGINT."""
+    from .inspection import stop_run as _stop
+    return _stop(run, stop_all=stop_all, timeout=timeout)
+
+
+def logs(run=None, *, tail=50, follow=False, stream=None):
+    """Read or follow formatted training events from a run."""
+    from .inspection import read_run_logs as _logs
+    return _logs(run, tail=tail, follow=follow, stream=stream)
 
 
 def runs_ls(root=None, sort="fid", status_filter=None):

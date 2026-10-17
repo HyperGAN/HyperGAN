@@ -930,3 +930,366 @@ def gc_all(root: Optional[Union[Path, str]] = None,
                 "human_reclaimed": "0 B",
             })
     return results
+
+
+def ps_runs(*, all_runs: bool = False, cwd: Optional[Union[Path, str]] = None) -> Dict[str, Any]:
+    """List active training runs (or all runs if all_runs=True) enriched with live GPU VRAM and queue status."""
+    all_items = list_runs(root=None, sort="updated", status_filter=None)
+    items = all_items if all_runs else [r for r in all_items if r.get("active")]
+
+    # Enrich active runs with GPU VRAM and device info via nvidia-smi (if available)
+    gpu_procs: List[Dict[str, Any]] = []
+    gpu_hw: Dict[str, Dict[str, Any]] = {}
+    if any(r.get("active") for r in items):
+        try:
+            from .queue import inspect_gpu_hardware, inspect_gpu_processes
+            for g in inspect_gpu_hardware():
+                if g.get("uuid"):
+                    gpu_hw[str(g["uuid"])] = g
+            gpu_procs = inspect_gpu_processes()
+        except Exception:
+            gpu_procs = []
+
+    for r in items:
+        r_dir = Path(r["run_dir"])
+        # Determine configured device
+        device = "cuda"
+        try:
+            manifest_p = r_dir / "manifest.json"
+            if manifest_p.is_file():
+                m = json.loads(manifest_p.read_text(encoding="utf-8"))
+                cfg = m.get("config", {}) if isinstance(m.get("config"), dict) else {}
+                device = cfg.get("training", {}).get("device") or cfg.get("train", {}).get("device") or m.get("device") or "cuda"
+        except Exception:
+            pass
+        r["device"] = str(device)
+        r["vram_mb"] = None
+
+        if r.get("active"):
+            pid = r.get("pid")
+            r_dir_str = str(r_dir)
+            r_name = r_dir.name
+            vram_total = 0.0
+            matched_gpus = []
+            for gp in gpu_procs:
+                gp_pid = gp.get("pid")
+                gp_cmd = gp.get("cmdline", "")
+                if (pid and gp_pid == pid) or (r_dir_str in gp_cmd) or (r_name and r_name in gp_cmd):
+                    vram_total += float(gp.get("used_memory") or 0.0)
+                    uuid_str = str(gp.get("gpu_uuid", ""))
+                    if uuid_str in gpu_hw:
+                        idx = gpu_hw[uuid_str].get("index")
+                        if idx is not None and f"cuda:{idx}" not in matched_gpus:
+                            matched_gpus.append(f"cuda:{idx}")
+            if vram_total > 0:
+                r["vram_mb"] = round(vram_total, 1)
+            if matched_gpus:
+                r["device"] = ",".join(matched_gpus)
+
+    # Also check queued jobs from queue.json if present
+    queued_jobs: List[Dict[str, Any]] = []
+    try:
+        from .queue import find_queue_file, load_queue
+        q_file = find_queue_file(cwd)
+        if q_file.is_file():
+            q_data = load_queue(q_file)
+            for j in q_data.get("jobs", []):
+                if j.get("status") == "queued":
+                    queued_jobs.append(j)
+    except Exception:
+        pass
+
+    return {
+        "runs": items,
+        "queued": queued_jobs,
+        "active_count": sum(1 for r in items if r.get("active")),
+        "total_known": len(all_items),
+    }
+
+
+def _truncate_middle(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    half = (max_len - 3) // 2
+    return text[:half] + "..." + text[-(max_len - 3 - half):]
+
+
+def format_ps_table(ps_data: Dict[str, Any], *, all_runs: bool = False, quiet: bool = False) -> str:
+    """Format `hypergan ps` output like `docker ps`."""
+    runs = ps_data.get("runs", [])
+    queued = ps_data.get("queued", [])
+
+    if quiet:
+        return "\n".join(str(r.get("short_id") or str(r.get("run_id", ""))[:8]) for r in runs)
+
+    if not runs and not queued:
+        if all_runs:
+            return "No runs found."
+        total = ps_data.get("total_known", 0)
+        if total > 0:
+            return f"No active training runs ({total} historical runs available; use `hypergan ps -a` or `hypergan runs`)."
+        return "No active training runs."
+
+    headers = ["RUN ID", "SLUG", "EXPERIMENT", "STATUS", "PID", "DEVICE", "VRAM", "STEP", "SPEED", "BEST FID"]
+    rows = []
+    for r in runs:
+        short_id = str(r.get("short_id") or str(r.get("run_id", ""))[:8])
+        slug = _truncate_middle(str(r.get("slug", "--")), 16)
+        exp = _truncate_middle(str(r.get("name", "")), 26)
+        status = "RUNNING" if r.get("active") else str(r.get("status", "unknown")).upper()
+        pid_str = str(r.get("pid")) if r.get("pid") else "--"
+        dev_str = str(r.get("device", "--"))
+        vram = r.get("vram_mb")
+        vram_str = f"{vram / 1024:.1f} GB" if (vram and vram >= 1024) else (f"{int(vram)} MB" if vram else "--")
+        step_val = r.get("step", 0)
+        total_val = r.get("total_steps")
+        step_str = f"{step_val:,} / {total_val:,}" if total_val else f"{step_val:,}"
+        sps = r.get("steps_per_sec")
+        sps_str = f"{sps:.1f} it/s" if sps is not None else "--"
+        bfid = r.get("best_fid")
+        bfid_str = f"{bfid:.2f}" if bfid is not None else "--"
+        rows.append([short_id, slug, exp, status, pid_str, dev_str, vram_str, step_str, sps_str, bfid_str])
+
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    right_align = {4, 6, 7, 8, 9}
+
+    def make_line(cells: List[str]) -> str:
+        parts = []
+        for i, cell in enumerate(cells):
+            if i in right_align:
+                parts.append(cell.rjust(widths[i]))
+            else:
+                parts.append(cell.ljust(widths[i]))
+        return "  ".join(parts)
+
+    lines = [
+        make_line(headers),
+        "  ".join("-" * widths[i] for i in range(len(headers))),
+    ]
+    for row in rows:
+        lines.append(make_line(row))
+
+    if queued:
+        lines.append("")
+        lines.append(f"Queued jobs ({len(queued)}):")
+        for j in queued[:10]:
+            lines.append(f"  [{j.get('id')}] {j.get('name')} (devices: {j.get('devices') or 'default'})")
+
+    return "\n".join(lines)
+
+
+def stop_run(
+    target: Optional[Union[Path, str]] = None,
+    *,
+    stop_all: bool = False,
+    timeout: float = 15.0,
+) -> Dict[str, Any]:
+    """Gracefully stop an active training run (or all active runs) via SIGINT so it checkpoints and halts."""
+    import signal
+    import time
+    from .registry import find_live_pid_for_run, resolve_run_target, sync_registry
+
+    if stop_all:
+        entries = sync_registry()
+        active_entries = [e for e in entries if e.get("active")]
+        if not active_entries:
+            return {"status": "idle", "stopped": [], "message": "No active training runs to stop."}
+        stopped_list = []
+        for e in active_entries:
+            res = stop_run(e["run_dir"], stop_all=False, timeout=timeout)
+            stopped_list.append(res)
+        return {
+            "status": "stopped",
+            "stopped": stopped_list,
+            "message": f"Stopped {len(stopped_list)} active training run(s).",
+        }
+
+    run_dir = resolve_run_target(target, allow_latest=False, require_active=(target is None))
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Run directory not found: {run_dir}")
+
+    is_active, pid = check_run_active(run_dir)
+    if not is_active:
+        raise ValueError(f"Run '{run_dir.name}' is not currently running.")
+
+    if pid is None:
+        pid = find_live_pid_for_run(run_dir)
+    if pid is None:
+        raise RuntimeError(f"Run '{run_dir.name}' holds .run.lock, but its live process PID could not be resolved.")
+
+    summary = read_summary_json(run_dir)
+    manifest = {}
+    if (run_dir / "manifest.json").is_file():
+        try:
+            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    run_id = (summary.get("run_id") if summary else None) or manifest.get("run_id") or run_dir.name
+    slug = (summary.get("slug") if summary else None) or manifest.get("slug") or ""
+    name = (summary.get("name") if summary else None) or manifest.get("config", {}).get("name") or run_dir.name
+
+    try:
+        os.kill(int(pid), signal.SIGINT)
+    except ProcessLookupError:
+        pass
+
+    deadline = time.monotonic() + max(0.5, float(timeout))
+    stopped_cleanly = False
+    while time.monotonic() < deadline:
+        still_active, _ = check_run_active(run_dir)
+        if not still_active:
+            stopped_cleanly = True
+            break
+        time.sleep(0.2)
+
+    # Refresh summary and registry state
+    sync_registry(cwd=run_dir)
+    state_str = "stopped" if stopped_cleanly else "stopping"
+    msg = (
+        f"Stopped {str(run_id)[:8]} ({slug or name}) [PID {pid}] cleanly."
+        if stopped_cleanly
+        else f"Sent graceful stop signal (SIGINT) to {str(run_id)[:8]} ({slug or name}) [PID {pid}]; waiting for checkpoint to finish."
+    )
+    return {
+        "status": state_str,
+        "run_id": str(run_id),
+        "short_id": str(run_id)[:8],
+        "slug": str(slug),
+        "name": str(name),
+        "run_dir": str(run_dir),
+        "pid": int(pid),
+        "message": msg,
+    }
+
+
+def _format_event_log_line(ev: Dict[str, Any], total_steps: Optional[int] = None) -> Optional[str]:
+    kind = ev.get("event")
+    step = ev.get("step")
+    if kind == "start":
+        att = ev.get("attempt_id", "0001")
+        return f"[start] Run started (attempt {att})"
+    if kind == "train":
+        s_val = int(step or 0)
+        if total_steps and total_steps > 0:
+            pct = s_val / total_steps * 100
+            step_part = f"[{s_val:7,d}/{total_steps:,d}] {pct:5.1f}%"
+        else:
+            step_part = f"[step {s_val:7,d}]"
+        sps = ev.get("steps_per_second")
+        sps_part = f"{sps:5.1f} it/s" if isinstance(sps, (int, float)) else "   -- it/s"
+        metrics = ev.get("metrics") or {}
+        m_parts = []
+        for k in ("loss/g_total", "loss_g", "loss/d_total", "loss_d", "loss/total"):
+            if k in metrics and isinstance(metrics[k], (int, float)):
+                m_parts.append(f"{k}: {metrics[k]:.4f}")
+        if not m_parts:
+            for k, v in list(metrics.items())[:4]:
+                if isinstance(v, (int, float)):
+                    m_parts.append(f"{k}: {v:.4f}")
+        metrics_str = "  ".join(m_parts) if m_parts else ""
+        return f"{step_part} | {sps_part}" + (f" | {metrics_str}" if metrics_str else "")
+    if kind == "checkpoint":
+        ckpt = ev.get("checkpoint_path") or ev.get("path") or ""
+        return f"[checkpoint] step {int(step or 0):,d} -> {ckpt}"
+    if kind in ("evaluation", "evaluation_complete"):
+        m_id = ev.get("metric_id") or ev.get("metric") or "eval"
+        val = ev.get("value")
+        if val is None and isinstance(ev.get("result"), dict):
+            val = ev["result"].get("value")
+        val_str = f"{val:.4f}" if isinstance(val, (int, float)) else str(val if val is not None else "complete")
+        return f"[eval] step {int(step or 0):,d} | {m_id} = {val_str}"
+    if kind in ("complete", "completed", "stopped", "failed"):
+        return f"[{kind}] step {int(step or 0):,d}"
+    return None
+
+
+def read_run_logs(
+    target: Optional[Union[Path, str]] = None,
+    *,
+    tail: int = 50,
+    follow: bool = False,
+    stream=None,
+) -> List[str]:
+    """Read or follow formatted training events from a run's events.jsonl."""
+    import time
+
+    out = stream or sys.stdout
+    resolved_dir = _resolve_run_dir(target)
+    if not resolved_dir.exists():
+        raise FileNotFoundError(f"Run directory does not exist: {resolved_dir}")
+
+    summary = read_summary_json(resolved_dir)
+    manifest: Dict[str, Any] = {}
+    if (resolved_dir / "manifest.json").is_file():
+        try:
+            manifest = json.loads((resolved_dir / "manifest.json").read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    total_steps = (
+        (summary.get("total_steps") if summary else None)
+        or manifest.get("config", {}).get("training", {}).get("steps")
+        or manifest.get("total_steps")
+    )
+
+    events_file = resolved_dir / "events.jsonl"
+    formatted_lines: List[str] = []
+    offset = 0
+
+    if events_file.is_file():
+        with events_file.open("rb") as f:
+            raw_bytes = f.read()
+            offset = len(raw_bytes)
+        for raw_line in raw_bytes.decode("utf-8", errors="ignore").splitlines():
+            if not raw_line.strip():
+                continue
+            try:
+                ev = json.loads(raw_line)
+                line = _format_event_log_line(ev, total_steps=total_steps)
+                if line:
+                    formatted_lines.append(line)
+            except Exception:
+                continue
+
+    if tail and tail > 0 and len(formatted_lines) > tail:
+        formatted_lines = formatted_lines[-tail:]
+
+    for line in formatted_lines:
+        print(line, file=out, flush=True)
+
+    if not follow:
+        return formatted_lines
+
+    try:
+        while True:
+            if events_file.is_file():
+                with events_file.open("rb") as f:
+                    f.seek(offset)
+                    chunk = f.read()
+                    if chunk:
+                        offset += len(chunk)
+                        for raw_line in chunk.decode("utf-8", errors="ignore").splitlines():
+                            if not raw_line.strip():
+                                continue
+                            try:
+                                ev = json.loads(raw_line)
+                                line = _format_event_log_line(ev, total_steps=total_steps)
+                                if line:
+                                    formatted_lines.append(line)
+                                    print(line, file=out, flush=True)
+                                if ev.get("event") in ("complete", "completed", "stopped", "failed"):
+                                    return formatted_lines
+                            except Exception:
+                                continue
+            is_active, _ = check_run_active(resolved_dir)
+            if not is_active:
+                break
+            time.sleep(0.25)
+    except KeyboardInterrupt:
+        print("\nDetached from logs (training continues in background).", file=sys.stderr, flush=True)
+
+    return formatted_lines
+

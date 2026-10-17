@@ -70,7 +70,7 @@ def save_bundle(run_dir, trainer, batch):
     sync_directory(run_dir)
 
 
-def sample(run_dir, count=16, seed=42, output=None, *, inputs=None, checkpoint=None):
+def sample(run_dir, count=16, seed=42, output=None, *, inputs=None, checkpoint=None, default_image_png=False):
     """Sample with supplied batched inputs, or explicitly recorded example conditions.
 
     Custom component constructors are executable trusted Python, even though state
@@ -93,7 +93,7 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None, checkpoint=N
             torch.manual_seed(seed)
             random.seed(seed)
             np.random.seed(seed % (2**32))
-            return _sample(run_dir, count, seed, output, inputs=inputs, checkpoint=checkpoint)
+            return _sample(run_dir, count, seed, output, inputs=inputs, checkpoint=checkpoint, default_image_png=default_image_png)
     finally:
         random.setstate(python_state)
         np.random.set_state(numpy_state)
@@ -101,7 +101,7 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None, checkpoint=N
             torch.cuda.set_device(cuda_device)
 
 
-def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
+def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_image_png=False):
     run_dir = Path(run_dir)
     bundle_dir = run_dir
     published_bundle = False
@@ -168,7 +168,21 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
         raise ValueError(f"Generator must return a tensor with {count} samples")
     if not torch.isfinite(values).all():
         raise ValueError("Inference produced nonfinite values")
-    output = Path(output) if output is not None else run_dir / f"samples-step{state.get('step', 0):08d}-seed{seed}-n{count}-{uuid.uuid4().hex}.json"
+    if output is not None:
+        output = Path(output)
+    else:
+        from .image_grids import MAX_COUNT
+        is_image_tensor = (
+            default_image_png
+            and values.ndim == 4
+            and values.shape[1] in (1, 3)
+            and values.shape[2] >= 4
+            and values.shape[3] >= 4
+            and count <= MAX_COUNT
+        )
+        ext = "png" if is_image_tensor else "json"
+        sub = (run_dir / "samples") if is_image_tensor else run_dir
+        output = sub / f"samples-step{state.get('step', 0):08d}-seed{seed}-n{count}-{uuid.uuid4().hex}.{ext}"
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = {"schema_version": 1, "seed": seed, "count": count, "step": state.get("step"), "bundle_sha256": expected, "shape": list(values.shape), "particle_ids": ids.tolist() if ids is not None else None, "conditioning": "supplied" if supplied else ("saved-example-inputs-cycled" if batch else "unconditional"), "resume_supported": False}
     payload["identity"] = state.get("identity", {})

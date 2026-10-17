@@ -311,10 +311,13 @@ def run_status(
                     cuda_devs = (att_data.get("env") or {}).get("CUDA_VISIBLE_DEVICES")
                     if cuda_devs:
                         devices_str = f"cuda:{cuda_devs}"
-                    if pid is None and isinstance(att_data.get("pid"), int):
+                    if is_active and pid is None and isinstance(att_data.get("pid"), int):
                         pid = att_data["pid"]
             except Exception:
                 pass
+
+    if not is_active:
+        pid = None
 
     latest_metrics = dict(summary.get("latest", {}) if (summary and isinstance(summary.get("latest"), dict)) else {})
     if not latest_metrics:
@@ -326,8 +329,11 @@ def run_status(
     best_checkpoint = None
 
     if best:
-        best_fid = best.get("value")
-        best_step = best.get("step")
+        b_metric = str(best.get("metric") or "fid50k_train")
+        if "fid" in b_metric.lower() and best_fid is None:
+            best_fid = best.get("value")
+        if best_step is None:
+            best_step = best.get("step")
         best_checkpoint = best.get("checkpoint")
     else:
         # Fallback scan evaluations
@@ -354,9 +360,36 @@ def run_status(
             best_step = best_s
             best = {"metric": "fid50k_train", "value": best_val, "step": best_s, "checkpoint": None}
 
+    # Collect evaluation values by step to enrich checkpoint rows
+    eval_by_step: Dict[int, Dict[str, float]] = {}
+    if summary and isinstance(summary.get("evaluations"), list):
+        for ev in summary["evaluations"]:
+            if isinstance(ev, dict) and ev.get("step") is not None and isinstance(ev.get("value"), (int, float)):
+                m_name = str(ev.get("metric") or "fid50k_train")
+                eval_by_step.setdefault(int(ev["step"]), {})[m_name] = float(ev["value"])
+    eval_root = resolved_dir / "metrics" / "evaluations"
+    if eval_root.is_dir():
+        for rec in eval_root.glob("*/receipt.json"):
+            try:
+                rdata = json.loads(rec.read_text(encoding="utf-8"))
+                if isinstance(rdata, dict) and rdata.get("status") == "complete" and isinstance(rdata.get("result"), dict):
+                    val = rdata["result"].get("value")
+                    s = rdata.get("source_step") or rdata["result"].get("step")
+                    m_name = str(rdata.get("metric_id") or rdata.get("metric") or "fid50k_train")
+                    if s is not None and isinstance(val, (int, float)):
+                        eval_by_step.setdefault(int(s), {})[m_name] = float(val)
+            except Exception:
+                continue
+    if best_step is not None:
+        if best_fid is not None and isinstance(best_fid, (int, float)):
+            eval_by_step.setdefault(int(best_step), {}).setdefault("fid50k_train", float(best_fid))
+        if isinstance(best, dict) and isinstance(best.get("value"), (int, float)):
+            b_m = str(best.get("metric") or "fid50k_train")
+            eval_by_step.setdefault(int(best_step), {}).setdefault(b_m, float(best["value"]))
+
     # Recent checkpoints
-    checkpoints = summary.get("checkpoints") if (summary and isinstance(summary.get("checkpoints"), list)) else None
-    if checkpoints is None:
+    raw_checkpoints = summary.get("checkpoints") if (summary and isinstance(summary.get("checkpoints"), list)) else None
+    if raw_checkpoints is None:
         ckpt_root = resolved_dir / "checkpoints"
         ckpts = []
         if ckpt_root.is_dir():
@@ -373,7 +406,22 @@ def run_status(
                 except Exception:
                     continue
         ckpts.sort(key=lambda c: c["step"])
-        checkpoints = ckpts
+        raw_checkpoints = ckpts
+
+    checkpoints = []
+    for c in (raw_checkpoints or []):
+        if not isinstance(c, dict):
+            continue
+        c_copy = dict(c)
+        c_metrics = dict(c_copy.get("metrics") if isinstance(c_copy.get("metrics"), dict) else {})
+        c_step_int = int(c_copy.get("step", 0) or 0)
+        if c_step_int in eval_by_step:
+            for m_k, m_v in eval_by_step[c_step_int].items():
+                c_metrics.setdefault(m_k, m_v)
+                if "fid" in m_k.lower():
+                    c_metrics.setdefault("fid50k_train", m_v)
+        c_copy["metrics"] = c_metrics
+        checkpoints.append(c_copy)
 
     recent_ckpts = list(reversed(checkpoints[-5:])) if checkpoints else []
 
@@ -389,7 +437,7 @@ def run_status(
         "run_dir": str(resolved_dir),
         "status": status_str,
         "active": is_active,
-        "pid": pid,
+        "pid": pid if is_active else None,
         "devices": devices_str,
         "step": step,
         "total_steps": total_steps,
@@ -446,7 +494,19 @@ def format_run_status(info: Dict[str, Any]) -> str:
     else:
         lines.append("  (No intermediate scalar metrics logged)")
 
-    if info.get("best_fid") is not None:
+    best_obj = info.get("best")
+    if isinstance(best_obj, dict) and isinstance(best_obj.get("value"), (int, float)):
+        b_metric = str(best_obj.get("metric") or "fid50k_train")
+        b_val = best_obj["value"]
+        b_step = best_obj.get("step") if best_obj.get("step") is not None else info.get("best_step")
+        if "fid" in b_metric.lower():
+            best_str = f"Best FID:  {b_val:.2f}"
+        else:
+            best_str = f"Best {b_metric}:  {b_val:.4g}"
+        if b_step is not None:
+            best_str += f" at step {b_step:,}"
+        lines.append(f"  {best_str}")
+    elif info.get("best_fid") is not None:
         best_str = f"Best FID:  {info['best_fid']:.2f}"
         if info.get("best_step") is not None:
             best_str += f" at step {info['best_step']:,}"
@@ -463,7 +523,14 @@ def format_run_status(info: Dict[str, Any]) -> str:
             c_path = c.get("path", "")
             if len(c_path) > 52:
                 c_path = c_path[:24] + "..." + c_path[-25:]
-            fid_val = c.get("metrics", {}).get("fid50k_train")
+            c_metrics = c.get("metrics") if isinstance(c.get("metrics"), dict) else {}
+            fid_val = c_metrics.get("fid50k_train")
+            if fid_val is None:
+                fid_val = c_metrics.get("fid")
+            if fid_val is None and c.get("fid") is not None:
+                fid_val = c.get("fid")
+            if fid_val is None and info.get("best_step") is not None and c.get("step") == info.get("best_step") and info.get("best_fid") is not None:
+                fid_val = info.get("best_fid")
             fid_str = f"{fid_val:.2f}" if (fid_val is not None and isinstance(fid_val, (int, float))) else "--"
             lines.append(f"  {c_step:>7}  {c_path:<52}  {fid_str:>7}")
     else:
@@ -479,6 +546,9 @@ def format_run_status(info: Dict[str, Any]) -> str:
         lines.append("  None")
     lines.append("=" * 80)
     return "\n".join(lines)
+
+
+format_status = format_run_status
 
 
 def _collect_ps_row(
@@ -535,7 +605,7 @@ def _collect_ps_row(
             "name": str(cached_entry.get("name") or run_path.name),
             "status": str(cached_entry.get("status") or "completed"),
             "active": False,
-            "pid": cached_entry.get("pid"),
+            "pid": None,
             "step": step_val,
             "max_steps": max_steps_val,
             "total_steps": max_steps_val,
@@ -656,7 +726,7 @@ def _collect_ps_row(
         "name": name,
         "status": status_val,
         "active": is_active,
-        "pid": pid,
+        "pid": pid if is_active else None,
         "step": int(step or 0),
         "max_steps": total_steps,
         "total_steps": total_steps,
@@ -678,7 +748,13 @@ def list_runs(
     cwd: Optional[Union[Path, str]] = None,
 ) -> List[Dict[str, Any]]:
     """Discover and list all runs under root (or globally via registry when root is None)."""
-    from .registry import _is_isolated_test_env, find_workspace_runs_root, is_run_dir, list_registered_runs
+    from .registry import (
+        _ensure_unique_slug,
+        _is_isolated_test_env,
+        find_workspace_runs_root,
+        is_run_dir,
+        list_registered_runs,
+    )
 
     candidates: List[Path] = []
     cached_by_dir: Dict[str, Dict[str, Any]] = {}
@@ -728,10 +804,11 @@ def list_runs(
             except OSError:
                 return []
 
-    runs = []
+    runs: List[Dict[str, Any]] = []
     for run_dir in candidates:
         try:
             row = _collect_ps_row(run_dir, cached_entry=cached_by_dir.get(str(run_dir.resolve())))
+            row["slug"] = _ensure_unique_slug(str(row.get("slug") or ""), str(row.get("run_id") or ""), runs)
             runs.append(row)
         except Exception:
             continue
@@ -815,6 +892,32 @@ def parse_step_token(token: str) -> Union[int, str]:
     return int(token_str)
 
 
+_METRIC_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "loss_g": ("loss_g", "loss/g_total", "g_loss", "loss/g"),
+    "loss/g_total": ("loss/g_total", "loss_g", "g_loss", "loss/g"),
+    "g_loss": ("g_loss", "loss/g_total", "loss_g", "loss/g"),
+    "loss_d": ("loss_d", "loss/d_total", "d_loss", "loss/d"),
+    "loss/d_total": ("loss/d_total", "loss_d", "d_loss", "loss/d"),
+    "d_loss": ("d_loss", "loss/d_total", "loss_d", "loss/d"),
+    "fid": ("fid", "fid50k_train", "fid50k_full"),
+    "fid50k_train": ("fid50k_train", "fid"),
+}
+
+
+def _candidate_metric_keys(metric: str) -> List[str]:
+    m_clean = str(metric).strip()
+    m_lower = m_clean.lower()
+    keys: List[str] = [m_clean]
+    if m_lower in _METRIC_ALIASES:
+        for a in _METRIC_ALIASES[m_lower]:
+            if a not in keys:
+                keys.append(a)
+    for alt in (m_clean.replace("/", "_"), m_clean.replace("_", "/")):
+        if alt not in keys:
+            keys.append(alt)
+    return keys
+
+
 def compare_runs(run_dirs: List[Union[Path, str]],
                  metric: str = "fid50k_train",
                  at_steps: Optional[Union[List[Union[int, str]], str]] = None) -> Dict[str, Any]:
@@ -825,6 +928,9 @@ def compare_runs(run_dirs: List[Union[Path, str]],
         steps = [parse_step_token(t) for t in at_steps]
     else:
         steps = [50000, 100000, "best", "latest"]
+
+    cand_keys = _candidate_metric_keys(metric)
+    cand_keys_lower = {k.lower() for k in cand_keys}
 
     runs_data = []
     for r_dir in run_dirs:
@@ -844,15 +950,16 @@ def compare_runs(run_dirs: List[Union[Path, str]],
         evals_by_step: Dict[int, float] = {}
         if summary and summary.get("evaluations"):
             for ev in summary["evaluations"]:
-                if ev.get("metric") == metric or ev.get("metric", "").lower() == metric.lower():
-                    evals_by_step[ev["step"]] = ev["value"]
+                if isinstance(ev, dict) and str(ev.get("metric") or "").lower() in cand_keys_lower:
+                    if ev.get("step") is not None and isinstance(ev.get("value"), (int, float)):
+                        evals_by_step[int(ev["step"])] = float(ev["value"])
         if not evals_by_step and (resolved / "metrics" / "evaluations").is_dir():
             for receipt_file in (resolved / "metrics" / "evaluations").glob("*/receipt.json"):
                 try:
                     rdata = json.loads(receipt_file.read_text(encoding="utf-8"))
                     if rdata.get("status") == "complete" and "result" in rdata:
-                        m_id = rdata.get("metric_id") or rdata.get("metric", "")
-                        if m_id == metric or m_id.lower() == metric.lower():
+                        m_id = str(rdata.get("metric_id") or rdata.get("metric") or "")
+                        if m_id.lower() in cand_keys_lower:
                             s = rdata.get("source_step") or rdata["result"].get("step")
                             val = rdata["result"].get("value")
                             if s is not None and val is not None:
@@ -869,16 +976,34 @@ def compare_runs(run_dirs: List[Union[Path, str]],
                             continue
                         try:
                             ev = json.loads(line)
-                            if ev.get("event") == "train" and "metrics" in ev:
+                            if ev.get("event") == "train" and isinstance(ev.get("metrics"), dict):
                                 s = ev.get("step")
                                 m_dict = ev["metrics"]
-                                val = m_dict.get(metric) or m_dict.get(metric.replace("/", "_"))
+                                val = None
+                                for ck in cand_keys:
+                                    if ck in m_dict and isinstance(m_dict[ck], (int, float)):
+                                        val = m_dict[ck]
+                                        break
+                                if val is None:
+                                    for mk, mv in m_dict.items():
+                                        if str(mk).lower() in cand_keys_lower and isinstance(mv, (int, float)):
+                                            val = mv
+                                            break
                                 if s is not None and val is not None:
                                     evals_by_step[int(s)] = float(val)
                         except Exception:
                             continue
             except Exception:
                 pass
+
+        # Fallback to summary.json latest metrics if events.jsonl had no match
+        if not evals_by_step and summary and isinstance(summary.get("latest"), dict):
+            latest_dict = summary["latest"]
+            s_step = int(summary.get("step") or 0)
+            for ck in cand_keys:
+                if ck in latest_dict and isinstance(latest_dict[ck], (int, float)):
+                    evals_by_step[s_step] = float(latest_dict[ck])
+                    break
 
         runs_data.append({
             "run_id": run_id,
@@ -972,7 +1097,7 @@ def format_comparison_csv(comparison: Dict[str, Any]) -> str:
 
     run_headers = [f"{r['name']} ({r['run_id'][:8]})" for r in runs]
     output = io.StringIO()
-    writer = csv.writer(output)
+    writer = csv.writer(output, lineterminator="\n")
     writer.writerow(["step", *run_headers])
 
     for st in steps:
@@ -1163,6 +1288,8 @@ def gc_all(
     if root is None:
         candidates: List[Path] = []
         seen: set[str] = set()
+        ws_file = find_workspace(base_cwd)
+        ws_dir = ws_file.parent.resolve() if ws_file is not None else None
         ws_root = find_workspace_runs_root(base_cwd)
         if ws_root and ws_root.is_dir():
             for c in sorted(ws_root.iterdir()):
@@ -1176,6 +1303,15 @@ def gc_all(
             if rdir:
                 rp = Path(rdir).resolve()
                 if rp.is_dir() and is_run_dir(rp) and str(rp) not in seen:
+                    if ws_dir is not None:
+                        in_ws = (
+                            (ws_root is not None and rp.is_relative_to(ws_root))
+                            or rp.is_relative_to(ws_dir)
+                            or e.get("workspace") == str(ws_dir)
+                            or e.get("workspace_root") == str(ws_dir)
+                        )
+                        if not in_ws:
+                            continue
                     seen.add(str(rp))
                     candidates.append(rp)
     else:

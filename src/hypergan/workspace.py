@@ -113,7 +113,12 @@ def _build_context(workspace_dict: dict, env_vars: dict | None = None) -> dict[s
 
     if env_vars:
         for k, v in env_vars.items():
-            context[str(k)] = str(v)
+            if v is not None:
+                context[str(k)] = str(v)
+        if "stem" in context and "name" not in context:
+            context["name"] = context["stem"]
+        if "name" in context and "stem" not in context:
+            context["stem"] = context["name"]
 
     return context
 
@@ -274,3 +279,52 @@ def resolve_device_aliases(
     if is_str_input:
         return ",".join(resolved)
     return resolved
+
+
+def resolve_run_dir(
+    config_path: Path | str,
+    workspace: dict | Path | str | None = None,
+    cli_run_dir: Path | str | None = None,
+    name: str | None = None,
+) -> Path:
+    """Resolve the target run directory for a training configuration.
+
+    Uses cli_run_dir if explicitly provided; otherwise interpolates the workspace
+    run_dir template (with ${name} resolving to `name or stem` and ${stem} to the
+    config filename stem) or falls back to <runs_root>/<name or stem>.
+    """
+    if cli_run_dir is not None:
+        return Path(cli_run_dir).resolve()
+
+    cfg_path = Path(config_path).resolve()
+    stem = cfg_path.stem
+    eff_name = name or stem
+
+    if workspace is None:
+        ws_file = find_workspace(cfg_path)
+        ws_data = load_workspace(ws_file) if ws_file else None
+    elif isinstance(workspace, (str, Path)):
+        ws_data = load_workspace(workspace)
+    elif isinstance(workspace, dict):
+        ws_data = workspace
+    else:
+        ws_data = None
+
+    if ws_data:
+        ws_sec = ws_data.get("workspace", {})
+        ws_root = Path(ws_sec.get("root", Path.cwd())).resolve()
+        runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else ws_root
+        if "run_dir" in ws_sec:
+            run_dir_str = interpolate_variables(
+                ws_sec["run_dir"],
+                ws_data,
+                {"stem": stem, "name": eff_name, "slug": eff_name},
+            )
+            res_path = Path(run_dir_str)
+            if not res_path.is_absolute():
+                return (ws_root / res_path).resolve()
+            return res_path.resolve()
+        return (runs_root / eff_name).resolve()
+
+    return (Path.cwd() / eff_name).resolve()
+

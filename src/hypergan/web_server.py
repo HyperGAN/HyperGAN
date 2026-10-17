@@ -79,14 +79,18 @@ def read_run_summary(run_dir: Path) -> dict:
     summary = None
     if summary_path.is_file():
         try:
-            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            loaded_summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            if isinstance(loaded_summary, dict):
+                summary = loaded_summary
         except (OSError, json.JSONDecodeError, UnicodeError):
             summary = None
 
     manifest = {}
     if manifest_path.is_file():
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            loaded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded_manifest, dict):
+                manifest = loaded_manifest
         except (OSError, json.JSONDecodeError, UnicodeError):
             manifest = {}
 
@@ -212,14 +216,14 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
         step = r.get("step", 0)
         total_steps = r.get("total_steps")
         sps = r.get("steps_per_second")
-        speed_str = f"{sps:.1f} it/s" if sps is not None else "—"
+        speed_str = f"{sps:.1f} it/s" if isinstance(sps, (int, float)) else "—"
         latest_fid_val = r.get("latest_fid")
-        latest_fid_str = f"{latest_fid_val:.2f}" if latest_fid_val is not None else "—"
+        latest_fid_str = f"{latest_fid_val:.2f}" if isinstance(latest_fid_val, (int, float)) else "—"
         best_fid_val = r.get("best_fid")
         best_step_val = r.get("best_step")
-        if best_fid_val is not None:
-            if best_step_val is not None:
-                step_suffix = f" @ {best_step_val / 1000:.1f}k" if best_step_val >= 1000 else f" @ step {best_step_val:,}"
+        if isinstance(best_fid_val, (int, float)):
+            if isinstance(best_step_val, (int, float)):
+                step_suffix = f" @ {best_step_val / 1000:.1f}k" if best_step_val >= 1000 else f" @ step {int(best_step_val):,}"
             else:
                 step_suffix = ""
             best_fid_str = f"{best_fid_val:.2f}{step_suffix}"
@@ -314,7 +318,7 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
       <a class="brand" href="/">
         <span class="brand-mark">H</span> HYPERGAN <span class="brand-separator">/</span> <span class="brand-detail">RUNS</span>
       </a>
-      <span class="root-path">{html.escape(str(runs_root))}</span>
+      <span class="root-path">…/{html.escape(runs_root.name or str(runs_root))}</span>
     </div>
     <div class="controls">
       <input type="text" id="search" class="search-input" placeholder="Filter runs by name, slug, or ID…" oninput="filterRows()">
@@ -372,11 +376,45 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
         runs.forEach(r => {{
           const row = tbody.querySelector(`tr[data-id="${{r.run_id}}"]`);
           if (row) {{
-            row.setAttribute('data-status', r.status || 'unknown');
+            const st = r.status || 'unknown';
+            row.setAttribute('data-status', st);
             const badge = row.querySelector('.badge');
             if (badge) {{
-              badge.setAttribute('data-status', r.status || 'unknown');
-              badge.textContent = r.status || 'unknown';
+              badge.setAttribute('data-status', st);
+              badge.textContent = st;
+            }}
+            const cells = row.querySelectorAll('td');
+            const step = Number(r.step || 0);
+            const total = Number(r.total_steps || 0);
+            if (cells[2]) {{
+              if (total > 0) {{
+                const pct = Math.min(100, Math.max(0, Math.floor((step / total) * 100)));
+                cells[2].innerHTML = `<div class="progress-bar-container"><span>${{step.toLocaleString()}} / ${{total.toLocaleString()}}</span><div class="progress-bar"><div class="progress-fill" style="width: ${{pct}}%"></div></div></div>`;
+              }} else {{
+                cells[2].innerHTML = `<span>${{step.toLocaleString()}}</span>`;
+              }}
+            }}
+            if (cells[3]) {{
+              cells[3].textContent = (r.steps_per_second != null) ? `${{Number(r.steps_per_second).toFixed(1)}} it/s` : '—';
+            }}
+            if (cells[4]) {{
+              cells[4].textContent = (r.latest_fid != null) ? Number(r.latest_fid).toFixed(2) : '—';
+            }}
+            if (cells[5]) {{
+              if (r.best_fid != null) {{
+                const bs = r.best_step != null ? (r.best_step >= 1000 ? ` @ ${{(r.best_step / 1000).toFixed(1)}}k` : ` @ step ${{Number(r.best_step).toLocaleString()}}`) : '';
+                cells[5].textContent = `${{Number(r.best_fid).toFixed(2)}}${{bs}}`;
+              }} else {{
+                cells[5].textContent = '—';
+              }}
+            }}
+            if (cells[6] && r.disk_formatted) {{
+              cells[6].textContent = r.disk_formatted;
+            }}
+            const actionsCell = row.querySelector('.actions-cell') || cells[7];
+            const isRunning = Boolean(r.active || r.running || String(st).toLowerCase() === 'running');
+            if (actionsCell && !isRunning) {{
+              actionsCell.querySelectorAll('.btn-checkpoint, .btn-stop').forEach(btn => btn.remove());
             }}
           }}
         }});
@@ -455,7 +493,12 @@ class ServiceRegistry:
                 data = _reg_mod._read_registry_unlocked(reg_dir)
                 entries = list(data.get("runs", {}).values())
             except Exception:
-                entries = []
+                try:
+                    data = _reg_mod._read_registry_unlocked()
+                    entries = list(data.get("runs", {}).values())
+                except Exception:
+                    entries = []
+
 
         dirs: list[Path] = []
         seen: set[Path] = set()
@@ -535,6 +578,35 @@ class ServiceRegistry:
     def discover_runs(self) -> list[dict]:
         return self._discover_runs()
 
+    def _matches_run_entry(self, entry: Path, run_id: str) -> bool:
+        if entry.name == run_id:
+            return True
+        try:
+            summary = self._read_cached_summary(entry)
+            if run_id in (
+                summary.get("run_id"),
+                summary.get("slug"),
+                summary.get("short_id"),
+                summary.get("name"),
+            ):
+                return True
+        except Exception:
+            pass
+        try:
+            manifest = read_json(entry, "manifest.json")
+            cfg_name = manifest.get("config", {}).get("name") if isinstance(manifest.get("config"), dict) else None
+            if run_id in (
+                manifest.get("run_id"),
+                manifest.get("slug"),
+                manifest.get("short_id"),
+                manifest.get("name"),
+                cfg_name,
+            ):
+                return True
+        except Exception:
+            pass
+        return False
+
     def resolve_run_dir(self, run_id: str) -> Path | None:
         if not run_id:
             return None
@@ -547,22 +619,12 @@ class ServiceRegistry:
             raise FileNotFoundError(f"Unknown run identity: {run_id}")
 
         if self.is_single() and not self._iter_registered_run_dirs():
-            try:
-                manifest = read_json(self.root, "manifest.json")
-                canonical_id = manifest.get("run_id")
-            except Exception:
-                canonical_id = None
-            if run_id in (canonical_id, self.root.name, "run"):
+            if run_id == "run" or self._matches_run_entry(self.root, run_id):
                 return self.root
             return None
 
         if (self.root / "manifest.json").is_file():
-            try:
-                manifest = read_json(self.root, "manifest.json")
-                canonical_id = manifest.get("run_id")
-            except Exception:
-                canonical_id = None
-            if run_id in (canonical_id, self.root.name, "run"):
+            if run_id == "run" or self._matches_run_entry(self.root, run_id):
                 return self.root
 
         # Check direct subdirectory
@@ -583,18 +645,16 @@ class ServiceRegistry:
                 search_dirs.append(reg_dir)
 
         for entry in search_dirs:
-            if entry.name == run_id:
+            if self._matches_run_entry(entry, run_id):
                 return entry
+
+        if not self.is_single():
             try:
-                summary = self._read_cached_summary(entry)
-                if run_id in (summary.get("run_id"), summary.get("slug"), summary.get("short_id")):
-                    return entry
-            except Exception:
-                pass
-            try:
-                manifest = read_json(entry, "manifest.json")
-                if manifest.get("run_id") == run_id or manifest.get("slug") == run_id:
-                    return entry
+                resolved = _reg_mod.resolve_run_target(run_id, cwd=self.root, allow_latest=False)
+                if resolved and resolved.is_dir() and ((resolved / "manifest.json").is_file() or (resolved / "summary.json").is_file()):
+                    res_p = resolved.resolve()
+                    if res_p.is_relative_to(root_resolved) or bool(os.environ.get("HYPERGAN_REGISTRY_DIR")):
+                        return res_p
             except Exception:
                 pass
         return None
@@ -829,14 +889,41 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         is_active, _ = _is_run_considered_active(target_dir, allow_status_when_patched=True)
         if not is_active:
             return JSONResponse({'ok': False, 'action': 'checkpoint', 'run_id': run_id, 'error': f"Run '{run_id}' is not active"}, status_code=400)
-        res = await asyncio.to_thread(ckpt_fn, target_dir)
+        try:
+            res = await asyncio.to_thread(ckpt_fn, target_dir)
+        except Exception as exc:
+            msg = str(exc)
+            if 'initializing' in msg.lower() or not (target_dir / 'manifest.json').is_file():
+                msg = 'Run is still initializing step 0; checkpoint will be available once step 1 starts'
+            return JSONResponse({'ok': False, 'action': 'checkpoint', 'run_id': run_id, 'error': msg}, status_code=400)
         registry._summary_cache.pop(target_dir, None)
         return JSONResponse({'ok': True, 'action': 'checkpoint', 'run_id': run_id, 'run_dir': str(target_dir), 'result': res})
+
+    async def run_summary_endpoint(request):
+        svc = await registry.get(request.path_params['run_id'])
+        summary = registry._read_cached_summary(svc.root)
+        pub = svc.public_manifest()
+        return JSONResponse({**pub, **summary})
 
     async def run_metrics_summary(request):
         svc = await registry.get(request.path_params['run_id'])
         summary = registry._read_cached_summary(svc.root)
-        return JSONResponse({'run_id': svc.run_id or request.path_params['run_id'], 'summary': summary})
+        catalog_data = {}
+        try:
+            from .metrics import read_catalog
+            revision = request.query_params.get('revision') or svc.manifest.get('metrics_catalog')
+            catalog_data = await asyncio.to_thread(
+                read_catalog, svc.root, revision,
+                _open_file=lambda path: _open(svc.root, path.relative_to(svc.root).as_posix())
+            )
+        except Exception:
+            catalog_data = {}
+        return JSONResponse({
+            'run_id': svc.run_id or request.path_params['run_id'],
+            'summary': summary,
+            'catalog': catalog_data,
+            'metrics': catalog_data.get('metrics', {}) if isinstance(catalog_data, dict) else {},
+        })
 
     async def run_contributions(request):
         svc = await registry.get(request.path_params['run_id'])
@@ -1003,21 +1090,36 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         Route('/reducers/{asset}', reducer_asset),
         Route('/api/runs', runs_list),
         Route('/api/runs/{run_id}', run),
+        Route('/api/runs/{run_id}/summary', run_summary_endpoint),
+        Route('/api/runs/{run_id}/status', run),
         Route('/api/runs/{run_id}/stop', stop_run_endpoint, methods=['POST']),
         Route('/api/runs/{run_id}/checkpoint', checkpoint_run_endpoint, methods=['POST']),
         Route('/api/runs/{run_id}/metrics', run_metrics_summary),
+        Route('/api/runs/{run_id}/metrics/catalog', catalog),
         Route('/api/runs/{run_id}/contributions', run_contributions),
+        Route('/api/runs/{run_id}/model', model),
+        Route('/api/runs/{run_id}/architecture', model),
+        Route('/api/runs/{run_id}/events', events),
+        Route('/api/runs/{run_id}/views', views),
+        Route('/api/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
+        Route('/api/runs/{run_id}/stream', stream),
+        Route('/api/runs/{run_id}/artifacts', artifacts),
+        Route('/api/runs/{run_id}/artifacts/{artifact_id}', artifacts),
         Route('/api/v1/session', session_exchange, methods=['POST']),
         Route('/api/v1/capabilities', capabilities),
         Route('/api/v1/openapi.json', openapi),
         Route('/api/v1/runs', runs_list),
         Route('/api/v1/stream', stream),
         Route('/api/v1/runs/{run_id}', run),
+        Route('/api/v1/runs/{run_id}/summary', run_summary_endpoint),
         Route('/api/v1/runs/{run_id}/status', run),
         Route('/api/v1/runs/{run_id}/stop', stop_run_endpoint, methods=['POST']),
         Route('/api/v1/runs/{run_id}/checkpoint', checkpoint_run_endpoint, methods=['POST']),
+        Route('/api/v1/runs/{run_id}/metrics', run_metrics_summary),
         Route('/api/v1/runs/{run_id}/metrics/catalog', catalog),
+        Route('/api/v1/runs/{run_id}/contributions', run_contributions),
         Route('/api/v1/runs/{run_id}/model', model),
+        Route('/api/v1/runs/{run_id}/architecture', model),
         Route('/api/v1/runs/{run_id}/events', events),
         Route('/api/v1/runs/{run_id}/views', views),
         Route('/api/v1/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
@@ -1082,10 +1184,15 @@ def openapi_schema(*, auth_mode='token', cookie_name=LocalSession.cookie_name):
         '/capabilities': 'Authenticated server identity and resource limits',
         '/runs': 'Discovered runs under the root directory with their summaries',
         '/runs/{run_id}': 'Current run manifest',
+        '/runs/{run_id}/summary': 'Current run summary and status metadata',
+        '/runs/{run_id}/status': 'Current run manifest and live status',
+        '/runs/{run_id}/metrics': 'Run metrics summary and definition catalog',
         '/runs/{run_id}/metrics/catalog': 'Immutable metric definition catalog',
+        '/runs/{run_id}/contributions': 'Projected view contributions for the run',
         '/runs/{run_id}/model': 'Run model: GAN formulation, per-player losses with metric ids, optimizers, prior, '
                                 'data/training settings and networks (HNDL source; per-layer detail when model.json '
                                 'was recorded); 404 when the run records no configuration',
+        '/runs/{run_id}/architecture': 'Run model architecture summary (alias of /model)',
         '/runs/{run_id}/events': 'Bounded raw source or projection frame page',
         '/runs/{run_id}/views': 'Available view descriptors and stream watermarks',
         '/runs/{run_id}/views/{map_revision}/bootstrap': 'Historical shared-reducer state through a fixed projection cursor; 202 while indexing/reducing',
@@ -1102,6 +1209,20 @@ def openapi_schema(*, auth_mode='token', cookie_name=LocalSession.cookie_name):
             'responses': {'200': {'description': 'Success'}, '202': {'description': 'Background indexing or reduction'},
                           '400': {'description': 'Invalid query or cursor'}, '401': {'description': 'Credential required'},
                           '404': {'description': 'Run, projection or artifact not available'}}}}
+    paths['/api/runs'] = {'get': {'description': 'Discovered runs under the root directory with their summaries', 'parameters': [],
+        'security': [{'bearerAuth': []}, {'cookieAuth': []}],
+        'responses': {'200': {'description': 'Success'}, '202': {'description': 'Background indexing or reduction'},
+                      '400': {'description': 'Invalid query or cursor'}, '401': {'description': 'Credential required'},
+                      '404': {'description': 'Run, projection or artifact not available'}}}}
+    run_id_param = [{'name': 'run_id', 'in': 'path', 'required': True, 'schema': {'type': 'string'}}]
+    for action_route, action_desc in (
+        ('/api/v1/runs/{run_id}/checkpoint', 'Request an immediate checkpoint on an active run'),
+        ('/api/v1/runs/{run_id}/stop', 'Request a graceful stop on an active run'),
+    ):
+        paths[action_route] = {'post': {'description': action_desc, 'parameters': run_id_param,
+            'security': [{'bearerAuth': []}, {'cookieAuth': []}],
+            'responses': {'200': {'description': 'Action requested'}, '400': {'description': 'Run is not active or still initializing'},
+                          '401': {'description': 'Credential required'}, '404': {'description': 'Run not found'}}}}
     paths['/api/v1/session'] = {'post': {'description': 'Exchange local bearer for HttpOnly SameSite session cookie',
         'requestBody': {'required': True, 'content': {'application/json': {'schema': {'type': 'object', 'required': ['token'],
                         'additionalProperties': False, 'properties': {'token': {'type': 'string'}}}}}},

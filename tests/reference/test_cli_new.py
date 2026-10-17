@@ -277,7 +277,7 @@ def test_new_project_scaffolding(tmp_path):
 
     ws_text = ws_file.read_text(encoding="utf-8")
     assert 'runs_root = "runs"' in ws_text
-    assert 'run_dir = "${runs_root}/${stem}"' in ws_text
+    assert 'run_dir = "${runs_root}/${name}"' in ws_text
 
     # Ensure no training run was started automatically
     assert list((proj_dir / "runs").iterdir()) == []

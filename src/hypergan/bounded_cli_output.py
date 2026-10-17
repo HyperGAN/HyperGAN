@@ -423,15 +423,21 @@ class TrainingOutput:
         self.stdout, self.stderr = stdout, stderr
         self.progress_json = progress_json
         self.evaluation_reminder = None
+        self.dashboard_url = None
+        self.viewer_enabled = None
         self.progress = CLIProgress(self)
 
-    def configure(self, run_dir, *, progress_every=None, evaluation_reminder=None):
+    def configure(self, run_dir, *, progress_every=None, evaluation_reminder=None, dashboard_url=None, viewer_enabled=None):
         from .console_settings import ConsolePolicy
         self.policy.close()
         self.policy = ConsolePolicy(run_dir, progress_every=progress_every)
         self.evaluation_reminder = evaluation_reminder
+        if dashboard_url is not None:
+            self.dashboard_url = dashboard_url
+        if viewer_enabled is not None:
+            self.viewer_enabled = viewer_enabled
 
-    def result(self, result, *, run_dir=None, human=False):
+    def result(self, result, *, run_dir=None, human=False, dashboard_url=None):
         if not self.progress_json and human:
             manifest = result if isinstance(result, dict) else {}
             status = manifest.get('status', 'complete')
@@ -445,11 +451,13 @@ class TrainingOutput:
             run_id = manifest.get('run_id') or (Path(run_dir).name if run_dir else "")
 
             best_fid_str = None
+            has_best = bool(manifest.get('best_checkpoint') or manifest.get('best'))
             if run_dir:
                 try:
                     from .summary import read_summary_json
                     s_data = read_summary_json(run_dir)
                     if s_data and s_data.get('best'):
+                        has_best = True
                         b = s_data['best']
                         best_fid_str = f"{b.get('value', 0):.2f} ({b.get('metric')} at step {b.get('step', 0):,})"
                 except Exception:
@@ -466,8 +474,30 @@ class TrainingOutput:
                     lines.append(f"  Best FID:    {best_fid_str}")
                 lines.append(f"  Checkpoint:  {ckpt_path}")
                 if run_dir:
-                    lines.append(f"  Export:      hypergan export {run_dir} --checkpoint best")
-                    lines.append(f"  Dashboard:   http://localhost:8765/runs/{run_id}")
+                    export_ckpt = "best" if has_best else "latest"
+                    lines.append(f"  Export:      hypergan export {run_dir} --checkpoint {export_ckpt}")
+                    dash_url = dashboard_url if dashboard_url is not None else self.dashboard_url
+                    if dash_url is None and self.viewer_enabled is not False:
+                        no_server = "--no-server" in sys.argv or (
+                            isinstance(manifest.get("config"), dict)
+                            and isinstance(manifest["config"].get("run"), dict)
+                            and manifest["config"]["run"].get("viewer") is False
+                        )
+                        if not no_server:
+                            run_path = Path(run_dir)
+                            if (run_path / "manifest.json").is_file():
+                                try:
+                                    from .web_autostart import viewer_status
+                                    v_stat = viewer_status(run_path)
+                                    if v_stat.get("status") in ("ready", "starting"):
+                                        port = v_stat.get("port") or 8765
+                                        dash_url = v_stat.get("url") or f"http://localhost:{port}/runs/{run_id}"
+                                except Exception:
+                                    pass
+                            else:
+                                dash_url = f"http://localhost:8765/runs/{run_id}"
+                    if dash_url:
+                        lines.append(f"  Dashboard:   {dash_url}")
             else:
                 lines.append(f"Training {status} at step {step:,}")
                 lines.append(f"  Time elapsed: {dur_str} ({rate_str})")

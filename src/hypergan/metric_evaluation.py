@@ -304,7 +304,7 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
     if status == 'complete':
         try:
             from .summary import write_summary_json
-            write_summary_json(root, manifest)
+            write_summary_json(root)
         except Exception:
             pass
     if isinstance(failure, (KeyboardInterrupt, SystemExit)):

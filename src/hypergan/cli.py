@@ -60,7 +60,8 @@ def _run_options(parser):
                             help=argparse.SUPPRESS)
     server = parser.add_mutually_exclusive_group()
     server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
-    server.add_argument("--no-server", action="store_true", help="train without web imports or listening sockets")
+    server.add_argument("--no-server", "--no-web", dest="no_server", action="store_true",
+                        help="train without web imports or listening sockets")
     parser.add_argument("--port", "--server-port", dest="server_port", type=int,
                         help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}, "
                              "or the next free port above it; 0 selects any free port)")
@@ -126,7 +127,7 @@ def _parser():
     commands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,validate,recipes,tag,rm,gc,prune}",
+        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,validate,recipes,tag,rm,gc,prune,checkpoint,inspect}",
     )
     commands.add_parser("version")
     commands.add_parser("recipes", help="List available recipes and qualification status")
@@ -151,6 +152,9 @@ def _parser():
                           help="verify dataset directory and emit data inventory manifest")
     validate.add_argument("--output", type=Path, default=None,
                           help="write the data manifest to a new file (when --data is passed)")
+    validate.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                          help="override configuration value before validation (e.g. --set train.steps=500)")
+    validate.add_argument("--json", action="store_true", help="output validation result as JSON")
     preflight = commands.add_parser("preflight")
     preflight.add_argument("config", type=Path)
     preflight.add_argument("--profile", type=Path,
@@ -160,7 +164,7 @@ def _parser():
     data_check = commands.add_parser("data-check")
     data_check.add_argument("config", type=Path)
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
-    inspect = commands.add_parser("inspect")
+    inspect = commands.add_parser("inspect", help="Inspect raw run manifest JSON")
     inspect.add_argument("path", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or manifest path")
     ps_cmd = commands.add_parser("ps", help="List active training runs, GPU VRAM, and queued jobs (or -a for all runs)")
     ps_cmd.add_argument("-a", "--all", dest="all_runs", action="store_true", help="show all runs (default shows only active runs)")
@@ -189,18 +193,19 @@ def _parser():
     runs = commands.add_parser("runs", help="Inspect and compare experiment runs")
     runs.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
     runs.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
-    runs.add_argument("--json", action="store_true", help="output runs table as JSON array")
+    runs.add_argument("--json", action="store_true", default=False, help="output runs table as JSON array")
     runs_subs = runs.add_subparsers(dest="runs_command", required=False)
     runs_ls = runs_subs.add_parser("ls", help="List runs under root directory")
     runs_ls.add_argument("root", nargs="?", type=Path, default=None, help="runs root directory")
     runs_ls.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
     runs_ls.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
-    runs_ls.add_argument("--json", action="store_true", help="output runs table as JSON array")
+    runs_ls.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output runs table as JSON array")
     runs_compare = runs_subs.add_parser("compare", help="Compare multiple runs side-by-side")
     runs_compare.add_argument("runs", nargs="+", type=Path, help="two or more run directories, slugs, or IDs")
-    runs_compare.add_argument("--metric", required=True, help="metric name to compare (e.g. fid50k_train, loss_g)")
-    runs_compare.add_argument("--at", required=True, help="steps to compare at (e.g. 50k,100k,best,latest)")
+    runs_compare.add_argument("--metric", default="loss/g_total", help="metric name to compare (default: loss/g_total, or e.g. fid50k_train, loss_g)")
+    runs_compare.add_argument("--at", default="latest", help="steps to compare at (default: latest, or e.g. 50k,100k,best,latest)")
     runs_compare.add_argument("--csv", action="store_true", help="export comparison as CSV")
+    runs_compare.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output comparison as JSON")
     gc_cmd = commands.add_parser("gc", aliases=["prune"], help="Clean rebuildable views and compact events in finished runs")
     gc_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, or ID to clean")
     gc_cmd.add_argument("--all", action="store_true", help="clean all runs in workspace runs root")
@@ -243,7 +248,9 @@ def _parser():
                        help="absolute origin of a TLS proxy in front of the viewer, "
                             "e.g. https://machine.tailnet.ts.net (scheme, host and optional port only)")
     serve.add_argument("--session-file", type=Path, help="new private credential file outside the run")
-    serve.add_argument("--open", action="store_true", help="open the local viewer in a browser")
+    serve_browser = serve.add_mutually_exclusive_group()
+    serve_browser.add_argument("--open", action="store_true", help="open the local viewer in a browser")
+    serve_browser.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     serve.add_argument("--dev", "--viewer-dev", dest="dev", action="store_true",
                        help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     from .ports import DEFAULT_VIEWER_PORT
@@ -256,7 +263,9 @@ def _parser():
     view.add_argument("--port", "--server-port", dest="port", type=int, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
     view.add_argument("--host", "--server-host", dest="host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
     view.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
-    view.add_argument("--open", action="store_true", help="open the local viewer in a browser")
+    view_browser = view.add_mutually_exclusive_group()
+    view_browser.add_argument("--open", action="store_true", help="open the local viewer in a browser")
+    view_browser.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     view.add_argument("--dev", "--viewer-dev", dest="dev", action="store_true",
                       help="serve browser assets fresh from this checkout (same as HYPERGAN_VIEWER_DEV=1)")
     view.add_argument("--public-origin", type=_public_origin, metavar="URL",
@@ -268,7 +277,7 @@ def _parser():
     stop_server.add_argument("--all", action="store_true", help="safely kill all legacy leaked viewers and projectors across the host")
     from .evaluation_cli import add_evaluate_parser
     add_evaluate_parser(commands)
-    checkpoint = commands.add_parser("checkpoint")
+    checkpoint = commands.add_parser("checkpoint", help="Request or inspect an on-demand checkpoint for an active run")
     checkpoint.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active run)")
     operation = checkpoint.add_mutually_exclusive_group()
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
@@ -318,7 +327,7 @@ def _parser():
     sample.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
 
     queue_cmd = commands.add_parser("queue", help="Multi-GPU job queue scheduler, runner daemon, and service generator")
-    queue_cmd.add_argument("--json", action="store_true", help="output JSON format")
+    queue_cmd.add_argument("--json", action="store_true", default=False, help="output JSON format")
     queue_cmd.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
     queue_subs = queue_cmd.add_subparsers(dest="queue_command", required=False)
 
@@ -326,31 +335,36 @@ def _parser():
     q_add.add_argument("model_file", type=Path, help="path to experiment model TOML (or run directory if --wait)")
     q_add.add_argument("-d", "--devices", default=None, help="target devices (e.g. gpu0, gpu0,gpu1, 0, 0,1)")
     q_add.add_argument("--run-dir", type=Path, default=None, help="explicit run directory")
-    q_add.add_argument("--name", default=None, help="optional custom job name")
+    q_add.add_argument("-n", "--name", default=None, help="optional custom job name")
+    q_add.add_argument("--steps", type=_positive_int, default=None, help="override total training steps")
+    q_add.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                       help="override configuration value (e.g. --set train.steps=1000)")
     q_add.add_argument("--wait", action="store_true", help="wait for target run directory to complete before proceeding")
-    q_add.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+    q_add.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
+    q_add.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_ls = queue_subs.add_parser("ls", help="List jobs from the queue")
     q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled"), default=None, help="filter by status")
-    q_ls.add_argument("--json", action="store_true", help="output JSON format")
-    q_ls.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+    q_ls.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
+    q_ls.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_status = queue_subs.add_parser("status", help="Inspect job details, progress, and live log tail")
     q_status.add_argument("job_id", nargs="?", default=None, help="job ID to inspect (default: active/latest job)")
     q_status.add_argument("--lines", type=int, default=20, help="number of log tail lines (default: 20)")
-    q_status.add_argument("--json", action="store_true", help="output JSON format")
-    q_status.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+    q_status.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
+    q_status.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_stop = queue_subs.add_parser("stop", help="Cancel queued jobs or signal running job to halt")
     q_stop.add_argument("job_id", nargs="?", default=None, help="job ID to stop")
     q_stop.add_argument("--all", action="store_true", help="cancel all queued jobs and halt queue runner")
-    q_stop.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+    q_stop.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
+    q_stop.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_run = queue_subs.add_parser("run", help="Start the sequential queue daemon runner")
     q_run.add_argument("-d", "--devices", default=None, help="restrict runner to specific device(s)")
     q_run.add_argument("--poll-interval", type=float, default=5.0, help="seconds between queue checks (default: 5.0)")
     q_run.add_argument("--once", action="store_true", help="execute available jobs and exit instead of continuous loop")
-    q_run.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
+    q_run.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_svc = queue_subs.add_parser("install-service", help="Generate systemd user service unit")
     q_svc.add_argument("--user", action="store_true", default=True, help="install as user service in ~/.config/systemd/user (default: true)")
@@ -359,6 +373,9 @@ def _parser():
     q_svc.add_argument("--dry-run", action="store_true", help="print generated unit file without writing to disk")
 
     return parser
+
+
+_build_parser = _parser
 
 
 def _parse_set_value(raw: str) -> object:
@@ -393,6 +410,51 @@ def _parse_set_overrides(items):
         val = _parse_set_value(raw_val)
         overrides[norm_key] = val
     return overrides
+
+
+def _expand_set_overrides_for_model(m, overrides: dict) -> dict:
+    """Expand shorthand overrides like optimizer.lr -> train.lr (or optimizers.<component>.lr) on hypergan-model/1 specs."""
+    if not overrides or m is None:
+        return dict(overrides or {})
+    spec = getattr(m, "spec", {}) if hasattr(m, "spec") else (m if isinstance(m, dict) else {})
+    optimizers = spec.get("optimizers") if isinstance(spec, dict) else None
+    has_singular_opt = isinstance(spec, dict) and "optimizer" in spec
+    has_training = isinstance(spec, dict) and "training" in spec
+    expanded = {}
+    for k, v in overrides.items():
+        if k.startswith("optimizer.") and not has_singular_opt:
+            subkey = k[len("optimizer."):]
+            if isinstance(optimizers, dict) and optimizers:
+                for opt_name in optimizers:
+                    expanded[f"optimizers.{opt_name}.{subkey}"] = v
+            else:
+                expanded[f"train.{subkey}"] = v
+        elif k.startswith("training.") and not has_training:
+            subkey = k[len("training."):]
+            expanded[f"train.{subkey}"] = v
+        else:
+            expanded[k] = v
+    return expanded
+
+
+def _load_stored_run_model(run_dir: Path):
+    """Load stored Model from run_dir and synchronize its name with manifest.json if renamed via `hypergan tag`."""
+    from . import api as hg
+
+    m = hg._load_stored_run_model(run_dir)
+    manifest_p = Path(run_dir) / "manifest.json"
+    if manifest_p.is_file():
+        try:
+            manifest_data = json.loads(manifest_p.read_text(encoding="utf-8"))
+            if isinstance(manifest_data, dict):
+                m_cfg = manifest_data.get("config") if isinstance(manifest_data.get("config"), dict) else {}
+                manifest_name = m_cfg.get("name") or manifest_data.get("name")
+                if manifest_name and isinstance(getattr(m, "spec", None), dict):
+                    if m.spec.get("name") != manifest_name:
+                        m = hg.override(m, {"name": manifest_name})
+        except Exception:
+            pass
+    return m
 
 
 def _check_reexec(run_spec, ws_data):
@@ -757,7 +819,9 @@ def _dispatch(args, *, output=None):
                     print(format_runs_table(runs_list))
             elif args.runs_command == "compare":
                 comp = hg.runs_compare(args.runs, metric=args.metric, at_steps=args.at)
-                if args.csv:
+                if getattr(args, "json", False):
+                    _print_json(comp)
+                elif args.csv:
                     from .inspection import format_comparison_csv
                     print(format_comparison_csv(comp), end="")
                 else:
@@ -772,8 +836,14 @@ def _dispatch(args, *, output=None):
                 cleaned_count = len(cleaned)
                 skipped_count = len(skipped)
                 reclaimed = sum(r.get("total_reclaimed", 0) for r in cleaned)
-                print(f"GC complete across {cleaned_count + skipped_count} runs:")
-                print(f"  Cleaned:  {cleaned_count} runs (reclaimed {format_bytes(reclaimed)})")
+                header = (
+                    f"GC dry run across {cleaned_count + skipped_count} runs (would clean):"
+                    if args.dry_run
+                    else f"GC complete across {cleaned_count + skipped_count} runs:"
+                )
+                action_label = "Would clean:" if args.dry_run else "Cleaned: "
+                print(header)
+                print(f"  {action_label} {cleaned_count} runs (reclaimed {format_bytes(reclaimed)})")
                 if skipped_count:
                     print(f"  Skipped:  {skipped_count} active runs")
             else:
@@ -926,26 +996,78 @@ def _dispatch(args, *, output=None):
                 saved = hg.save(m, args.output)
                 print(saved)
             else:
-                m = hg.load(args.path)
+                validate_path = args.path
+                if validate_path.is_dir() and not (validate_path / "model.toml").is_file():
+                    configs_dir = validate_path / "configs"
+                    cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
+                    if cand_tomls:
+                        validate_path = cand_tomls[0]
+                    elif (validate_path / "hypergan.toml").is_file():
+                        ws_info = hg.load_workspace(validate_path / "hypergan.toml")
+                        print(
+                            f"note: {validate_path / 'hypergan.toml'} is a workspace config; place model recipes in {validate_path / 'configs'}/*.toml",
+                            file=sys.stderr,
+                        )
+                        _print_json(ws_info)
+                        return 0
+                elif validate_path.is_file() and validate_path.name == "hypergan.toml":
+                    ws_info = hg.load_workspace(validate_path)
+                    configs_dir = validate_path.parent / "configs"
+                    cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
+                    if cand_tomls:
+                        print(
+                            f"note: {validate_path} is a workspace config; validating project recipe {cand_tomls[0]}",
+                            file=sys.stderr,
+                        )
+                        validate_path = cand_tomls[0]
+                    else:
+                        print(
+                            f"note: {validate_path} is a workspace config (place model recipes in configs/*.toml)",
+                            file=sys.stderr,
+                        )
+                        _print_json(ws_info)
+                        return 0
+
+                m = hg.load(validate_path)
+                v_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
+                if v_sets:
+                    v_sets = _expand_set_overrides_for_model(m, v_sets)
+                    m = hg.override(m, v_sets)
                 warnings = hg.validate(m)
                 for warning in warnings:
                     print(f"warning: {warning}", file=sys.stderr)
                 do_runtime = getattr(args, "runtime", False)
                 do_data = getattr(args, "data", False)
+
+                def _run_check_data(model_obj):
+                    try:
+                        return hg.check_data(model_obj, output=getattr(args, "output", None))
+                    except ValueError as exc:
+                        if "requires dataset.type = 'image_folder'" in str(exc):
+                            spec_d = getattr(model_obj, "spec", {}) if hasattr(model_obj, "spec") else {}
+                            ds_sec = (spec_d.get("data") or spec_d.get("dataset") or {}) if isinstance(spec_d, dict) else {}
+                            ds_type = ds_sec.get("type", "synthetic") if isinstance(ds_sec, dict) else "synthetic"
+                            raise ValueError(
+                                f"--data validation requires an image_folder dataset (recipe uses dataset.type = {ds_type!r}, which has no image directory to verify)"
+                            ) from exc
+                        raise
+
                 if do_runtime and do_data:
                     resolved_cfg = dict(hg.resolve(m))
                     resolved_cfg["preflight"] = hg.preflight_check(m, profile=getattr(args, "profile", None), runtime=True)
-                    resolved_cfg["data_check"] = hg.check_data(m, output=getattr(args, "output", None))
+                    resolved_cfg["data_check"] = _run_check_data(m)
                     _print_json(resolved_cfg)
                 elif do_runtime:
                     _print_json(hg.preflight_check(m, profile=getattr(args, "profile", None), runtime=True))
                 elif do_data:
-                    _print_json(hg.check_data(m, output=getattr(args, "output", None)))
+                    _print_json(_run_check_data(m))
                 else:
                     _print_json(hg.resolve(m))
         elif args.command in {"train", "resume"}:
             from .execution import SERVICE_TIMEOUTS
             from .registry import is_run_dir as _is_valid_run_dir
+            explicit_run_dir = getattr(args, "run_dir", None) is not None
+            is_cpu_override = str(getattr(args, "devices", "") or "").strip().lower() == "cpu"
             options = dict(profile=args.profile,
                            service_policy={name: getattr(args, name) for name in SERVICE_TIMEOUTS
                                            if getattr(args, name) is not None},
@@ -987,24 +1109,44 @@ def _dispatch(args, *, output=None):
                         manifest_data = json.loads(manifest_p.read_text(encoding="utf-8"))
                     except Exception:
                         pass
-                needs_stored_cfg = bool(
-                    getattr(args, "steps", None) is not None
-                    or sets
-                    or getattr(args, "eval_every", None) is not None
-                    or getattr(args, "eval_metrics", None) is not None
-                    or not manifest_data
-                )
+
+                if (
+                    is_resume_cmd
+                    and getattr(args, "steps", None) is None
+                    and not sets
+                    and getattr(args, "checkpoint", None) is None
+                    and config_override is None
+                    and getattr(args, "stop_after_steps", None) is None
+                    and getattr(args, "max_seconds", None) is None
+                    and not getattr(args, "progress_json", False)
+                ):
+                    m_status = str(manifest_data.get("status") or "").lower()
+                    m_steps = manifest_data.get("steps")
+                    m_cfg = manifest_data.get("config") if isinstance(manifest_data.get("config"), dict) else {}
+                    m_total = (
+                        manifest_data.get("total_steps")
+                        or manifest_data.get("max_steps")
+                        or (m_cfg.get("training", {}) if isinstance(m_cfg.get("training"), dict) else {}).get("steps")
+                        or (m_cfg.get("train", {}) if isinstance(m_cfg.get("train"), dict) else {}).get("steps")
+                    )
+                    if m_status in ("complete", "completed") and isinstance(m_steps, int) and isinstance(m_total, int) and m_total > 0 and m_steps >= m_total:
+                        print(f"Run '{args.run_dir.name}' is already complete at step {m_steps}/{m_total}. Pass --steps <N> to extend training.")
+                        return 0
+
                 if config_override:
                     m = hg.load(config_override)
-                elif needs_stored_cfg:
+                else:
                     try:
-                        m = hg._load_stored_run_model(args.run_dir)
+                        m = _load_stored_run_model(args.run_dir)
                     except Exception:
                         m = None
-                else:
-                    m = None
                 if m and sets:
+                    sets = _expand_set_overrides_for_model(m, sets)
                     m = hg.override(m, sets)
+                if is_cpu_override:
+                    if m:
+                        m = hg.override(m, {"train.device": "cpu"})
+                    sets["train.device"] = "cpu"
 
                 run_spec = {}
                 if m and isinstance(m.spec, dict):
@@ -1117,7 +1259,7 @@ def _dispatch(args, *, output=None):
                             run_dir_str = hg.interpolate_variables(
                                 ws_sec["run_dir"],
                                 ws_data,
-                                {"stem": config_path.stem, "name": slug_dir_name, "slug": short_slug},
+                                {"stem": custom_name or config_path.stem, "name": slug_dir_name, "slug": short_slug},
                             )
                             args.run_dir = Path(run_dir_str).resolve()
                         else:
@@ -1132,7 +1274,24 @@ def _dispatch(args, *, output=None):
                 if custom_name:
                     m = hg.override(m, {"name": custom_name})
                 if sets:
+                    sets = _expand_set_overrides_for_model(m, sets)
                     m = hg.override(m, sets)
+                if is_cpu_override:
+                    m = hg.override(m, {"train.device": "cpu"})
+
+                if not explicit_run_dir and (args.run_dir / "manifest.json").is_file() and os.environ.get("_HYPERGAN_REEXEC") != "1":
+                    try:
+                        hg.prepare(m, args.run_dir, args.steps, **options)
+                    except ValueError as exc:
+                        if "differs from the original run" in str(exc) or "differs from the run manifest" in str(exc):
+                            old_run_dir = args.run_dir
+                            branch_stem = custom_name or config_path.stem
+                            full_name, _ = hg.generate_run_slug(branch_stem, parent_dir=old_run_dir.parent)
+                            args.run_dir = (old_run_dir.parent / full_name).resolve()
+                            print(
+                                f"note: '{old_run_dir.name}' has a different configuration; starting new run in '{args.run_dir}'",
+                                file=sys.stderr,
+                            )
 
                 run_spec = m.spec.get("run", {}) if isinstance(m.spec, dict) else {}
                 ws_path = hg.find_workspace(config_path)
@@ -1219,13 +1378,18 @@ def _dispatch(args, *, output=None):
             with _training_viewer(args, config=config_dict):
                 if not getattr(args, "progress_json", False):
                     exp_name = config_dict.get("name") if isinstance(config_dict, dict) else (target_path.stem if target_path else args.run_dir.name)
-                    train_sec = config_dict.get("train", {}) if isinstance(config_dict, dict) else {}
-                    dev = train_sec.get("device", "cuda")
+                    train_sec = (config_dict.get("training") or config_dict.get("train") or {}) if isinstance(config_dict, dict) else {}
+                    dev = "cpu" if is_cpu_override else train_sec.get("device", "cuda")
                     dashboard_url = getattr(args, "_dashboard_url", None)
                     _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url)
                 is_tty = bool(getattr(output.stdout.original, "isatty", lambda: False)()) if output and hasattr(output, "stdout") else False
                 human_footer = (not is_resume_cmd or is_tty) and not getattr(args, "progress_json", False)
-                output.result(prepared.run(on_event=output.progress), run_dir=args.run_dir, human=human_footer)
+                run_manifest = prepared.run(on_event=output.progress)
+                dash_footer = getattr(args, "_dashboard_url", None) or ("headless (viewer disabled)" if args.no_server else None)
+                try:
+                    output.result(run_manifest, run_dir=args.run_dir, human=human_footer, dashboard_url=dash_footer)
+                except TypeError:
+                    output.result(run_manifest, run_dir=args.run_dir, human=human_footer)
         elif args.command == "sample":
             s = hg.sample(args.run_dir, count=args.count, seed=args.seed, output=args.output,
                           checkpoint=getattr(args, "checkpoint", None), default_image_png=True)
@@ -1248,15 +1412,28 @@ def _dispatch(args, *, output=None):
                     args.queue_file = None
 
             if args.queue_command == "add":
-                res = hg.queue_add(
-                    args.model_file,
+                q_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else None
+                add_kwargs = dict(
                     devices=args.devices,
                     run_dir=args.run_dir,
                     name=args.name,
                     wait=args.wait,
                     queue_file=getattr(args, "queue_file", None),
                 )
-                print(f"Enqueued {res['id']}: {res['name']} (devices: {res.get('devices') or 'default'}, status: {res['status']})")
+                if getattr(args, "steps", None) is not None:
+                    add_kwargs["steps"] = args.steps
+                if q_sets:
+                    add_kwargs["sets"] = q_sets
+                try:
+                    res = hg.queue_add(args.model_file, **add_kwargs)
+                except TypeError:
+                    add_kwargs.pop("steps", None)
+                    add_kwargs.pop("sets", None)
+                    res = hg.queue_add(args.model_file, **add_kwargs)
+                if getattr(args, "json", False):
+                    _print_json(res)
+                else:
+                    print(f"Enqueued {res['id']}: {res['name']} (devices: {res.get('devices') or 'default'}, status: {res['status']})")
             elif args.queue_command == "ls":
                 jobs = hg.queue_ls(status=args.status, queue_file=getattr(args, "queue_file", None))
                 if getattr(args, "json", False):
@@ -1270,8 +1447,13 @@ def _dispatch(args, *, output=None):
                 else:
                     print(format_queue_status(st))
             elif args.queue_command == "stop":
+                if not getattr(args, "job_id", None) and not getattr(args, "all", False):
+                    raise ValueError("Specify a job_id to stop (e.g. `hypergan queue stop <job_id>`) or pass `--all`.")
                 res = hg.queue_stop(job_id=args.job_id, stop_all=args.all, queue_file=getattr(args, "queue_file", None))
-                print(res["message"])
+                if getattr(args, "json", False):
+                    _print_json(res)
+                else:
+                    print(res["message"])
             elif args.queue_command == "run":
                 return hg.queue_run(devices=args.devices, poll_interval=args.poll_interval, once=args.once, queue_file=getattr(args, "queue_file", None))
             elif args.queue_command == "install-service":
@@ -1290,3 +1472,8 @@ def _dispatch(args, *, output=None):
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

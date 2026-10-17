@@ -1885,13 +1885,11 @@ def contributions(run_dir=None, map_revision=None, cursor=None, limit=100, max_b
     run_path = _run_path(run_dir)
     rev = map_revision or MapSpec().revision
     view_dir = run_path / 'views' / rev
-    if not (view_dir / 'contributions.jsonl').is_file() or not (view_dir / 'metadata.json').is_file():
+    has_events = (run_path / 'events.jsonl').is_file()
+    has_views = (view_dir / 'contributions.jsonl').is_file() and (view_dir / 'metadata.json').is_file()
+    if has_events and not has_views:
         project(run_path)
-    try:
-        return read_projection_page(run_path, rev, cursor, limit=limit, max_bytes=max_bytes)
-    except FileNotFoundError:
-        project(run_path)
-        return read_projection_page(run_path, rev, cursor, limit=limit, max_bytes=max_bytes)
+    return read_projection_page(run_path, rev, cursor, limit=limit, max_bytes=max_bytes)
 
 
 def project(run_dir=None, map_spec=None, follow=False, limit=100, on_progress=None):

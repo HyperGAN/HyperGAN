@@ -733,3 +733,7 @@ class ObservationService:
         if len(_json(result).encode()) > 1048576:
             raise ValueError('Bootstrap response exceeds 1 MiB; narrow the view')
         return result
+
+
+RunObservationService = ObservationService
+

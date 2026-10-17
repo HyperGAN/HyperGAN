@@ -252,8 +252,181 @@ def _server(root, listener, session, stop):
     run_socket(root, listener, session)
 
 
+def _projection_state_mtime_ns(run_dir: Path) -> int | None:
+    """Return latest mtime_ns of existing projection state files on disk, or None if missing."""
+    from .event_views import MapSpec
+    run_path = Path(run_dir).resolve()
+    rev = MapSpec().revision
+    candidates = (
+        run_path / 'views' / rev / 'contributions.jsonl',
+        run_path / 'views' / rev / 'projection.json',
+        run_path / 'views' / 'default' / 'state.json',
+        run_path / 'projections' / 'state.json',
+    )
+    if not (run_path / 'views' / rev / 'contributions.jsonl').is_file():
+        return None
+    try:
+        if (run_path / 'views' / rev / 'contributions.jsonl').stat().st_size == 0:
+            return None
+    except OSError:
+        return None
+    mtimes: list[int] = []
+    for p in candidates:
+        try:
+            if p.is_file():
+                mtimes.append(p.stat().st_mtime_ns)
+        except OSError:
+            pass
+    return max(mtimes) if mtimes else None
+
+
+def is_projection_stale_or_missing(run_dir: Path | str) -> bool:
+    """Return True if events.jsonl exists with events and projection view is missing or stale."""
+    run_path = Path(run_dir).resolve()
+    events_file = run_path / 'events.jsonl'
+    try:
+        if not events_file.is_file():
+            return False
+        events_stat = events_file.stat()
+        if events_stat.st_size == 0:
+            return False
+    except OSError:
+        return False
+
+    proj_mtime = _projection_state_mtime_ns(run_path)
+    if proj_mtime is None:
+        return True
+    return events_stat.st_mtime_ns > proj_mtime
+
+
+def project_run(run_dir: Path | str, *, limit: int = 100) -> dict:
+    """Project training events into view contributions for a single run directory."""
+    from .event_views import MapSpec, Projector as EventProjector
+    run_path = Path(run_dir).resolve()
+    events_file = run_path / 'events.jsonl'
+    if not run_path.is_dir() or not events_file.is_file():
+        return {'documents': 0, 'has_more': False}
+    last_progress = {'documents': 0, 'has_more': False}
+    with EventProjector(run_path, allow_device_change=True) as projector:
+        while True:
+            last_progress = projector.project(limit=limit)
+            if not last_progress.get('has_more'):
+                break
+    try:
+        ev_mtime = events_file.stat().st_mtime_ns
+        proj_json = run_path / 'views' / MapSpec().revision / 'projection.json'
+        if proj_json.is_file() and proj_json.stat().st_mtime_ns < ev_mtime:
+            os.utime(proj_json, ns=(ev_mtime, ev_mtime))
+    except OSError:
+        pass
+    return last_progress
+
+
+def ensure_run_projected(run_dir: Path | str) -> bool:
+    """Lazily project run_dir on demand if its projection view is missing or stale."""
+    run_path = Path(run_dir).resolve()
+    if not is_projection_stale_or_missing(run_path):
+        return False
+    try:
+        project_run(run_path)
+        return True
+    except Exception:
+        return False
+
+
+class Projector:
+    """Background projector that only projects active runs or runs whose events.jsonl watermark changed."""
+
+    def __init__(self, root: Path | str, *, poll_interval: float = 0.1):
+        self.root = Path(root).resolve()
+        self.runs_root = self.root
+        self.poll_interval = poll_interval
+        self._last_projected_watermark: dict[Path, tuple[int, int]] = {}
+
+    def _candidate_runs(self) -> list[Path]:
+        if (self.root / 'manifest.json').is_file() or (self.root / 'events.jsonl').is_file():
+            return [self.root]
+        try:
+            return sorted(
+                d.resolve()
+                for d in self.root.iterdir()
+                if d.is_dir() and not d.name.startswith('.')
+                and ((d / 'manifest.json').is_file() or (d / 'events.jsonl').is_file())
+            )
+        except OSError:
+            return []
+
+    def _should_project(self, run_dir: Path) -> tuple[bool, tuple[int, int] | None]:
+        from .inspection import check_run_active
+        run_dir = run_dir.resolve()
+        is_active, _ = check_run_active(run_dir)
+        events_file = run_dir / 'events.jsonl'
+        watermark: tuple[int, int] | None = None
+        try:
+            if events_file.is_file():
+                st = events_file.stat()
+                watermark = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            watermark = None
+
+        if is_active:
+            return True, watermark
+
+        if watermark is None or watermark[1] == 0:
+            return False, watermark
+
+        last_wm = self._last_projected_watermark.get(run_dir)
+        if last_wm is not None and last_wm == watermark:
+            return False, watermark
+
+        proj_mtime = _projection_state_mtime_ns(run_dir)
+        if last_wm is None and proj_mtime is not None and proj_mtime >= watermark[0]:
+            self._last_projected_watermark[run_dir] = watermark
+            return False, watermark
+
+        return True, watermark
+
+    def poll_once(self) -> list[Path]:
+        projected: list[Path] = []
+        for run_dir in self._candidate_runs():
+            should_proj, watermark = self._should_project(run_dir)
+            if not should_proj:
+                continue
+            try:
+                project_run(run_dir)
+                try:
+                    st = (run_dir / 'events.jsonl').stat()
+                    watermark = (st.st_mtime_ns, st.st_size)
+                except OSError:
+                    pass
+                if watermark is not None:
+                    self._last_projected_watermark[run_dir] = watermark
+                projected.append(run_dir)
+            except Exception:
+                pass
+        return projected
+
+    step = poll_once
+    _step = poll_once
+
+    def _loop(self, stop=None, *, max_iterations: int | None = None) -> None:
+        iterations = 0
+        while True:
+            if (self.root / '.stop_projector').exists():
+                break
+            self.poll_once()
+            iterations += 1
+            if max_iterations is not None and iterations >= max_iterations:
+                break
+            if stop is not None:
+                if stop.wait(self.poll_interval):
+                    break
+            else:
+                time.sleep(self.poll_interval)
+
+
 def _project(root, stop):
-    from .event_views import Projector
+    from .event_views import Projector as EventProjector
     from .web_files import read_json
 
     threading.Thread(target=_watch_parent, daemon=True).start()
@@ -278,7 +451,7 @@ def _project(root, stop):
                 pass
 
     if not has_sub_runs and (root / 'manifest.json').is_file():
-        with Projector(root, allow_device_change=True) as projector:
+        with EventProjector(root, allow_device_change=True) as projector:
             drain_deadline = None
             while True:
                 if stop.is_set() or (root / '.stop_projector').exists():
@@ -301,52 +474,9 @@ def _project(root, stop):
                         projector.project(limit=100)
                         return
     else:
-        active_projectors = {}
-        try:
-            while not stop.wait(0.1):
-                if (root / '.stop_projector').exists():
-                    break
-                try:
-                    candidates = [d for d in root.iterdir() if d.is_dir() and (d / 'manifest.json').is_file()]
-                except OSError:
-                    candidates = []
-                for run_dir in candidates:
-                    key = str(run_dir.resolve())
-                    try:
-                        manifest = read_json(run_dir, 'manifest.json')
-                        status = manifest.get('status')
-                    except (OSError, ValueError):
-                        continue
-                    if status == 'running':
-                        if key not in active_projectors:
-                            try:
-                                p = Projector(run_dir, allow_device_change=True)
-                                p.__enter__()
-                                active_projectors[key] = p
-                            except Exception:
-                                pass
-                        if key in active_projectors:
-                            try:
-                                active_projectors[key].project(limit=100)
-                            except Exception:
-                                pass
-                    elif status in TERMINAL_STATUSES and key in active_projectors:
-                        try:
-                            active_projectors[key].project(limit=100)
-                        except Exception:
-                            pass
-                        try:
-                            active_projectors[key].__exit__(None, None, None)
-                        except Exception:
-                            pass
-                        del active_projectors[key]
-        finally:
-            for p in active_projectors.values():
-                try:
-                    p.__exit__(None, None, None)
-                except Exception:
-                    pass
-            active_projectors.clear()
+        bg_projector = Projector(root, poll_interval=0.1)
+        bg_projector._loop(stop=stop)
+
 
 
 def stop_projector(run_dir: Path | str) -> None:
@@ -738,8 +868,11 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
     """
     runs_root = Path(runs_root).resolve()
     if (runs_root / 'manifest.json').is_file() and run_id is None:
+        ensure_run_projected(runs_root)
         run_id = runs_root.name
         runs_root = runs_root.parent
+    elif run_id is not None and (runs_root / str(run_id)).is_dir():
+        ensure_run_projected(runs_root / str(run_id))
 
     probed = probe_dashboard("127.0.0.1", port)
     if probed is None:

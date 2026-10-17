@@ -17,6 +17,7 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 _VAR_REGEX = re.compile(r"\$\{([a-zA-Z0-9_.-]+)\}")
+_BARE_VAR_REGEX = re.compile(r"(?<!\$)\{([a-zA-Z0-9_.-]+)\}")
 
 
 def find_workspace(start_path: Path | str | None = None) -> Path | None:
@@ -62,24 +63,25 @@ def load_workspace(workspace_file: Path | str) -> dict:
     root_dir = str(path.parent)
     ws.setdefault("root", root_dir)
 
+    data.setdefault("paths", {})
+    data.setdefault("gpus", {})
+    data.setdefault("envs", {})
+
     if "runs_root" in ws:
+        if "{" in str(ws["runs_root"]):
+            ws["runs_root"] = interpolate_variables(ws["runs_root"], data)
         runs_root = Path(ws["runs_root"])
         if not runs_root.is_absolute():
             ws["runs_root"] = str((path.parent / runs_root).resolve())
         else:
             ws["runs_root"] = str(runs_root)
 
-    data.setdefault("paths", {})
-    data.setdefault("gpus", {})
-    data.setdefault("envs", {})
-
     # Self-interpolate paths and workspace tables
-    context = _build_context(data)
     if "paths" in data:
         data["paths"] = interpolate_variables(data["paths"], data)
-    if "runs_root" in ws and "${" in str(ws["runs_root"]):
+    if "runs_root" in ws and "{" in str(ws["runs_root"]):
         ws["runs_root"] = interpolate_variables(ws["runs_root"], data)
-    if "run_dir" in ws and "${" in str(ws["run_dir"]):
+    if "run_dir" in ws and "{" in str(ws["run_dir"]):
         try:
             ws["run_dir"] = interpolate_variables(ws["run_dir"], data)
         except KeyError:
@@ -117,31 +119,37 @@ def _build_context(workspace_dict: dict, env_vars: dict | None = None) -> dict[s
 
 
 def interpolate_variables(data: Any, workspace_dict: dict, env_vars: dict | None = None) -> Any:
-    """Recursively replace ${var} in strings, dictionaries, and lists.
+    """Recursively replace ${var} and known {var} in strings, dictionaries, and lists.
 
     Scope includes:
-    - ${workspace.root}, ${workspace.runs_root}
-    - ${paths.<key>} or ${<key>}
+    - ${workspace.root}, ${workspace.runs_root}, {root}, {runs_root}
+    - ${paths.<key>}, ${<key>}, {paths.<key>}, {<key>}
     - Explicit env_vars
-    - Fallback to os.environ[key]
+    - Fallback to os.environ[key] (for ${var} syntax)
 
-    Raises KeyError if an undefined variable is encountered.
+    Raises KeyError if an undefined ${var} variable is encountered.
     """
     context = _build_context(workspace_dict, env_vars)
 
+    def _lookup_known(k: str) -> Any:
+        if k in context:
+            return context[k]
+        if k.startswith("paths.") and k[6:] in context:
+            return context[k[6:]]
+        if f"paths.{k}" in context:
+            return context[f"paths.{k}"]
+        if env_vars and k in env_vars:
+            return env_vars[k]
+        return None
+
     def _interpolate_string(val: str) -> Any:
-        # Check if the entire string is exactly a single variable
+        # Check if the entire string is exactly a single ${var} variable
         single_match = _VAR_REGEX.fullmatch(val.strip())
         if single_match:
             k = single_match.group(1)
-            if k in context:
-                return context[k]
-            if k.startswith("paths.") and k[6:] in context:
-                return context[k[6:]]
-            if f"paths.{k}" in context:
-                return context[f"paths.{k}"]
-            if env_vars and k in env_vars:
-                return env_vars[k]
+            known = _lookup_known(k)
+            if known is not None:
+                return known
             if k in os.environ:
                 return os.environ[k]
             raise KeyError(
@@ -150,16 +158,18 @@ def interpolate_variables(data: Any, workspace_dict: dict, env_vars: dict | None
                 f"workspace fields: ['root', 'runs_root']"
             )
 
-        def _sub(m: re.Match) -> str:
+        single_bare = _BARE_VAR_REGEX.fullmatch(val.strip())
+        if single_bare:
+            k = single_bare.group(1)
+            known = _lookup_known(k)
+            if known is not None:
+                return known
+
+        def _sub_dollar(m: re.Match) -> str:
             k = m.group(1)
-            if k in context:
-                return str(context[k])
-            if k.startswith("paths.") and k[6:] in context:
-                return str(context[k[6:]])
-            if f"paths.{k}" in context:
-                return str(context[f"paths.{k}"])
-            if env_vars and k in env_vars:
-                return str(env_vars[k])
+            known = _lookup_known(k)
+            if known is not None:
+                return str(known)
             if k in os.environ:
                 return str(os.environ[k])
             raise KeyError(
@@ -168,11 +178,21 @@ def interpolate_variables(data: Any, workspace_dict: dict, env_vars: dict | None
                 f"workspace fields: ['root', 'runs_root']"
             )
 
-        return _VAR_REGEX.sub(_sub, val)
+        def _sub_bare(m: re.Match) -> str:
+            k = m.group(1)
+            known = _lookup_known(k)
+            if known is not None:
+                return str(known)
+            return m.group(0)
+
+        out = _VAR_REGEX.sub(_sub_dollar, val) if "${" in val else val
+        if "{" in out:
+            out = _BARE_VAR_REGEX.sub(_sub_bare, out)
+        return out
 
     def _walk(item: Any, key: Any = None) -> Any:
         if isinstance(item, str):
-            if "${" in item and key != "source":
+            if "{" in item and key != "source":
                 return _interpolate_string(item)
             return item
         elif isinstance(item, dict):

@@ -223,3 +223,66 @@ def test_new_dataset_nonpreset_resolution_snapping(tmp_path):
     train_res = run_cli(tmp_path, "train", recipe_path, "--run-dir", run_dir, "--steps", "1",
                         "--set", "train.device=cpu", "--no-server", isolated=False)
     assert train_res.returncode == 0, train_res.stderr
+
+
+def test_new_list_templates(tmp_path):
+    res = run_cli(tmp_path, "new", "--list", isolated=False)
+    assert res.returncode == 0, res.stderr
+    assert "dcgan" in res.stdout
+    assert "tiny-transformer" in res.stdout
+    assert "resnet" in res.stdout
+    assert "gaussian-grid" in res.stdout
+
+
+def test_new_template_without_dataset_and_self_documenting_comments(tmp_path):
+    import tomllib
+
+    out_path = tmp_path / "my_transformer.toml"
+    res = run_cli(tmp_path, "new", "-t", "tiny-transformer", "-r", "64", "-o", out_path, "--device", "cpu", isolated=False)
+    assert res.returncode == 0, res.stderr
+    assert out_path.is_file()
+
+    raw_text = out_path.read_text(encoding="utf-8")
+    assert "# HyperGAN Experiment Configuration" in raw_text
+    assert "# Start training: hypergan train my_transformer.toml" in raw_text
+    assert "# Validate config: hypergan validate my_transformer.toml" in raw_text
+    assert "[dataset]" in raw_text
+    assert "[architecture]" in raw_text
+    assert "[losses]" in raw_text
+    assert "[trainer]" in raw_text
+    assert "[SamplePreview]" in raw_text
+
+    parsed = tomllib.loads(raw_text)
+    assert parsed["format"] == "hypergan-model/1"
+    assert parsed["data"]["args"]["height"] == 64
+    assert parsed["data"]["args"]["width"] == 64
+    assert "attention" in parsed["networks"]["generator"]["source"]
+
+    m = hg.load(out_path)
+    warnings = hg.validate_config(m)
+    assert isinstance(warnings, list)
+
+
+def test_new_project_scaffolding(tmp_path):
+    proj_dir = tmp_path / "my_gan_project"
+    res = run_cli(tmp_path, "new", "--project", proj_dir, "-t", "resnet", "-r", "64", "--device", "cpu", isolated=False)
+    assert res.returncode == 0, res.stderr
+
+    assert (proj_dir / "runs").is_dir()
+    assert (proj_dir / "configs").is_dir()
+    ws_file = proj_dir / "hypergan.toml"
+    cfg_file = proj_dir / "configs" / "resnet.toml"
+    assert ws_file.is_file()
+    assert cfg_file.is_file()
+
+    ws_text = ws_file.read_text(encoding="utf-8")
+    assert 'runs_root = "runs"' in ws_text
+    assert 'run_dir = "${runs_root}/${stem}"' in ws_text
+
+    # Ensure no training run was started automatically
+    assert list((proj_dir / "runs").iterdir()) == []
+
+    # Validate generated config
+    val_res = run_cli(tmp_path, "validate", cfg_file, isolated=False)
+    assert val_res.returncode == 0, val_res.stderr
+

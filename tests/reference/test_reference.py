@@ -133,12 +133,23 @@ def test_unavailable_custom_constructor_is_actionable():
 
 
 def test_tampered_bundle_rejected(tmp_path):
-    config = write_default(tmp_path / "project", device="cpu")
+    config = write_default(tmp_path / "project", device="cpu", defaults="hypergan")
     manifest = train(config, tmp_path / "run")
     with Path(manifest["bundle_path"]).open("ab") as stream:
         stream.write(b"changed")
     with pytest.raises(ValueError, match="hash mismatch"):
         sample(tmp_path / "run")
+
+
+def test_missing_published_bundle_does_not_silently_select_checkpoint(tmp_path):
+    config = write_default(tmp_path / "project", device="cpu", defaults="hypergan")
+    run = tmp_path / "run"
+    manifest = train(config, run)
+    Path(manifest["bundle_path"]).unlink()
+    with pytest.raises(ValueError, match="Published inference artifact is missing"):
+        sample(run)
+    # A deliberately selected checkpoint remains an independent sample source.
+    assert sample(run, checkpoint="latest").is_file()
 
 
 def test_integer_conditioning_survives_native_bundle(tmp_path):

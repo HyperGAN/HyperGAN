@@ -42,7 +42,7 @@ collective_timeout = {collective_timeout}
 
 
 def test_structural_cli_never_loads_custom_code_or_workers_and_excludes_timeouts_from_identity(tmp_path):
-    config = write_default(tmp_path / 'project', device="cpu")
+    config = write_default(tmp_path / 'project', device="cpu", defaults='hypergan')
     config.write_text(config.read_text().replace('factory = "hndl"', 'factory = "preflight_custom:Generator"', 1))
     profile = tmp_path / 'profile.toml'
     before = {path.relative_to(tmp_path) for path in tmp_path.rglob('*')}
@@ -65,7 +65,7 @@ def test_structural_cli_never_loads_custom_code_or_workers_and_excludes_timeouts
 
 
 def test_structural_cli_reports_invalid_profile_without_runtime_or_partial_json(tmp_path):
-    config = write_default(tmp_path / 'project', device="cpu")
+    config = write_default(tmp_path / 'project', device="cpu", defaults='hypergan')
     profile = tmp_path / 'profile.toml'
     _profile(profile, world_size='true')
     completed = _structural(config, profile)
@@ -77,7 +77,7 @@ def test_structural_cli_reports_invalid_profile_without_runtime_or_partial_json(
 
 def test_native_structural_cli_is_dependency_free_for_configured_cuda_and_cpu(tmp_path):
     for device in ('cuda', 'cuda:1', 'cpu'):
-        config = write_default(tmp_path / device.replace(':', '-'), device=device)
+        config = write_default(tmp_path / device.replace(':', '-'), device=device, defaults='hypergan')
         config.write_text(config.read_text().replace('factory = "hndl"', 'factory = "preflight_custom:Generator"', 1))
         completed = subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), '-c',
                                    BLOCKED_CLI, 'preflight', str(config)],

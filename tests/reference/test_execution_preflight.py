@@ -171,7 +171,7 @@ def test_forged_resolved_profile_is_rejected_before_launch(monkeypatch):
 @pytest.mark.heavy
 def test_native_cli_runtime_constructs_cpu_without_forward_or_data_draw(tmp_path):
     from hypergan.config import write_default
-    config = write_default(tmp_path / 'project', device='cpu')
+    config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
     config.write_text(config.read_text().replace('factory = "hndl"', 'factory = "native_fixture:Generator"', 1).replace('factory = "gaussian_grid"', 'factory = "native_fixture:Data"'))
     (tmp_path / 'native_fixture.py').write_text('''
 import torch

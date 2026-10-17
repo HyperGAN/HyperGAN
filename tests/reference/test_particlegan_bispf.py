@@ -7,7 +7,7 @@ from hndl.operators.pretrained import Pretrained
 from particlegan import get_recipe
 
 from hypergan.checkpoints import restore_trainer, trainer_state
-from hypergan.config import resolve_config
+from hypergan.config import config_values, resolve_config
 from hypergan.training import ReferenceTrainer, initialize_fresh_parameters, particlegan_recipe
 
 
@@ -86,6 +86,43 @@ def test_importing_replicated_backend_cannot_change_the_native_recipe():
     from hypergan.execution_profiles import validate_replicated_recipe
     with pytest.raises(ValueError, match='require native execution'):
         validate_replicated_recipe(config())
+
+
+def test_snapshot_supports_gaussian_prior_without_a_learned_table():
+    raw = config_values(config())
+    raw['prior'] = {'kind': 'gaussian', 'args': {'z_dim': 4}}
+    raw['prior_regularizer']['weight'] = 0
+    trainer = ReferenceTrainer(resolve_config(raw))
+    row, _ = trainer.update()
+    assert row['prior_loss'] == 0
+    assert all(group['role'] != 'prior' for group in trainer.opt_g.param_groups)
+
+
+def test_inference_strict_load_preserves_recipe_prior_reference_buffers(tmp_path):
+    from hypergan.artifacts import sample, save_bundle
+    trainer = ReferenceTrainer(config())
+    _, batch = trainer.update()
+    save_bundle(tmp_path, trainer, batch)
+    result = sample(tmp_path, count=4, seed=10000)
+    assert result is not None
+
+
+@pytest.mark.parametrize('damage', ['named_stream', 'global_rng', 'trainability'])
+def test_invalid_late_checkpoint_fields_do_not_mutate_trainer(damage):
+    trainer = ReferenceTrainer(config())
+    _, batch = trainer.update()
+    state = copy.deepcopy(trainer_state(trainer, batch))
+    if damage == 'named_stream':
+        state['streams']['data'] = torch.zeros(1, dtype=torch.uint8)
+    elif damage == 'global_rng':
+        state['rng']['torch'] = torch.zeros(1, dtype=torch.uint8)
+    else:
+        key = next(iter(state['trainable']['graph']))
+        state['trainable']['graph'][key] = 'true'
+    before = copy.deepcopy(trainer_state(trainer, batch))
+    with pytest.raises(ValueError):
+        restore_trainer(trainer, state)
+    equal(before, trainer_state(trainer, batch))
 
 
 @pytest.mark.parametrize('trainable', [True, False])

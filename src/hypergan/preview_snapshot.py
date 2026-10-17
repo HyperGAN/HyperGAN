@@ -220,7 +220,7 @@ def renderer_command(state, operation, payload):
     for name, model in graph.models.items():
         model.load_state_dict(saved['model_states'][name])
         _restore_buffers(model, saved['model_buffers'][name])
-    prior = make_prior(saved['config']['prior'], device='cpu').float()
+    prior = make_prior(saved['config']['prior'], device='cpu', recipe=saved['config'].get('recipe')).float()
     prior.load_state_dict(saved['prior'])
     _restore_buffers(prior, saved['prior_buffers'])
     trainer = SimpleNamespace(config=saved['config'], step=step, ema_graph=graph, ema_prior=prior)

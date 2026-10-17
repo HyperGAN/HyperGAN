@@ -137,7 +137,7 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None):
         graph.models[name].load_state_dict(weights)
         if "model_buffers" in state:
             _restore_buffers(graph.models[name], state["model_buffers"].get(name))
-    prior = make_prior(config["prior"], device='cpu').float().eval().requires_grad_(False)
+    prior = make_prior(config["prior"], device='cpu', recipe=config.get('recipe')).float().eval().requires_grad_(False)
     prior.load_state_dict(state["prior"])
     if "prior_buffers" in state:
         _restore_buffers(prior, state["prior_buffers"])

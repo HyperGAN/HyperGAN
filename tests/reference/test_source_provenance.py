@@ -13,7 +13,7 @@ def test_resume_preserves_initial_source_and_records_each_attempt(tmp_path, monk
     from hypergan.checkpoints import read_checkpoint
     from hypergan.training import train, resume
 
-    config = write_default(tmp_path / 'config.toml', device='cpu')
+    config = write_default(tmp_path / 'config.toml', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     original = {'hypergan_commit': 'a' * 40, 'hypergan_dirty': False, 'hypergan_provenance': 'build'}
     current = {'hypergan_commit': 'b' * 40, 'hypergan_dirty': True, 'hypergan_provenance': 'git'}
@@ -45,7 +45,7 @@ def test_missing_initial_source_uses_first_attempt_not_previous_release(tmp_path
     from hypergan import single_execution
     from hypergan.training import train, resume
 
-    config = write_default(tmp_path / 'config.toml', device='cpu')
+    config = write_default(tmp_path / 'config.toml', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     source = {'hypergan_commit': 'a' * 40}
     monkeypatch.setattr(single_execution, 'source_info', lambda: dict(source))
@@ -69,7 +69,7 @@ def test_failed_start_records_current_source_before_execution_environment(tmp_pa
     from hypergan.run_controller import run_resume
     from hypergan.training import train
 
-    config = write_default(tmp_path / 'config.toml', device='cpu')
+    config = write_default(tmp_path / 'config.toml', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     original = {'hypergan_commit': 'a' * 40}
     current = {'hypergan_commit': 'b' * 40, 'hypergan_dirty': False, 'hypergan_provenance': 'build'}

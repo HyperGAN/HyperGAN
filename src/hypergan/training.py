@@ -212,9 +212,8 @@ def initialize_fresh_parameters(graph, seed):
 def particlegan_recipe(config):
     """The ParticleGAN recipe holding this configuration's training formulation.
 
-    Only update settings are set. Model-shape fields (z_dim, prior kind,
-    particle count) keep their defaults and are unused: HyperGAN builds the
-    networks and prior from its own configuration.
+    The snapshot holds the complete new preset. Concrete scalar sections own
+    their corresponding overrides; legacy configurations retain K3P.
     """
     opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
     fields = dict(config.get('recipe') or {'critic_formulation': 'k3p'})
@@ -367,16 +366,22 @@ class ReferenceTrainer:
         make_penalty = lambda coeff: self.recipe.make_critic_penalty(self.opt_d, coeff=coeff)
         self.program = compile_legacy_program(
             self.graph, self.prior, config, self.objectives, self.gan, self.penalty, self.spread, make_penalty)
-        groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"], "role": "generator"}]
+        groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"]}]
+        if config.get('recipe'):
+            groups[0]['role'] = 'generator'
         if self.program.prior_parameters:
-            groups.append({"params": list(self.program.prior_parameters), "lr": opt["lr"] * opt["prior_lr_mult"], "betas": tuple(opt["prior_betas"]), "role": "prior"})
+            groups.append({"params": list(self.program.prior_parameters), "lr": opt["lr"] * opt["prior_lr_mult"], "betas": tuple(opt["prior_betas"])})
+            if config.get('recipe'):
+                groups[-1]['role'] = 'prior'
         # Latent damping acts on a plain particle table alone in its group.
         table = getattr(self.prior, "z", None)
         latent_table = table if (type(self.prior) is ParticlePrior and table.requires_grad
                                  and self.program.prior_parameters == (table,)) else None
         self.opt_g = _device_optimizer(self.recipe.make_generator_optimizer(
             groups, modules=self.graph, latent_table=latent_table, **optimizer_options))
-        self.lr_roles = [[group.get('role', 'generator') for group in self.opt_g.param_groups],
+        prior_ids = {id(parameter) for parameter in self.program.prior_parameters}
+        self.lr_roles = [[group.get('role', 'prior' if all(id(parameter) in prior_ids for parameter in group['params']) else 'generator')
+                          for group in self.opt_g.param_groups],
                          ['critic'] * len(self.opt_d.param_groups)]
         self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in (self.opt_g, self.opt_d)]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)

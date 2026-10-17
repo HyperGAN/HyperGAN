@@ -56,7 +56,7 @@ def same(left, right):
 
 
 def verify_replicated_metrics(tmp_path, device):
-    config = write_default(tmp_path / 'on.toml', device=device)
+    config = write_default(tmp_path / 'on.toml', device=device, defaults='hypergan')
     config.write_text(config.read_text().replace('steps = 5', 'steps = 3')
                       .replace('num_particles = 20000', 'num_particles = 32')
                       .replace('count = 256', 'count = 8').replace('lazy_k = 1', 'lazy_k = 2'))

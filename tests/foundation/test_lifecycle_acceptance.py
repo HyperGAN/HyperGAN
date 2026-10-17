@@ -83,7 +83,7 @@ class ProbeExecution:
 
 def _run_probe(tmp_path, **options):
     from hypergan.run_controller import run_train
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     root = tmp_path / 'run'
     trace, instances = [], []
 

@@ -206,7 +206,7 @@ def test_replicated_constant_lr_step_extension_and_old_checkpoint_replay_are_exa
 
 def test_installed_module_entrypoint_named_profile_and_inference_commands(tmp_path):
     from hypergan.config import write_default
-    config = write_default(tmp_path / 'project', device='cpu')
+    config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     def invoke(*args):
         process = subprocess.run([sys.executable, '-I', '-m', 'hypergan', *map(str, args)],

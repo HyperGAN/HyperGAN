@@ -27,7 +27,8 @@ def test_every_example_describes(path):
     text = json.dumps(result, allow_nan=False)
     assert not LOCAL_PATH.search(text), 'absolute local path leaked'
     assert len(text) < 256 * 1024
-    assert result['formulation']['family'] == 'k3p'
+    expected_family = config.get('recipe', {}).get('critic_formulation', 'k3p')
+    assert result['formulation']['family'] == expected_family
     assert result['formulation']['parameters']['coeff'] == config['gradient_penalty']['coeff']
     names = [entry['name'] for entry in result['networks']]
     assert names == list(config['components'])
@@ -45,7 +46,7 @@ def test_every_example_describes(path):
         for term in result['losses'][side]:
             assert term['metric'] or term['metric_note']
     objectives = {term['metric'] for term in result['losses']['generator'] if term['kind'] not in (
-        'rpgan_g', 'particle_spread')}
+        'rpgan_g', 'non_saturating_g', 'particle_spread', 'sbnp')}
     assert objectives == {'loss/objectives/' + objective_id(t) for t in config['objectives']}
     assert result['optimizers']['critic']['lr'] == pytest.approx(
         config['optimizer']['lr'] * config['optimizer']['d_lr_mult'])
@@ -169,7 +170,12 @@ def _check_against_training(config):
     options, prior_group, damped = _training_view(config)
     result = describe_config(config)
     parameters = result['formulation']['parameters']
-    assert parameters['blend_floor_f'] == pytest.approx(options['lr_floor'])
+    if result['formulation']['family'] == 'k3p':
+        assert parameters['blend_floor_f'] == pytest.approx(options['lr_floor'])
+    else:
+        assert result['formulation']['family'] == 'bispf'
+        assert result['optimizers']['generator']['type'] == 'DualNorm'
+        assert result['optimizers']['generator']['constraint_geometry'] == config['recipe']['constraint_geometry_mode']
     for key in ('coeff', 'kappa', 'lazy_k', 'anchor_weight'):
         assert parameters[key] == pytest.approx(options[key]), key
     assert (result['optimizers']['prior'].get('status') != 'unavailable') == prior_group

@@ -38,7 +38,7 @@ def test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema():
     prior = copy.deepcopy(trainer.prior)
     ema_g, ema_prior = copy.deepcopy(generator), copy.deepcopy(prior)
     # Pin the upstream recipe to HyperGAN's own defaults; ParticleGAN's differ.
-    recipe = get_recipe(total_steps=5, batch_size=16, **{
+    recipe = get_recipe('k3p', total_steps=5, batch_size=16, **{
         field: DEFAULT[section][key] for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items()})
     opt_g, opt_d = recipe.make_optimizers(generator, critic, prior, ema_critic=copy.deepcopy(critic))
     gan, penalty, spread = recipe.make_loss(), recipe.make_critic_penalty(opt_d), recipe.make_prior_regularizer()
@@ -76,7 +76,7 @@ def test_one_update_matches_upstream_loop_gradients_weights_prior_and_ema():
 
 @pytest.mark.heavy
 def test_run_and_fresh_process_inference(tmp_path):
-    config = write_default(tmp_path / "project", device="cpu")
+    config = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     run = tmp_path / "run"
     manifest = train(config, run)
     assert manifest["status"] == "complete" and manifest["steps"] == 5
@@ -133,7 +133,7 @@ def test_unavailable_custom_constructor_is_actionable():
 
 
 def test_tampered_bundle_rejected(tmp_path):
-    config = write_default(tmp_path / "project", device="cpu")
+    config = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     manifest = train(config, tmp_path / "run")
     with Path(manifest["bundle_path"]).open("ab") as stream:
         stream.write(b"changed")
@@ -158,7 +158,7 @@ def test_integer_conditioning_survives_native_bundle(tmp_path):
 
 
 def test_interrupted_manifest_is_terminal(tmp_path, monkeypatch):
-    path = write_default(tmp_path / "project", device="cpu")
+    path = write_default(tmp_path / "project", device="cpu", defaults='hypergan')
     def interrupted(*args, **kwargs):
         raise KeyboardInterrupt
     monkeypatch.setattr(ReferenceTrainer, "update", interrupted)

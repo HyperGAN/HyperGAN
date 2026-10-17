@@ -119,6 +119,14 @@ def _restore_trainer(trainer, state):
         raise ValueError('Checkpoint requires both optimizer states and base learning rates')
     if set(state['streams']) != set(trainer.streams):
         raise ValueError('Checkpoint named RNG streams differ from trainer')
+    # Validate consumed RNG streams before any model or optimizer is restored.
+    # Local generators leave the process-global streams untouched on failure.
+    for name, stream in trainer.streams.items():
+        torch.Generator(device=stream.device).set_state(state['streams'][name])
+    torch.Generator(device='cpu').set_state(state['rng']['torch'])
+    random.Random().setstate(state['rng']['python'])
+    numpy_state = state['rng']['numpy']
+    np.random.RandomState().set_state((numpy_state[0], np.asarray(numpy_state[1], dtype=np.uint32), *numpy_state[2:]))
     if set(state['modes']) != {'graph', 'prior', 'ema_graph', 'ema_prior'}:
         raise ValueError('Checkpoint module mode inventory differs from trainer')
     for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
@@ -136,6 +144,8 @@ def _restore_trainer(trainer, state):
                 raise ValueError('Checkpoint buffer shape or dtype differs from trainer')
         if set(state['modes'][name]) != dict(getattr(trainer, name).named_modules()).keys():
             raise ValueError('Checkpoint nested module mode inventory differs from trainer')
+        if any(type(value) is not bool for value in (*state['modes'][name].values(), *state['trainable'][name].values())):
+            raise ValueError('Checkpoint module modes and trainability must be boolean')
     for optimizer, saved, rates in zip((trainer.opt_g, trainer.opt_d), state['optimizers'], state['base_lrs']):
         # The recipe's optimizers keep their regularization state (EMA critic,
         # LR record, latent-damping history) under 'regularizer'.

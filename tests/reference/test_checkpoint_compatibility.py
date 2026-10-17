@@ -28,7 +28,7 @@ def old_hypergan_provenance(metadata):
 
 @pytest.mark.parametrize('explicit', [True], ids=['current-version'])
 def test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapshot(tmp_path, explicit):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     baseline, run = tmp_path / 'baseline', tmp_path / 'run'
     train(config, baseline)
     stopped = train(config, run, stop_after_steps=2, checkpoint_every=1)
@@ -55,7 +55,7 @@ def test_native_previous_hypergan_build_restores_exact_state_and_earlier_snapsho
 
 @pytest.mark.parametrize('kind', ['dependency', 'runtime', 'data', 'digest', 'implementation-container', 'runtime-container'])
 def test_hypergan_provenance_differences_do_not_bypass_other_validation(tmp_path, kind):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     stopped = train(config, run, stop_after_steps=1)
     metadata_path = Path(stopped['checkpoint_path']) / 'manifest.json'
@@ -96,7 +96,7 @@ def test_changed_external_factory_source_still_rejects_resume(tmp_path, monkeypa
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, module_name, module)
     spec.loader.exec_module(module)
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     config.write_text(config.read_text().replace('factory = "hndl"', f'factory = "{module_name}:make"', 1))
     run = tmp_path / 'run'
     train(config, run, stop_after_steps=1)
@@ -134,7 +134,7 @@ def one_of_two_identical_cards(monkeypatch, selected):
 
 
 def test_resume_on_the_other_identical_card_warns_and_completes(tmp_path, monkeypatch):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     baseline, run = tmp_path / 'baseline', tmp_path / 'run'
     selected = [FIRST_CARD]
     one_of_two_identical_cards(monkeypatch, selected)
@@ -156,7 +156,7 @@ def test_resume_on_the_other_identical_card_warns_and_completes(tmp_path, monkey
 
 
 def test_resume_on_a_different_card_model_names_the_rejected_fields(tmp_path, monkeypatch):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     selected = [FIRST_CARD]
     one_of_two_identical_cards(monkeypatch, selected)
@@ -185,7 +185,7 @@ def test_checkpoint_compatibility_rechecked_under_lock_before_numerical_loading(
     import hypergan.run_controller as controller
     import hypergan.single_execution as single
     import torch
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     stopped = train(config, run, stop_after_steps=1)
     metadata_path = Path(stopped['checkpoint_path']) / 'manifest.json'

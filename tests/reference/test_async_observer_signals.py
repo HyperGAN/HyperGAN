@@ -20,7 +20,7 @@ pytestmark = pytest.mark.heavy
 @pytest.mark.skipif(os.name == 'nt', reason='POSIX cooperative SIGTERM contract')
 @pytest.mark.parametrize('fatal', [False, True])
 def test_signal_during_terminal_callback_cancels_hour_timeout_and_reaps(tmp_path, fatal):
-    config = write_default(tmp_path/'config', device='cpu')
+    config = write_default(tmp_path/'config', device='cpu', defaults='hypergan')
     config.write_text(config.read_text().replace('steps = 5', 'steps = 2')
                       .replace('num_particles = 20000', 'num_particles = 32'))
     marker = tmp_path/'callback-pid'

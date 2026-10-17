@@ -517,6 +517,24 @@ def resolve_config(raw):
     if len(set(objective_ids)) != len(objective_ids):
         raise ValueError('Objective IDs must be unique; give repeated objectives explicit IDs')
     validate_metrics(result)
+    if result['recipe']:
+        # Persist effective values, including the scalar-section overrides,
+        # rather than an ignored duplicate from the preset snapshot.
+        for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items():
+            result['recipe'][field] = deepcopy(result[section][key])
+        result['recipe'].update(total_steps=result['training']['steps'],
+                                batch_size=result['training']['batch_size'],
+                                z_dim=result['prior']['args']['z_dim'])
+        if result['prior']['kind'] in ('particles', 'mog'):
+            result['recipe']['prior_kind'] = result['prior']['kind']
+        else:
+            # GaussianPrior is owned by HyperGAN; ParticleGAN's constructor
+            # selector only describes learned particle/mixture families.
+            result['recipe'].pop('prior_kind', None)
+        if 'standardize' in result['prior']['args']:
+            result['recipe']['standardize'] = result['prior']['args']['standardize']
+        if 'num_particles' in result['prior']['args']:
+            result['recipe']['num_particles'] = result['prior']['args']['num_particles']
     for key in ("lr", "d_lr_mult", "prior_lr_mult"):
         _positive(result["optimizer"][key], f"optimizer.{key}")
     if result['optimizer']['implementation'] not in ('recipe', 'device_adam', 'torch_fused_adam'):

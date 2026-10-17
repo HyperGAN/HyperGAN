@@ -31,7 +31,7 @@ def events(run):
 
 
 def config(tmp_path, name, metrics=''):
-    path = write_default(tmp_path / name, device='cpu')
+    path = write_default(tmp_path / name, device='cpu', defaults='hypergan')
     path.write_text(path.read_text().replace('num_particles = 20000', 'num_particles = 32') + metrics)
     return path
 

@@ -32,7 +32,7 @@ def equal(left, right):
 
 def test_public_train_repeats_resume_exact_state_and_completed_schedule(tmp_path):
     from hypergan.execution import train as public_train
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     full, split = tmp_path / 'full', tmp_path / 'split'
     public_train(config, full, steps=4, checkpoint_every=1)
     stopped = public_train(config, split, steps=4, checkpoint_every=1, stop_after_steps=2)
@@ -66,7 +66,7 @@ def test_public_train_repeats_resume_exact_state_and_completed_schedule(tmp_path
 def test_constant_lr_target_extension_preserves_exact_state_and_old_checkpoints(tmp_path, stop_early):
     from hypergan.execution import train as public_train, resume as public_resume, prepare_resume
 
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     config.write_text(config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0'))
     full, split = tmp_path / 'full', tmp_path / 'split'
     public_train(config, full, steps=6, checkpoint_every=1)
@@ -96,7 +96,7 @@ def test_constant_lr_target_extension_preserves_exact_state_and_old_checkpoints(
 def test_constant_lr_extension_rejects_other_changes_before_run_mutation(tmp_path):
     from hypergan.execution import train as public_train
 
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     original = config.read_text().replace('lr_floor = 0.05', 'lr_floor = 1.0')
     config.write_text(original)
     run = tmp_path / 'run'
@@ -119,7 +119,7 @@ def test_repeated_train_checks_metric_argument_types_under_lock_before_factories
     from hypergan.execution import prepare_train
     import hypergan.run_controller as controller
 
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     config.write_text(config.read_text() + '''
 [metrics]
 disable = ["custom/typed"]
@@ -150,7 +150,7 @@ args = { flag = true }
 
 @pytest.mark.heavy
 def test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwrite(tmp_path):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     full = train(config, tmp_path / 'full', checkpoint_every=1)
     stopped = train(config, tmp_path / 'split', checkpoint_every=1, stop_after_steps=3)
     assert stopped['status'] == 'stopped' and stopped['steps'] == stopped['last_durable_step'] == 3
@@ -171,7 +171,7 @@ def test_resume_matches_uninterrupted_and_replays_old_checkpoint_without_overwri
 
 
 def test_failure_after_discriminator_update_preserves_prior_durable_boundary(tmp_path, monkeypatch):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     full = train(config, tmp_path / 'full')
     from hypergan.training import DeviceAdam
     original = DeviceAdam.step
@@ -194,11 +194,11 @@ def test_failure_after_discriminator_update_preserves_prior_durable_boundary(tmp
 
 
 def test_runtime_config_tampering_and_inference_rejected_without_mutation(tmp_path):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     stopped = train(config, tmp_path / 'run', stop_after_steps=2)
     manifest_path = tmp_path / 'run/manifest.json'
     before = manifest_path.read_bytes()
-    other = write_default(tmp_path / 'other', device="cpu")
+    other = write_default(tmp_path / 'other', device="cpu", defaults='hypergan')
     other.write_text(other.read_text().replace('steps = 5', 'steps = 6'))
     with pytest.raises(ValueError, match='configuration'):
         resume(tmp_path / 'run', config_path=other)
@@ -215,7 +215,7 @@ def test_runtime_config_tampering_and_inference_rejected_without_mutation(tmp_pa
 
 
 def test_checkpoint_write_failure_keeps_last_durable_pointer(tmp_path, monkeypatch):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     original = torch.save
     calls = 0
     def broken(value, destination, *args, **kwargs):
@@ -258,7 +258,7 @@ def test_global_rng_restore_after_constructors_and_module_modes():
 
 
 def test_lock_partial_log_and_observer_error_are_honest(tmp_path):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     def observer(row):
         random.random()
         np.random.random()
@@ -279,7 +279,7 @@ def test_lock_partial_log_and_observer_error_are_honest(tmp_path):
 
 
 def test_wall_time_zero_update_stop_has_checkpoint_no_inference(tmp_path):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     result = train(config, tmp_path / 'run', max_seconds=1e-12)
     assert result['status'] == 'stopped' and result['steps'] == result['last_durable_step'] == 0
     assert result['stop_reason'] == 'max_seconds' and 'sample_path' not in result
@@ -303,7 +303,7 @@ def test_nonpersistent_buffers_and_dynamic_trainability_restored():
 @pytest.mark.parametrize('damage', ['metadata-list', 'metadata-key', 'payload', 'missing-optimizer'])
 def test_malformed_checkpoint_is_actionable_without_run_mutation(tmp_path, damage):
     import hashlib
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     manifest = train(config, tmp_path / 'run', stop_after_steps=1)
     path = Path(manifest['checkpoint_path'])
     run_manifest = (tmp_path / 'run/manifest.json').read_bytes()
@@ -327,7 +327,7 @@ def test_malformed_checkpoint_is_actionable_without_run_mutation(tmp_path, damag
 
 
 def test_older_checkpoint_zero_update_resume_updates_default_pointer(tmp_path):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     stopped = train(config, tmp_path / 'run', stop_after_steps=2)
     resume(tmp_path / 'run')
     rolled_back = resume(tmp_path / 'run', checkpoint=stopped['checkpoint_path'], max_seconds=1e-12)
@@ -339,7 +339,7 @@ def test_older_checkpoint_zero_update_resume_updates_default_pointer(tmp_path):
 
 
 def test_observer_rng_and_failure_do_not_change_numerics(tmp_path):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     train(config, tmp_path / 'normal')
     def callback(row):
         random.random()
@@ -360,7 +360,7 @@ def test_unknown_data_trains_without_false_recovery_claim(tmp_path, monkeypatch)
     monkeypatch.setitem(sys.modules, 'unknown', types.ModuleType('unknown'))
     original = module.construct
     monkeypatch.setattr(module, 'construct', lambda spec: UnknownData() if spec['factory'] == 'unknown:Data' else original(spec))
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     config.write_text(config.read_text().replace('factory = "gaussian_grid"', 'factory = "unknown:Data"'))
     with pytest.warns(RuntimeWarning, match='Custom data'):
         result = train(config, tmp_path / 'run')

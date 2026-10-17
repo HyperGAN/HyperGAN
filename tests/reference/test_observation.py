@@ -162,7 +162,7 @@ def test_preview_diversity_reaches_metric_events_and_catalog(tmp_path):
 
 def test_preview_write_failure_is_observer_only_and_sequence_not_reused(tmp_path, monkeypatch):
     import hypergan.preview_worker as worker
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     train(config, tmp_path / 'full')
     def disk_full(*args, **kwargs):
         raise OSError('preview volume full')
@@ -178,7 +178,7 @@ def test_preview_write_failure_is_observer_only_and_sequence_not_reused(tmp_path
 
 def test_preview_byte_limit_is_enforced_before_publication(tmp_path, monkeypatch):
     import hypergan.previews as previews
-    trainer = ReferenceTrainer(load_config(write_default(tmp_path / 'config', device="cpu")))
+    trainer = ReferenceTrainer(load_config(write_default(tmp_path / 'config', device="cpu", defaults='hypergan')))
     _, batch = trainer.update()
     monkeypatch.setattr(previews, 'MAX_BYTES', 80)
     (tmp_path / 'run').mkdir()
@@ -190,7 +190,7 @@ def test_preview_byte_limit_is_enforced_before_publication(tmp_path, monkeypatch
 
 def test_manual_requests_coalesce_acknowledge_durable_checkpoint(tmp_path):
     from hypergan.run_requests import submit_checkpoint_request, checkpoint_request_status
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     requests = []
     def observer(row):
         if row['event'] == 'train' and row['step'] == 2:
@@ -209,7 +209,7 @@ def test_manual_requests_coalesce_acknowledge_durable_checkpoint(tmp_path):
 
 def test_manual_request_is_never_serviced_after_partial_update(tmp_path, monkeypatch):
     from hypergan.run_requests import submit_checkpoint_request, checkpoint_request_status
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     requests = []
     from hypergan.training import DeviceAdam
     original = DeviceAdam.step
@@ -265,7 +265,7 @@ def test_preview_clones_real_conditioning_before_custom_forward(tmp_path):
 def test_resume_refreshes_a_stale_default_preview_bound(tmp_path):
     """A manifest that stored an old default must not pin the run to it."""
     from hypergan.previews import DEFAULT_KEEP
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     stopped = train(config, run, preview_every=1, preview_keep=2, stop_after_steps=1)
     assert stopped['preview_keep'] == 2 and stopped['preview_keep_source'] == 'explicit'
@@ -293,7 +293,7 @@ def test_resume_refreshes_a_stale_default_preview_bound(tmp_path):
 
 @pytest.mark.heavy
 def test_killed_pending_preview_is_cleaned_without_touching_unmanaged_files(tmp_path):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     stopped = train(config, tmp_path / 'run', stop_after_steps=1)
     root = tmp_path / 'run/previews'
     root.mkdir()
@@ -316,7 +316,7 @@ def test_failed_index_write_does_not_accumulate_published_orphans(tmp_path, monk
             raise OSError('index write failed')
         return original(path, value)
     monkeypatch.setattr(previews, 'atomic_json', fail_index)
-    trainer = ReferenceTrainer(load_config(write_default(tmp_path / 'config', device="cpu")))
+    trainer = ReferenceTrainer(load_config(write_default(tmp_path / 'config', device="cpu", defaults='hypergan')))
     _, batch = trainer.update()
     (tmp_path / 'run').mkdir()
     with pytest.raises(OSError, match='index write failed'):
@@ -341,7 +341,7 @@ def test_acknowledgement_retry_reuses_identifiable_saved_checkpoint(tmp_path, mo
         if row['event'] == 'train' and row['step'] == 1:
             result = requests_api.submit_checkpoint_request(tmp_path / 'run', run_id=row['run_id'], attempt_id=row['attempt_id'])
             ids.append(result['request']['request_id'])
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     train(config, tmp_path / 'run', on_event=observer, checkpoint_every=100)
     receipt = requests_api.checkpoint_request_status(tmp_path / 'run', ids[0])
     assert receipt['status'] == 'succeeded' and 1 <= receipt['step'] <= 5
@@ -352,7 +352,7 @@ def test_acknowledgement_retry_reuses_identifiable_saved_checkpoint(tmp_path, mo
 def test_manual_checkpoint_failure_is_rejected_without_changing_training(tmp_path, monkeypatch):
     import hypergan.single_execution as execution
     from hypergan.run_requests import submit_checkpoint_request, checkpoint_request_status
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     train(config, tmp_path / 'full')
     original = execution.write_checkpoint
     def fail_manual(run_dir, trainer, batch, metadata):
@@ -374,7 +374,7 @@ def test_manual_checkpoint_failure_is_rejected_without_changing_training(tmp_pat
 
 @pytest.mark.heavy
 def test_corrupt_old_preview_metadata_does_not_accumulate_new_orphans(tmp_path):
-    config = write_default(tmp_path / 'config', device="cpu")
+    config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     stopped = train(config, tmp_path / 'run', stop_after_steps=1, preview_every=1)
     previews = tmp_path / 'run/previews'
     generations = lambda: sorted(path for path in previews.iterdir() if path.is_dir())

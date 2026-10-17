@@ -210,7 +210,7 @@ def test_component_construction_order_is_independent_of_json_key_order():
 def test_run_manifest_reports_configured_named_rng_seeds(tmp_path):
     from hypergan.config import write_default
     from hypergan.training import train
-    path = write_default(tmp_path / 'config.toml', device='cpu')
+    path = write_default(tmp_path / 'config.toml', device='cpu', defaults='hypergan')
     path.write_text(path.read_text().replace('device = "cpu"', 'device = "cpu"\ndata_seed_offset = 4\nprior_seed_offset = 9'))
     result = train(path, tmp_path / 'run', stop_after_steps=1)
     assert result['rng_streams'] == {'data': 46, 'prior': 51, 'penalty': 45, 'noise': 47, 'sampling': 123}
@@ -222,7 +222,7 @@ def test_explicit_backend_policy_is_applied_before_fresh_resume_identity(tmp_pat
     from hypergan.training import train
     before = torch.are_deterministic_algorithms_enabled()
     warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
-    path = write_default(tmp_path / 'config.toml', device='cpu')
+    path = write_default(tmp_path / 'config.toml', device='cpu', defaults='hypergan')
     path.write_text(path.read_text() + '\n[training.backend]\ndeterministic_algorithms = true\n')
     try:
         torch.use_deterministic_algorithms(False)

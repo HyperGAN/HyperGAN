@@ -72,7 +72,7 @@ raise SystemExit(main(['train', sys.argv[1], '--run-dir', sys.argv[2], '--no-ser
 @pytest.mark.parametrize('mode', ['SIGTERM', 'SIGINT', 'SIGKILL', 'publication',
                                  'kill-event', 'kill-payload', 'kill-pointer', 'kill-after-pointer'])
 def test_real_cli_signal_during_half_update_or_pointer_publish_recovers_exactly(tmp_path, mode):
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     train(config, tmp_path / 'full')
     result = subprocess.run([sys.executable, '-c', SCRIPT, str(config), str(tmp_path / 'run'), mode],
                             capture_output=True, text=True, timeout=30)

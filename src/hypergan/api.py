@@ -756,7 +756,7 @@ def load_inference(run_dir):
             for bname, bval in (buf or {}).items():
                 if hasattr(graph.models[name], bname):
                     getattr(graph.models[name], bname).copy_(bval)
-    prior = make_prior(config["prior"], device='cpu').float().eval().requires_grad_(False)
+    prior = make_prior(config["prior"], device='cpu', recipe=config.get('recipe')).float().eval().requires_grad_(False)
     prior.load_state_dict(state["prior"])
     if "prior_buffers" in state:
         for bname, bval in (state["prior_buffers"] or {}).items():

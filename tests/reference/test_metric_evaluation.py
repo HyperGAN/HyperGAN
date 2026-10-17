@@ -50,7 +50,7 @@ def setup(tmp_path):
     (tmp_path/'eval_fixture.py').write_text(FIXTURE)
     driver=tmp_path/'evaluate_driver.py'
     driver.write_text(DRIVER)
-    path=write_default(tmp_path/'config.toml',device='cpu')
+    path=write_default(tmp_path/'config.toml',device='cpu', defaults='hypergan')
     text=path.read_text().replace('steps = 5','steps = 2').replace('num_particles = 20000','num_particles = 32').replace('count = 256','count = 4')
     generator, separator, discriminator = text.partition('[components.discriminator]')
     generator = generator.replace('output_shape = ["B", 2]', 'output_shape = ["B", 3, 2, 2]')

@@ -191,7 +191,7 @@ def test_cli_explicit_bind_preflight_before_numerical_import_or_run_creation(tmp
     import builtins
     from hypergan.cli import main
     from hypergan.config import write_default
-    config = write_default(tmp_path / 'project', device='cpu')
+    config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
     root = tmp_path / 'run'
     original = builtins.__import__
     def guarded(name, *args, **kwargs):

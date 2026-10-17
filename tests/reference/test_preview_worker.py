@@ -86,7 +86,7 @@ def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp
             assert entered.wait(5)
             release.set()
 
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     train(config, tmp_path / 'plain', checkpoint_every=1)
     monkeypatch.setattr(module, 'render_snapshot', delayed)
     result = train(config, tmp_path / 'viewed', checkpoint_every=1, preview_every=1, on_event=observe)
@@ -129,7 +129,7 @@ class Generator(MLP):
 ''')
     monkeypatch.syspath_prepend(str(tmp_path))
     monkeypatch.setenv('PREVIEW_TEST_MARKER', str(marker))
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     config.write_text(config.read_text().replace('factory = "hndl"', 'factory = "hanging_preview:Generator"', 1))
     original = ReferenceTrainer.update
     failed_at = []
@@ -189,7 +189,7 @@ def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path
             timer.start()
 
     monkeypatch.setattr(worker, 'render_snapshot', render)
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     started = time.monotonic()
     try:
         result = train(config, tmp_path / 'run', preview_every=1, on_event=observe)
@@ -222,7 +222,7 @@ def test_blocked_snapshot_storage_allows_updates_and_preserves_complete_state(tm
             assert entered.wait(5)
             release.set()
 
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     train(config, tmp_path / 'plain', checkpoint_every=1)
     monkeypatch.setattr(snapshots._BoundedWriter, 'write', blocked_write)
     try:
@@ -295,7 +295,7 @@ def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path
             timer.start()
 
     monkeypatch.setattr(worker, 'render_snapshot', render)
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     started = time.monotonic()
     try:
         result = train(config, tmp_path / 'run', preview_every=1, on_event=observe)
@@ -331,7 +331,7 @@ def test_controller_terminal_poll_enforces_stalled_snapshot_storage_deadline(tmp
             instances[0]._deadline = time.monotonic() - 9
     monkeypatch.setattr(SingleProcessExecution, 'preview', preview)
     monkeypatch.setattr(snapshots, 'write_snapshot', stalled)
-    config = write_default(tmp_path / 'config', device='cpu')
+    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
     started = time.monotonic()
     result = train(config, tmp_path / 'run', preview_every=1, on_event=observe)
     assert time.monotonic() - started < 3

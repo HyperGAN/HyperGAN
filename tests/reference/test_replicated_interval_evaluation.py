@@ -79,7 +79,7 @@ if __name__ == '__main__':
 
 def _run(tmp_path, mode):
     (tmp_path / 'replicated_interval_metric.py').write_text(METRIC)
-    config = write_default(tmp_path / 'manual.toml', device='cpu')
+    config = write_default(tmp_path / 'manual.toml', device='cpu', defaults='hypergan')
     text = config.read_text().replace('num_particles = 20000', 'num_particles = 32').replace('count = 256', 'count = 4')
     spec = '''
 [metrics.custom.distance]

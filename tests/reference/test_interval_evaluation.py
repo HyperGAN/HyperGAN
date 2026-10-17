@@ -39,7 +39,7 @@ class Distance:
 def config(tmp_path, monkeypatch, *, interval=1, args=None, on_error='fail'):
     (tmp_path / 'interval_fixture.py').write_text(METRIC)
     monkeypatch.syspath_prepend(str(tmp_path))
-    path = write_default(tmp_path / 'config.toml', device='cpu')
+    path = write_default(tmp_path / 'config.toml', device='cpu', defaults='hypergan')
     text = path.read_text().replace('num_particles = 20000', 'num_particles = 32').replace('count = 256', 'count = 4')
     spec = f'''
 [metrics.custom.distance]

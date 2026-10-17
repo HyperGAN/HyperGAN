@@ -91,7 +91,7 @@ class NativeExecution(FencedExecution):
 
 
 def setup(tmp_path, *, native=False, **options):
-    path = write_default(tmp_path / 'config', device="cpu")
+    path = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     root, trace, instances = tmp_path / 'run', [], []
     def factory(config):
         execution = (NativeExecution if native else FencedExecution)(config, root, options, trace)

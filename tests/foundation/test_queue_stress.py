@@ -79,8 +79,10 @@ def _multiprocess_status_and_cancel_worker(queue_path_str: str, iterations: int)
         time.sleep(0.005)
 
 
-def test_concurrent_multiprocess_queue_operations(temp_queue):
+def test_concurrent_multiprocess_queue_operations(temp_queue, monkeypatch):
     """Stress-test advisory flock across independent parallel OS processes."""
+    # Spawned workers must import this fixture module outside the checkout.
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
     ctx = multiprocessing.get_context("spawn")
     processes = []
 
@@ -613,4 +615,3 @@ def test_real_subprocess_failure_isolation_unmocked(temp_queue, tmp_path):
     assert log_path.is_file()
     log_text = log_path.read_text(encoding="utf-8")
     assert "error:" in log_text.lower()
-

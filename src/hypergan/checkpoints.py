@@ -10,9 +10,6 @@ import re
 import shutil
 import uuid
 
-import numpy as np
-import torch
-
 from .run_state import atomic_json, sync_directory, validate_event_boundary
 
 SCHEMA = 1
@@ -27,6 +24,8 @@ def file_sha256(path):
 
 
 def capture_rng():
+    import numpy as np
+    import torch
     numpy = np.random.get_state()
     result = {'torch': torch.get_rng_state(), 'python': random.getstate(),
               'numpy': [numpy[0], numpy[1].tolist(), numpy[2], numpy[3], numpy[4]]}
@@ -38,6 +37,8 @@ def capture_rng():
 
 
 def restore_rng(state):
+    import numpy as np
+    import torch
     if 'cuda' in state:
         if (not torch.cuda.is_available() or type(state['cuda']) is not list
                 or len(state['cuda']) != torch.cuda.device_count()
@@ -66,6 +67,7 @@ def data_contract(data, specification):
 
 
 def _portable(value):
+    import torch
     if value is None or type(value) in (bool, int, float, str) or isinstance(value, torch.Tensor):
         return
     if isinstance(value, (list, tuple)):
@@ -99,6 +101,8 @@ def trainer_state(trainer, last_batch):
 
 
 def _restore_trainer(trainer, state):
+    import numpy as np
+    import torch
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
     if not isinstance(state, dict) or set(state) != required:
@@ -191,6 +195,7 @@ def restore_trainer(trainer, state):
 
 
 def write_checkpoint(run_dir, trainer, last_batch, metadata):
+    import torch
     root = Path(run_dir) / 'checkpoints'
     root.mkdir(exist_ok=True)
     sync_directory(root.parent)
@@ -217,6 +222,7 @@ def write_checkpoint(run_dir, trainer, last_batch, metadata):
 
 
 def _read_checkpoint(run_dir, checkpoint=None):
+    import torch
     root = (Path(run_dir) / 'checkpoints').resolve()
     if checkpoint is None:
         pointer = root / 'latest.json'
@@ -435,6 +441,7 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
 
 def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None) -> dict:
     """Extract an in-memory EMA inference bundle conforming to kind='ema-inference' from a checkpoint."""
+    import torch
     from .config import config_values, sampling_bindings, evaluation_bindings
     path = Path(checkpoint_dir).resolve()
     if path.is_file() and path.name == "model.pt":
@@ -578,6 +585,7 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
 
 def export_checkpoint_bundle(checkpoint_dir: Path | str, output_dir: Path | str) -> tuple[Path, Path]:
     """Export an EMA inference bundle (model.pt + model.sha256) to output directory or file path."""
+    import torch
     ckpt_dir = Path(checkpoint_dir).resolve()
     bundle = extract_ema_bundle(ckpt_dir)
 

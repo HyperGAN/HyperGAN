@@ -11,6 +11,9 @@ from hypergan.training import train
 def test_unavailable_cuda_warns_and_trains_on_cpu(tmp_path, monkeypatch):
     config=write_default(tmp_path/'project',device='cuda', defaults='hypergan')
     monkeypatch.setattr(torch.cuda,'is_available',lambda:False)
+    # An unavailable host has no initialized CUDA RNG inventory, including
+    # when another test initialized this process's real accelerator earlier.
+    monkeypatch.setattr(torch.cuda,'is_initialized',lambda:False)
     with pytest.warns(HyperGANHardwareWarning, match='CUDA is unavailable.*falling back to cpu'):
         result = train(config,tmp_path/'run')
     assert result['status'] == 'complete' and result['steps'] == 5

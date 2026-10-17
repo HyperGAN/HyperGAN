@@ -297,23 +297,30 @@ def test_live_progress_and_cross_process_checkpoint_request(tmp_path):
 
 
 @pytest.mark.heavy
-def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path):
+def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path, monkeypatch):
     """Optional web qualification belongs to the explicitly provisioned web+train job."""
+    # This control trains on CPU. Keep GPU discovery from changing the optional
+    # global CUDA RNG inventory between otherwise identical child processes.
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
     import importlib.util
     if any(importlib.util.find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):
         # Base numerical CI has no web dependencies: prove explicit headless CLI.
         config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
-        result = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server')
+        result = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server', '--progress-json')
         assert result.returncode == 0, result.stderr
         assert 'Viewer:' not in result.stderr
-        assert json.loads(result.stdout)['status'] == 'complete'
+        assert json.loads(result.stdout.splitlines()[-1])['manifest']['status'] == 'complete'
         return
     config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
-    headless = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server')
+    headless = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server', '--progress-json')
     assert headless.returncode == 0, headless.stderr
     viewed = tmp_path / 'viewed'
+    import socket
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1', 0))
+        viewer_port = listener.getsockname()[1]
     try:
-        first = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'viewed', '--server',
+        first = cli(tmp_path, 'train', config, '--run-dir', viewed, '--server', '--port', viewer_port,
                     '--stop-after-steps', 2, '--progress-json')
         assert first.returncode == 0, first.stderr
         assert 'Viewer:' in first.stderr
@@ -323,9 +330,10 @@ def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path):
         assert initial_status.returncode == 0, initial_status.stderr
         initial_viewer = json.loads(initial_status.stdout)
         assert initial_viewer['status'] == 'ready'
-        resumed = cli(tmp_path, 'resume', viewed, '--server')
+        resumed = cli(tmp_path, 'resume', viewed, '--server', '--port', viewer_port)
         assert resumed.returncode == 0, resumed.stderr
-        expected, actual = json.loads(headless.stdout), json.loads(resumed.stdout)
+        expected = json.loads(headless.stdout.splitlines()[-1])['manifest']
+        actual = json.loads(resumed.stdout)
         assert expected['steps'] == actual['steps'] == 5
         expected_sample = json.loads(Path(expected['sample_path']).read_text())
         actual_sample = json.loads(Path(actual['sample_path']).read_text())

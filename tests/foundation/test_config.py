@@ -18,11 +18,13 @@ LEGACY_FINGERPRINT = "8edda59414e07e02d1c02529c85fed3831f4029e5c4d8269dcceeede86
 def test_default_roundtrip_without_runtime(tmp_path):
     path = write_default(tmp_path / "project", device="cpu")
     config = load_config(path.parent)
-    assert config_values(config) == DEFAULT
-    assert config["qualification"]["recipe_match"]
+    assert config['recipe']['name'] == 'bispf_optimized'
+    assert config['training']['initialization'] == 'deterministic_orthogonal'
     subprocess.run([sys.executable, "-c", "from hypergan.config import load_config; import sys; load_config(sys.argv[1]); assert 'torch' not in sys.modules", str(path)], cwd=tmp_path, check=True)
     with pytest.raises(FileExistsError):
         write_default(path, device="cpu")
+    legacy = write_default(tmp_path / 'legacy', device='cpu', defaults='hypergan')
+    assert config_values(load_config(legacy)) == DEFAULT
 
 
 def test_custom_constructor_validates_without_importing():
@@ -225,8 +227,8 @@ import sys
 from hypergan.config import PARTICLEGAN_DEFAULT_FIELDS, resolve_config
 config = resolve_config({'defaults': 'particlegan', 'optimizer': {'lr': 0.001}})
 assert 'torch' not in sys.modules and 'particlegan' not in sys.modules
-from particlegan import Recipe
-recipe = Recipe()
+from particlegan import get_recipe
+recipe = get_recipe()
 for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items():
     expected = getattr(recipe, field)
     if expected is None and field == 'prior_betas':

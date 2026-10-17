@@ -26,6 +26,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 DEFAULT = {
     "schema_version": 1,
+    "recipe": {},
     "metrics": deepcopy(DEFAULT_METRICS),
     "name": "reference/100gaussians",
     "data": {"factory": "gaussian_grid", "args": {"side": 10, "noise": 0.015}},
@@ -40,14 +41,14 @@ DEFAULT = {
     "objectives": [],
     "optimizer": {"lr": 0.0006, "d_lr_mult": 1.5, "prior_lr_mult": 10.0, "betas": [0.0, 0.999], "prior_betas": [0.0, 0.999], "implementation": "device_adam",
                   "d_guard_ratio": 5.0, "d_guard_min_steps": 200, "latent_damping_max_rate": 0.5},
-    "training": {"steps": 5, "batch_size": 16, "seed": 42, "device": "cpu", "ema": 0.995, "lr_anneal_start": 0.6, "lr_floor": 0.05,
+    "training": {"steps": 5, "batch_size": 16, "seed": 42, "device": "cpu", "initialization": "constructor", "ema": 0.995, "lr_anneal_start": 0.6, "lr_floor": 0.05,
                  "network_lr_floor": None, "network_lr_horizon_cap": None,
                  "input_noise_std": 0.0, "input_noise_anneal_end": 0.1, "output_noise_std": 0.0, "output_noise_warmup": 0.2,
                  "phase_draws": "shared", "data_rng_device": "cpu", "data_seed_offset": 1, "prior_seed_offset": 2, "backend": {}},
     "sampling": {"count": 256, "seed": 123},
 }
 
-DEFAULT_TOML = '''# A five-step numerical reference, not a converged image model.
+LEGACY_REFERENCE_TOML = '''# A five-step numerical reference, not a converged image model.
 schema_version = 1
 name = "reference/100gaussians"
 
@@ -126,9 +127,57 @@ count = 256
 seed = 123
 '''
 
+# Fresh projects inherit the released trainer while the concrete legacy
+# reference above remains available for migration/numerical audit fixtures.
+DEFAULT_TOML = '''# Five-step task smoke test; increase steps for a training run.
+schema_version = 1
+name = "reference/100gaussians"
+defaults = "particlegan"
+
+[data]
+factory = "gaussian_grid"
+[data.args]
+side = 10
+noise = 0.015
+
+[components.generator]
+factory = "hndl"
+inputs = { x = "latent" }
+[components.generator.args]
+input_shape = ["B", 4]
+output_shape = ["B", 2]
+source = "linear(64)\\nleaky_relu(0.2)\\nlinear(64)\\nleaky_relu(0.2)\\nlinear()"
+
+[components.discriminator]
+factory = "hndl"
+inputs = { x = "candidate" }
+[components.discriminator.args]
+input_shape = ["B", 2]
+output_shape = ["B", 1]
+source = "linear(64)\\nleaky_relu(0.2)\\nlinear(64)\\nleaky_relu(0.2)\\nlinear()"
+
+[prior]
+kind = "particles"
+initialization_seed = 2
+[prior.args]
+num_particles = 20000
+z_dim = 4
+
+[training]
+steps = 5
+batch_size = 16
+seed = 0
+device = "cpu"
+initialization = "deterministic_orthogonal"
+
+[sampling]
+count = 256
+seed = 10000
+'''
+
 
 # `defaults = "particlegan"` fills these omitted fields from the installed
-# particlegan.Recipe field defaults instead of DEFAULT. Resolved configurations
+# ParticleGAN's current public preset instead of DEFAULT. Resolved configurations
 # record the concrete values, so a later ParticleGAN release cannot silently
 # change an existing run; its resume then fails the configuration check.
 PARTICLEGAN_DEFAULT_FIELDS = {
@@ -136,8 +185,9 @@ PARTICLEGAN_DEFAULT_FIELDS = {
     ("gradient_penalty", "kappa"): "reg_kappa",
     ("gradient_penalty", "lazy_k"): "reg_every",
     ("gradient_penalty", "anchor_weight"): "reg_anchor_weight",
-    ("gradient_penalty", "anchor_decay"): "reg_anchor_decay",
     ("prior_regularizer", "weight"): "prior_reg",
+    ("prior_regularizer", "target_std"): "prior_reg_target_std",
+    ("prior_regularizer", "eps"): "prior_reg_eps",
     ("optimizer", "lr"): "lr",
     ("optimizer", "d_lr_mult"): "d_lr_mult",
     ("optimizer", "prior_lr_mult"): "prior_lr_mult",
@@ -179,8 +229,8 @@ def _drop_removed_fields(table, location):
 
 
 @functools.cache
-def particlegan_defaults():
-    """Installed particlegan.Recipe defaults, keyed by HyperGAN (section, field).
+def particlegan_recipe_fields():
+    """Read the installed public preset without importing Torch or ParticleGAN.
 
     Reads the dataclass from recipes.py without importing the package, whose
     __init__ imports Torch; configuration loading stays Torch-free.
@@ -194,9 +244,14 @@ def particlegan_defaults():
     sys.modules[name] = module
     try:
         spec.loader.exec_module(module)
-        recipe = {field.name: field.default for field in dataclasses.fields(module.Recipe)}
+        recipe = module.get_recipe_fields()
     finally:
         del sys.modules[name]
+    return recipe
+
+
+def particlegan_defaults():
+    recipe = dict(particlegan_recipe_fields())
     if recipe["prior_betas"] is None:
         recipe["prior_betas"] = recipe["betas"]
     return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]
@@ -367,12 +422,18 @@ def resolve_config(raw):
     source = raw.pop("defaults", "hypergan")
     result = deepcopy(DEFAULT)
     if source == "particlegan":
+        result["recipe"] = deepcopy(particlegan_recipe_fields())
+        result['optimizer']['implementation'] = 'recipe'
         for (section, key), value in particlegan_defaults().items():
             result[section][key] = deepcopy(value)
     elif source != "hypergan":
         raise ValueError('defaults must be "hypergan" or "particlegan"')
     for key, value in raw.items():
-        if key == "components":
+        if key == "recipe":
+            if not isinstance(value, dict):
+                raise ValueError("recipe must be a table of resolved ParticleGAN fields")
+            result[key].update(deepcopy(value))
+        elif key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
         elif key in ("adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"):
@@ -458,8 +519,8 @@ def resolve_config(raw):
     validate_metrics(result)
     for key in ("lr", "d_lr_mult", "prior_lr_mult"):
         _positive(result["optimizer"][key], f"optimizer.{key}")
-    if result['optimizer']['implementation'] not in ('device_adam', 'torch_fused_adam'):
-        raise ValueError('optimizer.implementation must be device_adam or torch_fused_adam')
+    if result['optimizer']['implementation'] not in ('recipe', 'device_adam', 'torch_fused_adam'):
+        raise ValueError('optimizer.implementation must be recipe, device_adam or torch_fused_adam')
     for key in ("betas", "prior_betas"):
         values = result["optimizer"][key]
         if not isinstance(values, list) or len(values) != 2 or any(type(x) not in (int, float) or not 0 <= x < 1 for x in values):
@@ -480,6 +541,8 @@ def resolve_config(raw):
         if type(v) not in (int, float) or not 0 <= v <= 1 or (key == "ema" and v == 1):
             raise ValueError(f"Invalid training.{key}")
     training = result["training"]
+    if training['initialization'] not in ('constructor', 'deterministic_orthogonal'):
+        raise ValueError('training.initialization must be constructor or deterministic_orthogonal')
     if training["network_lr_floor"] is not None and (type(training["network_lr_floor"]) not in (int, float)
                                                      or not 0 <= training["network_lr_floor"] <= 1):
         raise ValueError("training.network_lr_floor must be in [0, 1]; omit it to follow training.lr_floor")
@@ -645,7 +708,13 @@ def config_values(config):
 
 
 def numerical_values(config):
-    return _listed_values(config, (key for key in DEFAULT if key not in ("metrics", "name")))
+    values = _listed_values(config, (key for key in DEFAULT if key not in ("metrics", "name")))
+    # Optional declarations preserve the identity of historical resolved runs.
+    if not values.get('recipe'):
+        values.pop('recipe', None)
+    if values.get('training', {}).get('initialization') == 'constructor':
+        values['training'].pop('initialization', None)
+    return values
 
 
 
@@ -799,15 +868,18 @@ def validate_device(device):
     return device
 
 
-def write_default(path, *, device="cuda"):
+def write_default(path, *, device="cuda", defaults="particlegan"):
     """Create a GPU-first project; CPU numerical fixtures opt in explicitly."""
     validate_device(device)
+    if defaults not in ('particlegan', 'hypergan'):
+        raise ValueError('defaults must be particlegan or hypergan')
     path = Path(path)
     if path.suffix != ".toml":
         path = path / "config.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x") as stream:
-        stream.write(DEFAULT_TOML.replace('device = "cpu"', f'device = "{device}"'))
+        template = DEFAULT_TOML if defaults == 'particlegan' else LEGACY_REFERENCE_TOML
+        stream.write(template.replace('device = "cpu"', f'device = "{device}"'))
     return path
 
 

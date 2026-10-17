@@ -125,9 +125,13 @@ def runtime_info(device='cpu'):
     return result
 
 
-def source_info():
+def source_info(config=None):
     from .provenance import hypergan_source
     result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "407c2f7aad143badfa92ef4e7d5281b95b946542"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
+    if config and config.get('recipe'):
+        result['integration_reference'] = {
+            'repository': 'https://github.com/255BITS/ParticleGAN',
+            'version': _version('particlegan'), 'preset': config['recipe'].get('name')}
     result["distribution_records"] = {}
     for name in ("hypergan", "particlegan", "hndl"):
         try:
@@ -177,9 +181,32 @@ def _device_class(cls):
 
 
 def _device_optimizer(optimizer):
-    """Mix ``DeviceAdam`` into a recipe-built Adam subclass; its update is unchanged."""
-    optimizer.__class__ = _device_class(type(optimizer))
+    """Keep the CPU Adam guard local to actual Adam optimizers."""
+    if isinstance(optimizer, torch.optim.Adam):
+        optimizer.__class__ = _device_class(type(optimizer))
     return optimizer
+
+
+def initialize_fresh_parameters(graph, seed):
+    """Public deterministic initialization, preserving loaded HNDL checkpoints.
+
+    A trainable pretrained trunk is still loaded state. Temporarily excluding
+    its parameters from initialization preserves values without changing its
+    permanent fine-tuning policy or detaching future forwards.
+    """
+    from hndl.operators.pretrained import Pretrained
+    from particlegan.init import deterministic_orthogonal_
+    loaded = {id(parameter): parameter for module in graph.modules()
+              if isinstance(module, Pretrained) for parameter in module.parameters()}
+    flags = {key: parameter.requires_grad for key, parameter in loaded.items()}
+    try:
+        for parameter in loaded.values():
+            parameter.requires_grad_(False)
+        for index, model in enumerate(graph.models.values()):
+            deterministic_orthogonal_(model, seed=seed + index)
+    finally:
+        for key, parameter in loaded.items():
+            parameter.requires_grad_(flags[key])
 
 
 def particlegan_recipe(config):
@@ -190,19 +217,45 @@ def particlegan_recipe(config):
     networks and prior from its own configuration.
     """
     opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
-    return Recipe(
+    fields = dict(config.get('recipe') or {'critic_formulation': 'k3p'})
+    fields.update(
         total_steps=training['steps'], batch_size=training['batch_size'],
         lr=opt['lr'], d_lr_mult=opt['d_lr_mult'], prior_lr_mult=opt['prior_lr_mult'],
         betas=tuple(opt['betas']), prior_betas=tuple(opt['prior_betas']),
         d_guard_ratio=opt['d_guard_ratio'], d_guard_min_steps=opt['d_guard_min_steps'],
         latent_damping_max_rate=opt['latent_damping_max_rate'],
         reg_coeff=penalty['coeff'], reg_kappa=penalty['kappa'], reg_every=penalty['lazy_k'],
-        reg_anchor_weight=penalty['anchor_weight'], reg_anchor_decay=penalty['anchor_decay'],
-        prior_reg=config['prior_regularizer']['weight'], ema_decay=training['ema'],
+        reg_anchor_weight=penalty['anchor_weight'],
+        prior_reg=config['prior_regularizer']['weight'],
+        prior_reg_target_std=config['prior_regularizer']['target_std'],
+        prior_reg_eps=config['prior_regularizer']['eps'], ema_decay=training['ema'],
         lr_anneal_start=training['lr_anneal_start'], lr_floor=training['lr_floor'],
         network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
         input_noise_std=training['input_noise_std'], input_noise_anneal_end=training['input_noise_anneal_end'],
         output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'])
+    recipe = Recipe(**fields)
+    unsupported = {
+        'continuous_policy': recipe.continuous_policy is not None,
+        'particle_birth_death': recipe.particle_birth_death,
+        'row_evidence_gate': recipe.row_evidence_gate,
+        'serve_average': recipe.serve_average != 0,
+        'output_noise_mode': recipe.output_noise_mode != 'fixed',
+        'constraint_geometry_mode': recipe.constraint_geometry_mode not in ('none', 'nonascent', 'direction_blend'),
+        'critic_step_mode': recipe.critic_step_mode != 'none',
+        'prior_proximal_strength': recipe.prior_proximal_strength != 0,
+        'kinetic_transport_weight': recipe.kinetic_transport_weight != 0,
+        'kinetic_transport_local_weight': recipe.kinetic_transport_local_weight != 0,
+        'beta2_end': recipe.beta2_end is not None,
+        'reg_coeff_end': recipe.reg_coeff_end is not None,
+        'prior_regularizer': recipe.prior_regularizer not in ('vicreg', 'none', 'sbnp', 'moment_tether', 'coulomb'),
+        'model': recipe.model != 'gan',
+        'encoder_mode': recipe.encoder_mode != 'none',
+        'row_policy': recipe.row_policy != 'independent',
+    }
+    rejected = [key for key, active in unsupported.items() if active]
+    if rejected:
+        raise ValueError('HyperGAN reference loop does not implement recipe mechanisms: ' + ', '.join(rejected))
+    return recipe
 
 
 class ScoredCritic(torch.nn.Module):
@@ -271,10 +324,18 @@ class ReferenceTrainer:
         np.random.seed(settings["seed"] % (2 ** 32))
         self.graph = ComponentGraph(config["components"]).float().to(self.device)
         self.prior = make_prior(config["prior"], device=self.device).float()
+        if settings['initialization'] == 'deterministic_orthogonal':
+            initialize_fresh_parameters(self.graph, settings['seed'])
+            from particlegan.init import deterministic_orthogonal_
+            deterministic_orthogonal_(self.prior, seed=settings['seed'] + 2)
         self.data = construct(config["data"])
         self.recipe = particlegan_recipe(config)
+        # Recipe-owned freezing/reference moments happen before optimizers and
+        # EMA copies; persistent reference buffers then travel with prior state.
+        if config.get('recipe'):
+            self.recipe.apply_prior_policy(self.prior)
         self.gan = self.recipe.make_loss()
-        self.spread = ParticleRegularizer(**{k: v for k, v in config["prior_regularizer"].items() if k != "rows"})
+        self.spread = self.recipe.make_prior_regularizer(prior=self.prior)
         self.objectives = [construct(term) for term in config["objectives"]]
         for objective in self.objectives:
             if isinstance(objective, torch.nn.Module):
@@ -284,27 +345,39 @@ class ReferenceTrainer:
         if any(isinstance(term, torch.nn.Module) and list(term.buffers()) for term in self.objectives):
             raise ValueError("Stateful objective buffers are not supported by this reference loop; declare stateful transforms as components")
         opt = config["optimizer"]
-        optimizer_options = {'fused': True} if opt['implementation'] == 'torch_fused_adam' else {}
+        optimizer_options = ({'fused': True} if opt['implementation'] == 'torch_fused_adam'
+                             and self.recipe.optimizer_family in ('formulation', 'adam') else {})
         # Every scoring module, in term order, under one root: one critic
         # optimizer, one EMA critic (the penalty's anchor) and one handover.
         names = ["discriminator"] + [term["component"] for term in config.get("adversarial_terms") or ()]
-        self.critic = torch.nn.ModuleDict({name: self.graph.models[name] for name in dict.fromkeys(names)})
+        names = list(dict.fromkeys(names))
+        if config.get('recipe') and self.recipe.effective_critic_formulation == 'bispf':
+            if len(names) != 1:
+                raise ValueError('BISPF currently requires one critic network; combine feature heads inside that network')
+            # BISPF attaches its thermal/logit hook to the module being scored.
+            # A ModuleDict that never receives forward would bypass that law.
+            self.critic = self.graph.models[names[0]]
+        else:
+            self.critic = torch.nn.ModuleDict({name: self.graph.models[name] for name in names})
         ema_critic = copy.deepcopy(self.critic) if config["gradient_penalty"]["anchor_weight"] else None
         self.opt_d = _device_optimizer(self.recipe.make_critic_optimizer(self.critic, ema_critic=ema_critic, **optimizer_options))
+        if not config.get('recipe') and getattr(self.opt_d, 'anchor', None) is not None:
+            self.opt_d.anchor.decay = config['gradient_penalty']['anchor_decay']
         self.penalty = self.recipe.make_critic_penalty(self.opt_d)
         make_penalty = lambda coeff: self.recipe.make_critic_penalty(self.opt_d, coeff=coeff)
         self.program = compile_legacy_program(
             self.graph, self.prior, config, self.objectives, self.gan, self.penalty, self.spread, make_penalty)
-        groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"]}]
-        self.lr_roles = [["generator"], ["critic"] * len(self.opt_d.param_groups)]
+        groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"], "role": "generator"}]
         if self.program.prior_parameters:
-            groups.append({"params": list(self.program.prior_parameters), "lr": opt["lr"] * opt["prior_lr_mult"], "betas": tuple(opt["prior_betas"])})
-            self.lr_roles[0].append("prior")
+            groups.append({"params": list(self.program.prior_parameters), "lr": opt["lr"] * opt["prior_lr_mult"], "betas": tuple(opt["prior_betas"]), "role": "prior"})
         # Latent damping acts on a plain particle table alone in its group.
         table = getattr(self.prior, "z", None)
         latent_table = table if (type(self.prior) is ParticlePrior and table.requires_grad
                                  and self.program.prior_parameters == (table,)) else None
-        self.opt_g = _device_optimizer(self.recipe.make_generator_optimizer(groups, latent_table=latent_table, **optimizer_options))
+        self.opt_g = _device_optimizer(self.recipe.make_generator_optimizer(
+            groups, modules=self.graph, latent_table=latent_table, **optimizer_options))
+        self.lr_roles = [[group.get('role', 'generator') for group in self.opt_g.param_groups],
+                         ['critic'] * len(self.opt_d.param_groups)]
         self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in (self.opt_g, self.opt_d)]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
@@ -324,6 +397,13 @@ class ReferenceTrainer:
         return move_tensors(batch, self.device)
 
     def update(self, batch=None, latent_draw=None, *, generator_batch=None, generator_latent_draw=None):
+        # Match ParticleGAN's execution contract across forward graph creation
+        # and higher-order backward accumulation, restoring the caller on exit.
+        with torch.autograd.set_multithreading_enabled(False):
+            return self._serial_update(batch, latent_draw, generator_batch=generator_batch,
+                                       generator_latent_draw=generator_latent_draw)
+
+    def _serial_update(self, batch=None, latent_draw=None, *, generator_batch=None, generator_latent_draw=None):
         if self.device.type == 'cuda':
             with torch.cuda.device(self.device):
                 result = self._update(batch, latent_draw, generator_batch=generator_batch, generator_latent_draw=generator_latent_draw)
@@ -416,9 +496,19 @@ def _implementation(trainer):
     objects = [hypergan.checkpoints, hypergan.config, hypergan.metrics, hypergan.recipes,
                hypergan.run_controller, hypergan.single_execution, hypergan.numerical_policy, ReferenceTrainer,
                GANLoss, GradientPenalty, ParticleRegularizer, Recipe, learning_rate_scales, input_noise_std,
-               type(trainer.penalty),
+               type(trainer.penalty), type(trainer.gan), type(trainer.spread),
+               *[type(optimizer) for optimizer in (trainer.opt_g, trainer.opt_d)],
                type(trainer.data), type(trainer.prior), *[type(x) for x in trainer.graph.modules()],
                *[x if inspect.isfunction(x) else type(x) for x in trainer.objectives]]
+    for optimizer in (trainer.opt_g, trainer.opt_d):
+        objects.extend(type(optimizer).__mro__)
+    # Include helpers dispatched by the normalized optimizer, beyond its class
+    # definition; same-version kernel edits must invalidate exact continuation.
+    if trainer.recipe.optimizer_family not in ('formulation', 'adam'):
+        objects.extend(importlib.import_module(name) for name in (
+            'particlegan.optim.dualnorm', 'particlegan.optim.convolution_quintic',
+            'particlegan.optim.convolution_frobenius',
+            'particlegan.optim.constraint_geometry', 'particlegan.optim.strict_progress'))
     specifications = [trainer.config['data'], *trainer.config['components'].values(), *trainer.config['objectives']]
     for specification in specifications:
         factory = specification['factory']

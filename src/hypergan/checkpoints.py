@@ -139,11 +139,14 @@ def _restore_trainer(trainer, state):
     for optimizer, saved, rates in zip((trainer.opt_g, trainer.opt_d), state['optimizers'], state['base_lrs']):
         # The recipe's optimizers keep their regularization state (EMA critic,
         # LR record, latent-damping history) under 'regularizer'.
-        if set(saved) != {'state', 'param_groups', 'regularizer'} or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
+        if set(saved) != set(optimizer.state_dict()) or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
             raise ValueError('Checkpoint optimizer parameter groups differ from trainer')
         for actual, prior in zip(optimizer.param_groups, saved['param_groups']):
             if len(actual['params']) != len(prior['params']):
                 raise ValueError('Checkpoint optimizer parameter inventory differs from trainer')
+        validate = getattr(optimizer, 'validate_state_dict', None)
+        if validate is not None:
+            validate(saved)
     if state['base_lrs'] != trainer.base_lrs:
         raise ValueError('Checkpoint base learning rates differ from original configuration')
     for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):

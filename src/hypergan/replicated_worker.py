@@ -66,7 +66,7 @@ def _information(state):
         identity = distributed_checkpoint_identity(trainer) if not reasons else None
         runtime = distributed_runtime_info(trainer)
         info = {'data_identity': contract['identity'], 'recovery_reasons': reasons,
-                'identity': identity, 'environment': {'runtime': runtime, 'source': source_info()}}
+                'identity': identity, 'environment': {'runtime': runtime, 'source': source_info(trainer.config)}}
         if len(_encoded(info)) > MAX_INFORMATION_BYTES:
             raise ValueError(f'Replicated execution identity exceeds the {MAX_INFORMATION_BYTES}-byte command information limit')
         _ready(state)

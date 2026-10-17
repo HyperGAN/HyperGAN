@@ -55,7 +55,7 @@ def test_create_validate_and_no_overwrite(tmp_path):
     assert created.returncode == 0, created.stderr
     config_path = project / "model.toml" if (project / "model.toml").is_file() else project / "config.toml"
     original = config_path.read_bytes()
-    validated = run_cli(tmp_path, "validate", project)
+    validated = run_cli(tmp_path, "validate", project, "--json")
     assert validated.returncode == 0, validated.stderr
     assert isinstance(json.loads(validated.stdout), dict)
     duplicate = run_cli(tmp_path, "new", project)
@@ -129,7 +129,7 @@ def test_new_cli_device_selection(tmp_path, device):
     options = [] if device is None else ["--device", device]
     result = run_cli(tmp_path, "new", project, *options)
     assert result.returncode == 0, result.stderr
-    result = run_cli(tmp_path, "validate", project)
+    result = run_cli(tmp_path, "validate", project, "--json")
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["training"]["device"] == (device or "cuda")
 
@@ -148,7 +148,7 @@ def test_cli_convert_subcommand(tmp_path):
     result = run_cli(tmp_path, "convert", legacy, "--output", out_model)
     assert result.returncode == 0, result.stderr
     assert out_model.is_file()
-    validated = run_cli(tmp_path, "validate", out_model)
+    validated = run_cli(tmp_path, "validate", out_model, "--json")
     assert validated.returncode == 0, validated.stderr
     assert json.loads(validated.stdout)["format"] == "hypergan-model/1"
 

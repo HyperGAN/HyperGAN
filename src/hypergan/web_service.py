@@ -546,7 +546,7 @@ class ObservationService:
             # One fixed-H job while pending, then a completion lease for its
             # notification/refetch. Only a later explicit query may refresh it.
             if (cached.completed is None or not cached.delivered or age < 5
-                    or lag == 0 or (lag <= 4096 and age <= 30)):
+                    or (cached.result is not None and (lag == 0 or (lag <= 4096 and age <= 30)))):
                 if cached.completed is not None:
                     cached.delivered = True
                 self.jobs.move_to_end(key)
@@ -603,7 +603,7 @@ class ObservationService:
                 raise ValueError('View cache directory must not be a symlink')
         directory.mkdir(exist_ok=True)
         path = directory / (_digest(query) + '.sqlite')
-        if any(Path(str(path) + suffix).is_symlink() for suffix in ('', '-wal', '-shm')):
+        if any(Path(str(path) + suffix).is_symlink() for suffix in ('', '-wal', '-shm', '.lock')):
             raise ValueError('View cache file must not be a symlink')
         from .event_views import _load
         import base64

@@ -955,3 +955,21 @@ def test_foldlite_cached_history_revalidates_source_boundary(tmp_path):
         finally:
             await service.close()
     asyncio.run(scenario())
+
+
+def test_failed_bootstrap_job_can_retry_after_its_delivery_lease(tmp_path):
+    fixture_run(tmp_path, 3)
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            await get_bootstrap(service)
+            failed = next(iter(service.jobs.values()))
+            failed.result, failed.error = None, 'temporary historical read failure'
+            failed.delivered, failed.completed = True, time.monotonic() - 6
+            retried = service.bootstrap(MapSpec().revision, series=['loss/g_total'], bucket_steps=2)
+            assert retried is not failed
+            await retried.task
+            assert retried.error is None and retried.result is not None
+        finally:
+            await service.close()
+    asyncio.run(scenario())

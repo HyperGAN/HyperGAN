@@ -25,9 +25,12 @@ its exact cursor; an unchanged query does not rescan the historical projection.
 
 The view descriptor binds the reducer module SHA256, map generation, selected
 metrics, bucket width, step bounds and full recovery lineage. HyperGAN retains
-its existing 2048-group and 1 MiB response limits. Cache progress may not exceed
-the explicitly captured bootstrap watermark. Every reuse validates the requested
-and saved projection boundaries, even when no documents need ingesting. This is
+its existing 2048-group and 1 MiB response limits. A bootstrap includes only its
+explicitly captured watermark. If a delayed request predates the durable cache,
+Foldlite reconstructs that older snapshot in memory and preserves the newer cache.
+An advisory lock serializes each complete cache job across threads and processes.
+Every reuse validates the requested and saved projection boundaries, even when no
+documents need ingesting. This is
 bounded cursor validation under the immutable-source contract, not a full history
 checksum on every query. Complete corruption encountered by readers fails visibly.
 

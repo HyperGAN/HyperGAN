@@ -64,3 +64,17 @@ a workstation path or assume an unpublished repository URL. CI's optional
 `FOLDLITEDB_SOURCE` repository variable supplies an accessible wheel URL or pinned
 pip source reference. Without it, CI requires the compatible release on its package
 index. Keep that source reference pinned while reviewing this branch.
+
+## Verifying persistent history
+
+The deterministic service proof creates retained documents, opens a historical
+view, restarts the service, and appends one measurement:
+
+```sh
+python scripts/foldlite_integration_proof.py --documents 10000 --output /tmp/foldlite-history.json
+```
+
+It requires zero reducer additions when reopening unchanged history and exactly
+one contribution when processing the new suffix. It reports discovery indexing
+separately because that index still rebuilds at service startup. This proof needs
+the reducer runtime and uses no training, GPU allocation, or seed variants.

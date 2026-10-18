@@ -7,7 +7,14 @@ smoothness, and snapshot evaluation plugins.
 """
 from collections.abc import Mapping
 import copy
+import json
 import math
+from hypergan.pretrained_providers import (
+    _imajev_bank_signature,
+    _symmetric_log_odds,
+    get_cached_or_deterministic_state_embed,
+    push_active_query,
+)
 
 
 def _validate_target_probs(target_probs):
@@ -177,6 +184,181 @@ class ConstraintHiddenTargetData:
         }
 
 
+class MultiQueryConstraintData:
+    """Stateless multi-query target distribution sampler over [s_q, u_q] in R^(state_embed_dim + K).
+
+    Samples one active query per training step from a bank of state/question/action queries,
+    pushes its index onto the active query synchronization queue for the ImaJev provider,
+    and returns concatenated `[s_q, u_q]` real targets where `s_q` is the cached/projected
+    prompt state embedding and `u_q` is the symmetric one-vs-rest log-odds vector.
+    """
+    resume_stateless = True
+
+    def __init__(
+        self,
+        queries,
+        *,
+        state_embed_dim=16,
+        jitter_std=0.05,
+        base_model_path=None,
+        adapter_path=None,
+    ):
+        import torch
+        if not isinstance(queries, (list, tuple)) or len(queries) < 2 or len(queries) > 64:
+            raise ValueError("MultiQueryConstraintData queries must be a sequence of 2..64 query mappings")
+        if type(state_embed_dim) is not int or not 4 <= state_embed_dim <= 256:
+            raise ValueError("MultiQueryConstraintData state_embed_dim must be an integer in [4, 256]")
+        if type(jitter_std) not in (int, float) or not math.isfinite(jitter_std) or jitter_std < 0.0:
+            raise ValueError("MultiQueryConstraintData jitter_std must be a finite nonnegative number")
+        for attr_name, attr_val in (("base_model_path", base_model_path), ("adapter_path", adapter_path)):
+            if attr_val is not None and (not isinstance(attr_val, str) or not attr_val.strip()):
+                raise ValueError(f"MultiQueryConstraintData {attr_name} must be a non-empty string when set")
+
+        normalized_queries = []
+        centered_logits_bank = []
+        num_modes_bank = []
+        weights = []
+        expected_options_len = None
+
+        for idx, q in enumerate(queries):
+            if not isinstance(q, Mapping):
+                raise ValueError(f"MultiQueryConstraintData queries[{idx}] must be a mapping")
+            question = q.get("question")
+            if not isinstance(question, str) or not question.strip():
+                raise ValueError(f"MultiQueryConstraintData queries[{idx}].question must be a non-empty string")
+            options = q.get("options")
+            if not isinstance(options, (list, tuple)) or not 2 <= len(options) <= 63:
+                raise ValueError(f"MultiQueryConstraintData queries[{idx}].options must contain 2..63 strings")
+            if expected_options_len is None:
+                expected_options_len = len(options)
+            elif len(options) != expected_options_len:
+                raise ValueError(
+                    "MultiQueryConstraintData requires all queries to have the same number of options"
+                )
+            seen = set()
+            clean_options = []
+            for opt in options:
+                if not isinstance(opt, str) or not opt.strip():
+                    raise ValueError(f"MultiQueryConstraintData queries[{idx}].options must be non-empty strings")
+                if opt == "__unknown__":
+                    raise ValueError(
+                        f"MultiQueryConstraintData queries[{idx}].options must not include '__unknown__'"
+                    )
+                if opt in seen:
+                    raise ValueError(f"MultiQueryConstraintData queries[{idx}].options must be unique")
+                seen.add(opt)
+                clean_options.append(opt)
+            if "target_probs" not in q:
+                raise ValueError(f"MultiQueryConstraintData queries[{idx}] requires 'target_probs'")
+            normalized_rows, is_2d = _validate_target_probs(q["target_probs"])
+            num_classes = len(normalized_rows[0])
+            if num_classes != expected_options_len + 1:
+                raise ValueError(
+                    f"MultiQueryConstraintData queries[{idx}].target_probs length {num_classes} "
+                    f"must equal len(options) + 1 ({expected_options_len + 1})"
+                )
+            state = q.get("state")
+            if state is not None:
+                if isinstance(state, str):
+                    if not state.strip():
+                        raise ValueError(
+                            f"MultiQueryConstraintData queries[{idx}].state string must not be empty"
+                        )
+                    clean_state = state
+                elif isinstance(state, Mapping):
+                    try:
+                        json.dumps(dict(state), sort_keys=True, allow_nan=False, ensure_ascii=False)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(
+                            f"MultiQueryConstraintData queries[{idx}].state mapping must be JSON-serializable"
+                        ) from exc
+                    clean_state = copy.deepcopy(dict(state))
+                else:
+                    raise ValueError(
+                        f"MultiQueryConstraintData queries[{idx}].state must be a string or mapping"
+                    )
+            else:
+                clean_state = None
+            weight = q.get("weight", 1.0)
+            if type(weight) not in (int, float) or not math.isfinite(weight) or weight <= 0.0:
+                raise ValueError(f"MultiQueryConstraintData queries[{idx}].weight must be a positive finite number")
+            weights.append(float(weight))
+            probs = torch.tensor(normalized_rows, dtype=torch.float32)
+            log_probs = probs.log()
+            centered_logits_bank.append(log_probs - log_probs.mean(dim=-1, keepdim=True))
+            num_modes_bank.append(len(normalized_rows))
+            entry = {
+                "question": question,
+                "options": clean_options,
+                "target_probs": normalized_rows if is_2d else normalized_rows[0],
+                "weight": float(weight),
+            }
+            if clean_state is not None:
+                entry["state"] = clean_state
+            normalized_queries.append(entry)
+
+        self.queries = normalized_queries
+        self._raw_queries = normalized_queries
+        self.state_embed_dim = int(state_embed_dim)
+        self.jitter_std = float(jitter_std)
+        self.base_model_path = base_model_path
+        self.adapter_path = adapter_path
+        self.num_queries = len(normalized_queries)
+        self.num_classes = expected_options_len + 1
+        self._centered_logits_bank = centered_logits_bank
+        self._num_modes_bank = num_modes_bank
+        weight_sum = math.fsum(weights)
+        self._query_weights = torch.tensor([w / weight_sum for w in weights], dtype=torch.float32)
+        self._bank_signature = _imajev_bank_signature(normalized_queries)
+
+    def __call__(self, batch_size, *, generator=None):
+        import torch
+        if type(batch_size) is not int or batch_size < 1:
+            raise ValueError("batch_size must be a positive integer")
+        if generator is not None and not isinstance(generator, torch.Generator):
+            raise ValueError("generator must be a torch.Generator or None")
+        device = generator.device if generator is not None else torch.device("cpu")
+        weights = self._query_weights.to(device=device)
+        q_idx = int(torch.multinomial(weights, 1, generator=generator).item())
+        push_active_query(self._bank_signature, q_idx)
+
+        base = self._centered_logits_bank[q_idx].to(device=device)
+        num_modes = self._num_modes_bank[q_idx]
+        if num_modes > 1:
+            indices = torch.randint(0, num_modes, (batch_size,), generator=generator, device=device)
+            y = base[indices].clone()
+        else:
+            y = base.expand(batch_size, -1).clone()
+        if self.jitter_std > 0.0:
+            noise = torch.randn(
+                (batch_size, self.num_classes),
+                generator=generator,
+                device=device,
+                dtype=torch.float32,
+            )
+            y = y + self.jitter_std * noise
+        y = y - y.mean(dim=-1, keepdim=True)
+        u = _symmetric_log_odds(y)
+        state_embed = get_cached_or_deterministic_state_embed(
+            self._raw_queries[q_idx],
+            self.state_embed_dim,
+            base_model_path=self.base_model_path,
+            adapter_path=self.adapter_path,
+            device=device,
+        ).to(device=device, dtype=torch.float32)
+        s_batch = state_embed.expand(batch_size, -1)
+        return {"real": torch.cat([s_batch, u], dim=-1)}
+
+    def resume_identity(self):
+        return {
+            "queries": copy.deepcopy(self.queries),
+            "state_embed_dim": self.state_embed_dim,
+            "jitter_std": self.jitter_std,
+            "base_model_path": self.base_model_path,
+            "adapter_path": self.adapter_path,
+        }
+
+
 class OptionProbability:
     """Stateless objective / monitor computing mean probability of option ``index``.
 
@@ -187,18 +369,37 @@ class OptionProbability:
     resume_stateless = True
 
     def __init__(self, index=0, *, input_mode="logits", num_classes=None, target_index=0):
-        if type(index) is not int or index < 0:
-            raise ValueError("OptionProbability index must be a nonnegative integer")
-        if input_mode not in ("logits", "probs", "hidden_state"):
-            raise ValueError("OptionProbability input_mode must be 'logits', 'probs', or 'hidden_state'")
-        if input_mode == "hidden_state":
+        if type(index) is int:
+            if index < 0:
+                raise ValueError("OptionProbability index must be a nonnegative integer")
+            indices = (index,)
+        elif isinstance(index, (list, tuple)) and len(index) > 0:
+            if any(type(i) is not int or i < 0 for i in index):
+                raise ValueError("OptionProbability index sequence must contain nonnegative integers")
+            if len(set(index)) != len(index):
+                raise ValueError("OptionProbability index sequence must not contain duplicates")
+            indices = tuple(index)
+        else:
+            raise ValueError(
+                "OptionProbability index must be a nonnegative integer or a nonempty sequence of nonnegative integers"
+            )
+        if input_mode not in ("logits", "probs", "hidden_state", "state_conditioned_log_odds"):
+            raise ValueError(
+                "OptionProbability input_mode must be 'logits', 'probs', 'hidden_state', or 'state_conditioned_log_odds'"
+            )
+        if input_mode in ("hidden_state", "state_conditioned_log_odds"):
             if type(num_classes) is not int or num_classes < 2:
-                raise ValueError("OptionProbability with input_mode='hidden_state' requires integer num_classes >= 2")
+                raise ValueError(
+                    f"OptionProbability with input_mode={input_mode!r} requires integer num_classes >= 2"
+                )
+            for idx in indices:
+                if idx >= num_classes:
+                    raise ValueError(f"OptionProbability index {idx} is out of bounds for num_classes={num_classes}")
+        if input_mode == "hidden_state":
             if type(target_index) is not int or not 0 <= target_index < num_classes:
                 raise ValueError("OptionProbability target_index must be in [0, num_classes)")
-            if index >= num_classes:
-                raise ValueError(f"OptionProbability index {index} is out of bounds for num_classes={num_classes}")
-        self.index = index
+        self.index = index if type(index) is int else list(indices)
+        self.indices = indices
         self.input_mode = input_mode
         self.num_classes = num_classes
         self.target_index = target_index
@@ -220,11 +421,22 @@ class OptionProbability:
                 dim=-1,
             )
             probs = rel.softmax(dim=-1)
-            return probs[:, self.index].mean()
-        if self.index >= logits.shape[1]:
-            raise ValueError(f"OptionProbability index {self.index} is out of bounds for K={logits.shape[1]}")
-        probs = logits.softmax(dim=-1) if self.input_mode == "logits" else logits
-        return probs[:, self.index].mean()
+        elif self.input_mode == "state_conditioned_log_odds":
+            if logits.shape[1] < self.num_classes:
+                raise ValueError(
+                    f"OptionProbability state_conditioned_log_odds tensor width {logits.shape[1]} "
+                    f"< num_classes={self.num_classes}"
+                )
+            u = logits[:, -self.num_classes:]
+            probs = torch.sigmoid(u)
+        else:
+            for idx in self.indices:
+                if idx >= logits.shape[1]:
+                    raise ValueError(f"OptionProbability index {idx} is out of bounds for K={logits.shape[1]}")
+            probs = logits.softmax(dim=-1) if self.input_mode == "logits" else logits
+        if len(self.indices) == 1:
+            return probs[:, self.indices[0]].mean()
+        return probs[:, list(self.indices)].sum(dim=-1).mean()
 
 
 class TotalVariationSmoothness:

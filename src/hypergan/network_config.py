@@ -51,30 +51,67 @@ def render_source(source, parameters=None):
         raise ValueError(f'Invalid HNDL template parameter: {exc}') from exc
 
 
-def _validate_imajev_provider(options):
-    required = {'base_model_path', 'adapter_path', 'question', 'options'}
-    allowed = required | {'state', 'temperature', 'image_size', 'compile', 'target_layer'}
-    if not isinstance(options, dict) or not required.issubset(options) or set(options) - allowed:
-        raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
-    for key in ('base_model_path', 'adapter_path', 'question'):
-        if not isinstance(options[key], str) or not options[key].strip():
-            raise ValueError(f'imajev_4b {key} must be nonempty text')
-    choices = options['options']
+def _validate_imajev_query_fields(entry, prefix='imajev_4b'):
+    if not isinstance(entry.get('question'), str) or not entry['question'].strip():
+        raise ValueError(f'{prefix} question must be nonempty text')
+    choices = entry.get('options')
     if (not isinstance(choices, (list, tuple)) or not 2 <= len(choices) <= 63
             or any(not isinstance(item, str) or not item.strip() for item in choices)):
-        raise ValueError('imajev_4b options must be 2 to 63 nonempty strings')
+        raise ValueError(f'{prefix} options must be 2 to 63 nonempty strings')
     if any(item == '__unknown__' or item.strip() == '__unknown__' for item in choices):
-        raise ValueError('imajev_4b options cannot contain __unknown__')
+        raise ValueError(f'{prefix} options cannot contain __unknown__')
     if len(set(choices)) != len(choices):
-        raise ValueError('imajev_4b options must be unique')
-    if 'state' in options:
-        state = options['state']
+        raise ValueError(f'{prefix} options must be unique')
+    if 'state' in entry:
+        state = entry['state']
         if not isinstance(state, (str, dict)):
-            raise ValueError('imajev_4b state must be a string or table')
+            raise ValueError(f'{prefix} state must be a string or table')
         try:
             json.dumps(state, allow_nan=False)
         except (TypeError, ValueError) as exc:
-            raise ValueError('imajev_4b state must be JSON-serializable without NaN/Inf') from exc
+            raise ValueError(f'{prefix} state must be JSON-serializable without NaN/Inf') from exc
+
+
+def _validate_imajev_provider(options):
+    if not isinstance(options, dict):
+        raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
+    common_required = {'base_model_path', 'adapter_path'}
+    common_optional = {'temperature', 'image_size', 'compile', 'target_layer', 'state_embed_dim'}
+    if 'queries' in options:
+        if {'question', 'options', 'state'} & set(options):
+            raise ValueError('imajev_4b cannot specify both queries and top-level question/options/state')
+        required = common_required | {'queries'}
+        allowed = required | common_optional
+        if not required.issubset(options) or set(options) - allowed:
+            raise ValueError('imajev_4b multi-query config requires base_model_path, adapter_path and queries')
+    else:
+        required = common_required | {'question', 'options'}
+        allowed = required | common_optional | {'state'}
+        if not required.issubset(options) or set(options) - allowed:
+            raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
+    for key in ('base_model_path', 'adapter_path'):
+        if not isinstance(options[key], str) or not options[key].strip():
+            raise ValueError(f'imajev_4b {key} must be nonempty text')
+    if 'queries' in options:
+        queries = options['queries']
+        if not isinstance(queries, (list, tuple)) or not 2 <= len(queries) <= 64:
+            raise ValueError('imajev_4b queries must be a list of 2 to 64 query tables')
+        option_counts = set()
+        for idx, query in enumerate(queries):
+            if (not isinstance(query, dict)
+                    or not {'question', 'options'}.issubset(query)
+                    or set(query) - {'question', 'options', 'state', 'weight'}):
+                raise ValueError(f'imajev_4b queries[{idx}] requires question and options')
+            _validate_imajev_query_fields(query, prefix='imajev_4b')
+            if 'weight' in query:
+                weight = query['weight']
+                if type(weight) not in (int, float) or not math.isfinite(weight) or weight <= 0:
+                    raise ValueError('imajev_4b query weight must be a finite positive number')
+            option_counts.add(len(query['options']))
+        if len(option_counts) != 1:
+            raise ValueError('imajev_4b queries must all have the same number of options')
+    else:
+        _validate_imajev_query_fields(options, prefix='imajev_4b')
     if 'temperature' in options:
         temperature = options['temperature']
         if type(temperature) not in (int, float) or not math.isfinite(temperature) or temperature <= 0:
@@ -90,6 +127,10 @@ def _validate_imajev_provider(options):
         target_layer = options['target_layer']
         if type(target_layer) is not int or not -36 <= target_layer <= 35:
             raise ValueError('imajev_4b target_layer must be an integer in [-36, 35]')
+    if 'state_embed_dim' in options:
+        state_embed_dim = options['state_embed_dim']
+        if type(state_embed_dim) is not int or not 4 <= state_embed_dim <= 256:
+            raise ValueError('imajev_4b state_embed_dim must be an integer in [4, 256]')
 
 
 def validate_pretrained_providers(providers):

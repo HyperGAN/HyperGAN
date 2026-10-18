@@ -20,6 +20,24 @@ IMAJEV_PROVIDER = {
     'question': 'Which digit is shown in the image?',
     'options': ['0 — zero', '1 — one', '2 — two'],
 }
+IMAJEV_MULTIQUERY_PROVIDER = {
+    'base_model_path': '/unavailable/qwen3.5-4b',
+    'adapter_path': '/unavailable/imajev-4b',
+    'state_embed_dim': 16,
+    'queries': [
+        {
+            'state': {'task': 'apple', 'aspect': 'subject'},
+            'question': 'What is the main subject?',
+            'options': ['red apple', 'orange', 'banana', 'noise'],
+        },
+        {
+            'state': {'task': 'apple', 'aspect': 'realism'},
+            'question': 'How realistic is the apple?',
+            'options': ['photorealistic', 'cartoon', 'blurry', 'static'],
+            'weight': 2.0,
+        },
+    ],
+}
 
 
 def network_args(providers):
@@ -38,9 +56,10 @@ def resolved_with_providers(providers):
     {},
     {'dinov3_vits16': PROVIDER},
     {'imajev_4b': IMAJEV_PROVIDER},
+    {'imajev_4b': IMAJEV_MULTIQUERY_PROVIDER},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'state': {'domain': 'mnist'}, 'temperature': 1.5}},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'state': 'raw-context', 'temperature': 2}},
-    {'imajev_4b': {**IMAJEV_PROVIDER, 'image_size': 128, 'compile': True}},
+    {'imajev_4b': {**IMAJEV_PROVIDER, 'image_size': 128, 'compile': True, 'state_embed_dim': 32}},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': -1}},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': -36}},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': 0}},
@@ -75,6 +94,24 @@ def test_provider_options_survive_resolution_without_reading_source(providers):
       for missing in ('base_model_path', 'adapter_path', 'question', 'options')],
     ({'imajev_4b': {**IMAJEV_PROVIDER, 'extra': True}},
      'imajev_4b requires base_model_path, adapter_path, question and options'),
+    ({'imajev_4b': {**IMAJEV_PROVIDER, 'queries': IMAJEV_MULTIQUERY_PROVIDER['queries']}},
+     'cannot specify both queries'),
+    ({'imajev_4b': {**IMAJEV_MULTIQUERY_PROVIDER, 'queries': [IMAJEV_MULTIQUERY_PROVIDER['queries'][0]]}},
+     'queries must be a list of 2 to 64'),
+    ({'imajev_4b': {
+        **IMAJEV_MULTIQUERY_PROVIDER,
+        'queries': [
+            IMAJEV_MULTIQUERY_PROVIDER['queries'][0],
+            {'question': 'Second?', 'options': ['yes', 'no']},
+        ],
+    }}, 'queries must all have the same number of options'),
+    ({'imajev_4b': {
+        **IMAJEV_MULTIQUERY_PROVIDER,
+        'queries': [
+            IMAJEV_MULTIQUERY_PROVIDER['queries'][0],
+            {**IMAJEV_MULTIQUERY_PROVIDER['queries'][1], 'weight': 0.0},
+        ],
+    }}, 'weight must be a finite positive number'),
     *[({'imajev_4b': {**IMAJEV_PROVIDER, field: bad}}, f'imajev_4b {field} must be nonempty text')
       for field in ('base_model_path', 'adapter_path', 'question')
       for bad in ('', '   ', 42, None)],
@@ -92,6 +129,8 @@ def test_provider_options_survive_resolution_without_reading_source(providers):
       for bad in (0, 1, 'true', None, [])],
     *[({'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': bad}}, 'target_layer must be an integer in \\[-36, 35\\]')
       for bad in (-37, 36, -100, 100, False, True, -1.0, '0', None)],
+    *[({'imajev_4b': {**IMAJEV_PROVIDER, 'state_embed_dim': bad}}, 'state_embed_dim must be an integer in \\[4, 256\\]')
+      for bad in (0, 3, 257, False, True, 16.0, '16', None)],
 ])
 def test_invalid_provider_options_fail_direct_and_recipe_validation(providers, message):
     with pytest.raises(ValueError, match=message):
@@ -138,6 +177,7 @@ def test_provider_pin_changes_numerical_fingerprint(key, value):
     ('state', {'mode': 'strict'}),
     ('temperature', 2.0),
     ('target_layer', -8),
+    ('state_embed_dim', 32),
 ])
 def test_imajev_provider_changes_numerical_fingerprint(key, value):
     base = resolved_with_providers({'imajev_4b': IMAJEV_PROVIDER})

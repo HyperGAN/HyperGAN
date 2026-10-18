@@ -17,6 +17,7 @@ from hypergan.constraint_data import (
     ConstraintHiddenTargetData,
     ConstraintSatisfactionMetric,
     ConstraintTargetData,
+    MultiQueryConstraintData,
     OptionProbability,
     TotalVariationSmoothness,
 )
@@ -497,5 +498,75 @@ def test_constraint_hidden_target_data_and_option_probability_hidden_state():
         OptionProbability(index=0, input_mode="hidden_state", num_classes=5, target_index=5)
     with pytest.raises(ValueError, match="width"):
         OptionProbability(index=0, input_mode="hidden_state", num_classes=5)(torch.zeros(2, 4))
+
+
+def test_multi_query_constraint_data_and_state_conditioned_option_probability():
+    import hypergan.pretrained_providers as pp
+
+    queries = [
+        {
+            "state": {"task": "apple", "aspect": "subject"},
+            "question": "What is the main subject?",
+            "options": ["red apple", "orange", "multiple", "noise"],
+            "target_probs": [0.992, 0.002, 0.002, 0.002, 0.002],
+        },
+        {
+            "state": {"task": "apple", "aspect": "variety"},
+            "question": "Which natural red apple variety does this resemble?",
+            "options": ["Red Delicious", "Honeycrisp", "unnatural purple", "monochrome"],
+            "target_probs": [
+                [0.992, 0.002, 0.002, 0.002, 0.002],
+                [0.002, 0.992, 0.002, 0.002, 0.002],
+            ],
+            "weight": 2.0,
+        },
+    ]
+    data = MultiQueryConstraintData(queries, state_embed_dim=16, jitter_std=0.0)
+    pp._IMAJEV_ACTIVE_QUERY_QUEUE.pop(data._bank_signature, None)
+
+    rng1 = torch.Generator().manual_seed(777)
+    rng2 = torch.Generator().manual_seed(777)
+    b1 = data(12, generator=rng1)["real"]
+    q_idx_1 = pp.pop_active_query(data._bank_signature)
+    b2 = data(12, generator=rng2)["real"]
+    q_idx_2 = pp.pop_active_query(data._bank_signature)
+
+    assert b1.shape == (12, 21)
+    assert q_idx_1 == q_idx_2
+    assert torch.equal(b1, b2)
+    # Unit-norm state embedding prefix [B, 16]
+    torch.testing.assert_close(b1[:, :16].norm(dim=-1), torch.ones(12), atol=1e-5, rtol=1e-5)
+
+    # Check OptionProbability with input_mode="state_conditioned_log_odds" and multi-index support
+    opt_target = OptionProbability(index=0, input_mode="state_conditioned_log_odds", num_classes=5)
+    opt_alt = OptionProbability(index=1, input_mode="state_conditioned_log_odds", num_classes=5)
+    opt_defects = OptionProbability(index=[2, 3], input_mode="state_conditioned_log_odds", num_classes=5)
+    opt_unknown = OptionProbability(index=4, input_mode="state_conditioned_log_odds", num_classes=5)
+
+    total_p = opt_target(b1) + opt_alt(b1) + opt_defects(b1) + opt_unknown(b1)
+    torch.testing.assert_close(total_p, torch.tensor(1.0, dtype=torch.float32), atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(opt_defects(b1), torch.tensor(0.004, dtype=torch.float32), atol=1e-6, rtol=1e-6)
+    torch.testing.assert_close(opt_unknown(b1), torch.tensor(0.002, dtype=torch.float32), atol=1e-6, rtol=1e-6)
+
+    spec = {
+        "factory": "hypergan.constraint_data:MultiQueryConstraintData",
+        "args": {"queries": queries, "state_embed_dim": 16, "jitter_std": 0.0},
+    }
+    contract = data_contract(data, spec)
+    assert contract["supported"] is True
+    assert contract["stateful"] is False
+    assert contract["identity"] == data.resume_identity()
+
+    # Validation checks
+    with pytest.raises(ValueError, match="2..64"):
+        MultiQueryConstraintData([queries[0]])
+    with pytest.raises(ValueError, match="same number of options"):
+        MultiQueryConstraintData([
+            queries[0],
+            {**queries[1], "options": ["a", "b"], "target_probs": [0.9, 0.05, 0.05]},
+        ])
+    with pytest.raises(ValueError, match="duplicates"):
+        OptionProbability(index=[1, 1], input_mode="state_conditioned_log_odds", num_classes=5)
+
 
 

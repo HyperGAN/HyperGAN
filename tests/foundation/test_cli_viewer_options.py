@@ -1,6 +1,7 @@
 """The explicit headless path has no serving or multiprocessing dependency."""
 import builtins
 import socket
+import sys
 
 import pytest
 
@@ -139,8 +140,8 @@ def test_exhausted_default_range_names_the_conflict(monkeypatch):
             web_launch.bind_available(host='127.0.0.1', attempts=1)
 
 
-@pytest.mark.skipif(not hasattr(socket, 'SO_REUSEADDR') or hasattr(socket, 'SO_EXCLUSIVEADDRUSE'),
-                    reason='POSIX TIME_WAIT semantics')
+@pytest.mark.skipif(not sys.platform.startswith('linux'),
+                    reason='SO_REUSEADDR is enabled on Linux only')
 def test_restart_rebinds_while_previous_connections_linger_in_time_wait():
     from hypergan.web_launch import bind_server
     base = _free_base(1)

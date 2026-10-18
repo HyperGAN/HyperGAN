@@ -129,7 +129,7 @@ def render_preview(trainer, batch, identity):
     import numpy as np
     import torch
     from .checkpoints import capture_rng, restore_rng
-    from .recipes import generation_output, generation_particle_ids
+    from .recipes import ComponentGraph, generation_output, generation_particle_ids
     rng = capture_rng()
     try:
         seed = trainer.config['sampling']['seed']
@@ -147,7 +147,10 @@ def render_preview(trainer, batch, identity):
         recorded_inputs = {key: value.cpu() for key, value in recorded_inputs.items()}
         with torch.inference_mode():
             latent, ids = prior.sample(count, generator=torch.Generator().manual_seed(seed))
-            context = graph.generate(latent, normalized, prior=prior)
+            if trainer.config['sampling'].get('generated', 'generated') != 'generated' and isinstance(graph, ComponentGraph):
+                context = graph.generate(latent, normalized, prior=prior, lazy=True)
+            else:
+                context = graph.generate(latent, normalized, prior=prior)
             values = generation_output(graph, context, trainer.config['sampling'])
             ids = generation_particle_ids(graph, context, ids, trainer.config['sampling'])
             views = {name: graph.resolve(binding, context) for name, binding

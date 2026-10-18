@@ -177,7 +177,7 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_im
     rng = torch.Generator().manual_seed(seed)
     with torch.inference_mode():
         z, ids = prior.sample(count, generator=rng)
-        context = graph.generate(z, normalized, prior=prior)
+        context = graph.generate(z, normalized, prior=prior, lazy=config['sampling'].get('generated', 'generated') != 'generated')
         values = generation_output(graph, context, config['sampling'])
         ids = generation_particle_ids(graph, context, ids, config['sampling'])
     if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:

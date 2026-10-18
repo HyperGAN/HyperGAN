@@ -102,7 +102,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                 raise ValueError('Evaluation backend settings changed between generated batches')
             observed_backend = effective_backend
             runtime['backend'] = effective_backend
-            generated = graph.resolve(generated_binding, graph.generate(z, batch, prior=prior))
+            generated = graph.resolve(generated_binding, graph.generate(z, batch, prior=prior, lazy=generated_binding != 'generated'))
             if (not isinstance(generated, torch.Tensor) or generated.ndim < 1 or len(generated) != size
                     or generated.numel() > MAX_BATCH_ELEMENTS or not torch.isfinite(generated).all()
                     or not torch.isfinite(batch['real']).all()):

@@ -12,7 +12,8 @@ from hypergan.config import (
 def test_default_roundtrip_without_runtime(tmp_path):
     path = write_default(tmp_path / "project", device="cpu")
     config = load_config(path.parent)
-    assert config['recipe']['name'] == 'bispf_optimized'
+    from hypergan.config import particlegan_recipe_fields
+    assert config['recipe']['name'] == particlegan_recipe_fields()['name']
     assert config['training']['initialization'] == 'deterministic_orthogonal'
     subprocess.run([sys.executable, "-c", "from hypergan.config import load_config; import sys; load_config(sys.argv[1]); assert 'torch' not in sys.modules", str(path)], cwd=tmp_path, check=True)
     with pytest.raises(FileExistsError):

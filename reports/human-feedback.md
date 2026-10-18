@@ -17,7 +17,7 @@ leverage hndl parsing ... basically i want to easily see what the hyperparams an
 losses and network configuration is, maybe a separate tab from the metrics."
 
 Merged into develop in `820cede5` (remaining follow-ups below):
-- [x] Torch-free run description from `manifest['config']`: K3P formulation and
+- [x] Torch-free run description from `manifest['config']`: ParticleGAN formulation and
   parameters (pre-0.8 runs show their recorded fields), prior, per-player loss terms
   with weights and metric series ids, optimizers/schedule/noise, components with roles
   and HNDL source, data/training settings; local paths shown as `…/basename`
@@ -211,12 +211,12 @@ gpus then we can use modal"
 **Status:** Completed and merged into `develop` (Milestone 6, Workstream D / Requirement R6).
 
 - [x] Device specification: `[run].devices` / `--devices` (`0`, `0,1`, UUIDs, workspace aliases `gpu0,gpu1`, `auto`). Automatic selection of replicated execution when more than one device is specified.
-- [x] Lifted replicated execution restrictions for CIFAR K3P:
+- [x] Lifted replicated execution restrictions for CIFAR reference:
   - Default `total_timeout` set to no limit (or `--max-seconds`).
-  - Supported critic input noise, generator output noise, independent phase draws, and recipe-built K3P optimizers in `distributed_training.py` and `execution_profiles.py`.
+  - Supported critic input noise, generator output noise, independent phase draws, and recipe-built ParticleGAN optimizers in `distributed_training.py` and `execution_profiles.py`.
 - [x] Fused device-side nonfinite gradient screening in `distributed_training._reduce_gradients` (resolving the open subtask from Item 19).
 - [x] Per-rank dataset sharding: passed `rank` and `world_size` to image data loading so each rank decodes only its shard.
-- [x] Qualified local 2-GPU CIFAR K3P training:
+- [x] Qualified local 2-GPU CIFAR reference training:
   - Qualified on `gpu0,gpu1` (NVIDIA RTX A6000 pair) completing training steps, previews, checkpoints, and resume.
   - Verified by `tests/cuda/test_cifar_replicated_qualification.py` (2 passed), `test_replicated_numerics.py` (1 passed), and `test_m6_empirical_challenges.py` (6 passed).
 - [x] Job queue architecture (`src/hypergan/queue.py`):
@@ -239,7 +239,7 @@ gpus then we can use modal"
 | D7 | Lock-free mid-run evaluation | R2 | M2 | `hypergan eval\|sample\|export` accepts `--checkpoint best\|latest\|STEP\|PATH`, extracts EMA from `state.pt`, read-only without run lock. Complete. |
 | D8 | No `branch` command | R2 | M2 | Mid-run LR/schedule changes disallowed; new configuration requires a new experiment. Complete. |
 | D9 | Hardware-tolerant resume warnings | R4, R6 | M4, M6 | Differences in GPU model, capability, world size, rank devices warn instead of raising `ValueError`. Complete. |
-| D10 | Local 2-GPU CIFAR training scope | R6 | M6 | Local 2-GPU CIFAR K3P qualified across `gpu0,gpu1` (noise, phase draws, recipe optimizers, fused screening, sharded data). Complete. |
+| D10 | Local 2-GPU CIFAR training scope | R6 | M6 | Local 2-GPU CIFAR reference qualified across `gpu0,gpu1` (noise, phase draws, recipe optimizers, fused screening, sharded data). Complete. |
 | D11 | Staged cluster roadmap (local first) | R6 | M6 | Local 2-GPU qualified first; Modal multi-node scheduled next using reserved credits. Complete. |
 | D12 | Coarser default metric cadence & GC | R5 | M5 | Default `every_steps = 10` (~10x smaller logs); `hypergan gc RUN` removes `views/` and compacts `events.jsonl`. Complete. |
 
@@ -250,7 +250,7 @@ gpus then we can use modal"
 | R3 | Single root dashboard & viewer lifecycle | DONE | `src/hypergan/web_server.py`, port 8765 single instance, dynamic multi-run routing, root index (`/`), projector auto-stop, `stop-server --all`. |
 | R4 | Single experiment file, workspace, provenance, hardware resume | DONE | `src/hypergan/workspace.py`, `hypergan.toml`, `${paths}`, `extends`, re-exec provenance, hardware-tolerant resume warnings, 46 TOMLs ported with bit-for-bit invariance. |
 | R5 | `summary.json`, inspection CLI, console ergonomics, metric cadence | DONE | `src/hypergan/summary.py`, atomic `summary.json`, `status`, `runs ls`, `runs compare`, `gc`, `new --dataset`, `every_steps = 10`, console header/progress/footer. |
-| R6 | Local 2-GPU CIFAR K3P training & `hypergan queue` | DONE | `distributed_training.py`, `queue.py`, lifted replicated restrictions, fused nonfinite screening, sharded data loading, 2-GPU CIFAR qualification passed, queue service. |
+| R6 | Local 2-GPU CIFAR reference training & `hypergan queue` | DONE | `distributed_training.py`, `queue.py`, lifted replicated restrictions, fused nonfinite screening, sharded data loading, 2-GPU CIFAR qualification passed, queue service. |
 | R7 | Repository, Disk & GPU Guardrails, historical prune | DONE | Historical prune on `/mnt/ml7tb` reclaimed 838.19 GiB (2,620 intermediate checkpoints pruned, 229 preserved), full test suites passing, develop branch hygiene. |
 
 ### 23. Sample image slider flashes while scrubbing; always show a picture and buffer ahead (raised 2026-09-25)
@@ -284,12 +284,12 @@ well as the api. please update it all" and then a CIFAR config "with no
 overrides. I want the defaults from particlegan for everything (our higher
 particle count is fine tho)".
 
-- [x] Pin `particlegan==0.8.0`; train with its one formulation (K3P): RpGAN
-  logistic loss, the LR-scheduled critic penalty with an EMA-critic anchor,
+- [x] Pin `particlegan==0.8.0`; consume its released formulation:
+  dependency-provided loss, the LR-scheduled critic penalty with an EMA-critic anchor,
   recipe-built optimizers (spike guard, latent damping), the split network/prior
   LR schedule and critic input / generator output noise
   (`src/hypergan/training.py`, `src/hypergan/objective_program.py`).
-- [x] Config: new K3P fields, `defaults = "particlegan"` covers them; removed
+- [x] Config: recipe settings, `defaults = "particlegan"` covers them; removed
   loss modes and penalty arms are refused with the field named
   (`src/hypergan/config.py`, [configuration](../docs/configuration.md#numerical-recipe)).
 - [x] Checkpoints carry the optimizers' regularization state; replicated and

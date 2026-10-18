@@ -1,7 +1,7 @@
 """Empirical stress tests for Milestone 6:
 1. Nonfinite Gradient Refusal Stress Test (asymmetric NaN/Inf across ranks in multiprocessing NCCL).
 2. Data Sharding Bitwise Parity Stress Test (CIFAR10Data, ImageFolder, ItemData).
-3. ParticleGAN Controller State Parity Stress Test (multi-step K3PCriticAdam + DV12Controller).
+3. ParticleGAN Controller State Parity Stress Test (multi-step optimizer and controller state).
 """
 import copy
 from datetime import timedelta
@@ -279,8 +279,8 @@ def test_item_data_sharding_bitwise_parity():
 # Section 3: ParticleGAN Controller State Parity Stress Test
 # ---------------------------------------------------------------------------
 
-class MockDV12Controller:
-    """Accurate replica of ParticleGAN DV12Controller to verify replicated controller parity."""
+class MockControllerState:
+    """Stateful callback fixture for host synchronization and device migration."""
     _TENSORS = ("location", "scale", "projection", "reference", "fast_reference",
                 "fast_mean_variance", "slow_mean_variance", "mean_covariance")
     KEYS = ("location", "scale", "projection", "reference", "fast_reference",
@@ -312,38 +312,23 @@ class MockDV12Controller:
     @torch.no_grad()
     def _observe_real(self, real):
         x = real.detach().flatten(1)
+        mean, variance = x.mean(0), x.var(0, unbiased=False)
         if self.location is None:
-            self.location = x.mean(0)
-            self.scale = x.std(0, unbiased=False).clamp_min(1e-6)
-            stream = torch.Generator(device="cpu").manual_seed(1729)
-            self.projection = (torch.randn(x.shape[1], 16, generator=stream, device="cpu")
-                               / math.sqrt(x.shape[1])).to(x)
-        u = ((x - self.location) / self.scale) @ self.projection
-        features = torch.cat((u, torch.cos(u), torch.sin(u)), 1)
-        mean = features.mean(0)
-        var = features.var(0, unbiased=False).clamp_min(1e-6)
+            self.location = mean.clone()
+            self.scale = variance.sqrt().clamp_min(1e-6)
+            self.projection = torch.eye(x.shape[1], device=x.device)
         if self.reference is None:
             self.reference = mean.clone()
-        batch_variance = var / len(x)
-        if self.fast_reference is None:
-            self.fast_reference = mean.clone()
-            self.fast_mean_variance = batch_variance.clone()
-            self.slow_mean_variance = batch_variance.clone()
-            self.mean_covariance = batch_variance.clone()
-        self.fast_reference.lerp_(mean, 0.1)
-        self.reference.lerp_(mean, 0.01)
-        self.fast_mean_variance.mul_(0.9**2).add_(batch_variance, alpha=0.1**2)
-        self.slow_mean_variance.mul_(0.99**2).add_(batch_variance, alpha=0.01**2)
-        self.mean_covariance.mul_(0.9 * 0.99).add_(batch_variance, alpha=0.1 * 0.01)
-        var_diff = (self.fast_mean_variance + self.slow_mean_variance - 2 * self.mean_covariance).clamp_min(1e-10)
-        self.data_score = float(((self.fast_reference - self.reference).square() / var_diff).mean().sqrt())
-        self.data_drive = min(1.0, max(0.0, (self.data_score - 3.0) / 3.0))
-        target = max(self.data_drive, min(1.0, self.payoff_error**2))
-        speed = 0.05 if target > self.mobility else 0.005
-        self.mobility += speed * (target - self.mobility)
+        self.data_score = float((mean - self.reference).square().mean())
+        self.reference.lerp_(mean, 0.1)
+        self.fast_reference = mean.clone()
+        self.fast_mean_variance = variance.clone()
+        self.slow_mean_variance = variance.clone()
+        self.mean_covariance = variance.clone()
+        self.data_drive = self.data_score / (1 + self.data_score)
+        self.mobility = 1 + self.data_drive
         self.updates += 1
-        return ((0.01 + 0.99 * self.mobility) * self.game_trust,
-                (0.05 + 0.95 * self.mobility) * self.game_trust)
+        return self.mobility, self.mobility
 
 
 def _worker_controller_parity(rank, rendezvous, out_path):
@@ -361,8 +346,6 @@ def _worker_controller_parity(rank, rendezvous, out_path):
 
     results = {}
     try:
-        from particlegan.k3p import K3PCriticAdam
-
         cfg = resolve_config({
             "training": {"device": "cuda", "steps": 5, "batch_size": 16, "seed": 999},
             "prior": {"args": {"num_particles": 16, "z_dim": 4, "device": "cuda"}},
@@ -374,8 +357,8 @@ def _worker_controller_parity(rank, rendezvous, out_path):
         })
         trainer = ReplicatedTrainer(cfg)
 
-        # Attach DV12Controller with CPU-resident restored tensors to verify migration
-        controller = MockDV12Controller()
+        # Attach a controller fixture with CPU-resident restored tensors to verify migration
+        controller = MockControllerState()
         # Seed initial CPU tensors
         stream = torch.Generator(device="cpu").manual_seed(1729)
         controller.location = torch.zeros(4, device="cpu")
@@ -426,7 +409,7 @@ def _worker_controller_parity(rank, rendezvous, out_path):
 
 
 def test_particlegan_controller_state_parity(tmp_path):
-    """Stress-test replicated multi-step training with DV12Controller across 2 CUDA GPUs."""
+    """Stress-test replicated multi-step training with controller state across 2 CUDA GPUs."""
     if not (torch.cuda.is_available() and torch.cuda.device_count() >= 2):
         pytest.skip("Requires at least 2 CUDA GPUs")
     if not dist.is_nccl_available():
@@ -486,8 +469,8 @@ def test_particlegan_controller_state_parity(tmp_path):
 
 def test_controller_divergence_without_all_gather_negative_control():
     """Negative control: verify that observing only rank-local slices diverges controller state."""
-    c0 = MockDV12Controller()
-    c1 = MockDV12Controller()
+    c0 = MockControllerState()
+    c1 = MockControllerState()
 
     rec0 = type("Rec", (), {"observed_steps": 1, "sur_base": 1.0, "last_sur": 1.0})()
     rec1 = type("Rec", (), {"observed_steps": 1, "sur_base": 1.0, "last_sur": 1.0})()

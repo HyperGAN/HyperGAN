@@ -502,7 +502,7 @@ def test_model_tab_shows_formulation_losses_networks_and_plots_a_loss(viewer):
     assert page.locator('#panel-metrics').is_hidden()
     assert page.evaluate('location.hash') == '#model'
     text = page.locator('#model-content').inner_text()
-    for expected in ('K3P', 'RpGAN logistic', 'Discriminator (critic)', 'k3p_penalty', 'K3PGeneratorAdam',
+    for expected in ('ParticleGAN', 'Discriminator (critic)', 'critic_regularizer', 'adversarial_g',
                      'hypergan/networks/reference.hndl', 'gaussian_grid'):
         assert expected in text
     generator = page.locator('.model-network').first

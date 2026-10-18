@@ -55,12 +55,12 @@ def test_training_runs_structure(runs_workspace):
 
 @pytest.fixture
 def published_pg08_defaults(monkeypatch):
-    """Freeze the original port cohort to the published 0.8 K3P contract.
+    """Freeze the original port cohort to the published 0.8 recipe contract.
 
     Both archived recipes and ported model files named the then-current
     ParticleGAN defaults. Comparing that historical migration under a newer
     trainer would change the question and rewrite its initialization/recipe
-    identity. Current BISPF defaults have their own configuration tests.
+    identity. Current released defaults have their own configuration tests.
     """
     import hypergan.config as configuration
     original = deepcopy(DEFAULT)

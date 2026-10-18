@@ -4,15 +4,14 @@ Constructor paths are trusted Python code, imported only by train/sample.
 """
 from collections.abc import Mapping
 from copy import deepcopy
-import dataclasses
-import functools
 import hashlib
-import importlib.util
 import json
 import math
 import re
-import sys
 from pathlib import Path
+
+from .particlegan_integration import (PARTICLEGAN_DEFAULT_FIELDS, particlegan_defaults,
+                                     particlegan_recipe_fields)
 
 from .network_config import packaged_source, read_source, validate_network_args, materialize_networks
 
@@ -176,110 +175,24 @@ seed = 10000
 '''
 
 
-# `defaults = "particlegan"` fills these omitted fields from the installed
-# ParticleGAN's current public preset instead of DEFAULT. Resolved configurations
-# record the concrete values, so a later ParticleGAN release cannot silently
-# change an existing run; its resume then fails the configuration check.
-PARTICLEGAN_DEFAULT_FIELDS = {
-    ("gradient_penalty", "coeff"): "reg_coeff",
-    ("gradient_penalty", "kappa"): "reg_kappa",
-    ("gradient_penalty", "lazy_k"): "reg_every",
-    ("gradient_penalty", "anchor_weight"): "reg_anchor_weight",
-    ("prior_regularizer", "weight"): "prior_reg",
-    ("prior_regularizer", "target_std"): "prior_reg_target_std",
-    ("prior_regularizer", "eps"): "prior_reg_eps",
-    ("optimizer", "lr"): "lr",
-    ("optimizer", "d_lr_mult"): "d_lr_mult",
-    ("optimizer", "prior_lr_mult"): "prior_lr_mult",
-    ("optimizer", "betas"): "betas",
-    ("optimizer", "prior_betas"): "prior_betas",
-    ("optimizer", "d_guard_ratio"): "d_guard_ratio",
-    ("optimizer", "d_guard_min_steps"): "d_guard_min_steps",
-    ("optimizer", "latent_damping_max_rate"): "latent_damping_max_rate",
-    ("training", "ema"): "ema_decay",
-    ("training", "lr_anneal_start"): "lr_anneal_start",
-    ("training", "lr_floor"): "lr_floor",
-    ("training", "network_lr_floor"): "network_lr_floor",
-    ("training", "network_lr_horizon_cap"): "network_lr_horizon_cap",
-    ("training", "input_noise_std"): "input_noise_std",
-    ("training", "input_noise_anneal_end"): "input_noise_anneal_end",
-    ("training", "output_noise_std"): "output_noise_std",
-    ("training", "output_noise_warmup"): "output_noise_warmup",
-}
-
-# Fields ParticleGAN 0.8 removed. Its only formulation is RpGAN logistic with
-# the K3P critic penalty, so a loss that names exactly that is dropped; any
-# other value, and every penalty technique field, is refused.
+# Compatibility with obsolete configuration syntax. Formulation selection now
+# belongs to the dependency; keep accepting only the old redundant defaults.
 _REMOVED_ADVERSARIAL = {"loss_type": "logistic", "mode": "rp"}
 _REMOVED_PENALTY = ("arm", "norm", "target_anneal", "total_steps", "method", "fd_eps")
 
 
 def _drop_removed_fields(table, location):
-    """Drop removed loss fields that name the only formulation; refuse the rest."""
+    """Accept redundant historical selectors; refuse formulation selection."""
     if not isinstance(table, dict):
         return table
     table = dict(table)
     for key, only in _REMOVED_ADVERSARIAL.items():
         if key in table:
             if table[key] != only:
-                raise ValueError(f"{location}.{key} = {table[key]!r} is no longer supported: ParticleGAN 0.8 "
-                                 f"trains only the RpGAN logistic loss; remove {location}.{key}")
+                raise ValueError(f"{location}.{key} = {table[key]!r} is no longer supported: ParticleGAN "
+                                 f"owns the loss formulation; remove {location}.{key}")
             del table[key]
     return table
-
-
-def _ast_recipe_fields(recipe_path):
-    import ast
-    source = Path(recipe_path).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    fields = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "Recipe":
-            for item in node.body:
-                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-                    if item.value is not None:
-                        try:
-                            fields[item.target.id] = ast.literal_eval(item.value)
-                        except (ValueError, TypeError, SyntaxError, MemoryError):
-                            pass
-    return fields
-
-
-@functools.cache
-def particlegan_recipe_fields():
-    """Read the installed public preset without importing Torch or ParticleGAN.
-
-    Reads the dataclass from recipes.py without importing the package, whose
-    __init__ imports Torch; configuration loading stays Torch-free.
-    """
-    package = importlib.util.find_spec("particlegan")
-    if package is None or not package.submodule_search_locations:
-        raise ValueError('defaults = "particlegan" requires ParticleGAN (the train extra)')
-    name = "_hypergan_particlegan_recipes"
-    recipe_path = Path(package.submodule_search_locations[0]) / "recipes.py"
-    spec = importlib.util.spec_from_file_location(name, recipe_path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-        if hasattr(module, "get_recipe_fields"):
-            recipe = module.get_recipe_fields()
-        else:
-            recipe = _ast_recipe_fields(recipe_path)
-    except (ImportError, AttributeError, RuntimeError, TypeError, ValueError):
-        recipe = _ast_recipe_fields(recipe_path)
-    finally:
-        del sys.modules[name]
-    return recipe
-
-
-def particlegan_defaults():
-    recipe = dict(particlegan_recipe_fields())
-    if recipe["prior_betas"] is None:
-        recipe["prior_betas"] = recipe["betas"]
-    return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]
-            for key, field in PARTICLEGAN_DEFAULT_FIELDS.items() if field in recipe}
-
 
 def _keys(value, allowed, location):
     if not isinstance(value, dict):
@@ -440,8 +353,8 @@ def resolve_config(raw):
                                     for index, term in enumerate(raw["adversarial_terms"])]
     removed = sorted(set(raw.get("gradient_penalty") or ()) & set(_REMOVED_PENALTY))
     if removed:
-        raise ValueError(f"gradient_penalty.{removed[0]} is no longer supported: ParticleGAN 0.8 has one critic "
-                         "penalty (K3P); remove " + ", ".join(f"gradient_penalty.{key}" for key in removed))
+        raise ValueError(f"gradient_penalty.{removed[0]} is no longer supported: ParticleGAN owns critic "
+                         "regularization; remove " + ", ".join(f"gradient_penalty.{key}" for key in removed))
     source = raw.pop("defaults", "hypergan")
     result = deepcopy(DEFAULT)
     if source == "particlegan":

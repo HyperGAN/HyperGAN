@@ -83,7 +83,7 @@ also differ materially from our projected-DINO setup:
 | --- | --- | --- |
 | Critic | Frozen DINOv3, fixed projections, learned spectral conv heads | Learned multi-scale transformer discriminator |
 | Objective | Relativistic logistic | WGAN-GP plus score-drift term |
-| Gradient penalty | Endpoint b-cap, coefficient 1, every eighth step with lazy scaling | Interpolated GP targeting norm 1, coefficient 10 |
+| Gradient penalty | Endpoint critic regularization, coefficient 1, every eighth step with lazy scaling | Interpolated GP targeting norm 1, coefficient 10 |
 | Adam | LR 0.0002, betas (0.5, 0.999) | LR 0.0001, betas (0, 0.99) |
 | Update schedule | One D update then one G update | Four D updates per G update |
 | G:D batch ratio | 1:1 (64 each) | 2:1, with distributed accumulation |

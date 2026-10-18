@@ -33,7 +33,7 @@ Layout::
     inputs = { x = "candidate" }
 
     [[losses]]
-    type = "adversarial"        # RpGAN logistic, K3P critic penalty
+    type = "adversarial"        # ParticleGAN loss and critic regularization
     critic = "critic"
     penalty = 1.0
 
@@ -350,7 +350,7 @@ class _Lowering:
                 _table(loss, location, {'type', 'id', 'critic', 'weight', 'penalty', 'real', 'fake', 'inputs'})
                 penalty = loss.get('penalty', 1.0)
                 if type(penalty) not in (int, float) or penalty < 0:
-                    raise ModelFileError(f'{location}.penalty is the K3P coefficient: a nonnegative number (0 disables it)')
+                    raise ModelFileError(f'{location}.penalty is the critic regularization coefficient: a nonnegative number (0 disables it)')
                 if loss['critic'] == self.primary and 'adversarial' not in recipe:
                     real, fake = loss.get('real', 'batch.real'), loss.get('fake', 'generated')
                     if (real, fake) != ('batch.real', 'generated') or 'inputs' in loss:
@@ -628,7 +628,7 @@ class _Lowering:
         if 'penalty' in raw:
             penalty = _table(raw['penalty'], 'penalty')
             if 'coeff' in penalty:
-                raise ModelFileError('penalty.coeff: set the K3P coefficient on each adversarial loss (penalty = ...)')
+                raise ModelFileError('penalty.coeff: set the critic regularization coefficient on each adversarial loss (penalty = ...)')
             _table(penalty, 'penalty', PENALTY_FIELDS)
             recipe.setdefault('gradient_penalty', {}).update(deepcopy(penalty))
         if 'train' in raw:

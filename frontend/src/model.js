@@ -132,20 +132,13 @@ export function modelPanel(api, base, { catalog, onPlot }) {
   }
   function renderFormulation(model) {
     const f = model.formulation || {};
-    const result = section("GAN formulation", "The adversarial game and critic penalty this run optimizes.");
+    const result = section("GAN formulation", "The ParticleGAN recipe consumed by this run.");
     const card = node("article", undefined, "model-card");
     const title = node("h3", f.name || "Unknown formulation");
-    title.append(node("span", f.family === "legacy" ? "recorded fields" : f.family || "", "model-badge"));
-    card.append(title, node("p", `${f.loss || ""} · ParticleGAN ${f.particlegan || "unknown"}`, "model-quiet"));
+    title.append(node("span", f.snapshot_recorded ? "recorded recipe" : "dependency defaults", "model-badge"));
+    card.append(title, node("p", `ParticleGAN ${f.particlegan || "version not recorded"}`, "model-quiet"));
     if (f.note) card.append(node("p", f.note, "model-note"));
     card.append(definitions(Object.entries(f.parameters || {})));
-    const equations = Object.entries(f.equations || {});
-    if (equations.length) {
-      const details = node("details", undefined, "model-equations");
-      details.open = true;
-      details.append(node("summary", "Equations"), definitions(equations, "model-facts model-math"));
-      card.append(details);
-    }
     const prior = model.prior || {};
     const priorCard = node("article", undefined, "model-card");
     priorCard.append(node("h3", `Prior · ${prior.kind || "unknown"}`));
@@ -173,7 +166,7 @@ export function modelPanel(api, base, { catalog, onPlot }) {
         if (term.critic) details.push(`critic ${term.critic}`);
         if (term.real || term.fake) details.push(`real ${show(term.real)} · fake ${show(term.fake)}`);
         if (term.inputs && Object.keys(term.inputs).length) details.push(Object.entries(term.inputs).map(([k, v]) => `${k} ← ${v}`).join(", "));
-        for (const key of ["kappa", "lazy_k", "anchor_weight", "anchor_decay", "arm", "norm", "target_std", "rows"])
+        for (const key of ["rows"])
           if (term[key] !== undefined && term[key] !== null) details.push(`${key} ${show(term[key])}`);
         if (term.detach?.length) details.push(`detached: ${term.detach.join(", ")}`);
         if (term.active === false) details.push(term.inactive_reason ? `inactive: ${term.inactive_reason}` : "inactive (weight 0)");
@@ -209,12 +202,7 @@ export function modelPanel(api, base, { catalog, onPlot }) {
     schedule.append(node("h3", "Schedule"), definitions([
       ["LR anneal start", o.schedule?.lr_anneal_start], ["LR floor", o.schedule?.lr_floor],
       ["Network LR floor", o.schedule?.network_lr_floor], ["Network LR horizon cap", o.schedule?.network_lr_horizon_cap],
-      ["EMA (G and prior)", o.ema], ["Critic EMA anchor", c.ema_critic],
-      ["Critic guard", c.guard ? `ratio ${show(c.guard.ratio)} after ${show(c.guard.min_steps)} steps` : undefined],
-      ["Latent damping", g.latent_damping
-        ? (g.latent_damping.status === "applied" ? `max rate ${show(g.latent_damping.max_rate)}`
-          : `not applied (${g.latent_damping.reason || "inactive"}); configured max rate ${show(g.latent_damping.max_rate)}`)
-        : g.latent_damping_max_rate],
+      ["EMA (G and prior)", o.ema],
     ]));
     if (o.schedule?.metric) schedule.append(seriesCell(o.schedule.metric));
     const noise = node("article", undefined, "model-card");

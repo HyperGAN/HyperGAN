@@ -30,8 +30,9 @@ The token never enters a URL, storage, telemetry, or browser logs.
   Omit revision for the active training catalog; independent evaluation documents
   always supply their own catalog revision.
 - `GET /runs/r/model` -> the Model tab document (`Model` in `/openapi.json`):
-  `formulation` (K3P name, loss, equations, penalty parameters; `family:"legacy"`
-  shows a pre-0.8 run's recorded fields), `prior`, `losses.discriminator` /
+  `formulation` (`family:"particlegan"`, provider name/version, recipe-snapshot
+  status and host weights; equations are empty),
+  `prior`, `losses.discriminator` /
   `losses.generator` terms with weights and their metric series id (`metric`,
   or `null` plus `metric_note` when no per-term series exists), `optimizers`
   (groups, schedule, noise, EMA), `networks` (role, factory, inputs, shapes,

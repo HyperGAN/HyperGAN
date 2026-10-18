@@ -43,7 +43,7 @@ cross-channel projections feed independent spectral convolutional heads, yieldin
 `[B, 4, 4, 4]` logits. All four feature depths are 8x8, so there is no cross-scale
 fusion. The stable generator uses the paper’s 128px depths (5/4/4/4/4), a 512-dimensional
 latent and raw RGB output. The existing reduced-depth generator remains available
-for other recipes. Logistic relativistic loss, lazy b-cap penalty, MoG prior type,
+for other recipes. Logistic relativistic loss, lazy critic regularization penalty, MoG prior type,
 optimizer settings, update schedule and seeds are retained. Only the prior latent
 width changes to match the new generator input.
 

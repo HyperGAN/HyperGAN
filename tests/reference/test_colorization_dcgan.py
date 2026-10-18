@@ -28,7 +28,7 @@ def test_rgb_scores_are_sample_independent_and_differentiate_inputs(spectral_nor
 
 
 @pytest.mark.parametrize('spectral_norm', [False, True])
-def test_training_and_bcap_double_backward_reach_parameters(spectral_norm):
+def test_training_and_penalty_double_backward_reach_parameters(spectral_norm):
     torch.manual_seed(43)
     model = DCGANDiscriminator256(width=2, spectral_norm=spectral_norm).train()
     real, fake = torch.randn(2, 3, 256, 256).tanh(), torch.randn(2, 3, 256, 256).tanh()

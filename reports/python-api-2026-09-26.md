@@ -14,8 +14,8 @@ before implementation starts.
 
 ## Why someone would use HyperGAN instead of ParticleGAN directly
 
-ParticleGAN supplies the formulation: the particle/MoG prior, K3P critic
-penalty, VICReg and the recipe optimizers. Everything around that formulation
+ParticleGAN supplies the formulation: the particle/MoG prior, critic regularization,
+prior regularization and recipe optimizers. Everything around that formulation
 is what HyperGAN adds. The API should make those additions the obvious reason
 to `pip install hypergan`:
 

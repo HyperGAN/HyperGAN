@@ -1,4 +1,4 @@
-"""Acceptance qualification for local 2-GPU CIFAR K3P replicated training.
+"""Acceptance qualification for local 2-GPU CIFAR reference replicated training.
 
 Verifies:
 1. Complete run artifacts from the 2-GPU CIFAR qualification run on gpu0,gpu1:
@@ -25,7 +25,7 @@ import torch.distributed as dist
 
 pytestmark = pytest.mark.heavy
 
-QUALIFICATION_RUN_DIR = Path("/mnt/ml7tb/hypergan-training-runs/qualify-cifar-k3p-2gpu")
+QUALIFICATION_RUN_DIR = Path("/mnt/ml7tb/hypergan-training-runs/qualify-cifar-reference-2gpu")
 
 
 def test_cifar_replicated_qualification_artifacts():

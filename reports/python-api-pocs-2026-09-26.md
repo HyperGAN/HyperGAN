@@ -210,9 +210,9 @@ Per network (per-network):
 ```python
 "generator": hg.generator(net, inputs=..., losses=[hg.adversarial("pair"), hg.adversarial("marginal"),
                                                   hg.l1("generated", "batch.real", id="reconstruction")]),
-"pair":      hg.critic(net, inputs=..., penalty=hg.k3p(coeff=1.0)),
+"pair":      hg.critic(net, inputs=..., penalty=hg.critic_penalty(coeff=1.0)),
 "marginal":  hg.critic(net, inputs=..., judges=[hg.judge("batch.real", "generated", weight=0.5)],
-                       penalty=hg.k3p(coeff=0.5)),
+                       penalty=hg.critic_penalty(coeff=0.5)),
 prior=hg.particles(..., losses=[hg.spread()])
 ```
 

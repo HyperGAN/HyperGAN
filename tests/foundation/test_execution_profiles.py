@@ -30,9 +30,9 @@ def test_replicated_recipe_rejects_extra_adversarial_terms():
         validate_replicated_recipe(extra)
 
 
-def test_replicated_recipe_allows_cifar_k3p_policies():
+def test_replicated_recipe_allows_cifar_reference_policies():
     from hypergan.execution_profiles import validate_replicated_recipe
-    cifar_k3p = resolve_config({
+    cifar_reference = resolve_config({
         "training": {
             "phase_draws": "independent",
             "data_rng_device": "execution",
@@ -46,7 +46,7 @@ def test_replicated_recipe_allows_cifar_k3p_policies():
             "implementation": "torch_fused_adam",
         },
     })
-    validate_replicated_recipe(cifar_k3p)
+    validate_replicated_recipe(cifar_reference)
 
 
 def test_single_defaults_and_replicated_effective_batch():

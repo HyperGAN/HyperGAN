@@ -38,7 +38,7 @@ are latent dimension 128, 4,096 particles, batch 16, 200,000 updates, these imag
 networks, GPU backend and checkpointed RNG streams. The recipe retains RGB MSE
 weight 1, logistic Rp, prior spread weight 1, fixed sigma_rel .025, constant
 G/E LR .0003, D LR .00045, prior LR .003, Adam betas (0,.999) and prior betas
-(.5,.999), and EMA .995. B-cap uses coefficient 1, kappa 1 and the AE recipe's
+(.5,.999), and EMA .995. Critic regularization uses coefficient 1, kappa 1 and the AE recipe's
 lazy interval **4** (the previous colorization trial used 8).
 
 The generator is exactly `ColorizationGenerator(z_dim=128,width=32)`: its name

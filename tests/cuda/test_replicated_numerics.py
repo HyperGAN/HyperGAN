@@ -121,7 +121,7 @@ def _worker(rank, rendezvous, output):
         second, = torch.autograd.grad(first.sum(), x)
         torch.testing.assert_close(first, torch.full_like(x, 3.), rtol=0, atol=0)
         torch.testing.assert_close(second, torch.full_like(x, 2.), rtol=0, atol=0)
-        for mode in ('rp',):  # ParticleGAN 0.8 trains only RpGAN
+        for mode in ('rp',):  # Exercise the supported paired-loss contract
             for accumulation in (1, 2):
                 config = _config(mode)
                 replica = ReplicatedTrainer(config, accumulation_steps=accumulation)

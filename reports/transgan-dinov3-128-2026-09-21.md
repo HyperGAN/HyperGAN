@@ -72,7 +72,7 @@ Installed-wheel foundation/reference suite: **1,105 passed, 188 deselected** in
 limits, the targeted capture/evaluation boundary suite passed all nine tests.
 
 On GPU0, actual batch64 training completed eight updates, saved a checkpoint,
-and resumed for eight more. All losses were finite; lazy b-cap ran at steps 8
+and resumed for eight more. All losses were finite; lazy critic regularization ran at steps 8
 and 16. All 109 generator parameter tensors, including all 10 relative-bias tables,
 changed. All five discriminator score heads changed. Every one of the 188 frozen
 DINOv3 state tensors remained bitwise unchanged after each attempt, and frozen

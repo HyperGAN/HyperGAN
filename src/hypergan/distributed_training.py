@@ -290,7 +290,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                     raise ValueError('Optimizer produced nonfinite state')
 
     def _logits(self, real, fake):
-        # RpGAN pairs each real with the fake of its own row, so rank-local
+        # The supported loss pairs real and fake rows, so rank-local
         # logits suffice; the parameter-gradient mean forms the global loss.
         return real, fake
 

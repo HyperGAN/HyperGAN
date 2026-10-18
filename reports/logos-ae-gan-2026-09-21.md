@@ -16,7 +16,7 @@ nearest center with soft straight-through derivative, and a learned bounded
 offset `sigma * 3*tanh(offset/3)`. It starts with zero offset. Reconstruction is
 deterministic RGB MSE, weight 1, and jointly trains encoder, generator and means.
 Independent uniform-prior draws still drive the GAN. There is no KL objective.
-The image routing settings are mean distance and temperature .125. Lazy b-cap
+The image routing settings are mean distance and temperature .125. Lazy critic regularization
 changes from 8 to the AE recipe's 4; coefficient and kappa remain 1.
 See [the recipe and explicit adaptations](../docs/logos-ae-gan.md).
 
@@ -36,7 +36,7 @@ Validation at source commit `58dd9ed20aec335634ae0352825c4eac9e2562e5`:
   acceptance tests outside the default testpaths. That invocation was stopped
   and its child processes terminated; its partial output is not a passing suite.
 - Physical GPU1: fresh installed CLI run completed steps 1–8; resume completed
-  steps 9–16 with batch 16 at 256px. B-cap executed at 4/8/12/16, and checkpoint,
+  steps 9–16 with batch 16 at 256px. Critic regularization executed at 4/8/12/16, and checkpoint,
   inference export and EMA previews completed. All training is stopped.
 - Preview metadata confirms RGB shape `[8,3,256,256]`, `X | X_hat` comparison
   columns and a separate random shelf. Repeated-condition diversity is removed;

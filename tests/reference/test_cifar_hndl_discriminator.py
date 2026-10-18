@@ -138,7 +138,7 @@ def test_preprocessing_shared_backbone_and_fixed_context(discriminators):
         assert not torch.equal(candidate_features, context_features)
 
 
-def test_bcap_training_freeze_and_strict_reload(discriminators):
+def test_penalty_training_freeze_and_strict_reload(discriminators):
     native, _ = discriminators
     backbone = native.network['resnet'].model
     frozen = {name: tensor.detach().clone() for name, tensor in backbone.state_dict().items()}

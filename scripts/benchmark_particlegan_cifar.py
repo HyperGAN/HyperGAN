@@ -1,6 +1,6 @@
 """Bounded actual-architecture integration benchmark; bulk outputs stay local.
 
-Run with the same Python/environment and one visible GPU for each rule. The
+Run with one visible GPU in the training environment. The
 input model provides architecture/data/prior/sampling; the current ParticleGAN
 preset supplies all trainer settings. This is a seed-0 performance cohort,
 not a CIFAR image-quality qualification or a historical-run continuation.
@@ -63,15 +63,14 @@ def run(args):
     out.mkdir(parents=True, exist_ok=False)
     original = load_config(args.config)
     raw = config_values(original)
-    fields = particlegan_recipe_fields()
-    fields['optimizer_convolution_rule'] = args.rule
+    fields = copy.deepcopy(particlegan_recipe_fields())
     raw['recipe'] = fields
     for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items():
         value = fields[field]
         if field == 'prior_betas' and value is None:
             value = fields['betas']
         raw[section][key] = list(value) if isinstance(value, tuple) else value
-    raw['name'] = 'performance/cifar-bispf-' + args.rule
+    raw['name'] = 'performance/cifar-particlegan'
     raw['training'].update(seed=0, initialization='deterministic_orthogonal')
     raw['prior']['initialization_seed'] = 2
     raw['sampling']['seed'] = 10000
@@ -143,7 +142,7 @@ def run(args):
         resume = {'updates': 3, 'exact_state_and_rng': True}
         del restored, expected, actual
     milliseconds = statistics.median(timing) * 1000
-    result = {'rule': args.rule, 'updates': args.updates, 'warmup': args.warmup,
+    result = {'updates': args.updates, 'warmup': args.warmup,
               'median_update_ms': milliseconds, 'images_per_second': 64 / statistics.median(timing),
               'peak_allocated_bytes': peak, 'finite': True, 'frozen_values_unchanged': True,
               'resume': resume, 'performance_gate_ms': 300, 'performance_pass': milliseconds <= 300,
@@ -159,7 +158,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True)
     parser.add_argument('--output', required=True)
-    parser.add_argument('--rule', choices=('polar', 'quintic'), required=True)
     parser.add_argument('--updates', type=int, default=20)
     parser.add_argument('--warmup', type=int, default=5)
     parser.add_argument('--max-seconds', type=float, default=450)

@@ -1,7 +1,7 @@
 # The newest released ParticleGAN trainer on the historical CIFAR architecture.
 # Seed-0 deterministic cohort; this is a runnable recipe, not image qualification.
 schema_version = 1
-name = "images/cifar-tiny-transformer-bispf"
+name = "images/cifar-tiny-transformer"
 defaults = "particlegan"
 
 [data]

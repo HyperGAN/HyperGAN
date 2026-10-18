@@ -118,6 +118,7 @@ def test_prior_optimizer_preserves_its_explicit_adam_epsilon():
     raw = config_values(config())
     raw['recipe'].update(optimizer_family='adam', optimizer_smoothing=0.,
                          optimizer_convolution='none', optimizer_convolution_rule='polar',
+                         optimizer_svd_backend='native',
                          constraint_geometry_mode='none', eps=.03, prior_eps=.12)
     trainer = ReferenceTrainer(resolve_config(raw))
     assert all(group['eps'] == (.12 if group['role'] == 'prior' else .03)

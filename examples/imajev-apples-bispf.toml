@@ -107,7 +107,7 @@ batch_size = 16
 seed = 25002
 device = "cuda:0"
 ema = 0.95
-phase_draws = "independent"
+phase_draws = "shared"
 
 [training.backend]
 deterministic_algorithms = false

@@ -142,13 +142,35 @@ def _load_imajev_runtime(base_model_path, adapter_path, runtime_device):
     }
 
 
+def _compile_imajev_runtime(runtime):
+    import torch
+    if runtime.get('compiled', False):
+        return
+    m = getattr(runtime.get('model'), 'model', None)
+    layers = getattr(getattr(m, 'language_model', None), 'layers', None)
+    if layers is not None:
+        compiled_fns = {}
+        for layer in layers:
+            linear_attn = getattr(layer, 'linear_attn', None)
+            if linear_attn is None:
+                continue
+            for attr in ('torch_chunk_gated_delta_rule', 'causal_conv1d_fn'):
+                fn = getattr(linear_attn, attr, None)
+                if callable(fn):
+                    if fn not in compiled_fns:
+                        compiled_fns[fn] = torch.compile(fn)
+                    setattr(linear_attn, attr, compiled_fns[fn])
+    runtime['compiled'] = True
+
+
 def _prepare_imajev_prompt(runtime, config):
     import torch
     question = config['question']
     options = tuple(config['options'])
     state = config.get('state', {})
+    image_size = int(config.get('image_size', 256))
     prompt, labels, candidates, state_str = _imajev_format_prompt(question, options, state)
-    prompt_key = (question, options, state_str)
+    prompt_key = (question, options, state_str) if image_size == 256 else (question, options, state_str, image_size)
     prompts = runtime.setdefault('prompts', {})
     if prompt_key in prompts:
         return prompts[prompt_key]
@@ -172,7 +194,8 @@ def _prepare_imajev_prompt(runtime, config):
     with torch.no_grad():
         proc_inputs = processor(
             text=[rendered],
-            images=torch.zeros(1, 3, 256, 256, dtype=torch.float32),
+            images=torch.zeros(1, 3, image_size, image_size, dtype=torch.float32),
+            do_resize=False,
             do_rescale=False,
             do_normalize=True,
             return_tensors='pt',
@@ -207,6 +230,7 @@ def _prepare_imajev_prompt(runtime, config):
         'grid_thw_1': grid_thw_1,
         'image_mask_1': image_mask_1,
         'readout_indices': readout_indices,
+        'image_size': image_size,
     }
     prompts[prompt_key] = cached
     return cached
@@ -237,6 +261,27 @@ def _imajev_builder(config):
     def build():
         import torch
         from torch import nn
+
+        class _CachedInputGradFn(torch.autograd.Function):
+            @staticmethod
+            def forward(ctx, x_in, forward_fn):
+                x_detached = x_in.detach().requires_grad_(True)
+                with torch.enable_grad():
+                    out = forward_fn(x_detached)
+                ctx.x_detached = x_detached
+                ctx.out = out
+                ctx.cache = None
+                return out.detach()
+
+            @staticmethod
+            def backward(ctx, grad_output):
+                if ctx.cache is not None and torch.equal(grad_output, ctx.cache[0]):
+                    return ctx.cache[1], None
+                grad_x, = torch.autograd.grad(
+                    ctx.out, ctx.x_detached, grad_output, retain_graph=True
+                )
+                ctx.cache = (grad_output.detach().clone(), grad_x)
+                return grad_x, None
 
         class _ImaJevDecisionModule(nn.Module):
             def __init__(self, cfg):
@@ -275,28 +320,33 @@ def _imajev_builder(config):
                         runtime_device,
                     )
                     _IMAJEV_RUNTIME_CACHE[key] = runtime
+                if self._config.get('compile', False):
+                    _compile_imajev_runtime(runtime)
                 prompt_bundle = _prepare_imajev_prompt(runtime, self._config)
                 return runtime, prompt_bundle
 
-            def forward_logits(self, x):
+            def _forward_logits_impl(self, x):
                 import torch.nn.functional as F
                 if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
                     raise ValueError('imajev_4b expects RGB images with height and width at least 16')
                 runtime_device = self._select_runtime_device(x.device)
                 runtime, prompt_bundle = self._ensure_runtime(runtime_device)
+                image_size = int(self._config.get('image_size', 256))
+                merged_h = image_size // 32
+                num_patches = (image_size // 16) * (image_size // 16)
                 x_work = x.to(runtime_device) if x.device != runtime_device else x
                 x_work = x_work + (x_work.clamp(-1.0, 1.0) - x_work).detach()
-                if x_work.shape[-2:] != (256, 256):
-                    x_256 = F.interpolate(x_work, size=(256, 256), mode='bilinear', align_corners=False)
+                if x_work.shape[-2:] != (image_size, image_size):
+                    x_sized = F.interpolate(x_work, size=(image_size, image_size), mode='bilinear', align_corners=False)
                 else:
-                    x_256 = x_work
-                B = x_256.shape[0]
-                patches = x_256.unsqueeze(1).expand(B, 2, 3, 256, 256)
+                    x_sized = x_work
+                B = x_sized.shape[0]
+                patches = x_sized.unsqueeze(1).expand(B, 2, 3, image_size, image_size)
                 patches = (
-                    patches.view(B, 1, 2, 3, 8, 2, 16, 8, 2, 16)
+                    patches.view(B, 1, 2, 3, merged_h, 2, 16, merged_h, 2, 16)
                     .permute(0, 1, 4, 7, 5, 8, 3, 2, 6, 9)
                     .contiguous()
-                    .view(B * 256, 1536)
+                    .view(B * num_patches, 1536)
                 )
                 m = runtime['model'].model
                 base_embeds_1 = prompt_bundle['base_embeds_1']
@@ -318,6 +368,13 @@ def _imajev_builder(config):
                 logits = (hidden @ w.T) / temperature
                 logits = logits - logits.mean(dim=-1, keepdim=True).detach()
                 return logits.to(x.device) if logits.device != x.device else logits
+
+            def forward_logits(self, x):
+                if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
+                    raise ValueError('imajev_4b expects RGB images with height and width at least 16')
+                if torch.is_grad_enabled() and x.requires_grad:
+                    return _CachedInputGradFn.apply(x, self._forward_logits_impl)
+                return self._forward_logits_impl(x)
 
             def forward_probs(self, x):
                 return self.forward_logits(x).softmax(dim=-1)

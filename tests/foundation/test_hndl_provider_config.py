@@ -40,6 +40,7 @@ def resolved_with_providers(providers):
     {'imajev_4b': IMAJEV_PROVIDER},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'state': {'domain': 'mnist'}, 'temperature': 1.5}},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'state': 'raw-context', 'temperature': 2}},
+    {'imajev_4b': {**IMAJEV_PROVIDER, 'image_size': 128, 'compile': True}},
     {'dinov3_vits16': PROVIDER, 'imajev_4b': IMAJEV_PROVIDER},
 ])
 def test_provider_options_survive_resolution_without_reading_source(providers):
@@ -81,6 +82,10 @@ def test_provider_options_survive_resolution_without_reading_source(providers):
       for bad in (123, ['list'], {'nan': float('nan')}, {'inf': float('inf')})],
     *[({'imajev_4b': {**IMAJEV_PROVIDER, 'temperature': bad}}, 'temperature must be a finite positive number')
       for bad in (0, -1.0, False, True, '1.0', None, float('nan'), float('inf'))],
+    *[({'imajev_4b': {**IMAJEV_PROVIDER, 'image_size': bad}}, 'image_size must be an integer multiple of 32')
+      for bad in (0, 16, 63, 100, 2048, False, True, 128.0, '128', None)],
+    *[({'imajev_4b': {**IMAJEV_PROVIDER, 'compile': bad}}, 'compile must be a boolean')
+      for bad in (0, 1, 'true', None, [])],
 ])
 def test_invalid_provider_options_fail_direct_and_recipe_validation(providers, message):
     with pytest.raises(ValueError, match=message):

@@ -53,7 +53,7 @@ def render_source(source, parameters=None):
 
 def _validate_imajev_provider(options):
     required = {'base_model_path', 'adapter_path', 'question', 'options'}
-    allowed = required | {'state', 'temperature'}
+    allowed = required | {'state', 'temperature', 'image_size', 'compile'}
     if not isinstance(options, dict) or not required.issubset(options) or set(options) - allowed:
         raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
     for key in ('base_model_path', 'adapter_path', 'question'):
@@ -79,6 +79,13 @@ def _validate_imajev_provider(options):
         temperature = options['temperature']
         if type(temperature) not in (int, float) or not math.isfinite(temperature) or temperature <= 0:
             raise ValueError('imajev_4b temperature must be a finite positive number')
+    if 'image_size' in options:
+        image_size = options['image_size']
+        if type(image_size) is not int or not 32 <= image_size <= 1024 or image_size % 32 != 0:
+            raise ValueError('imajev_4b image_size must be an integer multiple of 32 between 32 and 1024')
+    if 'compile' in options:
+        if type(options['compile']) is not bool:
+            raise ValueError('imajev_4b compile must be a boolean')
 
 
 def validate_pretrained_providers(providers):

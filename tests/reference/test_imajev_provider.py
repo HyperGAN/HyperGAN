@@ -46,8 +46,10 @@ class _MockQwenInnerModel(torch.nn.Module):
 
     def get_image_features(self, pixel_values, image_grid_thw=None, return_dict=True):
         batch = image_grid_thw.shape[0]
-        projected = self.vision_proj(pixel_values.float()).view(batch, 256, self.hidden_size)
-        pooled = projected.view(batch, self.num_visual_tokens, 4, self.hidden_size).mean(dim=2)
+        num_patches = pixel_values.shape[0] // batch
+        num_visual = num_patches // 4
+        projected = self.vision_proj(pixel_values.float()).view(batch, num_patches, self.hidden_size)
+        pooled = projected.view(batch, num_visual, 4, self.hidden_size).mean(dim=2)
         out = tuple(pooled[i] for i in range(batch))
 
         class _VisionOut:
@@ -72,14 +74,16 @@ class _MockQwenTopModel(torch.nn.Module):
 
 
 def _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu')):
-    seq_len = 80
-    num_visual = 64
+    image_size = int(provider_cfg.get('image_size', 256))
+    grid_h = image_size // 16
+    num_visual = (grid_h // 2) ** 2
+    seq_len = 16 + num_visual
     hidden_size = 2560
     base_embeds_1 = torch.zeros(1, seq_len, hidden_size, dtype=torch.float32, device=device)
     image_mask_1 = torch.zeros(1, seq_len, hidden_size, dtype=torch.bool, device=device)
     image_mask_1[:, 4:4 + num_visual, :] = True
     positions_1 = torch.arange(seq_len, device=device, dtype=torch.long).view(1, 1, seq_len).expand(3, 1, seq_len).contiguous()
-    grid_thw_1 = torch.tensor([[1, 16, 16]], device=device, dtype=torch.long)
+    grid_thw_1 = torch.tensor([[1, grid_h, grid_h]], device=device, dtype=torch.long)
     num_candidates = len(provider_cfg['options']) + 1
     readout_indices = torch.arange(num_candidates, device=device, dtype=torch.long)
 
@@ -93,7 +97,11 @@ def _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
     prompt_, labels, candidates, state_str = pp._imajev_format_prompt(
         provider_cfg['question'], provider_cfg['options'], provider_cfg.get('state', {})
     )
-    prompt_key = (provider_cfg['question'], tuple(provider_cfg['options']), state_str)
+    prompt_key = (
+        (provider_cfg['question'], tuple(provider_cfg['options']), state_str)
+        if image_size == 256
+        else (provider_cfg['question'], tuple(provider_cfg['options']), state_str, image_size)
+    )
     mock_runtime['prompts'][prompt_key] = {
         'prompt': prompt_,
         'rendered': prompt_ + '<think>\n\n</think>\n\n',
@@ -104,6 +112,7 @@ def _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
         'grid_thw_1': grid_thw_1,
         'image_mask_1': image_mask_1,
         'readout_indices': readout_indices,
+        'image_size': image_size,
     }
     cache_key = (str(provider_cfg['base_model_path']), str(provider_cfg['adapter_path']), str(device))
     monkeypatch.setitem(pp._IMAJEV_RUNTIME_CACHE, cache_key, mock_runtime)
@@ -220,11 +229,49 @@ def test_imajev_mocked_forward_and_backward_gradients(dummy_readout_artifact, mo
     assert x2.grad is not None and torch.isfinite(x2.grad).all() and x2.grad.abs().sum() > 0
 
 
+def test_imajev_custom_image_size_and_compile_flag(dummy_readout_artifact, monkeypatch):
+    path, digest, _ = dummy_readout_artifact
+    provider_cfg = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'question': 'What is the object?',
+        'options': ['apple', 'orange'],
+        'image_size': 128,
+        'compile': True,
+    }
+    mock_runtime = _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
+    src = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="decision_logits", trainable=False, name="imajev")'
+    )
+    net = build_network(
+        src,
+        input_shape=('B', 3, 128, 128),
+        output_shape=('B', 3),
+        pretrained_providers={'imajev_4b': provider_cfg},
+    )
+    x = torch.randn(2, 3, 128, 128, requires_grad=True)
+    logits = net(x)
+    assert logits.shape == (2, 3)
+    assert mock_runtime.get('compiled') is True
+    logits[:, 0].sum().backward()
+    assert x.grad is not None and torch.isfinite(x.grad).all() and x.grad.abs().sum() > 0
+
+
 @pytest.mark.skipif(
     not (torch.cuda.is_available() and REAL_BASE_MODEL.is_dir() and REAL_READOUT_PT.is_file()),
     reason='Requires CUDA and local imajev-4b artifacts',
 )
 def test_real_imajev_4b_gpu_scores_and_gradients():
+    device = None
+    for idx in range(torch.cuda.device_count()):
+        free_bytes, _ = torch.cuda.mem_get_info(idx)
+        if free_bytes >= 12 * 1024**3:
+            device = f'cuda:{idx}'
+            break
+    if device is None:
+        pytest.skip('No CUDA device has at least 12 GiB free memory')
+
     provider_cfg = {
         'base_model_path': str(REAL_BASE_MODEL),
         'adapter_path': str(REAL_ADAPTER),
@@ -240,9 +287,9 @@ def test_real_imajev_4b_gpu_scores_and_gradients():
         input_shape=('B', 3, 64, 64),
         output_shape=('B', 3),
         pretrained_providers={'imajev_4b': provider_cfg},
-    ).to('cuda:0')
+    ).to(device)
 
-    x = torch.full((2, 3, 64, 64), -0.9, device='cuda:0')
+    x = torch.full((2, 3, 64, 64), -0.9, device=device)
     x[0, 0] = 0.9  # image 0: red
     x[1, 2] = 0.9  # image 1: blue
     x.requires_grad_(True)

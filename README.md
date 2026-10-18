@@ -252,6 +252,20 @@ See:
 
 ## Development and migration
 
+The map/reduce storage and shared Rust reducers now live in **Foldlite DB**.
+This branch requires `foldlitedb>=0.1.0,<0.2`. Until its first package release,
+install your Foldlite checkout before HyperGAN:
+
+```sh
+python -m pip install -e /nvme/dev/255bits/foldlitedb
+python -m pip install -e '.[dev,web]'
+```
+
+CI accepts the repository variable `FOLDLITEDB_SOURCE` as a wheel URL or a pip
+source reference pinned to an exact revision. Without that variable it uses the
+configured package index, which requires Foldlite DB to have been released.
+See the [Foldlite integration and cache contract](docs/foldlitedb.md).
+
 Install `.[dev,train,image,web]` in the tested runtime environment, then run `python -m pytest` for CPU and lightweight correctness tests. That default selection deselects the `heavy` marker, which gates the tests that start real subprocesses, multi-rank jobs and worker services; run those deliberately with `python -m pytest -m heavy`. With two visible NVIDIA GPUs and the CUDA runtime, run `python -m pytest tests/cuda`; see [CUDA execution and validation](docs/cuda.md).
 
 Historical HyperGAN code and experiments are preserved in archive tags. Legacy configurations and checkpoints require their archived runtime; see [migration notes](docs/migration.md), [preservation evidence](reports/resurrection-preservation-2026-09-18.md), [the execution ledger](reports/resurrection-status.md), and [resurrection plan](reports/resurrecting-hypergan-plan-2026-09-18.md).

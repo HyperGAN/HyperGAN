@@ -886,3 +886,72 @@ def test_model_route_is_in_the_openapi_contract(tmp_path, auth):
     assert operation['responses']['200']['content']['application/json']['schema'] == {'$ref': '#/components/schemas/Model'}
     assert {'Model', 'Network', 'NetworkGraph', 'LossTerm'} <= set(schema['components']['schemas'])
     assert bool(operation.get('security')) == (auth == 'token')
+
+
+def test_foldlite_history_reopens_from_persisted_cursor_and_regenerates(tmp_path, monkeypatch):
+    """Reopening reduces only a new suffix; deleting derived state is equivalent."""
+    import shutil
+    fixture_run(tmp_path, 4)
+
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            first = await get_bootstrap(service)
+            query = next(iter(service.jobs.values())).query
+        finally:
+            await service.close()
+        cache = tmp_path / 'views' / MapSpec().revision / 'foldlite'
+        assert list(cache.glob('*.sqlite'))
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            await caught_up(service)
+            page = service.page
+            cursors = []
+            def tracked(stream, cursor, *, limit=256):
+                if stream.startswith('projection:'):
+                    assert cursor is not None, 'Cached history rescanned its source'
+                    cursors.append(cursor)
+                return page(stream, cursor, limit=limit)
+            monkeypatch.setattr(service, 'page', tracked)
+            reopened = await service._history(query, first['cursor'], first['projection_sequence'], first['lineage'])
+            assert reopened == first and cursors
+            append_event(tmp_path, 6, 5)
+            with Projector(tmp_path) as projector:
+                projector.project()
+            for _ in range(300):
+                stream = service.streams['projection:' + MapSpec().revision]
+                if stream.sequence == 6 and stream.caught_up:
+                    break
+                await asyncio.sleep(.01)
+            else:
+                raise AssertionError('Projection suffix did not become visible')
+            suffix = await service._history(query, stream.cursor, stream.sequence, first['lineage'])
+            assert suffix['projection_sequence'] == 6
+            assert sum(Reducer().finalize(group['state'])['count'] for group in suffix['groups']) == 5
+        finally:
+            await service.close()
+        shutil.rmtree(cache)
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            regenerated = await get_bootstrap(service)
+            assert regenerated == suffix
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
+def test_foldlite_cached_history_revalidates_source_boundary(tmp_path):
+    fixture_run(tmp_path, 3)
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            initial = await get_bootstrap(service)
+            query = next(iter(service.jobs.values())).query
+            path = tmp_path / 'views' / MapSpec().revision / 'contributions.jsonl'
+            raw = path.read_bytes()
+            path.write_bytes(raw[:-2] + b' \n')
+            with pytest.raises(ValueError, match='boundary changed'):
+                await service._history(query, initial['cursor'], initial['projection_sequence'], initial['lineage'])
+        finally:
+            await service.close()
+    asyncio.run(scenario())

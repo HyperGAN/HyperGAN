@@ -13,34 +13,21 @@ import importlib
 import inspect
 import json
 import math
-import os
 from pathlib import Path
 import re
 import uuid
 
 from .run_events import read_event_page
 from .run_state import atomic_json, run_lock
+from foldlitedb.projection import (json_bytes as _json, load_json as _load,
+    read_bounded_json, recover_jsonl_tail, append_jsonl_frame)
+from foldlitedb.streams import read_jsonl_page
 
 MAX_FRAME_BYTES = 65536
 MAX_EMISSIONS = 128
 MAX_KEY_BYTES = 1024
 MAX_KEYS = 4096
 _HEX = re.compile(r'[0-9a-f]{64}\Z')
-
-
-def _json(value):
-    try:
-        return json.dumps(value, allow_nan=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
-    except (ValueError, TypeError, RecursionError) as exc:
-        raise ValueError(f'Expected finite JSON: {exc}') from exc
-
-
-def _load(raw):
-    def reject(value):
-        raise ValueError(f'Nonfinite JSON constant: {value}')
-    value = json.loads(raw, parse_constant=reject)
-    _json(value)  # Also rejects overflowing exponents (1e999).
-    return value
 
 
 def _digest(value):
@@ -304,11 +291,7 @@ def _frame(row, revision, previous):
 
 def _metadata(directory, revision, _open_file=None):
     path = directory / 'projection.json'
-    with (_open_file(path) if _open_file else path.open('rb')) as handle:
-        raw = handle.read(MAX_FRAME_BYTES + 1)
-    if len(raw) > MAX_FRAME_BYTES:
-        raise ValueError('Projection metadata exceeds byte budget')
-    value = _load(raw)
+    value = read_bounded_json(path, max_bytes=MAX_FRAME_BYTES, open_file=_open_file)
     if (not isinstance(value, dict) or type(value.get('schema_version')) is not int
             or value['schema_version'] != 1 or value.get('map_revision') != revision
             or not isinstance(value.get('map'), dict) or _digest(value['map']) != revision
@@ -367,33 +350,15 @@ class Projector:
             self.generation = metadata['generation']
             self.cursor, self.sequence, self._failed, self.source = None, 0, False, None
             self._output = stack.enter_context(self.path.open('a+b'))
-            # Only the final complete frame is needed to recover progress. Read
-            # at most two frame budgets even for a multi-gigabyte projection.
-            self._output.seek(0, os.SEEK_END)
-            size = self._output.tell()
-            begin = max(0, size - 2 * MAX_FRAME_BYTES)
-            self._output.seek(begin)
-            tail = self._output.read()
-            end = tail.rfind(b'\n')
-            if end < 0:
-                if size > MAX_FRAME_BYTES:
-                    raise ValueError('Projection incomplete tail exceeds byte budget')
-                self._output.truncate(0)
-            else:
-                start = tail.rfind(b'\n', 0, end) + 1
-                if begin and not start:
-                    raise ValueError('Projection final frame exceeds byte budget')
-                line = tail[start:end]
-                if len(line) + 1 > MAX_FRAME_BYTES or len(tail) - end - 1 > MAX_FRAME_BYTES:
-                    raise ValueError('Projection tail exceeds byte budget')
-                row = _load(line)
+            def validate_final(row):
                 if not isinstance(row, dict):
                     raise ValueError('Corrupt projection final frame')
                 _integer(row.get('projection_sequence'), 'projection sequence', 1, 2 ** 63 - 1)
-                _frame(row, self.revision, row['projection_sequence'] - 1)
+                return _frame(row, self.revision, row['projection_sequence'] - 1)
+            row = recover_jsonl_tail(self._output, validate=validate_final,
+                                     max_frame_bytes=MAX_FRAME_BYTES)
+            if row is not None:
                 self.cursor, self.sequence, self.source = row['source_cursor'], row['projection_sequence'], row['source']
-                self._output.truncate(begin + end + 1)
-            self._output.seek(0, os.SEEK_END)
             # Validate saved source generation/boundary before appending anything.
             try:
                 read_event_page(self.root, self.cursor, limit=1, max_bytes=MAX_FRAME_BYTES)
@@ -462,11 +427,7 @@ class Projector:
                    'projection_sequence': self.sequence + 1, 'source_cursor': source_cursor,
                    'source': source,
                    'emissions': _emissions(event, output, self.revision, definitions)}
-            encoded = _json(row) + b'\n'
-            if len(encoded) > MAX_FRAME_BYTES:
-                raise ValueError('Projection frame exceeds 65536 bytes')
-            self._output.write(encoded)
-            self._output.flush()
+            append_jsonl_frame(self._output, row, max_frame_bytes=MAX_FRAME_BYTES)
             self.cursor, self.sequence, self.source = source_cursor, row['projection_sequence'], source
             emitted += 1
         return {'documents': emitted, 'source_cursor': self.cursor, 'has_more': page['has_more'],
@@ -513,37 +474,14 @@ def read_projection_page(run_dir, map_revision, cursor=None, *, limit=100, max_b
             state = saved
         except (ValueError, TypeError, UnicodeError, KeyError) as exc:
             raise ValueError(f'Invalid projection cursor: {exc}') from exc
-    path = directory / 'contributions.jsonl'
-    with (_open_file(path) if _open_file else path.open('rb')) as handle:
-        file_stat = os.fstat(handle.fileno())
-        size = file_stat.st_size
-        offset = state['offset']
-        handle.seek(max(0, offset - 256))
-        anchor = handle.read(min(offset, 256))
-        if offset > size or hashlib.sha256(anchor).hexdigest() != state['anchor'] or (offset and not anchor.endswith(b'\n')):
-            raise ValueError('Stale projection cursor: consumed boundary changed')
-        handle.seek(offset)
-        raw = handle.read(max_bytes)
-        frames, cursors, consumed = [], [], 0
-        for _ in range(limit):
-            end = raw.find(b'\n', consumed)
-            if end < 0:
-                break
-            if end + 1 - consumed > MAX_FRAME_BYTES:
-                raise ValueError('Projection frame exceeds byte budget')
-            row = _frame(_load(raw[consumed:end]), map_revision, state['sequence'])
-            _source_contiguous(row['source'], state['source'])
-            frames.append(row)
-            anchor = (anchor + raw[consumed:end + 1])[-256:]
-            consumed = end + 1
-            state = dict(state, offset=offset + consumed, sequence=row['projection_sequence'],
-                         anchor=hashlib.sha256(anchor).hexdigest(), source=row['source'])
-            cursors.append(_cursor(state))
-        if not frames and len(raw) == max_bytes and offset + len(raw) < size:
-            raise ValueError('Next projection frame exceeds max_bytes')
-        current = (directory / 'contributions.jsonl').stat()
-        if (current.st_dev, current.st_ino) != (file_stat.st_dev, file_stat.st_ino):
-            raise ValueError('Projection replaced while reading; reconnect from a validated cursor')
-        return {'frames': frames, 'frame_cursors': cursors, 'cursor': _cursor(state),
-                'has_more': offset + len(raw) < size or b'\n' in raw[consumed:],
-                'partial_tail': offset + len(raw) == size and bool(raw) and not raw.endswith(b'\n')}
+    def consume(raw, saved):
+        row = _frame(_load(raw), map_revision, saved['sequence'])
+        _source_contiguous(row['source'], saved['source'])
+        return row, {'sequence': row['projection_sequence'], 'source': row['source']}
+
+    page = read_jsonl_page(directory / 'contributions.jsonl', state,
+        consume=consume, encode=_cursor, limit=limit, max_bytes=max_bytes,
+        include_cursors=True, open_file=_open_file, bind_file=False,
+        allow_missing=False, max_frame_bytes=MAX_FRAME_BYTES, label='projection')
+    return dict(frames=page['documents'], frame_cursors=page['document_cursors'],
+                **{key: page[key] for key in ('cursor', 'has_more', 'partial_tail')})

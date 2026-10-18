@@ -64,6 +64,12 @@ points at a different checkout or worktree. `index.html`, `style.css` and
 `view-worker.js` are served directly from `src/hypergan/web_assets` and need no
 build step at all; only `app.js` comes from `frontend/src`.
 
+The global runs index is rendered by `web_server.py` and uses the readable
+`web_assets/runs.js` and `runs.css` files directly, without a bundle step. Its
+external script and event listeners work with the viewer's content security
+policy. Its browser regression gate is
+`python -m pytest tests/browser/test_run_index.py -q`.
+
 A small same-origin `/dev/reload.js` module polls `/dev/version` once a second
 and reloads the page when the served assets change. Both routes exist only in
 development mode. See [the viewer documentation](../docs/local-web.md#viewer-development-mode)

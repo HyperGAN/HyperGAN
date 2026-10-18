@@ -2,12 +2,14 @@
 import asyncio
 from collections import OrderedDict
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import html
 import inspect
 import json
 import os
 from pathlib import Path
 import time
+from urllib.parse import quote
 
 from . import inspection as _insp_mod
 from . import registry as _reg_mod
@@ -17,7 +19,7 @@ from .web_files import read_artifact, read_json, _open
 from .web_service import ObservationService, RunObservationService, MapSpec, ViewSpec
 from .web_session import LocalSession
 
-STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css'}
+STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css', 'runs.js', 'runs.css'}
 
 _disk_cache: dict[Path, tuple[float, int]] = {}
 _ORIG_LIST_REGISTERED_RUNS = getattr(_reg_mod, "list_registered_runs", None)
@@ -63,11 +65,12 @@ def _stat_watermark(path: Path) -> tuple[int, int, int]:
         return (0, 0, 0)
 
 
-def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
+def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int, int], ...]:
     return (
         _stat_watermark(run_dir / "summary.json"),
         _stat_watermark(run_dir / "manifest.json"),
         _stat_watermark(run_dir / ".run.lock"),
+        _stat_watermark(run_dir / "launch" / "0001.json"),
     )
 
 
@@ -89,6 +92,34 @@ def _disk_run_id(run_dir: Path) -> str | None:
         except (OSError, json.JSONDecodeError, UnicodeError):
             pass
     return None
+
+
+def _created_at(value) -> str | None:
+    """Normalize recorded creation times to UTC; never infer them from mtime."""
+    try:
+        if type(value) in (int, float):
+            date = datetime.fromtimestamp(value, timezone.utc)
+        elif isinstance(value, str):
+            date = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=timezone.utc)
+        else:
+            return None
+        return date.astimezone(timezone.utc).isoformat()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _run_created_at(run_dir: Path, manifest: dict, summary: dict | None) -> str | None:
+    for value in (manifest.get('created_at'), (summary or {}).get('created_at')):
+        if date := _created_at(value):
+            return date
+    # The first launch survives resumes; later launch timestamps describe attempts.
+    try:
+        launch = json.loads((run_dir / 'launch' / '0001.json').read_text(encoding='utf-8'))
+        return _created_at(launch.get('timestamp')) if isinstance(launch, dict) else None
+    except (OSError, ValueError, UnicodeError):
+        return None
 
 
 def read_run_summary(run_dir: Path) -> dict:
@@ -163,6 +194,8 @@ def read_run_summary(run_dir: Path) -> dict:
         or manifest.get("total_steps")
         or (summary.get("max_steps") if summary else None)
         or manifest.get("max_steps")
+        or (summary.get("target_steps") if summary else None)
+        or manifest.get("target_steps")
     )
     max_steps = (
         (summary.get("max_steps") if summary else None)
@@ -211,11 +244,12 @@ def read_run_summary(run_dir: Path) -> dict:
         "best_fid": best_fid,
         "fid_best": best_fid,
         "best_step": best_step,
+        "created_at": _run_created_at(run_dir, manifest, summary),
         "updated_at": updated_at,
         "disk_bytes": disk_bytes,
         "disk_formatted": disk_formatted,
         "run_dir": str(run_dir),
-        "url": f"/runs/{run_id}",
+        "url": f"/runs/{quote(str(run_id), safe='')}",
     }
 
 
@@ -223,232 +257,107 @@ def discover_runs(root: Path) -> list[dict]:
     return ServiceRegistry(root)._discover_runs()
 
 
+def _render_run_row(r: dict) -> str:
+    def escape(value):
+        return html.escape(str(value))
+
+    run_id = str(r.get('run_id', 'unknown'))
+    name = str(r.get('name') or run_id)
+    slug = r.get('slug') or _reg_mod.extract_or_derive_slug(run_id, name=name)
+    short_id = r.get('short_id') or run_id[:8]
+    status = str(r.get('status') or 'unknown').strip().lower()
+    active = bool(r.get('active') or r.get('running') or status == 'running')
+    step = r.get('step') or 0
+    total = r.get('total_steps') or r.get('max_steps') or 0
+    percent = min(100, max(0, int(step / total * 100))) if total > 0 else 0
+    progress = f'{step:,} / {total:,}' if total > 0 else f'{step:,}'
+    speed = r.get('steps_per_second')
+    speed_text = f'{speed:.1f} it/s' if isinstance(speed, (int, float)) else '—'
+    created = _created_at(r.get('created_at'))
+    date_text = datetime.fromisoformat(created).strftime('%b %d, %Y · %H:%M UTC') if created else 'Unknown'
+    url = escape('/runs/' + quote(run_id, safe=''))
+    return f'''<tr data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
+      data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}">
+      <td data-label="Run"><a class="run-link" href="{url}">{escape(name)}</a>
+        <div class="run-id-sub"><span class="slug-badge">{escape(slug)}</span>
+          <span class="id-badge" title="{escape(run_id)}">{escape(short_id)}</span></div></td>
+      <td data-label="Status"><span class="badge" data-status="{escape(status)}">{escape(status)}</span></td>
+      <td data-label="Created at"><time data-field="created" datetime="{escape(created or '')}"
+        title="{escape(created or 'Creation time was not recorded')}">{date_text}</time></td>
+      <td data-label="Progress"><div class="progress-bar-container"><span data-field="steps">{progress}</span>
+        <div class="progress-bar" aria-hidden="true"{'' if total > 0 else ' hidden'}>
+          <div class="progress-fill" style="width: {percent}%"></div></div></div></td>
+      <td data-label="Speed" data-field="speed">{speed_text}</td>
+      <td data-label="Disk" data-field="disk">{escape(r.get('disk_formatted') or '—')}</td>
+      <td data-label="Actions"><div class="actions-cell"><a class="btn" href="{url}">Open run →</a>
+        <button type="button" class="btn btn-checkpoint" data-action="checkpoint"{'' if active else ' hidden'}>Checkpoint</button>
+        <button type="button" class="btn btn-stop" data-action="stop"{'' if active else ' hidden'}>Stop</button>
+      </div></td>
+    </tr>'''
+
+
 def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
-    rows = []
-    for r in runs:
-        run_id = html.escape(str(r.get("run_id", "unknown")))
-        name = html.escape(str(r.get("name", run_id)))
-        slug_raw = r.get("slug") or _reg_mod.extract_or_derive_slug(str(r.get("run_id", "unknown")), name=str(r.get("name", "")))
-        slug = html.escape(str(slug_raw))
-        short_id = html.escape(str(r.get("short_id") or str(r.get("run_id", "unknown"))[:8]))
-        status = html.escape(str(r.get("status", "unknown")))
-        is_running = bool(r.get("active") or r.get("running") or str(r.get("status", "")).lower() == "running")
-        step = r.get("step", 0)
-        total_steps = r.get("total_steps")
-        sps = r.get("steps_per_second")
-        speed_str = f"{sps:.1f} it/s" if isinstance(sps, (int, float)) else "—"
-        latest_fid_val = r.get("latest_fid")
-        latest_fid_str = f"{latest_fid_val:.2f}" if isinstance(latest_fid_val, (int, float)) else "—"
-        best_fid_val = r.get("best_fid")
-        best_step_val = r.get("best_step")
-        if isinstance(best_fid_val, (int, float)):
-            if isinstance(best_step_val, (int, float)):
-                step_suffix = f" @ {best_step_val / 1000:.1f}k" if best_step_val >= 1000 else f" @ step {int(best_step_val):,}"
-            else:
-                step_suffix = ""
-            best_fid_str = f"{best_fid_val:.2f}{step_suffix}"
-        else:
-            best_fid_str = "—"
-        disk_str = html.escape(str(r.get("disk_formatted", "—")))
-        url = html.escape(str(r.get("url", f"/runs/{run_id}")))
-
-        if total_steps and total_steps > 0:
-            pct = min(100, max(0, int((step / total_steps) * 100)))
-            progress_html = (f'<div class="progress-bar-container">'
-                             f'<span>{step:,} / {total_steps:,}</span>'
-                             f'<div class="progress-bar"><div class="progress-fill" style="width: {pct}%"></div></div>'
-                             f'</div>')
-        else:
-            progress_html = f'<span>{step:,}</span>'
-
-        controls_html = f'<a class="btn" href="{url}">Observatory →</a>'
-        if is_running:
-            controls_html += (
-                f' <button type="button" class="btn btn-checkpoint" data-run-id="{run_id}" data-action="checkpoint" '
-                f'onclick="fetch(\'/api/runs/{run_id}/checkpoint\', {{method: \'POST\'}}).then(() => refreshRuns())">Checkpoint</button>'
-                f' <button type="button" class="btn btn-stop" data-run-id="{run_id}" data-action="stop" '
-                f'onclick="fetch(\'/api/runs/{run_id}/stop\', {{method: \'POST\'}}).then(() => refreshRuns())">Stop</button>'
-            )
-
-        rows.append(
-            f'<tr data-status="{status}" data-name="{name}" data-id="{run_id}" data-slug="{slug}">'
-            f'  <td><a class="run-link" href="{url}">{name}</a>'
-            f'<div class="run-id-sub"><span class="slug-badge">{slug}</span> <span class="id-badge">{short_id}</span> <span class="full-id">{run_id}</span></div></td>'
-            f'  <td><span class="badge" data-status="{status}">{status}</span></td>'
-            f'  <td>{progress_html}</td>'
-            f'  <td>{speed_str}</td>'
-            f'  <td>{latest_fid_str}</td>'
-            f'  <td>{best_fid_str}</td>'
-            f'  <td>{disk_str}</td>'
-            f'  <td class="actions-cell">{controls_html}</td>'
-            f'</tr>'
-        )
-
-    rows_html = "\n".join(rows) if rows else '<tr id="empty-row"><td colspan="8" class="empty-state">No training runs found in this root directory.</td></tr>'
-
-    return f"""<!DOCTYPE html>
+    runs = sorted(runs, key=lambda r: (_created_at(r.get('created_at')) or '', str(r.get('run_id', ''))), reverse=True)
+    rows = "\n".join(_render_run_row(r) for r in runs)
+    root = html.escape(str(runs_root))
+    return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HyperGAN Runs — Dashboard</title>
-  <link rel="stylesheet" href="/assets/style.css">
-  <style>
-    body {{ margin: 0; padding: 0; background: #0b0d13; color: #e2e8f0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }}
-    .container {{ max-width: 1400px; margin: 0 auto; padding: 24px; }}
-    .header {{ display: flex; align-items: center; justify-content: space-between; padding-bottom: 20px; border-bottom: 1px solid #1e2433; margin-bottom: 24px; }}
-    .brand {{ display: flex; align-items: center; gap: 8px; text-decoration: none; color: #fff; font-weight: 700; font-size: 1.1rem; letter-spacing: 0.05em; }}
-    .brand-mark {{ background: #38bdf8; color: #0b0d13; padding: 2px 8px; border-radius: 4px; font-weight: 900; }}
-    .brand-separator {{ color: #475569; }}
-    .brand-detail {{ color: #94a3b8; font-weight: 400; }}
-    .root-path {{ font-family: ui-monospace, monospace; font-size: 0.85rem; color: #64748b; background: #131722; padding: 4px 10px; border-radius: 6px; border: 1px solid #1e2433; }}
-    .controls {{ display: flex; gap: 16px; margin-bottom: 20px; align-items: center; }}
-    .search-input {{ flex: 1; max-width: 400px; background: #131722; border: 1px solid #1e2433; color: #e2e8f0; padding: 8px 14px; border-radius: 6px; font-size: 0.9rem; }}
-    .search-input:focus {{ outline: none; border-color: #38bdf8; }}
-    .filter-select {{ background: #131722; border: 1px solid #1e2433; color: #e2e8f0; padding: 8px 14px; border-radius: 6px; font-size: 0.9rem; }}
-    .run-table {{ width: 100%; border-collapse: separate; border-spacing: 0; background: #131722; border: 1px solid #1e2433; border-radius: 8px; overflow: hidden; }}
-    .run-table th {{ background: #181d2a; padding: 12px 16px; text-align: left; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; border-bottom: 1px solid #1e2433; }}
-    .run-table td {{ padding: 14px 16px; border-bottom: 1px solid #1e2433; font-size: 0.9rem; }}
-    .run-table tr:last-child td {{ border-bottom: none; }}
-    .run-table tr:hover td {{ background: #181d2a; }}
-    .run-link {{ color: #38bdf8; text-decoration: none; font-weight: 600; display: block; }}
-    .run-link:hover {{ text-decoration: underline; }}
-    .run-id-sub {{ font-family: ui-monospace, monospace; font-size: 0.75rem; color: #64748b; margin-top: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
-    .slug-badge {{ background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25); padding: 1px 6px; border-radius: 4px; font-weight: 600; }}
-    .id-badge {{ background: #181d2a; color: #94a3b8; border: 1px solid #1e2433; padding: 1px 6px; border-radius: 4px; }}
-    .badge {{ display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }}
-    .badge[data-status="running"] {{ background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }}
-    .badge[data-status="complete"], .badge[data-status="completed"] {{ background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }}
-    .badge[data-status="failed"] {{ background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }}
-    .badge[data-status="stopped"], .badge[data-status="interrupted"] {{ background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }}
-    .progress-bar-container {{ display: flex; align-items: center; gap: 8px; }}
-    .progress-bar {{ width: 80px; height: 6px; background: #1e2433; border-radius: 3px; overflow: hidden; }}
-    .progress-fill {{ height: 100%; background: #38bdf8; border-radius: 3px; }}
-    .actions-cell {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
-    .btn {{ display: inline-block; padding: 6px 12px; background: #1e293b; color: #e2e8f0; text-decoration: none; border-radius: 6px; font-size: 0.8rem; font-weight: 500; border: 1px solid #334155; cursor: pointer; }}
-    .btn:hover {{ background: #334155; color: #fff; }}
-    .btn-checkpoint {{ border-color: rgba(56, 189, 248, 0.4); color: #38bdf8; }}
-    .btn-stop {{ border-color: rgba(239, 68, 68, 0.4); color: #f87171; }}
-    .empty-state {{ text-align: center; padding: 48px; color: #64748b; }}
-  </style>
+  <link rel="stylesheet" href="/assets/runs.css">
+  <script src="/assets/runs.js" defer></script>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <a class="brand" href="/">
-        <span class="brand-mark">H</span> HYPERGAN <span class="brand-separator">/</span> <span class="brand-detail">RUNS</span>
-      </a>
-      <span class="root-path">…/{html.escape(runs_root.name or str(runs_root))}</span>
+  <main class="container">
+    <header class="header">
+      <a class="brand" href="/" aria-label="HyperGAN home"><span class="brand-mark">H</span> HYPERGAN</a>
+      <span class="root-path" title="{root}">{root}</span>
+    </header>
+    <div class="page-heading"><div><h1>Training runs</h1>
+      <p>Find an experiment and follow its progress.</p></div>
+      <div class="refresh-controls"><span id="refresh-status" role="status">Updates every 3 seconds</span>
+        <button id="refresh" type="button" class="btn">Refresh</button></div>
     </div>
-    <div class="controls">
-      <input type="text" id="search" class="search-input" placeholder="Filter runs by name, slug, or ID…" oninput="filterRows()">
-      <select id="status-filter" class="filter-select" onchange="filterRows()">
-        <option value="">All Statuses</option>
+    <div class="controls" role="search" aria-label="Find training runs">
+      <label class="search-control" for="search">Search runs
+        <input type="search" id="search" placeholder="Name, slug, or ID" autocomplete="off"></label>
+      <div class="control"><label for="status-filter">Status</label><select id="status-filter">
+        <option value="">All statuses</option>
         <option value="running">Running</option>
         <option value="complete">Complete</option>
         <option value="stopped">Stopped</option>
         <option value="failed">Failed</option>
-      </select>
+        <option value="unknown">Unknown</option>
+      </select></div>
+      <div class="control"><label for="sort-order">Sort by</label><select id="sort-order">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="name">Name A–Z</option>
+      </select></div>
+      <button id="clear-filters" type="button" class="btn" hidden>Clear filters</button>
     </div>
-    <table class="run-table" id="runs-table">
-      <thead>
-        <tr>
-          <th>Run / Name</th>
-          <th>Status</th>
-          <th>Progress</th>
-          <th>Speed</th>
-          <th>Latest FID</th>
-          <th>Best FID</th>
-          <th>Disk</th>
-          <th>Observatory</th>
-        </tr>
-      </thead>
-      <tbody id="runs-body">
-        {rows_html}
-      </tbody>
-    </table>
-  </div>
-  <script>
-    function filterRows() {{
-      const q = document.getElementById('search').value.toLowerCase();
-      const status = document.getElementById('status-filter').value;
-      const rows = document.querySelectorAll('#runs-body tr');
-      rows.forEach(row => {{
-        const text = ((row.getAttribute('data-name') || '') + ' ' + (row.getAttribute('data-id') || '') + ' ' + (row.getAttribute('data-slug') || '')).toLowerCase();
-        const rowStatus = row.getAttribute('data-status') || '';
-        const matchesQ = text.includes(q);
-        const matchesStatus = !status || rowStatus === status;
-        row.style.display = (matchesQ && matchesStatus) ? '' : 'none';
-      }});
-    }}
-    async function triggerRunAction(runId, action) {{
-      await fetch('/api/runs/' + encodeURIComponent(runId) + '/' + action, {{method: 'POST'}});
-      await refreshRuns();
-    }}
-    async function refreshRuns() {{
-      try {{
-        const res = await fetch('/api/runs', {{cache: 'no-store'}});
-        if (!res.ok) return;
-        const runs = await res.json();
-        if (!Array.isArray(runs)) return;
-        const tbody = document.getElementById('runs-body');
-        if (!tbody || !runs.length) return;
-        runs.forEach(r => {{
-          const row = tbody.querySelector(`tr[data-id="${{r.run_id}}"]`);
-          if (row) {{
-            const st = r.status || 'unknown';
-            row.setAttribute('data-status', st);
-            const badge = row.querySelector('.badge');
-            if (badge) {{
-              badge.setAttribute('data-status', st);
-              badge.textContent = st;
-            }}
-            const cells = row.querySelectorAll('td');
-            const step = Number(r.step || 0);
-            const total = Number(r.total_steps || 0);
-            if (cells[2]) {{
-              if (total > 0) {{
-                const pct = Math.min(100, Math.max(0, Math.floor((step / total) * 100)));
-                cells[2].innerHTML = `<div class="progress-bar-container"><span>${{step.toLocaleString()}} / ${{total.toLocaleString()}}</span><div class="progress-bar"><div class="progress-fill" style="width: ${{pct}}%"></div></div></div>`;
-              }} else {{
-                cells[2].innerHTML = `<span>${{step.toLocaleString()}}</span>`;
-              }}
-            }}
-            if (cells[3]) {{
-              cells[3].textContent = (r.steps_per_second != null) ? `${{Number(r.steps_per_second).toFixed(1)}} it/s` : '—';
-            }}
-            if (cells[4]) {{
-              cells[4].textContent = (r.latest_fid != null) ? Number(r.latest_fid).toFixed(2) : '—';
-            }}
-            if (cells[5]) {{
-              if (r.best_fid != null) {{
-                const bs = r.best_step != null ? (r.best_step >= 1000 ? ` @ ${{(r.best_step / 1000).toFixed(1)}}k` : ` @ step ${{Number(r.best_step).toLocaleString()}}`) : '';
-                cells[5].textContent = `${{Number(r.best_fid).toFixed(2)}}${{bs}}`;
-              }} else {{
-                cells[5].textContent = '—';
-              }}
-            }}
-            if (cells[6] && r.disk_formatted) {{
-              cells[6].textContent = r.disk_formatted;
-            }}
-            const actionsCell = row.querySelector('.actions-cell') || cells[7];
-            const isRunning = Boolean(r.active || r.running || String(st).toLowerCase() === 'running');
-            if (actionsCell && !isRunning) {{
-              actionsCell.querySelectorAll('.btn-checkpoint, .btn-stop').forEach(btn => btn.remove());
-            }}
-          }}
-        }});
-        filterRows();
-      }} catch (_err) {{}}
-    }}
-    setInterval(() => {{
-      if (document.querySelector('#runs-body tr[data-status="running"]')) {{
-        refreshRuns();
-      }}
-    }}, 3000);
-  </script>
+    <p id="run-count" role="status">{len(runs)} run{'s' if len(runs) != 1 else ''}</p>
+    <p id="action-status" role="status" hidden></p>
+    <noscript><p>Enable JavaScript to search, filter, and receive live updates.</p></noscript>
+    <div class="table-container">
+      <table class="run-table" id="runs-table">
+        <caption class="sr-only">Training runs with creation time, status, and progress</caption>
+        <thead><tr><th scope="col">Run / Name</th><th scope="col">Status</th>
+          <th scope="col">Created at <span id="time-zone">(UTC)</span></th><th scope="col">Progress</th>
+          <th scope="col">Speed</th><th scope="col">Disk</th><th scope="col">Actions</th></tr></thead>
+        <tbody id="runs-body">{rows}</tbody>
+      </table>
+      <div id="empty-state" class="empty-state"{ ' hidden' if runs else ''}>
+        <h2 id="empty-title">No training runs yet</h2>
+        <p id="empty-description">Start a training run in this workspace. It will appear here automatically.</p>
+      </div>
+    </div>
+    <template id="run-row-template">{_render_run_row({})}</template>
+  </main>
 </body>
-</html>"""
+</html>'''
 
 
 class ServiceRegistry:

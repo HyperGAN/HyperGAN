@@ -387,17 +387,16 @@ def test_api_runs_and_live_stop_checkpoint_endpoints_and_ui(tmp_path, monkeypatc
         assert bad_ckpt.status_code == 400
         assert bad_ckpt.json()["ok"] is False
 
-        # 5. GET / HTML index contains Slug/ID badges, Stop/Checkpoint buttons, and 3s auto-refresh
+        # 5. The index exposes controls through a CSP-compatible external script.
         index_res = client.get("/")
         assert index_res.status_code == 200
         html_text = index_res.text
         assert "amber-falcon" in html_text
         assert "cobalt-otter" in html_text
-        assert "/api/runs/run_live/checkpoint" in html_text
-        assert "/api/runs/run_live/stop" in html_text
-        assert "/api/runs/run_done/stop" not in html_text
-        assert "fetch('/api/runs'" in html_text
-        assert "3000" in html_text
+        assert 'data-action="checkpoint"' in html_text
+        assert 'data-action="stop"' in html_text
+        assert '<script src="/assets/runs.js" defer></script>' in html_text
+        assert client.get('/assets/runs.js').status_code == 200
 
         # 6. GET /runs/<id> contains '← All Runs' link back to '/'
         detail_res = client.get("/runs/run_live")

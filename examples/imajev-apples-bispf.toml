@@ -106,6 +106,7 @@ steps = 2000
 batch_size = 16
 seed = 25002
 device = "cuda:0"
+ema = 0.95
 phase_draws = "shared"
 
 [training.backend]
@@ -114,6 +115,16 @@ cudnn_deterministic = false
 cudnn_benchmark = true
 matmul_allow_tf32 = true
 cudnn_allow_tf32 = true
+
+[optimizer]
+lr = 0.025
+d_lr_mult = 0.5
+prior_lr_mult = 2.0
+
+[gradient_penalty]
+coeff = 25.0
+kappa = 1.0
+lazy_k = 1
 
 [sampling]
 generated = "components.image_generator"

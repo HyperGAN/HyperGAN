@@ -17,11 +17,11 @@ from hypergan.web_session import LocalSession
 from hypergan import __version__
 
 
-def create_mock_run(runs_root: Path, run_id: str, *, status: str = "running",
-                    step: int = 100, speed: float | None = 15.5,
+def create_mock_run(runs_root: Path, run_id: str, *, dir_name: str | None = None,
+                    status: str = "running", step: int = 100, speed: float | None = 15.5,
                     fid_latest: float | None = 22.4, fid_best: float | None = 18.2,
                     with_summary: bool = True):
-    run_dir = runs_root / run_id
+    run_dir = runs_root / (dir_name or run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     definition = {'kind': 'scalar', 'source': 'g_loss', 'label': 'Generator loss'}
     definition['definition_hash'] = digest(definition)
@@ -46,7 +46,7 @@ def create_mock_run(runs_root: Path, run_id: str, *, status: str = "running",
         'run_id': run_id,
         'attempt_id': 'att-1',
         'stream_id': 'training',
-        'stream_generation': 'run',
+        'stream_generation': run_id,
         'sequence': 1,
         'step': 0,
         'event': 'start',
@@ -287,3 +287,60 @@ def test_service_registry_path_traversal_guard(tmp_path):
         assert res.status_code == 404
         assert res.headers["cache-control"] == "no-store"
         assert "Unknown run identity: nonexistent_run_id" in res.json().get("error", "")
+
+
+def test_replaced_run_directory_evicts_stale_service_and_resolves_new_run_id(tmp_path):
+    import shutil
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    dir_name = "imajev-apples-dcgan-hidden-bispf"
+    old_run_id = "6253a54d32684da1862a58edb9697d02"
+    new_run_id = "3261e90023c046ef9301427adc55f9b3"
+
+    run_dir = create_mock_run(runs_root, old_run_id, dir_name=dir_name, status="stopped", step=50)
+
+    session = LocalSession(8765, auth="none")
+    app = create_app(runs_root, session=session)
+    with TestClient(app, base_url=session.origin) as client:
+        # 1. Populate registry cache under old_run_id
+        res_old = client.get(f"/api/v1/runs/{old_run_id}/status")
+        assert res_old.status_code == 200
+        assert res_old.json()["run_id"] == old_run_id
+        assert res_old.json()["steps"] == 50
+
+        res_old_views = client.get(f"/api/v1/runs/{old_run_id}/views")
+        assert res_old_views.status_code == 200
+        assert res_old_views.json()["status"] == "available"
+
+        # 2. Remove and recreate the same run directory with a new run_id
+        shutil.rmtree(run_dir)
+        create_mock_run(runs_root, new_run_id, dir_name=dir_name, status="running", step=200)
+
+        # 3. Query by new_run_id: must return new_run_id (not stale old_run_id!)
+        res_new = client.get(f"/api/v1/runs/{new_run_id}/status")
+        assert res_new.status_code == 200
+        assert res_new.json()["run_id"] == new_run_id
+        assert res_new.json()["steps"] == 200
+
+        res_new_views = client.get(f"/api/v1/runs/{new_run_id}/views")
+        assert res_new_views.status_code == 200
+        views_payload = res_new_views.json()
+        assert views_payload["status"] == "available"
+        assert views_payload["discovery_error"] is None
+        for stream_info in views_payload["streams"]:
+            assert stream_info["error"] is None
+
+        res_new_events = client.get(f"/api/v1/runs/{new_run_id}/events")
+        assert res_new_events.status_code == 200
+        assert res_new_events.json()["events"][0]["run_id"] == new_run_id
+
+        # 4. Query by directory name alias: must also return new_run_id
+        res_alias = client.get(f"/api/v1/runs/{dir_name}/status")
+        assert res_alias.status_code == 200
+        assert res_alias.json()["run_id"] == new_run_id
+
+        # 5. Query by old_run_id: must return 404
+        res_stale = client.get(f"/api/v1/runs/{old_run_id}/status")
+        assert res_stale.status_code == 404
+        assert f"Unknown run identity: {old_run_id}" in res_stale.json()["error"]
+

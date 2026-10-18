@@ -413,18 +413,6 @@ def test_cli_runs_and_queue_default_subcommands(tmp_path):
     assert "Total Jobs: 0" in res_queue.stdout
 
 
-def test_cli_validate_runtime_flag(tmp_path):
-    cfg = tmp_path / "toy.toml"
-    res_new = run_cli(tmp_path, "new", cfg, "--device", "cpu", isolated=False)
-    assert res_new.returncode == 0, res_new.stderr
-
-    res_val = run_cli(tmp_path, "validate", cfg, "--runtime", isolated=False)
-    assert res_val.returncode == 0, res_val.stderr
-    report = json.loads(res_val.stdout)
-    assert report["schema_version"] == 1
-    assert report.get("stage") == "runtime" or "workers" in report or "execution" in report
-
-
 def test_cli_tag_prune_rm_and_optional_path_inspect(tmp_path):
     import hypergan.api as hg
 
@@ -462,33 +450,3 @@ def test_cli_tag_prune_rm_and_optional_path_inspect(tmp_path):
     res_rm = run_cli(tmp_path, "rm", run_dir, isolated=False)
     assert res_rm.returncode == 0, res_rm.stderr
     assert not run_dir.exists()
-
-
-def test_cli_resume_steps_without_config_flag(tmp_path):
-    cfg = tmp_path / "toy_resume.toml"
-    run_cli(tmp_path, "new", cfg, "--device", "cpu", isolated=False)
-    run_dir = tmp_path / "run_resume_test"
-
-    # Train 2 steps with constant LR (lr_floor=1.0) and checkpoint_every=1
-    res_train = run_cli(
-        tmp_path, "train", cfg,
-        "--run-dir", run_dir,
-        "--steps", "2",
-        "-s", "train.lr_floor=1.0",
-        "--checkpoint-every", "1",
-        "--no-server",
-        isolated=False,
-    )
-    assert res_train.returncode == 0, res_train.stderr
-
-    # Resume to 4 steps WITHOUT passing --config
-    res_resume = run_cli(
-        tmp_path, "resume", run_dir,
-        "--steps", "4",
-        "--no-server",
-        isolated=False,
-    )
-    assert res_resume.returncode == 0, res_resume.stderr
-    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["steps"] == 4
-

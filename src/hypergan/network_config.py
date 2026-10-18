@@ -1,6 +1,7 @@
 """Torch-free loading of the architecture text recorded in run configurations."""
 from pathlib import Path
 from string import Template
+import json
 import math
 
 NETWORK_DIRECTORY = Path(__file__).with_name('networks')
@@ -50,20 +51,53 @@ def render_source(source, parameters=None):
         raise ValueError(f'Invalid HNDL template parameter: {exc}') from exc
 
 
+def _validate_imajev_provider(options):
+    required = {'base_model_path', 'adapter_path', 'question', 'options'}
+    allowed = required | {'state', 'temperature'}
+    if not isinstance(options, dict) or not required.issubset(options) or set(options) - allowed:
+        raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
+    for key in ('base_model_path', 'adapter_path', 'question'):
+        if not isinstance(options[key], str) or not options[key].strip():
+            raise ValueError(f'imajev_4b {key} must be nonempty text')
+    choices = options['options']
+    if (not isinstance(choices, (list, tuple)) or not 2 <= len(choices) <= 63
+            or any(not isinstance(item, str) or not item.strip() for item in choices)):
+        raise ValueError('imajev_4b options must be 2 to 63 nonempty strings')
+    if any(item == '__unknown__' or item.strip() == '__unknown__' for item in choices):
+        raise ValueError('imajev_4b options cannot contain __unknown__')
+    if len(set(choices)) != len(choices):
+        raise ValueError('imajev_4b options must be unique')
+    if 'state' in options:
+        state = options['state']
+        if not isinstance(state, (str, dict)):
+            raise ValueError('imajev_4b state must be a string or table')
+        try:
+            json.dumps(state, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError('imajev_4b state must be JSON-serializable without NaN/Inf') from exc
+    if 'temperature' in options:
+        temperature = options['temperature']
+        if type(temperature) not in (int, float) or not math.isfinite(temperature) or temperature <= 0:
+            raise ValueError('imajev_4b temperature must be a finite positive number')
+
+
 def validate_pretrained_providers(providers):
     """Validate trusted provider options without importing model libraries."""
     if not isinstance(providers, dict):
         raise ValueError('pretrained_providers must be a table')
     for name, options in providers.items():
-        if name != 'dinov3_vits16':
+        if name == 'dinov3_vits16':
+            if not isinstance(options, dict) or set(options) != {'source_path', 'source_commit'}:
+                raise ValueError('dinov3_vits16 requires source_path and source_commit')
+            if not isinstance(options['source_path'], str) or not options['source_path'].strip():
+                raise ValueError('DINOv3 source_path must be nonempty text')
+            commit = options['source_commit']
+            if not isinstance(commit, str) or len(commit) != 40 or any(c not in '0123456789abcdef' for c in commit):
+                raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
+        elif name == 'imajev_4b':
+            _validate_imajev_provider(options)
+        else:
             raise ValueError(f'Unknown configurable pretrained provider: {name}')
-        if not isinstance(options, dict) or set(options) != {'source_path', 'source_commit'}:
-            raise ValueError('dinov3_vits16 requires source_path and source_commit')
-        if not isinstance(options['source_path'], str) or not options['source_path'].strip():
-            raise ValueError('DINOv3 source_path must be nonempty text')
-        commit = options['source_commit']
-        if not isinstance(commit, str) or len(commit) != 40 or any(c not in '0123456789abcdef' for c in commit):
-            raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
 
 
 def validate_network_args(args, location):

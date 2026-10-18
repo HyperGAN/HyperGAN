@@ -156,6 +156,12 @@ def render_preview(trainer, batch, identity):
                           for column in trainer.config['sampling'].get('comparison', [])]
         if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
             raise ValueError('Preview generator must return a tensor with the requested batch size')
+        if (not image_only and _image(values)
+                and values.numel() + sum(value.numel() for value in recorded_inputs.values()) > MAX_ELEMENTS):
+            if sum(value.numel() for value in recorded_inputs.values() if not _image(value)) > MAX_ELEMENTS:
+                raise ValueError('Nonimage preview inputs exceed the tensor element budget')
+            image_only = True
+            budget = MAX_IMAGE_ELEMENTS
         if values.numel() + sum(value.numel() for value in recorded_inputs.values()) > budget:
             raise ValueError(f'Preview exceeds the {budget}-element output/input budget')
         if image_only and not _image(values):

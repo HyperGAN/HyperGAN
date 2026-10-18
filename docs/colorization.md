@@ -21,7 +21,7 @@ GAN training samples the **uniform particle prior**, independently of the encode
 This keeps all particles eligible for generator training even if encoder routing
 collapses. The separate reconstruction objective follows the CIFAR recipe's
 encoder-only variant: it updates E through a frozen G and detached particle
-means. Particle spread regularization and lazy b-cap remain configured separately.
+means. Particle spread regularization and lazy critic regularization remain configured separately.
 
 ```text
 B = BW(X)
@@ -60,7 +60,7 @@ with one scalar output and the same adversarial objective.
 
 ResNet parameters and batch-normalization statistics stay frozen, but input
 derivatives pass through the backbone, including the second derivatives needed
-by b-cap. Inputs are mapped from [-1,1] to [0,1] and ImageNet-normalized.
+by critic regularization. Inputs are mapped from [-1,1] to [0,1] and ImageNet-normalized.
 Training requires the `cifar` extra and a local, SHA256-pinned
 `resnet18-f37072fd.pth` file; it does not download weights. The 32×32 CIFAR
 architecture, initialization order and checkpoint layout retain their defaults.
@@ -68,7 +68,7 @@ architecture, initialization order and checkpoint layout retain their defaults.
 This is the next discriminator experiment after the DINO + RGB owner run
 collapsed by step 3,428. Its earlier 1,500-step diversity result did not establish
 lasting stability or useful samples. ResNet is not yet a demonstrated cure.
-Generator, encoder, particles, losses, b-cap and learning rates are unchanged.
+Generator, encoder, particles, losses, critic regularization and learning rates are unchanged.
 
 The discriminator comparisons also expose these alternatives (use a fresh run
 when changing architecture):

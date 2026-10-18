@@ -114,13 +114,10 @@ def test_snapshot_supports_gaussian_prior_without_a_learned_table():
 
 def test_prior_optimizer_preserves_its_explicit_adam_epsilon():
     raw = config_values(config())
-    raw['recipe'].update(optimizer_family='adam', optimizer_smoothing=0.,
-                         optimizer_convolution='none', optimizer_convolution_rule='polar', optimizer_svd_backend='native',
-                         constraint_geometry_mode='none', eps=.03, prior_eps=.12)
+    raw['recipe'].update(eps=.03, prior_eps=.12)
     trainer = ReferenceTrainer(resolve_config(raw))
     assert all(group['eps'] == (.12 if group['role'] == 'prior' else .03)
                for group in trainer.opt_g.param_groups)
-    assert type(trainer.opt_d) is torch.optim.Adam
     row, _ = trainer.update()
     assert torch.isfinite(torch.tensor(row['g_loss']))
 

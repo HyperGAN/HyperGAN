@@ -19,7 +19,7 @@ state.
 
 Make one small, proven image recipe easy to train, watch, interrupt, resume and
 evaluate through HyperGAN. Its numerical foundation is **ParticleGAN MoG +
-b-cap**, and its discriminator uses **pretrained features from the first version**.
+critic regularization**, and its discriminator uses **pretrained features from the first version**.
 The generator starts from scratch. Familiar convolutional/SAGAN-style components
 provide the architecture; a conventional Gaussian-prior/vanilla-DCGAN training
 recipe is not the agreed baseline.
@@ -28,7 +28,7 @@ The first supported recipe must have measured training behavior, explicit weight
 and data provenance, bounded preflight and complete recovery. Keep ordinary Python
 components and configurable objectives; custom combinations receive an unqualified
 warning and actual incompatibilities fail. Do not market arbitrary configurations
-as reliable merely because they instantiate, or promise that b-cap prevents every
+as reliable merely because they instantiate, or promise that critic regularization prevents every
 possible training failure. Supported defaults earn their status through evidence.
 
 Pretrained discriminator support is a product requirement, including correct
@@ -83,7 +83,7 @@ and do not isolate an attention or pretraining benefit.
 | Discriminator | Frozen ResNet18 `IMAGENET1K_V1` layer1–3 features, frozen BatchNorm/eval behavior, plus trainable pixel branch and feature heads; unconditioned scalar score |
 | Pretrained input | Source records 64-pixel feature input and feature-state SHA256 `5de287ab28d569dfc53a5bca4a646d4416621da29e71e80859e6117c7f90b0ac`; pin the actual weight file and complete normalization/resize pipeline separately |
 | Prior | Standardized MoG, 16,384 components, latent 64, fixed sigma `0.212616428732872`; retain the source initialization/calibration history rather than silently recalibrating |
-| Objective | Rp-logistic, exact autograd b-cap coefficient 1 every 8 updates with lazy scaling ×8, source ParticleRegularizer/VICReg settings |
+| Objective | Rp-logistic, exact autograd critic regularization coefficient 1 every 8 updates with lazy scaling ×8, source ParticleRegularizer/prior regularization settings |
 | Updates | One D and one G update, separate real/prior draws for the phases; batch 64 |
 | Optimizers | Fused Adam in source; G/E LR .0003, D .00045, prior .003; G/D betas `(0,.999)`, prior `(.5,.999)`; constant learning rates; EMA .995 |
 | Auxiliary encoder | Scratch encoder; reconstruction weight 1 with encoder-only gradient routing. G/prior receive no reconstruction gradient. Preserve or explicitly validate removal before claiming the same recipe |
@@ -105,9 +105,9 @@ and separately require exact supported-run recovery around lazy-penalty boundari
 
 GroupNorm avoids the training-mode BatchNorm issue raised for a conventional
 DCGAN. This makes the candidate suitable for investigating the existing replicated
-strategy, but does not establish two-GPU parity or attention/b-cap compatibility.
+strategy, but does not establish two-GPU parity or attention/critic regularization compatibility.
 Pretrained parameter freezing must retain gradients with respect to generated
-images, including b-cap double backward. Module modes and parameter masks remain
+images, including critic regularization double backward. Module modes and parameter masks remain
 separate, explicit factory responsibilities.
 
 ## Implementation order and completion gates
@@ -117,7 +117,7 @@ Use external worktrees and subagents for independent implementation/review.
 
 | Order | Work | Done when |
 | --- | --- | --- |
-| I1 | Preserve factory-defined frozen parameter masks; define pinned pretrained-weight loading/provenance; capture source recipe and protocol | A trainable head cannot accidentally unfreeze its backbone; frozen weights/buffers stay fixed, input and b-cap gradients work, optimizer ownership and full recovery are checked. Missing/wrong weights fail before a long run; no implicit downloads. The owner's MIT distribution authorization and pinned artifact provenance are recorded; no data/weights are redistributed |
+| I1 | Preserve factory-defined frozen parameter masks; define pinned pretrained-weight loading/provenance; capture source recipe and protocol | A trainable head cannot accidentally unfreeze its backbone; frozen weights/buffers stay fixed, input and critic regularization gradients work, optimizer ownership and full recovery are checked. Missing/wrong weights fail before a long run; no implicit downloads. The owner's MIT distribution authorization and pinned artifact provenance are recorded; no data/weights are redistributed |
 | I2 | Port the selected G/D/prior and required encoder behavior into ordinary Python components; represent exact phase draws, augmentation, optimizer and initialization choices | Small controlled native-CUDA comparisons cover complete updates against the pinned source, then bounded image training and exact current-run stop/resume pass. Public package APIs replace imports from the upstream experiment tree. Differences are explained, not hidden |
 | I3 | Add bounded PNG image grids and browser rendering, fixed-latent history and fresh samples; finish the image walkthrough | A user can prepare data, train, watch meaningful images, stop, resume and sample a saved generator in a fresh process. Previews preserve numerical state and remain useful with metrics disabled; sampling is separate from measurement |
 | I4 | Add the explicit pinned FID evaluator and reproduce the source trajectory on one local GPU | Evaluation agrees on reference/sample/weight/preprocessing choices. Publish samples, quality versus updates and elapsed GPU time, peak memory, failures and complete recovery evidence. Use the 40k/200k observations as comparison points, not guaranteed scores or automatic plateau rules |

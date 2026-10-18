@@ -149,9 +149,9 @@ Where it is over-built for a 2.0:
 ParticleGAN 0.5.0 (released 2026-09-18, the newest version; four releases in
 three days) is 1,565 lines across nine modules. Its stabilising idea is the
 learnable prior: a table of optimizable latent particles, with the MoG variant
-giving each a Gaussian neighbourhood, kept from collapsing by a VICReg row
+giving each a Gaussian neighbourhood, with a regularized prior row
 regularizer, trained against a relativistic-paired logistic loss with the
-re-centred b-cap gradient penalty. That is the "embarrassingly simple" fix and
+re-centred critic regularization gradient penalty. That is the "embarrassingly simple" fix and
 it is entirely inside the library.
 
 HyperGAN's coupling is thin and clean: `GANLoss`, `GradientPenalty`,
@@ -225,7 +225,7 @@ Numbered by priority. File references verified by the coordinator where marked.
 2. **RNG seed collision** (`training.py:182`; verified). The penalty stream is
    hardcoded `seed + 3` while prior/data offsets are configurable and
    unchecked. The CIFAR recipe (`seed 24002`, `prior_seed_offset 3`) gives the
-   prior and penalty generators the same seed 24005. Harmless for b-cap, live
+   prior and penalty generators the same seed 24005. Harmless for critic regularization, live
    for interpolating penalty arms. Add a uniqueness check and a configurable
    penalty offset.
 3. **Distributed loop drift** (`distributed_training.py:287,470`; verified).
@@ -280,7 +280,7 @@ focused work).** Scope:
    tracked issue.
 3. **Ship an image recipe that works from a folder of images.** A builtin
    SAGAN-class G/D pair sized from `image_folder` arguments, using the
-   ParticleGAN MoG/b-cap/VICReg defaults, no pinned third-party weights
+   ParticleGAN MoG/critic regularization/prior regularization defaults, no pinned third-party weights
    required. `hypergan new mymodel --data ~/pics --size 64`, `train`, PNG grids
    every N steps, `sample` writes PNGs. This single item closes most of the
    perceived regression from 1.x. Pretrained-discriminator CIFAR remains the

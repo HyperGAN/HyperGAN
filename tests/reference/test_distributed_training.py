@@ -75,7 +75,7 @@ def _state(trainer):
 def _parity(rank):
     ids = torch.tensor([0, 0, 2, 2, 3, 4, 4, 5])
     data = torch.linspace(-1, 1, 16).reshape(8, 2)
-    # ParticleGAN 0.8 has one loss (RpGAN logistic); prior rows vary instead.
+    # Keep the dependency loss fixed; vary host-selected prior rows.
     for rows in ('sampled_unique', 'full'):
         if True:
             config = _config()

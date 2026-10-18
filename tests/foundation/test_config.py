@@ -214,3 +214,16 @@ def test_default_project_declares_released_preset_without_resolving_it(tmp_path)
     assert raw["defaults"] == "particlegan"
     assert raw["training"]["device"] == "cuda"
     assert raw["training"]["initialization"] == "deterministic_orthogonal"
+
+
+
+def test_dependency_snapshot_preserves_unknown_fields_and_explicit_overrides(monkeypatch):
+    import hypergan.config as configuration
+    snapshot = {'name': 'upstream-default', 'future_policy': {'normalization': 'upstream'}}
+    monkeypatch.setattr(configuration, 'particlegan_recipe_fields', lambda: deepcopy(snapshot))
+    monkeypatch.setattr(configuration, 'particlegan_defaults', lambda: {('optimizer', 'lr'): 0.012})
+    config = resolve_config({'defaults': 'particlegan', 'optimizer': {'lr': 0.001}})
+    assert config['recipe']['future_policy'] == snapshot['future_policy']
+    assert config['recipe']['lr'] == config['optimizer']['lr'] == 0.001
+    assert resolve_config(configuration.config_values(config)) == config
+    assert snapshot == {'name': 'upstream-default', 'future_policy': {'normalization': 'upstream'}}

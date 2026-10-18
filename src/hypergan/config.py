@@ -182,7 +182,7 @@ _REMOVED_PENALTY = ("arm", "norm", "target_anneal", "total_steps", "method", "fd
 
 
 def _drop_removed_fields(table, location):
-    """Drop removed loss fields that name the only formulation; refuse the rest."""
+    """Accept redundant historical selectors; refuse formulation selection."""
     if not isinstance(table, dict):
         return table
     table = dict(table)
@@ -193,8 +193,6 @@ def _drop_removed_fields(table, location):
                                  f"owns the loss formulation; remove {location}.{key}")
             del table[key]
     return table
-
-
 
 def _keys(value, allowed, location):
     if not isinstance(value, dict):
@@ -355,7 +353,7 @@ def resolve_config(raw):
                                     for index, term in enumerate(raw["adversarial_terms"])]
     removed = sorted(set(raw.get("gradient_penalty") or ()) & set(_REMOVED_PENALTY))
     if removed:
-        raise ValueError(f"gradient_penalty.{removed[0]} is no longer supported: ParticleGAN has one critic "
+        raise ValueError(f"gradient_penalty.{removed[0]} is no longer supported: ParticleGAN owns critic "
                          "regularization; remove " + ", ".join(f"gradient_penalty.{key}" for key in removed))
     source = raw.pop("defaults", "hypergan")
     result = deepcopy(DEFAULT)

@@ -179,7 +179,7 @@ gpu1 = "GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce"
 [envs]                        # named code + interpreter pins, not a venv per experiment
 develop = { python = "particlegan08-env/bin/python", src = "../HyperGAN/src" }
 pg217   = { python = "particlegan-pr217-env/bin/python",
-            src = "../worktrees/particlegan-dv12/src", note = "ParticleGAN#217 @5852f380" }
+            src = "../worktrees/particlegan-integration/src", note = "ParticleGAN#217 @5852f380" }
 
 [run]                         # defaults for every experiment here
 devices = ["gpu0"]
@@ -326,7 +326,7 @@ Modal credit.
   replicated execution automatically. The profile TOML is still where expert settings
   such as accumulation and timeouts live.
 - **Local 2-GPU CIFAR support:**
-  - Lift the replicated-execution restrictions for the CIFAR K3P recipe: support critic
+  - Lift the replicated-execution restrictions for the CIFAR reference recipe: support critic
     input noise, generator output noise, independent phase draws, and recipe-built
     optimizers in `distributed_training.py` and `execution_profiles.py`.
   - Apply fused device-side nonfinite gradient screening to
@@ -447,7 +447,7 @@ workflow can execute them with minimal file contention.
 1. **Local 2-GPU CIFAR support (D10):**
    - Default `replicated_execution.py` `total_timeout` to no limit (or `--max-seconds`).
    - Support critic input noise, generator output noise, independent phase draws, and
-     recipe-built K3P optimizers in `distributed_training.py` and `execution_profiles.py`.
+     recipe-built ParticleGAN optimizers in `distributed_training.py` and `execution_profiles.py`.
    - Fuse nonfinite gradient screening in `distributed_training._reduce_gradients`.
    - Pass `rank` and `world_size` to data loading so each rank decodes only its shard.
    - Qualify 2-GPU CIFAR training on `gpu0,gpu1`.

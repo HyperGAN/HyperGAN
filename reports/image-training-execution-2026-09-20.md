@@ -14,7 +14,7 @@ The source is ParticleGAN `feat/cifar-ae-gan-pretrained-encoder` at
 `9e9ce96c96948197e21e1171c8394e3819bb0013`. The recipe uses the scratch
 SAGAN-style G and routing encoder, pretrained frozen ResNet18 discriminator
 features, a standardized 16,384-component MoG (latent 64; fixed sigma
-0.212616428732872), Rp-logistic and b-cap (coefficient 1, kappa 1, every eight
+0.212616428732872), Rp-logistic and critic regularization (coefficient 1, kappa 1, every eight
 updates), batch 64 and source fused-Adam learning rates. Reconstruction updates
 only the encoder. Independent D/G draws, initialization order, named RNG offsets,
 feature modes and partial parameter masks are explicit. On 2026-09-20 the owner
@@ -60,7 +60,7 @@ eight complete source/port CUDA updates passed **6,854 checks** at the original
 `atol=1e-6, rtol=1e-5`; initial state and draws were exact. The comparison covers
 losses, gradients, parameters, optimizer state, EMA, frozen state and RNG. The
 recipe's kappa-1 cap was inactive in those eight updates; a separate kappa-0
-fixture proves nonzero b-cap (0.00813716836), trainable gradients and unchanged
+fixture proves nonzero critic regularization (0.00813716836), trainable gradients and unchanged
 frozen state. That fixture does not alter the training recipe.
 
 ## Installed CLI acceptance
@@ -77,7 +77,7 @@ and executed with no checkout import path. The CUDA smoke completed in 174 secon
 5. Fresh-process `sample` produced a 64-image RGB PNG; snapshot `evaluate`
    completed with pinned Inception weights and explicit data/protocol identity.
 
-At update 16, the unchanged kappa-1 recipe produced nonzero b-cap
+At update 16, the unchanged kappa-1 recipe produced nonzero critic regularization
 **0.038590192794799805** in baseline, resumed and older-snapshot replay runs;
 the exact recovery proof therefore includes an active penalty.
 
@@ -189,7 +189,7 @@ These are existing local files; no implicit data/weight download occurred.
 Evidence directory:
 `/home/martyn/dev/hypergan/resurrection-backups/2026-09-20-image-workflow/`.
 Key receipts: `cli-smoke-result.json`, `source-update-deterministic-cuda.json`,
-`active-bcap-cuda.json`, `fid-smoke.json`, `training-launch.json`, the original
+the active training status receipt, `fid-smoke.json`, `training-launch.json`, the original
 failed comparison/diagnostic receipts and protected PR premerge/merge receipts.
 Neighboring `2026-09-20-image-core`, `2026-09-20-image-recipe` and
 `2026-09-20-image-previews` directories preserve subagent builds and reviews.

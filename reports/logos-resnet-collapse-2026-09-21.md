@@ -8,7 +8,7 @@ or recipe changes were made. No seed experiments were run.
 
 Yes, in the saved resolved training configurations: only the discriminator
 source/weight parameters and run name differ. Generator, data manifest,
-batch size 64, seeds, prior, losses, b-cap settings, optimizers, EMA, sampling,
+batch size 64, seeds, prior, losses, critic regularization settings, optimizers, EMA, sampling,
 and metrics are identical. Launchers differ in config/output paths and physical
 GPU selection (both RTX A6000). Both running processes record HNDL 0.2.0 and the
 same dependency versions. The source commits differ (34136fe vs 2075114), both

@@ -63,9 +63,14 @@ def test_dinov3_projected_128_orthogonal_init_and_second_derivatives(monkeypatch
 
     outside = [m for m in model.network.modules() if id(m) not in {id(b) for b in backbone_module.modules()}]
     convs = [m for m in outside if isinstance(m, nn.Conv2d)]
+    group_norms = [m for m in outside if isinstance(m, nn.GroupNorm)]
+    linears = [m for m in outside if isinstance(m, nn.Linear)]
     assert len(convs) == 12
+    assert len(group_norms) == 7
+    assert len(linears) == 5
+    assert all(m.bias is None for m in linears)
     assert not any(hasattr(m, 'parametrizations') for m in convs)
-    assert not any(isinstance(m, (nn.GroupNorm, nn.BatchNorm2d)) for m in outside)
+    assert not any(isinstance(m, nn.BatchNorm2d) for m in outside)
 
     x = torch.linspace(-1, 1, 2 * 3 * 128 * 128).reshape(2, 3, 128, 128).requires_grad_()
     score = model(x=x)
@@ -76,9 +81,9 @@ def test_dinov3_projected_128_orthogonal_init_and_second_derivatives(monkeypatch
     assert torch.isfinite(first).all() and first.abs().sum() > 0
     (score.mean() + first.square().sum()).backward()
     assert torch.isfinite(x.grad).all() and x.grad.abs().sum() > 0
-    for conv in convs:
-        assert conv.weight.grad is not None and torch.isfinite(conv.weight.grad).all()
-        assert conv.weight.grad.abs().sum() > 0
+    for module in (*convs, *linears):
+        assert module.weight.grad is not None and torch.isfinite(module.weight.grad).all()
+        assert module.weight.grad.abs().sum() > 0
 
 
 def test_logos_projected_example_uses_particlegan_defaults():

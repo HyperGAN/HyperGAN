@@ -44,11 +44,11 @@ kind = "particles"
 initialization_device = "cpu"
 initialization_seed = 2
 [prior.args]
-num_particles = 65536
+num_particles = 4096
 z_dim = 128
 
 [prior_regularizer]
-rows = "sampled_unique"
+rows = "full"
 
 [training]
 steps = 200000
@@ -89,7 +89,7 @@ inputs = { generated = "evaluation.generated", reference = "evaluation.reference
 [metrics.custom.random_spread.args]
 pool_size = 32
 [metrics.custom.random_spread.evaluation]
-device = "cuda:1"
+device = "cuda:0"
 sample_count = 256
 batch_size = 32
 seed = 10000
@@ -117,7 +117,7 @@ inputs = { generated = "evaluation.generated", reference = "evaluation.reference
 bins = 64
 projections = 8
 [metrics.custom.chroma.evaluation]
-device = "cuda:1"
+device = "cuda:0"
 sample_count = 512
 batch_size = 32
 seed = 10000
@@ -142,7 +142,7 @@ timeout = 600
 on_error = "fail"
 inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
 [metrics.custom.structure.evaluation]
-device = "cuda:1"
+device = "cuda:0"
 sample_count = 512
 batch_size = 32
 seed = 10000
@@ -170,7 +170,7 @@ on_error = "fail"
 weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
 weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
 [metrics.custom.fid10k_heldout.evaluation]
-device = "cuda:1"
+device = "cuda:0"
 sample_count = 10000
 batch_size = 128
 seed = 10000

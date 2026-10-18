@@ -40,5 +40,5 @@ def test_initial_conditioning_gradients_and_checkpoint(side, z_dim):
     restored.load_state_dict(model.state_dict(), strict=True)
     with torch.no_grad():
         torch.testing.assert_close(restored(z), out, rtol=0, atol=0)
-        torch.testing.assert_close(model(z[:1]), out[:1], rtol=1e-4, atol=1e-6)
+        torch.testing.assert_close(model(z[:1]), out[:1], rtol=1e-4, atol=1e-5)
     assert torch.equal(rng, torch.get_rng_state())

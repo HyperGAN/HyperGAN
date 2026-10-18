@@ -27,6 +27,7 @@ recursive-include tests/reducers *.py
 recursive-include tests/browser *.py
 include scripts/reducer_proof.py
 include scripts/metrics_server_proof.py
+include scripts/foldlite_integration_proof.py
 include scripts/metrics_training_proof.py
 recursive-include src/hypergan/web_assets *.html *.css *.js *.txt *.json
 recursive-include tests/web *.py

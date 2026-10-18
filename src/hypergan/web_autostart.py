@@ -257,18 +257,31 @@ def _projection_state_mtime_ns(run_dir: Path) -> int | None:
     from .event_views import MapSpec
     run_path = Path(run_dir).resolve()
     rev = MapSpec().revision
+    contrib_file = run_path / 'views' / rev / 'contributions.jsonl'
     candidates = (
-        run_path / 'views' / rev / 'contributions.jsonl',
+        contrib_file,
         run_path / 'views' / rev / 'projection.json',
         run_path / 'views' / 'default' / 'state.json',
         run_path / 'projections' / 'state.json',
     )
-    if not (run_path / 'views' / rev / 'contributions.jsonl').is_file():
+    if not contrib_file.is_file():
         return None
     try:
-        if (run_path / 'views' / rev / 'contributions.jsonl').stat().st_size == 0:
+        if contrib_file.stat().st_size == 0:
             return None
-    except OSError:
+        manifest_file = run_path / 'manifest.json'
+        if manifest_file.is_file():
+            manifest = json.loads(manifest_file.read_text(encoding='utf-8'))
+            expected_rid = manifest.get('run_id') if isinstance(manifest, dict) else None
+            if expected_rid:
+                with contrib_file.open('r', encoding='utf-8') as f:
+                    first_line = f.readline()
+                if first_line:
+                    row = json.loads(first_line)
+                    src_rid = row.get('source', {}).get('run_id') if isinstance(row, dict) else None
+                    if src_rid and src_rid != expected_rid:
+                        return None
+    except (OSError, ValueError, TypeError):
         return None
     mtimes: list[int] = []
     for p in candidates:
@@ -307,14 +320,32 @@ def project_run(run_dir: Path | str, *, limit: int = 100) -> dict:
     if not run_path.is_dir() or not events_file.is_file():
         return {'documents': 0, 'has_more': False}
     last_progress = {'documents': 0, 'has_more': False}
-    with EventProjector(run_path, allow_device_change=True) as projector:
-        while True:
-            last_progress = projector.project(limit=limit)
-            if not last_progress.get('has_more'):
-                break
+    rev = MapSpec().revision
+    view_dir = run_path / 'views' / rev
+    try:
+        with EventProjector(run_path, allow_device_change=True) as projector:
+            while True:
+                last_progress = projector.project(limit=limit)
+                if not last_progress.get('has_more'):
+                    break
+    except ValueError as exc:
+        msg = str(exc)
+        if 'Stale event cursor' in msg or 'Projection source stream identity changed' in msg:
+            for fname in ('contributions.jsonl', 'projection.json'):
+                try:
+                    (view_dir / fname).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            with EventProjector(run_path, allow_device_change=True) as projector:
+                while True:
+                    last_progress = projector.project(limit=limit)
+                    if not last_progress.get('has_more'):
+                        break
+        else:
+            raise
     try:
         ev_mtime = events_file.stat().st_mtime_ns
-        proj_json = run_path / 'views' / MapSpec().revision / 'projection.json'
+        proj_json = view_dir / 'projection.json'
         if proj_json.is_file() and proj_json.stat().st_mtime_ns < ev_mtime:
             os.utime(proj_json, ns=(ev_mtime, ev_mtime))
     except OSError:

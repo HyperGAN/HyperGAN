@@ -55,20 +55,40 @@ def format_disk_bytes(n: int) -> str:
     return f"{n / (1024 * 1024 * 1024):.2f} GB"
 
 
-def _stat_watermark(path: Path) -> tuple[int, int]:
+def _stat_watermark(path: Path) -> tuple[int, int, int]:
     try:
         st = path.stat()
-        return (st.st_mtime_ns, st.st_size)
+        return (st.st_mtime_ns, st.st_size, getattr(st, "st_ino", 0))
     except OSError:
-        return (0, 0)
+        return (0, 0, 0)
 
 
-def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
     return (
         _stat_watermark(run_dir / "summary.json"),
         _stat_watermark(run_dir / "manifest.json"),
         _stat_watermark(run_dir / ".run.lock"),
     )
+
+
+def _disk_run_id(run_dir: Path) -> str | None:
+    manifest_path = run_dir / "manifest.json"
+    if manifest_path.is_file():
+        try:
+            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and loaded.get("run_id"):
+                return str(loaded["run_id"])
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            pass
+    summary_path = run_dir / "summary.json"
+    if summary_path.is_file():
+        try:
+            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and loaded.get("run_id"):
+                return str(loaded["run_id"])
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            pass
+    return None
 
 
 def read_run_summary(run_dir: Path) -> dict:
@@ -659,6 +679,40 @@ class ServiceRegistry:
                 pass
         return None
 
+    def _retire_service(self, svc: ObservationService) -> None:
+        if svc in self._services.values():
+            return
+        svc._closed = True
+        tasks = [s.task for s in svc.streams.values()] + [job.task for job in svc.jobs.values()]
+        if svc._discovery:
+            tasks.append(svc._discovery)
+        for task in tasks:
+            if task:
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
+        if hasattr(svc, "_executor"):
+            try:
+                svc._executor.shutdown(wait=False)
+            except Exception:
+                pass
+
+    def _evict_stale_for_dir(self, run_dir: Path, disk_rid: str | None) -> None:
+        has_files = run_dir.is_dir() and ((run_dir / "manifest.json").is_file() or (run_dir / "summary.json").is_file())
+        evicted: list[ObservationService] = []
+        for existing_key, existing_svc in list(self._services.items()):
+            if existing_svc.root == run_dir:
+                known_rid = existing_svc.run_id or getattr(existing_svc, "_expected_run_id", None)
+                if known_rid is not None and (not has_files or (disk_rid is not None and known_rid != disk_rid)):
+                    del self._services[existing_key]
+                    evicted.append(existing_svc)
+        if evicted:
+            self._summary_cache.pop(run_dir, None)
+            _disk_cache.pop(run_dir, None)
+            for svc in evicted:
+                self._retire_service(svc)
+
     def _evict_lru_if_needed(self) -> list[ObservationService]:
         evicted_services: list[ObservationService] = []
         if self.max_services <= 0:
@@ -667,22 +721,26 @@ class ServiceRegistry:
             _, evicted = self._services.popitem(last=False)
             if evicted not in self._services.values():
                 evicted_services.append(evicted)
-                try:
-                    evicted._executor.shutdown(wait=False)
-                except Exception:
-                    pass
+                self._retire_service(evicted)
         return evicted_services
 
     def get_service(self, run_id: str) -> ObservationService:
         if run_id in self._services:
-            self._services.move_to_end(run_id)
             svc = self._services[run_id]
-            ensure_run_projected(svc.root)
-            return svc
+            disk_rid = _disk_run_id(svc.root)
+            self._evict_stale_for_dir(svc.root, disk_rid)
+            if run_id in self._services:
+                self._services.move_to_end(run_id)
+                svc = self._services[run_id]
+                ensure_run_projected(svc.root)
+                return svc
 
         run_dir = self.resolve_run_dir(run_id)
         if run_dir is None:
             raise FileNotFoundError(f"Unknown run identity: {run_id}")
+
+        disk_rid = _disk_run_id(run_dir)
+        self._evict_stale_for_dir(run_dir, disk_rid)
 
         ensure_run_projected(run_dir)
 
@@ -695,6 +753,8 @@ class ServiceRegistry:
 
         if svc is None:
             svc = ObservationService(run_dir, poll_seconds=self.poll_seconds, history_timeout=self.history_timeout)
+        if getattr(svc, "_expected_run_id", None) is None and disk_rid is not None:
+            svc._expected_run_id = disk_rid
 
         self._services[run_id] = svc
         self._services.move_to_end(run_id)
@@ -707,6 +767,8 @@ class ServiceRegistry:
             svc = self.get_service(run_id)
             if svc._discovery is None:
                 await svc.start()
+            elif svc.run_id is None and (svc.root / "manifest.json").is_file():
+                await svc._activate()
             elif not was_cached or not any(k.startswith("projection:") for k in svc.streams):
                 await svc.discover()
             return svc

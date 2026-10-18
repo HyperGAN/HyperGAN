@@ -205,6 +205,17 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
                                 break
                     threading.Thread(target=_watch_stop, daemon=True).start()
 
+                def _bg_project():
+                    bg_projector = _wa.Projector(root, poll_interval=0.25)
+                    while not stop_event.wait(0.25):
+                        if (root / '.stop_projector').exists():
+                            break
+                        try:
+                            bg_projector.poll_once()
+                        except Exception:
+                            pass
+                threading.Thread(target=_bg_project, daemon=True).start()
+
                 try:
                     print(json.dumps({'origin': session.origin, 'session_file': str(credential_path),
                                       'server_instance_id': session.instance_id,

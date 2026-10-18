@@ -10,7 +10,7 @@ import pytest
 from hypergan.config import (
     DEFAULT, config_values, fingerprint, load_config, numerical_values, resolve_config, resume_compatible, write_default)
 
-# The default recipe under the ParticleGAN 0.8 (K3P) formulation (without 'name' per Decision D3).
+# The default recipe under the legacy concrete configuration (without 'name' per Decision D3).
 LEGACY_FINGERPRINT = "8edda59414e07e02d1c02529c85fed3831f4029e5c4d8269dcceeede8604849c"
 
 
@@ -143,7 +143,7 @@ def test_adversarial_term_rules_and_reachability():
     assert term["weight"] == 0 and term["penalty"] is True and term["penalty_coeff"] == 0.25
     assert "loss_type" not in term and "mode" not in term
     raw["adversarial_terms"] = [_extra_term(loss_type="hinge")]
-    with pytest.raises(ValueError, match="RpGAN logistic"):
+    with pytest.raises(ValueError, match="owns the loss formulation"):
         resolve_config(raw)
 
 
@@ -151,14 +151,14 @@ def test_removed_particlegan_formulation_fields():
     # The only remaining loss is accepted by name and dropped from the resolved recipe.
     assert resolve_config({"adversarial": {"loss_type": "logistic", "mode": "rp"}}) == resolve_config({})
     for adversarial in ({"mode": "ra"}, {"loss_type": "hinge"}):
-        with pytest.raises(ValueError, match="RpGAN logistic"):
+        with pytest.raises(ValueError, match="owns the loss formulation"):
             resolve_config({"adversarial": adversarial})
     for key, value in (("arm", "b_cap"), ("norm", "l2"), ("method", "autograd")):
         with pytest.raises(ValueError, match=f"gradient_penalty.{key} is no longer supported"):
             resolve_config({"gradient_penalty": {key: value}})
 
 
-def test_k3p_settings_are_validated():
+def test_training_settings_are_validated():
     for section, values, message in (
             ("gradient_penalty", {"anchor_decay": 1.0}, "anchor_decay"),
             ("gradient_penalty", {"anchor_weight": -1}, "anchor_weight"),

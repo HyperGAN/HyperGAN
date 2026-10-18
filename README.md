@@ -188,7 +188,7 @@ hypergan view --stop
 
 The Web Observatory provides:
 - **Global Runs Dashboard (`GET /` and `GET /api/runs`)**: Live-updating table of all runs with search/status filtering, progress bars, throughput (`it/s`), latest/best FID, disk usage, and one-click **Checkpoint** (`POST /api/runs/<id>/checkpoint`) and **Stop** (`POST /api/runs/<id>/stop`) controls for active runs.
-- **Per-Run Observatory (`GET /runs/<id_or_slug_or_tag>`)**: Real-time learning curves backed by a WebAssembly streaming reducer, retained EMA sample history sliders, snapshot evaluation charts, and the **Model** tab showing K3P equations, loss graphs, and per-layer HNDL network tables.
+- **Per-Run Observatory (`GET /runs/<id_or_slug_or_tag>`)**: Real-time learning curves backed by a WebAssembly streaming reducer, retained EMA sample history sliders, snapshot evaluation charts, and the **Model** tab showing the ParticleGAN integration, loss metrics, and per-layer HNDL network tables.
 
 See [Local browser and streaming API](docs/local-web.md) for authentication (`--auth token`), TLS proxy setup (`--public-origin`), and the full `/api/runs/*` and `/api/v1/runs/*` REST/SSE contract.
 
@@ -242,7 +242,7 @@ hg.rm("my-best-gan")
 
 `hypergan new` generates `format = "hypergan-model/1"` TOML model files (`[data]`, `[prior]`, `[networks.generator]`, `[networks.discriminator]`, `[[losses]]`, `[train]`, `[metrics]`, `[evaluations.<id>]`, `[checkpoints]`, `[sampling]`). During validation and training, HyperGAN lowers the model file into the engine's resolved numerical recipe.
 
-The reference formulation trains with ParticleGAN 0.8's K3P objective: the relativistic-paired logistic loss, its learning-rate-scheduled critic penalty with an EMA-critic anchor, and VICReg prior regularization. Networks are declared in HNDL (`source = "..."` or `hndl = "file.hndl"`) or importable Python modules (`module = "pkg.mod:Class"`), with full source recorded in every run.
+ParticleGAN supplies the released GAN formulation and its selected defaults for loss, learning rates, hyperparameters, normalization and optimizers. HyperGAN consumes its public recipe and owns networks, data, execution, checkpoints and metrics. See the [integration boundary](docs/particlegan.md). Networks are declared in HNDL (`source = "..."` or `hndl = "file.hndl"`) or importable Python modules (`module = "pkg.mod:Class"`), with full source recorded in every run.
 
 See:
 - [Configuration and component contracts](docs/configuration.md) and the [paired synthetic example](examples/paired-linear.toml)

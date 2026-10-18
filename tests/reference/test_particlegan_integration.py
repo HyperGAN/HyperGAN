@@ -1,4 +1,4 @@
-"""Host contract for the complete released BISPF preset, not quality evidence."""
+"""Host contract for the released ParticleGAN preset."""
 import copy
 
 import pytest
@@ -43,21 +43,19 @@ def test_complete_preset_factories_roles_references_and_exact_resume():
     torch.set_num_threads(1)
     trainer = ReferenceTrainer(config())
     expected = get_recipe()
-    assert trainer.recipe.critic_formulation == expected.critic_formulation == 'bispf'
+    assert trainer.recipe.critic_formulation == expected.critic_formulation
     assert trainer.recipe.loss == expected.loss
-    assert trainer.spread.__class__.__name__ == 'SBNPPriorRegularizer'
-    assert trainer.spread.references == (trainer.prior,)
-    reference = trainer.prior.moment_tether_mean.clone()
+    assert type(trainer.spread) is type(expected.make_prior_regularizer(prior=trainer.prior))
+    reference = copy.deepcopy(trainer.prior.state_dict())
     assert [group['lr'] for group in trainer.opt_g.param_groups] == [
         expected.lr * (expected.prior_lr_mult if group['role'] == 'prior' else 1)
         for group in trainer.opt_g.param_groups]
-    assert any('dualnorm_convolution' in group for group in trainer.opt_g.param_groups)
-    assert any('dualnorm_convolution' in group for group in trainer.opt_d.param_groups)
+    assert type(trainer.opt_d) is type(expected.make_critic_optimizer(copy.deepcopy(trainer.critic)))
     row, batch = trainer.update()
     assert torch.isfinite(torch.tensor(row['g_loss']))
-    assert torch.equal(reference, trainer.prior.moment_tether_mean)
+    for name, buffer in trainer.prior.named_buffers():
+        assert torch.equal(reference[name], buffer)
     saved = copy.deepcopy(trainer_state(trainer, batch))
-    assert 'direction_blend' in saved['optimizers'][0]
     _, batch = trainer.update()
     wanted = copy.deepcopy(trainer_state(trainer, batch))
     resumed = ReferenceTrainer(config())
@@ -76,21 +74,21 @@ def test_generated_image_project_uses_the_released_global_recipe(tmp_path):
     generate_recipe('test/images', data, output_path=path, device='cpu')
     resolved = load_config(path)
     recipe = particlegan_recipe(resolved)
-    assert recipe.name == 'bispf_optimized'
-    assert (recipe.lr, recipe.prior_reg) == (.012, .01)
+    expected = get_recipe()
+    assert recipe.name == expected.name
+    assert (recipe.lr, recipe.prior_reg) == (expected.lr, expected.prior_reg)
     assert resolved['training']['initialization'] == 'deterministic_orthogonal'
     assert resolved['training']['seed'] == 0
 
 
-def test_optimizer_law_tamper_is_rejected_before_model_mutation():
-    trainer = ReferenceTrainer(config())
-    _, batch = trainer.update()
-    state = copy.deepcopy(trainer_state(trainer, batch))
-    state['optimizers'][0]['dualnorm']['convolution_rule'] = 'polar'
-    before = copy.deepcopy(trainer.graph.state_dict())
-    with pytest.raises(ValueError):
-        restore_trainer(trainer, state)
-    equal(before, trainer.graph.state_dict())
+def test_implementation_fingerprint_covers_the_dependency_package():
+    import particlegan
+    from pathlib import Path
+    from hypergan.particlegan_integration import implementation_files
+    paths = list(Path(particlegan.__file__).parent.rglob('*.py'))
+    fingerprints = implementation_files()
+    assert len(fingerprints) == len(paths)
+    assert all(len(value) == 64 for value in fingerprints.values())
 
 
 def test_importing_replicated_backend_cannot_change_the_native_recipe():
@@ -98,7 +96,7 @@ def test_importing_replicated_backend_cannot_change_the_native_recipe():
     original = training.particlegan_recipe
     from hypergan import distributed_training
     assert training.particlegan_recipe is original
-    assert training.particlegan_recipe(config()).critic_formulation == 'bispf'
+    assert training.particlegan_recipe(config()).to_dict() == original(config()).to_dict()
     from hypergan.execution_profiles import validate_replicated_recipe
     with pytest.raises(ValueError, match='require native execution'):
         validate_replicated_recipe(config())
@@ -117,7 +115,7 @@ def test_snapshot_supports_gaussian_prior_without_a_learned_table():
 def test_prior_optimizer_preserves_its_explicit_adam_epsilon():
     raw = config_values(config())
     raw['recipe'].update(optimizer_family='adam', optimizer_smoothing=0.,
-                         optimizer_convolution='none', optimizer_convolution_rule='polar',
+                         optimizer_convolution='none', optimizer_convolution_rule='polar', optimizer_svd_backend='native',
                          constraint_geometry_mode='none', eps=.03, prior_eps=.12)
     trainer = ReferenceTrainer(resolve_config(raw))
     assert all(group['eps'] == (.12 if group['role'] == 'prior' else .03)
@@ -173,7 +171,7 @@ def test_public_initialization_preserves_loaded_trunk_and_effective_flags(traina
     assert not torch.equal(head_before, head.weight)
 
 
-@pytest.mark.parametrize('delta', [{'continuous_policy': 'dv12'}, {'prior_regularizer': 'sigreg'},
+@pytest.mark.parametrize('delta', [{'prior_proximal_strength': 0.1},
                                   {'constraint_geometry_mode': 'strict_progress'},
                                   {'conditioning': 'ucd', 'num_classes': 2},
                                   {'model': 'ddgan'}])

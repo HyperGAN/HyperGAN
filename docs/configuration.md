@@ -350,49 +350,29 @@ is assumed; compare FID and diversity metrics during training.
 
 ## Numerical recipe
 
-The configuration separates `prior`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`. The generated default uses a particle prior, paired relativistic logistic loss, the K3P critic penalty and VICReg. The exact resolved parameters are saved with each run.
+The configuration separates `prior`, `adversarial`, `gradient_penalty`,
+`prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`.
+Generated projects use `defaults = "particlegan"`: ParticleGAN supplies its
+released formulation and selected defaults for loss, learning rates,
+hyperparameters, normalization, regularization and optimizers. HyperGAN consumes
+those public factories and owns the networks, data bindings, task objectives,
+execution and observations. See the [integration contract](particlegan.md).
 
-Training uses ParticleGAN 0.8's one formulation, K3P
-([how it works](https://github.com/255BITS/ParticleGAN/blob/master/docs/k3p.md)):
-an RpGAN logistic loss; a critic penalty that hands over from R1 plus a
-fake-gradient cap to one-sided caps plus an EMA-critic gradient anchor as the
-critic learning rate anneals; and optimizers built by the ParticleGAN recipe
-whose steps add a critic gradient-spike guard and sparse latent-row damping.
-All of its state (the EMA critic, the learning-rate record, damping history)
-is in the optimizer states, which checkpoints save. Its settings:
+Explicit fields override corresponding defaults. The adapter mapping is
+`PARTICLEGAN_DEFAULT_FIELDS` in `hypergan.particlegan_integration`. Resolution
+reads the dependency's public recipe fields without importing Torch. The full
+resolved recipe and concrete settings are saved with each run. Restoring a saved
+recipe does not select a newer preset, and checkpoint compatibility checks refuse
+incompatible runtime or source changes.
 
-| Field | HyperGAN default | ParticleGAN default | Meaning |
-| --- | --- | --- | --- |
-| `gradient_penalty.coeff`, `kappa`, `lazy_k` | 1, 1, 1 | 1, 1, 1 | penalty coefficient, gradient cap, apply every k-th step with k times the coefficient |
-| `gradient_penalty.anchor_weight`, `anchor_decay` | 1, .999 | 1, .999 | EMA-anchor term weight (0 removes it and the EMA critic); EMA critic decay |
-| `optimizer.d_guard_ratio`, `d_guard_min_steps` | 5, 200 | 5, 200 | clip a critic tensor whose gradient RMS exceeds that multiple of its Adam RMS (0 disables) |
-| `optimizer.latent_damping_max_rate` | .5 | .5 | damping of sparsely sampled particle-table rows (0 disables; needs `prior_betas[0] = 0`) |
-| `training.network_lr_floor`, `network_lr_horizon_cap` | follows `lr_floor`, full budget | .01, 1600 | generator/critic cosine floor and horizon; the prior keeps the full-budget schedule |
-| `training.input_noise_std`, `input_noise_anneal_end` | 0, .1 | .5, .1 | critic input noise, linear to 0 by that fraction of training |
-| `training.output_noise_std`, `output_noise_warmup` | 0, .2 | .029, .2 | noise added to the fake sample, linear warmup over that fraction |
+The `recipe` snapshot is dependency-owned state. Its internal field names and
+techniques are not HyperGAN configuration concepts. Keep the complete snapshot
+when exporting a resolved configuration. The concrete `defaults = "hypergan"`
+reference remains available for existing fixtures; new projects use ParticleGAN.
 
-HyperGAN's defaults keep its earlier learning rates and single schedule and add
-no noise. The removed fields `adversarial.loss_type`/`mode` are accepted only as
-`"logistic"`/`"rp"` and dropped; every other removed loss or
-`gradient_penalty` field (`arm`, `norm`, `method`, ...) is refused with the
-field named. Runs trained before ParticleGAN 0.8 cannot resume under it.
-
-Critic input noise is added inside the critic, so the penalty differentiates
-the clean input and the EMA critic sees the same noise. Output noise is added
-to the fake sample the critic scores, not to objectives or previews. Recipes
-with either noise require native execution.
-
-Top-level `defaults = "particlegan"` fills omitted optimizer (`lr`, `d_lr_mult`,
-`prior_lr_mult`, `betas`, `prior_betas`, guard and damping), gradient-penalty
-(`coeff`, `kappa`, `lazy_k`, `anchor_weight`, `anchor_decay`),
-`prior_regularizer.weight` and training (`ema`, `lr_anneal_start`, `lr_floor`,
-network schedule and noise) fields from the installed `particlegan.Recipe`
-defaults instead of HyperGAN's.
-Explicit fields still win; the mapping is `PARTICLEGAN_DEFAULT_FIELDS` in
-`hypergan.config`. Resolution reads the dataclass without importing Torch.
-The resolved configuration stores the concrete values, so installing a
-ParticleGAN release with different defaults makes resume fail its
-configuration check instead of silently changing a run.
+Obsolete loss-selector and penalty-selector fields are refused with the field
+named. The historical redundant `adversarial.loss_type = "logistic"` and
+`mode = "rp"` fields are accepted and dropped during migration.
 
 Since ParticleGAN 0.6.0, a MoG recipe's `prior.fixed_sigma` is passed directly to
 the constructor. It sets one shared, fixed isotropic noise scale and performs
@@ -425,7 +405,7 @@ The legacy compiler records this policy, and the executor runs those records:
 
 These records describe the current recipe. They do not implement another training method.
 
-`[[adversarial_terms]]` adds further terms, in list order, after that implicit first term. Each term names an existing non-reuse component, required `real` and `fake` binding paths, and an `id`. Every term uses the RpGAN logistic loss. `weight` defaults to 1 and may be 0. Weight 0 still runs that term's forward and scales only its adversarial scalar by zero. `penalty` defaults to false, so an extra term does not take the legacy gradient penalty. `penalty = true` builds a separate penalty from `[gradient_penalty]` using that term's `penalty_coeff` (the default is `[gradient_penalty].coeff`). All scoring components share one critic optimizer, one EMA critic and one learning-rate handover. Two terms may name one component and keep different penalty coefficients. A term may override `inputs`; otherwise it uses the component's inputs. Exactly one of those paths is `candidate`.
+`[[adversarial_terms]]` adds further terms, in list order, after that implicit first term. Each term names an existing non-reuse component, required `real` and `fake` binding paths, and an `id`. Every term uses the dependency-provided loss. Resolved ParticleGAN recipes currently support one critic network; additional terms are limited to the concrete reference execution path. `weight` defaults to 1 and may be 0. Weight 0 still runs that term's forward and scales only its adversarial scalar by zero. `penalty` defaults to false, so an extra term does not take the legacy gradient penalty. `penalty = true` builds a separate penalty from `[gradient_penalty]` using that term's `penalty_coeff` (the default is `[gradient_penalty].coeff`). All scoring components share one critic optimizer, one EMA critic and one learning-rate handover. Two terms may name one component and keep different penalty coefficients. A term may override `inputs`; otherwise it uses the component's inputs. Exactly one of those paths is `candidate`.
 
 Extra terms use the legacy detach policy above. Conditioning inputs stay detached on both steps. A trainable component whose only use is that detached conditioning still fails validation. A component used as a real or fake sample is generator-reachable and is not reported as disconnected. The schedule stays `d-then-g-v1`. Replicated execution rejects these extra terms.
 

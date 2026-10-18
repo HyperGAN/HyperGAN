@@ -16,10 +16,10 @@ import os
 import numpy as np
 
 import torch
-from particlegan import GANLoss, ParticlePrior, ParticleRegularizer, Recipe, learning_rate_scales
-from particlegan.grad_regularizers import GradientPenalty
+from particlegan import ParticlePrior, learning_rate_scales
 from particlegan.training import input_noise_std, output_noise_std
 
+from .particlegan_integration import particlegan_recipe, implementation_files
 from .recipes import ComponentGraph, construct, make_prior, execution_device, move_tensors
 from .checkpoints import data_contract
 from .numerical_policy import apply_backend_policy
@@ -219,53 +219,6 @@ def initialize_fresh_parameters(graph, seed):
             parameter.requires_grad_(flags[key])
 
 
-def particlegan_recipe(config):
-    """The ParticleGAN recipe holding this configuration's training formulation.
-
-    The snapshot holds the complete new preset. Concrete scalar sections own
-    their corresponding overrides; legacy configurations retain K3P.
-    """
-    opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
-    fields = dict(config.get('recipe') or {'critic_formulation': 'k3p'})
-    fields.update(
-        total_steps=training['steps'], batch_size=training['batch_size'],
-        lr=opt['lr'], d_lr_mult=opt['d_lr_mult'], prior_lr_mult=opt['prior_lr_mult'],
-        betas=tuple(opt['betas']), prior_betas=tuple(opt['prior_betas']),
-        d_guard_ratio=opt['d_guard_ratio'], d_guard_min_steps=opt['d_guard_min_steps'],
-        latent_damping_max_rate=opt['latent_damping_max_rate'],
-        reg_coeff=penalty['coeff'], reg_kappa=penalty['kappa'], reg_every=penalty['lazy_k'],
-        reg_anchor_weight=penalty['anchor_weight'],
-        prior_reg=config['prior_regularizer']['weight'],
-        prior_reg_target_std=config['prior_regularizer']['target_std'],
-        prior_reg_eps=config['prior_regularizer']['eps'], ema_decay=training['ema'],
-        lr_anneal_start=training['lr_anneal_start'], lr_floor=training['lr_floor'],
-        network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
-        input_noise_std=training['input_noise_std'], input_noise_anneal_end=training['input_noise_anneal_end'],
-        output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'])
-    recipe = Recipe(**fields)
-    unsupported = {
-        'continuous_policy': recipe.continuous_policy is not None,
-        'particle_birth_death': recipe.particle_birth_death,
-        'row_evidence_gate': recipe.row_evidence_gate,
-        'serve_average': recipe.serve_average != 0,
-        'output_noise_mode': recipe.output_noise_mode != 'fixed',
-        'constraint_geometry_mode': recipe.constraint_geometry_mode not in ('none', 'nonascent', 'direction_blend'),
-        'critic_step_mode': recipe.critic_step_mode != 'none',
-        'prior_proximal_strength': recipe.prior_proximal_strength != 0,
-        'kinetic_transport_weight': recipe.kinetic_transport_weight != 0,
-        'kinetic_transport_local_weight': recipe.kinetic_transport_local_weight != 0,
-        'beta2_end': recipe.beta2_end is not None,
-        'reg_coeff_end': recipe.reg_coeff_end is not None,
-        'prior_regularizer': recipe.prior_regularizer not in ('vicreg', 'none', 'sbnp', 'moment_tether', 'coulomb'),
-        'model': recipe.model != 'gan',
-        'conditioning': recipe.conditioning == 'ucd',
-        'encoder_mode': recipe.encoder_mode != 'none',
-        'row_policy': recipe.row_policy != 'independent',
-    }
-    rejected = [key for key, active in unsupported.items() if active]
-    if rejected:
-        raise ValueError('HyperGAN reference loop does not implement recipe mechanisms: ' + ', '.join(rejected))
-    return recipe
 
 
 class ScoredCritic(torch.nn.Module):
@@ -310,7 +263,7 @@ def noise_levels(trainer, completed_steps):
     return input_noise_std(trainer.recipe, completed_steps), output_noise_std(trainer.recipe, completed_steps)
 
 
-# The penalty stream is reserved (the K3P penalty draws no randomness); input
+# The penalty stream is reserved for dependency use; input
 # and output noise draw from their own stream.
 NOISE_SEED_OFFSET = 5
 
@@ -346,6 +299,8 @@ class ReferenceTrainer:
             self.recipe.apply_prior_policy(self.prior)
         self.gan = self.recipe.make_loss()
         self.spread = self.recipe.make_prior_regularizer(prior=self.prior)
+        if self.recipe.prior_regularizer_checkpoint(self.spread):
+            raise ValueError('HyperGAN does not implement stateful prior regularizer checkpoints')
         self.objectives = [construct(term) for term in config["objectives"]]
         for objective in self.objectives:
             if isinstance(objective, torch.nn.Module):
@@ -361,11 +316,11 @@ class ReferenceTrainer:
         # optimizer, one EMA critic (the penalty's anchor) and one handover.
         names = ["discriminator"] + [term["component"] for term in config.get("adversarial_terms") or ()]
         names = list(dict.fromkeys(names))
-        if config.get('recipe') and self.recipe.effective_critic_formulation == 'bispf':
+        if config.get('recipe'):
             if len(names) != 1:
-                raise ValueError('BISPF currently requires one critic network; combine feature heads inside that network')
-            # BISPF attaches its thermal/logit hook to the module being scored.
-            # A ModuleDict that never receives forward would bypass that law.
+                raise ValueError('The ParticleGAN integration currently requires one critic network; combine feature heads inside that network')
+            # Pass the actual scoring module to the public factory so any
+            # dependency-owned forward hooks run during scoring.
             self.critic = self.graph.models[names[0]]
         else:
             self.critic = torch.nn.ModuleDict({name: self.graph.models[name] for name in names})
@@ -513,26 +468,20 @@ def _implementation(trainer):
     import hypergan.numerical_policy
     objects = [hypergan.checkpoints, hypergan.config, hypergan.metrics, hypergan.recipes,
                hypergan.run_controller, hypergan.single_execution, hypergan.numerical_policy, ReferenceTrainer,
-               GANLoss, GradientPenalty, ParticleRegularizer, Recipe, learning_rate_scales, input_noise_std,
+               type(trainer.recipe), learning_rate_scales, input_noise_std,
                type(trainer.penalty), type(trainer.gan), type(trainer.spread),
                *[type(optimizer) for optimizer in (trainer.opt_g, trainer.opt_d)],
                type(trainer.data), type(trainer.prior), *[type(x) for x in trainer.graph.modules()],
                *[x if inspect.isfunction(x) else type(x) for x in trainer.objectives]]
     for optimizer in (trainer.opt_g, trainer.opt_d):
         objects.extend(type(optimizer).__mro__)
-    # Include helpers dispatched by the normalized optimizer, beyond its class
-    # definition; same-version kernel edits must invalidate exact continuation.
-    if trainer.recipe.optimizer_family not in ('formulation', 'adam'):
-        objects.extend(importlib.import_module(name) for name in (
-            'particlegan.optim.dualnorm', 'particlegan.optim.convolution_quintic',
-            'particlegan.optim.convolution_frobenius',
-            'particlegan.optim.constraint_geometry', 'particlegan.optim.strict_progress'))
+    # Dependency internals are opaque; include all its implementation bytes.
     specifications = [trainer.config['data'], *trainer.config['components'].values(), *trainer.config['objectives']]
     for specification in specifications:
         factory = specification['factory']
         if ':' in factory:
             objects.append(importlib.import_module(factory.split(':', 1)[0]))
-    result = {}
+    result = implementation_files()
     for obj in objects:
         module = inspect.getmodule(obj)
         path = getattr(module, '__file__', None)

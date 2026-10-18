@@ -814,7 +814,7 @@ def test_model_route_serves_the_recorded_configuration(tmp_path):
         assert response.status_code == 200
         body = response.json()
         assert body['run_id'] == 'run' and body['config_sha256'] == manifest['config_sha256']
-        assert body['formulation']['family'] == 'k3p' and body['formulation']['particlegan'] == '0.8.0'
+        assert body['formulation']['family'] == 'particlegan' and body['formulation']['particlegan'] == '0.8.0'
         assert [n['name'] for n in body['networks']] == ['generator', 'discriminator']
         assert body['networks'][0]['source']['text'].strip()
         assert body['networks'][0]['graph']['status'] == 'unavailable'

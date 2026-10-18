@@ -1,9 +1,7 @@
 """Atomic run metadata and bounded, torch-free observation."""
 import json
 import hashlib
-import os
 from pathlib import Path
-
 
 from foldlitedb.fileio import (AppendJournal, atomic_json, file_lock,
                              repair_jsonl_tail as repair_event_tail, sync_directory)

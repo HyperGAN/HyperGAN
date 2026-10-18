@@ -1,5 +1,7 @@
 """The explicit headless path has no serving or multiprocessing dependency."""
 import builtins
+import socket
+import sys
 
 import pytest
 
@@ -136,6 +138,22 @@ def test_exhausted_default_range_names_the_conflict(monkeypatch):
     with web_launch.bind_server(base, '127.0.0.1'):
         with pytest.raises(OSError, match=rf"Port {base} is already in use by PID \d+"):
             web_launch.bind_available(host='127.0.0.1', attempts=1)
+
+
+@pytest.mark.skipif(not sys.platform.startswith('linux'),
+                    reason='SO_REUSEADDR is enabled on Linux only')
+def test_restart_rebinds_while_previous_connections_linger_in_time_wait():
+    from hypergan.web_launch import bind_server
+    base = _free_base(1)
+    with bind_server(base, '127.0.0.1') as listener:
+        client = socket.create_connection(('127.0.0.1', base))
+        accepted, _ = listener.accept()
+        # Server-side active close leaves (base, peer) in TIME_WAIT, as a
+        # stopped viewer does after serving a browser.
+        accepted.close()
+        client.close()
+    with bind_server(base, '127.0.0.1') as restarted:
+        assert restarted.getsockname()[1] == base
 
 
 def test_requested_port_is_strict_and_zero_still_means_any_port():

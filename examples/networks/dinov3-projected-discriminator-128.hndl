@@ -1,0 +1,70 @@
+# 128px DINOv3 Projected GAN feature-only critic. Input RGB in [-1, 1].
+# Frozen ViT-S/16 multidepth backbone (blocks 2, 5, 8, 11 at native 8x8 grid)
+# with four independent convolutional projected heads and scalar [B, 1] score.
+
+# ImageNet normalization of [-1, 1] RGB: (x * 0.5 + 0.5 - mean) / std.
+scaled = scale(x, 0.5)
+half = constant(x, 3, 1, 1, value=0.5)
+normalized = broadcast_add(scaled, half)
+red, green_blue = split(normalized, 1)
+green, blue = split(green_blue, 1)
+red_bias = constant(red, 1, 1, 1, value=-0.485)
+red = broadcast_add(red, red_bias)
+red = scale(red, 4.3668122270742355)
+green_bias = constant(green, 1, 1, 1, value=-0.456)
+green = broadcast_add(green, green_bias)
+green = scale(green, 4.464285714285714)
+blue_bias = constant(blue, 1, 1, 1, value=-0.406)
+blue = broadcast_add(blue, blue_bias)
+blue = scale(blue, 4.444444444444445)
+normalized = concat(red, green, blue, name="normalized")
+
+# Frozen ViT-S/16. The multidepth readout returns LayerNorm-normalized blocks
+# 2, 5, 8, and 11 concatenated on channels: [B, 1536, 8, 8].
+features = pretrained(normalized, ${weights_path},
+    provider="dinov3_vits16", sha256=${weights_sha256},
+    readout="multidepth", trainable=False, name="backbone")
+feature1, remaining = split(features, 384, name="depth1_split")
+feature2, remaining = split(remaining, 384, name="depth2_split")
+feature3, feature4 = split(remaining, 384, name="depth3_split")
+
+# Projected head 1 (block 2, 8x8 -> 4x4 -> scalar)
+h1 = conv(feature1, 64, kernel_size=1, name="disc1_ccm")
+h1 = leaky_relu(h1, 0.2)
+h1 = conv(h1, 64, kernel_size=3, padding=1, stride=2, name="disc1_down")
+h1 = leaky_relu(h1, 0.2)
+h1 = conv(h1, 1, kernel_size=3, padding=1, name="disc1_logit")
+h1 = flatten(h1)
+score1 = mean(h1, 1, keepdim=True)
+
+# Projected head 2 (block 5, 8x8 -> 4x4 -> scalar)
+h2 = conv(feature2, 64, kernel_size=1, name="disc2_ccm")
+h2 = leaky_relu(h2, 0.2)
+h2 = conv(h2, 64, kernel_size=3, padding=1, stride=2, name="disc2_down")
+h2 = leaky_relu(h2, 0.2)
+h2 = conv(h2, 1, kernel_size=3, padding=1, name="disc2_logit")
+h2 = flatten(h2)
+score2 = mean(h2, 1, keepdim=True)
+
+# Projected head 3 (block 8, 8x8 -> 4x4 -> scalar)
+h3 = conv(feature3, 64, kernel_size=1, name="disc3_ccm")
+h3 = leaky_relu(h3, 0.2)
+h3 = conv(h3, 64, kernel_size=3, padding=1, stride=2, name="disc3_down")
+h3 = leaky_relu(h3, 0.2)
+h3 = conv(h3, 1, kernel_size=3, padding=1, name="disc3_logit")
+h3 = flatten(h3)
+score3 = mean(h3, 1, keepdim=True)
+
+# Projected head 4 (block 11, 8x8 -> 4x4 -> scalar)
+h4 = conv(feature4, 64, kernel_size=1, name="disc4_ccm")
+h4 = leaky_relu(h4, 0.2)
+h4 = conv(h4, 64, kernel_size=3, padding=1, stride=2, name="disc4_down")
+h4 = leaky_relu(h4, 0.2)
+h4 = conv(h4, 1, kernel_size=3, padding=1, name="disc4_logit")
+h4 = flatten(h4)
+score4 = mean(h4, 1, keepdim=True)
+
+# Equal-variance combination across the four depths: sum / sqrt(4).
+feature_score = concat(score1, score2, score3, score4)
+feature_score = sum(feature_score, 1, keepdim=True)
+out = scale(feature_score, 0.5)

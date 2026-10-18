@@ -7,7 +7,7 @@ defaults = "particlegan"
 [data]
 factory = "hypergan.constraint_data:ConstraintTargetData"
 [data.args]
-target_probs = [0.92, 0.02, 0.02, 0.02, 0.02]
+target_probs = [0.992, 0.002, 0.002, 0.002, 0.002]
 mode = "logits"
 jitter_std = 0.15
 
@@ -47,6 +47,7 @@ inputs = { x = "candidate" }
 input_shape = ["B", 5]
 output_shape = ["B", 1]
 source = """
+contrastive_log_odds(target_index=0)
 linear(64)
 leaky_relu(0.2)
 linear(64)
@@ -105,13 +106,25 @@ steps = 2000
 batch_size = 16
 seed = 25002
 device = "cuda:0"
-ema = 0.99
+ema = 0.95
 phase_draws = "independent"
 
+[training.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
 [optimizer]
-lr = 0.0005
-d_lr_mult = 1.0
-prior_lr_mult = 5.0
+lr = 0.025
+d_lr_mult = 0.5
+prior_lr_mult = 2.0
+
+[gradient_penalty]
+coeff = 25.0
+kappa = 1.0
+lazy_k = 1
 
 [sampling]
 generated = "components.image_generator"

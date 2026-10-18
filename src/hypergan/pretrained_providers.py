@@ -316,7 +316,7 @@ def _imajev_builder(config):
                 w = self.weight.to(hidden.device)[readout_indices]
                 temperature = float(self._config.get('temperature', 1.0))
                 logits = (hidden @ w.T) / temperature
-                logits = logits - logits.mean(dim=-1, keepdim=True)
+                logits = logits - logits.mean(dim=-1, keepdim=True).detach()
                 return logits.to(x.device) if logits.device != x.device else logits
 
             def forward_probs(self, x):

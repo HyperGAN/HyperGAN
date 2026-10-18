@@ -973,3 +973,29 @@ def test_failed_bootstrap_job_can_retry_after_its_delivery_lease(tmp_path):
         finally:
             await service.close()
     asyncio.run(scenario())
+
+
+def test_corrupt_foldlite_cache_reports_job_error_and_allows_regeneration(tmp_path):
+    fixture_run(tmp_path, 3)
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            expected = await get_bootstrap(service)
+            cache = next((tmp_path / 'views' / MapSpec().revision / 'foldlite').glob('*.sqlite'))
+            service.jobs.clear()
+            cache.write_bytes(b'corrupt derived cache')
+            failed = service.bootstrap(MapSpec().revision, series=['loss/g_total'], bucket_steps=2)
+            await failed.task
+            assert failed.result is None
+            assert 'derived view cache' in failed.error and 'remove' in failed.error
+            # The completed job has closed its cache; no historical reader or
+            # writer is active. Its error lease can expire and regeneration retry.
+            cache.unlink()
+            failed.delivered, failed.completed = True, time.monotonic() - 6
+            retried = service.bootstrap(MapSpec().revision, series=['loss/g_total'], bucket_steps=2)
+            await retried.task
+            assert retried is not failed and retried.error is None
+            assert retried.result == expected
+        finally:
+            await service.close()
+    asyncio.run(scenario())

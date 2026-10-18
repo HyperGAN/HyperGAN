@@ -392,3 +392,41 @@ every_steps = 1
         )
     finally:
         torch.set_num_threads(old_threads)
+
+
+def test_hndl_contrastive_log_odds_operator_and_gradients():
+    from hypergan.hndl_networks import build_network
+
+    net = build_network(
+        "contrastive_log_odds(target_index=1)\nlinear(8)\nleaky_relu(0.2)\nlinear(1)",
+        input_shape=("B", 5),
+        output_shape=("B", 1),
+    )
+    x = torch.tensor(
+        [[0.5, 2.0, -1.0, 0.0, -0.5], [-1.0, 3.0, 0.5, -0.5, 0.0]],
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+    # Verify exact one-vs-rest log-odds calculation on the first node
+    clo = net.nodes.n_n0
+    margin = clo(x)
+    expected = x[:, 1:2] - torch.logsumexp(torch.cat([x[:, :1], x[:, 2:]], dim=-1), dim=-1, keepdim=True)
+    torch.testing.assert_close(margin, expected)
+
+    margin.sum().backward()
+    assert x.grad is not None
+    # Target index 1 receives +1 gradient; distractors receive negative softmax weights summing to -1
+    torch.testing.assert_close(x.grad[:, 1], torch.ones(2))
+    distractor_grads = torch.cat([x.grad[:, :1], x.grad[:, 2:]], dim=-1)
+    assert torch.all(distractor_grads < 0)
+    torch.testing.assert_close(distractor_grads.sum(dim=-1), -torch.ones(2))
+
+    with pytest.raises(ValueError, match="K >= 2"):
+        clo(torch.zeros(2, 1))
+    with pytest.raises(ValueError, match="out of bounds"):
+        build_network(
+            "contrastive_log_odds(target_index=5)",
+            input_shape=("B", 5),
+            output_shape=("B", 1),
+        )(torch.zeros(2, 5))
+

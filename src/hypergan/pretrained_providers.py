@@ -425,7 +425,7 @@ def _imajev_builder(config):
                 c = torch.cat([z0 - torch.logsumexp(z_rest, dim=-1, keepdim=True), z_rest - z0], dim=-1)
                 v_perp = self._get_v_perp(w, len(readout_indices))
                 dh = hidden - hidden.mean(dim=0, keepdim=True).detach()
-                h_perp = (dh @ v_perp.T) * 0.15
+                h_perp = (dh @ v_perp.T) * 0.0
                 out = torch.cat([c, h_perp], dim=-1)
                 return out.to(x.device) if out.device != x.device else out
 

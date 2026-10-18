@@ -10,7 +10,7 @@ factory = "hypergan.constraint_data:ConstraintHiddenTargetData"
 target_probs = [0.992, 0.002, 0.002, 0.002, 0.002]
 hidden_dim = 2560
 jitter_std = 0.05
-null_std = 0.05
+null_std = 0.0
 
 [components.image_generator]
 factory = "hndl"

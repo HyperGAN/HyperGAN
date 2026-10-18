@@ -31,17 +31,42 @@ def dummy_readout_artifact(tmp_path):
     return path, digest, weight
 
 
+class _MockQwenLanguageModel(torch.nn.Module):
+    def __init__(self, hidden_size=2560):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.lm_proj = torch.nn.Linear(hidden_size, hidden_size, bias=False)
+        self.norm = torch.nn.LayerNorm(hidden_size, elementwise_affine=False)
+        with torch.no_grad():
+            self.lm_proj.weight.copy_(torch.eye(hidden_size))
+        self.requires_grad_(False)
+
+    def forward(self, inputs_embeds, position_ids=None, use_cache=False, output_hidden_states=False):
+        pooled = inputs_embeds.float().mean(dim=1, keepdim=True)
+        last = self.lm_proj(pooled).expand(-1, inputs_embeds.shape[1], -1)
+        states = (
+            tuple(last * (0.5 + 0.01 * idx) for idx in range(37))
+            if output_hidden_states
+            else None
+        )
+
+        class _LMOut:
+            last_hidden_state = last
+            hidden_states = states
+
+        return _LMOut()
+
+
 class _MockQwenInnerModel(torch.nn.Module):
     def __init__(self, hidden_size=2560, num_visual_tokens=64):
         super().__init__()
         self.hidden_size = hidden_size
         self.num_visual_tokens = num_visual_tokens
         self.vision_proj = torch.nn.Linear(1536, hidden_size, bias=False)
-        self.lm_proj = torch.nn.Linear(hidden_size, hidden_size, bias=False)
+        self.language_model = _MockQwenLanguageModel(hidden_size=hidden_size)
         with torch.no_grad():
             torch.manual_seed(19)
             self.vision_proj.weight.normal_(0.0, 0.02)
-            self.lm_proj.weight.copy_(torch.eye(hidden_size))
         self.requires_grad_(False)
 
     def get_image_features(self, pixel_values, image_grid_thw=None, return_dict=True):
@@ -56,15 +81,6 @@ class _MockQwenInnerModel(torch.nn.Module):
             pooler_output = out
 
         return _VisionOut()
-
-    def language_model(self, inputs_embeds, position_ids=None, use_cache=False):
-        pooled = inputs_embeds.float().mean(dim=1, keepdim=True)
-        last = self.lm_proj(pooled).expand(-1, inputs_embeds.shape[1], -1)
-
-        class _LMOut:
-            last_hidden_state = last
-
-        return _LMOut()
 
 
 class _MockQwenTopModel(torch.nn.Module):
@@ -119,8 +135,14 @@ def _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
     return mock_runtime
 
 
-@pytest.mark.parametrize('readout', ['decision_logits', 'decision_probs'])
-def test_imajev_provider_shape_resolution_and_lightweight_deepcopy(dummy_readout_artifact, readout):
+@pytest.mark.parametrize('readout,expected_dim', [
+    ('decision_logits', 4),
+    ('decision_probs', 4),
+    ('hidden_state', 2560),
+])
+def test_imajev_provider_shape_resolution_and_lightweight_deepcopy(
+    dummy_readout_artifact, readout, expected_dim
+):
     path, digest, expected_weight = dummy_readout_artifact
     provider_cfg = {
         'base_model_path': '/mock/qwen3.5-4b',
@@ -135,7 +157,7 @@ def test_imajev_provider_shape_resolution_and_lightweight_deepcopy(dummy_readout
     model = build_network(
         source,
         input_shape=('B', 3, 64, 64),
-        output_shape=('B', 4),
+        output_shape=('B', expected_dim),
         pretrained_providers={'imajev_4b': provider_cfg},
     )
     backbone = model['imajev'].model
@@ -206,7 +228,7 @@ def test_imajev_mocked_forward_and_backward_gradients(dummy_readout_artifact, mo
         pretrained_providers={'imajev_4b': provider_cfg},
     )
 
-    x = torch.linspace(-1.2, 1.2, 2 * 3 * 32 * 32).reshape(2, 3, 32, 32).requires_grad_(True)
+    x = torch.linspace(-1.2, 1.2, 2 * 3 * 32 * 32).reshape(2, 3, 32 * 32).view(2, 3, 32, 32).requires_grad_(True)
     logits = logits_net(x)
     assert logits.shape == (2, 4)
     assert torch.isfinite(logits).all()
@@ -227,6 +249,65 @@ def test_imajev_mocked_forward_and_backward_gradients(dummy_readout_artifact, mo
     torch.testing.assert_close(probs.sum(dim=-1), torch.ones(2), atol=1e-6, rtol=0)
     probs[:, 0].sum().backward()
     assert x2.grad is not None and torch.isfinite(x2.grad).all() and x2.grad.abs().sum() > 0
+
+
+def test_imajev_hidden_state_readout_and_target_layer(dummy_readout_artifact, monkeypatch):
+    path, digest, expected_weight = dummy_readout_artifact
+    provider_cfg = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'question': 'What is shown?',
+        'options': ['apple', 'orange', 'banana', 'noise'],
+        'target_layer': -8,
+    }
+    _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
+
+    hidden_src = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="hidden_state", trainable=False, name="imajev")'
+    )
+    logits_src = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="decision_logits", trainable=False, name="imajev")'
+    )
+    hidden_net = build_network(
+        hidden_src,
+        input_shape=('B', 3, 32, 32),
+        output_shape=('B', 2560),
+        pretrained_providers={'imajev_4b': provider_cfg},
+    )
+    logits_net = build_network(
+        logits_src,
+        input_shape=('B', 3, 32, 32),
+        output_shape=('B', 5),
+        pretrained_providers={'imajev_4b': provider_cfg},
+    )
+
+    x = torch.randn(3, 3, 32, 32, requires_grad=True)
+    out = hidden_net(x)
+    assert out.shape == (3, 2560)
+    assert torch.isfinite(out).all()
+
+    with torch.no_grad():
+        logits = logits_net(x.detach())
+        z0 = logits[:, :1]
+        z_rest = logits[:, 1:]
+        expected_c = torch.cat([z0 - torch.logsumexp(z_rest, dim=-1, keepdim=True), z_rest - z0], dim=-1)
+    torch.testing.assert_close(out[:, :5], expected_c, atol=1e-5, rtol=1e-5)
+    # Nullspace coordinates are batch-centered across the batch dimension
+    torch.testing.assert_close(out[:, 5:].mean(dim=0), torch.zeros(2555), atol=1e-5, rtol=0)
+
+    backbone = hidden_net['imajev'].model
+    v_perp = backbone._v_perp_cache[(torch.device('cpu'), 5)]
+    assert v_perp.shape == (2555, 2560)
+    ortho = expected_weight[:5] @ v_perp.T
+    torch.testing.assert_close(ortho, torch.zeros(5, 2555), atol=1e-5, rtol=0)
+
+    (out[:, 0].sum() + out[:, 5:].square().sum()).backward()
+    assert x.grad is not None and torch.isfinite(x.grad).all() and x.grad.abs().sum() > 0
+
+    copied = deepcopy(hidden_net)
+    assert copied['imajev'].model._v_perp_cache == {}
 
 
 def test_imajev_custom_image_size_and_compile_flag(dummy_readout_artifact, monkeypatch):
@@ -263,14 +344,10 @@ def test_imajev_custom_image_size_and_compile_flag(dummy_readout_artifact, monke
     reason='Requires CUDA and local imajev-4b artifacts',
 )
 def test_real_imajev_4b_gpu_scores_and_gradients():
-    device = None
-    for idx in range(torch.cuda.device_count()):
-        free_bytes, _ = torch.cuda.mem_get_info(idx)
-        if free_bytes >= 12 * 1024**3:
-            device = f'cuda:{idx}'
-            break
-    if device is None:
-        pytest.skip('No CUDA device has at least 12 GiB free memory')
+    free_bytes, _ = torch.cuda.mem_get_info(0)
+    if free_bytes < 12 * 1024**3:
+        pytest.skip('cuda:0 has less than 12 GiB free memory')
+    device = 'cuda:0'
 
     provider_cfg = {
         'base_model_path': str(REAL_BASE_MODEL),

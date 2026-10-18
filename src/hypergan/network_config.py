@@ -53,7 +53,7 @@ def render_source(source, parameters=None):
 
 def _validate_imajev_provider(options):
     required = {'base_model_path', 'adapter_path', 'question', 'options'}
-    allowed = required | {'state', 'temperature', 'image_size', 'compile'}
+    allowed = required | {'state', 'temperature', 'image_size', 'compile', 'target_layer'}
     if not isinstance(options, dict) or not required.issubset(options) or set(options) - allowed:
         raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
     for key in ('base_model_path', 'adapter_path', 'question'):
@@ -86,6 +86,10 @@ def _validate_imajev_provider(options):
     if 'compile' in options:
         if type(options['compile']) is not bool:
             raise ValueError('imajev_4b compile must be a boolean')
+    if 'target_layer' in options:
+        target_layer = options['target_layer']
+        if type(target_layer) is not int or not -36 <= target_layer <= 35:
+            raise ValueError('imajev_4b target_layer must be an integer in [-36, 35]')
 
 
 def validate_pretrained_providers(providers):

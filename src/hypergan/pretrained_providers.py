@@ -40,6 +40,7 @@ def register_providers(registry, providers=None):
                 readouts={
                     'decision_logits': _imajev_decision_logits,
                     'decision_probs': _imajev_decision_probs,
+                    'hidden_state': _imajev_hidden_state,
                 },
                 shape_fn=_imajev_shape_fn(config),
             )
@@ -245,8 +246,12 @@ def _imajev_shape_fn(config):
         if (not isinstance(input_shape, (list, tuple)) or len(input_shape) != 4
                 or int(input_shape[1]) != 3 or any(int(s) < 16 for s in input_shape[2:])):
             raise ValueError('imajev_4b expects RGB images with height and width at least 16')
-        if layer or layers or readout not in ('decision_logits', 'decision_probs'):
-            raise ValueError('imajev_4b requires readout="decision_logits" or "decision_probs"')
+        if layer or layers or readout not in ('decision_logits', 'decision_probs', 'hidden_state'):
+            raise ValueError(
+                'imajev_4b requires readout="decision_logits", "decision_probs", or "hidden_state"'
+            )
+        if readout == 'hidden_state':
+            return (input_shape[0], 2560)
         return (input_shape[0], num_candidates)
 
     return shape_fn
@@ -288,7 +293,19 @@ def _imajev_builder(config):
                 super().__init__()
                 self.weight = nn.Parameter(torch.empty(256, 2560, dtype=torch.float32), requires_grad=False)
                 self._config = deepcopy(cfg)
+                self._v_perp_cache = {}
                 self.eval()
+
+            def __deepcopy__(self, memo):
+                cls = self.__class__
+                result = cls.__new__(cls)
+                memo[id(self)] = result
+                for k, v in self.__dict__.items():
+                    if k == '_v_perp_cache':
+                        setattr(result, k, {})
+                    else:
+                        setattr(result, k, deepcopy(v, memo))
+                return result
 
             def train(self, mode=True):
                 return super().train(False)
@@ -325,7 +342,24 @@ def _imajev_builder(config):
                 prompt_bundle = _prepare_imajev_prompt(runtime, self._config)
                 return runtime, prompt_bundle
 
-            def _forward_logits_impl(self, x):
+            def _extract_hidden_state(self, m, embeds, position_ids):
+                target_layer = int(self._config.get('target_layer', -1))
+                layer_idx = target_layer if target_layer >= 0 else 36 + target_layer
+                if layer_idx == 35:
+                    return m.language_model(
+                        inputs_embeds=embeds,
+                        position_ids=position_ids,
+                        use_cache=False,
+                    ).last_hidden_state[:, -1].float()
+                out = m.language_model(
+                    inputs_embeds=embeds,
+                    position_ids=position_ids,
+                    use_cache=False,
+                    output_hidden_states=True,
+                )
+                return m.language_model.norm(out.hidden_states[layer_idx + 1][:, -1]).float()
+
+            def _vision_and_hidden(self, x):
                 import torch.nn.functional as F
                 if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
                     raise ValueError('imajev_4b expects RGB images with height and width at least 16')
@@ -358,16 +392,42 @@ def _imajev_builder(config):
                 vision_out = m.get_image_features(patches, grid_thw_1.expand(B, -1), return_dict=True)
                 features = torch.cat(vision_out.pooler_output, dim=0).to(base_embeds_1.device, base_embeds_1.dtype)
                 embeds = base_embeds_1.expand(B, -1, -1).masked_scatter(image_mask_1.expand(B, -1, -1), features)
-                hidden = m.language_model(
-                    inputs_embeds=embeds,
-                    position_ids=positions_1.expand(3, B, -1).contiguous(),
-                    use_cache=False,
-                ).last_hidden_state[:, -1].float()
+                position_ids = positions_1.expand(3, B, -1).contiguous()
+                hidden = self._extract_hidden_state(m, embeds, position_ids)
+                return hidden, readout_indices
+
+            def _get_v_perp(self, w, num_classes):
+                cache_key = (w.device, int(num_classes))
+                v_perp = self._v_perp_cache.get(cache_key)
+                if v_perp is None:
+                    with torch.no_grad():
+                        _, _, vh = torch.linalg.svd(w.detach().float(), full_matrices=True)
+                        v_perp = vh[num_classes:].contiguous()
+                    self._v_perp_cache[cache_key] = v_perp
+                return v_perp
+
+            def _forward_logits_impl(self, x):
+                hidden, readout_indices = self._vision_and_hidden(x)
                 w = self.weight.to(hidden.device)[readout_indices]
                 temperature = float(self._config.get('temperature', 1.0))
                 logits = (hidden @ w.T) / temperature
                 logits = logits - logits.mean(dim=-1, keepdim=True).detach()
                 return logits.to(x.device) if logits.device != x.device else logits
+
+            def _forward_hidden_impl(self, x):
+                hidden, readout_indices = self._vision_and_hidden(x)
+                w = self.weight.to(hidden.device)[readout_indices]
+                temperature = float(self._config.get('temperature', 1.0))
+                logits = (hidden @ w.T) / temperature
+                logits = logits - logits.mean(dim=-1, keepdim=True).detach()
+                z0 = logits[:, :1]
+                z_rest = logits[:, 1:]
+                c = torch.cat([z0 - torch.logsumexp(z_rest, dim=-1, keepdim=True), z_rest - z0], dim=-1)
+                v_perp = self._get_v_perp(w, len(readout_indices))
+                dh = hidden - hidden.mean(dim=0, keepdim=True).detach()
+                h_perp = (dh @ v_perp.T) * 0.15
+                out = torch.cat([c, h_perp], dim=-1)
+                return out.to(x.device) if out.device != x.device else out
 
             def forward_logits(self, x):
                 if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
@@ -375,6 +435,13 @@ def _imajev_builder(config):
                 if torch.is_grad_enabled() and x.requires_grad:
                     return _CachedInputGradFn.apply(x, self._forward_logits_impl)
                 return self._forward_logits_impl(x)
+
+            def forward_hidden(self, x):
+                if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
+                    raise ValueError('imajev_4b expects RGB images with height and width at least 16')
+                if torch.is_grad_enabled() and x.requires_grad:
+                    return _CachedInputGradFn.apply(x, self._forward_hidden_impl)
+                return self._forward_hidden_impl(x)
 
             def forward_probs(self, x):
                 return self.forward_logits(x).softmax(dim=-1)
@@ -393,6 +460,10 @@ def _imajev_decision_logits(model, x):
 
 def _imajev_decision_probs(model, x):
     return model.forward_probs(x)
+
+
+def _imajev_hidden_state(model, x):
+    return model.forward_hidden(x)
 
 
 def _dinov3_builder(source_path, source_commit):

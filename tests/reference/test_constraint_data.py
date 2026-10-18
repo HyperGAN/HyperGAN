@@ -14,6 +14,7 @@ from torch import nn
 from hypergan.checkpoints import data_contract, read_checkpoint
 from hypergan.config import DEFAULT, resolve_config
 from hypergan.constraint_data import (
+    ConstraintHiddenTargetData,
     ConstraintSatisfactionMetric,
     ConstraintTargetData,
     OptionProbability,
@@ -429,4 +430,72 @@ def test_hndl_contrastive_log_odds_operator_and_gradients():
             input_shape=("B", 5),
             output_shape=("B", 1),
         )(torch.zeros(2, 5))
+
+
+def test_constraint_hidden_target_data_and_option_probability_hidden_state():
+    probs = [0.992, 0.002, 0.002, 0.002, 0.002]
+    data_zero = ConstraintHiddenTargetData(
+        probs, hidden_dim=32, jitter_std=0.0, null_std=0.0, target_index=0
+    )
+    batch_zero = data_zero(8)["real"]
+    assert batch_zero.shape == (8, 32)
+    assert batch_zero.dtype == torch.float32
+    torch.testing.assert_close(batch_zero[:, 5:], torch.zeros(8, 27), atol=0.0, rtol=0.0)
+
+    # Verify OptionProbability(input_mode="hidden_state") recovers the exact target probabilities
+    for idx, expected_p in enumerate(probs):
+        opt = OptionProbability(index=idx, input_mode="hidden_state", num_classes=5, target_index=0)
+        torch.testing.assert_close(
+            opt(batch_zero), torch.tensor(expected_p, dtype=torch.float32), atol=1e-6, rtol=1e-6
+        )
+
+    # Nonzero target_index=1
+    probs_t1 = [0.05, 0.85, 0.05, 0.05]
+    data_t1 = ConstraintHiddenTargetData(
+        probs_t1, hidden_dim=16, jitter_std=0.0, null_std=0.05, target_index=1
+    )
+    rng = torch.Generator().manual_seed(42)
+    batch_t1 = data_t1(12, generator=rng)["real"]
+    assert batch_t1.shape == (12, 16)
+    assert batch_t1[:, 4:].abs().sum() > 0.0
+    for idx, expected_p in enumerate(probs_t1):
+        opt = OptionProbability(index=idx, input_mode="hidden_state", num_classes=4, target_index=1)
+        torch.testing.assert_close(
+            opt(batch_t1), torch.tensor(expected_p, dtype=torch.float32), atol=1e-6, rtol=1e-6
+        )
+
+    spec = {
+        "factory": "hypergan.constraint_data:ConstraintHiddenTargetData",
+        "args": {
+            "target_probs": probs_t1,
+            "hidden_dim": 16,
+            "jitter_std": 0.0,
+            "null_std": 0.05,
+            "target_index": 1,
+        },
+    }
+    contract = data_contract(data_t1, spec)
+    assert contract["supported"] is True
+    assert contract["stateful"] is False
+    assert contract["identity"] == data_t1.resume_identity()
+
+    # Validation checks
+    for bad_dim in (5, 3, 0, -1, True, 16.0):
+        with pytest.raises(ValueError, match="hidden_dim"):
+            ConstraintHiddenTargetData(probs, hidden_dim=bad_dim)
+    for bad_null in (-0.1, float("nan"), float("inf"), True):
+        with pytest.raises(ValueError, match="null_std"):
+            ConstraintHiddenTargetData(probs, null_std=bad_null)
+    for bad_idx in (-1, 5, True, 0.0):
+        with pytest.raises(ValueError, match="target_index"):
+            ConstraintHiddenTargetData(probs, target_index=bad_idx)
+    with pytest.raises(ValueError, match="num_classes"):
+        OptionProbability(index=0, input_mode="hidden_state")
+    with pytest.raises(ValueError, match="out of bounds"):
+        OptionProbability(index=5, input_mode="hidden_state", num_classes=5)
+    with pytest.raises(ValueError, match="target_index"):
+        OptionProbability(index=0, input_mode="hidden_state", num_classes=5, target_index=5)
+    with pytest.raises(ValueError, match="width"):
+        OptionProbability(index=0, input_mode="hidden_state", num_classes=5)(torch.zeros(2, 4))
+
 

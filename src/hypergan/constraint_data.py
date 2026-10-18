@@ -96,6 +96,87 @@ class ConstraintTargetData:
         }
 
 
+class ConstraintHiddenTargetData:
+    """Stateless target distribution sampler over [c, h_perp] in R^hidden_dim.
+
+    Samples K-option centered target logits, transforms the first K coordinates into
+    target-vs-rest contrastive log-odds around ``target_index``, and samples the
+    remaining ``hidden_dim - K`` orthogonal nullspace coordinates from N(0, null_std^2 I).
+    """
+    resume_stateless = True
+
+    def __init__(self, target_probs, *, hidden_dim=2560, jitter_std=0.05, null_std=0.05, target_index=0):
+        import torch
+        normalized_rows, is_2d = _validate_target_probs(target_probs)
+        num_classes = len(normalized_rows[0])
+        if type(hidden_dim) is not int or hidden_dim <= num_classes:
+            raise ValueError(f"ConstraintHiddenTargetData hidden_dim must be an integer > K={num_classes}")
+        if type(jitter_std) not in (int, float) or not math.isfinite(jitter_std) or jitter_std < 0.0:
+            raise ValueError("ConstraintHiddenTargetData jitter_std must be a finite nonnegative number")
+        if type(null_std) not in (int, float) or not math.isfinite(null_std) or null_std < 0.0:
+            raise ValueError("ConstraintHiddenTargetData null_std must be a finite nonnegative number")
+        if type(target_index) is not int or not 0 <= target_index < num_classes:
+            raise ValueError(f"ConstraintHiddenTargetData target_index must be an integer in [0, {num_classes})")
+        self.target_probs = normalized_rows if is_2d else normalized_rows[0]
+        self.hidden_dim = int(hidden_dim)
+        self.jitter_std = float(jitter_std)
+        self.null_std = float(null_std)
+        self.target_index = int(target_index)
+        self.num_modes = len(normalized_rows)
+        self.num_classes = num_classes
+        probs = torch.tensor(normalized_rows, dtype=torch.float32)
+        log_probs = probs.log()
+        self._centered_logits = log_probs - log_probs.mean(dim=-1, keepdim=True)
+
+    def __call__(self, batch_size, *, generator=None):
+        import torch
+        if type(batch_size) is not int or batch_size < 1:
+            raise ValueError("batch_size must be a positive integer")
+        if generator is not None and not isinstance(generator, torch.Generator):
+            raise ValueError("generator must be a torch.Generator or None")
+        device = generator.device if generator is not None else torch.device("cpu")
+        base = self._centered_logits.to(device=device)
+        if self.num_modes > 1:
+            indices = torch.randint(0, self.num_modes, (batch_size,), generator=generator, device=device)
+            y = base[indices].clone()
+        else:
+            y = base.expand(batch_size, -1).clone()
+        if self.jitter_std > 0.0:
+            noise = torch.randn(
+                (batch_size, self.num_classes),
+                generator=generator,
+                device=device,
+                dtype=torch.float32,
+            )
+            y = y + self.jitter_std * noise
+        y = y - y.mean(dim=-1, keepdim=True)
+        zt = y[:, self.target_index : self.target_index + 1]
+        z_other = torch.cat([y[:, :self.target_index], y[:, self.target_index + 1:]], dim=-1)
+        c_target = zt - torch.logsumexp(z_other, dim=-1, keepdim=True)
+        c_other = z_other - zt
+        c = torch.cat([c_other[:, :self.target_index], c_target, c_other[:, self.target_index:]], dim=-1)
+        null_dim = self.hidden_dim - self.num_classes
+        if self.null_std > 0.0:
+            h_perp = self.null_std * torch.randn(
+                (batch_size, null_dim),
+                generator=generator,
+                device=device,
+                dtype=torch.float32,
+            )
+        else:
+            h_perp = torch.zeros((batch_size, null_dim), device=device, dtype=torch.float32)
+        return {"real": torch.cat([c, h_perp], dim=-1)}
+
+    def resume_identity(self):
+        return {
+            "target_probs": copy.deepcopy(self.target_probs),
+            "hidden_dim": self.hidden_dim,
+            "jitter_std": self.jitter_std,
+            "null_std": self.null_std,
+            "target_index": self.target_index,
+        }
+
+
 class OptionProbability:
     """Stateless objective / monitor computing mean probability of option ``index``.
 
@@ -105,13 +186,22 @@ class OptionProbability:
     """
     resume_stateless = True
 
-    def __init__(self, index=0, *, input_mode="logits"):
+    def __init__(self, index=0, *, input_mode="logits", num_classes=None, target_index=0):
         if type(index) is not int or index < 0:
             raise ValueError("OptionProbability index must be a nonnegative integer")
-        if input_mode not in ("logits", "probs"):
-            raise ValueError("OptionProbability input_mode must be 'logits' or 'probs'")
+        if input_mode not in ("logits", "probs", "hidden_state"):
+            raise ValueError("OptionProbability input_mode must be 'logits', 'probs', or 'hidden_state'")
+        if input_mode == "hidden_state":
+            if type(num_classes) is not int or num_classes < 2:
+                raise ValueError("OptionProbability with input_mode='hidden_state' requires integer num_classes >= 2")
+            if type(target_index) is not int or not 0 <= target_index < num_classes:
+                raise ValueError("OptionProbability target_index must be in [0, num_classes)")
+            if index >= num_classes:
+                raise ValueError(f"OptionProbability index {index} is out of bounds for num_classes={num_classes}")
         self.index = index
         self.input_mode = input_mode
+        self.num_classes = num_classes
+        self.target_index = target_index
 
     def __call__(self, logits):
         import torch
@@ -119,6 +209,18 @@ class OptionProbability:
                 or not logits.is_floating_point() or logits.shape[0] < 1
                 or logits.shape[1] < 2):
             raise ValueError("OptionProbability requires a nonempty 2D floating-point tensor [B, K] with K >= 2")
+        if self.input_mode == "hidden_state":
+            if logits.shape[1] < self.num_classes:
+                raise ValueError(
+                    f"OptionProbability hidden_state tensor width {logits.shape[1]} < num_classes={self.num_classes}"
+                )
+            c = logits[:, :self.num_classes]
+            rel = torch.cat(
+                [c[:, :self.target_index], torch.zeros_like(c[:, :1]), c[:, self.target_index + 1 : self.num_classes]],
+                dim=-1,
+            )
+            probs = rel.softmax(dim=-1)
+            return probs[:, self.index].mean()
         if self.index >= logits.shape[1]:
             raise ValueError(f"OptionProbability index {self.index} is out of bounds for K={logits.shape[1]}")
         probs = logits.softmax(dim=-1) if self.input_mode == "logits" else logits

@@ -85,6 +85,12 @@ comparison = [
   { label = "X_hat", binding = "colorizer" },
 ]
 
+[checkpoints]
+keep_last = 3
+keep_every = 50000
+export_bundle = "on_eval"
+keep_best = { metric = "fid10k_heldout", mode = "min", count = 2 }
+
 [evaluations.random_spread]
 factory = "hypergan.colorization_metrics:SampleDiversityRatio"
 args = { pool_size = 32 }

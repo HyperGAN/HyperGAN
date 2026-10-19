@@ -47,9 +47,6 @@ initialization_seed = 2
 num_particles = 4096
 z_dim = 128
 
-[prior_regularizer]
-rows = "full"
-
 [training]
 steps = 200000
 batch_size = 64

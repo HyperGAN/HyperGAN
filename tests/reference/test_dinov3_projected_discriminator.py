@@ -87,11 +87,29 @@ def test_dinov3_projected_128_orthogonal_init_and_second_derivatives(monkeypatch
 
 
 def test_logos_projected_example_uses_particlegan_defaults():
+    from particlegan.init import deterministic_orthogonal_
+    from hypergan.particlegan_integration import particlegan_recipe
+    from hypergan.recipes import make_prior
+
     root = Path(__file__).parents[2]
     resolved = load_config(root / 'examples/logos-tiny-transformer-dinov3-projected-128.toml')
     assert resolved['training']['initialization'] == 'deterministic_orthogonal'
+    assert resolved['prior_regularizer']['rows'] == 'sampled_unique'
     assert resolved['components']['generator']['args']['source'] == (
         root / 'examples/networks/tiny-transformer-generator-128.hndl').read_text()
     assert resolved['components']['discriminator']['args']['source'] == (
         root / 'examples/networks/dinov3-projected-discriminator-128.hndl').read_text()
     assert resolved['components']['discriminator']['args']['output_shape'] == ['B', 1]
+
+    prior = make_prior(resolved['prior'], device='cpu').float()
+    deterministic_orthogonal_(prior, seed=resolved['training']['seed'] + 2)
+    recipe = particlegan_recipe(resolved)
+    recipe.apply_prior_policy(prior)
+    regularizer = recipe.make_prior_regularizer(prior=prior)
+    _, ids = prior.sample(resolved['training']['batch_size'], generator=torch.Generator().manual_seed(3))
+    rows = prior.z[ids.unique()]
+    loss = recipe.prior_regularization(rows, regularizer=regularizer, prior=prior)
+    assert torch.isfinite(loss) and loss > 0
+    loss.backward()
+    assert prior.z.grad is not None and torch.isfinite(prior.z.grad).all()
+    assert prior.z.grad[ids.unique()].abs().sum() > 0

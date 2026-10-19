@@ -135,7 +135,7 @@ repeats = 1
 
 [evaluations.structure]
 factory = "hypergan.colorization_metrics:GrayscaleStructureDistance"
-every = 1000
+every = 1200
 device = "cuda:0"
 samples = 512
 batch_size = 32
@@ -156,7 +156,7 @@ repeats = 1
 [evaluations.diversity]
 factory = "hypergan.colorization_metrics:RepeatedConditionChromaDiversity"
 args = { repeats = 4 }
-every = 1000
+every = 1100
 device = "cuda:0"
 samples = 512
 batch_size = 32
@@ -176,7 +176,7 @@ repeats = 4
 
 [evaluations.fid10k_heldout]
 factory = "hypergan.image_metrics:InceptionFID"
-every = 5000
+every = 5300
 device = "cuda:0"
 samples = 10000
 batch_size = 128

@@ -1,7 +1,7 @@
 # ParticleGAN integration
 
 HyperGAN consumes ParticleGAN's released GAN recipe through
-`defaults = "particlegan"` (ParticleGAN 0.9.1 or later). ParticleGAN owns the formulation and its selected
+`defaults = "particlegan"` (ParticleGAN 0.9.2 or later). ParticleGAN owns the formulation and its selected
 loss, learning rates, hyperparameters, normalization, regularizers and optimizer
 implementations. HyperGAN owns networks and bindings, datasets, task objectives,
 execution, checkpoints, sampling and metrics. Formulation research and technique

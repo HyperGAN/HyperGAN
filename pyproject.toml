@@ -10,15 +10,15 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = []
+dependencies = ["foldlitedb>=0.1.1,<0.2"]
 
 [project.optional-dependencies]
 train = ["hndl>=0.9.0", "particlegan>=0.9.2,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3"]
 image = ["Pillow>=11,<13"]
 cifar = ["torchvision>=0.21,<1"]
 fid = ["torch-fidelity==0.3.0", "torchvision>=0.21,<1", "scipy>=1.10,<1.18"]
-reducers = ["wasmtime>=48,<49"]
-web = ["wasmtime>=48,<49", "starlette>=1.6,<1.7", "uvicorn>=0.53,<0.54"]
+reducers = ["foldlitedb[reducers]>=0.1.1,<0.2"]
+web = ["foldlitedb[reducers]>=0.1.1,<0.2", "starlette>=1.6,<1.7", "uvicorn>=0.53,<0.54"]
 test = ["pytest>=8,<10"]
 dev = ["build>=1,<2", "pytest>=8,<10"]
 
@@ -33,7 +33,6 @@ package-dir = {"" = "src"}
 include-package-data = false
 
 [tool.setuptools.package-data]
-"hypergan.metrics_reducer" = ["assets/*.wasm", "assets/*.json", "assets/*.js", "assets/*.html", "assets/*.txt"]
 "hypergan" = ["networks/*.hndl", "models/*.toml", "_build_provenance.json", "web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json"]
 
 [tool.setuptools.packages.find]

@@ -62,7 +62,7 @@ def test_large_last_event_has_no_implicit_megabyte_limit(tmp_path):
 def test_event_sync_failure_never_returns_a_boundary(tmp_path, monkeypatch):
     journal = EventJournal(tmp_path)
     journal.append(row(event='start'))
-    import hypergan.run_state as state
+    import foldlitedb.fileio as state
     def fail(fd):
         raise OSError('event fsync failed')
     monkeypatch.setattr(state.os, 'fsync', fail)

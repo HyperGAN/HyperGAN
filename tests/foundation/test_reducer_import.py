@@ -13,7 +13,7 @@ sys.modules['wasmtime'] = None
 try:
     Reducer()
 except RuntimeError as error:
-    assert 'hypergan[reducers]' in str(error)
+    assert 'foldlitedb[reducers]' in str(error)
 else:
     raise AssertionError('Missing runtime must not silently fall back')
 """], capture_output=True, text=True)

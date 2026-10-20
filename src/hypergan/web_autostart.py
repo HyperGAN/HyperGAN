@@ -1255,7 +1255,7 @@ def training_viewer(root, *, required=False, port=None, host=None, auth=None, op
         return
     if not required:
         from importlib.util import find_spec
-        if any(find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):
+        if any(find_spec(name) is None for name in ('starlette', 'uvicorn')):
             yield None
             return
     viewer = None

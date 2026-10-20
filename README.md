@@ -253,7 +253,7 @@ See:
 ## Development and migration
 
 The map/reduce storage and shared Rust reducers now live in **Foldlite DB**.
-This branch requires `foldlitedb>=0.1.0,<0.2`. Until its first package release,
+This branch requires `foldlitedb>=0.1.1,<0.2`. Until its first package release,
 install your Foldlite checkout before HyperGAN:
 
 ```sh

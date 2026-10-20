@@ -715,3 +715,80 @@ def test_inspect_gpu_hardware_and_processes_exception_shielding():
         assert inspect_gpu_hardware() == []
         assert inspect_gpu_processes() == []
 
+
+def test_amd_and_rocm_smi_overflow_error_handling():
+    """Verify AmdSmiProvider and RocmSmiProvider handle infinite/overflowing numeric values gracefully."""
+    amd = AmdSmiProvider()
+    rocm = RocmSmiProvider()
+
+    # Hardware: metric gpu index is 1e1000
+    hw_res_metric = amd.parse_hardware_output("", '[{"gpu": 1e1000}]')
+    assert isinstance(hw_res_metric, list)
+
+    # Hardware: static gpu index is 1e1000
+    hw_res_static = amd.parse_hardware_output('[{"gpu": 1e1000}]', "")
+    assert isinstance(hw_res_static, list)
+
+    # Processes: process gpu index is 1e1000
+    proc_res_gpu = amd.parse_processes_output('[{"gpu": 1e1000, "process_list": []}]')
+    assert isinstance(proc_res_gpu, list)
+
+    # Processes: pid is 1e1000
+    proc_res_pid = amd.parse_processes_output('[{"gpu": 0, "process_list": [{"pid": 1e1000}]}]')
+    assert isinstance(proc_res_pid, list)
+
+    # RocmSmiProvider: system process format with 1e1000 gpu index
+    rocm_sys = rocm.parse_processes_output('{"system": {"PID123": "python, 1e1000, 100"}}')
+    assert isinstance(rocm_sys, list)
+
+    # RocmSmiProvider: KFD process format with 1e1000 gpu index
+    rocm_kfd = rocm.parse_processes_output('{"KFD Processes": {"123": {"GPU(s)": "1e1000"}}}')
+    assert isinstance(rocm_kfd, list)
+
+
+def test_rocm_smi_non_string_card_series():
+    """Verify RocmSmiProvider safely handles non-string Card Series / Model fields without AttributeError."""
+    rocm = RocmSmiProvider()
+
+    # Card Series as integer
+    devs_int = rocm.parse_hardware_output('{"card0": {"Card Series": 7900}}')
+    assert len(devs_int) == 1
+    assert devs_int[0]["name"] in ("7900", "AMD Radeon")
+
+    # Card Series as dict
+    devs_dict = rocm.parse_hardware_output('{"card0": {"Card Series": {"series": "7900"}}}')
+    assert len(devs_dict) == 1
+    assert devs_dict[0]["index"] == 0
+
+    # Card Series as list
+    devs_list = rocm.parse_hardware_output('{"card0": {"Card Series": ["Radeon", "7900"]}}')
+    assert len(devs_list) == 1
+
+    # Empty / None / whitespace series
+    devs_empty = rocm.parse_hardware_output('{"card0": {"Card Series": "   "}}')
+    assert len(devs_empty) == 1
+    assert devs_empty[0]["name"] == "AMD Radeon"
+
+
+def test_parse_memory_to_mib_dict_nan_inf_negative_sanitization():
+    """Verify parse_memory_to_mib sanitizes NaN, Inf, and negative values in dict representations."""
+    assert parse_memory_to_mib({"value": float("nan")}) == 0.0
+    assert parse_memory_to_mib({"value": "nan"}) == 0.0
+    assert parse_memory_to_mib({"value": float("inf")}) == 0.0
+    assert parse_memory_to_mib({"value": "inf"}) == 0.0
+    assert parse_memory_to_mib({"value": -100.0}) == 0.0
+    assert parse_memory_to_mib({"value": -50, "unit": "GB"}) == 0.0
+    assert parse_memory_to_mib({"value": 16.0, "unit": "GB"}) == 16384.0
+
+
+def test_inspect_gpu_hardware_and_processes_get_provider_exception_containment():
+    """Verify inspect_gpu_hardware and inspect_gpu_processes catch exceptions from get_gpu_provider."""
+    with patch("hypergan.gpu_inventory.get_gpu_provider", side_effect=OSError("Permission denied")):
+        assert inspect_gpu_hardware() == []
+        assert inspect_gpu_processes() == []
+
+    with patch("hypergan.gpu_inventory.get_gpu_provider", side_effect=RuntimeError("Unexpected driver crash")):
+        assert inspect_gpu_hardware() == []
+        assert inspect_gpu_processes() == []
+
+

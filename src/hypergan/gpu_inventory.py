@@ -60,8 +60,11 @@ def parse_memory_to_mib(val: Any, default_unit: str = "MB") -> float:
             return 0.0
         unit = str(val.get("unit") or default_unit).strip().upper()
         try:
-            return _convert_unit(float(raw_val), unit)
-        except (ValueError, TypeError):
+            num = float(raw_val)
+            if math.isnan(num) or math.isinf(num):
+                return 0.0
+            return max(0.0, _convert_unit(num, unit))
+        except (ValueError, TypeError, OverflowError):
             if isinstance(raw_val, str):
                 return parse_memory_to_mib(raw_val, default_unit=unit)
             return 0.0
@@ -310,7 +313,7 @@ class AmdSmiProvider(BaseGpuInventoryProvider):
             if isinstance(m, dict) and "gpu" in m:
                 try:
                     metrics_by_gpu[int(float(m["gpu"]))] = m
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, OverflowError):
                     pass
 
         devices = []
@@ -323,7 +326,7 @@ class AmdSmiProvider(BaseGpuInventoryProvider):
             raw_gpu = item.get("gpu")
             try:
                 gpu_idx = int(float(raw_gpu)) if raw_gpu is not None else len(devices)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 gpu_idx = len(devices)
 
             m_item = metrics_by_gpu.get(gpu_idx, item if item in metric_data else {})
@@ -424,7 +427,7 @@ class AmdSmiProvider(BaseGpuInventoryProvider):
             raw_gpu = dev.get("gpu")
             try:
                 gpu_idx = int(float(raw_gpu)) if raw_gpu is not None else 0
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 gpu_idx = 0
             gpu_uuid = hw_map.get(gpu_idx, f"gpu_{gpu_idx}")
 
@@ -444,7 +447,7 @@ class AmdSmiProvider(BaseGpuInventoryProvider):
                     pid = int(raw_pid)
                     if pid <= 0:
                         continue
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, OverflowError):
                     continue
 
                 pname = str(p_info.get("name") or p_info.get("process_name") or "")
@@ -504,10 +507,13 @@ class RocmSmiProvider(BaseGpuInventoryProvider):
             digits = re.sub(r"\D", "", key)
             index = int(digits) if digits else len(devices)
 
-            name = (card.get("Card Series")
-                    or card.get("Device Name")
-                    or card.get("Card Model")
-                    or "AMD Radeon").strip()
+            raw_name = (card.get("Card Series")
+                        or card.get("Device Name")
+                        or card.get("Card Model")
+                        or "AMD Radeon")
+            name = str(raw_name).strip() if raw_name is not None else "AMD Radeon"
+            if not name:
+                name = "AMD Radeon"
 
             uuid = _clean_id(card.get("Unique ID"))
             if uuid is None:
@@ -585,13 +591,13 @@ class RocmSmiProvider(BaseGpuInventoryProvider):
                         pid = int(pid_str)
                         if pid <= 0:
                             continue
-                    except ValueError:
+                    except (ValueError, TypeError, OverflowError):
                         continue
                     parts = [p.strip() for p in v.split(",")]
                     pname = parts[0] if len(parts) > 0 else ""
                     try:
                         gpu_idx = int(float(parts[1])) if len(parts) > 1 else 0
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError, OverflowError):
                         gpu_idx = 0
                     gpu_uuid = hw_map.get(gpu_idx, f"gpu_{gpu_idx}")
                     vram_raw = parts[2] if len(parts) > 2 else "0 B"
@@ -615,13 +621,13 @@ class RocmSmiProvider(BaseGpuInventoryProvider):
                     pid = int(pid_str)
                     if pid <= 0:
                         continue
-                except ValueError:
+                except (ValueError, TypeError, OverflowError):
                     continue
                 pname = str(pinfo.get("Process Name", ""))
                 gpu_str = str(pinfo.get("GPU(s)", "0")).split(",")[0].strip()
                 try:
                     gpu_idx = int(float(gpu_str))
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, OverflowError):
                     gpu_idx = 0
                 gpu_uuid = hw_map.get(gpu_idx, f"gpu_{gpu_idx}")
                 vram_raw = pinfo.get("VRAM Used", "0 B")
@@ -661,10 +667,10 @@ def get_gpu_provider() -> Optional[BaseGpuInventoryProvider]:
 
 def inspect_gpu_hardware() -> list[dict]:
     """Query GPU device inventory via the active provider without importing PyTorch."""
-    provider = get_gpu_provider()
-    if provider is None:
-        return []
     try:
+        provider = get_gpu_provider()
+        if provider is None:
+            return []
         return provider.get_hardware()
     except Exception:
         return []
@@ -672,10 +678,10 @@ def inspect_gpu_hardware() -> list[dict]:
 
 def inspect_gpu_processes() -> list[dict]:
     """Query active compute applications per GPU via the active provider."""
-    provider = get_gpu_provider()
-    if provider is None:
-        return []
     try:
+        provider = get_gpu_provider()
+        if provider is None:
+            return []
         return provider.get_processes()
     except Exception:
         return []

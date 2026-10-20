@@ -22,7 +22,7 @@ from particlegan.training import input_noise_std, output_noise_std
 from .particlegan_integration import particlegan_recipe, implementation_files
 from .recipes import ComponentGraph, construct, make_prior, execution_device, move_tensors
 from .checkpoints import data_contract
-from .numerical_policy import apply_backend_policy
+from .numerical_policy import apply_backend_policy, rocm_determinism_guard
 from .objective_program import compile_legacy_program, run_native_program
 
 
@@ -385,8 +385,9 @@ class ReferenceTrainer:
         # Match ParticleGAN's execution contract across forward graph creation
         # and higher-order backward accumulation, restoring the caller on exit.
         with torch.autograd.set_multithreading_enabled(False):
-            return self._serial_update(batch, latent_draw, generator_batch=generator_batch,
-                                       generator_latent_draw=generator_latent_draw)
+            with rocm_determinism_guard():
+                return self._serial_update(batch, latent_draw, generator_batch=generator_batch,
+                                           generator_latent_draw=generator_latent_draw)
 
     def _serial_update(self, batch=None, latent_draw=None, *, generator_batch=None, generator_latent_draw=None):
         if self.device.type == 'cuda':

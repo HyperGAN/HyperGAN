@@ -702,10 +702,75 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         from starlette.routing import Route
     except ImportError as exc:
         raise RuntimeError('Local serving requires hypergan[web]') from exc
+    shutdown_event = asyncio.Event()
+
+    def _is_transport_closing(cycle):
+        if cycle is None:
+            return False
+        if getattr(cycle, 'disconnected', False):
+            return True
+        transport = getattr(cycle, 'transport', None)
+        if transport is None:
+            return False
+        if getattr(transport, '_conn_lost', 0) or getattr(transport, '_closing', False):
+            return True
+        is_closing = getattr(transport, 'is_closing', None)
+        return bool(is_closing and is_closing())
+
+    def _mark_cycle_disconnected(cycle, stream_stop=None):
+        if stream_stop is not None:
+            stream_stop.set()
+        if cycle is not None and not getattr(cycle, 'disconnected', False):
+            cycle.disconnected = True
+            msg_event = getattr(cycle, 'message_event', None)
+            if msg_event is not None:
+                msg_event.set()
+
     class ClosingStream(StreamingResponse):
         async def __call__(self, scope, receive, send):
+            state = scope.setdefault('state', {})
+            cycle = state.get('_uvicorn_cycle')
+            stream_stop = state.setdefault('_stream_stop', asyncio.Event())
+            was_keep_alive = bool(getattr(cycle, 'keep_alive', False))
+
+            def _stopping():
+                if shutdown_event.is_set() or stream_stop.is_set():
+                    return True
+                if _is_transport_closing(cycle):
+                    return True
+                if was_keep_alive and not getattr(cycle, 'keep_alive', True):
+                    return True
+                return False
+
+            async def stream_receive():
+                receive_task = asyncio.create_task(receive())
+                stop_task = asyncio.create_task(stream_stop.wait())
+                shutdown_task = asyncio.create_task(shutdown_event.wait())
+                try:
+                    while not _stopping():
+                        done, _ = await asyncio.wait(
+                            {receive_task, stop_task, shutdown_task},
+                            timeout=0.05,
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if receive_task in done:
+                            return receive_task.result()
+                    _mark_cycle_disconnected(cycle, stream_stop)
+                    transport = getattr(cycle, 'transport', None)
+                    if transport is not None and hasattr(transport, 'close'):
+                        transport.close()
+                    return {'type': 'http.disconnect'}
+                finally:
+                    for task in (receive_task, stop_task, shutdown_task):
+                        if not task.done():
+                            task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
+
             try:
-                return await super().__call__(scope, receive, send)
+                return await super().__call__(scope, stream_receive, send)
             finally:
                 await self.body_iterator.aclose()
 
@@ -728,6 +793,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         try:
             yield
         finally:
+            shutdown_event.set()
             await registry.close_all()
             if single_service is not None:
                 await single_service.close()
@@ -1104,6 +1170,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                     exception_handlers={ValueError: error_handler, FileNotFoundError: error_handler})
     app.state.observations = single_service
     app.state.registry = registry
+    app.state.shutdown_event = shutdown_event
 
     class AuthenticatedApp:
         state = app.state
@@ -1117,7 +1184,11 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                                             forwarded_host=request.headers.get('x-forwarded-host'))
             if channel is None:
                 return await JSONResponse({'error': 'Invalid local Host or Origin'}, status_code=403)(scope, receive, send)
-            scope.setdefault('state', {})['viewer_channel'] = channel
+            cycle = getattr(send, '__self__', None)
+            state = scope.setdefault('state', {})
+            state['viewer_channel'] = channel
+            state['_uvicorn_cycle'] = cycle
+            stream_stop = state.setdefault('_stream_stop', asyncio.Event())
             path = scope['path']
             public = (path == '/' or path.startswith('/assets/') or path.startswith('/reducers/')
                       or path == '/api/v1/session' or path == '/api/v1/runs'
@@ -1137,13 +1208,23 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                     if b'cache-control' not in present:
                         headers.append((b'cache-control', b'no-store'))
                     message = dict(message, headers=headers)
+                if _is_transport_closing(cycle):
+                    _mark_cycle_disconnected(cycle, stream_stop)
+                    if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
+                        await asyncio.sleep(0)
+                    return
                 if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
                     try:
                         await asyncio.wait_for(send(message), timeout=5)
                     except asyncio.TimeoutError as exc:
                         raise OSError('Stream client exceeded the send deadline') from exc
+                    if _is_transport_closing(cycle):
+                        _mark_cycle_disconnected(cycle, stream_stop)
+                    await asyncio.sleep(0)
                 else:
                     await send(message)
+                    if _is_transport_closing(cycle):
+                        _mark_cycle_disconnected(cycle, stream_stop)
             return await app(scope, receive, secure_send)
     return AuthenticatedApp()
 
@@ -1213,6 +1294,24 @@ def run_socket(run_dir, bound_socket, session, *, history_seconds=180):
     """Serve a prebound loopback socket; the caller owns credentials/lifecycle."""
     import uvicorn
     app = create_app(run_dir, session, history_timeout=history_seconds)
-    server = uvicorn.Server(uvicorn.Config(app, host=session.bind_host, port=bound_socket.getsockname()[1],
-                                        access_log=False, log_level='warning'))
+    config = uvicorn.Config(app, host=session.bind_host, port=bound_socket.getsockname()[1],
+                            access_log=False, log_level='warning', timeout_graceful_shutdown=1)
+
+    class _Server(uvicorn.Server):
+        def handle_exit(self, sig, frame):
+            super().handle_exit(sig, frame)
+            shutdown_event = getattr(app.state, 'shutdown_event', None)
+            if shutdown_event is not None:
+                try:
+                    asyncio.get_running_loop().call_soon_threadsafe(shutdown_event.set)
+                except RuntimeError:
+                    pass
+
+        async def shutdown(self, sockets=None):
+            shutdown_event = getattr(app.state, 'shutdown_event', None)
+            if shutdown_event is not None:
+                shutdown_event.set()
+            await super().shutdown(sockets=sockets)
+
+    server = _Server(config)
     server.run(sockets=[bound_socket])

@@ -11,7 +11,7 @@ from .ports import DEFAULT_VIEWER_PORT, PORT_SEARCH_LIMIT
 
 
 def require_web():
-    missing = [name for name in ('starlette', 'uvicorn', 'wasmtime')
+    missing = [name for name in ('starlette', 'uvicorn')
                if importlib.util.find_spec(name) is None]
     if missing:
         raise RuntimeError("Local serving requires 'hypergan[web]' (missing " + ', '.join(missing) + ')')

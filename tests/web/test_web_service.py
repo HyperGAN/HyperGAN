@@ -855,8 +855,13 @@ def test_model_summary_cache_follows_the_attempt(tmp_path):
         assert first['warnings'] == []
         # A new attempt with the same configuration, catalog and model.json. It is
         # written to disk because the watcher replaces the in-memory manifest on every poll.
-        atomic_json(tmp_path / 'manifest.json', {**manifest, 'attempt_index': 2, 'warnings': ['new attempt warning'],
-                                                 'source': {**manifest['source'], 'hypergan_commit': 'abcdef1234567'}})
+        for _ in range(20):
+            try:
+                atomic_json(tmp_path / 'manifest.json', {**manifest, 'attempt_index': 2, 'warnings': ['new attempt warning'],
+                                                         'source': {**manifest['source'], 'hypergan_commit': 'abcdef1234567'}})
+                break
+            except PermissionError:
+                time.sleep(.05)
         deadline = time.monotonic() + 10
         body = client.get('/api/v1/runs/run/model').json()
         while body['run']['attempt_index'] != 2 and time.monotonic() < deadline:
@@ -886,3 +891,204 @@ def test_model_route_is_in_the_openapi_contract(tmp_path, auth):
     assert operation['responses']['200']['content']['application/json']['schema'] == {'$ref': '#/components/schemas/Model'}
     assert {'Model', 'Network', 'NetworkGraph', 'LossTerm'} <= set(schema['components']['schemas'])
     assert bool(operation.get('security')) == (auth == 'token')
+
+def test_foldlite_history_reopens_from_persisted_cursor_and_regenerates(tmp_path, monkeypatch):
+    """Reopening reduces only a new suffix; deleting derived state is equivalent."""
+    import shutil
+    fixture_run(tmp_path, 4)
+
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            first = await get_bootstrap(service)
+            query = next(iter(service.jobs.values())).query
+        finally:
+            await service.close()
+        cache = tmp_path / 'views' / MapSpec().revision / 'foldlite'
+        assert list(cache.glob('*.fold'))
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            await caught_up(service)
+            page = service.page
+            cursors = []
+            def tracked(stream, cursor, *, limit=256):
+                if stream.startswith('projection:'):
+                    assert cursor is not None, 'Cached history rescanned its source'
+                    cursors.append(cursor)
+                return page(stream, cursor, limit=limit)
+            monkeypatch.setattr(service, 'page', tracked)
+            reopened = await service._history(query, first['cursor'], first['projection_sequence'], first['lineage'])
+            assert reopened == first and cursors
+            append_event(tmp_path, 6, 5)
+            with Projector(tmp_path) as projector:
+                projector.project()
+            for _ in range(300):
+                stream = service.streams['projection:' + MapSpec().revision]
+                if stream.sequence == 6 and stream.caught_up:
+                    break
+                await asyncio.sleep(.01)
+            else:
+                raise AssertionError('Projection suffix did not become visible')
+            suffix = await service._history(query, stream.cursor, stream.sequence, first['lineage'])
+            assert suffix['projection_sequence'] == 6
+            assert sum(Reducer().finalize(group['state'])['count'] for group in suffix['groups']) == 5
+        finally:
+            await service.close()
+        shutil.rmtree(cache)
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            regenerated = await get_bootstrap(service)
+            assert regenerated == suffix
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
+def test_foldlite_cached_history_revalidates_source_boundary(tmp_path):
+    fixture_run(tmp_path, 3)
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            initial = await get_bootstrap(service)
+            query = next(iter(service.jobs.values())).query
+            path = tmp_path / 'views' / MapSpec().revision / 'contributions.jsonl'
+            raw = path.read_bytes()
+            path.write_bytes(raw[:-2] + b' \n')
+            with pytest.raises(ValueError, match='boundary changed'):
+                await service._history(query, initial['cursor'], initial['projection_sequence'], initial['lineage'])
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
+def test_failed_bootstrap_job_can_retry_after_its_delivery_lease(tmp_path):
+    fixture_run(tmp_path, 3)
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            await get_bootstrap(service)
+            failed = next(iter(service.jobs.values()))
+            failed.result, failed.error = None, 'temporary historical read failure'
+            failed.delivered, failed.completed = True, time.monotonic() - 6
+            retried = service.bootstrap(MapSpec().revision, series=['loss/g_total'], bucket_steps=2)
+            assert retried is not failed
+            await retried.task
+            assert retried.error is None and retried.result is not None
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
+def test_corrupt_foldlite_cache_reports_job_error_and_allows_regeneration(tmp_path):
+    fixture_run(tmp_path, 3)
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            expected = await get_bootstrap(service)
+            cache = next((tmp_path / 'views' / MapSpec().revision / 'foldlite').glob('*.fold'))
+            service.jobs.clear()
+            cache.write_bytes(b'corrupt derived cache')
+            failed = service.bootstrap(MapSpec().revision, series=['loss/g_total'], bucket_steps=2)
+            await failed.task
+            assert failed.result is None
+            assert 'derived view cache' in failed.error and 'remove' in failed.error and '.fold' in failed.error
+            # The completed job has closed its cache; no historical reader or
+            # writer is active. Its error lease can expire and regeneration retry.
+            cache.unlink()
+            failed.delivered, failed.completed = True, time.monotonic() - 6
+            retried = service.bootstrap(MapSpec().revision, series=['loss/g_total'], bucket_steps=2)
+            await retried.task
+            assert retried is not failed and retried.error is None
+            assert retried.result == expected
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
+def test_stream_disconnect_during_replay_burst_and_sigint_with_open_streams(tmp_path):
+    import os
+    import signal
+    import subprocess
+    import sys
+    runs_root = tmp_path / 'runs'
+    runs_root.mkdir()
+    fixture_run(runs_root / 'run', 300)
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2] / 'src'))
+    process = subprocess.Popen(
+        [sys.executable, '-m', 'hypergan.cli', 'view', str(runs_root),
+         '--host', '127.0.0.1', '--port', '0', '--auth', 'none', '--no-browser'],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+    )
+    sockets = []
+    try:
+        line = process.stdout.readline()
+        if not line:
+            raise AssertionError(process.communicate())
+        record = json.loads(line)
+        credential = Path(record['session_file'])
+        origin = record['origin']
+        host, port_str = origin.split('://')[1].split(':')
+        port = int(port_str)
+
+        proj_stream = None
+        for _ in range(500):
+            try:
+                views = httpx.get(origin + '/api/v1/runs/run/views', timeout=2).json()
+                proj_stream = next(s for s in views['streams'] if s['stream_id'].startswith('projection:'))
+                if proj_stream['caught_up'] and proj_stream['cursor']:
+                    break
+            except (httpx.ConnectError, StopIteration):
+                pass
+            time.sleep(.01)
+        assert proj_stream is not None and proj_stream['caught_up']
+        stream_id = proj_stream['stream_id']
+        first_page = httpx.get(
+            origin + '/api/v1/runs/run/events',
+            params={'stream_id': stream_id, 'limit': 1},
+            timeout=2,
+        ).json()
+        first_cursor = first_page['cursor']
+
+        # Abruptly close several SSE streams mid-replay of ~299 frames.
+        for _ in range(6):
+            sock = socket.create_connection((host, port), timeout=5)
+            req = (
+                f'GET /api/v1/runs/run/stream?stream_id={stream_id}&cursor={first_cursor} HTTP/1.1\r\n'
+                f'Host: {host}:{port}\r\n\r\n'
+            )
+            sock.sendall(req.encode('ascii'))
+            buf = b''
+            while b'event: frame' not in buf:
+                chunk = sock.recv(1024)
+                if not chunk:
+                    break
+                buf += chunk
+            sock.close()
+
+        # Keep both root discovery and run SSE streams open when SIGINT arrives.
+        for path in ('/api/v1/stream', f'/api/v1/runs/run/stream?stream_id={stream_id}'):
+            sock = socket.create_connection((host, port), timeout=5)
+            sockets.append(sock)
+            sock.sendall(f'GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n'.encode('ascii'))
+            buf = b''
+            while b'event: ready' not in buf:
+                chunk = sock.recv(1024)
+                assert chunk
+                buf += chunk
+
+        started = time.monotonic()
+        process.send_signal(signal.SIGINT if os.name != 'nt' else signal.SIGTERM)
+        out, err = process.communicate(timeout=5)
+        elapsed = time.monotonic() - started
+        assert 'socket.send() raised exception.' not in err
+        assert 'Exception in ASGI application' not in err
+        assert elapsed < 3.0
+        if os.name != 'nt':
+            assert process.returncode == 128 + signal.SIGINT
+            assert not credential.exists()
+    finally:
+        for sock in sockets:
+            sock.close()
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)

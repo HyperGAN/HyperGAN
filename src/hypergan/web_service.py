@@ -4,7 +4,6 @@ One tail per file fans unchanged frames out. Only explicit historical bootstrap
 jobs reduce; connected viewers never create live reduced state on the server.
 """
 import asyncio
-import base64
 from collections import OrderedDict
 from dataclasses import dataclass, field
 import hashlib
@@ -53,68 +52,7 @@ def _sample_name(*candidates):
     return 'sample'
 
 
-def cursor_offset(cursor):
-    if cursor is None:
-        return 0
-    if not isinstance(cursor, str) or len(cursor) > 4096:
-        raise ValueError('Invalid stream cursor')
-    try:
-        data = json.loads(base64.b64decode(cursor.encode('ascii'), altchars=b'-_', validate=True))
-        offset = data['offset']
-        if type(offset) is not int or offset < 0:
-            raise ValueError('Invalid stream offset')
-        return offset
-    except (ValueError, TypeError, KeyError, UnicodeError) as exc:
-        raise ValueError('Invalid stream cursor') from exc
-
-
-def sse(event, value):
-    # No SSE id: native EventSource acknowledgement is not an application commit.
-    return ('event: ' + event + '\ndata: ' + _json(value) + '\n\n').encode()
-
-
-class Subscriber:
-    def __init__(self, stream_id, *, max_bytes=MAX_QUEUE_BYTES):
-        self.stream_id = stream_id
-        self.queue = asyncio.Queue(maxsize=256)
-        self.size = 0
-        self.max_bytes = max_bytes
-        self.closed = False
-
-    def accepts(self, stream_id):
-        return self.stream_id == '*' or self.stream_id == stream_id
-
-    def offer(self, event, data):
-        if self.closed:
-            return
-        encoded = sse(event, data)
-        if self.size + len(encoded) > self.max_bytes or self.queue.full():
-            self.closed = True
-            while not self.queue.empty():
-                self.queue.get_nowait()
-            encoded = sse('gap', {'reason': 'consumer_queue_exceeded', 'recover': 'reconnect_from_last_applied_cursor'})
-            self.size = len(encoded)
-            self.queue.put_nowait(encoded)
-            return
-        self.size += len(encoded)
-        self.queue.put_nowait(encoded)
-
-    async def get(self):
-        result = await self.queue.get()
-        self.size -= len(result)
-        return result
-
-
-@dataclass
-class Stream:
-    stream_id: str
-    cursor: str | None = None
-    sequence: int = 0
-    caught_up: bool = False
-    error: str | None = None
-    generation: str | None = None
-    projected_offset: int | None = None
-    task: object = None
+from foldlitedb.streaming import Subscriber, Stream, cursor_offset, sse, stream_events
 
 
 @dataclass
@@ -547,54 +485,9 @@ class ObservationService:
     async def events(self, stream_id, cursor=None):
         subscriber, watermarks = self.subscribe(stream_id)
         try:
-            if cursor is not None and stream_id == '*':
-                raise ValueError('A replay cursor requires one explicit stream')
-            if cursor is not None:
-                if stream_id not in self.streams:
-                    raise ValueError('Cannot replay a missing projection')
-                target = cursor_offset(watermarks[stream_id])
-                if cursor_offset(cursor) > target:
-                    # Indexer is behind the acknowledged client. Wait for the
-                    # shared tail; do not invent a reduced state or lose its suffix.
-                    target = cursor_offset(cursor)
-                replay = cursor
-                replay_count = 0
-                while cursor_offset(replay) < target:
-                    frames, cursors, page = await asyncio.to_thread(self.page, stream_id, replay)
-                    if not frames:
-                        raise ValueError('Replay watermark is no longer available')
-                    for frame, end in zip(frames, cursors):
-                        if cursor_offset(end) > target:
-                            break
-                        replay_count += 1
-                        if replay_count > 4096:
-                            yield sse('gap', {'reason': 'replay_budget_exceeded', 'recover': 'request_fresh_bootstrap', 'retry_after_seconds': 5})
-                            return
-                        replay = end
-                        yield sse('frame', {'stream_id': stream_id, 'cursor': end, 'frame': frame})
-                    if subscriber.closed:
-                        break
-                # Validate even an empty replay against the underlying file.
-                await asyncio.to_thread(self.page, stream_id, replay, limit=1)
-                watermarks[stream_id] = replay
-            yield sse('ready', {'streams': watermarks, 'run': self.public_manifest()})
-            while True:
-                try:
-                    encoded = await asyncio.wait_for(subscriber.get(), timeout=15)
-                except asyncio.TimeoutError:
-                    yield sse('heartbeat', {'run': self.public_manifest()})
-                    continue
-                if encoded.startswith(b'event: frame\n'):
-                    value = json.loads(encoded.split(b'data: ', 1)[1])
-                    marker = watermarks.get(value['stream_id'])
-                    if marker is not None and cursor_offset(value['cursor']) <= cursor_offset(marker):
-                        continue
-                    watermarks[value['stream_id']] = value['cursor']
+            async for encoded in stream_events(self.page, subscriber, watermarks,
+                    stream_id=stream_id, cursor=cursor, metadata=self.public_manifest, metadata_key="run"):
                 yield encoded
-                if subscriber.closed:
-                    return
-        except (ValueError, OSError, KeyError) as exc:
-            yield sse('reset_required', {'reason': str(exc)})
         finally:
             self.subscribers.discard(subscriber)
 
@@ -653,7 +546,7 @@ class ObservationService:
             # One fixed-H job while pending, then a completion lease for its
             # notification/refetch. Only a later explicit query may refresh it.
             if (cached.completed is None or not cached.delivered or age < 5
-                    or lag == 0 or (lag <= 4096 and age <= 30)):
+                    or (cached.result is not None and (lag == 0 or (lag <= 4096 and age <= 30)))):
                 if cached.completed is not None:
                     cached.delivered = True
                 self.jobs.move_to_end(key)
@@ -683,51 +576,60 @@ class ObservationService:
                                        'status': 'error' if job.error else 'ready'})
 
     async def _history(self, query, cursor, sequence, lineage):
+        from foldlitedb.database import View, RustReducer
+        from foldlitedb.projection import materialize_jsonl_view
         from .metrics_reducer import Reducer
         reducer = await asyncio.to_thread(Reducer)
-        started = time.monotonic()
-        states, replay = {}, None
         allowed = {x['attempt_id']: x['through_step'] for x in lineage}
         selected = set(query['series'])
-        target = cursor_offset(cursor)
-        while cursor_offset(replay) < target:
-            if time.monotonic() - started > self.history_timeout:
-                raise ValueError('Historical reduction exceeded its time budget; retry with a larger explicit history budget or prepare a smaller projection')
-            frames, cursors, page = await asyncio.to_thread(self.page, 'projection:' + query['map_revision'], replay)
-            if not frames:
-                raise ValueError('Historical projection watermark disappeared')
-            pending = {}
-            for frame, end in zip(frames, cursors):
-                if cursor_offset(end) > target:
-                    break
-                replay = end
-                for emission in frame['emissions']:
-                    metric, attempt, step = emission['key']
-                    if (metric not in selected or attempt not in allowed or
-                            (allowed[attempt] is not None and step > allowed[attempt]) or
-                            step < query['step_from'] or
-                            (query['step_to'] is not None and step > query['step_to'])):
-                        continue
-                    key = (metric, emission['definition_hash'], attempt,
-                           step // query['bucket_steps'] * query['bucket_steps'])
-                    pending.setdefault(key, []).append({'value': emission['value'], 'position': [step, emission['id']]})
-            if len(set(states) | set(pending)) > MAX_GROUPS:
-                raise ValueError('View exceeds 2048 groups; increase bucket_steps or narrow step range')
-            def reduce_page():
-                for key, points in pending.items():
-                    state = states.get(key)
-                    if state is None:
-                        state = reducer.identity('envelope/v1')
-                    for start in range(0, len(points), 1024):
-                        state = reducer.add(state, points[start:start + 1024])
-                    states[key] = state
-            await asyncio.to_thread(reduce_page)
-            await asyncio.sleep(0)
+
+        def metric_points(document):
+            for emission in document.payload['document']['emissions']:
+                metric, attempt, step = emission['key']
+                if (metric not in selected or attempt not in allowed or
+                        (allowed[attempt] is not None and step > allowed[attempt]) or
+                        step < query['step_from'] or
+                        (query['step_to'] is not None and step > query['step_to'])):
+                    continue
+                yield ([metric, emission['definition_hash'], attempt,
+                        step // query['bucket_steps'] * query['bucket_steps']],
+                       {'value': emission['value'], 'position': [step, emission['id']]})
+
+        # This directory is disposable derived state. Keep all source-format and
+        # lineage semantics in HyperGAN; Foldlite owns document replay and state.
+        directory = self.root / 'views' / query['map_revision'] / 'foldlite'
+        for parent in (directory.parent.parent, directory.parent, directory):
+            if parent.is_symlink():
+                raise ValueError('View cache directory must not be a symlink')
+        directory.mkdir(exist_ok=True)
+        path = directory / (_digest(query) + '.fold')
+        if any(Path(str(path) + suffix).is_symlink() for suffix in ('', '.cache', '.lock')):
+            raise ValueError('View cache file must not be a symlink')
+        from .event_views import _load
+        import base64
+        marker = _load(base64.urlsafe_b64decode(cursor))
+        view = View('metrics', version='1', map=metric_points,
+                    reducer=RustReducer('envelope/v1', runtime=reducer, positioned=True),
+                    references={'query': query, 'lineage': lineage,
+                                'map_generation': marker['generation']})
+        def read_page(saved, *, limit=256):
+            return self.page('projection:' + query['map_revision'], saved, limit=limit)
+        try:
+            rows = await materialize_jsonl_view(path, generation=marker['generation'], view=view,
+                read_page=read_page, target_cursor=cursor, target_position=sequence,
+                document_position=lambda document: document['projection_sequence'],
+                cursor_position=cursor_offset, max_groups=MAX_GROUPS, timeout=self.history_timeout)
+        except Exception as exc:
+            from foldlitedb.types import DatabaseError
+            if isinstance(exc, (DatabaseError, RuntimeError)) or 'Native log' in str(exc):
+                raise RuntimeError(f"Cannot read or update derived view cache; verify cache access or remove {path} while observers are stopped, then retry") from exc
+            raise
         view = ViewSpec(query['map_revision'], bucket_steps=query['bucket_steps'])
         result = dict(schema_version=1, run_id=self.run_id, map_revision=query['map_revision'],
                       view_revision=view.revision, module_sha256=reducer.module_sha256,
                       bucket_steps=query['bucket_steps'], lineage_revision=query['lineage_revision'],
-                      lineage=lineage, groups=[{'key': list(k), 'state': v} for k, v in sorted(states.items())],
+                      lineage=lineage, groups=sorted([{'key': row.key, 'state': row.state} for row in rows],
+                                                    key=lambda group: group['key']),
                       cursor=cursor, projection_sequence=sequence, coverage={'complete': True},
                       step_from=query['step_from'], step_to=query['step_to'])
         if len(_json(result).encode()) > 1048576:

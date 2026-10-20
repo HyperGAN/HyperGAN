@@ -900,7 +900,7 @@ def test_foldlite_history_reopens_from_persisted_cursor_and_regenerates(tmp_path
         finally:
             await service.close()
         cache = tmp_path / 'views' / MapSpec().revision / 'foldlite'
-        assert list(cache.glob('*.sqlite'))
+        assert list(cache.glob('*.fold'))
         service = await ObservationService(tmp_path, poll_seconds=.01).start()
         try:
             await caught_up(service)
@@ -980,13 +980,13 @@ def test_corrupt_foldlite_cache_reports_job_error_and_allows_regeneration(tmp_pa
         service = await ObservationService(tmp_path, poll_seconds=.01).start()
         try:
             expected = await get_bootstrap(service)
-            cache = next((tmp_path / 'views' / MapSpec().revision / 'foldlite').glob('*.sqlite'))
+            cache = next((tmp_path / 'views' / MapSpec().revision / 'foldlite').glob('*.fold'))
             service.jobs.clear()
             cache.write_bytes(b'corrupt derived cache')
             failed = service.bootstrap(MapSpec().revision, series=['loss/g_total'], bucket_steps=2)
             await failed.task
             assert failed.result is None
-            assert 'derived view cache' in failed.error and 'remove' in failed.error
+            assert 'derived view cache' in failed.error and 'remove' in failed.error and '.fold' in failed.error
             # The completed job has closed its cache; no historical reader or
             # writer is active. Its error lease can expire and regeneration retry.
             cache.unlink()

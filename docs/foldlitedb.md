@@ -1,9 +1,9 @@
 # Foldlite DB integration
 
 HyperGAN is the first consumer of Foldlite DB, an embedded map/reduce database for
-realtime views over immutable documents. The `foldlitedb` base dependency uses
-Python's SQLite and standard library; `hypergan[reducers]` and `hypergan[web]`
-request `foldlitedb[reducers]`, which adds the optional Wasmtime runtime.
+realtime views over immutable documents. The `foldlitedb` base dependency provides
+embedded document storage and projection materialization; `hypergan[reducers]` and `hypergan[web]`
+request `foldlitedb[reducers]`, which includes packaged WebAssembly reducer assets.
 
 Foldlite owns general document persistence, source checkpoints, bounded JSONL
 pages, append recovery, process-owned locks, atomic metadata, realtime queues,
@@ -17,7 +17,7 @@ Rust source, WASM assets and reproducible build qualification live in Foldlite.
 ## Regenerable historical views
 
 Explicit historical bootstrap jobs materialize the requested metric groups in
-`views/<map_revision>/foldlite/<query_digest>.sqlite`. Each cached document holds
+`views/<map_revision>/foldlite/<query_digest>.fold` (with companion `.fold.cache` and `.fold.lock` files). Each cached document holds
 one complete projection frame and its source cursor, including empty emissions.
 Foldlite atomically commits document identity, source position, reduced state and
 change history. Reopening retrieves the last committed document and continues from
@@ -40,7 +40,7 @@ query reconstructs it. Replacing a projection with a new generation invalidates
 its cache. Removing only the derived cache does not alter source documents,
 contributions or training checkpoints.
 
-This first integration uses one SQLite database per distinct query and lineage.
+This integration uses one Foldlite database (`.fold`, `.fold.cache`, `.fold.lock`) per distinct query and lineage.
 It duplicates projection documents across queries and retains cache files until
 explicitly removed. Active jobs remain bounded, while disk retention is user
 controlled. A new query performs an initial historical pass; reopening the same

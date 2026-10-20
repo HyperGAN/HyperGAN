@@ -602,8 +602,8 @@ class ObservationService:
             if parent.is_symlink():
                 raise ValueError('View cache directory must not be a symlink')
         directory.mkdir(exist_ok=True)
-        path = directory / (_digest(query) + '.sqlite')
-        if any(Path(str(path) + suffix).is_symlink() for suffix in ('', '-wal', '-shm', '.lock')):
+        path = directory / (_digest(query) + '.fold')
+        if any(Path(str(path) + suffix).is_symlink() for suffix in ('', '.cache', '.lock')):
             raise ValueError('View cache file must not be a symlink')
         from .event_views import _load
         import base64
@@ -614,10 +614,16 @@ class ObservationService:
                                 'map_generation': marker['generation']})
         def read_page(saved, *, limit=256):
             return self.page('projection:' + query['map_revision'], saved, limit=limit)
-        rows = await materialize_jsonl_view(path, generation=marker['generation'], view=view,
-            read_page=read_page, target_cursor=cursor, target_position=sequence,
-            document_position=lambda document: document['projection_sequence'],
-            cursor_position=cursor_offset, max_groups=MAX_GROUPS, timeout=self.history_timeout)
+        try:
+            rows = await materialize_jsonl_view(path, generation=marker['generation'], view=view,
+                read_page=read_page, target_cursor=cursor, target_position=sequence,
+                document_position=lambda document: document['projection_sequence'],
+                cursor_position=cursor_offset, max_groups=MAX_GROUPS, timeout=self.history_timeout)
+        except Exception as exc:
+            from foldlitedb.types import DatabaseError
+            if isinstance(exc, (DatabaseError, RuntimeError)) or 'Native log' in str(exc):
+                raise RuntimeError(f"Cannot read or update derived view cache; verify cache access or remove {path} while observers are stopped, then retry") from exc
+            raise
         view = ViewSpec(query['map_revision'], bucket_steps=query['bucket_steps'])
         result = dict(schema_version=1, run_id=self.run_id, map_revision=query['map_revision'],
                       view_revision=view.revision, module_sha256=reducer.module_sha256,

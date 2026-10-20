@@ -81,7 +81,7 @@ async def proof(root, count, source):
     finally:
         Reducer.add = original_add
 
-    cache_bytes = sum(path.stat().st_size for path in root.glob('views/*/foldlite/*.sqlite'))
+    cache_bytes = sum(path.stat().st_size for path in root.glob('views/*/foldlite/*.fold*'))
     return {
         'initial_source_documents': count + 1,
         'initial_measurements': count,

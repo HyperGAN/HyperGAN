@@ -117,4 +117,4 @@ Foldlite DB owns bounded document I/O, recovery, writer locks, projection framin
 realtime replay/backpressure, persisted view state and the Rust/WASM reducer assets.
 HyperGAN retains metric catalog validation, attempt lineage, custom-map worker
 supervision and the existing public file/HTTP contracts. Explicit historical
-bootstrap jobs use a regenerable Foldlite SQLite cache; see [cache details](foldlitedb.md).
+bootstrap jobs use a regenerable Foldlite cache; see [cache details](foldlitedb.md).

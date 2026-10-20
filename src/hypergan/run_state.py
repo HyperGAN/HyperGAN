@@ -1,4 +1,5 @@
 """Atomic run metadata and bounded, torch-free observation."""
+from contextlib import contextmanager, ExitStack
 import json
 from pathlib import Path
 
@@ -8,9 +9,16 @@ from foldlitedb.fileio import (AppendJournal, atomic_json, file_lock,
 from foldlitedb.streams import read_jsonl_tail
 
 
+@contextmanager
 def run_lock(run_dir):
     """Keep the established HyperGAN writer lock filename."""
-    return file_lock(run_dir, name='.run.lock')
+    stack = ExitStack()
+    try:
+        stack.enter_context(file_lock(run_dir, name='.run.lock'))
+    except RuntimeError as exc:
+        raise RuntimeError(f"Run is already locked by another process: {run_dir}") from exc
+    with stack:
+        yield
 
 
 class EventJournal(AppendJournal):

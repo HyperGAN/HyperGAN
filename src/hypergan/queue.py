@@ -93,71 +93,15 @@ def save_queue(queue_path: Path, data: dict) -> None:
 
 
 def inspect_gpu_hardware() -> list[dict]:
-    """Query GPU device inventory via nvidia-smi without importing PyTorch."""
-    if not shutil.which("nvidia-smi"):
-        return []
-    try:
-        res = subprocess.run(
-            ["nvidia-smi", "--query-gpu=index,name,uuid,memory.total,memory.free,memory.used,utilization.gpu",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, check=True
-        )
-        gpus = []
-        for line in res.stdout.strip().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 7:
-                gpus.append({
-                    "index": int(parts[0]),
-                    "name": parts[1],
-                    "uuid": parts[2],
-                    "memory_total": float(parts[3]),
-                    "memory_free": float(parts[4]),
-                    "memory_used": float(parts[5]),
-                    "utilization": float(parts[6]),
-                })
-        return gpus
-    except Exception:
-        return []
+    """Query GPU device inventory via provider without importing PyTorch."""
+    from .gpu_inventory import inspect_gpu_hardware as _inv_hardware
+    return _inv_hardware()
 
 
 def inspect_gpu_processes() -> list[dict]:
-    """Query active compute applications per GPU via nvidia-smi."""
-    if not shutil.which("nvidia-smi"):
-        return []
-    try:
-        res = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, check=True
-        )
-        procs = []
-        for line in res.stdout.strip().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 4:
-                pid = int(parts[1])
-                cmdline = ""
-                cmd_path = Path(f"/proc/{pid}/cmdline")
-                if cmd_path.exists():
-                    try:
-                        cmdline = cmd_path.read_bytes().replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
-                    except Exception:
-                        pass
-                procs.append({
-                    "gpu_uuid": parts[0],
-                    "pid": pid,
-                    "process_name": parts[2],
-                    "used_memory": float(parts[3]),
-                    "cmdline": cmdline,
-                })
-        return procs
-    except Exception:
-        return []
+    """Query active compute applications per GPU via provider."""
+    from .gpu_inventory import inspect_gpu_processes as _inv_processes
+    return _inv_processes()
 
 
 def check_device_availability(

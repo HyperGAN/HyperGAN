@@ -22,7 +22,7 @@ from particlegan.training import input_noise_std, output_noise_std
 from .particlegan_integration import particlegan_recipe, implementation_files
 from .recipes import ComponentGraph, construct, make_prior, execution_device, move_tensors
 from .checkpoints import data_contract
-from .numerical_policy import apply_backend_policy
+from .numerical_policy import apply_backend_policy, rocm_determinism_guard
 from .objective_program import compile_legacy_program, run_native_program
 
 
@@ -113,7 +113,8 @@ def runtime_info(device='cpu'):
     result = {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": 1, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "hndl": _version("hndl"), "device": str(device), "dtype": "float32", "world_size": 1, "default_dtype": str(torch.get_default_dtype()), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
     if device.type == 'cuda':
         properties = torch.cuda.get_device_properties(device)
-        result['cuda'] = {'version': torch.version.cuda, 'cudnn': torch.backends.cudnn.version(),
+        is_rocm = getattr(torch.version, 'hip', None) is not None
+        cuda_info = {'version': torch.version.cuda, 'cudnn': torch.backends.cudnn.version(),
             'name': properties.name, 'capability': list(torch.cuda.get_device_capability(device)),
             'uuid': str(getattr(properties, 'uuid', 'unavailable')),
             'visible_devices': [str(getattr(torch.cuda.get_device_properties(index), 'uuid', 'unavailable')) for index in range(torch.cuda.device_count())],
@@ -122,6 +123,17 @@ def runtime_info(device='cpu'):
             'deterministic_warn_only': torch.is_deterministic_algorithms_warn_only_enabled(),
             'matmul_precision': torch.get_float32_matmul_precision(),
             'matmul_allow_tf32': torch.backends.cuda.matmul.allow_tf32, 'cudnn_allow_tf32': torch.backends.cudnn.allow_tf32}
+        if is_rocm:
+            if cuda_info['uuid'] in ('None', ''):
+                cuda_info['uuid'] = 'unavailable'
+            cuda_info['visible_devices'] = [
+                'unavailable' if d in ('None', '') else d
+                for d in cuda_info['visible_devices']
+            ]
+            cuda_info['hip'] = str(torch.version.hip)
+            gcn_arch = getattr(properties, 'gcnArchName', None)
+            cuda_info['gcnArchName'] = str(gcn_arch) if gcn_arch not in (None, '', 'None') else 'unavailable'
+        result['cuda'] = cuda_info
     return result
 
 
@@ -373,8 +385,9 @@ class ReferenceTrainer:
         # Match ParticleGAN's execution contract across forward graph creation
         # and higher-order backward accumulation, restoring the caller on exit.
         with torch.autograd.set_multithreading_enabled(False):
-            return self._serial_update(batch, latent_draw, generator_batch=generator_batch,
-                                       generator_latent_draw=generator_latent_draw)
+            with rocm_determinism_guard():
+                return self._serial_update(batch, latent_draw, generator_batch=generator_batch,
+                                           generator_latent_draw=generator_latent_draw)
 
     def _serial_update(self, batch=None, latent_draw=None, *, generator_batch=None, generator_latent_draw=None):
         if self.device.type == 'cuda':

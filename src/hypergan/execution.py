@@ -171,6 +171,15 @@ def _apply_devices(devices, config, profile, context_path):
     resolved = resolve_device_aliases(devices, ws_data)
 
     dev_list = [d.strip() for d in (resolved if isinstance(resolved, list) else resolved.split(",")) if d.strip()]
+    # Note on Device Ordering (Phase 2C):
+    # Setting CUDA_DEVICE_ORDER=PCI_BUS_ID ensures that on NVIDIA GPUs, device indices
+    # deterministically correspond to PCI bus ID ordering rather than heuristic driver ordering.
+    # On AMD ROCm / HIP runtimes, CUDA_DEVICE_ORDER is not a native driver setting (ROCm uses
+    # PCIe bus ID ordering by default or respects HIP_DEVICE_ORDER / ROCR_VISIBLE_DEVICES).
+    # Setting CUDA_DEVICE_ORDER here is harmless on ROCm and strictly preserves existing
+    # NVIDIA behavior. PyTorch ROCm honors CUDA_VISIBLE_DEVICES as an alias.
+    # The exact alignment between PyTorch device index, PCI bus ID, and amd-smi / rocm-smi
+    # is verified empirically on AMD hardware via the preflight report (Section 4).
     if len(dev_list) > 1:
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(dev_list)

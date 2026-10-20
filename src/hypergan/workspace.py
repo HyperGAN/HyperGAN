@@ -243,13 +243,9 @@ def resolve_device_aliases(
                 num_cuda = 0
         else:
             try:
-                import subprocess
-                res = subprocess.run(
-                    ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader,nounits"],
-                    capture_output=True, text=True, check=True
-                )
-                lines = [line.strip() for line in res.stdout.strip().splitlines() if line.strip()]
-                num_cuda = len(lines)
+                from .gpu_inventory import inspect_gpu_hardware
+                hw = inspect_gpu_hardware()
+                num_cuda = len(hw)
             except Exception:
                 num_cuda = 0
         if num_cuda > 1:

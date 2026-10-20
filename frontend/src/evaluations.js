@@ -1,5 +1,5 @@
 // Immutable snapshot results use their own source catalog and position. Loading
-// is serialized, bounded to the server's 64 streams, and never reduces history.
+// is serialized, bounded to the server's 4096 streams, and never reduces history.
 // Completed scalar results are grouped by metric across streams and drawn as one
 // chart per metric, source step on the x axis, one visible point per evaluation.
 import { chartStyle, chartColors, init } from './chart.js';
@@ -356,6 +356,7 @@ export function evaluationShelf(api, base) {
     renderPanel();
   }
   let pending = false, again = false, runPath = null, inventoryPath = null, inventory = [];
+  const catalogs = new Map();
   const items = document.getElementById('evaluation-items');
   if (items) new ResizeObserver(() => { for (const card of cards.values()) card.chart?.resize(); }).observe(items);
   async function refresh(streams) {
@@ -367,8 +368,8 @@ export function evaluationShelf(api, base) {
       // whose stream_added event has already been delivered. Keep the server's
       // bounded union for this run, including sources queued behind pending work.
       const discovered = new Map(inventory.map(stream => [stream.stream_id, stream]));
-      for (const stream of streams.slice(0, 64)) discovered.set(stream.stream_id, stream);
-      inventory = [...discovered.values()].slice(0, 64);
+      for (const stream of streams.slice(0, 4096)) discovered.set(stream.stream_id, stream);
+      inventory = [...discovered.values()].slice(0, 4096);
     }
     if (pending) { again = true; return; }
     pending = true;
@@ -378,10 +379,10 @@ export function evaluationShelf(api, base) {
         const path = base();
         if (runPath !== path) {
           for (const card of cards.values()) card.chart?.dispose();
-          cards.clear(); records.clear();
+          cards.clear(); records.clear(); catalogs.clear();
           document.getElementById('evaluation-items').replaceChildren(); runPath = path;
         }
-        const selected = (inventory || []).filter(s => /^evaluation:(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})$/.test(s.stream_id)).slice(0, 64);
+        const selected = (inventory || []).filter(s => /^evaluation:(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})$/.test(s.stream_id)).slice(0, 4096);
         renderPanel();
         for (const stream of selected) {
           let entry = records.get(stream.stream_id);
@@ -395,7 +396,11 @@ export function evaluationShelf(api, base) {
             if (page.has_more || page.partial_tail || page.events?.length !== 1 || JSON.stringify(page).length > 131072) throw new Error('Expected one bounded, complete evaluation document');
             const event = page.events[0];
             if (event.event !== 'evaluation' || event.stream_id !== stream.stream_id || event.stream_generation !== stream.stream_id.slice(11)) throw new Error('Evaluation source identity differs');
-            const catalog = (await api(`${path}/metrics/catalog?${new URLSearchParams({revision: event.catalog})}`, {signal: AbortSignal.timeout(15000)})).data;
+            let catalog = catalogs.get(event.catalog);
+            if (!catalog) {
+              catalog = (await api(`${path}/metrics/catalog?${new URLSearchParams({revision: event.catalog})}`, {signal: AbortSignal.timeout(15000)})).data;
+              if (event.catalog) catalogs.set(event.catalog, catalog);
+            }
             if (path !== base()) { again = true; break; }
             Object.assign(entry, {status: 'ready', event, catalog, record: readResult(event, catalog, eventsPath)});
             renderPanel();

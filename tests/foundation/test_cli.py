@@ -10,14 +10,18 @@ import sysconfig
 import pytest
 
 
-def run_cli(tmp_path, *args, isolated=True):
+def run_cli(tmp_path, *args, isolated=True, env=None):
+    import os
     cmd = [sys.executable]
     if isolated:
         cmd.append("-I")
     cmd.extend(["-m", "hypergan", *map(str, args)])
+    run_env = None
+    if env is not None:
+        run_env = {**os.environ, **env}
     return subprocess.run(
         cmd,
-        cwd=tmp_path, text=True, capture_output=True, timeout=30,
+        cwd=tmp_path, text=True, capture_output=True, timeout=30, env=run_env,
     )
 
 
@@ -242,8 +246,16 @@ def test_cli_stop_server_all(tmp_path):
     assert res_help.returncode == 0, res_help.stderr
     assert "--all" in res_help.stdout
 
-    # hypergan stop-server --all
-    res_all = run_cli(tmp_path, "stop-server", "--all", isolated=False)
+    # hypergan stop-server --all (isolated to tmp_path so host viewers are untouched)
+    isolated_tmp = tmp_path / "tmp"
+    isolated_tmp.mkdir(exist_ok=True)
+    res_all = run_cli(
+        tmp_path,
+        "stop-server",
+        "--all",
+        isolated=False,
+        env={"TMPDIR": str(isolated_tmp), "HYPERGAN_PROC_ROOT": str(tmp_path / "proc")},
+    )
     assert res_all.returncode == 0, res_all.stderr
     data = json.loads(res_all.stdout)
     assert data["status"] == "stopped"

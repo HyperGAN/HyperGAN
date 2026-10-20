@@ -1050,19 +1050,20 @@ def stop_all_servers(force: bool = False) -> list[int]:
             pass
 
     # 2. Inspect host process table via /proc for hypergan processes owned by current user
-    if os.path.exists('/proc'):
+    proc_root = os.environ.get('HYPERGAN_PROC_ROOT', '/proc')
+    if os.path.exists(proc_root):
         try:
-            for entry in os.listdir('/proc'):
+            for entry in os.listdir(proc_root):
                 if not entry.isdigit():
                     continue
                 pid = int(entry)
                 if pid == current_pid:
                     continue
                 try:
-                    stat_info = os.stat(f'/proc/{pid}')
+                    stat_info = os.stat(f'{proc_root}/{pid}')
                     if current_uid is not None and stat_info.st_uid != current_uid:
                         continue
-                    cmdline_bytes = Path(f'/proc/{pid}/cmdline').read_bytes()
+                    cmdline_bytes = Path(f'{proc_root}/{pid}/cmdline').read_bytes()
                     tokens = [t.decode('utf-8', errors='ignore') for t in cmdline_bytes.split(b'\0') if t]
                     if not tokens:
                         continue
@@ -1071,11 +1072,11 @@ def stop_all_servers(force: bool = False) -> list[int]:
                         is_web_server = True
                     elif len(tokens) >= 2:
                         exe = Path(tokens[0]).name
-                        if exe == 'hypergan' or (exe.startswith('python') and len(tokens) >= 3 and tokens[1] in ('-m', 'hypergan')):
+                        if exe == 'hypergan' or (exe.startswith('python') and len(tokens) >= 3 and tokens[1] == '-m' and tokens[2] in ('hypergan', 'hypergan.cli')):
                             subcmd = None
                             for tok in tokens[1:]:
                                 if not tok.startswith('-'):
-                                    if tok == 'hypergan':
+                                    if tok in ('hypergan', 'hypergan.cli'):
                                         continue
                                     subcmd = tok
                                     break

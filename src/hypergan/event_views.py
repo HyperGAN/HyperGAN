@@ -203,9 +203,12 @@ def _definitions(root, event):
 def _emissions(event, output, revision, definitions):
     if not isinstance(output, (list, tuple)) or len(output) > MAX_EMISSIONS:
         raise ValueError('Map emitted too many values')
+    if not output:
+        return []
     result = []
     source_id = [event['run_id'], event.get('stream_id', 'training'),
                  event['attempt_id'], event['sequence']]
+    id_prefix = _json([revision, source_id])[:-1] + b','
     for index, pair in enumerate(output):
         if not isinstance(pair, (tuple, list)) or len(pair) != 2:
             raise ValueError('Map emissions must be (key, value) pairs')
@@ -222,9 +225,10 @@ def _emissions(event, output, revision, definitions):
             raise ValueError(f'Mapped metric {metric!r} is absent from the source catalog')
         if type(value) not in (int, float) or not math.isfinite(value):
             raise ValueError('V1 mapped values must be finite scalars')
-        if len(_json(key)) > MAX_KEY_BYTES:
+        if len(metric) + len(attempt) > 160 and len(_json(key)) > MAX_KEY_BYTES:
             raise ValueError('Map key exceeds byte budget')
-        result.append({'id': _digest([revision, source_id, index]), 'key': list(key),
+        emission_id = hashlib.sha256(id_prefix + f'{index}]'.encode('ascii')).hexdigest()
+        result.append({'id': emission_id, 'key': list(key),
                        'definition_hash': definitions[metric], 'value': value})
     return result
 
@@ -270,14 +274,23 @@ def _frame_unchecked(row, revision, previous):
     emissions = row.get('emissions')
     if not isinstance(emissions, list) or len(emissions) > MAX_EMISSIONS:
         raise ValueError('Corrupt projection emissions')
-    for index, item in enumerate(emissions):
-        if not isinstance(item, dict) or set(item) != {'id', 'key', 'definition_hash', 'value'}:
-            raise ValueError('Corrupt projection emission')
-        definition = _hash(item['definition_hash'], 'definition_hash')
-        checked = _emissions(source, [(item['key'], item['value'])], revision,
-                             {item['key'][0]: definition})[0]
-        expected_id = _digest([revision, [source[k] for k in ('run_id', 'stream_id', 'attempt_id', 'sequence')], index])
-        if checked['key'] != item['key'] or item['id'] != expected_id:
+    if emissions:
+        definitions = {}
+        pairs = []
+        for item in emissions:
+            if not isinstance(item, dict) or set(item) != {'id', 'key', 'definition_hash', 'value'}:
+                raise ValueError('Corrupt projection emission')
+            if not isinstance(item['key'], list) or not item['key']:
+                raise ValueError('Corrupt projection emission key')
+            definition = _hash(item['definition_hash'], 'definition_hash')
+            metric = item['key'][0]
+            if not isinstance(metric, str):
+                raise ValueError('Corrupt projection emission metric')
+            if metric in definitions and definitions[metric] != definition:
+                raise ValueError('Corrupt projection emission definition_hash')
+            definitions[metric] = definition
+            pairs.append((item['key'], item['value']))
+        if _emissions(source, pairs, revision, definitions) != emissions:
             raise ValueError('Corrupt projection emission identity')
     return row
 

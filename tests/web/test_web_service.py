@@ -416,6 +416,9 @@ def test_future_evaluation_stream_registration(tmp_path):
                 if event.startswith(b'event: frame'):
                     assert json.loads(event.split(b'data: ')[1])['frame']['metrics']['loss/g_total'] == 42
                     break
+            eval_stream = service.streams['evaluation:' + evaluation_id]
+            await asyncio.wait_for(eval_stream.task, 3)
+            assert eval_stream.caught_up and eval_stream.task.done()
             service.subscribers.remove(subscriber)
         finally:
             await service.close()
@@ -566,15 +569,20 @@ def test_public_source_cursor_copy_generation_and_boundary(tmp_path):
         assert result.status_code == 400 and 'boundary' in result.text
 
 
-def test_discovery_overflow_keeps_metadata_live(tmp_path):
+def test_discovery_overflow_keeps_metadata_live(tmp_path, monkeypatch):
+    import hypergan.web_service as ws
+    assert ws.MAX_STREAMS == 4096
     fixture_run(tmp_path, 1)
     async def scenario():
         service = await ObservationService(tmp_path, poll_seconds=.01).start()
         try:
             directory = tmp_path / 'metrics/evaluations'
             directory.mkdir(parents=True)
-            for index in range(65):
-                (directory / f'{index:032x}').mkdir()
+            for index in range(100):
+                (directory / f'step-{index * 500}-random_spread').mkdir()
+            await service.discover()
+            assert service.discovery_error is None
+            monkeypatch.setattr(ws, 'MAX_STREAMS', 64)
             await service.discover()
             assert 'bounded observation directory' in service.discovery_error
             manifest = dict(service.manifest, status='completed', steps=42)

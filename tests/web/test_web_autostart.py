@@ -495,13 +495,17 @@ def test_projector_clean_shutdown_on_terminal_manifest(tmp_path):
     assert elapsed < 5.0, "Projector did not terminate within timeout on terminal status"
 
 
-def test_stop_projector_and_stop_all_servers(tmp_path):
+def test_stop_projector_and_stop_all_servers(tmp_path, monkeypatch):
+    import hypergan.web_autostart as startup
     from hypergan.web_autostart import stop_projector, stop_all_servers
     run_dir = tmp_path / "run_proj"
     run_dir.mkdir()
     # Should not raise even if no projector is running
     stop_projector(run_dir)
 
+    # Isolate temp/proc roots so running tests never kills live viewers on the host.
+    monkeypatch.setattr(startup.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setenv("HYPERGAN_PROC_ROOT", str(tmp_path / "proc"))
     # stop_all_servers sweeps and returns list of PIDs
     killed = stop_all_servers()
     assert isinstance(killed, list)

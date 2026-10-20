@@ -20,7 +20,7 @@ from .web_files import read_json, read_bytes, _open
 
 MAX_QUEUE_BYTES = 1048576
 MAX_GROUPS = 2048
-MAX_STREAMS = 64
+MAX_STREAMS = 4096
 MAX_ATTEMPTS = 4096
 MAX_BOOTSTRAPS = 8
 # Preview retention spans the whole run (thinned to --preview-keep, 128 by
@@ -312,7 +312,7 @@ class ObservationService:
         if stream_id in self.streams:
             return
         if len(self.streams) >= MAX_STREAMS:
-            raise ValueError('Run exceeds 64 registered observation streams')
+            raise ValueError(f'Run exceeds {MAX_STREAMS} registered observation streams')
         stream = Stream(stream_id)
         self.streams[stream_id] = stream
         self.notify('stream_added', {'stream_id': stream_id})
@@ -339,13 +339,22 @@ class ObservationService:
             if len(found) > MAX_STREAMS:
                 raise ValueError('Run exceeds bounded observation directory count')
             for path in sorted(found):
-                if path.is_symlink() or not path.is_dir():
-                    continue
-                if kind == 'projection' and _HEX.fullmatch(path.name) and (path / 'projection.json').is_file():
-                    self._register('projection:' + path.name)
-                elif kind == 'evaluation' and _EVAL_DIR_RE.fullmatch(path.name) and (path / 'stream.json').is_file():
+                if kind == 'projection':
+                    if not _HEX.fullmatch(path.name):
+                        continue
+                    stream_id = 'projection:' + path.name
+                    if stream_id in self.streams:
+                        continue
+                    if path.is_symlink() or not path.is_dir() or not (path / 'projection.json').is_file():
+                        continue
+                    self._register(stream_id)
+                elif kind == 'evaluation':
+                    if not _EVAL_DIR_RE.fullmatch(path.name):
+                        continue
                     stream_id = 'evaluation:' + path.name
                     if stream_id in self.streams:
+                        continue
+                    if path.is_symlink() or not path.is_dir() or not (path / 'stream.json').is_file():
                         continue
                     record = await asyncio.to_thread(read_json, self.root, relative + '/' + path.name + '/stream.json')
                     expected = relative + '/' + path.name + '/events.jsonl'
@@ -353,8 +362,8 @@ class ObservationService:
                             or record.get('stream_id') != stream_id or record.get('stream_generation') != path.name
                             or record.get('path') != expected):
                         raise ValueError('Invalid evaluation stream registration')
-                    self._register(stream_id)
                     self.source_paths[stream_id] = expected
+                    self._register(stream_id)
 
     async def _watch(self):
         while True:
@@ -419,7 +428,7 @@ class ObservationService:
     async def _tail(self, stream):
         while True:
             try:
-                frames, cursors, page = await asyncio.to_thread(self.page, stream.stream_id, stream.cursor)
+                frames, cursors, page = await asyncio.to_thread(self.page, stream.stream_id, stream.cursor, limit=2048)
                 for frame, cursor in zip(frames, cursors):
                     if stream.stream_id in self.source_paths:
                         generation = frame.get('stream_generation', frame['run_id'])
@@ -450,6 +459,8 @@ class ObservationService:
                 if frames and stream.stream_id == 'projection:' + MapSpec().revision:
                     self.notify('heartbeat', {'run': self.public_manifest()})
                 if not page['has_more']:
+                    if stream.stream_id.startswith('evaluation:') and stream.caught_up and stream.sequence >= 1:
+                        return
                     await asyncio.sleep(self.poll_seconds)
                 else:
                     await asyncio.sleep(0)
@@ -612,7 +623,7 @@ class ObservationService:
                     reducer=RustReducer('envelope/v1', runtime=reducer, positioned=True),
                     references={'query': query, 'lineage': lineage,
                                 'map_generation': marker['generation']})
-        def read_page(saved, *, limit=256):
+        def read_page(saved, *, limit=2048):
             return self.page('projection:' + query['map_revision'], saved, limit=limit)
         try:
             rows = await materialize_jsonl_view(path, generation=marker['generation'], view=view,

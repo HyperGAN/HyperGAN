@@ -92,12 +92,9 @@ def _event_identity(row):
 
 
 def _event(line, previous):
-    def reject_constant(value):
-        raise ValueError(f"nonfinite JSON constant {value}")
+    from foldlitedb.projection import load_json
     try:
-        row = json.loads(line, parse_constant=reject_constant)
-        # allow_nan also rejects a finite-looking exponent parsed as infinity.
-        json.dumps(row, allow_nan=False)
+        row = load_json(line)
         if not isinstance(row, dict) or type(row.get('schema_version')) is not int or row['schema_version'] not in (1, 2):
             raise ValueError('unsupported event schema')
         if row['schema_version'] == 2:

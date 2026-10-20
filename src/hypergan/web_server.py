@@ -16,7 +16,7 @@ from . import registry as _reg_mod
 from .web_autostart import ensure_run_projected, is_projection_stale_or_missing, project_run
 from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
 from .web_files import read_artifact, read_json, _open
-from .web_service import ObservationService, RunObservationService, MapSpec, ViewSpec
+from .web_service import MAX_STREAMS, ObservationService, RunObservationService, MapSpec, ViewSpec
 from .web_session import LocalSession
 
 STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css', 'runs.js', 'runs.css'}
@@ -865,7 +865,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             'reducer': descriptor(),
             'limits': {
                 'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
-                'bootstrap_bytes': 1048576, 'stream_count': 64,
+                'bootstrap_bytes': 1048576, 'stream_count': MAX_STREAMS,
                 'history_seconds': history_timeout
             }
         })

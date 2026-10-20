@@ -506,3 +506,212 @@ def test_queue_check_device_availability_with_amd_records():
         avail, reason = check_device_availability("1")
         assert avail is False
         assert "free memory" in reason or "busy" in reason
+
+
+# ==============================================================================
+# Robustness & Adversarial Edge Cases (Reviewer M2-2 & Challenger M2-1 Verification)
+# ==============================================================================
+
+def test_parse_memory_adversarial_and_none():
+    assert parse_memory_to_mib(None) == 0.0
+    assert parse_memory_to_mib({}) == 0.0
+    assert parse_memory_to_mib({"value": None}) == 0.0
+    assert parse_memory_to_mib({"value": "N/A"}) == 0.0
+    assert parse_memory_to_mib({"value": "invalid"}) == 0.0
+    assert parse_memory_to_mib("1.2.3 MB") == 0.0
+    assert parse_memory_to_mib("0 B") == 0.0
+    assert parse_memory_to_mib("invalid") == 0.0
+    assert parse_memory_to_mib("") == 0.0
+
+
+def test_parse_utilization_adversarial_and_none():
+    assert parse_utilization(None) == 0.0
+    assert parse_utilization({}) == 0.0
+    assert parse_utilization({"value": None}) == 0.0
+    assert parse_utilization({"value": "N/A"}) == 0.0
+    assert parse_utilization({"value": "45.0%"}) == 45.0
+    assert parse_utilization("invalid") == 0.0
+
+
+def test_amd_smi_uuid_fallback_multi_tier():
+    provider = AmdSmiProvider()
+    # Tier 1: uuid present
+    s1 = """[{"gpu": 0, "uuid": "real-uuid", "board": {"product_serial": "serial"}, "bdf": "0000:01:00.0"}]"""
+    assert provider.parse_hardware_output(s1)[0]["uuid"] == "real-uuid"
+
+    # Tier 2: uuid is N/A, product_serial present
+    s2 = """[{"gpu": 0, "uuid": "N/A", "board": {"product_serial": "serial-123"}, "bdf": "0000:01:00.0"}]"""
+    assert provider.parse_hardware_output(s2)[0]["uuid"] == "serial-123"
+
+    # Tier 3: uuid is N/A, product_serial is N/A, bdf present
+    s3 = """[{"gpu": 0, "uuid": "N/A", "board": {"product_serial": "N/A"}, "bdf": "0000:03:00.0"}]"""
+    assert provider.parse_hardware_output(s3)[0]["uuid"] == "0000:03:00.0"
+
+    # Tier 4: uuid, serial, and bdf are all N/A
+    s4 = """[{"gpu": 0, "uuid": "N/A", "board": {"product_serial": "N/A"}, "bdf": "N/A"}]"""
+    assert provider.parse_hardware_output(s4)[0]["uuid"] == "gpu_0"
+
+
+def test_amd_smi_hardware_malformed_entries():
+    provider = AmdSmiProvider()
+    # Null or non-integer gpu index
+    res_null = provider.parse_hardware_output('[{"gpu": null}]')
+    assert len(res_null) == 1
+    assert res_null[0]["index"] == 0
+
+    res_str = provider.parse_hardware_output('[{"gpu": "not_an_int"}]')
+    assert len(res_str) == 1
+    assert res_str[0]["index"] == 0
+
+    # Non-dict board or asic
+    res_board = provider.parse_hardware_output('[{"gpu": 0, "board": "N/A", "asic": null}]')
+    assert len(res_board) == 1
+    assert res_board[0]["name"] == "AMD GPU"
+
+    # Metrics with null or N/A
+    metric_json = """[{"gpu": 0, "memory": {"vram_total": {"value": null, "unit": "MB"}, "vram_used": {"value": "N/A", "unit": "MB"}}, "usage": {"gfx_activity": {"value": null}}}]"""
+    res_m = provider.parse_hardware_output("", metric_json)
+    assert len(res_m) == 1
+    assert res_m[0]["memory_total"] == 0.0
+    assert res_m[0]["memory_used"] == 0.0
+    assert res_m[0]["utilization"] == 0.0
+
+
+def test_amd_smi_processes_malformed_entries():
+    provider = AmdSmiProvider()
+    # Non-dict JSON input
+    assert provider.parse_processes_output("null") == []
+    assert provider.parse_processes_output("123") == []
+
+    # Non-integer / null PIDs and invalid gpu index
+    proc_json = """[{"gpu": "invalid", "process_list": [{"name": "p_na", "pid": "N/A"}, {"name": "p_none", "pid": null}, {"name": "p_ok", "pid": 12345}]}]"""
+    procs = provider.parse_processes_output(proc_json)
+    assert len(procs) == 1
+    assert procs[0]["pid"] == 12345
+    assert procs[0]["gpu_uuid"] == "gpu_0"
+
+
+def test_rocm_smi_malformed_json_and_primitives():
+    provider = RocmSmiProvider()
+    assert provider.parse_hardware_output("[]") == []
+    assert provider.parse_hardware_output("123") == []
+    assert provider.parse_hardware_output("null") == []
+
+    assert provider.parse_processes_output("123") == []
+    assert provider.parse_processes_output("null") == []
+    assert provider.parse_processes_output("true") == []
+
+    # Non-integer PIDs
+    sys_json = '{"system": {"PIDinvalid": "python3, 0, 1000", "PID1234": "python3, 0, 1000"}}'
+    res_sys = provider.parse_processes_output(sys_json)
+    assert len(res_sys) == 1
+    assert res_sys[0]["pid"] == 1234
+
+    kfd_json = '{"KFD Processes": {"not_a_pid": {"Process Name": "p", "GPU(s)": "0"}, "5678": {"Process Name": "p", "GPU(s)": "0"}}}'
+    res_kfd = provider.parse_processes_output(kfd_json)
+    assert len(res_kfd) == 1
+    assert res_kfd[0]["pid"] == 5678
+
+
+def test_amd_smi_get_hardware_exception_containment():
+    provider = AmdSmiProvider()
+    from unittest.mock import MagicMock, patch
+    with patch("subprocess.run") as mock_run:
+        mock_res = MagicMock()
+        mock_res.stdout = '[{"gpu": null}]'
+        mock_run.return_value = mock_res
+        with patch.object(AmdSmiProvider, "is_available", return_value=True):
+            res = provider.get_hardware()
+            assert isinstance(res, list)
+            assert len(res) == 1
+
+
+def test_amd_smi_uuid_fallback_prevents_na_collision():
+    """Verify AmdSmiProvider avoids 'N/A' UUID collision when product_serial is 'N/A'."""
+    provider = AmdSmiProvider()
+    static_fixture = """[
+      {
+        "gpu": 0,
+        "bdf": "0000:03:00.0",
+        "uuid": "N/A",
+        "board": {"product_serial": "N/A"}
+      },
+      {
+        "gpu": 1,
+        "bdf": "0000:04:00.0",
+        "uuid": "None",
+        "board": {"product_serial": "N/A"}
+      },
+      {
+        "gpu": 2,
+        "bdf": null,
+        "uuid": "",
+        "board": {"product_serial": ""}
+      }
+    ]"""
+    gpus = provider.parse_hardware_output(static_fixture, "")
+    assert len(gpus) == 3
+    assert gpus[0]["uuid"] == "0000:03:00.0"
+    assert gpus[1]["uuid"] == "0000:04:00.0"
+    assert gpus[2]["uuid"] == "gpu_2"
+    uuids = [g["uuid"] for g in gpus]
+    assert len(set(uuids)) == 3
+    assert "N/A" not in uuids
+
+
+def test_rocm_smi_uuid_fallback_prevents_na_collision():
+    """Verify RocmSmiProvider avoids collision when identifiers are sentinels."""
+    provider = RocmSmiProvider()
+    rocm_json = """{
+      "card0": {"Unique ID": "N/A", "Serial Number": "N/A", "PCI Bus": "N/A"},
+      "card1": {"Unique ID": "N/A", "Serial Number": "N/A", "PCI Bus": "N/A"}
+    }"""
+    devs = provider.parse_hardware_output(rocm_json)
+    assert len(devs) == 2
+    assert devs[0]["uuid"] == "gpu_0"
+    assert devs[1]["uuid"] == "gpu_1"
+    assert devs[0]["uuid"] != devs[1]["uuid"]
+
+
+def test_amd_smi_processes_special_characters():
+    """Verify AmdSmiProvider handles unicode characters, null bytes, and emojis."""
+    provider = AmdSmiProvider()
+    proc_json = """[
+      {
+        "gpu": 0,
+        "process_list": [
+          {"name": "worker\\u0000hidden 🔥", "pid": 54321}
+        ]
+      }
+    ]"""
+    res = provider.parse_processes_output(proc_json)
+    assert len(res) == 1
+    assert res[0]["pid"] == 54321
+    assert "🔥" in res[0]["process_name"]
+
+
+def test_parse_utilization_clamping_and_extremes():
+    """Verify utilization parsing strictly clamps to [0.0, 100.0] and handles extremes."""
+    assert parse_utilization(150.0) == 100.0
+    assert parse_utilization(-20.0) == 0.0
+    assert parse_utilization("125%") == 100.0
+    assert parse_utilization("-5%") == 0.0
+    assert parse_utilization({"value": 200.0}) == 100.0
+    assert parse_utilization({"value": -10.0}) == 0.0
+    assert parse_utilization(float("nan")) == 0.0
+    assert parse_utilization(float("inf")) == 0.0
+    assert parse_utilization(True) == 0.0
+    assert parse_utilization(False) == 0.0
+
+
+def test_inspect_gpu_hardware_and_processes_exception_shielding():
+    """Verify top-level inspect_gpu_hardware and inspect_gpu_processes never raise exceptions."""
+    with patch("hypergan.gpu_inventory.get_gpu_provider") as mock_get_provider:
+        mock_provider = MagicMock()
+        mock_provider.get_hardware.side_effect = RuntimeError("Fatal hardware query crash")
+        mock_provider.get_processes.side_effect = RuntimeError("Fatal process query crash")
+        mock_get_provider.return_value = mock_provider
+
+        assert inspect_gpu_hardware() == []
+        assert inspect_gpu_processes() == []
+

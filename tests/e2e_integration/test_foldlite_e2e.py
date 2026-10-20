@@ -340,7 +340,7 @@ class TestTier1Features:
                 await job.task
                 assert job.error is None, f"Bootstrap job failed: {job.error}"
                 res = job.result
-                assert res["run_id"] == "e2e_run"
+                assert res["run_id"] == run_dir.name
                 assert res["map_revision"] == map_rev
                 assert len(res["groups"]) > 0, "Bootstrap must produce metric groups"
                 assert "module_sha256" in res
@@ -565,8 +565,8 @@ class TestTier3Combinations:
 
                 # Step 3: Append 1 new event to events.jsonl
                 suffix_event = {
-                    "schema_version": 2, "run_id": "e2e_run", "attempt_id": "att-1",
-                    "stream_id": "training", "stream_generation": "gen_1",
+                    "schema_version": 2, "run_id": run_dir.name, "attempt_id": "att-1",
+                    "stream_id": "training", "stream_generation": run_dir.name,
                     "sequence": initial_count + 2, "step": initial_count + 1,
                     "event": "train", "catalog": initial_result["lineage"][0]["through_step"],
                     "metrics": {"loss/g_total": 0.42},
@@ -761,8 +761,8 @@ class TestTier4RealWorldWorkloads:
 
                 # Append new event
                 new_event = {
-                    "schema_version": 2, "run_id": "e2e_run", "attempt_id": "att-1",
-                    "stream_id": "training", "stream_generation": "gen_1",
+                    "schema_version": 2, "run_id": run_dir.name, "attempt_id": "att-1",
+                    "stream_id": "training", "stream_generation": run_dir.name,
                     "sequence": 7, "step": 6, "event": "train",
                     "catalog": job.result["lineage"][0]["through_step"],
                     "metrics": {"loss/g_total": 0.88},

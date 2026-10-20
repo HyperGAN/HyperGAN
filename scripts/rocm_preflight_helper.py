@@ -117,7 +117,7 @@ def discover_and_partition_cuda_tests(
     repo_root: Optional[Path] = None,
 ) -> tuple[list[str], list[str]]:
     """Partition tests/cuda into (single_gpu_tests, deferred_multi_gpu_tests).
-    
+
     Returns:
         (single_gpu_tests, deferred_tests)
         - single_gpu_tests: 31 tests that can run on a single AMD GPU.
@@ -159,7 +159,7 @@ FAILURE_CLASSES: tuple[str, ...] = (
 
 def classify_failure(error_text: str) -> str:
     """Classify an error string or traceback into one of the 5 standard categories:
-    
+
     - 'determinism error': Missing deterministic implementation, CUBLAS workspace requirement,
       or PyTorch use_deterministic_algorithms failure.
     - 'numerical tolerance': AssertionError, tolerance exceeded, mismatch in tensor values.
@@ -276,7 +276,7 @@ def run_sanity_check(
     force_cpu: bool = False,
 ) -> SanityCheckResult:
     """Execute numerical sanity check comparing target device vs CPU reference.
-    
+
     Verifies:
     1. torch.version.hip and device properties (name, gcnArchName).
     2. matmul forward and backward outputs match CPU execution within tolerance.
@@ -424,7 +424,7 @@ def format_device_order_table(
     smi_devices: list[dict[str, Any]],
 ) -> str:
     """Format side-by-side device ordering table comparing PyTorch vs SMI.
-    
+
     Each pytorch device dict: {'index': int, 'name': str, 'uuid': str, 'pci_bus': str}
     Each smi device dict: {'index': int, 'name': str, 'uuid': str, 'pci_bus': str}
     """
@@ -516,7 +516,7 @@ def run_short_training(
     output_dir: Optional[Path] = None,
 ) -> TrainingRunResult:
     """Execute a short real training run of gaussian-grid on the target device.
-    
+
     Records step time, throughput, peak allocated VRAM, and final metrics.
     No image rendering, single seed.
     """

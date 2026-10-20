@@ -790,5 +790,3 @@ def test_inspect_gpu_hardware_and_processes_get_provider_exception_containment()
     with patch("hypergan.gpu_inventory.get_gpu_provider", side_effect=RuntimeError("Unexpected driver crash")):
         assert inspect_gpu_hardware() == []
         assert inspect_gpu_processes() == []
-
-

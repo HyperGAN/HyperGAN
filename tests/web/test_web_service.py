@@ -975,4 +975,3 @@ def test_stream_disconnect_during_replay_burst_and_sigint_with_open_streams(tmp_
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=10)
-

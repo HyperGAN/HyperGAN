@@ -307,7 +307,7 @@ def test_cli_viewer_preserves_numerics_and_machine_output(tmp_path, monkeypatch)
     # global CUDA RNG inventory between otherwise identical child processes.
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
     import importlib.util
-    if any(importlib.util.find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):
+    if any(importlib.util.find_spec(name) is None for name in ('starlette', 'uvicorn')):
         # Base numerical CI has no web dependencies: prove explicit headless CLI.
         config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
         result = cli(tmp_path, 'train', config, '--run-dir', tmp_path / 'headless', '--no-server', '--progress-json')

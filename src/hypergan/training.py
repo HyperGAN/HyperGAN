@@ -113,7 +113,8 @@ def runtime_info(device='cpu'):
     result = {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": 1, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "hndl": _version("hndl"), "device": str(device), "dtype": "float32", "world_size": 1, "default_dtype": str(torch.get_default_dtype()), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
     if device.type == 'cuda':
         properties = torch.cuda.get_device_properties(device)
-        result['cuda'] = {'version': torch.version.cuda, 'cudnn': torch.backends.cudnn.version(),
+        is_rocm = getattr(torch.version, 'hip', None) is not None
+        cuda_info = {'version': torch.version.cuda, 'cudnn': torch.backends.cudnn.version(),
             'name': properties.name, 'capability': list(torch.cuda.get_device_capability(device)),
             'uuid': str(getattr(properties, 'uuid', 'unavailable')),
             'visible_devices': [str(getattr(torch.cuda.get_device_properties(index), 'uuid', 'unavailable')) for index in range(torch.cuda.device_count())],
@@ -122,6 +123,17 @@ def runtime_info(device='cpu'):
             'deterministic_warn_only': torch.is_deterministic_algorithms_warn_only_enabled(),
             'matmul_precision': torch.get_float32_matmul_precision(),
             'matmul_allow_tf32': torch.backends.cuda.matmul.allow_tf32, 'cudnn_allow_tf32': torch.backends.cudnn.allow_tf32}
+        if is_rocm:
+            if cuda_info['uuid'] in ('None', ''):
+                cuda_info['uuid'] = 'unavailable'
+            cuda_info['visible_devices'] = [
+                'unavailable' if d in ('None', '') else d
+                for d in cuda_info['visible_devices']
+            ]
+            cuda_info['hip'] = str(torch.version.hip)
+            gcn_arch = getattr(properties, 'gcnArchName', None)
+            cuda_info['gcnArchName'] = str(gcn_arch) if gcn_arch not in (None, '', 'None') else 'unavailable'
+        result['cuda'] = cuda_info
     return result
 
 

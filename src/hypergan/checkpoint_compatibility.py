@@ -42,6 +42,7 @@ HARDWARE_TOLERANCE_KEYS = frozenset({
     'cuda.uuid',
     'cuda.visible_devices',
     'cuda.nccl',
+    'cuda.gcnArchName',
 })
 
 DEVICE_IDENTITY_KEYS = HARDWARE_TOLERANCE_KEYS

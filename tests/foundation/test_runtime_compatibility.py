@@ -92,7 +92,8 @@ def test_warning_sink_receives_the_message_instead_of_the_warnings_module():
 def test_only_the_declared_identity_keys_are_qualified():
     assert HARDWARE_TOLERANCE_KEYS == {
         'cuda.name', 'cuda.capability', 'cuda.rank_devices', 'world_size', 'device',
-        'platform', 'machine', 'cuda.uuid', 'cuda.visible_devices', 'cuda.nccl'
+        'platform', 'machine', 'cuda.uuid', 'cuda.visible_devices', 'cuda.nccl',
+        'cuda.gcnArchName'
     }
 
 

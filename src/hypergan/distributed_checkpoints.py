@@ -69,15 +69,30 @@ def distributed_runtime_info(trainer):
         runtime = runtime_info('cuda:0')
         runtime['device'] = 'cuda'
         cuda = runtime['cuda']
-        for key in ('name', 'capability', 'uuid'):
-            cuda.pop(key)
-        cuda['nccl'] = list(torch.cuda.nccl.version())
-        cuda['rank_devices'] = [
-            {'rank': rank, 'device': f'cuda:{rank}',
-             'uuid': str(getattr(torch.cuda.get_device_properties(rank), 'uuid', 'unavailable')),
-             'name': torch.cuda.get_device_properties(rank).name,
-             'capability': list(torch.cuda.get_device_capability(rank))}
-            for rank in range(trainer.world_size)]
+        is_rocm = getattr(torch.version, 'hip', None) is not None
+        pop_keys = ('name', 'capability', 'uuid', 'gcnArchName') if is_rocm else ('name', 'capability', 'uuid')
+        for key in pop_keys:
+            cuda.pop(key, None)
+        nccl_ver = getattr(getattr(torch, 'cuda', None), 'nccl', None)
+        cuda['nccl'] = list(nccl_ver.version()) if nccl_ver and hasattr(nccl_ver, 'version') else []
+        rank_devices = []
+        for rank in range(trainer.world_size):
+            prop = torch.cuda.get_device_properties(rank)
+            uuid_str = str(getattr(prop, 'uuid', 'unavailable'))
+            if is_rocm and uuid_str in ('None', ''):
+                uuid_str = 'unavailable'
+            entry = {
+                'rank': rank,
+                'device': f'cuda:{rank}',
+                'uuid': uuid_str,
+                'name': prop.name,
+                'capability': list(torch.cuda.get_device_capability(rank)),
+            }
+            if is_rocm:
+                gcn = getattr(prop, 'gcnArchName', None)
+                entry['gcnArchName'] = str(gcn) if gcn not in (None, '', 'None') else 'unavailable'
+            rank_devices.append(entry)
+        cuda['rank_devices'] = rank_devices
     else:
         if backend != 'gloo' or device.type != 'cpu':
             raise ValueError('Gloo runtime requires CPU training state')

@@ -1466,12 +1466,12 @@ def ps_runs(*, all_runs: bool = False, cwd: Optional[Union[Path, str]] = None) -
     all_items = list_runs(root=None, sort="updated", status_filter=None, cwd=cwd)
     items = all_items if all_runs else [r for r in all_items if r.get("active")]
 
-    # Enrich active runs with GPU VRAM and device info via nvidia-smi (if available)
+    # Enrich active runs with GPU VRAM and device info via GPU inventory provider (if available)
     gpu_procs: List[Dict[str, Any]] = []
     gpu_hw: Dict[str, Dict[str, Any]] = {}
     if any(r.get("active") for r in items):
         try:
-            from .queue import inspect_gpu_hardware, inspect_gpu_processes
+            from .gpu_inventory import inspect_gpu_hardware, inspect_gpu_processes
             for g in inspect_gpu_hardware():
                 if g.get("uuid"):
                     gpu_hw[str(g["uuid"])] = g

@@ -855,8 +855,13 @@ def test_model_summary_cache_follows_the_attempt(tmp_path):
         assert first['warnings'] == []
         # A new attempt with the same configuration, catalog and model.json. It is
         # written to disk because the watcher replaces the in-memory manifest on every poll.
-        atomic_json(tmp_path / 'manifest.json', {**manifest, 'attempt_index': 2, 'warnings': ['new attempt warning'],
-                                                 'source': {**manifest['source'], 'hypergan_commit': 'abcdef1234567'}})
+        for _ in range(20):
+            try:
+                atomic_json(tmp_path / 'manifest.json', {**manifest, 'attempt_index': 2, 'warnings': ['new attempt warning'],
+                                                         'source': {**manifest['source'], 'hypergan_commit': 'abcdef1234567'}})
+                break
+            except PermissionError:
+                time.sleep(.05)
         deadline = time.monotonic() + 10
         body = client.get('/api/v1/runs/run/model').json()
         while body['run']['attempt_index'] != 2 and time.monotonic() < deadline:

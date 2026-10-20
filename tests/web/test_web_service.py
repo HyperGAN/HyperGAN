@@ -886,3 +886,93 @@ def test_model_route_is_in_the_openapi_contract(tmp_path, auth):
     assert operation['responses']['200']['content']['application/json']['schema'] == {'$ref': '#/components/schemas/Model'}
     assert {'Model', 'Network', 'NetworkGraph', 'LossTerm'} <= set(schema['components']['schemas'])
     assert bool(operation.get('security')) == (auth == 'token')
+
+
+def test_stream_disconnect_during_replay_burst_and_sigint_with_open_streams(tmp_path):
+    import os
+    import signal
+    import subprocess
+    import sys
+    runs_root = tmp_path / 'runs'
+    runs_root.mkdir()
+    fixture_run(runs_root / 'run', 300)
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2] / 'src'))
+    process = subprocess.Popen(
+        [sys.executable, '-m', 'hypergan.cli', 'view', str(runs_root),
+         '--host', '127.0.0.1', '--port', '0', '--auth', 'none', '--no-browser'],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+    )
+    sockets = []
+    try:
+        line = process.stdout.readline()
+        if not line:
+            raise AssertionError(process.communicate())
+        record = json.loads(line)
+        credential = Path(record['session_file'])
+        origin = record['origin']
+        host, port_str = origin.split('://')[1].split(':')
+        port = int(port_str)
+
+        proj_stream = None
+        for _ in range(500):
+            try:
+                views = httpx.get(origin + '/api/v1/runs/run/views', timeout=2).json()
+                proj_stream = next(s for s in views['streams'] if s['stream_id'].startswith('projection:'))
+                if proj_stream['caught_up'] and proj_stream['cursor']:
+                    break
+            except (httpx.ConnectError, StopIteration):
+                pass
+            time.sleep(.01)
+        assert proj_stream is not None and proj_stream['caught_up']
+        stream_id = proj_stream['stream_id']
+        first_page = httpx.get(
+            origin + '/api/v1/runs/run/events',
+            params={'stream_id': stream_id, 'limit': 1},
+            timeout=2,
+        ).json()
+        first_cursor = first_page['cursor']
+
+        # Abruptly close several SSE streams mid-replay of ~299 frames.
+        for _ in range(6):
+            sock = socket.create_connection((host, port), timeout=5)
+            req = (
+                f'GET /api/v1/runs/run/stream?stream_id={stream_id}&cursor={first_cursor} HTTP/1.1\r\n'
+                f'Host: {host}:{port}\r\n\r\n'
+            )
+            sock.sendall(req.encode('ascii'))
+            buf = b''
+            while b'event: frame' not in buf:
+                chunk = sock.recv(1024)
+                if not chunk:
+                    break
+                buf += chunk
+            sock.close()
+
+        # Keep both root discovery and run SSE streams open when SIGINT arrives.
+        for path in ('/api/v1/stream', f'/api/v1/runs/run/stream?stream_id={stream_id}'):
+            sock = socket.create_connection((host, port), timeout=5)
+            sockets.append(sock)
+            sock.sendall(f'GET {path} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n'.encode('ascii'))
+            buf = b''
+            while b'event: ready' not in buf:
+                chunk = sock.recv(1024)
+                assert chunk
+                buf += chunk
+
+        started = time.monotonic()
+        process.send_signal(signal.SIGINT if os.name != 'nt' else signal.SIGTERM)
+        out, err = process.communicate(timeout=5)
+        elapsed = time.monotonic() - started
+        assert 'socket.send() raised exception.' not in err
+        assert 'Exception in ASGI application' not in err
+        assert elapsed < 3.0
+        if os.name != 'nt':
+            assert process.returncode == 128 + signal.SIGINT
+            assert not credential.exists()
+    finally:
+        for sock in sockets:
+            sock.close()
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=10)
+

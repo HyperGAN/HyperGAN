@@ -95,6 +95,25 @@ Owner note: an acceptable outcome of this investigation is "it's fine as is", pr
 
 ## Done
 
+### 29. `hypergan view --port 8765` says the port is in use when nothing is listening (raised 2026-10-18)
+
+Owner: "I'm trying to start the viewer /usr/bin/python3 -m hypergan.cli view
+/nvme/dev/hypergan/training-runs --host 0.0.0.0 --port 8765 --auth none --no-browser
+but its giving me an error" (`Port 8765 is already in use; specify a different root or
+stop conflicting process`).
+
+Cause: after a viewer that served a browser stops, its connections stay in TIME_WAIT
+on the port for about 60 s. `bind_server` did not set `SO_REUSEADDR`, so Linux
+refused the bind and `bind_available` reported a conflict with no PID.
+
+- [x] Set `SO_REUSEADDR` on Linux in `src/hypergan/web_launch.py` `bind_server`. A
+  live listener on any address still raises `EADDRINUSE`. macOS/BSD keep the option
+  off because there it lets a wildcard bind share a port with a loopback listener.
+  Windows keeps `SO_EXCLUSIVEADDRUSE`.
+- [x] Regression test `test_restart_rebinds_while_previous_connections_linger_in_time_wait`
+  in `tests/foundation/test_cli_viewer_options.py`. PR #397, merged into develop
+  (`8ef7fe28`).
+
 ### 24. A public Python API (raised 2026-09-26)
 
 Owner: "i want to figure out an api for hypergan. i think the reason people would

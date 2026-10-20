@@ -180,6 +180,7 @@ def classify_failure(error_text: str) -> str:
         "use_deterministic_algorithms",
         "deterministic_algorithms",
         "deterministic algorithm",
+        "deterministic behavior",
         "cublas_workspace_config",
         "rocm determinism error",
         "deterministic execution requires",
@@ -216,6 +217,7 @@ def classify_failure(error_text: str) -> str:
         "hip out of memory",
         "core dumped",
         "fatal error",
+        "fatal python error",
         "bus error",
         "stack trace:",
         "double free or corruption",
@@ -229,6 +231,7 @@ def classify_failure(error_text: str) -> str:
         "filenotfounderror",
         "modulenotfounderror",
         "importerror",
+        "no module named",
         "driver not initialized",
         "/dev/kfd does not exist",
         "/dev/kfd not found",
@@ -303,17 +306,21 @@ def run_sanity_check(
     cuda_avail = torch.cuda.is_available() and not force_cpu
     dev_count = torch.cuda.device_count() if cuda_avail else 0
 
-    if cuda_avail and dev_count > 0:
-        target_device = torch.device(device_name)
-        dev_name = torch.cuda.get_device_name(target_device)
-        props = torch.cuda.get_device_properties(target_device)
-        gcn_arch = getattr(props, "gcnArchName", getattr(props, "gcn_arch_name", "unavailable"))
-    else:
-        target_device = torch.device("cpu")
-        dev_name = "CPU (fallback / simulated)"
-        gcn_arch = "none"
+    dev_name = device_name
+    gcn_arch = "unknown"
 
     try:
+        requested_device = torch.device(device_name)
+        if cuda_avail and dev_count > 0 and requested_device.type != "cpu":
+            target_device = requested_device
+            dev_name = torch.cuda.get_device_name(target_device)
+            props = torch.cuda.get_device_properties(target_device)
+            gcn_arch = getattr(props, "gcnArchName", getattr(props, "gcn_arch_name", "unavailable"))
+        else:
+            target_device = torch.device("cpu")
+            dev_name = "CPU (fallback / simulated)"
+            gcn_arch = "none"
+
         # 1. Matmul Forward & Backward
         torch.manual_seed(2026)
         A_cpu = torch.randn(128, 64, dtype=torch.float32, requires_grad=True)

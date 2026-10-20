@@ -85,6 +85,10 @@ def test_partition_cuda_tests_with_custom_list():
             "ValueError: Deterministic CUDA execution requires training.backend.cublas_workspace_config or a valid CUBLAS_WORKSPACE_CONFIG environment setting before initialization",
             "determinism error",
         ),
+        (
+            "RuntimeError: Deterministic behavior was requested",
+            "determinism error",
+        ),
         # Numerical tolerance errors
         (
             "AssertionError: Tensor mismatch: max absolute difference 0.05 exceeds atol 1e-3",
@@ -99,6 +103,10 @@ def test_partition_cuda_tests_with_custom_list():
             "numerical tolerance",
         ),
         # Crash errors
+        (
+            "Fatal Python error",
+            "crash",
+        ),
         (
             "Fatal error: Segmentation fault (core dumped)",
             "crash",
@@ -138,6 +146,10 @@ def test_partition_cuda_tests_with_custom_list():
         ),
         (
             "ModuleNotFoundError: No module named 'torch'",
+            "tooling",
+        ),
+        (
+            "No module named 'torch'",
             "tooling",
         ),
         (
@@ -190,6 +202,14 @@ def test_sanity_check_tolerance_detection():
     assert res.status == "FAIL" or res.matmul_fwd_max_diff == 0.0
     if res.matmul_fwd_max_diff > 1e-15:
         assert res.passed is False
+
+
+def test_sanity_check_invalid_device_returns_fail():
+    """Verify that an invalid device identifier returns a structured FAIL result rather than crashing."""
+    res = helper.run_sanity_check(device_name="invalid:99")
+    assert res.status == "FAIL"
+    assert res.passed is False
+    assert res.error is not None
 
 
 # ---------------------------------------------------------------------------

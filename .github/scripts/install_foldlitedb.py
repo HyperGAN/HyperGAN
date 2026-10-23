@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 source = os.environ.get('FOLDLITEDB_SOURCE', '').strip()
-requirement = source or 'foldlitedb>=0.1.1,<0.2'
+requirement = source or 'foldlitedb>=0.1.2,<0.2'
 try:
     subprocess.run([sys.executable, '-m', 'pip', 'install', requirement], check=True)
 except subprocess.CalledProcessError:

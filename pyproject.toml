@@ -16,9 +16,9 @@ dependencies = ["foldlitedb>=0.1.2,<0.2"]
 train = ["hndl>=0.9.0", "particlegan>=0.9.2,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3"]
 image = ["Pillow>=11,<13"]
 cifar = ["torchvision>=0.21,<1"]
-fid = ["torch-fidelity==0.3.0", "torchvision>=0.21,<1", "scipy>=1.10,<1.18"]
+fid = ["torch-fidelity>=0.3.0,<0.5", "torchvision>=0.21,<1", "scipy>=1.10,<2.0"]
 reducers = ["foldlitedb[reducers]>=0.1.2,<0.2"]
-web = ["foldlitedb[reducers]>=0.1.2,<0.2", "starlette>=1.6,<1.7", "uvicorn>=0.53,<0.54"]
+web = ["foldlitedb[reducers]>=0.1.2,<0.2", "starlette>=1.6,<2.0", "uvicorn>=0.53,<1.0"]
 test = ["pytest>=8,<10"]
 dev = ["build>=1,<2", "pytest>=8,<10"]
 
@@ -44,7 +44,7 @@ namespaces = false
 version = {attr = "hypergan.__version__"}
 
 [tool.pytest.ini_options]
-testpaths = ["tests/foundation", "tests/reference"]
+testpaths = ["tests/foundation", "tests/reference", "tests/unit", "tests/playbooks", "tests/e2e_integration"]
 # The default selection is the fast suite: everything except `heavy`. A command
 # line `-m` replaces the one below, so `python -m pytest -m heavy` runs exactly
 # the gated tests and `-m ""` runs both halves together.

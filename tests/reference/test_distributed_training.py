@@ -12,7 +12,11 @@ import torch
 # Direct worker entry points need the repository fixture package.
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tests.hndl_fixtures import fixture_network
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+try:
+    from tests.hndl_fixtures import fixture_network
+except ModuleNotFoundError:
+    from hndl_fixtures import fixture_network
 import torch.distributed as dist
 from torch import nn
 
@@ -53,6 +57,8 @@ def _close(left, right, path='state'):
     if isinstance(left, torch.Tensor):
         torch.testing.assert_close(left, right, rtol=3e-5, atol=3e-6,
                                    msg=lambda message: f'{path}: {message}')
+    elif isinstance(left, float) and isinstance(right, float):
+        assert left == pytest.approx(right, rel=3e-5, abs=3e-6), path
     elif isinstance(left, dict):
         assert left.keys() == right.keys(), path
         for key in left:

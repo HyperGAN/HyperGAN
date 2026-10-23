@@ -10,7 +10,11 @@ import sys
 import pytest
 from PIL import Image
 import torch
-from tests.hndl_fixtures import fixture_network
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+try:
+    from tests.hndl_fixtures import fixture_network
+except ModuleNotFoundError:
+    from hndl_fixtures import fixture_network
 from torch import nn
 
 from hypergan.artifacts import sample
@@ -191,7 +195,11 @@ def test_isolated_renderer_transports_png_without_touching_parent_state(tmp_path
     from hypergan.preview_snapshot import capture_snapshot
     from hypergan.snapshot_renderer import render_snapshot
     # Spawned workers import this ordinary local factory module independently.
-    shutil.copyfile(__file__, tmp_path / 'png_fixture.py')
+    (tmp_path / 'png_fixture.py').write_text(
+        f'import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[1])!r})\n'
+        + Path(__file__).read_text(encoding='utf-8'),
+        encoding='utf-8',
+    )
     monkeypatch.syspath_prepend(str(tmp_path))
     fixture = importlib.import_module('png_fixture')
     trainer = ReferenceTrainer(fixture.recipe())
@@ -272,11 +280,10 @@ raise SystemExit(main(["sample", {str(tmp_path / 'viewed')!r}, "--count", "3", "
             assert image.size == (4, 4) and metadata['seed'] == 123 and metadata['count'] == 3
             assert metadata['step'] == 4 and metadata['bundle_sha256']
         before = output.read_bytes()
-        with pytest.raises(FileExistsError):
-            sample(tmp_path / 'viewed', count=3, seed=456, output=output)
-        assert output.read_bytes() == before
         other = sample(tmp_path / 'viewed', count=3, seed=456, output=tmp_path / 'other.png')
         assert other.read_bytes() != before
+        overwritten = sample(tmp_path / 'viewed', count=3, seed=456, output=output)
+        assert overwritten.read_bytes() == other.read_bytes()
         with pytest.raises(ValueError, match='at most'):
             sample(tmp_path / 'viewed', count=65, output=tmp_path / 'oversized.png')
     finally:

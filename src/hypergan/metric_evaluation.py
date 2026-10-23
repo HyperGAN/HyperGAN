@@ -219,6 +219,8 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
     identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
                 'evaluation_id': evaluation_id, 'source_step': step,
                 'source_bundle': source_bundle_str}
+    if 'attempt_index' in bundle_dict['identity']:
+        identity['attempt_index'] = bundle_dict['identity']['attempt_index']
     initial_catalog = _write_catalog(root, metric_catalog(selected))
     receipt_running = {
         'schema_version': 1, 'status': 'running', **identity,

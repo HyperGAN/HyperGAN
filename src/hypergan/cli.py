@@ -1785,7 +1785,8 @@ def _dispatch(args, *, output=None):
                         exec_argv = [target_executable, *raw_args[1:]]
                     os.execve(target_executable, exec_argv, new_env)
 
-                prepared = hg.prepare_resume(args.run_dir, getattr(args, "checkpoint", None), m, steps=getattr(args, "steps", None), sets=sets, **options)
+                resume_model = m if (config_override or sets) else None
+                prepared = hg.prepare_resume(args.run_dir, getattr(args, "checkpoint", None), resume_model, steps=getattr(args, "steps", None), sets=sets, **options)
             else:
                 config_path = target_path
                 if config_path is not None:
@@ -1961,7 +1962,8 @@ def _dispatch(args, *, output=None):
                     dashboard_url = getattr(args, "_dashboard_url", None)
                     _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url)
                 is_tty = bool(getattr(output.stdout.original, "isatty", lambda: False)()) if output and hasattr(output, "stdout") else False
-                human_footer = (not is_resume_cmd or is_tty) and not getattr(args, "progress_json", False)
+                is_profiled = getattr(prepared, "profile", None) is not None
+                human_footer = (not is_resume_cmd and not is_profiled or is_tty) and not getattr(args, "progress_json", False)
                 run_manifest = prepared.run(on_event=output.progress)
                 dash_footer = getattr(args, "_dashboard_url", None) or ("headless (viewer disabled)" if args.no_server else None)
                 try:

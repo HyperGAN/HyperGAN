@@ -152,6 +152,7 @@ def test_distributed_runtime_info_rocm_and_nvidia_parity():
          patch("torch.distributed.get_backend", return_value="nccl"), \
          patch("torch.cuda.current_device", return_value=0), \
          patch("torch.cuda.device_count", return_value=2), \
+         patch("torch.cuda.nccl.version", return_value=(2, 21, 5)), \
          patch.object(torch.version, "hip", "6.2.0"), \
          patch.object(torch.version, "cuda", None), \
          patch("torch.cuda.get_device_properties", side_effect=mock_get_prop), \
@@ -174,6 +175,7 @@ def test_distributed_runtime_info_rocm_and_nvidia_parity():
          patch("torch.distributed.get_backend", return_value="nccl"), \
          patch("torch.cuda.current_device", return_value=0), \
          patch("torch.cuda.device_count", return_value=2), \
+         patch("torch.cuda.nccl.version", return_value=(2, 21, 5)), \
          patch.object(torch.version, "hip", None), \
          patch.object(torch.version, "cuda", "12.4"), \
          patch("torch.cuda.get_device_properties", return_value=mock_nv_props), \

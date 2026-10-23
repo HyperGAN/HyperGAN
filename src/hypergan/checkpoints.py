@@ -844,8 +844,17 @@ def prune_checkpoints(
     # Keep last N checkpoints
     keep_last = policy.get('keep_last', 3)
     if keep_last > 0:
-        for c in checkpoints[-keep_last:]:
-            retained_reasons[c['name']].add('keep_last')
+        last_steps = set(sorted({c['step'] for c in checkpoints})[-keep_last:])
+        recovery_ckpt = None
+        if manifest_path.is_file():
+            try:
+                m_data = json.loads(manifest_path.read_text(encoding='utf-8'))
+                recovery_ckpt = (m_data.get('recovery_parent') or {}).get('checkpoint_id')
+            except Exception:
+                pass
+        for c in checkpoints:
+            if c['step'] in last_steps or (recovery_ckpt and c['name'] == recovery_ckpt):
+                retained_reasons[c['name']].add('keep_last')
 
     # S3: Require newer durable checkpoint before deleting older
     deleted_candidates = []

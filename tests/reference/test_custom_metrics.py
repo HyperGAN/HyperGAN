@@ -80,6 +80,8 @@ def setup(tmp_path, *, args='', timeout=5, cadence=2, on_error='disable'):
     base = config.read_text().replace('steps = 5','steps = 3').replace('num_particles = 20000','num_particles = 32')
     config.write_text(base)
     (tmp_path/'custom.toml').write_text(base+f'''
+[metrics]
+every_steps = 1
 [metrics.custom.ratio]
 factory = "metric_probe:Probe"
 inputs = {{ numerator = "update.g_loss", denominator = "update.d_loss" }}

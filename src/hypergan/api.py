@@ -1141,7 +1141,7 @@ def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoin
                      checkpoint=checkpoint, default_image_png=default_image_png))
     if path.suffix.lower() == '.png':
         from PIL import Image
-        with Image.open(path) as img:
+        with Image.open(path, formats=["PNG"]) as img:
             raw_meta = img.info.get('hypergan', '{}')
             payload = json.loads(raw_meta) if raw_meta else {}
         return Sample(step=payload.get('step', 0), name='sample', data=None,

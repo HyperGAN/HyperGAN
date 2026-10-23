@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 from .workspace import find_workspace
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+IMAGE_FORMATS = ("JPEG", "PNG", "WEBP", "BMP", "TIFF")
 
 
 def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
@@ -34,7 +35,7 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
     sample_paths = image_paths[:100]
     for img_path in sample_paths:
         try:
-            with Image.open(img_path) as img:
+            with Image.open(img_path, formats=IMAGE_FORMATS) as img:
                 w, h = img.size
                 widths.append(w)
                 heights.append(h)

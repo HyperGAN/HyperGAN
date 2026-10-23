@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from hypergan.config import resolve_config
-from hypergan.data import ImageFolder
+from hypergan.data import ImageDataError, ImageFolder
 from hypergan.recipes import construct
 
 
@@ -257,3 +257,10 @@ else:
 assert 'torch' not in sys.modules and 'PIL' not in sys.modules
 """
     subprocess.run([sys.executable, "-c", code, str(tmp_path)], check=True, cwd=tmp_path)
+
+
+def test_disallowed_pillow_format_with_allowed_extension_is_rejected(tmp_path):
+    save(tmp_path, "valid.png")
+    (tmp_path / "spoofed_eps.png").write_bytes(b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 5 3\n")
+    with pytest.raises(ImageDataError, match="spoofed_eps.png"):
+        loader(tmp_path)

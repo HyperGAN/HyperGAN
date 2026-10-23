@@ -567,6 +567,3 @@ def test_multi_query_constraint_data_and_state_conditioned_option_probability():
         ])
     with pytest.raises(ValueError, match="duplicates"):
         OptionProbability(index=[1, 1], input_mode="state_conditioned_log_odds", num_classes=5)
-
-
-

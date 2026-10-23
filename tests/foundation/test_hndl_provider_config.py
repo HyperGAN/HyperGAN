@@ -61,9 +61,9 @@ def resolved_with_providers(providers):
     {'imajev_4b': {**IMAJEV_PROVIDER, 'state': 'raw-context', 'temperature': 2}},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'image_size': 128, 'compile': True, 'state_embed_dim': 32}},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': -1}},
-    {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': -36}},
+    {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': -32}},
     {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': 0}},
-    {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': 35}},
+    {'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': 31}},
     {'dinov3_vits16': PROVIDER, 'imajev_4b': IMAJEV_PROVIDER},
 ])
 def test_provider_options_survive_resolution_without_reading_source(providers):
@@ -127,8 +127,8 @@ def test_provider_options_survive_resolution_without_reading_source(providers):
       for bad in (0, 16, 63, 100, 2048, False, True, 128.0, '128', None)],
     *[({'imajev_4b': {**IMAJEV_PROVIDER, 'compile': bad}}, 'compile must be a boolean')
       for bad in (0, 1, 'true', None, [])],
-    *[({'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': bad}}, 'target_layer must be an integer in \\[-36, 35\\]')
-      for bad in (-37, 36, -100, 100, False, True, -1.0, '0', None)],
+    *[({'imajev_4b': {**IMAJEV_PROVIDER, 'target_layer': bad}}, 'target_layer must be an integer in \\[-32, 31\\]')
+      for bad in (-33, 32, -100, 100, False, True, -1.0, '0', None)],
     *[({'imajev_4b': {**IMAJEV_PROVIDER, 'state_embed_dim': bad}}, 'state_embed_dim must be an integer in \\[4, 256\\]')
       for bad in (0, 3, 257, False, True, 16.0, '16', None)],
 ])

@@ -529,6 +529,8 @@ class _Lowering:
 
         for term in recipe.get('objectives', []):
             detached = set(term.get('detach', ['target'] if 'target' in term['inputs'] else []))
+            if not any(k not in detached for k in term['inputs']):
+                continue
             seen = set()
             for key, path in term['inputs'].items():
                 if key not in detached:

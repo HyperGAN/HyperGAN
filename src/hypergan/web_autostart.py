@@ -403,12 +403,12 @@ class Projector:
         if watermark is None or watermark[1] == 0:
             return False, watermark
 
+        if is_active:
+            return True, watermark
+
         last_wm = self._last_projected_watermark.get(run_dir)
         if last_wm is not None and last_wm == watermark:
             return False, watermark
-
-        if is_active:
-            return True, watermark
 
         proj_mtime = _projection_state_mtime_ns(run_dir)
         if last_wm is None and proj_mtime is not None and proj_mtime >= watermark[0]:

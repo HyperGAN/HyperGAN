@@ -125,8 +125,8 @@ def _validate_imajev_provider(options):
             raise ValueError('imajev_4b compile must be a boolean')
     if 'target_layer' in options:
         target_layer = options['target_layer']
-        if type(target_layer) is not int or not -36 <= target_layer <= 35:
-            raise ValueError('imajev_4b target_layer must be an integer in [-36, 35]')
+        if type(target_layer) is not int or not -32 <= target_layer <= 31:
+            raise ValueError('imajev_4b target_layer must be an integer in [-32, 31]')
     if 'state_embed_dim' in options:
         state_embed_dim = options['state_embed_dim']
         if type(state_embed_dim) is not int or not 4 <= state_embed_dim <= 256:

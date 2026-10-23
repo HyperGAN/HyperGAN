@@ -537,8 +537,10 @@ def _imajev_builder(config):
 
             def _extract_hidden_state(self, m, embeds, position_ids):
                 target_layer = int(self._config.get('target_layer', -1))
-                layer_idx = target_layer if target_layer >= 0 else 36 + target_layer
-                if layer_idx == 35:
+                layers = getattr(getattr(m, 'language_model', None), 'layers', None)
+                num_layers = len(layers) if layers is not None else 32
+                layer_idx = target_layer if target_layer >= 0 else num_layers + target_layer
+                if layer_idx == num_layers - 1:
                     return m.language_model(
                         inputs_embeds=embeds,
                         position_ids=position_ids,

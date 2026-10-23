@@ -101,6 +101,51 @@ def sample(run_dir, count=16, seed=42, output=None, *, inputs=None, checkpoint=N
             torch.cuda.set_device(cuda_device)
 
 
+def _coerce_conditioning_input(value, expected_input):
+    is_path = isinstance(value, (str, Path))
+    is_pil = not is_path and type(value).__module__.startswith("PIL.") and hasattr(value, "convert")
+    if is_path or is_pil:
+        from PIL import Image, ImageOps
+        if is_path:
+            path = Path(value)
+            if not path.is_file():
+                raise FileNotFoundError(f"Conditioning input image not found: {path}")
+            with Image.open(path) as image:
+                image.load()
+                rgba = ImageOps.exif_transpose(image).convert("RGBA")
+        else:
+            rgba = ImageOps.exif_transpose(value).convert("RGBA")
+        background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        rgb_image = Image.alpha_composite(background, rgba).convert("RGB")
+        if isinstance(expected_input, torch.Tensor) and expected_input.ndim == 4:
+            c, h, w = (int(expected_input.shape[1]), int(expected_input.shape[2]), int(expected_input.shape[3]))
+        else:
+            c, h, w = (1, 128, 128)
+        padded = ImageOps.pad(
+            rgb_image,
+            (w, h),
+            method=Image.Resampling.LANCZOS,
+            color=(255, 255, 255),
+            centering=(0.5, 0.5),
+        )
+        tensor = torch.frombuffer(bytearray(padded.tobytes()), dtype=torch.uint8)
+        rgb = tensor.reshape(1, h, w, 3).permute(0, 3, 1, 2).to(torch.float32).div_(127.5).sub_(1.0).contiguous()
+        if c == 1:
+            value = (rgb[:, 0:1] * 0.299 + rgb[:, 1:2] * 0.587 + rgb[:, 2:3] * 0.114).contiguous()
+        else:
+            value = rgb
+        if isinstance(expected_input, torch.Tensor):
+            value = value.to(dtype=expected_input.dtype)
+        return value
+    value = torch.as_tensor(
+        value,
+        dtype=expected_input.dtype if isinstance(expected_input, torch.Tensor) else None,
+    )
+    if isinstance(expected_input, torch.Tensor) and expected_input.ndim >= 2 and value.shape == expected_input.shape[1:]:
+        value = value.unsqueeze(0)
+    return value
+
+
 def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_image_png=False):
     run_dir = Path(run_dir)
     is_direct_bundle = run_dir.is_file() and run_dir.suffix.lower() == ".pt"
@@ -162,15 +207,31 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_im
     if "prior_buffers" in state:
         _restore_buffers(prior, state["prior_buffers"])
     supplied = inputs is not None
-    batch = state["example_inputs"] if inputs is None else inputs
-    if not isinstance(batch, dict):
+    if inputs is None:
+        batch = state["example_inputs"]
+    elif isinstance(inputs, dict):
+        batch = inputs
+    elif (
+        isinstance(inputs, (str, Path, torch.Tensor))
+        or (type(inputs).__module__.startswith("PIL.") and hasattr(inputs, "convert"))
+    ):
+        if len(state["example_inputs"]) != 1:
+            raise ValueError(
+                f"Single-value conditioning input requires a model with 1 conditioning input, "
+                f"found {len(state['example_inputs'])}: {list(state['example_inputs'])}"
+            )
+        only_key = next(iter(state["example_inputs"]))
+        batch = {only_key: inputs}
+    else:
         raise ValueError("Inference inputs must be a mapping of batched tensors")
     normalized = {}
     for key, value in batch.items():
         expected_input = state["example_inputs"].get(key)
-        value = torch.as_tensor(value, dtype=expected_input.dtype if isinstance(expected_input, torch.Tensor) else None)
+        value = _coerce_conditioning_input(value, expected_input)
         if value.ndim < 1 or len(value) == 0:
             raise ValueError(f"Input {key} must have a nonempty batch dimension")
+        if supplied and len(value) == 1 and count > 1:
+            value = value.expand(count, *value.shape[1:]).contiguous()
         if supplied and len(value) != count:
             raise ValueError(f"Input {key} must have {count} rows")
         normalized[key] = value if supplied else value[torch.arange(count) % len(value)]

@@ -364,6 +364,7 @@ def _parser():
     sample.add_argument("--count", type=_positive_int, default=16, help="number of samples to generate (default: 16)")
     sample.add_argument("--seed", type=int, default=None, help="random seed for sampling (default: [sampling].seed in config, or 42)")
     sample.add_argument("--output", type=Path, default=None, help="output file path for samples (e.g. sample.png or sample.json)")
+    sample.add_argument("-i", "--input", dest="inputs", action="append", default=[], metavar="PATH_OR_KEY=PATH", help="conditioning input image file path or KEY=PATH binding for conditional models")
     sample.add_argument("--sampler", help="sampler name declared in [samplers], or module:function import path")
     sample.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
     sample.add_argument("--json", action="store_true", help="output sample info as JSON")
@@ -1968,6 +1969,25 @@ def _dispatch(args, *, output=None):
                 except TypeError:
                     output.result(run_manifest, run_dir=args.run_dir, human=human_footer)
         elif args.command == "sample":
+            raw_inputs = getattr(args, "inputs", None) or []
+            parsed_inputs = None
+            if raw_inputs:
+                if len(raw_inputs) == 1 and "=" not in raw_inputs[0]:
+                    parsed_inputs = Path(raw_inputs[0])
+                else:
+                    parsed_inputs = {}
+                    for item in raw_inputs:
+                        if "=" not in item:
+                            raise ValueError(
+                                f"Invalid --input '{item}'; expected KEY=PATH when multiple --input flags are given"
+                            )
+                        k, v = item.split("=", 1)
+                        k = k.strip()
+                        v = v.strip()
+                        if not k or not v:
+                            raise ValueError(f"Invalid --input '{item}'; expected non-empty KEY=PATH")
+                        parsed_inputs[k] = Path(v)
+
             target_raw = args.run_dir
             target_p = Path(target_raw) if target_raw is not None else None
             is_pt_bundle = bool(target_p and (str(target_p).lower().endswith(".pt") or (target_p.is_file() and target_p.suffix.lower() == ".pt")))
@@ -1994,6 +2014,7 @@ def _dispatch(args, *, output=None):
                     count=args.count or 16,
                     seed=eff_seed,
                     output=args.output,
+                    inputs=parsed_inputs,
                     checkpoint=getattr(args, "checkpoint", None),
                     default_image_png=True,
                 )
@@ -2031,6 +2052,7 @@ def _dispatch(args, *, output=None):
                     resolved_run,
                     count=args.count or 16,
                     seed=eff_seed,
+                    inputs=parsed_inputs,
                     output=args.output,
                     checkpoint=getattr(args, "checkpoint", None),
                     default_image_png=True,
@@ -2139,4 +2161,3 @@ def _dispatch(args, *, output=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

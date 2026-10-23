@@ -1,5 +1,7 @@
 # Logo colorization in HyperGAN and HNDL
 
+![HyperGAN 2.0 Logo Colorization: Grayscale HG to 4×4 Colorized Grid](assets/hypergan-colorizer-banner.png)
+
 ## 128×128 conditional colorization (`examples/logos-colorization-128.toml`)
 
 `examples/logos-colorization-128.toml` is a declarative `hypergan-model/1` model
@@ -235,3 +237,43 @@ Interrupt it with Ctrl-C to save a recoverable boundary. Repeating the same
 command resumes the latest complete checkpoint. Configuration and dataset/component
 dependency checks remain enforced on resume; HyperGAN release hashes remain
 provenance, not compatibility rejection keys.
+
+### Post-training single-image colorization (`hypergan sample --input`)
+
+Once trained, sample diverse colorizations of any single grayscale image (such as
+the 128×128 grayscale **HG** monogram in `docs/assets/hg-bw-128.png`) from the
+CLI or Python API. When a single conditioning image is passed via `--input` (or
+`inputs=...` in Python), HyperGAN preprocesses it with the `ColorizationData`
+aspect-preserving Lanczos fit and broadcasts it across all `count` particle draws:
+
+```sh
+hypergan sample logos-colorization-128 \
+    --input docs/assets/hg-bw-128.png \
+    --checkpoint 3000 \
+    --count 16 \
+    --seed 10000 \
+    --output docs/assets/hypergan-logo-grid.png
+```
+
+Or in Python:
+
+```python
+import hypergan as hg
+
+sample = hg.sample(
+    "logos-colorization-128",
+    inputs="docs/assets/hg-bw-128.png",
+    checkpoint=3000,
+    count=16,
+    seed=10000,
+    output="docs/assets/hypergan-logo-grid.png",
+)
+```
+
+To regenerate the full set of HyperGAN 2.0 logo assets (`docs/assets/hg-bw-128.png`,
+`docs/assets/hypergan-logo.png`, `docs/assets/hypergan-logo-grid.png`, and
+`docs/assets/hypergan-colorizer-banner.png`) with quantitative checkpoint metrics:
+
+```sh
+python scripts/generate_logo.py --run-dir logos-colorization-128
+```

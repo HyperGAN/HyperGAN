@@ -1,9 +1,9 @@
 hyperchamber==0.3.1
 inflection
 numpy
-pillow
+pillow>=13.0.0
 psutil
 pyparsing
-torch
+torch>=2.6
 torchvision
 semantic_version

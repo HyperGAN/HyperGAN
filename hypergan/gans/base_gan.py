@@ -143,7 +143,7 @@ class BaseGAN():
         if Path(path).is_file():
             print("Loading " + path)
             try:
-                state_dict = torch.load(path)
+                state_dict = torch.load(path, map_location="cpu", weights_only=True)
                 print('state_dict', state_dict.keys())
                 component.load_state_dict(state_dict)
                 return True

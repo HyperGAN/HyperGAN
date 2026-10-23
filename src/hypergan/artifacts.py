@@ -247,9 +247,9 @@ def decode_png_sample_tensor(path_or_bytes):
     import io
     from PIL import Image
     if isinstance(path_or_bytes, (str, Path)):
-        img = Image.open(path_or_bytes)
+        img = Image.open(path_or_bytes, formats=["PNG"])
     else:
-        img = Image.open(io.BytesIO(path_or_bytes))
+        img = Image.open(io.BytesIO(path_or_bytes), formats=["PNG"])
     raw_meta = img.info.get('hypergan', '{}')
     payload = json.loads(raw_meta) if raw_meta else {}
     grid_meta = payload.get('grid', {})

@@ -9,11 +9,11 @@ from collections.abc import Mapping
 import copy
 import json
 import math
+import warnings
 from hypergan.pretrained_providers import (
     _imajev_bank_signature,
     _symmetric_log_odds,
     get_cached_or_deterministic_state_embed,
-    push_active_query,
 )
 
 
@@ -103,16 +103,259 @@ class ConstraintTargetData:
         }
 
 
-class ConstraintHiddenTargetData:
-    """Stateless target distribution sampler over [c, h_perp] in R^hidden_dim.
+class JointMultiQueryConstraintData:
+    """Stateless joint multi-query target distribution sampler over R^(Q * K_max).
 
-    Samples K-option centered target logits, transforms the first K coordinates into
-    target-vs-rest contrastive log-odds around ``target_index``, and samples the
-    remaining ``hidden_dim - K`` orthogonal nullspace coordinates from N(0, null_std^2 I).
+    Configured with Q semantic queries and their target options/modes (e.g. Mode 0 for
+    apple/subject, Modes 0..2 for color, bites, sitting_on, style, stem_leaf).
+    On each call, samples independent target mode combinations across all Q queries
+    (spanning the full Cartesian product of attributes, e.g. 243 modes for 6 queries),
+    and constructs the corresponding joint target soft-capped log-odds vector
+    U^target in R^(B x (Q * K_max)) matching the calibrated temperature (T=1.30515697)
+    and soft-capping threshold (tau=3.0) of the frozen VLM critic.
+
+    Returns dict {"real": U_target, "modes": mode_indices}.
+    """
+    resume_stateless = True
+
+    def __init__(
+        self,
+        queries,
+        *,
+        tau=3.0,
+        temperature=1.30515697,
+        jitter_std=0.0,
+        target_prob=0.992,
+    ):
+        import torch
+        if not isinstance(queries, (list, tuple)) or not 1 <= len(queries) <= 64:
+            raise ValueError("JointMultiQueryConstraintData queries must be a sequence of 1..64 query mappings")
+        if isinstance(tau, bool) or type(tau) not in (int, float) or not math.isfinite(tau) or tau <= 0.0:
+            raise ValueError("JointMultiQueryConstraintData tau must be a positive finite number")
+        if isinstance(temperature, bool) or type(temperature) not in (int, float) or not math.isfinite(temperature) or temperature <= 0.0:
+            raise ValueError("JointMultiQueryConstraintData temperature must be a positive finite number")
+        if isinstance(jitter_std, bool) or type(jitter_std) not in (int, float) or not math.isfinite(jitter_std) or jitter_std < 0.0:
+            raise ValueError("JointMultiQueryConstraintData jitter_std must be a finite nonnegative number")
+        if isinstance(target_prob, bool) or type(target_prob) not in (int, float) or not math.isfinite(target_prob) or not (0.5 < target_prob < 1.0):
+            raise ValueError("JointMultiQueryConstraintData target_prob must be a float in (0.5, 1.0)")
+
+        self.tau = float(tau)
+        self.temperature = float(temperature)
+        self.jitter_std = float(jitter_std)
+        self.target_prob = float(target_prob)
+        self.num_queries = len(queries)
+
+        normalized_queries = []
+        mode_probs_list = []
+        num_classes_list = []
+        num_modes_list = []
+
+        for idx, q in enumerate(queries):
+            if not isinstance(q, Mapping):
+                raise ValueError(f"JointMultiQueryConstraintData queries[{idx}] must be a mapping")
+
+            question = q.get("question")
+            if question is not None and (not isinstance(question, str) or not question.strip()):
+                raise ValueError(f"JointMultiQueryConstraintData queries[{idx}].question must be a non-empty string when set")
+
+            options = q.get("options")
+            if options is not None:
+                if not isinstance(options, (list, tuple)) or not 1 <= len(options) <= 63:
+                    raise ValueError(f"JointMultiQueryConstraintData queries[{idx}].options must contain 1..63 strings")
+                clean_options = []
+                seen = set()
+                for opt in options:
+                    if not isinstance(opt, str) or not opt.strip():
+                        raise ValueError(f"JointMultiQueryConstraintData queries[{idx}].options must be non-empty strings")
+                    if opt in seen:
+                        raise ValueError(f"JointMultiQueryConstraintData queries[{idx}].options must be unique")
+                    seen.add(opt)
+                    clean_options.append(opt)
+            else:
+                clean_options = None
+
+            if "target_probs" in q:
+                normalized_rows, is_2d = _validate_target_probs(q["target_probs"])
+                num_classes = len(normalized_rows[0])
+                if clean_options is not None:
+                    if num_classes not in (len(clean_options), len(clean_options) + 1):
+                        raise ValueError(
+                            f"JointMultiQueryConstraintData queries[{idx}].target_probs length {num_classes} "
+                            f"must match options length {len(clean_options)} or {len(clean_options) + 1}"
+                        )
+                raw_target_probs = normalized_rows if is_2d else normalized_rows[0]
+                target_modes = q.get("target_modes")
+                if target_modes is not None:
+                    if not isinstance(target_modes, (list, tuple)):
+                        target_modes = [target_modes]
+                    if len(target_modes) != len(normalized_rows):
+                        raise ValueError(
+                            f"JointMultiQueryConstraintData queries[{idx}].target_modes length "
+                            f"must match target_probs rows ({len(normalized_rows)})"
+                        )
+                else:
+                    target_modes = [int(torch.tensor(row).argmax().item()) for row in normalized_rows]
+            elif "target_modes" in q or "target_options" in q or "target_index" in q:
+                raw_modes = q.get("target_modes", q.get("target_options", q.get("target_index")))
+                if isinstance(raw_modes, int) and not isinstance(raw_modes, bool):
+                    target_modes = [raw_modes]
+                elif isinstance(raw_modes, (list, tuple)) and len(raw_modes) > 0 and all(type(m) is int and not isinstance(m, bool) for m in raw_modes):
+                    target_modes = [int(m) for m in raw_modes]
+                else:
+                    raise ValueError(
+                        f"JointMultiQueryConstraintData queries[{idx}] target_modes must be an int or sequence of ints"
+                    )
+
+                if clean_options is not None:
+                    num_classes = len(clean_options) + 1
+                else:
+                    num_classes = max(target_modes) + 2
+
+                if any(m < 0 or m >= num_classes for m in target_modes):
+                    raise ValueError(
+                        f"JointMultiQueryConstraintData queries[{idx}] target_modes entries must be in [0, {num_classes})"
+                    )
+
+                normalized_rows = []
+                other_prob = (1.0 - self.target_prob) / float(num_classes - 1)
+                for m in target_modes:
+                    row = [other_prob] * num_classes
+                    row[m] = self.target_prob
+                    normalized_rows.append(row)
+                raw_target_probs = normalized_rows if len(normalized_rows) > 1 else normalized_rows[0]
+            else:
+                raise ValueError(
+                    f"JointMultiQueryConstraintData queries[{idx}] requires 'target_probs', 'target_modes', or 'target_index'"
+                )
+
+            num_modes = len(normalized_rows)
+            num_classes_list.append(num_classes)
+            num_modes_list.append(num_modes)
+
+            entry = {
+                "target_probs": raw_target_probs,
+                "target_modes": list(target_modes),
+            }
+            if question is not None:
+                entry["question"] = question
+            if clean_options is not None:
+                entry["options"] = clean_options
+            if "weight" in q:
+                entry["weight"] = float(q["weight"])
+            if "state" in q:
+                entry["state"] = copy.deepcopy(q["state"])
+            if "aspect" in q:
+                entry["aspect"] = str(q["aspect"])
+            normalized_queries.append(entry)
+
+            probs_tensor = torch.tensor(normalized_rows, dtype=torch.float32)
+            mode_probs_list.append(probs_tensor)
+
+        self.queries = normalized_queries
+        self._num_classes = num_classes_list
+        self._num_modes = num_modes_list
+        self.k_max = max(num_classes_list)
+
+        self._centered_logits = []
+        self._mode_targets = []
+
+        for q_idx in range(self.num_queries):
+            probs = mode_probs_list[q_idx]
+            log_p = probs.log()
+            scaled_logits = log_p / self.temperature
+            centered = scaled_logits - scaled_logits.mean(dim=-1, keepdim=True)
+            self._centered_logits.append(centered)
+
+            u = _symmetric_log_odds(centered)
+            u_capped = self.tau * torch.tanh(u / self.tau)
+
+            K_q = self._num_classes[q_idx]
+            if K_q < self.k_max:
+                pad = torch.full(
+                    (len(probs), self.k_max - K_q),
+                    -self.tau,
+                    dtype=torch.float32,
+                )
+                u_capped = torch.cat([u_capped, pad], dim=-1)
+
+            self._mode_targets.append(u_capped)
+
+    def __call__(self, batch_size, *, generator=None):
+        import torch
+        if type(batch_size) is not int or isinstance(batch_size, bool) or batch_size < 1:
+            raise ValueError("batch_size must be a positive integer")
+        if generator is not None and not isinstance(generator, torch.Generator):
+            raise ValueError("generator must be a torch.Generator or None")
+        device = generator.device if generator is not None else torch.device("cpu")
+
+        sampled_modes = []
+        sampled_u = []
+
+        for q_idx in range(self.num_queries):
+            num_modes = self._num_modes[q_idx]
+            if num_modes > 1:
+                m_indices = torch.randint(0, num_modes, (batch_size,), generator=generator, device=device)
+            else:
+                m_indices = torch.zeros((batch_size,), dtype=torch.long, device=device)
+            sampled_modes.append(m_indices)
+
+            if self.jitter_std > 0.0:
+                base = self._centered_logits[q_idx].to(device=device)[m_indices]
+                K_q = self._num_classes[q_idx]
+                noise = torch.randn(
+                    (batch_size, K_q),
+                    generator=generator,
+                    device=device,
+                    dtype=torch.float32,
+                )
+                y = base + self.jitter_std * noise
+                y = y - y.mean(dim=-1, keepdim=True)
+                u = _symmetric_log_odds(y)
+                u_capped = self.tau * torch.tanh(u / self.tau)
+                if K_q < self.k_max:
+                    pad = torch.full(
+                        (batch_size, self.k_max - K_q),
+                        -self.tau,
+                        device=device,
+                        dtype=torch.float32,
+                    )
+                    u_capped = torch.cat([u_capped, pad], dim=-1)
+                sampled_u.append(u_capped)
+            else:
+                targets = self._mode_targets[q_idx].to(device=device)
+                sampled_u.append(targets[m_indices])
+
+        U_target = torch.cat(sampled_u, dim=-1)
+        mode_indices = torch.stack(sampled_modes, dim=-1)
+
+        return {"real": U_target, "modes": mode_indices}
+
+    def resume_identity(self):
+        return {
+            "queries": copy.deepcopy(self.queries),
+            "tau": self.tau,
+            "temperature": self.temperature,
+            "jitter_std": self.jitter_std,
+            "target_prob": self.target_prob,
+        }
+
+
+class ConstraintHiddenTargetData:
+    """[DEPRECATED] Stateless target distribution sampler over [c, h_perp] in R^hidden_dim.
+
+    Deprecated: The nullspace embedding h_perp causes batch mode collapse (null_std=0)
+    or unconstrained off-manifold noise excitation (null_std>0).
+    Use JointMultiQueryConstraintData instead.
     """
     resume_stateless = True
 
     def __init__(self, target_probs, *, hidden_dim=2560, jitter_std=0.05, null_std=0.05, target_index=0):
+        warnings.warn(
+            "ConstraintHiddenTargetData is deprecated and will be removed in a future release. "
+            "Use JointMultiQueryConstraintData for joint multi-query semantic constraints.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         import torch
         normalized_rows, is_2d = _validate_target_probs(target_probs)
         num_classes = len(normalized_rows[0])
@@ -204,6 +447,11 @@ class MultiQueryConstraintData:
         adapter_path=None,
     ):
         import torch
+        warnings.warn(
+            "MultiQueryConstraintData is deprecated. Use JointMultiQueryConstraintData instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if not isinstance(queries, (list, tuple)) or len(queries) < 2 or len(queries) > 64:
             raise ValueError("MultiQueryConstraintData queries must be a sequence of 2..64 query mappings")
         if type(state_embed_dim) is not int or not 4 <= state_embed_dim <= 256:
@@ -320,7 +568,6 @@ class MultiQueryConstraintData:
         device = generator.device if generator is not None else torch.device("cpu")
         weights = self._query_weights.to(device=device)
         q_idx = int(torch.multinomial(weights, 1, generator=generator).item())
-        push_active_query(self._bank_signature, q_idx)
 
         base = self._centered_logits_bank[q_idx].to(device=device)
         num_modes = self._num_modes_bank[q_idx]
@@ -368,7 +615,7 @@ class OptionProbability:
     """
     resume_stateless = True
 
-    def __init__(self, index=0, *, input_mode="logits", num_classes=None, target_index=0):
+    def __init__(self, index=0, *, input_mode="logits", num_classes=None, target_index=0, query_index=0):
         if type(index) is int:
             if index < 0:
                 raise ValueError("OptionProbability index must be a nonnegative integer")
@@ -383,11 +630,11 @@ class OptionProbability:
             raise ValueError(
                 "OptionProbability index must be a nonnegative integer or a nonempty sequence of nonnegative integers"
             )
-        if input_mode not in ("logits", "probs", "hidden_state", "state_conditioned_log_odds"):
+        if input_mode not in ("logits", "probs", "hidden_state", "state_conditioned_log_odds", "joint_log_odds"):
             raise ValueError(
-                "OptionProbability input_mode must be 'logits', 'probs', 'hidden_state', or 'state_conditioned_log_odds'"
+                "OptionProbability input_mode must be 'logits', 'probs', 'hidden_state', 'state_conditioned_log_odds', or 'joint_log_odds'"
             )
-        if input_mode in ("hidden_state", "state_conditioned_log_odds"):
+        if input_mode in ("hidden_state", "state_conditioned_log_odds", "joint_log_odds"):
             if type(num_classes) is not int or num_classes < 2:
                 raise ValueError(
                     f"OptionProbability with input_mode={input_mode!r} requires integer num_classes >= 2"
@@ -398,11 +645,14 @@ class OptionProbability:
         if input_mode == "hidden_state":
             if type(target_index) is not int or not 0 <= target_index < num_classes:
                 raise ValueError("OptionProbability target_index must be in [0, num_classes)")
+        if type(query_index) is not int or isinstance(query_index, bool) or query_index < 0:
+            raise ValueError("OptionProbability query_index must be a nonnegative integer")
         self.index = index if type(index) is int else list(indices)
         self.indices = indices
         self.input_mode = input_mode
         self.num_classes = num_classes
         self.target_index = target_index
+        self.query_index = query_index
 
     def __call__(self, logits):
         import torch
@@ -429,6 +679,18 @@ class OptionProbability:
                 )
             u = logits[:, -self.num_classes:]
             probs = torch.sigmoid(u)
+        elif self.input_mode == "joint_log_odds":
+            q_idx = int(self.query_index)
+            K = self.num_classes
+            q_start = q_idx * K
+            q_end = q_start + K
+            if logits.shape[1] < q_end:
+                raise ValueError(
+                    f"OptionProbability joint_log_odds tensor width {logits.shape[1]} < required {q_end}"
+                )
+            u_slice = logits[:, q_start:q_end]
+            probs = torch.sigmoid(u_slice)
+            probs = probs / probs.sum(dim=-1, keepdim=True).clamp_min(1e-6)
         else:
             for idx in self.indices:
                 if idx >= logits.shape[1]:

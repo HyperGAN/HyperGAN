@@ -41,7 +41,7 @@ class _MockQwenLanguageModel(torch.nn.Module):
             self.lm_proj.weight.copy_(torch.eye(hidden_size))
         self.requires_grad_(False)
 
-    def forward(self, inputs_embeds, position_ids=None, use_cache=False, output_hidden_states=False):
+    def forward(self, inputs_embeds, position_ids=None, use_cache=False, output_hidden_states=False, attention_mask=None, **kwargs):
         pooled = inputs_embeds.float().mean(dim=1, keepdim=True)
         last = self.lm_proj(pooled).expand(-1, inputs_embeds.shape[1], -1)
         states = (
@@ -141,8 +141,9 @@ def _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
 @pytest.mark.parametrize('readout,expected_dim', [
     ('decision_logits', 4),
     ('decision_probs', 4),
-    ('hidden_state', 2560),
-    ('state_conditioned_log_odds', 20),
+    ('joint_log_odds', 4),
+    ('pooled_features', 2560),
+    ('pooled_vision', 2560),
 ])
 def test_imajev_provider_shape_resolution_and_lightweight_deepcopy(
     dummy_readout_artifact, readout, expected_dim
@@ -255,121 +256,339 @@ def test_imajev_mocked_forward_and_backward_gradients(dummy_readout_artifact, mo
     assert x2.grad is not None and torch.isfinite(x2.grad).all() and x2.grad.abs().sum() > 0
 
 
-def test_imajev_hidden_state_readout_and_target_layer(dummy_readout_artifact, monkeypatch):
+@pytest.mark.parametrize('num_queries,candidates_per_query,expected_dim', [
+    (1, 4, 4),    # 1 query, 3 options + 1 unknown = 4
+    (2, 5, 10),   # 2 queries, 4 options + 1 unknown = 10
+    (6, 5, 30),   # 6 canonical queries (subject, color, bites, sitting_on, style, stem_leaf) = 30
+])
+def test_imajev_joint_log_odds_shape_resolution_and_lightweight_copy(
+    dummy_readout_artifact, monkeypatch, num_queries, candidates_per_query, expected_dim
+):
+    """Verify HNDL shape_fn resolution for joint_log_odds and pooled_vision, and parameter immutability."""
     path, digest, expected_weight = dummy_readout_artifact
-    provider_cfg = {
-        'base_model_path': '/mock/qwen3.5-4b',
-        'adapter_path': '/mock/imajev-4b',
-        'question': 'What is shown?',
-        'options': ['apple', 'orange', 'banana', 'noise'],
-        'target_layer': -8,
-    }
+    options_list = [f'option_{i}' for i in range(candidates_per_query - 1)]
+    if num_queries == 1:
+        provider_cfg = {
+            'base_model_path': '/mock/qwen3.5-4b',
+            'adapter_path': '/mock/imajev-4b',
+            'question': 'Semantic question 0?',
+            'options': options_list,
+        }
+    else:
+        provider_cfg = {
+            'base_model_path': '/mock/qwen3.5-4b',
+            'adapter_path': '/mock/imajev-4b',
+            'queries': [
+                {'question': f'Semantic question {q}?', 'options': options_list}
+                for q in range(num_queries)
+            ],
+        }
     _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
 
-    hidden_src = (
+    joint_src = (
         f'pretrained({str(path)!r}, provider="imajev_4b", '
-        f'sha256="{digest}", readout="hidden_state", trainable=False, name="imajev")'
+        f'sha256="{digest}", readout="joint_log_odds", trainable=False, name="imajev")'
     )
-    logits_src = (
+    joint_net = build_network(
+        joint_src,
+        input_shape=('B', 3, 32, 32),
+        output_shape=('B', expected_dim),
+        pretrained_providers={'imajev_4b': provider_cfg},
+    )
+    backbone = joint_net['imajev'].model
+    assert dict(backbone.named_parameters()).keys() == {'weight'}
+    assert not backbone.weight.requires_grad
+    assert not backbone.training
+    torch.testing.assert_close(backbone.weight, expected_weight, rtol=0, atol=0)
+
+    # Verify deepcopy produces lightweight clones (only 256 * 2560 * 4 bytes for readout weights)
+    copied = deepcopy(joint_net)
+    copied_bytes = sum(p.numel() * p.element_size() for p in copied.parameters())
+    assert copied_bytes == 256 * 2560 * 4
+
+    # Verify pooled_vision readout resolves to [B, 2560]
+    pooled_src = (
         f'pretrained({str(path)!r}, provider="imajev_4b", '
-        f'sha256="{digest}", readout="decision_logits", trainable=False, name="imajev")'
+        f'sha256="{digest}", readout="pooled_vision", trainable=False, name="imajev")'
     )
-    hidden_net = build_network(
-        hidden_src,
+    pooled_net = build_network(
+        pooled_src,
         input_shape=('B', 3, 32, 32),
         output_shape=('B', 2560),
         pretrained_providers={'imajev_4b': provider_cfg},
     )
-    logits_net = build_network(
-        logits_src,
-        input_shape=('B', 3, 32, 32),
-        output_shape=('B', 5),
-        pretrained_providers={'imajev_4b': provider_cfg},
-    )
-
-    x = torch.randn(3, 3, 32, 32, requires_grad=True)
-    out = hidden_net(x)
-    assert out.shape == (3, 2560)
-    assert torch.isfinite(out).all()
-
-    with torch.no_grad():
-        logits = logits_net(x.detach())
-        z0 = logits[:, :1]
-        z_rest = logits[:, 1:]
-        expected_c = torch.cat([z0 - torch.logsumexp(z_rest, dim=-1, keepdim=True), z_rest - z0], dim=-1)
-    torch.testing.assert_close(out[:, :5], expected_c, atol=1e-5, rtol=1e-5)
-    # Nullspace coordinates are batch-centered across the batch dimension
-    torch.testing.assert_close(out[:, 5:].mean(dim=0), torch.zeros(2555), atol=1e-5, rtol=0)
-
-    backbone = hidden_net['imajev'].model
-    v_perp = backbone._v_perp_cache[(torch.device('cpu'), 5)]
-    assert v_perp.shape == (2555, 2560)
-    ortho = expected_weight[:5] @ v_perp.T
-    torch.testing.assert_close(ortho, torch.zeros(5, 2555), atol=1e-5, rtol=0)
-
-    (out[:, 0].sum() + out[:, 5:].square().sum()).backward()
-    assert x.grad is not None and torch.isfinite(x.grad).all() and x.grad.abs().sum() > 0
-
-    copied = deepcopy(hidden_net)
-    assert copied['imajev'].model._v_perp_cache == {}
+    x = torch.randn(3, 3, 32, 32)
+    assert joint_net(x).shape == (3, expected_dim)
+    assert pooled_net(x).shape == (3, 2560)
 
 
-def test_imajev_state_conditioned_log_odds_multiquery_and_queue_sync(dummy_readout_artifact, monkeypatch):
+def test_imajev_vision_once_caching(dummy_readout_artifact, monkeypatch):
+    """Verify that ViT forward pass (get_image_features) executes strictly ONCE per batch across all Q queries."""
     path, digest, _ = dummy_readout_artifact
+    num_queries = 6
     provider_cfg = {
         'base_model_path': '/mock/qwen3.5-4b',
         'adapter_path': '/mock/imajev-4b',
-        'state_embed_dim': 16,
         'queries': [
-            {
-                'state': {'task': 'apple', 'aspect': 'subject'},
-                'question': 'What is the main subject?',
-                'options': ['apple', 'orange', 'banana', 'noise'],
-            },
-            {
-                'state': {'task': 'apple', 'aspect': 'realism'},
-                'question': 'How realistic is the apple?',
-                'options': ['photorealistic', 'cartoon', 'blurry', 'static'],
-            },
+            {'question': f'Apple aspect {q}?', 'options': ['optA', 'optB', 'optC', 'optD']}
+            for q in range(num_queries)
         ],
     }
-    _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
+    mock_runtime = _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
+
+    inner_model = mock_runtime['model'].model
+    original_get_image_features = inner_model.get_image_features
+    call_counts = {'get_image_features': 0}
+
+    def counting_get_image_features(*args, **kwargs):
+        call_counts['get_image_features'] += 1
+        return original_get_image_features(*args, **kwargs)
+
+    inner_model.get_image_features = counting_get_image_features
+
     src = (
         f'pretrained({str(path)!r}, provider="imajev_4b", '
-        f'sha256="{digest}", readout="state_conditioned_log_odds", trainable=False, name="imajev")'
+        f'sha256="{digest}", readout="joint_log_odds", trainable=False, name="imajev")'
     )
     net = build_network(
         src,
         input_shape=('B', 3, 32, 32),
-        output_shape=('B', 21),
+        output_shape=('B', num_queries * 5),
         pretrained_providers={'imajev_4b': provider_cfg},
     )
-    backbone = net['imajev'].model
-    sig = backbone._bank_signature
-    pp._IMAJEV_ACTIVE_QUERY_QUEUE.pop(sig, None)
 
-    x0 = torch.randn(3, 3, 32, 32, requires_grad=True)
-    pp.push_active_query(sig, 0)
-    out0 = net(x0)
-    assert out0.shape == (3, 21)
-
-    x1 = x0.detach().clone().requires_grad_(True)
-    pp.push_active_query(sig, 1)
+    # First batch of size B=4
+    x1 = torch.randn(4, 3, 32, 32)
     out1 = net(x1)
-    assert out1.shape == (3, 21)
+    assert out1.shape == (4, num_queries * 5)
+    # ViT must execute exactly ONCE for the batch, not once per query (1 != 6)
+    assert call_counts['get_image_features'] == 1, (
+        f"ViT executed {call_counts['get_image_features']} times; expected exactly 1 (vision-once violation)"
+    )
 
-    # Distinct state embeddings [B, 16] and distinct symmetric log-odds [B, 5] between queries 0 and 1
-    assert not torch.allclose(out0[:, :16], out1[:, :16])
-    assert not torch.allclose(out0[:, 16:], out1[:, 16:])
-    torch.testing.assert_close(out0[:, :16].norm(dim=-1), torch.ones(3), atol=1e-5, rtol=1e-5)
-    torch.testing.assert_close(out1[:, :16].norm(dim=-1), torch.ones(3), atol=1e-5, rtol=1e-5)
-    # sigmoid(u_k) recovers valid simplex probabilities summing to 1
-    torch.testing.assert_close(torch.sigmoid(out0[:, 16:]).sum(dim=-1), torch.ones(3), atol=1e-5, rtol=1e-5)
-    torch.testing.assert_close(torch.sigmoid(out1[:, 16:]).sum(dim=-1), torch.ones(3), atol=1e-5, rtol=1e-5)
+    # Second batch of size B=2
+    x2 = torch.randn(2, 3, 32, 32)
+    out2 = net(x2)
+    assert out2.shape == (2, num_queries * 5)
+    # Total call count increments by exactly 1
+    assert call_counts['get_image_features'] == 2, (
+        f"ViT executed {call_counts['get_image_features']} times; expected exactly 2 across two batches"
+    )
 
-    (out0[:, 16].sum() + out1[:, 17].sum()).backward()
-    assert x0.grad is not None and torch.isfinite(x0.grad).all() and x0.grad.abs().sum() > 0
-    assert x1.grad is not None and torch.isfinite(x1.grad).all() and x1.grad.abs().sum() > 0
+
+def test_imajev_soft_capping_bounds_and_saturation(dummy_readout_artifact, monkeypatch):
+    """Verify that joint_log_odds output strictly satisfies -tau < u_tilde < tau under normal and extreme inputs."""
+    path, digest, _ = dummy_readout_artifact
+    provider_cfg = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'tau': 3.0,
+        'queries': [
+            {'question': 'Subject?', 'options': ['apple', 'orange', 'banana', 'noise']},
+            {'question': 'Color?', 'options': ['red', 'green', 'yellow', 'noise']},
+        ],
+    }
+    _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
+
+    src = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="joint_log_odds", trainable=False, name="imajev")'
+    )
+    net = build_network(
+        src,
+        input_shape=('B', 3, 32, 32),
+        output_shape=('B', 10),
+        pretrained_providers={'imajev_4b': provider_cfg},
+    )
+
+    # Standard range inputs
+    x_std = torch.randn(4, 3, 32, 32)
+    out_std = net(x_std)
+    assert torch.all(out_std > -3.0), f"Lower bound violation: min value {out_std.min()} <= -3.0"
+    assert torch.all(out_std < 3.0), f"Upper bound violation: max value {out_std.max()} >= 3.0"
+
+    # Extreme inputs: verify saturation immunity without NaN or numerical overflow
+    x_extreme = torch.full((2, 3, 32, 32), 1e4)
+    out_extreme = net(x_extreme)
+    assert torch.isfinite(out_extreme).all()
+    assert torch.all(out_extreme > -3.0)
+    assert torch.all(out_extreme < 3.0)
+
+    # Custom tau test (tau = 1.5)
+    custom_tau_cfg = {**provider_cfg, 'tau': 1.5}
+    _install_mock_runtime(monkeypatch, custom_tau_cfg, device=torch.device('cpu'))
+    custom_net = build_network(
+        src,
+        input_shape=('B', 3, 32, 32),
+        output_shape=('B', 10),
+        pretrained_providers={'imajev_4b': custom_tau_cfg},
+    )
+    out_custom = custom_net(x_std)
+    assert torch.all(out_custom > -1.5)
+    assert torch.all(out_custom < 1.5)
+
+    # Mathematical property: strict monotonicity d(u_tilde)/du = sech^2(u/tau) > 0
+    u_vals = torch.linspace(-15.0, 15.0, 200)
+    tau = 3.0
+    u_tilde = tau * torch.tanh(u_vals / tau)
+    assert torch.all((u_tilde[1:] - u_tilde[:-1]) > 0), "Soft-capping is not strictly monotonic"
+    # Odd symmetry: u_tilde(-u) == -u_tilde(u)
+    torch.testing.assert_close(tau * torch.tanh(-u_vals / tau), -u_tilde)
+
+
+def test_imajev_calibration_temperature_scaling(dummy_readout_artifact, monkeypatch):
+    """Verify that calibration temperature scales logits by 1/T, softening log-odds before soft-capping."""
+    path, digest, _ = dummy_readout_artifact
+    q = [{'question': 'Aspect?', 'options': ['a', 'b', 'c', 'noise']}, {'question': 'Aspect2?', 'options': ['d', 'e', 'f', 'noise']}]
+
+    cfg_default = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'queries': q,
+    }
+    cfg_t1 = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'temperature': 1.0,
+        'tau': 100.0,  # Un-saturate to test linear scaling
+        'queries': q,
+    }
+    cfg_t2 = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'temperature': 2.0,
+        'tau': 100.0,
+        'queries': q,
+    }
+
+    _install_mock_runtime(monkeypatch, cfg_default, device=torch.device('cpu'))
+    _install_mock_runtime(monkeypatch, cfg_t1, device=torch.device('cpu'))
+    _install_mock_runtime(monkeypatch, cfg_t2, device=torch.device('cpu'))
+
+    src = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="joint_log_odds", trainable=False, name="imajev")'
+    )
+    net_default = build_network(src, input_shape=('B', 3, 32, 32), output_shape=('B', 10), pretrained_providers={'imajev_4b': cfg_default})
+    net_t1 = build_network(src, input_shape=('B', 3, 32, 32), output_shape=('B', 10), pretrained_providers={'imajev_4b': cfg_t1})
+    net_t2 = build_network(src, input_shape=('B', 3, 32, 32), output_shape=('B', 10), pretrained_providers={'imajev_4b': cfg_t2})
+
+    # Assert default temperature is exactly 1.30515697
+    backbone_def = net_default['imajev'].model
+    assert float(backbone_def._config.get('temperature', 1.30515697)) == pytest.approx(1.30515697, rel=1e-5)
+
+    x = torch.randn(2, 3, 32, 32)
+    out_t1 = net_t1(x)
+    out_t2 = net_t2(x)
+
+    abs_t1 = out_t1.abs().mean()
+    abs_t2 = out_t2.abs().mean()
+    if abs_t1 > 1e-4:
+        assert abs_t2 < abs_t1, "Doubling temperature did not reduce log-odds magnitude"
+
+    # Input validation: reject temperature <= 0
+    with pytest.raises((HNDLError, ValueError)):
+        bad_cfg = {**cfg_default, 'temperature': 0.0}
+        build_network(src, input_shape=('B', 3, 32, 32), output_shape=('B', 10), pretrained_providers={'imajev_4b': bad_cfg})
+
+
+def test_imajev_backward_pass_and_gradient_flow_to_image(dummy_readout_artifact, monkeypatch):
+    """Verify end-to-end backpropagation through LM and ViT down to the input image tensor x."""
+    path, digest, expected_weight = dummy_readout_artifact
+    provider_cfg = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'tau': 3.0,
+        'temperature': 1.30515697,
+        'queries': [
+            {'question': 'Subject?', 'options': ['apple', 'orange', 'banana', 'noise']},
+            {'question': 'Color?', 'options': ['red', 'green', 'yellow', 'noise']},
+        ],
+    }
+    _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
+
+    src = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="joint_log_odds", trainable=False, name="imajev")'
+    )
+    net = build_network(
+        src,
+        input_shape=('B', 3, 32, 32),
+        output_shape=('B', 10),
+        pretrained_providers={'imajev_4b': provider_cfg},
+    )
+
+    x = torch.randn(2, 3, 32, 32, requires_grad=True)
+    out = net(x)
+    assert out.shape == (2, 10)
+    assert torch.isfinite(out).all()
+
+    # Differentiate joint multi-query objective
+    loss = (out[:, 0] - out[:, 1] + out[:, 5] - out[:, 6]).sum()
+    loss.backward()
+
+    # Assert gradient flow reaches input image tensor
+    assert x.grad is not None, "Gradient failed to reach input image tensor"
+    assert torch.isfinite(x.grad).all(), "Gradient on input image contains non-finite values (NaN/Inf)"
+    assert x.grad.abs().sum() > 0, "Gradient on input image is identically zero"
+    assert x.grad.shape == x.shape, f"Gradient shape {x.grad.shape} mismatch with image shape {x.shape}"
+
+    # Assert readout weights remain frozen without gradients
+    assert net['imajev'].model.weight.grad is None
+    torch.testing.assert_close(net['imajev'].model.weight, expected_weight, rtol=0, atol=0)
+
+    # Verify gradient flow through pooled_vision readout
+    pooled_src = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="pooled_vision", trainable=False, name="imajev")'
+    )
+    pooled_net = build_network(
+        pooled_src,
+        input_shape=('B', 3, 32, 32),
+        output_shape=('B', 2560),
+        pretrained_providers={'imajev_4b': provider_cfg},
+    )
+    x_vis = torch.randn(2, 3, 32, 32, requires_grad=True)
+    vis_out = pooled_net(x_vis)
+    assert vis_out.shape == (2, 2560)
+    vis_loss = vis_out.sum()
+    vis_loss.backward()
+    assert x_vis.grad is not None and torch.isfinite(x_vis.grad).all() and x_vis.grad.abs().sum() > 0
+
+
+def test_imajev_joint_scoring_no_queue_dependency(dummy_readout_artifact, monkeypatch):
+    """Verify that joint_log_odds execution does not touch, modify, or require _IMAJEV_ACTIVE_QUERY_QUEUE."""
+    path, digest, _ = dummy_readout_artifact
+    provider_cfg = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'queries': [
+            {'question': 'Subject?', 'options': ['apple', 'orange', 'banana', 'noise']},
+            {'question': 'Color?', 'options': ['red', 'green', 'yellow', 'noise']},
+        ],
+    }
+    _install_mock_runtime(monkeypatch, provider_cfg, device=torch.device('cpu'))
+
+    if hasattr(pp, '_IMAJEV_ACTIVE_QUERY_QUEUE'):
+        pp._IMAJEV_ACTIVE_QUERY_QUEUE.clear()
+
+    src = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="joint_log_odds", trainable=False, name="imajev")'
+    )
+    net = build_network(
+        src,
+        input_shape=('B', 3, 32, 32),
+        output_shape=('B', 10),
+        pretrained_providers={'imajev_4b': provider_cfg},
+    )
+
+    x = torch.randn(2, 3, 32, 32)
+    out = net(x)
+    assert out.shape == (2, 10)
+
+    if hasattr(pp, '_IMAJEV_ACTIVE_QUERY_QUEUE'):
+        assert len(pp._IMAJEV_ACTIVE_QUERY_QUEUE) == 0, "joint_log_odds improperly accessed global active query queue"
 
 
 def test_imajev_custom_image_size_and_compile_flag(dummy_readout_artifact, monkeypatch):

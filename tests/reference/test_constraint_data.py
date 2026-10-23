@@ -17,6 +17,7 @@ from hypergan.constraint_data import (
     ConstraintHiddenTargetData,
     ConstraintSatisfactionMetric,
     ConstraintTargetData,
+    JointMultiQueryConstraintData,
     MultiQueryConstraintData,
     OptionProbability,
     TotalVariationSmoothness,
@@ -567,3 +568,300 @@ def test_multi_query_constraint_data_and_state_conditioned_option_probability():
         ])
     with pytest.raises(ValueError, match="duplicates"):
         OptionProbability(index=[1, 1], input_mode="state_conditioned_log_odds", num_classes=5)
+
+
+def test_joint_multi_query_constraint_data_batch_generation_and_shapes():
+    """Verify JointMultiQueryConstraintData output shapes [B, Q*K] and [B, Q], bounds in (-tau, tau)."""
+    queries = [
+        {
+            "aspect": "subject",
+            "question": "What is the main subject?",
+            "options": ["apple fruit", "orange or citrus", "banana or pear", "noise or static"],
+            "target_probs": [0.92, 0.02, 0.02, 0.02, 0.02],
+        },
+        {
+            "aspect": "color",
+            "question": "What color is the apple?",
+            "options": ["bright red", "crisp green", "golden yellow", "noise"],
+            "target_probs": [
+                [0.92, 0.02, 0.02, 0.02, 0.02],
+                [0.02, 0.92, 0.02, 0.02, 0.02],
+                [0.02, 0.02, 0.92, 0.02, 0.02],
+            ],
+        },
+        {
+            "aspect": "bites",
+            "question": "How many bites are taken out?",
+            "options": ["zero bites", "one bite", "multiple bites", "noise"],
+            "target_probs": [
+                [0.92, 0.02, 0.02, 0.02, 0.02],
+                [0.02, 0.92, 0.02, 0.02, 0.02],
+                [0.02, 0.02, 0.92, 0.02, 0.02],
+            ],
+        },
+    ]
+    # Q = 3 queries, K = 5 candidates each -> Q * K = 15
+    data = JointMultiQueryConstraintData(queries, tau=3.0, jitter_std=0.0)
+    batch = data(16)
+
+    assert "real" in batch
+    assert "modes" in batch
+    real = batch["real"]
+    modes = batch["modes"]
+
+    assert real.shape == (16, 15)
+    assert modes.shape == (16, 3)
+    assert real.dtype == torch.float32
+    assert torch.isfinite(real).all()
+
+    # Soft-capping bounds in (-tau, tau)
+    assert torch.all(real > -3.0)
+    assert torch.all(real < 3.0)
+
+    # Query 0 has 1 mode -> modes[:, 0] == 0 identically
+    assert torch.all(modes[:, 0] == 0)
+    # Queries 1 and 2 have 3 modes -> modes in {0, 1, 2}
+    assert torch.all(modes[:, 1] >= 0) and torch.all(modes[:, 1] < 3)
+    assert torch.all(modes[:, 2] >= 0) and torch.all(modes[:, 2] < 3)
+
+
+def test_joint_multi_query_mode_distribution_and_balance():
+    """Verify that multi-mode queries sample uniformly across modes with entropy >= 0.85 ln(M)."""
+    queries = [
+        {
+            "aspect": "color",
+            "question": "Color?",
+            "options": ["red", "green", "yellow", "noise"],
+            "target_probs": [
+                [0.92, 0.02, 0.02, 0.02, 0.02],
+                [0.02, 0.92, 0.02, 0.02, 0.02],
+                [0.02, 0.02, 0.92, 0.02, 0.02],
+            ],
+        },
+    ]
+    data = JointMultiQueryConstraintData(queries, tau=3.0, jitter_std=0.0)
+    rng = torch.Generator().manual_seed(9999)
+    N = 1200
+    batch = data(N, generator=rng)
+    modes = batch["modes"][:, 0]
+
+    counts = torch.bincount(modes, minlength=3).tolist()
+    # Expectation for each mode is N/3 = 400. Assert within +/- 75
+    for c in counts:
+        assert 325 <= c <= 475, f"Mode count {c} deviated too far from expectation 400"
+
+    probs = [c / N for c in counts]
+    entropy = -sum(p * math.log(p) for p in probs)
+    max_entropy = math.log(3.0)
+    assert entropy >= 0.85 * max_entropy, f"Marginal entropy {entropy} < 0.85 * {max_entropy}"
+
+
+def test_joint_multi_query_independence_across_batch_and_queries():
+    """Verify statistical independence of sampled modes between samples and between queries."""
+    queries = [
+        {
+            "aspect": "color",
+            "question": "Color?",
+            "options": ["red", "green", "yellow", "noise"],
+            "target_probs": [
+                [0.90, 0.03, 0.03, 0.02, 0.02],
+                [0.03, 0.90, 0.03, 0.02, 0.02],
+                [0.03, 0.03, 0.90, 0.02, 0.02],
+            ],
+        },
+        {
+            "aspect": "bites",
+            "question": "Bites?",
+            "options": ["zero", "one", "multiple", "noise"],
+            "target_probs": [
+                [0.90, 0.03, 0.03, 0.02, 0.02],
+                [0.03, 0.90, 0.03, 0.02, 0.02],
+                [0.03, 0.03, 0.90, 0.02, 0.02],
+            ],
+        },
+    ]
+    data = JointMultiQueryConstraintData(queries, tau=3.0, jitter_std=0.0)
+
+    # 1. Sample-to-sample independence: batch does not collapse to a single mode combination
+    rng = torch.Generator().manual_seed(42)
+    batch_small = data(32, generator=rng)
+    modes_small = batch_small["modes"]
+    unique_combinations = len(set(tuple(row.tolist()) for row in modes_small))
+    assert unique_combinations >= 6, f"Expected diverse mode combinations, got only {unique_combinations}"
+
+    # 2. Query-to-query independence within sample: contingency table test
+    N = 1800
+    batch_large = data(N, generator=rng)
+    m1 = batch_large["modes"][:, 0]
+    m2 = batch_large["modes"][:, 1]
+
+    contingency = torch.zeros(3, 3, dtype=torch.float32)
+    for i in range(N):
+        contingency[m1[i], m2[i]] += 1
+
+    joint_probs = contingency / N
+    p1 = joint_probs.sum(dim=1, keepdim=True)
+    p2 = joint_probs.sum(dim=0, keepdim=True)
+    indep_probs = p1 @ p2
+
+    max_dev = (joint_probs - indep_probs).abs().max().item()
+    assert max_dev < 0.035, f"Query independence violation: max joint deviation {max_dev} >= 0.035"
+
+
+def test_joint_multi_query_shape_compatibility_with_joint_log_odds():
+    """Verify that JointMultiQueryConstraintData targets match joint_log_odds shape and pass through discriminator."""
+    from hypergan.hndl_networks import build_network
+
+    queries = [
+        {
+            "aspect": f"query_{i}",
+            "question": f"Question {i}?",
+            "options": ["opt0", "opt1", "opt2", "noise"],
+            "target_probs": [0.92, 0.02, 0.02, 0.02, 0.02],
+        }
+        for i in range(6)
+    ]
+    data = JointMultiQueryConstraintData(queries, tau=3.0, jitter_std=0.05)
+    real_targets = data(8)["real"]
+    assert real_targets.shape == (8, 30)
+
+    critic_net = build_network(
+        "linear(32)\nleaky_relu(0.2)\nlinear(1)",
+        input_shape=("B", 30),
+        output_shape=("B", 1),
+    )
+    score_real = critic_net(real_targets)
+    assert score_real.shape == (8, 1)
+    assert torch.isfinite(score_real).all()
+
+    # Simulated joint_log_odds output of shape (8, 30)
+    fake_joint_log_odds = torch.tanh(torch.randn(8, 30)) * 3.0
+    score_fake = critic_net(fake_joint_log_odds)
+    assert score_fake.shape == (8, 1)
+    assert torch.isfinite(score_fake).all()
+
+    loss = score_real.mean() - score_fake.mean()
+    loss.backward()
+    assert critic_net.nodes.n_n0.weight.grad is not None
+
+
+def test_joint_multi_query_removal_of_global_queue_dependency():
+    """Verify that JointMultiQueryConstraintData does not touch or require _IMAJEV_ACTIVE_QUERY_QUEUE."""
+    import hypergan.pretrained_providers as pp
+
+    queries = [
+        {
+            "aspect": "q1",
+            "question": "Question 1?",
+            "options": ["a", "b", "c", "noise"],
+            "target_probs": [0.92, 0.02, 0.02, 0.02, 0.02],
+        },
+        {
+            "aspect": "q2",
+            "question": "Question 2?",
+            "options": ["x", "y", "z", "noise"],
+            "target_probs": [0.92, 0.02, 0.02, 0.02, 0.02],
+        },
+    ]
+    data = JointMultiQueryConstraintData(queries, tau=3.0, jitter_std=0.0)
+
+    if hasattr(pp, "_IMAJEV_ACTIVE_QUERY_QUEUE"):
+        pp._IMAJEV_ACTIVE_QUERY_QUEUE.clear()
+
+    batch = data(16)
+    assert batch["real"].shape == (16, 10)
+
+    if hasattr(pp, "_IMAJEV_ACTIVE_QUERY_QUEUE"):
+        assert len(pp._IMAJEV_ACTIVE_QUERY_QUEUE) == 0
+
+    spec = {
+        "factory": "hypergan.constraint_data:JointMultiQueryConstraintData",
+        "args": {"queries": queries, "tau": 3.0, "jitter_std": 0.0},
+    }
+    contract = data_contract(data, spec)
+    assert contract["supported"] is True
+    assert contract["stateful"] is False
+    assert contract["identity"] == data.resume_identity()
+
+
+def test_joint_multi_query_rng_reproducibility_and_jitter():
+    """Verify deterministic reproducibility with torch.Generator and proper jitter behavior."""
+    queries = [
+        {
+            "aspect": "color",
+            "question": "Color?",
+            "options": ["red", "green", "yellow", "noise"],
+            "target_probs": [
+                [0.90, 0.03, 0.03, 0.02, 0.02],
+                [0.03, 0.90, 0.03, 0.02, 0.02],
+            ],
+        },
+    ]
+    data_jitter = JointMultiQueryConstraintData(queries, tau=3.0, jitter_std=0.15)
+    g1 = torch.Generator().manual_seed(777)
+    g2 = torch.Generator().manual_seed(777)
+    b1 = data_jitter(16, generator=g1)
+    b2 = data_jitter(16, generator=g2)
+    assert torch.equal(b1["real"], b2["real"])
+    assert torch.equal(b1["modes"], b2["modes"])
+
+    data_clean = JointMultiQueryConstraintData(queries, tau=3.0, jitter_std=0.0)
+    b_clean = data_clean(32, generator=torch.Generator().manual_seed(123))
+    mode_0_rows = [b_clean["real"][i] for i in range(32) if b_clean["modes"][i, 0] == 0]
+    if len(mode_0_rows) > 1:
+        for row in mode_0_rows[1:]:
+            torch.testing.assert_close(row, mode_0_rows[0], atol=1e-6, rtol=0.0)
+
+
+def test_joint_multi_query_validation():
+    """Verify input validation for JointMultiQueryConstraintData."""
+    valid_q = [
+        {"question": "Q1?", "options": ["a", "b"], "target_probs": [0.9, 0.05, 0.05]},
+        {"question": "Q2?", "options": ["c", "d"], "target_probs": [0.9, 0.05, 0.05]},
+    ]
+    for bad_queries in ([], "not_a_list", [valid_q[0]] * 65):
+        with pytest.raises(ValueError):
+            JointMultiQueryConstraintData(bad_queries)
+    for bad_tau in (0.0, -1.0, float("nan"), float("inf"), True):
+        with pytest.raises(ValueError, match="tau"):
+            JointMultiQueryConstraintData(valid_q, tau=bad_tau)
+    for bad_jitter in (-0.1, float("nan"), float("inf"), True):
+        with pytest.raises(ValueError, match="jitter_std"):
+            JointMultiQueryConstraintData(valid_q, jitter_std=bad_jitter)
+    data = JointMultiQueryConstraintData(valid_q)
+    for bad_bs in (0, -1, 1.5, True):
+        with pytest.raises(ValueError, match="batch_size"):
+            data(bad_bs)
+
+
+def test_option_probability_joint_log_odds():
+    """Verify OptionProbability with input_mode='joint_log_odds' across queries."""
+    # 2 queries, 4 classes each -> total width 8
+    # Q0: u = [5.0, -5.0, -5.0, -5.0], Q1: u = [-5.0, 5.0, -5.0, -5.0]
+    u = torch.tensor([[5.0, -5.0, -5.0, -5.0, -5.0, 5.0, -5.0, -5.0]], dtype=torch.float32)
+
+    opt_q0_c0 = OptionProbability(index=0, input_mode="joint_log_odds", num_classes=4, query_index=0)
+    opt_q0_c1 = OptionProbability(index=1, input_mode="joint_log_odds", num_classes=4, query_index=0)
+    opt_q1_c1 = OptionProbability(index=1, input_mode="joint_log_odds", num_classes=4, query_index=1)
+    opt_q1_multi = OptionProbability(index=[1, 2], input_mode="joint_log_odds", num_classes=4, query_index=1)
+
+    p0 = opt_q0_c0(u)
+    p1 = opt_q0_c1(u)
+    p2 = opt_q1_c1(u)
+    p_multi = opt_q1_multi(u)
+
+    assert p0.item() > 0.95
+    assert p1.item() < 0.05
+    assert p2.item() > 0.95
+    assert p_multi.item() >= p2.item()
+
+    # Slicing error when tensor width < (query_index + 1) * num_classes
+    opt_q2 = OptionProbability(index=0, input_mode="joint_log_odds", num_classes=4, query_index=2)
+    with pytest.raises(ValueError, match="tensor width"):
+        opt_q2(u)
+
+    # Validation errors
+    with pytest.raises(ValueError, match="query_index"):
+        OptionProbability(index=0, input_mode="joint_log_odds", num_classes=4, query_index=-1)
+    with pytest.raises(ValueError, match="query_index"):
+        OptionProbability(index=0, input_mode="joint_log_odds", num_classes=4, query_index=True)

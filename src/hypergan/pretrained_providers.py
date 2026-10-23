@@ -38,10 +38,11 @@ def register_providers(registry, providers=None):
                 'imajev_4b',
                 _imajev_builder(config),
                 readouts={
+                    'joint_log_odds': _imajev_joint_log_odds,
+                    'pooled_features': _imajev_pooled_features,
+                    'pooled_vision': _imajev_pooled_features,
                     'decision_logits': _imajev_decision_logits,
                     'decision_probs': _imajev_decision_probs,
-                    'hidden_state': _imajev_hidden_state,
-                    'state_conditioned_log_odds': _imajev_state_conditioned_log_odds,
                 },
                 shape_fn=_imajev_shape_fn(config),
             )
@@ -50,7 +51,7 @@ def register_providers(registry, providers=None):
 
 _IMAJEV_RUNTIME_CACHE = {}
 _IMAJEV_STATE_EMBED_CACHE = {}
-_IMAJEV_ACTIVE_QUERY_QUEUE = {}
+_IMAJEV_ACTIVE_QUERY_QUEUE = {}  # Deprecated: single-query queue replaced by joint_log_odds
 _PREFERRED_IMAJEV_DEVICE = {}
 _IMAJEV_UNKNOWN_CANDIDATE = (
     'unknown — cannot be determined from the available evidence, '
@@ -90,18 +91,12 @@ def _imajev_bank_signature(queries):
 
 
 def push_active_query(bank_signature, query_index):
-    from collections import deque
-    queue = _IMAJEV_ACTIVE_QUERY_QUEUE.get(bank_signature)
-    if queue is None:
-        queue = deque(maxlen=64)
-        _IMAJEV_ACTIVE_QUERY_QUEUE[bank_signature] = queue
-    queue.append(int(query_index))
+    """Deprecated: single-query queue is replaced by joint_log_odds."""
+    pass
 
 
 def pop_active_query(bank_signature):
-    queue = _IMAJEV_ACTIVE_QUERY_QUEUE.get(bank_signature)
-    if queue:
-        return int(queue.popleft())
+    """Deprecated: single-query queue is replaced by joint_log_odds."""
     return 0
 
 
@@ -399,31 +394,153 @@ def get_cached_or_deterministic_state_embed(
     return vec
 
 
+def _prepare_imajev_joint_prompts(runtime, config):
+    import torch
+    queries = _imajev_config_queries(config)
+    image_size = int(config.get('image_size', 256))
+    cache_key = (_imajev_bank_signature(queries), image_size)
+    joint_prompts = runtime.setdefault('joint_prompts', {})
+    if cache_key in joint_prompts:
+        return joint_prompts[cache_key]
+
+    device = runtime['device']
+    Q = len(queries)
+    K = len(queries[0]['options']) + 1
+
+    all_rendered = []
+    all_candidates = []
+    for q in queries:
+        prompt, labels, candidates, _ = _imajev_format_prompt(
+            q['question'], q['options'], q.get('state', {})
+        )
+        all_candidates.append(candidates)
+        messages = [{'role': 'user', 'content': [{'type': 'image'}, {'type': 'text', 'text': prompt}]}]
+        if runtime.get('processor') is not None:
+            rendered = runtime['processor'].apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False, enable_thinking=False
+            )
+        else:
+            rendered = prompt + '<think>\n\n</think>\n\n'
+        all_rendered.append(rendered)
+
+    processor = runtime.get('processor')
+    if processor is not None:
+        m = runtime['model'].model
+        dummy_images = [torch.zeros(3, image_size, image_size, dtype=torch.float32) for _ in range(Q)]
+        with torch.no_grad():
+            proc_inputs = processor(
+                text=all_rendered,
+                images=dummy_images,
+                padding=True,
+                do_resize=False,
+                do_rescale=False,
+                do_normalize=True,
+                return_tensors='pt',
+            )
+            ids = proc_inputs['input_ids'].to(device)
+            attn_mask = proc_inputs['attention_mask'].to(device)
+            mm_token_type_ids = proc_inputs.get('mm_token_type_ids')
+            if mm_token_type_ids is not None:
+                mm_token_type_ids = mm_token_type_ids.to(device)
+            grid_thw_Q = proc_inputs['image_grid_thw'].to(device)
+            grid_thw_1 = grid_thw_Q[:1]
+            base_embeds = m.get_input_embeddings()(ids).detach()
+            image_mask, _ = m.get_placeholder_mask(ids, inputs_embeds=base_embeds)
+            image_mask = image_mask.expand_as(base_embeds).contiguous()
+            positions = m.compute_3d_position_ids(
+                input_ids=ids,
+                inputs_embeds=base_embeds,
+                image_grid_thw=grid_thw_Q,
+                attention_mask=attn_mask,
+                mm_token_type_ids=mm_token_type_ids,
+            ).detach().contiguous()
+            readout_token_indices = (attn_mask.sum(dim=-1) - 1).to(device=device, dtype=torch.long)
+            query_readout_indices = torch.arange(K, device=device, dtype=torch.long).unsqueeze(0).expand(Q, -1)
+    else:
+        # Mock runtime path for fast CPU unit testing
+        prompts = runtime.get('prompts', {})
+        first_bundle = next(iter(prompts.values())) if prompts else None
+        seq_len = first_bundle['base_embeds_1'].shape[1] if first_bundle else 32
+        hidden_size = 2560
+        base_embeds_list = []
+        readout_list = []
+        for q_idx, q in enumerate(queries):
+            prompt_, _, _, state_str = _imajev_format_prompt(
+                q['question'], q['options'], q.get('state', {})
+            )
+            p_key = (
+                (q['question'], tuple(q['options']), state_str)
+                if image_size == 256
+                else (q['question'], tuple(q['options']), state_str, image_size)
+            )
+            bundle = prompts.get(p_key)
+            if bundle is None:
+                for k_cand, b_cand in prompts.items():
+                    if k_cand[0] == q['question']:
+                        bundle = b_cand
+                        break
+            if bundle is None:
+                bundle = first_bundle
+            if bundle is not None:
+                base_embeds_list.append(bundle['base_embeds_1'])
+                readout_list.append(bundle['readout_indices'])
+            else:
+                base_embeds_list.append(torch.full((1, seq_len, hidden_size), float(q_idx) * 0.05, device=device))
+                readout_list.append(torch.arange(K, device=device, dtype=torch.long))
+        base_embeds = torch.cat(base_embeds_list, dim=0)
+        query_readout_indices = torch.stack(readout_list, dim=0)
+        grid_h = image_size // 16
+        num_vis = (grid_h // 2) ** 2
+        image_mask = torch.zeros(Q, seq_len, hidden_size, dtype=torch.bool, device=device)
+        image_mask[:, 4:4 + num_vis, :] = True
+        positions = torch.arange(seq_len, device=device, dtype=torch.long).view(1, 1, seq_len).expand(3, Q, seq_len).contiguous()
+        attn_mask = torch.ones(Q, seq_len, device=device, dtype=torch.long)
+        grid_thw_1 = torch.tensor([[1, grid_h, grid_h]], device=device, dtype=torch.long)
+        readout_token_indices = torch.full((Q,), seq_len - 1, device=device, dtype=torch.long)
+
+    bundle = {
+        'base_embeds': base_embeds,
+        'image_mask': image_mask,
+        'positions': positions,
+        'attn_mask': attn_mask,
+        'grid_thw_1': grid_thw_1,
+        'readout_token_indices': readout_token_indices,
+        'query_readout_indices': query_readout_indices,
+        'num_queries': Q,
+        'num_candidates': K,
+        'image_size': image_size,
+    }
+    joint_prompts[cache_key] = bundle
+    return bundle
+
+
 def _imajev_shape_fn(config):
     from .network_config import validate_pretrained_providers
     validate_pretrained_providers({'imajev_4b': config})
     queries = _imajev_config_queries(config)
+    num_queries = len(queries)
     num_candidates = len(queries[0]['options']) + 1
-    state_embed_dim = int(config.get('state_embed_dim', 16))
 
     def shape_fn(input_shape, output='features', layer='', readout='', layers=()):
         if (not isinstance(input_shape, (list, tuple)) or len(input_shape) != 4
                 or int(input_shape[1]) != 3 or any(int(s) < 16 for s in input_shape[2:])):
             raise ValueError('imajev_4b expects RGB images with height and width at least 16')
         if layer or layers or readout not in (
+            'joint_log_odds',
+            'pooled_features',
+            'pooled_vision',
             'decision_logits',
             'decision_probs',
-            'hidden_state',
-            'state_conditioned_log_odds',
+            '',
         ):
             raise ValueError(
-                'imajev_4b requires readout="decision_logits", "decision_probs", '
-                '"hidden_state", or "state_conditioned_log_odds"'
+                'imajev_4b requires readout="joint_log_odds", "pooled_features", '
+                '"decision_logits", or "decision_probs"'
             )
-        if readout == 'hidden_state':
+        if readout in ('pooled_features', 'pooled_vision'):
             return (input_shape[0], 2560)
-        if readout == 'state_conditioned_log_odds':
-            return (input_shape[0], state_embed_dim + num_candidates)
+        if readout in ('joint_log_odds', ''):
+            return (input_shape[0], num_queries * num_candidates)
         return (input_shape[0], num_candidates)
 
     return shape_fn
@@ -446,18 +563,37 @@ def _imajev_builder(config):
                 with torch.enable_grad():
                     out = forward_fn(x_detached)
                 ctx.x_detached = x_detached
+                ctx.is_tuple = isinstance(out, tuple)
                 ctx.out = out
                 ctx.cache = None
+                if ctx.is_tuple:
+                    return tuple(t.detach() for t in out)
                 return out.detach()
 
             @staticmethod
-            def backward(ctx, grad_output):
-                if ctx.cache is not None and torch.equal(grad_output, ctx.cache[0]):
-                    return ctx.cache[1], None
+            def backward(ctx, *grad_outputs):
+                grad_out = grad_outputs if ctx.is_tuple else grad_outputs[0]
+                if ctx.cache is not None:
+                    cached_grad_out, cached_grad_x = ctx.cache
+                    if ctx.is_tuple:
+                        equal = all(
+                            (g is None and cg is None) or (g is not None and cg is not None and torch.equal(g, cg))
+                            for g, cg in zip(grad_out, cached_grad_out)
+                        )
+                    else:
+                        equal = torch.equal(grad_out, cached_grad_out)
+                    if equal:
+                        return cached_grad_x, None
                 grad_x, = torch.autograd.grad(
-                    ctx.out, ctx.x_detached, grad_output, retain_graph=True
+                    ctx.out, ctx.x_detached, grad_out, retain_graph=True, allow_unused=True
                 )
-                ctx.cache = (grad_output.detach().clone(), grad_x)
+                if grad_x is None:
+                    grad_x = torch.zeros_like(ctx.x_detached)
+                if ctx.is_tuple:
+                    cloned_out = tuple(g.detach().clone() if g is not None else None for g in grad_out)
+                else:
+                    cloned_out = grad_out.detach().clone()
+                ctx.cache = (cloned_out, grad_x)
                 return grad_x, None
 
         class _ImaJevDecisionModule(nn.Module):
@@ -467,7 +603,6 @@ def _imajev_builder(config):
                 self._config = deepcopy(cfg)
                 self._queries = _imajev_config_queries(self._config)
                 self._bank_signature = _imajev_bank_signature(self._queries)
-                self._v_perp_cache = {}
                 self.eval()
 
             def _apply(self, fn, recurse=True):
@@ -485,10 +620,7 @@ def _imajev_builder(config):
                 result = cls.__new__(cls)
                 memo[id(self)] = result
                 for k, v in self.__dict__.items():
-                    if k == '_v_perp_cache':
-                        setattr(result, k, {})
-                    else:
-                        setattr(result, k, deepcopy(v, memo))
+                    setattr(result, k, deepcopy(v, memo))
                 return result
 
             def train(self, mode=True):
@@ -527,40 +659,36 @@ def _imajev_builder(config):
                     _compile_imajev_runtime(runtime)
                 return runtime
 
-            def _ensure_runtime(self, runtime_device):
-                runtime = self._get_or_load_runtime(runtime_device)
-                if 'queries' in self._config:
-                    prompt_bank = _prepare_imajev_prompt_bank(runtime, self._config)
-                    return runtime, prompt_bank[0]
-                prompt_bundle = _prepare_imajev_prompt(runtime, self._config)
-                return runtime, prompt_bundle
-
-            def _extract_hidden_state(self, m, embeds, position_ids):
+            def _extract_hidden_state(self, m, embeds, position_ids, attention_mask=None):
                 target_layer = int(self._config.get('target_layer', -1))
                 layers = getattr(getattr(m, 'language_model', None), 'layers', None)
                 num_layers = len(layers) if layers is not None else 32
                 layer_idx = target_layer if target_layer >= 0 else num_layers + target_layer
+                kwargs = {'use_cache': False}
+                if attention_mask is not None:
+                    import inspect
+                    sig = inspect.signature(m.language_model.forward)
+                    if 'attention_mask' in sig.parameters or any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()):
+                        kwargs['attention_mask'] = attention_mask
                 if layer_idx == num_layers - 1:
                     return m.language_model(
                         inputs_embeds=embeds,
                         position_ids=position_ids,
-                        use_cache=False,
-                    ).last_hidden_state[:, -1].float()
+                        **kwargs,
+                    ).last_hidden_state
                 out = m.language_model(
                     inputs_embeds=embeds,
                     position_ids=position_ids,
-                    use_cache=False,
                     output_hidden_states=True,
+                    **kwargs,
                 )
-                return m.language_model.norm(out.hidden_states[layer_idx + 1][:, -1]).float()
+                return m.language_model.norm(out.hidden_states[layer_idx + 1])
 
-            def _vision_and_hidden(self, x, runtime=None, prompt_bundle=None):
+            def _compute_vision_tokens(self, x, runtime, grid_thw_1):
                 import torch.nn.functional as F
                 if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
                     raise ValueError('imajev_4b expects RGB images with height and width at least 16')
                 runtime_device = self._select_runtime_device(x.device)
-                if runtime is None or prompt_bundle is None:
-                    runtime, prompt_bundle = self._ensure_runtime(runtime_device)
                 image_size = int(self._config.get('image_size', 256))
                 merged_h = image_size // 32
                 num_patches = (image_size // 16) * (image_size // 16)
@@ -579,67 +707,129 @@ def _imajev_builder(config):
                     .view(B * num_patches, 1536)
                 )
                 m = runtime['model'].model
-                base_embeds_1 = prompt_bundle['base_embeds_1']
-                image_mask_1 = prompt_bundle['image_mask_1']
-                positions_1 = prompt_bundle['positions_1']
-                grid_thw_1 = prompt_bundle['grid_thw_1']
-                readout_indices = prompt_bundle['readout_indices']
-
                 vision_out = m.get_image_features(patches, grid_thw_1.expand(B, -1), return_dict=True)
-                features = torch.cat(vision_out.pooler_output, dim=0).to(base_embeds_1.device, base_embeds_1.dtype)
-                embeds = base_embeds_1.expand(B, -1, -1).masked_scatter(image_mask_1.expand(B, -1, -1), features)
-                position_ids = positions_1.expand(3, B, -1).contiguous()
-                hidden = self._extract_hidden_state(m, embeds, position_ids)
-                return hidden, readout_indices
+                V = torch.stack(vision_out.pooler_output, dim=0)
+                pooled_v = V.float().mean(dim=1)
+                return V, pooled_v
 
-            def _get_v_perp(self, w, num_classes):
-                cache_key = (w.device, int(num_classes))
-                v_perp = self._v_perp_cache.get(cache_key)
-                if v_perp is None:
-                    with torch.no_grad():
-                        _, _, vh = torch.linalg.svd(w.detach().float(), full_matrices=True)
-                        v_perp = vh[num_classes:].contiguous()
-                    self._v_perp_cache[cache_key] = v_perp
-                return v_perp
+            def _forward_joint_log_odds_impl(self, x, return_vision_features=False):
+                runtime_device = self._select_runtime_device(x.device)
+                runtime = self._get_or_load_runtime(runtime_device)
+                joint_bundle = _prepare_imajev_joint_prompts(runtime, self._config)
+                V, pooled_v = self._compute_vision_tokens(x, runtime, joint_bundle['grid_thw_1'])
+
+                B = x.shape[0]
+                Q = joint_bundle['num_queries']
+                K = joint_bundle['num_candidates']
+                base_embeds = joint_bundle['base_embeds']
+                image_mask = joint_bundle['image_mask']
+                positions = joint_bundle['positions']
+                attn_mask = joint_bundle['attn_mask']
+                readout_token_indices = joint_bundle['readout_token_indices']
+                query_readout_indices = joint_bundle['query_readout_indices']
+                N_vis = V.shape[1]
+                D = base_embeds.shape[-1]
+                L_max = base_embeds.shape[1]
+
+                embeds = base_embeds.unsqueeze(0).expand(B, Q, -1, -1).clone()
+                mask = image_mask.unsqueeze(0).expand(B, Q, -1, -1)
+                V_cast = V.to(device=base_embeds.device, dtype=base_embeds.dtype)
+                V_scatter = V_cast.unsqueeze(1).expand(B, Q, N_vis, D).contiguous()
+                embeds.masked_scatter_(mask, V_scatter)
+                embeds_flat = embeds.view(B * Q, L_max, D)
+
+                pos_flat = positions[:, None, :, :].expand(-1, B, -1, -1).contiguous().view(positions.shape[0], B * Q, L_max)
+                attn_flat = attn_mask[None, :, :].expand(B, Q, -1).contiguous().view(B * Q, L_max)
+
+                m = runtime['model'].model
+                hidden = self._extract_hidden_state(m, embeds_flat, pos_flat, attention_mask=attn_flat)
+
+                hidden_bq = hidden.view(B, Q, L_max, D)
+                idx_expanded = readout_token_indices.view(1, Q, 1, 1).expand(B, Q, 1, D)
+                H = torch.gather(hidden_bq, 2, idx_expanded).squeeze(2).float()
+
+                w = self.weight.to(H.device)
+                W_queries = w[query_readout_indices]
+                temperature = float(self._config.get('temperature', 1.30515697))
+                tau = float(self._config.get('tau', 3.0))
+
+                logits = torch.einsum('bqd,qkd->bqk', H, W_queries) / temperature
+                centered_logits = logits - logits.mean(dim=-1, keepdim=True)
+
+                u_cols = []
+                for k in range(K):
+                    other = torch.cat([centered_logits[:, :, :k], centered_logits[:, :, k + 1:]], dim=-1)
+                    u_cols.append(centered_logits[:, :, k : k + 1] - torch.logsumexp(other, dim=-1, keepdim=True))
+                u = torch.cat(u_cols, dim=-1)
+
+                u_tilde = tau * torch.tanh(u / tau)
+                out = u_tilde.view(B, Q * K)
+
+                out = out.to(x.device) if out.device != x.device else out
+                pooled_v = pooled_v.to(x.device) if pooled_v.device != x.device else pooled_v
+                if return_vision_features:
+                    return out, pooled_v
+                return out
+
+            def _forward_pooled_features_impl(self, x):
+                runtime_device = self._select_runtime_device(x.device)
+                runtime = self._get_or_load_runtime(runtime_device)
+                joint_bundle = _prepare_imajev_joint_prompts(runtime, self._config)
+                _, pooled_v = self._compute_vision_tokens(x, runtime, joint_bundle['grid_thw_1'])
+                return pooled_v.to(x.device) if pooled_v.device != x.device else pooled_v
 
             def _forward_logits_impl(self, x):
-                hidden, readout_indices = self._vision_and_hidden(x)
-                w = self.weight.to(hidden.device)[readout_indices]
-                temperature = float(self._config.get('temperature', 1.0))
-                logits = (hidden @ w.T) / temperature
+                runtime_device = self._select_runtime_device(x.device)
+                runtime = self._get_or_load_runtime(runtime_device)
+                joint_bundle = _prepare_imajev_joint_prompts(runtime, self._config)
+                V, _ = self._compute_vision_tokens(x, runtime, joint_bundle['grid_thw_1'])
+                base_embeds = joint_bundle['base_embeds'][:1]
+                image_mask = joint_bundle['image_mask'][:1]
+                positions = joint_bundle['positions'][:, :1, :]
+                attn_mask = joint_bundle['attn_mask'][:1]
+                readout_token_indices = joint_bundle['readout_token_indices'][:1]
+                B = x.shape[0]
+                N_vis = V.shape[1]
+                D = base_embeds.shape[-1]
+                L_max = base_embeds.shape[1]
+
+                embeds = base_embeds.expand(B, -1, -1).clone()
+                mask = image_mask.expand(B, -1, -1)
+                V_cast = V.to(device=base_embeds.device, dtype=base_embeds.dtype)
+                embeds.masked_scatter_(mask, V_cast.contiguous())
+                pos = positions.expand(-1, B, -1).contiguous()
+                attn = attn_mask.expand(B, -1).contiguous()
+
+                m = runtime['model'].model
+                hidden = self._extract_hidden_state(m, embeds, pos, attention_mask=attn)
+                idx_expanded = readout_token_indices.view(1, 1, 1).expand(B, 1, D)
+                H = torch.gather(hidden, 1, idx_expanded).squeeze(1).float()
+
+                w = self.weight.to(H.device)
+                W_K = w[joint_bundle['query_readout_indices'][0]]
+                temperature = float(self._config.get('temperature', 1.30515697))
+                logits = (H @ W_K.T) / temperature
                 logits = logits - logits.mean(dim=-1, keepdim=True).detach()
                 return logits.to(x.device) if logits.device != x.device else logits
 
-            def _forward_hidden_impl(self, x):
-                hidden, readout_indices = self._vision_and_hidden(x)
-                w = self.weight.to(hidden.device)[readout_indices]
-                temperature = float(self._config.get('temperature', 1.0))
-                logits = (hidden @ w.T) / temperature
-                logits = logits - logits.mean(dim=-1, keepdim=True).detach()
-                z0 = logits[:, :1]
-                z_rest = logits[:, 1:]
-                c = torch.cat([z0 - torch.logsumexp(z_rest, dim=-1, keepdim=True), z_rest - z0], dim=-1)
-                v_perp = self._get_v_perp(w, len(readout_indices))
-                dh = hidden - hidden.mean(dim=0, keepdim=True).detach()
-                h_perp = (dh @ v_perp.T) * 0.15
-                out = torch.cat([c, h_perp], dim=-1)
-                return out.to(x.device) if out.device != x.device else out
+            def forward_joint_log_odds(self, x, return_vision_features=False):
+                if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
+                    raise ValueError('imajev_4b expects RGB images with height and width at least 16')
+                if torch.is_grad_enabled() and x.requires_grad:
+                    return _CachedInputGradFn.apply(
+                        x, lambda x_in: self._forward_joint_log_odds_impl(x_in, return_vision_features=return_vision_features)
+                    )
+                return self._forward_joint_log_odds_impl(x, return_vision_features=return_vision_features)
 
-            def _forward_state_conditioned_impl(self, x, query_idx):
-                runtime_device = self._select_runtime_device(x.device)
-                runtime = self._get_or_load_runtime(runtime_device)
-                prompt_bank = _prepare_imajev_prompt_bank(runtime, self._config)
-                idx = query_idx if 0 <= query_idx < len(prompt_bank) else 0
-                bundle = prompt_bank[idx]
-                hidden, readout_indices = self._vision_and_hidden(x, runtime=runtime, prompt_bundle=bundle)
-                w = self.weight.to(hidden.device)[readout_indices]
-                temperature = float(self._config.get('temperature', 1.0))
-                logits = (hidden @ w.T) / temperature
-                logits = logits - logits.mean(dim=-1, keepdim=True).detach()
-                u = _symmetric_log_odds(logits)
-                state_embed = bundle['state_embed_1'].to(device=u.device, dtype=u.dtype).expand(u.shape[0], -1)
-                out = torch.cat([state_embed, u], dim=-1)
-                return out.to(x.device) if out.device != x.device else out
+            def forward_pooled_features(self, x):
+                if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
+                    raise ValueError('imajev_4b expects RGB images with height and width at least 16')
+                if torch.is_grad_enabled() and x.requires_grad:
+                    return _CachedInputGradFn.apply(x, self._forward_pooled_features_impl)
+                return self._forward_pooled_features_impl(x)
+
+            def forward_pooled_vision(self, x):
+                return self.forward_pooled_features(x)
 
             def forward_logits(self, x):
                 if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
@@ -648,32 +838,25 @@ def _imajev_builder(config):
                     return _CachedInputGradFn.apply(x, self._forward_logits_impl)
                 return self._forward_logits_impl(x)
 
-            def forward_hidden(self, x):
-                if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
-                    raise ValueError('imajev_4b expects RGB images with height and width at least 16')
-                if torch.is_grad_enabled() and x.requires_grad:
-                    return _CachedInputGradFn.apply(x, self._forward_hidden_impl)
-                return self._forward_hidden_impl(x)
-
-            def forward_state_conditioned_log_odds(self, x):
-                if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
-                    raise ValueError('imajev_4b expects RGB images with height and width at least 16')
-                query_idx = pop_active_query(self._bank_signature)
-                if torch.is_grad_enabled() and x.requires_grad:
-                    return _CachedInputGradFn.apply(
-                        x, lambda x_in: self._forward_state_conditioned_impl(x_in, query_idx)
-                    )
-                return self._forward_state_conditioned_impl(x, query_idx)
-
             def forward_probs(self, x):
                 return self.forward_logits(x).softmax(dim=-1)
 
             def forward(self, x):
-                return self.forward_logits(x)
+                if self._config.get('mode') in ('pooled_features', 'pooled_vision'):
+                    return self.forward_pooled_features(x)
+                return self.forward_joint_log_odds(x)
 
         return _ImaJevDecisionModule(frozen_config)
 
     return build
+
+
+def _imajev_joint_log_odds(model, x):
+    return model.forward_joint_log_odds(x)
+
+
+def _imajev_pooled_features(model, x):
+    return model.forward_pooled_features(x)
 
 
 def _imajev_decision_logits(model, x):
@@ -682,14 +865,6 @@ def _imajev_decision_logits(model, x):
 
 def _imajev_decision_probs(model, x):
     return model.forward_probs(x)
-
-
-def _imajev_hidden_state(model, x):
-    return model.forward_hidden(x)
-
-
-def _imajev_state_conditioned_log_odds(model, x):
-    return model.forward_state_conditioned_log_odds(x)
 
 
 def _dinov3_builder(source_path, source_commit):

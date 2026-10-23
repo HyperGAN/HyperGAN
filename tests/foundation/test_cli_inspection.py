@@ -409,5 +409,3 @@ def test_workspace_toml_and_zero_arg_status_and_runs_shorthand(tmp_path):
     remaining_ids = [item["short_id"] for item in json.loads(res_after_del.stdout)]
     assert "a1b2c3d4" not in remaining_ids
     assert "f9e8d7c6" in remaining_ids
-
-

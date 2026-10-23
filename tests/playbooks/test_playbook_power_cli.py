@@ -586,4 +586,3 @@ def test_ps_best_fid_filter_and_corrupt_metadata_warning(tmp_path, monkeypatch, 
     from hypergan.inspection import list_runs
     runs_in_tmp = list_runs(root=None, cwd=tmp_dir)
     assert isinstance(runs_in_tmp, list)
-

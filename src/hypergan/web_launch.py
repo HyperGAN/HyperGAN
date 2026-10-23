@@ -270,5 +270,3 @@ def stop_dashboard(runs_root=None, timeout: float = 8.0):
     """Cleanly stop the root dashboard or viewer for a given runs root, run directory, tag, or slug."""
     from .web_autostart import stop_dashboard as _sd
     return _sd(runs_root, timeout=timeout)
-
-

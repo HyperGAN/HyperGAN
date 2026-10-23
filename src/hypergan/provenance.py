@@ -185,4 +185,3 @@ def determine_attempt(run_dir: Path | str) -> int:
         if existing:
             return max(int(p.stem) for p in existing) + 1
     return 1
-

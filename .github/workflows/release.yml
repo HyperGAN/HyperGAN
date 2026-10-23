@@ -1,0 +1,82 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate-release:
+    name: Check release version
+    if: github.repository == 'HyperGAN/HyperGAN'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      source_sha: ${{ steps.package.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Require a tag matching the package version
+        id: package
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import ast
+          import os
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+          module = ast.parse(Path("src/hypergan/__init__.py").read_text())
+          versions = [
+              ast.literal_eval(node.value)
+              for node in module.body
+              if isinstance(node, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
+          ]
+          if len(versions) != 1 or not isinstance(versions[0], str):
+              raise SystemExit(f"Expected single string __version__ in src/hypergan/__init__.py, got {versions!r}")
+          version = versions[0]
+          expected = f"v{version}"
+          tag = os.environ["RELEASE_TAG"]
+          if project["name"] != "hypergan" or tag != expected:
+              raise SystemExit(f"Expected hypergan release {expected}, got {tag!r}")
+          print(f"Validated {project['name']} {version}")
+          PY
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Test and build release
+    needs: validate-release
+    uses: ./.github/workflows/ci.yml
+    with:
+      source_ref: ${{ needs.validate-release.outputs.source_sha }}
+
+  publish:
+    name: Publish tested distributions
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/hypergan/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - name: Publish to PyPI with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1

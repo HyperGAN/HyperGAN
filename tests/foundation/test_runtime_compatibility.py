@@ -236,4 +236,3 @@ def test_a_long_value_is_truncated_rather_than_flooding_the_message():
     current['cuda']['version'] = 'x' * 4096
     message = rejection(saved, current)
     assert '...' in message and len(message) < 1024
-

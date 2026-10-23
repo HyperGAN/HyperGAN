@@ -44,7 +44,8 @@ def test_nvidia_cuda_runtime_info_is_strictly_byte_identical():
         uuid="GPU-12345678-abcd-ef01-2345-6789abcdef01"
     )
 
-    with patch.object(torch.version, "hip", None), \
+    with patch("torch.cuda.is_available", return_value=True), \
+         patch.object(torch.version, "hip", None), \
          patch.object(torch.version, "cuda", "12.4"), \
          patch("torch.cuda.get_device_properties", return_value=mock_props), \
          patch("torch.cuda.get_device_capability", return_value=(8, 6)), \
@@ -84,7 +85,8 @@ def test_rocm_runtime_info_includes_hip_and_gcn_arch():
         uuid="ffff73bf-0000-1000-80ff-ffffffffffff"
     )
 
-    with patch.object(torch.version, "hip", "6.2.0"), \
+    with patch("torch.cuda.is_available", return_value=True), \
+         patch.object(torch.version, "hip", "6.2.0"), \
          patch.object(torch.version, "cuda", None), \
          patch("torch.cuda.get_device_properties", return_value=mock_props), \
          patch("torch.cuda.get_device_capability", return_value=(11, 0)), \
@@ -108,7 +110,8 @@ def test_rocm_runtime_info_graceful_degradation_when_uuid_or_arch_missing():
 
     mock_props = MinimalRocmProps()
 
-    with patch.object(torch.version, "hip", "6.2.0"), \
+    with patch("torch.cuda.is_available", return_value=True), \
+         patch.object(torch.version, "hip", "6.2.0"), \
          patch.object(torch.version, "cuda", None), \
          patch("torch.cuda.get_device_properties", return_value=mock_props), \
          patch("torch.cuda.get_device_capability", return_value=(9, 4)), \
@@ -145,7 +148,8 @@ def test_distributed_runtime_info_rocm_and_nvidia_parity():
     def mock_get_prop(rank):
         return mock_props_0 if rank == 0 else mock_props_1
 
-    with patch("torch.distributed.get_backend", return_value="nccl"), \
+    with patch("torch.cuda.is_available", return_value=True), \
+         patch("torch.distributed.get_backend", return_value="nccl"), \
          patch("torch.cuda.current_device", return_value=0), \
          patch("torch.cuda.device_count", return_value=2), \
          patch.object(torch.version, "hip", "6.2.0"), \
@@ -166,7 +170,8 @@ def test_distributed_runtime_info_rocm_and_nvidia_parity():
     # 2. On NVIDIA:
     mock_nv_props = SimpleNamespace(name="NVIDIA A6000", uuid="GPU-abc")
 
-    with patch("torch.distributed.get_backend", return_value="nccl"), \
+    with patch("torch.cuda.is_available", return_value=True), \
+         patch("torch.distributed.get_backend", return_value="nccl"), \
          patch("torch.cuda.current_device", return_value=0), \
          patch("torch.cuda.device_count", return_value=2), \
          patch.object(torch.version, "hip", None), \

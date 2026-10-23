@@ -405,4 +405,3 @@ class _MetricsModule(types.ModuleType):
 _self = sys.modules[__name__]
 _self.__class__ = _MetricsModule
 sys.modules[__name__] = _self
-

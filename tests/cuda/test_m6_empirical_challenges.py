@@ -498,4 +498,3 @@ def test_controller_divergence_without_all_gather_negative_control():
     digest0 = ReplicatedTrainer._digest({"location": c0.location, "reference": c0.reference, "data_score": c0.data_score})
     digest1 = ReplicatedTrainer._digest({"location": c1.location, "reference": c1.reference, "data_score": c1.data_score})
     assert digest0 != digest1, "Expected digest mismatch on un-gathered controller state"
-

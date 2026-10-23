@@ -406,4 +406,3 @@ def test_replaced_run_directory_evicts_stale_service_and_resolves_new_run_id(tmp
         res_stale = client.get(f"/api/v1/runs/{old_run_id}/status")
         assert res_stale.status_code == 404
         assert f"Unknown run identity: {old_run_id}" in res_stale.json()["error"]
-

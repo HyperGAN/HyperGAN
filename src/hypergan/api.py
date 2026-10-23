@@ -2219,6 +2219,3 @@ def list_templates():
     """List available starter templates (e.g. gaussian-grid, dcgan, resnet, tiny-transformer)."""
     from .recipe_generator import list_starter_templates
     return list_starter_templates()
-
-
-

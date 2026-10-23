@@ -445,10 +445,7 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
     from .config import config_values, sampling_bindings, evaluation_bindings
     path = Path(checkpoint_dir).resolve()
     if path.is_file() and path.name == "model.pt":
-        try:
-            bundle = torch.load(path, map_location="cpu", weights_only=True)
-        except Exception:
-            bundle = torch.load(path, map_location="cpu")
+        bundle = torch.load(path, map_location="cpu", weights_only=True)
         if isinstance(bundle, dict) and bundle.get("kind") == "ema-inference":
             return bundle
         state_file = path
@@ -460,10 +457,7 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
         ckpt_dir = path
         state_file = ckpt_dir / "state.pt"
         if not state_file.is_file() and (ckpt_dir / "model.pt").is_file():
-            try:
-                bundle = torch.load(ckpt_dir / "model.pt", map_location="cpu", weights_only=True)
-            except Exception:
-                bundle = torch.load(ckpt_dir / "model.pt", map_location="cpu")
+            bundle = torch.load(ckpt_dir / "model.pt", map_location="cpu", weights_only=True)
             if isinstance(bundle, dict) and bundle.get("kind") == "ema-inference":
                 return bundle
     else:
@@ -481,10 +475,7 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
                 raise ValueError(f"Checkpoint manifest missing: {ckpt_dir / 'manifest.json'}")
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
 
-    try:
-        state = torch.load(state_file, map_location="cpu", weights_only=True)
-    except Exception:
-        state = torch.load(state_file, map_location="cpu")
+    state = torch.load(state_file, map_location="cpu", weights_only=True)
 
     if not isinstance(state, dict):
         raise ValueError("Checkpoint state missing EMA weights; cannot construct EMA inference bundle")

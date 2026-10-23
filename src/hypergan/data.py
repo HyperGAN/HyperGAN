@@ -10,6 +10,7 @@ import weakref
 
 
 _EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
+_FORMATS = ("JPEG", "PNG", "BMP", "WEBP", "TIFF")
 
 
 class ImageDataError(ValueError):
@@ -220,7 +221,7 @@ class ImageFolder:
 
     def _decode(self, content, name):
         try:
-            with self._image.open(BytesIO(content)) as image:
+            with self._image.open(BytesIO(content), formats=_FORMATS) as image:
                 # Do not mutate process-global warning filters from decoder
                 # threads. Enforce Pillow's warning limit explicitly as an error.
                 limit = self._image.MAX_IMAGE_PIXELS

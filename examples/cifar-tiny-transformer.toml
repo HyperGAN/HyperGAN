@@ -1,33 +1,33 @@
 # The newest released ParticleGAN trainer on the historical CIFAR architecture.
 # Seed-0 deterministic cohort; this is a runnable recipe, not image qualification.
-schema_version = 1
+format = "hypergan-model/1"
 name = "images/cifar-tiny-transformer"
 defaults = "particlegan"
 
 [data]
 factory = "hypergan.image_data:CIFAR10Data"
+
 [data.args]
 root = "./data"
 split = "train"
 sampling = "random"
 horizontal_flip = true
 
-[components.generator]
-factory = "hndl"
+[networks.generator]
+role = "generator"
 inputs = { z = "latent" }
-[components.generator.args]
+hndl = "networks/tiny-transformer-generator-32.hndl"
 input_shape = ["B", 128]
 output_shape = ["B", 3, 32, 32]
-file = "networks/tiny-transformer-generator-32.hndl"
 
-[components.discriminator]
-factory = "hndl"
+[networks.discriminator]
+role = "critic"
 inputs = { x = "candidate" }
-[components.discriminator.args]
+hndl = "networks/resnet18-features-discriminator-32.hndl"
 input_shape = ["B", 3, 32, 32]
 output_shape = ["B", 1]
-file = "networks/resnet18-features-discriminator-32.hndl"
-[components.discriminator.args.parameters]
+
+[networks.discriminator.args.parameters]
 weights_path = "~/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
 weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
 
@@ -35,14 +35,10 @@ weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07
 kind = "particles"
 initialization_device = "cpu"
 initialization_seed = 2
-[prior.args]
 num_particles = 65536
 z_dim = 128
 
-[prior_regularizer]
-rows = "sampled_unique"
-
-[training]
+[train]
 steps = 200000
 batch_size = 64
 seed = 0
@@ -53,7 +49,7 @@ data_rng_device = "execution"
 data_seed_offset = 2
 prior_seed_offset = 3
 
-[training.backend]
+[train.backend]
 deterministic_algorithms = true
 cudnn_deterministic = true
 cudnn_benchmark = false
@@ -69,27 +65,31 @@ seed = 10000
 preset = "standard"
 every_steps = 1
 
-[metrics.custom.fid50k_train]
+[evaluations.fid50k_train]
 factory = "hypergan.image_metrics:InceptionFID"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-mode = "snapshot"
-trigger = "interval"
-every_steps = 10000
+inputs = { generated = "generated", reference = "reference" }
+every = 10000
 timeout = 3600
-on_busy = "skip"
 on_error = "fail"
-[metrics.custom.fid50k_train.args]
-weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
-weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
-[metrics.custom.fid50k_train.evaluation]
+on_busy = "skip"
 device = "cuda:1"
-sample_count = 50000
+samples = 50000
 batch_size = 128
 seed = 10000
-[metrics.custom.fid50k_train.evaluation.data]
+
+[evaluations.fid50k_train.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+
+[evaluations.fid50k_train.data]
 factory = "hypergan.image_data:CIFAR10Data"
-[metrics.custom.fid50k_train.evaluation.data.args]
-root = "./data"
-split = "train"
-sampling = "sequential"
-horizontal_flip = false
+args = { root = "./data", split = "train", sampling = "sequential", horizontal_flip = false }
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+
+[[losses]]
+type = "prior"
+rows = "sampled_unique"

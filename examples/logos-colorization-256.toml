@@ -1,29 +1,30 @@
 # Experimental conditional particle VAEGAN. See docs/colorization.md.
 # Prepare a dataset manifest and supply local, hash-pinned ResNet18 weights.
-schema_version = 1
+format = "hypergan-model/1"
 name = "images/logos-colorization-resnet-256"
 
 [data]
 factory = "hypergan.colorization_data:ColorizationData"
+
 [data.args]
-root = "/mnt/ml7tb/data/logos256"
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "train"
 shuffle = true
 
-[components.generator]
-factory = "hypergan.colorization_components:ColorizationGenerator"
-# Independent, uniformly sampled prior particles drive both GAN phases.
+[networks.generator]
+role = "generator"
 inputs = { z = "latent" }
-[components.generator.args]
-z_dim = 128
-width = 32
+module = "hypergan.colorization_components:ColorizationGenerator"
+args = { z_dim = 128, width = 32 }
 
-[components.discriminator]
-factory = "hypergan.image_components:CIFARDiscriminator"
+[networks.discriminator]
+role = "critic"
 inputs = { x = "candidate" }
-[components.discriminator.args]
+module = "hypergan.image_components:CIFARDiscriminator"
+
+[networks.discriminator.args]
 weights_path = "./resnet18-f37072fd.pth"
 weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
 width = 32
@@ -31,67 +32,36 @@ image_size = 256
 feature_size = 256
 deterministic_features = true
 
-[components.encoder]
-factory = "hypergan.colorization_components:GrayscaleRoutingEncoder"
+[networks.encoder]
+role = "encoder"
 inputs = { gray = "batch.gray", means = "prior.means", sigma = "prior.sigma" }
-[components.encoder.args]
-z_dim = 128
-width = 32
-temperature = 0.125
+module = "hypergan.colorization_components:GrayscaleRoutingEncoder"
+args = { z_dim = 128, width = 32, temperature = 0.125 }
 
-# Reconstruction trains E through fixed G and detached particle means.
-# Adversarial gradients update G and particle means; E receives only L2.
-[components.reconstruction]
-reuse = "generator"
+[networks.reconstruction]
+role = "auxiliary"
 inputs = { z = "components.encoder.reconstruction_latent" }
 freeze_parameters = true
+reuse = "generator"
 
-[components.reconstruction_gray]
-factory = "hypergan.colorization_components:GrayscaleImage"
+[networks.reconstruction_gray]
+role = "auxiliary"
 inputs = { x = "components.reconstruction" }
-
-[[objectives]]
-id = "encoder_reconstruction"
-factory = "mse"
-# Preserve the input's luminance without requiring its original color choice.
-# RGB ablation: input="components.reconstruction", target="batch.real".
-inputs = { input = "components.reconstruction_gray", target = "batch.gray" }
-weight = 1.0
-detach = ["target"]
+module = "hypergan.colorization_components:GrayscaleImage"
 
 [prior]
 kind = "mog"
 initialization_device = "cpu"
 initialization_seed = 25003
-[prior.args]
 num_particles = 4096
 z_dim = 128
-# Calibrated once at initialization, then fixed and shared by posterior/prior.
 sigma_rel = 0.025
 
-[adversarial]
-weight = 1.0
-
-[gradient_penalty]
-coeff = 1.0
+[penalty]
 kappa = 1.0
 lazy_k = 8
 
-[prior_regularizer]
-rows = "full"
-weight = 1.0
-target_std = 1.0
-eps = 0.0001
-
-[optimizer]
-implementation = "torch_fused_adam"
-lr = 0.0003
-d_lr_mult = 1.5
-prior_lr_mult = 10.0
-betas = [0.0, 0.999]
-prior_betas = [0.5, 0.999]
-
-[training]
+[train]
 steps = 200000
 batch_size = 16
 seed = 25002
@@ -103,8 +73,14 @@ phase_draws = "independent"
 data_rng_device = "cpu"
 data_seed_offset = 2
 prior_seed_offset = 3
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
 
-[training.backend]
+[train.backend]
 deterministic_algorithms = false
 cudnn_deterministic = false
 cudnn_benchmark = true
@@ -114,171 +90,169 @@ cudnn_allow_tf32 = true
 [sampling]
 count = 8
 seed = 35002
-generated = "components.reconstruction"
 particle_ids = "components.encoder.ids"
-views = { random = "components.generator" }
-comparison = [
-  { label = "X", binding = "batch.real" },
-  { label = "B", binding = "batch.gray" },
-  { label = "X_hat", binding = "components.reconstruction" },
-]
+output = "components.reconstruction"
+
+[sampling.views]
+random = "components.generator"
+
+[[sampling.comparison]]
+label = "X"
+binding = "batch.real"
+
+[[sampling.comparison]]
+label = "B"
+binding = "batch.gray"
+
+[[sampling.comparison]]
+label = "X_hat"
+binding = "components.reconstruction"
 
 [metrics]
 preset = "standard"
 every_steps = 10
 
-[metrics.custom.chroma]
+[evaluations.chroma]
 factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 5000
-on_busy = "skip"
+args = { bins = 64, projections = 8 }
+inputs = { generated = "generated", reference = "reference" }
+every = 5000
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.chroma.args]
-bins = 64
-projections = 8
-[metrics.custom.chroma.evaluation]
+on_busy = "skip"
 device = "cuda"
-sample_count = 512
+samples = 512
 batch_size = 8
 seed = 35002
-[metrics.custom.chroma.evaluation.data]
+
+[evaluations.chroma.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.chroma.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.chroma.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
 
-[metrics.custom.structure]
+[evaluations.structure]
 factory = "hypergan.colorization_metrics:GrayscaleStructureDistance"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 6000
-on_busy = "skip"
+inputs = { generated = "generated", reference = "reference" }
+every = 6000
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.structure.evaluation]
+on_busy = "skip"
 device = "cuda"
-sample_count = 512
+samples = 512
 batch_size = 8
 seed = 35002
-[metrics.custom.structure.evaluation.data]
+
+[evaluations.structure.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.structure.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.structure.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
 
-[metrics.custom.diversity]
+[evaluations.diversity]
 factory = "hypergan.colorization_metrics:RepeatedConditionChromaDiversity"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 7000
-on_busy = "skip"
+args = { repeats = 4 }
+inputs = { generated = "generated", reference = "reference" }
+every = 7000
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.diversity.args]
-repeats = 4
-[metrics.custom.diversity.evaluation]
+on_busy = "skip"
 device = "cuda"
-sample_count = 512
+samples = 512
 batch_size = 8
 seed = 35002
-[metrics.custom.diversity.evaluation.data]
+
+[evaluations.diversity.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.diversity.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.diversity.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 4
 
-# Independent uniform-prior diagnostics, separate from conditional reconstruction.
-[metrics.custom.random_spread]
+[evaluations.random_spread]
 factory = "hypergan.colorization_metrics:SampleDiversityRatio"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 250
-on_busy = "skip"
+args = { pool_size = 32 }
+inputs = { generated = "generated", reference = "reference" }
+every = 250
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.random_spread.args]
-pool_size = 32
-[metrics.custom.random_spread.evaluation]
-generated = "generated"
+on_busy = "skip"
 device = "cuda"
-sample_count = 256
+samples = 256
 batch_size = 8
 seed = 35002
-[metrics.custom.random_spread.evaluation.data]
+output = "generated"
+
+[evaluations.random_spread.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.random_spread.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.random_spread.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
 
-
-[metrics.custom.random_chroma]
+[evaluations.random_chroma]
 factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 1100
-on_busy = "skip"
+args = { bins = 64, projections = 8 }
+inputs = { generated = "generated", reference = "reference" }
+every = 1100
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.random_chroma.args]
-bins = 64
-projections = 8
-[metrics.custom.random_chroma.evaluation]
-generated = "generated"
+on_busy = "skip"
 device = "cuda"
-sample_count = 512
+samples = 512
 batch_size = 8
 seed = 35002
-[metrics.custom.random_chroma.evaluation.data]
+output = "generated"
+
+[evaluations.random_chroma.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.random_chroma.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.random_chroma.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
 
-# Editable HNDL architecture sources, resolved relative to this recipe.
-[components.generator.args.network_files]
-colorization_generator16 = "../src/hypergan/networks/colorization_generator16.hndl"
-colorization_generator32 = "../src/hypergan/networks/colorization_generator32.hndl"
-image_attention = "../src/hypergan/networks/image_attention.hndl"
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
 
-# Editable HNDL architecture sources, resolved relative to this recipe.
-[components.discriminator.args.network_files]
-image_pixel = "../src/hypergan/networks/image_pixel.hndl"
-image_pixel_block = "../src/hypergan/networks/image_pixel_block.hndl"
-image_attention = "../src/hypergan/networks/image_attention.hndl"
-image_feature_head = "../src/hypergan/networks/image_feature_head.hndl"
-image_resnet_stage1 = "../src/hypergan/networks/image_resnet_stage1.hndl"
-image_resnet_stage2 = "../src/hypergan/networks/image_resnet_stage2.hndl"
-image_resnet_stage3 = "../src/hypergan/networks/image_resnet_stage3.hndl"
-image_critic_score = "../src/hypergan/networks/image_critic_score.hndl"
+[[losses]]
+type = "objective"
+id = "encoder_reconstruction"
+fn = "mse"
+weight = 1.0
+detach = ["target"]
 
-# Editable HNDL architecture sources, resolved relative to this recipe.
-[components.encoder.args.network_files]
-colorization_encoder_features = "../src/hypergan/networks/colorization_encoder_features.hndl"
-colorization_query = "../src/hypergan/networks/colorization_query.hndl"
+[losses.inputs]
+input = "components.reconstruction_gray"
+target = "batch.gray"
+
+[[losses]]
+type = "prior"
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001

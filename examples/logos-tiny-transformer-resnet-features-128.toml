@@ -1,12 +1,13 @@
 # 128px logos using the working CIFAR tiny transformer / feature-only recipe.
 # Both complete HNDL networks are embedded below; CIFAR latent/prior/optimizer retained.
-schema_version = 1
+format = "hypergan-model/1"
 name = "images/logos-tiny-transformer-resnet-features-128"
 
 [data]
 factory = "hypergan.colorization_data:ColorizationData"
+
 [data.args]
-root = "/mnt/ml7tb/data/logos256"
+root = "./data/logos256"
 manifest = "./dataset-manifest-128.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "train"
@@ -14,16 +15,12 @@ shuffle = true
 bad_image_policy = "skip"
 max_bad_images = 100
 max_consecutive_bad_images = 8
-cache_dir = "/mnt/ml7tb/hypergan-cache/logos-128"
+cache_dir = "./cache/logos-128"
 
-# Two-block transformer with convolutional upsampling to 128px.
-[components.generator]
-factory = "hndl"
+[networks.generator]
+role = "generator"
 inputs = { z = "latent" }
-[components.generator.args]
-input_shape = ["B", 64]
-output_shape = ["B", 3, 128, 128]
-source = '''
+source = """
 # CIFAR z=64 -> 64 spatial tokens; two pre-LayerNorm transformer blocks.
 # Each position has its own projection weights, so no position table is needed.
 h = linear(x, 16384, name="input_projection")
@@ -60,16 +57,14 @@ h = conv(h, 16, kernel_size=3, padding=1, name="conv128")
 h = leaky_relu(h, 0.2)
 h = conv(h, 3, kernel_size=3, padding=1, name="rgb")
 out = tanh(h)
-'''
+"""
+input_shape = ["B", 64]
+output_shape = ["B", 3, 128, 128]
 
-# Complete discriminator graph; architecture changes require a fresh run.
-[components.discriminator]
-factory = "hndl"
+[networks.discriminator]
+role = "critic"
 inputs = { x = "candidate" }
-[components.discriminator.args]
-input_shape = ["B", 3, 128, 128]
-output_shape = ["B", 1]
-source = '''
+source = """
 # Logo feature-only critic: frozen ResNet18 at native 128px, three trainable heads.
 # Preserve CIFAR preprocessing, fixed context, and layer1/2/3 feature heads.
 # No pixel discriminator. Normalize the three remaining scores by sqrt(3).
@@ -140,8 +135,11 @@ score3 = linear(head3, 1, name="feature3_score")
 feature_score = concat(score1, score2, score3)
 feature_score = sum(feature_score, 1, keepdim=True)
 out = scale(feature_score, 0.5773502691896258)
-'''
-[components.discriminator.args.parameters]
+"""
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 1]
+
+[networks.discriminator.args.parameters]
 weights_path = "~/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
 weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
 
@@ -150,34 +148,15 @@ kind = "mog"
 initialization_device = "cpu"
 initialization_seed = 24003
 fixed_sigma = 0.212616428732872
-[prior.args]
 num_particles = 16384
 z_dim = 64
 sigma_rel = 0.025
 
-[adversarial]
-weight = 1.0
-
-[gradient_penalty]
-coeff = 1.0
+[penalty]
 kappa = 1.0
 lazy_k = 8
 
-[prior_regularizer]
-rows = "full"
-weight = 1.0
-target_std = 1.0
-eps = 0.0001
-
-[optimizer]
-implementation = "torch_fused_adam"
-lr = 0.0003
-d_lr_mult = 1.5
-prior_lr_mult = 10.0
-betas = [0.0, 0.999]
-prior_betas = [0.5, 0.999]
-
-[training]
+[train]
 steps = 200000
 batch_size = 64
 seed = 24002
@@ -189,12 +168,14 @@ phase_draws = "independent"
 data_rng_device = "cpu"
 data_seed_offset = 2
 prior_seed_offset = 3
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
 
-# Backend matched to the source: TF32 and cuDNN autotuning on, nondeterministic
-# kernels allowed. Measured 2026-09-20 on an RTX A6000: 61 -> 41 ms/step against the
-# strict deterministic policy in docs/cifar-recipe.md. Resume still restores the
-# complete state; only bit-exact replay of a run is given up.
-[training.backend]
+[train.backend]
 deterministic_algorithms = false
 cudnn_deterministic = false
 cudnn_benchmark = true
@@ -208,3 +189,16 @@ seed = 34002
 [metrics]
 preset = "standard"
 every_steps = 1
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001

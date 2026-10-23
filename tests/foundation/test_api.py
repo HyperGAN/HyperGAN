@@ -132,7 +132,7 @@ def test_model_constructor():
 def test_lift_role_assignment_and_reuse():
     cifar_path = ROOT / 'examples' / 'cifar-pretrained-sagan.toml'
     if cifar_path.is_file():
-        recipe = hg.load_recipe(cifar_path)
+        recipe = hg.lower(hg.load(cifar_path))
         lifted = hg.lift(recipe, base=cifar_path.parent)
         assert lifted.spec['format'] == 'hypergan-model/1'
         valid_roles = {'generator', 'critic', 'encoder', 'auxiliary'}
@@ -166,7 +166,7 @@ def test_lift_snapshot_metrics_partitioning():
 
 def test_lift_preserves_hyperparameters_and_sampling():
     dcgan_path = ROOT / 'examples' / 'dcgan-128.toml'
-    recipe = hg.load_recipe(dcgan_path)
+    recipe = hg.lower(hg.load(dcgan_path))
     lifted = hg.lift(recipe, base=dcgan_path.parent)
     assert 'train' in lifted.spec
     assert lifted.spec['train']['lr'] == recipe['optimizer']['lr']
@@ -181,7 +181,7 @@ def test_lift_preserves_hyperparameters_and_sampling():
 
     # Test recipe where sampling has generated mapped to output
     ae_path = ROOT / 'examples' / 'logos-ae-gan-256.toml'
-    ae_recipe = hg.load_recipe(ae_path)
+    ae_recipe = hg.lower(hg.load(ae_path))
     ae_lifted = hg.lift(ae_recipe, base=ae_path.parent)
     assert 'output' in ae_lifted.spec['sampling']
     assert 'generated' not in ae_lifted.spec['sampling']

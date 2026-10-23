@@ -10,7 +10,8 @@ def test_recipe_changes_networks_and_removes_encoder_reconstruction():
     actual = tomllib.loads((examples / 'cifar-tiny-transformer-resnet-features.toml').read_text())
     expected = deepcopy(baseline)
     expected['name'] = 'images/cifar-tiny-transformer-resnet-features'
-    expected['components']['generator']['args']['file'] = 'networks/tiny-transformer-generator-32.hndl'
-    expected['components']['discriminator']['args']['file'] = 'networks/resnet18-features-discriminator-32.hndl'
-    del expected['components']['encoder'], expected['components']['reconstruction'], expected['objectives']
+    expected['networks']['generator']['hndl'] = 'networks/tiny-transformer-generator-32.hndl'
+    expected['networks']['discriminator']['hndl'] = 'networks/resnet18-features-discriminator-32.hndl'
+    del expected['networks']['encoder'], expected['networks']['reconstruction']
+    expected['losses'] = [loss for loss in expected['losses'] if loss.get('id') != 'reconstruction']
     assert actual == expected

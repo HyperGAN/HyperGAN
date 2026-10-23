@@ -147,7 +147,9 @@ def test_invalid_new_device_leaves_no_project(tmp_path):
 
 
 def test_cli_convert_subcommand(tmp_path):
-    legacy = Path(__file__).resolve().parents[2] / "examples" / "paired-linear.toml"
+    from hypergan.config import LEGACY_REFERENCE_TOML
+    legacy = tmp_path / "legacy_recipe.toml"
+    legacy.write_text(LEGACY_REFERENCE_TOML, encoding="utf-8")
     out_model = tmp_path / "converted_model.toml"
     result = run_cli(tmp_path, "convert", legacy, "--output", out_model)
     assert result.returncode == 0, result.stderr

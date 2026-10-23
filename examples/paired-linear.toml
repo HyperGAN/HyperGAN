@@ -1,30 +1,39 @@
 # Synthetic paired-input contract test, not a qualified image recipe.
-schema_version = 1
+format = "hypergan-model/1"
 name = "custom/paired-linear"
 
 [data]
 factory = "paired_linear"
+
 [data.args]
 dimensions = 2
 scale = 2.0
 offset = 0.25
 
-# Optional encoder and any other named auxiliaries are ordinary modules.
-# Trainable auxiliaries belong to the generator optimizer and matched EMA.
-[components.encoder]
-factory = "hndl"
+[networks.encoder]
+role = "encoder"
 inputs = { input = "batch.condition" }
-[components.encoder.args]
+source = "linear()"
 input_shape = ["B", 2]
 output_shape = ["B", 2]
-source = "linear()"
 
-[components.generator]
-factory = "hndl"
+[networks.generator]
+role = "generator"
 inputs = { x = "latent", condition = "components.encoder" }
-[components.generator.args]
+source = """
+concat(x, condition)
+linear(16)
+leaky_relu(0.2)
+linear(16)
+leaky_relu(0.2)
+linear()
+"""
 input_shape = { x = ["B", 4], condition = ["B", 2] }
 output_shape = ["B", 2]
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate", condition = "batch.condition" }
 source = """
 concat(x, condition)
 linear(16)
@@ -33,35 +42,15 @@ linear(16)
 leaky_relu(0.2)
 linear()
 """
-
-[components.discriminator]
-factory = "hndl"
-inputs = { x = "candidate", condition = "batch.condition" }
-[components.discriminator.args]
 input_shape = { x = ["B", 2], condition = ["B", 2] }
 output_shape = ["B", 1]
-source = """
-concat(x, condition)
-linear(16)
-leaky_relu(0.2)
-linear(16)
-leaky_relu(0.2)
-linear()
-"""
-
-[[objectives]]
-factory = "mse"
-inputs = { input = "generated", target = "batch.real" }
-weight = 1.0
-detach = ["target"]
 
 [prior]
 kind = "particles"
-[prior.args]
 num_particles = 64
 z_dim = 4
 
-[training]
+[train]
 steps = 5
 batch_size = 8
 seed = 42
@@ -70,3 +59,30 @@ device = "cpu"
 [sampling]
 count = 8
 seed = 123
+
+[metrics]
+preset = "standard"
+every_steps = 10
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+
+[[losses]]
+type = "reconstruction"
+id = "reconstruction"
+fn = "mse"
+weight = 1.0
+detach = ["target"]
+
+[losses.inputs]
+input = "generated"
+target = "batch.real"
+
+[[losses]]
+type = "prior"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001
+rows = "sampled_unique"

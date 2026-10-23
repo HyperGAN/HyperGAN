@@ -12,17 +12,65 @@ Verifies:
 import json
 from copy import deepcopy
 from pathlib import Path
+import tomllib
 import pytest
 
 import hypergan.api as hg
-from hypergan.config import DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, fingerprint, resolve_config
+from hypergan.config import DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, fingerprint, load_config, resolve_config
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+EXAMPLES_DIR = REPO_ROOT / "examples"
+DEMO_SCRIPT = REPO_ROOT / "scripts" / "start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh"
 RUNS_DIR = Path("/home/martyn/dev/hypergan/training-runs")
 BACKUP_DIR = RUNS_DIR / ".legacy_toml_backup"
 
 
+def test_all_examples_use_hypergan_model_format_and_load_cleanly():
+    example_tomls = sorted(EXAMPLES_DIR.glob("*.toml"))
+    assert len(example_tomls) >= 23, f"Expected at least 23 top-level examples/*.toml files, found {len(example_tomls)}"
+
+    for path in example_tomls:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        assert raw.get("format") == "hypergan-model/1", f"{path.name} must declare format = 'hypergan-model/1'"
+        assert "components" not in raw, f"{path.name} must not contain legacy [components]"
+        assert "schema_version" not in raw, f"{path.name} must not contain legacy schema_version"
+        assert "networks" in raw, f"{path.name} must declare [networks]"
+        assert "losses" in raw, f"{path.name} must declare [[losses]]"
+
+        model = hg.load(path)
+        warnings = hg.validate(model)
+        assert isinstance(warnings, list)
+
+        lowered = hg.lower(model)
+        resolved = load_config(path)
+        assert fingerprint(resolve_config(lowered)) == fingerprint(resolved)
+        assert hg.fingerprint(model) == fingerprint(resolved)
+
+
+def test_examples_and_demo_script_contain_no_hardcoded_workstation_paths():
+    forbidden = ("/mnt/ml7tb", "/home/martyn", "/nvme/dev")
+    for path in sorted(EXAMPLES_DIR.glob("*.toml")):
+        text = path.read_text(encoding="utf-8")
+        for token in forbidden:
+            assert token not in text, f"{path.name} contains hardcoded workstation path {token!r}"
+
+    if DEMO_SCRIPT.is_file():
+        script_text = DEMO_SCRIPT.read_text(encoding="utf-8")
+        for token in forbidden:
+            assert token not in script_text, f"{DEMO_SCRIPT.name} contains hardcoded workstation path {token!r}"
+        assert "REPO_ROOT=" in script_text
+        assert "PYTHON_BIN=" in script_text
+
+
+def _normalize_runs_dir_symlink(obj):
+    text = json.dumps(obj)
+    if RUNS_DIR.exists() and str(RUNS_DIR.resolve()) != str(RUNS_DIR):
+        text = text.replace(str(RUNS_DIR), str(RUNS_DIR.resolve()))
+    return json.loads(text)
+
+
 def clean_legacy_recipe(raw):
-    clean = json.loads(json.dumps(raw))
+    clean = _normalize_runs_dir_symlink(raw)
     if "gradient_penalty" in clean:
         for k in ("arm", "norm", "target_anneal", "total_steps", "method", "fd_eps"):
             clean["gradient_penalty"].pop(k, None)
@@ -95,7 +143,7 @@ def test_all_46_ported_experiments_load_validate_and_preserve_fingerprint(runs_w
         assert isinstance(warnings, list)
 
         # 4. Lower & resolve
-        lowered = hg.lower(model)
+        lowered = _normalize_runs_dir_symlink(hg.lower(model))
         lowered_res = resolve_config(lowered)
         fp_ported = fingerprint(lowered_res)
 

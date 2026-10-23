@@ -221,3 +221,45 @@ resolve_config(config_values(config))
 assert not blocked.intersection(sys.modules)
 '''
     subprocess.run([sys.executable, '-c', code, str(EXAMPLE)], cwd=tmp_path, check=True)
+
+
+def test_multiscale_pyramid_generator_hndl_compilation():
+    """Verify HNDL builds multiscale-pyramid-generator-64 with correct shapes and parameters."""
+    import torch
+    from hypergan.hndl_networks import build_network
+
+    hndl_path = ROOT / 'examples' / 'networks' / 'multiscale-pyramid-generator-64.hndl'
+    assert hndl_path.is_file(), f"Missing {hndl_path}"
+    source = hndl_path.read_text(encoding='utf-8')
+
+    net = build_network(source=source, input_shape=['B', 128], output_shape=['B', 3, 64, 64])
+    param_count = sum(p.numel() for p in net.parameters())
+    assert 910_000 < param_count < 925_000, f"Unexpected parameter count: {param_count}"
+
+    z = torch.randn(4, 128, requires_grad=True)
+    out = net(z)
+    assert out.shape == (4, 3, 64, 64)
+    assert out.min() >= -1.0 and out.max() <= 1.0
+    out.sum().backward()
+    assert z.grad is not None and torch.isfinite(z.grad).all() and z.grad.norm().item() > 0
+
+
+def test_simple_apple_generator_hndl_compilation():
+    """Verify HNDL builds upgraded simple-apple-generator-64 with correct shapes and parameters."""
+    import torch
+    from hypergan.hndl_networks import build_network
+
+    hndl_path = ROOT / 'examples' / 'networks' / 'simple-apple-generator-64.hndl'
+    assert hndl_path.is_file(), f"Missing {hndl_path}"
+    source = hndl_path.read_text(encoding='utf-8')
+
+    net = build_network(source=source, input_shape=['B', 128], output_shape=['B', 3, 64, 64])
+    param_count = sum(p.numel() for p in net.parameters())
+    assert 910_000 < param_count < 925_000, f"Unexpected parameter count: {param_count}"
+
+    z = torch.randn(4, 128, requires_grad=True)
+    out = net(z)
+    assert out.shape == (4, 3, 64, 64)
+    assert out.min() >= -1.0 and out.max() <= 1.0
+    out.sum().backward()
+    assert z.grad is not None and torch.isfinite(z.grad).all() and z.grad.norm().item() > 0

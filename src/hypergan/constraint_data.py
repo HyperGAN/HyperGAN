@@ -16,6 +16,13 @@ from hypergan.pretrained_providers import (
     get_cached_or_deterministic_state_embed,
 )
 
+try:
+    import torch
+    from torch import nn
+    _ModuleBase = nn.Module
+except ImportError:
+    _ModuleBase = object
+
 
 def _validate_target_probs(target_probs):
     if not isinstance(target_probs, (list, tuple)) or not target_probs:
@@ -847,3 +854,416 @@ class ConstraintSatisfactionMetric:
         if self.statistic == "target_accuracy":
             return float(correct_count / total_count)
         return float(-sum(p * math.log(p) for p in mean_probs.tolist() if p > 0.0))
+
+
+class OpticalWavefrontPrior(_ModuleBase):
+    """Optical Wavefront Prior regularizing spatial, boundary, and spectral coherence.
+
+    Penalizes:
+    1. Patch-seam gradient penalty along 8px and 16px ViT boundaries:
+       R_seam = E[||grad_seam I||_1] / E[||grad_interior I||_1]
+       L_seam = max(0, R_seam - seam_threshold)^2 (ensuring R_seam <= 1.15)
+    2. Biharmonic curvature regularization:
+       L_biharmonic = ||Delta I||_1 = ||nabla^2 I||_1 via discrete 2D 5-point or 9-point Laplacian.
+    3. Radial power spectral density (PSD) natural image prior (1/f^alpha, alpha approx 2.0):
+       Penalizes excess high-frequency spectral power and spikes above natural 1/f falloff via 2D FFT.
+    """
+    resume_stateless = True
+
+    def __init__(
+        self,
+        *,
+        weight_seam=1.0,
+        weight_biharmonic=0.1,
+        weight_psd=0.01,
+        patch_size=16,
+        secondary_patch_size=8,
+        seam_threshold=1.05,
+        laplacian_kernel="5point",
+        alpha=2.0,
+        margin_db=1.0,
+        padding_mode="reflect",
+        delta=0.01,
+    ):
+        if _ModuleBase is not object:
+            super().__init__()
+        if type(weight_seam) not in (int, float) or isinstance(weight_seam, bool) or not math.isfinite(weight_seam) or weight_seam < 0.0:
+            raise ValueError("OpticalWavefrontPrior weight_seam must be a finite nonnegative number")
+        if type(weight_biharmonic) not in (int, float) or isinstance(weight_biharmonic, bool) or not math.isfinite(weight_biharmonic) or weight_biharmonic < 0.0:
+            raise ValueError("OpticalWavefrontPrior weight_biharmonic must be a finite nonnegative number")
+        if type(weight_psd) not in (int, float) or isinstance(weight_psd, bool) or not math.isfinite(weight_psd) or weight_psd < 0.0:
+            raise ValueError("OpticalWavefrontPrior weight_psd must be a finite nonnegative number")
+        if type(patch_size) is not int or isinstance(patch_size, bool) or patch_size < 2:
+            raise ValueError("OpticalWavefrontPrior patch_size must be an integer >= 2")
+        if type(secondary_patch_size) is not int or isinstance(secondary_patch_size, bool) or secondary_patch_size < 2:
+            raise ValueError("OpticalWavefrontPrior secondary_patch_size must be an integer >= 2")
+        if type(seam_threshold) not in (int, float) or isinstance(seam_threshold, bool) or not math.isfinite(seam_threshold) or seam_threshold <= 0.0:
+            raise ValueError("OpticalWavefrontPrior seam_threshold must be a positive finite number")
+        if laplacian_kernel not in ("5point", "9point"):
+            raise ValueError("OpticalWavefrontPrior laplacian_kernel must be '5point' or '9point'")
+        if type(alpha) not in (int, float) or isinstance(alpha, bool) or not math.isfinite(alpha) or alpha <= 0.0:
+            raise ValueError("OpticalWavefrontPrior alpha must be a positive finite number")
+        if type(margin_db) not in (int, float) or isinstance(margin_db, bool) or not math.isfinite(margin_db) or margin_db < 0.0:
+            raise ValueError("OpticalWavefrontPrior margin_db must be a finite nonnegative number")
+        if padding_mode not in ("reflect", "replicate", "zeros"):
+            raise ValueError("OpticalWavefrontPrior padding_mode must be 'reflect', 'replicate', or 'zeros'")
+        if type(delta) not in (int, float) or isinstance(delta, bool) or not math.isfinite(delta) or delta <= 0.0:
+            raise ValueError("OpticalWavefrontPrior delta must be a positive finite number")
+
+        self.weight_seam = float(weight_seam)
+        self.weight_biharmonic = float(weight_biharmonic)
+        self.weight_psd = float(weight_psd)
+        self.patch_size = int(patch_size)
+        self.secondary_patch_size = int(secondary_patch_size)
+        self.seam_threshold = float(seam_threshold)
+        self.laplacian_kernel = laplacian_kernel
+        self.alpha = float(alpha)
+        self.margin_db = float(margin_db)
+        self.padding_mode = padding_mode
+        self.delta = float(delta)
+
+    def forward(self, image=None, x=None, return_dict=False):
+        import torch
+        import torch.nn.functional as F
+        import torch.fft as fft
+
+        img = image if image is not None else x
+        if img is None:
+            raise ValueError("OpticalWavefrontPrior requires an image tensor ('image' or 'x')")
+        if (
+            not isinstance(img, torch.Tensor)
+            or img.ndim != 4
+            or not img.is_floating_point()
+            or img.shape[1] != 3
+            or img.numel() == 0
+        ):
+            raise ValueError("OpticalWavefrontPrior requires a nonempty 4D floating-point NCHW tensor with C=3")
+        B, C, H, W = img.shape
+        if H < self.patch_size or W < self.patch_size:
+            raise ValueError(
+                f"OpticalWavefrontPrior image dimensions ({H}, {W}) must be >= patch_size ({self.patch_size})"
+            )
+
+        device = img.device
+        dtype = img.dtype
+        losses = {}
+
+        # 1. Patch-seam gradient penalty across 8px and 16px ViT boundaries
+        if self.weight_seam > 0.0:
+            delta_sq = self.delta ** 2
+            dh = img[:, :, 1:, :] - img[:, :, :-1, :]
+            dw = img[:, :, :, 1:] - img[:, :, :, :-1]
+            gy = F.pad((dh.square() + delta_sq).sqrt() - self.delta, (0, 0, 0, 1))
+            gx = F.pad((dw.square() + delta_sq).sqrt() - self.delta, (0, 1, 0, 0))
+            grad_mag = (gx + gy).mean(dim=1)  # [B, H, W]
+
+            y_coords = torch.arange(H, device=device).unsqueeze(1).expand(H, W)
+            x_coords = torch.arange(W, device=device).unsqueeze(0).expand(H, W)
+            seam_mask_2d = (
+                (y_coords % self.patch_size == 0)
+                | (y_coords % self.secondary_patch_size == 0)
+                | (x_coords % self.patch_size == 0)
+                | (x_coords % self.secondary_patch_size == 0)
+            )
+            border_mask = (y_coords == 0) | (y_coords == H - 1) | (x_coords == 0) | (x_coords == W - 1)
+            seam_mask_2d = seam_mask_2d & (~border_mask)
+            interior_mask_2d = (~seam_mask_2d) & (~border_mask)
+
+            mean_seam = grad_mag[:, seam_mask_2d].mean()
+            mean_interior = grad_mag[:, interior_mask_2d].mean()
+            R_seam = mean_seam / mean_interior.clamp_min(1e-7)
+            loss_seam = torch.relu(R_seam - self.seam_threshold).square()
+            losses["loss_seam"] = loss_seam
+            losses["R_seam"] = R_seam
+        else:
+            loss_seam = img.new_zeros(())
+            losses["loss_seam"] = loss_seam
+            losses["R_seam"] = img.new_zeros(())
+
+        # 2. Biharmonic curvature regularization (||Delta I||_1)
+        if self.weight_biharmonic > 0.0:
+            if self.laplacian_kernel == "9point":
+                k = torch.tensor([
+                    [1.0, 4.0, 1.0],
+                    [4.0, -20.0, 4.0],
+                    [1.0, 4.0, 1.0],
+                ], device=device, dtype=dtype) / 6.0
+            else:
+                k = torch.tensor([
+                    [0.0, 1.0, 0.0],
+                    [1.0, -4.0, 1.0],
+                    [0.0, 1.0, 0.0],
+                ], device=device, dtype=dtype)
+            weight = k.view(1, 1, 3, 3).repeat(C, 1, 1, 1)
+            pad_mode = "constant" if self.padding_mode == "zeros" else self.padding_mode
+            img_padded = F.pad(img, (1, 1, 1, 1), mode=pad_mode)
+            lap = F.conv2d(img_padded, weight, groups=C)
+            delta_sq = self.delta ** 2
+            loss_biharmonic = ((lap.square() + delta_sq).sqrt() - self.delta).mean()
+            losses["loss_biharmonic"] = loss_biharmonic
+        else:
+            loss_biharmonic = img.new_zeros(())
+            losses["loss_biharmonic"] = loss_biharmonic
+
+        # 3. Radial power spectral density (PSD) natural image prior (1/f^alpha)
+        if self.weight_psd > 0.0:
+            fy = fft.fftfreq(H, device=device).unsqueeze(1) * H
+            fx = fft.rfftfreq(W, device=device).unsqueeze(0) * W
+            f_rad = torch.sqrt(fy ** 2 + fx ** 2)
+
+            max_r = min(H, W) // 2
+            r_idx = f_rad.round().long().clamp(0, max_r)
+            r_flat = r_idx.view(-1)
+            num_bins = max_r + 1
+
+            counts = torch.bincount(r_flat, minlength=num_bins).to(dtype=dtype).clamp_min(1.0)
+            F_x = fft.rfft2(img, norm="ortho")
+            psd = (F_x.real ** 2 + F_x.imag ** 2).mean(dim=1)  # [B, H, W//2 + 1]
+
+            psd_flat = psd.reshape(B, -1)
+            zero_init = torch.zeros(B, num_bins, device=device, dtype=dtype)
+            radial_sum = zero_init.scatter_add(1, r_flat.unsqueeze(0).expand(B, -1), psd_flat)
+            radial_psd = radial_sum / counts.unsqueeze(0)
+
+            eps = 1e-8
+            ref_power = radial_psd[:, 1:2].clamp_min(1e-7)
+            r_vals = torch.arange(1, num_bins, device=device, dtype=dtype)
+            target_power = ref_power.detach() / (r_vals / r_vals[0]).unsqueeze(0).pow(self.alpha)
+            log_ratio = torch.log(radial_psd[:, 1:] + eps) - torch.log(target_power + eps)
+            ac_power = psd.sum(dim=(-2, -1)) - psd[:, 0, 0]
+            gate = torch.tanh(ac_power / 1e-3).view(B, 1)
+            loss_psd = (gate * torch.relu(log_ratio - self.margin_db).square()).mean()
+            losses["loss_psd"] = loss_psd
+        else:
+            loss_psd = img.new_zeros(())
+            losses["loss_psd"] = loss_psd
+
+        total_loss = (
+            self.weight_seam * loss_seam
+            + self.weight_biharmonic * loss_biharmonic
+            + self.weight_psd * loss_psd
+        )
+        losses["total_loss"] = total_loss
+
+        if return_dict:
+            return losses
+        return total_loss
+
+    def __call__(self, *args, **kwargs):
+        if _ModuleBase is not object:
+            return super().__call__(*args, **kwargs)
+        return self.forward(*args, **kwargs)
+
+    def resume_identity(self):
+        return {
+            "weight_seam": self.weight_seam,
+            "weight_biharmonic": self.weight_biharmonic,
+            "weight_psd": self.weight_psd,
+            "patch_size": self.patch_size,
+            "secondary_patch_size": self.secondary_patch_size,
+            "seam_threshold": self.seam_threshold,
+            "laplacian_kernel": self.laplacian_kernel,
+            "alpha": self.alpha,
+            "margin_db": self.margin_db,
+            "padding_mode": self.padding_mode,
+            "delta": self.delta,
+        }
+
+
+class MarginalShannonEntropyRegularizer(_ModuleBase):
+    """Marginal Shannon entropy regularization on generated option probabilities.
+
+    Enforces H_q >= min_entropy_ratio * ln(M_q) across multi-mode queries
+    by minimizing the squared deficit:
+        L_q = max(0, min_entropy_ratio * ln(M_q) - H_q)^2
+    """
+    resume_stateless = True
+
+    def __init__(
+        self,
+        query_indices=None,
+        query_index=None,
+        *,
+        num_classes=5,
+        num_modes=3,
+        min_entropy_ratio=0.85,
+        hinge=True,
+        input_mode="joint_log_odds",
+        eps=1e-8,
+    ):
+        if _ModuleBase is not object:
+            super().__init__()
+        import math
+        if query_indices is None:
+            if query_index is None:
+                query_indices = [0]
+            else:
+                if type(query_index) is not int or query_index < 0:
+                    raise ValueError("MarginalShannonEntropyRegularizer query_index must be a nonnegative integer")
+                query_indices = [query_index]
+        elif isinstance(query_indices, int):
+            query_indices = [query_indices]
+        elif not isinstance(query_indices, (list, tuple)) or not query_indices:
+            raise ValueError("MarginalShannonEntropyRegularizer query_indices must be a nonempty sequence of ints")
+
+        if any(type(q) is not int or q < 0 for q in query_indices):
+            raise ValueError("query_indices must contain nonnegative integers")
+        if len(set(query_indices)) != len(query_indices):
+            raise ValueError("query_indices must not contain duplicates")
+
+        if type(num_classes) is not int or num_classes < 2:
+            raise ValueError("num_classes must be an integer >= 2")
+
+        if isinstance(num_modes, int):
+            if num_modes < 2:
+                raise ValueError("num_modes must be >= 2 for multi-mode queries")
+            modes_dict = {q: num_modes for q in query_indices}
+        elif isinstance(num_modes, dict):
+            modes_dict = {q: int(num_modes.get(q, 3)) for q in query_indices}
+        elif isinstance(num_modes, (list, tuple)):
+            if len(num_modes) != len(query_indices):
+                raise ValueError("num_modes sequence length must match query_indices length")
+            modes_dict = {q: int(m) for q, m in zip(query_indices, num_modes)}
+        else:
+            raise ValueError("num_modes must be an int, sequence of ints, or dict")
+
+        if type(min_entropy_ratio) not in (int, float) or isinstance(min_entropy_ratio, bool) or not (0.0 < min_entropy_ratio <= 1.0):
+            raise ValueError("min_entropy_ratio must be a float in (0.0, 1.0]")
+        if input_mode not in ("joint_log_odds", "logits", "probs"):
+            raise ValueError("input_mode must be 'joint_log_odds', 'logits', or 'probs'")
+        if type(eps) not in (int, float) or eps <= 0.0:
+            raise ValueError("eps must be a positive float")
+
+        self.query_indices = list(query_indices)
+        self.num_classes = int(num_classes)
+        self.num_modes = modes_dict
+        self.min_entropy_ratio = float(min_entropy_ratio)
+        self.hinge = bool(hinge)
+        self.input_mode = input_mode
+        self.eps = float(eps)
+
+    def forward(self, logits=None, **kwargs):
+        import math
+        import torch
+
+        if logits is None:
+            if "u" in kwargs:
+                logits = kwargs["u"]
+            elif len(kwargs) == 1:
+                logits = next(iter(kwargs.values()))
+            else:
+                raise ValueError("MarginalShannonEntropyRegularizer requires logits input")
+
+        if not isinstance(logits, torch.Tensor) or logits.ndim != 2 or not logits.is_floating_point():
+            raise ValueError("MarginalShannonEntropyRegularizer requires 2D floating-point tensor")
+
+        B = logits.shape[0]
+        losses = []
+
+        for q in self.query_indices:
+            M_q = self.num_modes[q]
+            if self.input_mode == "joint_log_odds":
+                q_start = q * self.num_classes
+                q_end = q_start + self.num_classes
+                if logits.shape[1] < q_end:
+                    raise ValueError(
+                        f"MarginalShannonEntropyRegularizer joint_log_odds tensor width {logits.shape[1]} < required {q_end}"
+                    )
+                u_slice = logits[:, q_start:q_end]
+                probs = torch.sigmoid(u_slice)
+                probs = probs / probs.sum(dim=-1, keepdim=True).clamp_min(1e-6)
+            elif self.input_mode == "logits":
+                probs = logits.softmax(dim=-1)
+            else:
+                probs = logits
+
+            # Compute batch-marginal probability distribution
+            p_bar = probs.mean(dim=0)
+            H = - torch.sum(p_bar * torch.log(p_bar + self.eps))
+            target_H = self.min_entropy_ratio * math.log(M_q)
+
+            if self.hinge:
+                loss_q = torch.relu(target_H - H).pow(2)
+            else:
+                loss_q = -H
+            losses.append(loss_q)
+
+        return torch.stack(losses).mean()
+
+    def __call__(self, *args, **kwargs):
+        if _ModuleBase is not object:
+            return super().__call__(*args, **kwargs)
+        return self.forward(*args, **kwargs)
+
+    def resume_identity(self):
+        return {
+            "query_indices": self.query_indices,
+            "num_classes": self.num_classes,
+            "num_modes": self.num_modes,
+            "min_entropy_ratio": self.min_entropy_ratio,
+            "hinge": self.hinge,
+            "input_mode": self.input_mode,
+            "eps": self.eps,
+        }
+
+
+class NormalizedVisionCosineRepulsion(_ModuleBase):
+    r"""Normalized vision feature cosine repulsion on pooled_vision (v in R^(B x 2560)).
+
+    Penalizes pairwise cosine similarity exceeding margin:
+        L_repulse = \frac{1}{B(B-1)} \sum_{i \neq j} \max(0, cos(v_i, v_j) - margin)
+
+    With margin <= 0.88, enforces mean pairwise cosine distance 1 - cos(v_i, v_j) >= 0.12.
+    """
+    resume_stateless = True
+
+    def __init__(self, margin=0.88, eps=1e-8):
+        if _ModuleBase is not object:
+            super().__init__()
+        import math
+        if type(margin) not in (int, float) or isinstance(margin, bool) or not math.isfinite(margin) or not (0.0 <= margin < 1.0):
+            raise ValueError("NormalizedVisionCosineRepulsion margin must be in [0.0, 1.0)")
+        if type(eps) not in (int, float) or isinstance(eps, bool) or not math.isfinite(eps) or eps <= 0.0:
+            raise ValueError("NormalizedVisionCosineRepulsion eps must be a positive finite number")
+        self.margin = float(margin)
+        self.eps = float(eps)
+
+    def forward(self, features=None, margin=None, **kwargs):
+        import torch
+        import torch.nn.functional as F
+
+        if features is None:
+            if "v" in kwargs:
+                features = kwargs["v"]
+            elif "pooled_vision" in kwargs:
+                features = kwargs["pooled_vision"]
+            elif len(kwargs) == 1:
+                features = next(iter(kwargs.values()))
+            else:
+                raise ValueError("NormalizedVisionCosineRepulsion requires feature tensor input")
+
+        if not isinstance(features, torch.Tensor) or features.ndim != 2 or not features.is_floating_point():
+            raise ValueError("NormalizedVisionCosineRepulsion requires a 2D floating-point tensor [B, D]")
+
+        B = features.shape[0]
+        if B <= 1:
+            return torch.tensor(0.0, device=features.device, dtype=features.dtype)
+
+        eff_margin = self.margin if margin is None else float(margin)
+        v_norm = F.normalize(features.float(), p=2, dim=-1, eps=self.eps)
+        sim = torch.mm(v_norm, v_norm.t())
+        mask = ~torch.eye(B, dtype=torch.bool, device=features.device)
+        off_diag = sim[mask]
+        penalty = F.relu(off_diag - eff_margin)
+        return penalty.mean().to(dtype=features.dtype)
+
+    def __call__(self, *args, **kwargs):
+        if _ModuleBase is not object:
+            return super().__call__(*args, **kwargs)
+        return self.forward(*args, **kwargs)
+
+    def resume_identity(self):
+        return {
+            "margin": self.margin,
+            "eps": self.eps,
+        }

@@ -865,3 +865,295 @@ def test_option_probability_joint_log_odds():
         OptionProbability(index=0, input_mode="joint_log_odds", num_classes=4, query_index=-1)
     with pytest.raises(ValueError, match="query_index"):
         OptionProbability(index=0, input_mode="joint_log_odds", num_classes=4, query_index=True)
+
+
+def test_optical_wavefront_prior_flat_image_is_zero():
+    """Verify OpticalWavefrontPrior gives zero loss and zero gradient on constant/flat images."""
+    from hypergan.constraint_data import OpticalWavefrontPrior
+
+    prior = OpticalWavefrontPrior()
+    flat = (torch.ones(2, 3, 64, 64) * 0.7).requires_grad_(True)
+    losses = prior(flat, return_dict=True)
+    assert float(losses["loss_seam"].item()) == pytest.approx(0.0, abs=1e-6)
+    assert float(losses["loss_biharmonic"].item()) == pytest.approx(0.0, abs=1e-6)
+    assert float(losses["loss_psd"].item()) == pytest.approx(0.0, abs=1e-6)
+    assert float(losses["total_loss"].item()) == pytest.approx(0.0, abs=1e-6)
+
+    losses["total_loss"].backward()
+    assert flat.grad is not None
+    assert torch.all(flat.grad.abs() < 1e-6)
+
+
+def test_optical_wavefront_prior_linear_ramp_interior_curvature():
+    """Verify that biharmonic curvature is zero on linear intensity ramps (preserving Lambertian shading)."""
+    import torch.nn.functional as F
+
+    ramp = torch.linspace(0, 1, 64).view(1, 1, 1, 64).repeat(1, 3, 64, 1)
+    k = torch.tensor([[0., 1., 0.], [1., -4., 1.], [0., 1., 0.]], dtype=torch.float32).view(1, 1, 3, 3).repeat(3, 1, 1, 1)
+    lap_interior = F.conv2d(ramp, k, padding=0, groups=3)
+    assert float(lap_interior.abs().max().item()) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_optical_wavefront_prior_patch_seam_spike_detection():
+    """Verify patch-seam penalty detects 8px/16px ViT boundary steps and produces restorative gradients."""
+    from hypergan.constraint_data import OpticalWavefrontPrior
+
+    prior = OpticalWavefrontPrior(seam_threshold=1.05)
+    y = torch.linspace(-1, 1, 64).unsqueeze(1).repeat(1, 64)
+    x = torch.linspace(-1, 1, 64).unsqueeze(0).repeat(64, 1)
+    sphere = (1.0 - torch.clamp(x**2 + y**2, max=1.0)).sqrt().unsqueeze(0).unsqueeze(0).repeat(2, 3, 1, 1)
+
+    loss_smooth = prior(sphere, return_dict=True)
+    assert loss_smooth["R_seam"].item() <= 1.05
+    assert loss_smooth["loss_seam"].item() == 0.0
+
+    # Inject seam step along 16px seam
+    spiked = sphere.clone().requires_grad_(True)
+    with torch.no_grad():
+        spiked[:, :, 16, :] += 0.5
+        spiked[:, :, :, 16] += 0.5
+    loss_spiked = prior(spiked, return_dict=True)
+    assert loss_spiked["R_seam"].item() > 1.05
+    assert loss_spiked["loss_seam"].item() > 0.0
+    loss_spiked["loss_seam"].backward()
+    assert spiked.grad is not None and torch.isfinite(spiked.grad).all()
+
+
+def test_optical_wavefront_prior_radial_psd_falloff():
+    """Verify PSD prior penalizes high-frequency white noise much more than smooth 1/f fields."""
+    from hypergan.constraint_data import OpticalWavefrontPrior
+    import torch.fft as fft
+
+    prior = OpticalWavefrontPrior(weight_seam=0.0, weight_biharmonic=0.0, weight_psd=1.0)
+    H, W = 64, 64
+    fy = fft.fftfreq(H).unsqueeze(1) * H
+    fx = fft.rfftfreq(W).unsqueeze(0) * W
+    f_rad = torch.sqrt(fy ** 2 + fx ** 2)
+    amp = 1.0 / (1.0 + f_rad)
+    F_smooth = amp * torch.exp(1j * torch.rand(H, W // 2 + 1) * 6.28)
+    smooth_img = fft.irfft2(F_smooth, s=(H, W), norm="ortho").unsqueeze(0).unsqueeze(0).repeat(2, 3, 1, 1)
+
+    loss_smooth = prior(smooth_img)
+    noise_img = torch.randn(2, 3, 64, 64)
+    loss_noise = prior(noise_img)
+
+    assert float(loss_noise.item()) > float(loss_smooth.item()) * 10.0
+
+
+def test_optical_wavefront_prior_laplacian_kernels():
+    """Verify both 5-point and 9-point Laplacian kernels compute curvature and valid backward gradients."""
+    from hypergan.constraint_data import OpticalWavefrontPrior
+
+    x = torch.randn(2, 3, 32, 32, requires_grad=True)
+    p5 = OpticalWavefrontPrior(laplacian_kernel="5point", weight_seam=0.0, weight_psd=0.0)
+    p9 = OpticalWavefrontPrior(laplacian_kernel="9point", weight_seam=0.0, weight_psd=0.0)
+
+    l5 = p5(x)
+    l9 = p9(x)
+    assert float(l5.item()) > 0.0
+    assert float(l9.item()) > 0.0
+    l5.backward()
+    assert x.grad is not None and torch.isfinite(x.grad).all()
+
+
+def test_optical_wavefront_prior_scalar_vs_dict():
+    """Verify OpticalWavefrontPrior returns scalar tensor or diagnostic dictionary."""
+    from hypergan.constraint_data import OpticalWavefrontPrior
+
+    prior = OpticalWavefrontPrior()
+    x = torch.randn(2, 3, 64, 64)
+
+    scalar = prior(x)
+    assert isinstance(scalar, torch.Tensor)
+    assert scalar.numel() == 1
+
+    d = prior(x, return_dict=True)
+    assert isinstance(d, dict)
+    for key in ("total_loss", "loss_seam", "loss_biharmonic", "loss_psd", "R_seam"):
+        assert key in d
+        assert isinstance(d[key], torch.Tensor)
+        assert d[key].numel() == 1
+    assert float(d["total_loss"].item()) == pytest.approx(float(scalar.item()), rel=1e-5)
+
+
+def test_optical_wavefront_prior_differentiability_and_gradcheck():
+    """Verify analytical autograd gradients match numerical finite-difference Jacobian via gradcheck."""
+    from hypergan.constraint_data import OpticalWavefrontPrior
+
+    p_bi = OpticalWavefrontPrior(weight_seam=0.0, weight_psd=0.0, weight_biharmonic=1.0, delta=0.05)
+    x = torch.randn(1, 3, 16, 16, dtype=torch.float64, requires_grad=True)
+    assert torch.autograd.gradcheck(lambda img: p_bi(img), (x,), eps=1e-6, atol=1e-4, rtol=1e-3)
+
+    spiked = x.clone().detach()
+    with torch.no_grad():
+        spiked[:, :, 8, :] += 2.0
+        spiked[:, :, :, 8] += 2.0
+    spiked.requires_grad = True
+    p_seam = OpticalWavefrontPrior(weight_seam=1.0, weight_biharmonic=0.0, weight_psd=0.0, seam_threshold=1.05)
+    assert torch.autograd.gradcheck(lambda img: p_seam(img), (spiked,), eps=1e-6, atol=1e-4, rtol=1e-3)
+
+
+def test_optical_wavefront_prior_validation():
+    """Verify input argument and tensor dimension validations."""
+    from hypergan.constraint_data import OpticalWavefrontPrior
+
+    for bad_weight in (-0.1, float("nan"), True):
+        with pytest.raises(ValueError, match="weight_seam"):
+            OpticalWavefrontPrior(weight_seam=bad_weight)
+    with pytest.raises(ValueError, match="patch_size"):
+        OpticalWavefrontPrior(patch_size=1)
+    with pytest.raises(ValueError, match="secondary_patch_size"):
+        OpticalWavefrontPrior(secondary_patch_size=0)
+    with pytest.raises(ValueError, match="seam_threshold"):
+        OpticalWavefrontPrior(seam_threshold=0.0)
+    with pytest.raises(ValueError, match="laplacian_kernel"):
+        OpticalWavefrontPrior(laplacian_kernel="7point")
+    with pytest.raises(ValueError, match="alpha"):
+        OpticalWavefrontPrior(alpha=-1.0)
+    with pytest.raises(ValueError, match="margin_db"):
+        OpticalWavefrontPrior(margin_db=-0.5)
+    with pytest.raises(ValueError, match="padding_mode"):
+        OpticalWavefrontPrior(padding_mode="circular")
+    with pytest.raises(ValueError, match="delta"):
+        OpticalWavefrontPrior(delta=-0.01)
+
+    p = OpticalWavefrontPrior()
+    with pytest.raises(ValueError, match="requires an image"):
+        p()
+    with pytest.raises(ValueError, match="4D floating-point"):
+        p(torch.zeros(3, 64, 64))
+    with pytest.raises(ValueError, match="C=3"):
+        p(torch.zeros(2, 1, 64, 64))
+    with pytest.raises(ValueError, match="dimensions"):
+        p(torch.zeros(2, 3, 8, 8))
+
+
+def test_optical_wavefront_prior_hypergan_training_loop_integration():
+    """Verify OpticalWavefrontPrior in a complete HyperGAN ReferenceTrainer step."""
+    from hypergan.config import DEFAULT, resolve_config
+    from hypergan.training import ReferenceTrainer
+
+    config = copy.deepcopy(DEFAULT)
+    config["data"] = {
+        "factory": "hypergan.constraint_data:ConstraintTargetData",
+        "args": {"target_probs": [0.92, 0.02, 0.02, 0.02, 0.02], "mode": "logits", "jitter_std": 0.0},
+    }
+    config["components"]["image_generator"] = {
+        "factory": __name__ + ":TinyImageGenerator",
+        "args": {"z_dim": 4, "size": 32},
+        "inputs": {"x": "latent"},
+        "trainable": True,
+    }
+    config["components"]["generator"] = {
+        "factory": __name__ + ":TinyConstraintHead",
+        "args": {"num_options": 5},
+        "inputs": {"x": "components.image_generator"},
+        "trainable": True,
+    }
+    config["components"]["discriminator"] = {
+        "factory": __name__ + ":TinyLogitDiscriminator",
+        "args": {"num_options": 5},
+        "inputs": {"x": "candidate"},
+        "trainable": True,
+    }
+    config["objectives"] = [
+        {
+            "id": "optical_wavefront",
+            "factory": "hypergan.constraint_data:OpticalWavefrontPrior",
+            "args": {"weight_seam": 1.0, "weight_biharmonic": 0.1, "weight_psd": 0.01},
+            "inputs": {"image": "components.image_generator"},
+            "weight": 0.05,
+        }
+    ]
+    config["prior"]["args"].update(num_particles=16, z_dim=4)
+    config["sampling"].update(generated="components.image_generator", count=4, seed=42)
+    config["training"].update(device="cpu", steps=2, batch_size=4, seed=42)
+    config["metrics"] = {"preset": "standard", "every_steps": 1}
+
+    resolved = resolve_config(config)
+    trainer = ReferenceTrainer(resolved)
+    row, batch = trainer.update()
+    assert len(row["objectives"]) == 1
+    assert row["objectives"][0] > 0.0
+
+
+def test_marginal_shannon_entropy_regularizer_collapsed_vs_diverse():
+    """Verify that mode collapse triggers a positive penalty with non-zero gradients,
+    while balanced diverse batches incur zero penalty."""
+    from hypergan.constraint_data import MarginalShannonEntropyRegularizer
+
+    reg = MarginalShannonEntropyRegularizer(
+        query_indices=[1, 2], num_classes=5, num_modes=3, min_entropy_ratio=0.85, hinge=True
+    )
+    # Batch size 16, 2 queries * 5 classes = 10 classes (query 1: 5..9, query 2: 10..14)
+    # Collapsed batch: all images have option 0 high
+    u_col = torch.full((16, 15), -5.0, requires_grad=True)
+    u_col.data[:, 5] = 5.0   # query 1 option 0
+    u_col.data[:, 10] = 5.0  # query 2 option 0
+
+    loss_col = reg(u_col)
+    assert loss_col.item() > 0.5, "Collapsed batch failed to trigger entropy penalty"
+    loss_col.backward()
+    assert u_col.grad is not None and u_col.grad.norm().item() > 0.01
+
+    # Diverse batch: perfectly balanced across 3 modes
+    u_div = torch.full((15, 15), -5.0)
+    for i in range(15):
+        m = i % 3
+        u_div[i, 5 + m] = 5.0
+        u_div[i, 10 + m] = 5.0
+    loss_div = reg(u_div)
+    assert loss_div.item() == 0.0, "Diverse batch improperly penalized under hinge loss"
+
+
+def test_marginal_shannon_entropy_regularizer_validation():
+    """Verify validation of constructor arguments."""
+    from hypergan.constraint_data import MarginalShannonEntropyRegularizer
+
+    for bad_q in ([], "not_a_list", [-1]):
+        with pytest.raises(ValueError):
+            MarginalShannonEntropyRegularizer(query_indices=bad_q)
+    for bad_classes in (0, 1, 1.5):
+        with pytest.raises(ValueError):
+            MarginalShannonEntropyRegularizer(num_classes=bad_classes)
+    for bad_ratio in (0.0, 1.5, -0.1):
+        with pytest.raises(ValueError):
+            MarginalShannonEntropyRegularizer(min_entropy_ratio=bad_ratio)
+
+
+def test_normalized_vision_cosine_repulsion_identical_vs_orthogonal():
+    """Verify that identical vectors incur (1 - margin) penalty, orthogonal incur 0."""
+    from hypergan.constraint_data import NormalizedVisionCosineRepulsion
+
+    rep = NormalizedVisionCosineRepulsion(margin=0.88)
+
+    # B=1 returns 0.0
+    assert rep(torch.randn(1, 2560)).item() == 0.0
+
+    # B=4 identical vectors: cos(v_i, v_j) = 1.0 -> penalty = 1.0 - 0.88 = 0.12
+    v_col = torch.randn(1, 2560).expand(4, -1).clone().requires_grad_(True)
+    loss_col = rep(v_col)
+    assert abs(loss_col.item() - 0.12) < 1e-4
+
+    # B=4 orthogonal vectors: cos(v_i, v_j) = 0.0 -> penalty = 0.0
+    v_ortho = torch.eye(4, 2560)
+    assert rep(v_ortho).item() == 0.0
+
+    # Gradient flow
+    v_rand = torch.randn(4, 2560, requires_grad=True)
+    rep_loss = rep(v_rand, margin=0.0)  # force active penalty
+    rep_loss.backward()
+    assert v_rand.grad is not None and v_rand.grad.norm().item() > 0
+
+
+def test_normalized_vision_cosine_repulsion_validation():
+    """Verify input validation for NormalizedVisionCosineRepulsion."""
+    from hypergan.constraint_data import NormalizedVisionCosineRepulsion
+
+    for bad_margin in (-0.1, 1.0, 1.5, float('nan')):
+        with pytest.raises(ValueError):
+            NormalizedVisionCosineRepulsion(margin=bad_margin)
+    rep = NormalizedVisionCosineRepulsion()
+    for bad_input in (torch.randn(10), torch.randn(2, 2, 2)):
+        with pytest.raises(ValueError):
+            rep(bad_input)

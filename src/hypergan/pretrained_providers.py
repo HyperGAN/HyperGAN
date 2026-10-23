@@ -558,7 +558,7 @@ def _imajev_builder(config):
 
         class _CachedInputGradFn(torch.autograd.Function):
             @staticmethod
-            def forward(ctx, x_in, forward_fn):
+            def forward(ctx, x_in, forward_fn, sobolev_precondition=True):
                 x_detached = x_in.detach().requires_grad_(True)
                 with torch.enable_grad():
                     out = forward_fn(x_detached)
@@ -566,6 +566,7 @@ def _imajev_builder(config):
                 ctx.is_tuple = isinstance(out, tuple)
                 ctx.out = out
                 ctx.cache = None
+                ctx.sobolev_precondition = bool(sobolev_precondition)
                 if ctx.is_tuple:
                     return tuple(t.detach() for t in out)
                 return out.detach()
@@ -583,24 +584,27 @@ def _imajev_builder(config):
                     else:
                         equal = torch.equal(grad_out, cached_grad_out)
                     if equal:
-                        return cached_grad_x, None
+                        return cached_grad_x, None, None
                 grad_x, = torch.autograd.grad(
                     ctx.out, ctx.x_detached, grad_out, retain_graph=True, allow_unused=True
                 )
                 if grad_x is None:
                     grad_x = torch.zeros_like(ctx.x_detached)
+                elif ctx.sobolev_precondition and grad_x.ndim == 4:
+                    grad_x = sobolev_precondition_gradient(grad_x)
                 if ctx.is_tuple:
                     cloned_out = tuple(g.detach().clone() if g is not None else None for g in grad_out)
                 else:
                     cloned_out = grad_out.detach().clone()
                 ctx.cache = (cloned_out, grad_x)
-                return grad_x, None
+                return grad_x, None, None
 
         class _ImaJevDecisionModule(nn.Module):
             def __init__(self, cfg):
                 super().__init__()
                 self.weight = nn.Parameter(torch.empty(256, 2560, dtype=torch.float32), requires_grad=False)
                 self._config = deepcopy(cfg)
+                self._sobolev_precondition = bool(self._config.get('sobolev_precondition', True))
                 self._queries = _imajev_config_queries(self._config)
                 self._bank_signature = _imajev_bank_signature(self._queries)
                 self.eval()
@@ -817,7 +821,9 @@ def _imajev_builder(config):
                     raise ValueError('imajev_4b expects RGB images with height and width at least 16')
                 if torch.is_grad_enabled() and x.requires_grad:
                     return _CachedInputGradFn.apply(
-                        x, lambda x_in: self._forward_joint_log_odds_impl(x_in, return_vision_features=return_vision_features)
+                        x,
+                        lambda x_in: self._forward_joint_log_odds_impl(x_in, return_vision_features=return_vision_features),
+                        self._sobolev_precondition,
                     )
                 return self._forward_joint_log_odds_impl(x, return_vision_features=return_vision_features)
 
@@ -825,7 +831,7 @@ def _imajev_builder(config):
                 if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
                     raise ValueError('imajev_4b expects RGB images with height and width at least 16')
                 if torch.is_grad_enabled() and x.requires_grad:
-                    return _CachedInputGradFn.apply(x, self._forward_pooled_features_impl)
+                    return _CachedInputGradFn.apply(x, self._forward_pooled_features_impl, self._sobolev_precondition)
                 return self._forward_pooled_features_impl(x)
 
             def forward_pooled_vision(self, x):
@@ -835,7 +841,7 @@ def _imajev_builder(config):
                 if x.ndim != 4 or x.shape[1] != 3 or x.shape[2] < 16 or x.shape[3] < 16:
                     raise ValueError('imajev_4b expects RGB images with height and width at least 16')
                 if torch.is_grad_enabled() and x.requires_grad:
-                    return _CachedInputGradFn.apply(x, self._forward_logits_impl)
+                    return _CachedInputGradFn.apply(x, self._forward_logits_impl, self._sobolev_precondition)
                 return self._forward_logits_impl(x)
 
             def forward_probs(self, x):
@@ -865,6 +871,61 @@ def _imajev_decision_logits(model, x):
 
 def _imajev_decision_probs(model, x):
     return model.forward_probs(x)
+
+
+def sobolev_precondition_gradient(
+    grad_x,
+    scales=(1, 2, 4),
+    weights=(0.5, 0.3, 0.2),
+    mode='bilinear',
+):
+    """Filter gradient tensor through a multiscale Sobolev pyramid.
+
+    Applies Riemannian Sobolev H^1 gradient preconditioning:
+        \\widetilde{\\nabla}_x = \\sum_s w_s \\mathcal{U}_s(\\mathcal{D}_s(\\nabla_x))
+    where \\mathcal{D}_s is downsampling by scale s in {1, 2, 4} and \\mathcal{U}_s
+    is upsampling back to (H, W). This attenuates high-frequency ViT patch-grid
+    adversarial static while strictly preserving the gradient descent direction
+    (\\langle g, \\widetilde{g} \\rangle > 0) and low-frequency semantic content.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    if not isinstance(grad_x, torch.Tensor):
+        raise TypeError(f'sobolev_precondition_gradient expects a torch.Tensor, got {type(grad_x)}')
+    if grad_x.ndim != 4:
+        raise ValueError(f'sobolev_precondition_gradient expects 4D tensor (B, C, H, W), got shape {grad_x.shape}')
+    if len(scales) != len(weights):
+        raise ValueError(f'scales ({len(scales)}) and weights ({len(weights)}) must have matching length')
+
+    H, W = grad_x.shape[-2:]
+    out = None
+    for s, w in zip(scales, weights):
+        if w == 0:
+            continue
+        if s == 1:
+            up = grad_x
+        else:
+            if H % s == 0 and W % s == 0:
+                down = F.avg_pool2d(grad_x, kernel_size=s, stride=s)
+            else:
+                down = F.interpolate(
+                    grad_x,
+                    size=(max(1, H // s), max(1, W // s)),
+                    mode=mode,
+                    align_corners=False if mode in ('bilinear', 'bicubic') else None,
+                )
+            up = F.interpolate(
+                down,
+                size=(H, W),
+                mode=mode,
+                align_corners=False if mode in ('bilinear', 'bicubic') else None,
+            )
+        out = (w * up) if out is None else (out + w * up)
+
+    if out is None:
+        out = torch.zeros_like(grad_x)
+    return out
 
 
 def _dinov3_builder(source_path, source_commit):

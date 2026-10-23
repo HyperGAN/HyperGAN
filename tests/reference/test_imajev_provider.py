@@ -676,3 +676,102 @@ def test_real_imajev_4b_gpu_scores_and_gradients():
     torch.testing.assert_close(probs_cpu, probs.detach().cpu(), atol=1e-4, rtol=1e-4)
     probs_cpu[:, 0].sum().backward()
     assert x_cpu.grad is not None and torch.isfinite(x_cpu.grad).all() and x_cpu.grad.abs().sum() > 0
+
+
+def test_sobolev_precondition_gradient_properties():
+    from hypergan.pretrained_providers import sobolev_precondition_gradient
+
+    # Input validations
+    with pytest.raises(TypeError, match='torch.Tensor'):
+        sobolev_precondition_gradient([[1.0]])
+    with pytest.raises(ValueError, match='4D tensor'):
+        sobolev_precondition_gradient(torch.randn(3, 32, 32))
+    with pytest.raises(ValueError, match='matching length'):
+        sobolev_precondition_gradient(torch.randn(1, 3, 32, 32), scales=(1, 2), weights=(0.5,))
+
+    # Dtype and device preservation
+    x = torch.randn(2, 3, 64, 64, dtype=torch.float32)
+    filtered = sobolev_precondition_gradient(x)
+    assert filtered.shape == x.shape
+    assert filtered.dtype == x.dtype
+    assert filtered.device == x.device
+
+    # Descent direction: <g, P(g)> > 0 and cosine similarity >= 0.5
+    inner = (x * filtered).sum()
+    assert inner.item() > 0
+    cos_sim = inner / (x.norm() * filtered.norm())
+    assert cos_sim.item() >= 0.5 - 1e-5
+
+    # DC component preservation: spatially uniform gradient is unchanged
+    dc_grad = torch.full((2, 3, 64, 64), 3.5)
+    filtered_dc = sobolev_precondition_gradient(dc_grad)
+    torch.testing.assert_close(filtered_dc, dc_grad, atol=1e-5, rtol=1e-5)
+
+    # High-frequency attenuation: checkerboard (-1)^(i+j)
+    i = torch.arange(64).view(1, 1, 64, 1)
+    j = torch.arange(64).view(1, 1, 1, 64)
+    checker = ((-1.0) ** (i + j)).expand(1, 3, 64, 64)
+    filtered_checker = sobolev_precondition_gradient(checker)
+    torch.testing.assert_close(filtered_checker, 0.5 * checker, atol=1e-5, rtol=1e-5)
+    assert filtered_checker.norm().item() ** 2 == pytest.approx(0.25 * checker.norm().item() ** 2, rel=1e-4)
+
+
+def test_sobolev_precondition_mock_vlm_backward(dummy_readout_artifact, monkeypatch):
+    from hypergan.pretrained_providers import sobolev_precondition_gradient
+    path, digest, _ = dummy_readout_artifact
+
+    # 1. With sobolev_precondition=True (default)
+    cfg_on = {
+        'base_model_path': '/mock/qwen3.5-4b',
+        'adapter_path': '/mock/imajev-4b',
+        'question': 'What is the object?',
+        'options': ['apple', 'orange'],
+        'image_size': 64,
+        'sobolev_precondition': True,
+    }
+    _install_mock_runtime(monkeypatch, cfg_on, device=torch.device('cpu'))
+    src_on = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="joint_log_odds", trainable=False, name="imajev_on")'
+    )
+    net_on = build_network(
+        src_on,
+        input_shape=('B', 3, 64, 64),
+        output_shape=('B', 3),
+        pretrained_providers={'imajev_4b': cfg_on},
+    )
+
+    # 2. With sobolev_precondition=False
+    cfg_off = deepcopy(cfg_on)
+    cfg_off['sobolev_precondition'] = False
+    _install_mock_runtime(monkeypatch, cfg_off, device=torch.device('cpu'))
+    src_off = (
+        f'pretrained({str(path)!r}, provider="imajev_4b", '
+        f'sha256="{digest}", readout="joint_log_odds", trainable=False, name="imajev_off")'
+    )
+    net_off = build_network(
+        src_off,
+        input_shape=('B', 3, 64, 64),
+        output_shape=('B', 3),
+        pretrained_providers={'imajev_4b': cfg_off},
+    )
+
+    x_on = torch.randn(2, 3, 64, 64, requires_grad=True)
+    x_off = x_on.clone().detach().requires_grad_(True)
+
+    out_on = net_on(x_on)
+    out_off = net_off(x_off)
+
+    out_on[:, 0].sum().backward()
+    out_off[:, 0].sum().backward()
+
+    assert x_on.grad is not None and x_off.grad is not None
+    # Filtered grad should match sobolev_precondition_gradient(x_off.grad)
+    expected_on = sobolev_precondition_gradient(x_off.grad)
+    torch.testing.assert_close(x_on.grad, expected_on, atol=1e-5, rtol=1e-5)
+
+    # Verify TV of preconditioned gradient is strictly lower than raw gradient
+    def total_variation(g):
+        return (g[:, :, 1:, :] - g[:, :, :-1, :]).abs().mean() + (g[:, :, :, 1:] - g[:, :, :, :-1]).abs().mean()
+
+    assert total_variation(x_on.grad) < total_variation(x_off.grad)

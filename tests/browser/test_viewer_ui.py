@@ -559,4 +559,3 @@ def test_model_tab_keyboard_and_missing_configuration(viewer):
     assert page.locator('#panel-metrics').is_visible() and page.locator('#panel-model').is_hidden()
     assert page.locator('.chart-canvas canvas').count() == 3
     assert not errors
-

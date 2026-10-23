@@ -1,14 +1,34 @@
 # Changelog
 
-## 2.0.0a1 — development foundation (unreleased)
+## 2.0.0a1 — 2026-10-23
 
-- Rebuild the supported package around configurable ParticleGAN primitives and a HyperGAN-owned CPU reference loop.
-- Add lightweight CLI/configuration tooling, conditional component bindings, run metadata and reloadable EMA inference artifacts.
-- Replace legacy packaging and CI with installed-wheel checks and explicit numerical tests.
-- Give the local viewer a stable default port (8765) for `train`, `resume` and `serve`, searching upward to 100 ports when it is busy. `--port` names an exact port and fails when occupied; `--server-port` remains an accepted spelling.
-- Let a TLS proxy front the viewer: `--public-origin URL` on `train`, `resume` and `serve` accepts exactly one extra origin, such as the `https://<machine>.<tailnet>.ts.net` that `tailscale serve` publishes, and marks the session cookie `Secure` on it. Direct `http://<host>:<port>` access is unchanged, and `X-Forwarded-*` headers are ignored unless that option names an origin.
-- Archive the previous runtime and research branches. Image recipes, complete resume, multi-GPU/cluster execution and deployment remain release gates.
-- Map `.hndl` network definitions to Python in `.gitattributes` so GitHub language statistics count them.
+HyperGAN 2.0.0a1 is a ground-up architectural rebuild centered on configurable ParticleGAN (`>=0.9.2,<0.10`) primitives, declarative `hypergan-model/1` TOML model files, HNDL (`>=0.9.0`) networks, reproducible training lifecycles, a functional Python API (`import hypergan as hg`), and real-time web observation (`hypergan view`) backed by Foldlite DB (`>=0.1.2,<0.2`).
+
+- **Unified `format = "hypergan-model/1"` Configuration Standard**:
+  - Single, human-editable TOML model schema (`[data]`, `[prior]`, `[networks.<name>]`, `[[losses]]`, `[penalty]`, `[train]`, `[evaluations.<id>]`, `[metrics]`, `[sampling]`, `[checkpoints]`, `[run]`).
+  - Recursive configuration inheritance via `extends` with relative path anchoring, workspace variable interpolation (`hypergan.toml`), and on-the-fly CLI overrides (`-s / --set KEY=VALUE`).
+  - Automatic dataset header inspection and starter project scaffolding via `hypergan new --project <dir> --dataset <path>` across `dcgan`, `tiny-transformer`, `resnet`, and `gaussian-grid` templates.
+- **HNDL Declarative Network DSL**:
+  - Networks are authored inline (`source = """..."""`) or in standalone `.hndl` files (`hndl = "path/to/net.hndl"`) with static shape contract verification (`input_shape`, `output_shape`) before training begins.
+  - Native support for residual blocks, self-attention, 2D relative-position bias, split-latent AdaIN (`adaptive_norm`), equalized linear/conv layers, coordinate warps, Fourier features, differentiable augmentation (`diff_augment`), and SHA-256-pinned frozen pretrained backbones (`torchvision_resnet18`, `dinov3_vits16`).
+  - Resolved HNDL sources are embedded into run manifests and version-2 checkpoints (`CURRENT_VERSION = 2`) for self-contained provenance.
+- **Config-First Python Developer API (`import hypergan as hg`)**:
+  - Lazy-loaded functional Python API (`hg.new`, `hg.load`, `hg.Model`, `hg.override`, `hg.validate`, `hg.train`, `hg.resume`, `hg.sample`, `hg.evaluate`, `hg.export`, `hg.load_bundle`, `hg.ps`, `hg.status`, `hg.logs`, `hg.compare`, `hg.diff`).
+  - Importing `hypergan` and validating or inspecting configurations remains 100% Torch-free until numerical execution starts.
+- **Multi-Network & Auxiliary Graph Routing**:
+  - Explicit role-based network graphs (`role = "generator" | "critic" | "encoder" | "auxiliary"`) with weight sharing (`reuse`, `freeze_parameters`), multi-critic adversarial terms, particle-routing autoencoders (`ae_gan`, `vae_gan`), and paired conditional reconstruction objectives (`d-then-g-v1` update program).
+- **FoldLiteDB Embedded Map/Reduce Storage & WASM Reducers**:
+  - Backed by `foldlitedb>=0.1.2,<0.2` for atomic append-only event journaling, bounded cursor pagination, durable `.fold` historical view caches, and shared Rust/WebAssembly streaming reducers across server and browser.
+- **Web Observatory (`hypergan view`) & Docker-Style Run Controller**:
+  - Global Runs Dashboard (`GET /` and `GET /api/runs`) and per-run Web Observatory (`GET /runs/<id_or_slug_or_tag>`) with real-time SSE streaming, retained EMA preview history sliders, snapshot evaluation charts, and an interactive **Model** tab.
+  - Live browser and CLI run controls (`RunController` start, graceful stop, resume, on-demand durable checkpointing, sampling, evaluation, and multi-GPU sequential job queueing via `hypergan queue`).
+  - Daemonless global run registry addressing runs from any directory by Docker-style slug (`fleet-hawk`), short ID, custom tag (`hypergan tag`), or path.
+- **CUDA, Multi-GPU & AMD ROCm Support**:
+  - Single-GPU and multi-GPU replicated training (`--devices 0,1` / `cuda-replicated-nccl`) with coordinated rank recovery and automatic CPU fallback warnings when CUDA is unavailable.
+  - First-class AMD ROCm / HIP runtime detection, determinism guards, and GPU inventory support alongside NVIDIA CUDA.
+- **Security & Packaging**:
+  - Require `Pillow>=13.0.0,<14` for image extras, allowlist `Image.open` formats, and enforce `weights_only=True` in EMA bundle extraction.
+  - Automated CI distribution verification (`twine check --strict`, stamped `_build_provenance.json`) and PyPI Trusted Publishing via `.github/workflows/release.yml`.
 
 The entries below describe historical versions; see [migration notes](docs/migration.md) before using legacy configurations or checkpoints.
 

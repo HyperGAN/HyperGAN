@@ -891,4 +891,3 @@ def prune_checkpoints(
         'pruned_count': len(deleted),
         'bytes_reclaimed': reclaimed,
     }
-

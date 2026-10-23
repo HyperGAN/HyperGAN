@@ -1012,4 +1012,3 @@ def collect_source_files(config_path: Path | str, workspace_root: Path | str | N
 
     _walk(config_path)
     return sources
-

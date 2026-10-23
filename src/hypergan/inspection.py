@@ -1954,4 +1954,3 @@ def read_run_logs(
         print("\nDetached from logs (training continues in background).", file=sys.stderr, flush=True)
 
     return formatted_lines
-

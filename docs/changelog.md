@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.2.0 (`develop` Release Highlights)
+## 2.0.0a1 — 2026-10-23
 
-HyperGAN 0.2.0 is a ground-up architectural rebuild centered on declarative model files, reproducible training lifecycles, and real-time web observation.
+HyperGAN 2.0.0a1 is a ground-up architectural rebuild centered on declarative model files, reproducible training lifecycles, and real-time web observation.
 
 ### Highlights
 
@@ -13,7 +13,7 @@ HyperGAN 0.2.0 is a ground-up architectural rebuild centered on declarative mode
 - **HNDL Declarative Network DSL**:
   - Networks are authored inline (`source = """..."""`) or in standalone `.hndl` files (`hndl = "path/to/net.hndl"`) with static shape contract verification (`input_shape`, `output_shape`) before training begins.
   - Native support for residual blocks, self-attention, 2D relative-position bias, split-latent AdaIN (`adaptive_norm`), equalized linear/conv layers, coordinate warps, Fourier features, differentiable augmentation (`diff_augment`), and SHA-256-pinned frozen pretrained backbones (`torchvision_resnet18`, `dinov3_vits16`).
-  -Resolved HNDL sources are embedded into run manifests and version-2 checkpoints (`CHECKPOINT_SCHEMA_VERSION = 2`) for self-contained provenance.
+  - Resolved HNDL sources are embedded into run manifests and version-2 checkpoints (`CHECKPOINT_SCHEMA_VERSION = 2`) for self-contained provenance.
 - **Config-First Python Developer API (`import hypergan as hg`)**:
   - Lazy-loaded functional Python API (`hg.new`, `hg.load`, `hg.Model`, `hg.override`, `hg.validate`, `hg.train`, `hg.resume`, `hg.sample`, `hg.evaluate`, `hg.export`, `hg.load_bundle`, `hg.ps`, `hg.status`, `hg.logs`, `hg.compare`, `hg.diff`).
   - Importing `hypergan` and validating or inspecting configurations remains 100% Torch-free until numerical execution starts.

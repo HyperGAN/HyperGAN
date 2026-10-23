@@ -323,4 +323,3 @@ def test_new_dataset_inspection_and_rgba_warning(isolated_env, tmp_path, capsys)
     assert "RGBA" in err or "alpha" in err.lower()
     assert "4 images" in err or "4" in err
     assert "16x16" in err
-

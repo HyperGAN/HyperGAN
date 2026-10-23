@@ -401,4 +401,3 @@ def test_view_cli_tag_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert rc_slug == 0, err_slug
     st_slug_json = json.loads(out_slug)
     assert "status" in st_slug_json
-

@@ -1050,7 +1050,7 @@ def stop_all_servers(force: bool = False) -> list[int]:
             pass
 
     # 2. Inspect host process table via /proc for hypergan processes owned by current user
-    proc_root = os.environ.get('HYPERGAN_PROC_ROOT', '/proc')
+    proc_root = getattr(os, 'environ', {}).get('HYPERGAN_PROC_ROOT', '/proc')
     if os.path.exists(proc_root):
         try:
             for entry in os.listdir(proc_root):

@@ -8,12 +8,25 @@ The experimental [256×256 logo colorization demo](docs/colorization.md) pairs a
 
 ---
 
-## Install the development foundation
+## Install
 
 Use Python 3.12+ for the tested training runtime. Lightweight package checks cover Python 3.11–3.14 on Linux, macOS and Windows; the CPU reference profile is tested on Linux.
 
+Install the `2.0.0a1` alpha release from PyPI:
+
 ```sh
-git clone --branch develop https://github.com/HyperGAN/HyperGAN.git
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cu130
+python -m pip install "hypergan[train,image,web]==2.0.0a1"
+hypergan --help
+python -m hypergan --version
+```
+
+Or install from a source checkout:
+
+```sh
+git clone https://github.com/HyperGAN/HyperGAN.git
 cd HyperGAN
 python -m venv .venv
 . .venv/bin/activate
@@ -22,7 +35,7 @@ hypergan --help
 python -m hypergan --version
 ```
 
-For local NVIDIA GPU training, install the CUDA runtime and training/web/image extras:
+For local NVIDIA GPU training from source, install the CUDA runtime and training/web/image extras:
 
 ```sh
 python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/whl/cu130
@@ -265,7 +278,7 @@ source reference pinned to an exact revision. Without that variable it uses the
 configured package index, which requires Foldlite DB to have been released.
 See the [Foldlite integration and cache contract](docs/foldlitedb.md).
 
-Install `.[dev,train,image,web]` in the tested runtime environment, then run `python -m pytest` for CPU and lightweight correctness tests. That default selection deselects the `heavy` marker, which gates the tests that start real subprocesses, multi-rank jobs and worker services; run those deliberately with `python -m pytest -m heavy`. With two visible NVIDIA GPUs and the CUDA runtime, run `python -m pytest tests/cuda`; see [CUDA execution and validation](docs/cuda.md).
+Install `.[dev,train,image,web]` in the tested runtime environment, then run `python -m pytest` for CPU and lightweight correctness tests. That default selection deselects the `heavy` marker, which gates the tests that start real subprocesses, multi-rank jobs and worker services; run those deliberately with `python -m pytest -m heavy`. With two visible NVIDIA GPUs and the CUDA runtime, run `python -m pytest tests/cuda`; see [CUDA execution and validation](docs/cuda.md) and [CI and PyPI releases](docs/releasing.md).
 
 Historical HyperGAN code and experiments are preserved in archive tags. Legacy configurations and checkpoints require their archived runtime; see [migration notes](docs/migration.md), [preservation evidence](reports/resurrection-preservation-2026-09-18.md), [the execution ledger](reports/resurrection-status.md), and [resurrection plan](reports/resurrecting-hypergan-plan-2026-09-18.md).
 

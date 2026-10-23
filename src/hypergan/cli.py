@@ -510,7 +510,7 @@ def _load_stored_run_model(run_dir: Path):
 
 def _check_reexec(run_spec, ws_data):
     """Determine if re-exec is required based on [run].env or workspace env profiles.
-    
+
     Returns:
         (needs_reexec, target_python, target_src_paths, target_env_vars)
     """
@@ -2139,4 +2139,3 @@ def _dispatch(args, *, output=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

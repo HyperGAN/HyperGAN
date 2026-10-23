@@ -25,7 +25,7 @@ RUNS_DIR = Path("/home/martyn/dev/hypergan/training-runs")
 BACKUP_DIR = RUNS_DIR / ".legacy_toml_backup"
 
 
-def test_all_examples_use_hypergan_model_format_and_load_cleanly():
+def test_all_examples_use_hypergan_model_format_and_load_cleanly(published_pg08_defaults):
     example_tomls = sorted(EXAMPLES_DIR.glob("*.toml"))
     assert len(example_tomls) >= 23, f"Expected at least 23 top-level examples/*.toml files, found {len(example_tomls)}"
 

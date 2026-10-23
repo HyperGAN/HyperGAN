@@ -689,4 +689,3 @@ def init_project(
             f"hypergan train {cfg_path}",
         ],
     }
-

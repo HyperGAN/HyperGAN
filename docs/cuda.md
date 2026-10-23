@@ -9,7 +9,7 @@ hypergan resume runs/demo
 hypergan sample runs/demo --count 16
 ```
 
-`new` writes `training.device="cuda"`, which resolves to visible CUDA index zero. To select the second visible GPU, use `hypergan new demo-gpu1 --device cuda:1`. To run the small CPU correctness fixture, use `hypergan new cpu-demo --device cpu`. Explicit device requests fail if unavailable; there is no automatic CPU fallback. Validation and project creation remain usable without PyTorch or GPU hardware.
+`new` writes `train.device = "cuda"`, which resolves to visible CUDA index zero. To select the second visible GPU, use `hypergan new demo-gpu1 --device cuda:1`. To run the small CPU correctness fixture, use `hypergan new cpu-demo --device cpu`. During `hypergan train`, HyperGAN auto-selects CUDA when available and falls back to CPU with a `HyperGANHardwareWarning` if CUDA is unavailable on the host, unless a CUDA device is explicitly forced via `--devices cuda:...` (or hardware verification tests). Validation and project creation remain usable without PyTorch or GPU hardware.
 
 Install a CUDA-enabled PyTorch build and the `train` extra before training. The local validation environment uses Python 3.12 and PyTorch 2.14.0+cu130. The [quickstart](../README.md) has installation commands. GPU indices are relative to `CUDA_VISIBLE_DEVICES`; the checkpoint records the resolved device and visible GPU identity. Changing visible-device mapping, selected hardware, precision policy or runtime requires a new run rather than silent recovery conversion.
 

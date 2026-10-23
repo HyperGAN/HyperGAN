@@ -46,10 +46,12 @@ peak allocated memory. This excludes the critic, EMA, and optimizer state and
 does not establish training stability or convergence.
 
 ```bash
-../training-runs/start-tiny-transformer-resnet-128.sh
+hypergan train examples/tiny-transformer-resnet-128.toml \
+    --run-dir ./runs/train-tiny-transformer-resnet-128 \
+    -d 0 --preview-every 100 --checkpoint-every 1000
 ```
 
-The local launcher selects physical GPU 0 and uses a separate run directory:
-`/mnt/ml7tb/hypergan-training-runs/train-tiny-transformer-resnet-128`.
+This command selects GPU 0 and uses a separate run directory:
+`./runs/train-tiny-transformer-resnet-128`.
 Previews remain every 100 steps and checkpoints every 1000. Training is left
 for the user to launch.

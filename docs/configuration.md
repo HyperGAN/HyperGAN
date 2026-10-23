@@ -2,40 +2,528 @@
 
 A HyperGAN project is initialized with `hypergan new --project <dir>` (which creates `hypergan.toml`, `runs/`, and `configs/<template>.toml`), or as a standalone `.toml` model file created with `hypergan new <path>.toml`. Pass a `.toml` file or project directory to `hypergan validate` and `hypergan train`. Defaults are resolved into the run manifest so experiments do not depend on hidden CLI settings.
 
-New projects target native CUDA execution by default (`--device cuda:1` selects another visible GPU; `--device cpu` or `hypergan train -d cpu` selects CPU execution for small correctness fixtures).
+New projects target native CUDA execution by default (`--devices cuda:1` selects another visible GPU; `--devices cpu` or `hypergan train -d cpu` selects CPU execution for small correctness fixtures).
 
-## Primary Model File Schema (`format = "hypergan-model/1"`)
+---
 
-`hypergan new` generates human-editable model files using `format = "hypergan-model/1"`. During `hypergan validate` and `hypergan train` (or `hg.lower(model)` / `hg.resolve(model)` in Python), HyperGAN lowers this high-level schema into the engine's low-level resolved recipe (`components`, `training`, `optimizer`, `adversarial`, `gradient_penalty`, `prior_regularizer`, `objectives`, and `metrics.custom`).
+## 1. Top-Level Metadata & Inheritance
+
+Every HyperGAN model file declares `format = "hypergan-model/1"` at the top level alongside optional experiment metadata, preset defaults, and parent configuration inheritance:
 
 ```toml
 format = "hypergan-model/1"
-name = "dcgan"
+name = "cifar-tiny-transformer"
+description = "32x32 CIFAR-10 generator with a frozen ResNet-18 feature critic"
+defaults = "particlegan"
+extends = "./base-cifar.toml"
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `format` | `string` | Schema identifier. Always `"hypergan-model/1"`. |
+| `name` | `string` | Experiment or model identifier used for run naming, slugs, and registry display (defaults to the file stem). |
+| `description` | `string` | Optional human-readable summary of the model or experiment. |
+| `extends` | `string` | Optional parent `.toml` path or packaged model name (e.g., `"gaussian-grid"` or `"./base.toml"`). Tables are deep-merged recursively; scalars and arrays (`[[losses]]`) are replaced by the child config. Relative paths inside each file remain anchored to the file that declared them. |
+| `defaults` | `string` | Numerical formulation preset (`"particlegan"` by default). Supplies ParticleGAN's released defaults for loss, learning rates, hyperparameters, normalization, regularization, and optimizers. |
+| `recipe` | `table` | Optional table of resolved ParticleGAN preset overrides saved alongside the run. |
+
+---
+
+## 2. Dataset & Input Pipeline (`[data]`)
+
+The `[data]` section (or alias `[dataset]`) configures the training data source, image resolution, batching, and worker preprocessing. It supports built-in sources (`builtin`), item-level datasets (`dataset`), or batch-level callables (`factory`), and accepts dataset arguments either flat on `[data]` or nested under `[data.args]`:
+
+```toml
+[data]
+builtin = "image_folder"          # "gaussian_grid" | "cifar10" | "image_folder" | "paired_linear"
+root = "./data/images"
+width = 64
+height = 64
+channels = 3
+mode = "RGB"
+resize = "center_crop"
+batch_size = 64
+shuffle = true
+workers = 4
+```
+
+### Supported Data Modes
+
+1. **Built-in Datasets (`builtin`)**:
+   - `"image_folder"`: Recursively scans an image directory (`root = "./data/images"`), validating extensions and applying `width`, `height`, `channels` / `mode` (`"RGB"` or `"L"`), and `resize` (`"center_crop"`, `"aspect_fit"`, etc.).
+   - `"cifar10"`: CIFAR-10 dataset loader (`root = "./data/cifar10"`, `split = "train"`, `sampling = "random" | "sequential"`, `horizontal_flip = true`).
+   - `"gaussian_grid"`: 2D mixture-of-Gaussians synthetic reference grid (`side = 10`, `noise = 0.015`).
+   - `"paired_linear"`: Synthetic paired-input fixture yielding `batch.condition` and `batch.real` (`dimensions = 2`, `scale = 2.0`, `offset = 0.25`).
+
+2. **Dataset Presets & Item-Level Datasets (`dataset`)**:
+   - `"image_folder"`: Unconditional image folder dataset (`root = "./data/images"`).
+   - `"paired_images"`: Paired image translation dataset (`manifest = "./data/pairs.jsonl"` or `root = "./data/pairs"`).
+   - `"foldlitedb"`: Embedded FoldLiteDB stream/document dataset.
+   - `"pkg.module:DatasetClass"`: Any importable Python map-style/iterable dataset returning a sample dictionary (e.g., `{"real": tensor}`), wrapped automatically with `shuffle` and `workers`.
+
+3. **Batch-Level Factories (`factory`)**:
+   - `"pkg.module:BatchCallable"`: Importable callable invoked as `factory(batch_size, *, generator)` returning a dictionary of batched tensors (e.g., `hypergan.colorization_data:ColorizationData` or `hypergan.image_data:CIFAR10Data`).
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `builtin` | `string` | Built-in dataset name (`"gaussian_grid"`, `"cifar10"`, `"image_folder"`, `"paired_linear"`). |
+| `dataset` | `string` | Dataset preset (`"image_folder"`, `"paired_images"`, `"foldlitedb"`) or import path (`"module:Class"`). |
+| `factory` | `string` | Batch-level callable import path (`"module:callable"`). |
+| `batch_size` | `int` | Global batch size per training step (can be set in `[data]` or `[train]`). |
+| `width`, `height` | `int` | Target spatial width and height in pixels. |
+| `channels` | `int` | Number of image channels (`3` for RGB, `1` for grayscale). |
+| `shuffle` | `bool` | Whether to shuffle dataset items each epoch (`true` by default for training). |
+| `workers` | `int` | Number of background data-loading worker threads/processes. |
+| `args` | `table` | Optional subtable (`[data.args]`) for dataset-specific constructor arguments (`root`, `manifest`, `manifest_sha256`, `cache_dir`, `bad_image_policy`, etc.). Flat keys in `[data]` are forwarded automatically. |
+
+---
+
+## 3. Latent Prior (`[prior]`)
+
+The `[prior]` section configures the latent distribution sampled by the generator and regularized during training:
+
+```toml
+[prior]
+kind = "particles"                # or type = "particles" | "gaussian" | "mog" | "mixture_of_gaussians"
+z_dim = 128
+num_particles = 16384
+sigma = 0.2126
+learnable = true
+initialization_seed = 2
+initialization_device = "cpu"
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `kind` / `type` | `string` | Prior distribution family: `"particles"` (learned particle table), `"gaussian"` (fixed standard normal), or `"mog"` / `"mixture_of_gaussians"` (learned mixture of Gaussians). |
+| `z_dim` | `int` | Latent vector dimensionality (automatically inferred from the generator's `latent` input shape when omitted). |
+| `num_particles` | `int` | Number of particles or mixture components in `"particles"` / `"mog"` priors (e.g., `10000`, `16384`, `65536`). |
+| `sigma` / `fixed_sigma` | `float` | Isotropic Gaussian noise scale added to selected particle centers. |
+| `sigma_rel` | `float` | Relative nearest-neighbor calibration scale for `"mog"` priors when `sigma` / `fixed_sigma` is omitted (default `0.025`). |
+| `step_size`, `steps` | `float`, `int` | Optional Langevin/particle transition step size and inner step count. |
+| `temperature` | `float` | Sampling or routing temperature. |
+| `normalize` / `standardize` | `bool` | Whether to standardize the learned particle table across rows. |
+| `ema_decay`, `weight_decay` | `float` | Optional EMA smoothing and weight decay on learned particle parameters. |
+| `learnable` | `bool` | Whether particle centers are updated by the prior optimizer (`true` by default). |
+| `initialization_seed` | `int` | Dedicated deterministic seed for initializing the particle table. |
+| `initialization_device` | `string` | Device used for initial particle table draw (`"execution"` or `"cpu"`). |
+
+---
+
+## 4. Networks & HNDL Architectures (`[networks.<name>]`)
+
+Networks are declared under `[networks.<name>]`. Every model declares one network with `role = "generator"`, at least one network with `role = "critic"`, and any number of optional `role = "encoder"` or `role = "auxiliary"` networks.
+
+```toml
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+input_shape = ["B", 128]
+output_shape = ["B", 3, 64, 64]
+source = """
+reshape(128, 1, 1)
+deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
+batch_norm()
+relu()
+deconv(256, kernel_size=4, stride=2, padding=1, bias=False)
+batch_norm()
+relu()
+deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
+batch_norm()
+relu()
+deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
+batch_norm()
+relu()
+deconv(3, kernel_size=4, stride=2, padding=1)
+tanh()
+"""
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 64, 64]
+output_shape = ["B", 1]
+hndl = "networks/discriminator-64.hndl"
+```
+
+### Network Specification Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `role` | `string` | Required role: `"generator"`, `"critic"`, `"encoder"`, or `"auxiliary"`. |
+| `architecture` | `string` | Built-in architecture preset (`"dcgan"`, `"resnet"`, `"tiny-transformer"`, `"stylegan2"`, `"transgan"`, `"mlp"`). |
+| `source` | `string` | Inline HNDL declarative network source. |
+| `hndl` / `file` | `string` | Path to a standalone `.hndl` network file (resolved relative to the `.toml` file; contents are snapshotted into the run's resolved recipe for reproducibility). |
+| `module` | `string` | Importable Python `torch.nn.Module` class or factory (`"pkg.mod:Class"`). |
+| `inputs` | `table` | Mapping of forward keyword arguments to graph bindings (`"latent"`, `"candidate"`, `"generated"`, `"batch.real"`, `"batch.condition"`, `"prior.means"`, `"prior.sigma"`, or another network name `"encoder"` / `"encoder.<output>"`). |
+| `outputs` | `list` / `table` | Named output port declarations for multi-output networks. |
+| `input_shape` | `list` / `table` | Shape contract for HNDL networks, e.g., `["B", 128]` for a single input or `{ z = ["B", 128], cond = ["B", 16] }` for multiple inputs. |
+| `output_shape` | `list` / `table` | Expected output shape contract, e.g., `["B", 3, 64, 64]` or `["B", 1]`. |
+| `input_dtype` | `string` / `table` | Optional input tensor dtype (e.g., `"int64"` for token/embedding indices, or a per-port table). |
+| `trainable` / `frozen` | `bool` | Whether the network's parameters are updated during training (`trainable = true` / `frozen = false` by default). |
+| `reuse` | `string` | Name of another declared network whose weights should be shared for a second forward pass with different `inputs`. |
+| `freeze_parameters` | `bool` | When set to `true` on a `reuse` network, blocks parameter gradients for that forward pass while still propagating gradients with respect to its inputs. |
+| `args` | `table` | Additional constructor or HNDL template arguments (`parameters`, `pretrained_providers`, `networks`, `network_files`, etc.). |
+
+### Frozen Pretrained Feature Critics (ResNet-18 & DINOv3)
+
+HNDL networks can embed frozen pretrained backbones alongside trainable discriminator heads:
+
+```toml
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 1]
+hndl = "networks/dinov3-multidepth-discriminator-128.hndl"
+
+[networks.discriminator.args.parameters]
+weights_path = "./weights/dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
+weights_sha256 = "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
+
+[networks.discriminator.args.pretrained_providers.dinov3_vits16]
+source_path = "./vendor/dinov3"
+source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
+```
+
+Inside the `.hndl` file, `pretrained(..., trainable=False)` freezes the backbone weights and keeps BatchNorm/dropout layers in evaluation mode while allowing autograd first and second derivatives to flow back to the candidate image and generator:
+
+```python
+# ResNet-18 single-depth or multiscale feature readout
+pretrained(${weights_path}, provider="torchvision_resnet18",
+           sha256=${weights_sha256}, layer="layer3",
+           trainable=False, name="resnet")
+conv(64, kernel_size=1, name="projection")
+leaky_relu(0.2)
+adaptive_avg_pool(4)
+flatten()
+linear(1, name="score")
+```
+
+For DINOv3 ViT-S/16 (`provider="dinov3_vits16"`, `readout="multidepth"`), the provider extracts intermediate transformer blocks `(2, 5, 8, 11)` in a single pass and concatenates them so HNDL `split(...)` nodes can route each depth to its own trainable head. Keep `networks.discriminator.trainable = true` so the projection heads train while the `pretrained(..., trainable=False)` node remains frozen.
+
+### SAGAN with Split-Latent AdaIN & TransGAN Generators
+
+- **SAGAN / Split-Latent AdaIN (`examples/networks/sagan-adain-generator-128.hndl`)**: Splits a 128-D latent into 64 content dimensions and 64 style dimensions, applying native HNDL `adaptive_norm(features, params)` across five spectrally normalized residual upsampling stages with self-attention at 32px.
+- **TransGAN (`examples/networks/transgan-generator-128.hndl`)**: Projects a latent vector into an 8×8 token grid and progresses through 16×16, 32×32, 64×64, and 128×128 scales using bicubic upsampling, pixel shuffle, learned 2D relative-position bias, `rms_norm(eps=1e-8, affine=False)`, and 16×16 windowed attention at 64px/128px, optionally paired with `diff_augment(x, transforms="translation,cutout,color", translation_ratio=0.2, cutout_probability=0.3)` in the critic.
+
+---
+
+## 5. Losses & Gradient Penalties (`[[losses]]` & `[penalty]`)
+
+All training objectives—adversarial losses, prior spread regularization, paired reconstruction losses, and custom auxiliary objectives—are listed together under `[[losses]]`.
+
+```toml
+# Primary adversarial loss and critic gradient penalty
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+loss = "r3gan"                    # "r3gan" | "logistic" | "hinge" | "wgan"
+weight = 1.0
+penalty = 1.0
+
+# Learned prior particle-spread regularizer
+[[losses]]
+type = "prior"
+weight = 1.0
+rows = "sampled_unique"           # "sampled_unique" | "full"
+
+# Reconstruction or custom objective loss
+[[losses]]
+type = "reconstruction"           # or type = "objective"
+id = "recon_l1"
+fn = "l1"                         # or kind = "l1" | "l2" | "mse" | "perceptual" | "module:callable"
+input = "generated"
+target = "batch.real"
+weight = 0.5
+detach = ["target"]
+
+# Critic regularization schedule and anchor settings
+[penalty]
+kappa = 1.0
+lazy_k = 8
+anchor_weight = 1.0
+anchor_decay = 0.999
+```
+
+### Loss Types (`[[losses]]`)
+
+1. **`type = "adversarial"`**:
+   - `critic`: Name of a `[networks.<name>]` entry with `role = "critic"`.
+   - `weight`: Scalar multiplier on the adversarial loss (default `1.0`).
+   - `penalty`: Critic gradient penalty coefficient (`>= 0`, default `1.0`; `0` disables the gradient penalty for this term).
+   - `loss`: Adversarial formulation selector (`"r3gan"`, `"logistic"`, `"hinge"`, `"wgan"`).
+   - `real`, `fake`: Sample bindings (defaults to `real = "batch.real"` and `fake = "generated"`). Additional adversarial terms can score custom bindings or override `inputs` for multi-critic training.
+   - `id`: Unique identifier for additional adversarial terms (the primary adversarial loss publishes as `loss/d_adversarial` and `loss/g_adversarial`).
+
+2. **`type = "prior"`**:
+   - Regularizes the learned particle or MoG prior table to maintain target variance and avoid collapse.
+   - `weight`: Regularizer weight (default `1.0`; set `0.0` for non-learnable or Gaussian priors).
+   - `rows`: `"sampled_unique"` (default, regularizes unique particles drawn in the global batch) or `"full"`.
+   - `target_std`, `eps`: Target standard deviation (`1.0`) and numerical stability epsilon (`0.0001`).
+
+3. **`type = "reconstruction"` / `type = "objective"`**:
+   - `id`: Required unique identifier (`[a-zA-Z0-9_.-]+`); publishes scalar metric `loss/objectives/<id>`.
+   - `fn` / `kind`: Built-in loss (`"mse"`, `"l1"`, `"l2"`, `"perceptual"`) or importable Python callable (`"pkg.mod:loss_fn"`).
+   - `input` and `target` (or `inputs = { ... }`): Graph bindings passed to the loss function.
+   - `weight`: Scalar loss weight (default `1.0`).
+   - `detach`: List of input port names to detach before computing gradients (defaults to `["target"]` when `target` is bound).
+   - `owner` / `network`: Optional network name verified to receive gradients from this objective.
+
+### Gradient Penalty Settings (`[penalty]`)
+
+While each `type = "adversarial"` loss sets its own penalty coefficient via `penalty = 1.0`, the top-level `[penalty]` table configures shared regularizer dynamics:
+- `kappa`: Scale factor for ParticleGAN `b_cap` / zero-centered gradient penalty (`1.0` by default).
+- `lazy_k`: Lazy regularization interval in steps (`1` evaluates every step; `8` evaluates every 8 steps and scales the penalty accordingly).
+- `anchor_weight` (`1.0`) and `anchor_decay` (`0.999`): Anchor stabilization parameters.
+
+### Update Schedule & Gradient Routing (`d-then-g-v1`)
+
+HyperGAN compiles the declared networks and `[[losses]]` into the `d-then-g-v1` update program:
+1. **Critic Step**: Evaluates real (`batch.real`) and detached fake (`generated`) samples through all critic networks, computes adversarial critic losses and lazy gradient penalties, and steps the critic optimizer.
+2. **Generator Step**: Freezes critic parameters, evaluates attached `generated` samples (and any encoder/auxiliary paths), computes adversarial generator terms, `type = "prior"` regularization, and `type = "reconstruction"` / `"objective"` losses, and steps the generator/prior optimizers followed by the EMA update.
+
+---
+
+## 6. Training & Optimizer Schedule (`[train]`)
+
+The `[train]` section unifies training schedule settings, optimizer hyperparameters, noise schedules, and backend determinism in one place:
+
+```toml
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda"
+initialization = "deterministic_orthogonal"
+
+# Optimizer & learning rate settings
+lr = 0.0002
+d_lr_mult = 1.5                   # or explicit g_lr / d_lr
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]              # or g_betas / d_betas
+prior_betas = [0.5, 0.999]
+ema = 0.995                       # or ema_decay = 0.995
+lr_anneal_start = 0.6
+lr_floor = 0.05
+
+# Optional execution & cadence controls
+checkpoint_every = 1000
+preview_every = 100
+progress_every = 100
+
+[train.backend]
+deterministic_algorithms = true
+cudnn_deterministic = true
+cudnn_benchmark = false
+matmul_allow_tf32 = false
+cudnn_allow_tf32 = false
+cublas_workspace_config = ":4096:8"
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `steps` | `int` | Total logical training updates to execute. |
+| `batch_size` | `int` | Global batch size per update. |
+| `seed` | `int` | Base deterministic RNG seed. |
+| `device` | `string` | Target execution device (`"cuda"`, `"cuda:0"`, `"cuda:1"`, `"cpu"`). |
+| `lr` | `float` | Base generator/encoder learning rate (e.g., `0.0002`). |
+| `g_lr`, `d_lr` | `float` | Explicit generator and critic learning rates (or use `lr` with `d_lr_mult`). |
+| `d_lr_mult`, `prior_lr_mult` | `float` | Multipliers relative to `lr` for the critic Adam group (`1.5`) and learnable prior table (`10.0`). |
+| `betas` / `g_betas`, `d_betas` | `[float, float]` | Adam `[beta1, beta2]` coefficients for network parameters (default `[0.0, 0.999]`). |
+| `prior_betas` | `[float, float]` | Adam `[beta1, beta2]` coefficients for the learnable prior table. |
+| `weight_decay` | `float` | Optional parameter weight decay. |
+| `ema` / `ema_decay` | `float` | Exponential moving average decay for inference generator weights (`[0, 1)`, default `0.995`). |
+| `grad_clip` | `float` | Optional gradient norm clipping threshold. |
+| `compile` | `bool` | Whether to wrap networks with `torch.compile` where supported. |
+| `n_critic` | `int` | Number of critic updates per generator update (`1` by default). |
+| `precision` | `string` | Numerical precision policy (`"float32"`, `"fp16"`, `"bf16"`). |
+| `initialization` | `string` | Weight initialization policy: `"deterministic_orthogonal"` or `"constructor"`. |
+| `lr_anneal_start`, `lr_floor` | `float` | Fraction of `steps` where learning-rate cosine/linear annealing begins (`0.6`) and final floor multiplier (`0.05`; set `lr_floor = 1.0` for a constant learning rate that allows seamless `--steps` extension on resume). |
+| `d_guard_ratio`, `d_guard_min_steps` | `float`, `int` | Critic spike guard threshold (`5.0`) and warmup step count (`200`). |
+| `latent_damping_max_rate` | `float` | Maximum latent damping rate (`[0, 1]`). |
+| `checkpoint_every`, `preview_every`, `progress_every` | `int` | Default cadences for durable checkpoints (`1000`), EMA preview snapshots (`0` / off unless set), and console progress lines (`100`). |
+
+---
+
+## 7. Evaluations & Scalar Metrics (`[evaluations]` & `[metrics]`)
+
+### Snapshot Evaluations (`[evaluations]` and `[evaluations.<id>]`)
+
+Snapshot evaluations run against an isolated copy of the EMA generator and a dedicated evaluation dataset, either periodically during training (when `every` / `every_steps` is set) or on demand via `hypergan eval <run>` / `hypergan evaluate <run> --metric <id>`. Shared evaluation defaults can be placed in `[evaluations]` and specialized per metric in `[evaluations.<id>]`:
+
+```toml
+[evaluations.fid50k_train]
+metric = "fid"                    # "fid" | "kid" | "is" | "prc" | "coverage", or factory = "module:Class"
+factory = "hypergan.image_metrics:InceptionFID"
+every = 10000                     # omit `every` for manual-only evaluation (`trigger = "manual"`)
+device = "cuda:0"
+samples = 50000
+batch_size = 128
+seed = 10000
+on_busy = "skip"
+timeout = 3600
+on_error = "fail"
+
+[evaluations.fid50k_train.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+
+[evaluations.fid50k_train.data]
+factory = "hypergan.image_data:CIFAR10Data"
+[evaluations.fid50k_train.data.args]
+root = "./data/cifar10"
+split = "train"
+sampling = "sequential"
+horizontal_flip = false
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `metric` | `string` | Built-in evaluation metric identifier (`"fid"`, `"kid"`, `"is"`, `"prc"`, `"coverage"`). |
+| `factory` / `fn` | `string` | Importable Python evaluator class (`factory = "pkg.mod:Class"`) or function (`fn = "pkg.mod:func"`). |
+| `every` / `every_steps` | `int` | Interval in global training steps for automatic background evaluation. Omit to configure the metric as `manual` (run only via `hypergan eval`). |
+| `samples` | `int` | Total number of generated and reference examples to evaluate (required). |
+| `batch_size` | `int` | Batch size per evaluation forward pass (required). |
+| `seed` | `int` | Deterministic RNG seed for evaluation latent draws and dataset iteration (required). |
+| `device` | `string` | Execution device for the evaluation worker (`"cuda"`, `"cuda:1"`, `"cpu"`). |
+| `data` | `table` | Required evaluation dataset specification (`builtin`, `dataset`, or `factory` + `args`). Evaluations never implicitly fall back to training data. |
+| `output` / `target` | `string` | Generator output binding to evaluate (defaults to `sampling.output` or `"generated"`, or bind a specific network such as `"reconstruction"`). |
+| `on_busy` | `string` | Behavior when a previous evaluation worker is still running (`"skip"` by default). |
+| `timeout`, `on_error` | `int`, `string` | Worker deadline in seconds and failure policy (`"fail"` or `"disable"`). |
+
+### Scalar Training Metrics (`[metrics]`)
+
+Scalar training metrics publish completed update diagnostics to `events.jsonl` and the immutable metric catalog (`metrics/catalog-<sha256>.json`):
+
+```toml
+[metrics]
+preset = "standard"               # "standard" | "none"
+every_steps = 10                  # or every = 10
+disable = ["loss/d_adversarial_raw", "loss/g_adversarial_raw"]
+
+[metrics.overrides."loss/total"]
+enabled = false
+
+[metrics.custom.loss_ratio]
+factory = "hypergan.metric_examples:ScalarRatio"
+inputs = { numerator = "g_loss", denominator = "d_loss" }
+every_steps = 100
+timeout = 10
+on_error = "disable"
+```
+
+### Sample Diversity & Collapse Monitoring
+
+The `"standard"` metrics preset automatically computes sample diversity diagnostics at preview cadence (`--preview-every`) on CPU-rendered EMA previews:
+- `diversity/generated_rms`, `diversity/reference_rms`, and `diversity/ratio`: Full-resolution pairwise RMS spread of generated samples relative to real batch samples (`0.0` indicates mode collapse to a constant output; `1.0` matches reference spread).
+- `diversity/pooled4_generated_rms`, `diversity/pooled4_reference_rms`, and `diversity/pooled4_ratio`: Pairwise RMS spread after 4×4 average pooling, measuring structural/color layout diversity independently of high-frequency texture.
+
+For larger scheduled or manual diversity evaluations across hundreds of samples, declare `hypergan.diversity_metrics:SampleDiversity` (or `hypergan.colorization_metrics:SampleDiversityRatio`) under `[evaluations.<id>]`:
+
+```toml
+[evaluations.sample_diversity]
+factory = "hypergan.diversity_metrics:SampleDiversity"
+every = 1000
+device = "cpu"
+samples = 256
+batch_size = 16
+seed = 123
+args = { statistic = "ratio", pool_size = 4 }
+
+[evaluations.sample_diversity.data]
+builtin = "image_folder"
+args = { root = "./data/images", height = 64, width = 64, mode = "RGB", resize = "center_crop" }
+```
+
+---
+
+## 8. Sampling & Checkpoints (`[sampling]`, `[samplers]`, `[checkpoints]`)
+
+### Periodic Previews & Inference Sampling (`[sampling]` & `[samplers.<name>]`)
+
+```toml
+[sampling]
+count = 16                        # number of samples in periodic preview grids (or grid_size / fixed_count)
+seed = 123                        # deterministic preview seed (or fixed_seed)
+ema = true                        # sample from EMA generator weights
+output = "generator"              # primary generated output binding (default: generator output)
+views = { gray = "input_gray", random = "generated" }
+comparison = [
+  { label = "X", binding = "batch.real" },
+  { label = "B", binding = "input_gray" },
+  { label = "X_hat", binding = "reconstruction" },
+]
+
+[samplers.custom_grid]
+fn = "my_project.vis:render_grid"
+inputs = { images = "generated" }
+count = 16
+seed = 42
+```
+
+### Checkpoint Retention & Bundle Export (`[checkpoints]`)
+
+```toml
+[checkpoints]
+keep_last = 3
+keep_every = 50000
+keep_best = { metric = "fid50k_train", mode = "min", count = 2 }
+export_bundle = "on_eval"         # "on_eval" | "on_checkpoint" | "never"
+```
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `keep_last` | `int` | Number of most recent complete checkpoints to retain during pruning (default `3`). |
+| `keep_every` | `int` | Milestone step interval whose checkpoints are permanently retained (default `50000`). |
+| `keep_best` | `int` / `table` | Retain top-performing checkpoints by evaluation metric (`{ metric = "fid50k_train", mode = "min" | "max", count = 2 }`, or an integer `count` shorthand for `fid50k_train`). Set `false` or `0` to disable. |
+| `export_bundle` | `string` | Automatic standalone EMA inference bundle (`model.pt`) export policy (`"on_eval"`, `"on_checkpoint"`, or `"never"`). |
+
+---
+
+## 9. Run Execution & Operational Settings (`[run]`)
+
+The optional `[run]` section (supported both in model `.toml` files and in workspace `hypergan.toml` files) sets operational defaults for device selection, Web Observatory autostart, CPU threading, and cadences without altering the numerical recipe fingerprint:
+
+```toml
+[run]
+devices = "0"                     # "0", "0,1", "gpu0,gpu1", "cuda:0", or "cpu"
+viewer = true                     # launch background Web Observatory during CLI training
+cpu_threads = 4
+checkpoint_every = 1000
+preview_every = 100
+progress_every = 100
+
+[run.env]
+NCCL_DEBUG = "WARN"
+```
+
+---
+
+## 10. End-to-End Configuration Examples
+
+### Example A: Basic Unconditional Image GAN
+
+```toml
+format = "hypergan-model/1"
+name = "dcgan-64"
 defaults = "particlegan"
 
-# [data] Dataset source, resolution, and preprocessing
-# Use builtin = "image_folder" (or "gaussian_grid" / "paired_linear"),
-# factory = "pkg.mod:BatchFactory", or dataset = "pkg.mod:ItemDataset"
 [data]
 builtin = "image_folder"
 [data.args]
-root = "./images"
+root = "./data/images"
 height = 64
 width = 64
 mode = "RGB"
 resize = "center_crop"
 
-# [prior] Latent particle distribution (particles | mog | gaussian)
 [prior]
 kind = "particles"
 initialization_seed = 2
 z_dim = 128
-[prior.args]
 num_particles = 10000
 
-# [networks] Generator, critic, encoder, or auxiliary networks
-# Each network declares role = "generator" | "critic" | "encoder" | "auxiliary"
-# and one of source = "..." (inline HNDL), hndl = "path.hndl", or module = "pkg.mod:Class"
 [networks.generator]
 role = "generator"
 inputs = { z = "latent" }
@@ -77,7 +565,6 @@ conv(1, kernel_size=4, stride=1, padding=0)
 flatten()
 """
 
-# [[losses]] Adversarial, prior spread, reconstruction, and custom objectives
 [[losses]]
 type = "adversarial"
 critic = "discriminator"
@@ -87,9 +574,6 @@ penalty = 1.0
 [[losses]]
 type = "prior"
 
-# [train] Unified training schedule & optimizer hyperparameters
-# Accepts both training fields (steps, batch_size, seed, device, ema, lr_floor, ...)
-# and optimizer fields (lr, d_lr_mult, prior_lr_mult, betas, prior_betas, ...)
 [train]
 steps = 200000
 batch_size = 64
@@ -98,665 +582,207 @@ device = "cuda"
 lr = 0.0002
 initialization = "deterministic_orthogonal"
 
-# [metrics] Scalar training metric cadence and filtering
-[metrics]
-every_steps = 10
-
-# [evaluations.<id>] Snapshot evaluation metrics (run automatically at `every` steps,
-# or on demand via `hypergan eval <run>` / `hypergan evaluate <run> --metric <id>`)
-[evaluations.sample_diversity]
-factory = "hypergan.colorization_metrics:SampleDiversityRatio"
-# Omit `every` for manual evaluation via `hypergan eval`, or set `every = 10000` for periodic runs
-device = "cuda"
-samples = 64
-batch_size = 16
-seed = 123
-[evaluations.sample_diversity.data]
-builtin = "image_folder"
-[evaluations.sample_diversity.data.args]
-root = "./images"
-height = 64
-width = 64
-mode = "RGB"
-resize = "center_crop"
-
-# [checkpoints] Retention and automatic EMA inference bundle export policy
 [checkpoints]
 keep_last = 3
-keep_best = { metric = "fid50k_train", mode = "min", count = 2 }
 keep_every = 50000
-export_bundle = "on_eval"
 
-# [sampling] Periodic EMA preview settings
 [sampling]
 count = 16
 seed = 123
 ```
 
-### CLI Overrides (`-s / --set`) and Schema Lowering
-
-Both `hypergan validate` and `hypergan train` accept `-s KEY=VALUE` (`--set KEY=VALUE`) to override configuration fields on the fly without editing the TOML file:
-- `[train]` and `[optimizer]` fields can be addressed interchangeably via `train.<field>`, `training.<field>`, `trainer.<field>`, or `optimizer.<field>` (e.g., `-s train.batch_size=32 -s optimizer.lr=0.0002`).
-- `[[losses]]` entries can be addressed by list index (`losses.0.weight=0.5`), `id` (`losses.reconstruction.weight=0.5`), or `critic` name (`losses.discriminator.penalty=2.0`).
-- `[evaluations.<id>]` entries in `hypergan-model/1` lower automatically into `[metrics.custom.<id>]` with `mode = "snapshot"` in the resolved engine configuration.
-
-The sections below document the resolved low-level engine schema (`components.*`, `training.*`, `optimizer.*`, `metrics.custom.*`) into which `hypergan-model/1` files lower.
-
----
-
-## Components and I/O (Resolved Low-Level Schema)
-
-`components.generator` and `components.discriminator` are required in the lowered engine recipe. Other named components can represent an encoder, feature extractor or auxiliary transform. Each component has a `factory`, constructor `args`, explicit forward keyword `inputs`, and a `trainable` flag.
-
-Network components use `factory = "hndl"`. The source, input shapes, and output shapes belong in the recipe. HNDL constructs the network when training starts; editing the configuration needs no package rebuild. Data sources, objectives, and particle-routing adapters retain their explicit `module:object` factories. Unknown constructor arguments fail instead of being silently discarded.
+### Example B: Multi-Network HNDL Feature Critic (CIFAR-10 Tiny Transformer)
 
 ```toml
-[components.generator]
-factory = "hndl"
+format = "hypergan-model/1"
+name = "images/cifar-tiny-transformer"
+defaults = "particlegan"
+
+[data]
+factory = "hypergan.image_data:CIFAR10Data"
+[data.args]
+root = "./data/cifar10"
+split = "train"
+sampling = "random"
+horizontal_flip = true
+
+[prior]
+kind = "particles"
+initialization_device = "cpu"
+initialization_seed = 2
+num_particles = 65536
+z_dim = 128
+
+[networks.generator]
+role = "generator"
 inputs = { z = "latent" }
-[components.generator.args]
-input_shape = { z = ["B", 128] }
-output_shape = ["B", 3, 128, 128]
-source = """
-linear(8192)
-reshape(512, 4, 4)
-relu()
-deconv(256, kernel_size=4, stride=2, padding=1)
-relu()
-deconv(128, kernel_size=4, stride=2, padding=1)
-relu()
-deconv(64, kernel_size=4, stride=2, padding=1)
-relu()
-deconv(32, kernel_size=4, stride=2, padding=1)
-relu()
-deconv(3, kernel_size=4, stride=2, padding=1)
-tanh()
-"""
+input_shape = ["B", 128]
+output_shape = ["B", 3, 32, 32]
+hndl = "networks/tiny-transformer-generator-32.hndl"
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 32, 32]
+output_shape = ["B", 1]
+hndl = "networks/resnet18-features-discriminator-32.hndl"
+[networks.discriminator.args.parameters]
+weights_path = "~/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
+weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+rows = "sampled_unique"
+
+[penalty]
+kappa = 1.0
+lazy_k = 8
+
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda:0"
+initialization = "deterministic_orthogonal"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
+ema = 0.995
+
+[evaluations.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+every = 10000
+device = "cuda:0"
+samples = 50000
+batch_size = 128
+seed = 10000
+timeout = 3600
+on_error = "fail"
+[evaluations.fid50k_train.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+[evaluations.fid50k_train.data]
+factory = "hypergan.image_data:CIFAR10Data"
+[evaluations.fid50k_train.data.args]
+root = "./data/cifar10"
+split = "train"
+sampling = "sequential"
+horizontal_flip = false
 ```
 
-Use `file = "generator.hndl"` instead of `source` to load a standalone architecture relative to the recipe. File contents are copied into the resolved configuration and participate in the numerical fingerprint. Checkpoints and inference artifacts retain that source; moving or editing the original file does not change a saved run. Training from an edited file starts a different recipe and cannot silently resume an older architecture.
+### Example C: Paired Conditional Translation with Encoder & Reconstruction Loss
 
-For conditional graphs, declare named `input_shape` contracts and use HNDL `concat`, branches, and joins in the source. Named `output_shape` contracts expose several outputs to component bindings. Concatenation belongs in HNDL source. Set `input_dtype = "int64"` for embedding inputs, or use a table keyed by input port for mixed float and integer inputs.
+```toml
+format = "hypergan-model/1"
+name = "custom/paired-linear"
 
-The image and particle-routing adapters load their architectures from [`src/hypergan/networks`](../src/hypergan/networks). Their recipes expose each template through `[components.<name>.args.network_files]`; paths are relative to the recipe. `[components.<name>.args.networks]` accepts inline source overrides instead. The resolved configuration records all selected template text. `${name}` template parameters substitute Python literals only; applications provide any trusted reusable source fragments before HNDL parses the resulting declarative graph.
+[data]
+builtin = "paired_linear"
+[data.args]
+dimensions = 2
+scale = 2.0
+offset = 0.25
 
-Legacy `mlp` and `linear` factory arguments remain readable through HNDL adapters. They no longer construct handwritten PyTorch networks. New examples and generated projects use explicit HNDL source.
+[prior]
+kind = "particles"
+num_particles = 64
+z_dim = 4
 
-HNDL 0.9.0 or newer is part of the `train` extra. Configuration loading and ordinary CLI validation stay Torch-free. HNDL parses and resolves the architecture at model construction; invalid operators and shape constraints fail before training updates. Custom factories execute trusted Python and must construct a `torch.nn.Module`.
+[networks.encoder]
+role = "encoder"
+inputs = { input = "batch.condition" }
+input_shape = ["B", 2]
+output_shape = ["B", 2]
+source = "linear()"
 
-Bindings refer to `latent`, `batch.<field>`, `components.<name>` and their nested outputs. Generator output is available as `generated`; discriminator candidate input is `candidate`. Auxiliary components execute when an input or objective requires them. Cyclic or missing bindings fail. Dictionary/list outputs can be selected through dotted keys/indices.
+[networks.generator]
+role = "generator"
+inputs = { x = "latent", condition = "encoder" }
+input_shape = { x = ["B", 4], condition = ["B", 2] }
+output_shape = ["B", 2]
+source = """
+concat(x, condition)
+linear(16)
+leaky_relu(0.2)
+linear(16)
+leaky_relu(0.2)
+linear()
+"""
 
-The runnable [paired synthetic example](../examples/paired-linear.toml) exercises a trainable encoder, conditional generator/discriminator and weighted reconstruction loss:
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate", condition = "batch.condition" }
+input_shape = { x = ["B", 2], condition = ["B", 2] }
+output_shape = ["B", 1]
+source = """
+concat(x, condition)
+linear(16)
+leaky_relu(0.2)
+linear(16)
+leaky_relu(0.2)
+linear()
+"""
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+
+[[losses]]
+type = "reconstruction"
+id = "reconstruction"
+fn = "mse"
+input = "generated"
+target = "batch.real"
+weight = 1.0
+detach = ["target"]
+
+[train]
+steps = 100
+batch_size = 8
+seed = 42
+device = "cpu"
+
+[sampling]
+count = 8
+seed = 123
+```
+
+### Example D: Configuration Inheritance (`extends`) & CLI Overrides (`-s / --set`)
+
+Create a child configuration that inherits from a base model and overrides only the learning rate and batch size:
+
+```toml
+# configs/dcgan-fast.toml
+format = "hypergan-model/1"
+name = "dcgan-fast"
+extends = "./dcgan-64.toml"
+
+[train]
+batch_size = 32
+lr = 0.0001
+steps = 50000
+```
+
+Override any field on the command line during validation or training without editing the TOML file:
 
 ```sh
-hypergan train examples/paired-linear.toml --run-dir runs/paired
-hypergan sample runs/paired --count 8 --output paired-samples.json
+# Override [train] and [[losses]] settings on the fly
+hypergan validate configs/dcgan-fast.toml -s train.batch_size=16 -s losses.discriminator.penalty=2.0 --json
+hypergan train configs/dcgan-fast.toml -n exp-lr1e4 -s train.lr=0.0001 -s losses.0.weight=1.0
 ```
 
-CLI sampling reuses saved example conditions and records that provenance in the JSON output. The Python `hypergan.artifacts.sample(..., inputs={...})` interface accepts fresh batched conditions. This is an I/O fixture, not a colorization or super-resolution model.
-
-For conditional generation, bind a generator keyword to `batch.condition` or an encoder output and bind the discriminator to the corresponding condition. The data factory supplies both the condition and real target. This can express paired tasks, but an image architecture, preprocessing and task evaluation still need their own implementation and qualification.
-
-Trainable auxiliary components belong to the generator optimizer. The discriminator has its own optimizer; discriminator conditioning is detached. Frozen components stay in evaluation mode. Separate encoder optimizers or arbitrary alternating schedules are outside this initial runtime and must not be implied by an encoder's presence.
-
-## Frozen pretrained discriminator
-
-The [128px ResNet variant](../examples/dcgan-resnet-128.toml) keeps the DCGAN generator and uses a frozen ImageNet ResNet18 plus a trainable discriminator head. The [complete discriminator source](../examples/networks/resnet18-discriminator.hndl) includes RGB normalization and declares freezing on the pretrained node:
-
-```python
-pretrained(${weights_path}, provider="torchvision_resnet18",
-           sha256=${weights_sha256}, layer="layer3",
-           trainable=False, name="resnet")
-conv(64, kernel_size=1, name="projection")
-leaky_relu(0.2)
-adaptive_avg_pool(4)
-flatten()
-linear(1, name="score")
-```
-
-`trainable=False` freezes the backbone parameters and keeps its BatchNorm layers in evaluation mode. Autograd still differentiates its output with respect to the input, so the discriminator trains the generator through the frozen features. The head's parameters remain trainable. Keep `components.discriminator.trainable` at its default `true`; freezing the entire component would also freeze the head.
-
-The provider registration uses torchvision's external ResNet18 checkpoint architecture; no ResNet layers are authored in HyperGAN Python. It is registered lazily through HNDL's native provider API and requires the `cifar` extra (torchvision). The local weights path and its SHA256 are in `args.parameters`. HNDL verifies the checkpoint before loading it; this recipe downloads nothing.
-
-Edit the head in `.hndl` to change its width or pooling, or select `layer2`, `layer3`, or `layer4` for features at different depths. HNDL infers the connecting channels. Use a new run directory for an architecture change. The variant preserves the generator, dataset, batch size, and seed of the DCGAN recipe to isolate the discriminator change.
-
-The [128px multiscale variant](../examples/dcgan-resnet-multiscale-128.toml) adapts the CIFAR discriminator design to 128px while retaining the DCGAN generator and training settings. Its [standalone HNDL source](../examples/networks/resnet18-multiscale-discriminator-128.hndl) declares the complete discriminator: a trainable pixel branch with five residual downsampling blocks and SAGAN attention at 16px, plus three trainable feature heads on frozen ResNet18 `layer1`, `layer2`, and `layer3` outputs. Each feature head uses a 1×1 projection, GroupNorm, a 3×3 convolution, and a scalar readout. The final score is `(pixel + (feature1 + feature2 + feature3) / sqrt(3)) / sqrt(2)`.
-
-The fixed context is a zero RGB image in the input range `[-1, 1]`. HNDL concatenates candidate and context along the batch axis, applies ImageNet normalization to both, and runs one shared frozen backbone with `layers=("layer1", "layer2", "layer3")`. Native `chunk(..., 2, dim=0)` restores the two batches; each head concatenates its candidate and context features along channels. The context therefore has the pretrained features of midgray RGB, not zero feature maps. Frozen BatchNorm keeps examples independent. This graph supports variable batch sizes and differentiates through the candidate features, including the second derivatives required by critic regularization.
-
-Unlike the historical CIFAR adapter's cached context, the standalone graph recomputes context features in its shared `2*B` pass. It uses native 128px backbone input and 32/16/8px feature maps. Set the dataset manifest path/hash and local checkpoint path/hash in the TOML before training, and choose a new run directory. This is a configurable architecture experiment; no image-quality result is claimed for the 128px variant.
-
-### Frozen DINOv3 with four feature depths
-
-The [DINOv3 128px recipe](../examples/sagan-adain-dinov3-multidepth-128.toml)
-keeps the SAGAN/AdaIN generator, pixel discriminator branch, fixed zero-image
-context, and batch-64 training settings. Its [discriminator HNDL file](../examples/networks/dinov3-multidepth-discriminator-128.hndl)
-replaces the ResNet branch with frozen DINOv3 ViT-S/16 and four trainable heads.
-
-```python
-features = pretrained(normalized, ${weights_path}, provider="dinov3_vits16",
-    sha256=${weights_sha256}, readout="multidepth", trainable=False, name="backbone")
-feature1, rest = split(features, 384)
-feature2, rest = split(rest, 384)
-feature3, feature4 = split(rest, 384)
-```
-
-The trusted provider's `multidepth` readout calls
-`get_intermediate_layers(n=(2,5,8,11), reshape=True, norm=True)` once and
-concatenates its four outputs. Each is 384×8×8 at 128px: these are different
-transformer depths, all at the same spatial resolution. The HNDL graph handles
-normalization, the shared candidate/context batch, channel splits, context joins,
-all trainable heads, and the final score
-`(pixel + (feature1 + feature2 + feature3 + feature4) / 2) / sqrt(2)`.
-
-Point the provider to a clean local upstream checkout, pinned by full Git SHA:
-
-```toml
-[components.discriminator.args.pretrained_providers.dinov3_vits16]
-source_path = "/absolute/path/to/dinov3-source"
-source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
-```
-
-Set the local checkpoint path and SHA-256 in `args.parameters`, as in the example.
-The source pin and provider settings participate in the recipe fingerprint.
-Provider registration only loads the upstream checkpoint architecture and selects
-its named readout; no discriminator topology is built in Python. No new HNDL
-release is required beyond 0.4.0. The source checkout and weights must remain
-available when reconstructing the discriminator, including checkpoint resume.
-
-`trainable=False` holds the backbone in evaluation mode, which also disables
-DINOv3's training-time random RoPE coordinate rescaling. Candidate gradients
-remain enabled; the readout uses math SDPA to support the second derivatives
-needed by gradient penalties. The backbone stays out of the discriminator
-optimizer while the pixel branch and four feature heads learn. This is an
-architecture experiment, with no FID or long-run quality claim.
-See the [upstream DINOv3 implementation](https://github.com/facebookresearch/dinov3)
-for the pretrained model and checkpoint access.
-
-### SAGAN with split-latent AdaIN
-
-The [SAGAN/AdaIN variant](../examples/sagan-adain-resnet-multiscale-128.toml)
-keeps that fixed-context discriminator and the batch-64 training settings, and
-replaces the generator with [one editable HNDL file](../examples/networks/sagan-adain-generator-128.hndl).
-A single 128-dimensional prior sample splits into 64 content dimensions and 64
-style dimensions. Content projects into a 512-channel 4×4 feature map; every
-AdaIN layer has its own affine projection of the same style half. No additional
-noise inputs, random noise nodes, or random draws occur inside the generator.
-
-Five residual nearest-neighbor upsampling blocks produce 8/16/32/64/128px maps
-with 512/256/128/64/32 channels. Linear and convolution weights use native
-spectral normalization. Self-attention at 32px uses pooled 16px keys/values and
-a learned residual gain initialized to zero. The gain learns first; attention
-projection weights receive gradients once it opens. These choices adapt the
-[SAGAN residual and attention design](https://github.com/brain-research/self-attention-gan)
-to this unconditional recipe; this is not a reproduction of the paper's
-class-conditioned ImageNet experiment.
-
-Native HNDL `adaptive_norm(features, params)` implements AdaIN as
-`(1 + delta_gamma) * instance_normalize(features) + beta`, where each style
-projection supplies `[delta_gamma, beta]`. Normalization uses per-example,
-per-channel spatial statistics and no running batch statistics. Spectral
-normalization still updates its power-iteration buffers in training mode;
-inference uses frozen buffers. All of this is specified in HNDL 0.4.0 without
-custom operators. The style-based conditioning is inspired by
-[StyleGAN](https://arxiv.org/abs/1812.04948); there is no additional noise injection
-or mapping network here.
-
-This comparison changes the generator architecture and its initialization,
-while preserving the latent distribution and seed settings. It does not
-isolate attention from AdaIN or promise better quality. Track FID where
-configured alongside `diversity/ratio` and `diversity/pooled4_ratio`.
-
-### TransGAN-style generator with DINOv3
-
-The [TransGAN/DINOv3 recipe](../examples/transgan-dinov3-multidepth-128.toml)
-replaces only the generator in the SAGAN/DINOv3 comparison. Its
-[generator HNDL file](../examples/networks/transgan-generator-128.hndl) projects
-one 128-dimensional latent into 8×8×1024 features, then progresses through
-16×16×1024, 32×32×256, 64×64×64, and 128×128×16. The first upsampling is bicubic;
-the next three use pixel shuffle. A per-token linear RGB projection and `tanh`
-produce images in `[-1, 1]`. There are no generator convolutions or extra noise.
-
-Each scale adds learned absolute positions and has two residual attention/MLP
-blocks with learned 2D relative-position bias in every attention layer. Native
-`rms_norm(eps=1e-8, affine=False)` implements per-token PixelNorm;
-attention has four heads and the GELU MLP expands channels by four. Global
-attention runs through 32px. At 64px and 128px, native `chunk` and batch `concat`
-form 16×16 windows, processed by shared attention/MLP weights. Reversing those
-operations restores spatial order and the original batch. The window layout,
-normalization, residuals, and all trainable layers are visible in HNDL.
-
-This adapts the [paper's 128px architecture](https://arxiv.org/html/2102.07074v4#A2.T6):
-two blocks per scale replace depths 5/4/4/4/4, the latent remains 128-dimensional,
-and the output uses `tanh` for this recipe's RGB contract. HNDL 0.6 supplies
-relative-position bias, unbiased Q/K/V projections and biased output projections.
-The stem and transformer linears use explicit PyTorch-default initialization:
-`kaiming_uniform(a=2.23606797749979)` weights and uniform biases bounded by
-`1/sqrt(fan_in)`. The RGB projection retains Xavier-uniform weights, matching
-the upstream output convolution, with its default uniform bias. Absolute
-position and relative-bias tables use truncated normal with standard deviation
-0.02. These settings are declared directly in the HNDL file.
-
-The earlier all-Xavier variant collapsed. Review found that its unusually wide
-latent projection started too small while residual branches started too large;
-the saved checkpoints also showed saturation of the final `tanh`. The corrected initialization removes that mismatch;
-it is not yet a long-run quality result. Start a new run when changing init;
-loading an existing checkpoint restores its old weights. See the
-[initialization review](../reports/transgan-initialization-review-2026-09-21.md).
-The existing DINOv3
-discriminator, loss, prior, optimizer,
-batch size 64, and diversity observations are retained. No quality improvement
-is assumed; compare FID and diversity metrics during training.
-
-## Numerical recipe
-
-The configuration separates `prior`, `adversarial`, `gradient_penalty`,
-`prior_regularizer`, `objectives`, `optimizer`, `training` and `sampling`.
-Generated projects use `defaults = "particlegan"`: ParticleGAN supplies its
-released formulation and selected defaults for loss, learning rates,
-hyperparameters, normalization, regularization and optimizers. HyperGAN consumes
-those public factories and owns the networks, data bindings, task objectives,
-execution and observations. See the [integration contract](particlegan.md).
-
-Explicit fields override corresponding defaults. The adapter mapping is
-`PARTICLEGAN_DEFAULT_FIELDS` in `hypergan.particlegan_integration`. Resolution
-reads the dependency's public recipe fields without importing Torch. The full
-resolved recipe and concrete settings are saved with each run. Restoring a saved
-recipe does not select a newer preset, and checkpoint compatibility checks refuse
-incompatible runtime or source changes.
-
-The `recipe` snapshot is dependency-owned state. Its internal field names and
-techniques are not HyperGAN configuration concepts. Keep the complete snapshot
-when exporting a resolved configuration. The concrete `defaults = "hypergan"`
-reference remains available for existing fixtures; new projects use ParticleGAN.
-
-Obsolete loss-selector and penalty-selector fields are refused with the field
-named. The historical redundant `adversarial.loss_type = "logistic"` and
-`mode = "rp"` fields are accepted and dropped during migration.
-
-Since ParticleGAN 0.6.0, a MoG recipe's `prior.fixed_sigma` is passed directly to
-the constructor. It sets one shared, fixed isotropic noise scale and performs
-no nearest-neighbor calibration. Existing fixed-sigma configs need no edits;
-a legacy `prior.args.sigma_rel` is ignored when a fixed scale is supplied.
-Alternatively, pass `sigma` in `prior.args`; specifying both forms is an error.
-Explicit scales must be finite and nonnegative, and zero disables noise draws.
-
-Recipes with neither explicit scale retain their historical behavior:
-HyperGAN initializes the centers once, explicitly calls ParticleGAN's
-`calibrate_mog_sigma` helper on `prior.means()`, and stores the resulting sigma
-and spacing. `sigma_rel` defaults to 0.025. That exact nearest-neighbor search
-can be expensive for large, high-dimensional tables; choose an explicit scale
-to avoid it. Existing checkpoint buffers and read settings restore as saved.
-
-Additional objectives select a loss factory, input bindings and weight. Reconstruction objectives such as MSE or L1 can connect generated output and paired targets. Custom task losses can be imported through the same factory mechanism. The runtime's supported update ownership is explicit; it does not infer a new training algorithm from component names.
-
-The native step runs one compiled program, `d-then-g-v1`: a critic step, then a generator step. The program records the adversarial terms, their sample bindings, the per-phase detach policy of each scored sample and each critic input, the generator terms, and the ordered parameter groups. The executor follows those records. It does not choose sample sources, detachment, routing, or optimizer membership by reading component names during the update.
-
-A recipe declares four things. Components and bindings say what each forward reads. Weighted losses include weight 0, which still runs and scales the scalar by zero. Gradient routing records, for each phase, where each scored sample is read, whether that sample is detached before the critic forward, and whether its score is detached after the forward. It also records, for each critic input and phase, whether the resolved value is detached. A frozen module can still pass gradients to its inputs. A detached score or a detached input cannot. The update schedule names which groups step and in what order. `d-then-g-v1` is the schedule these recipes use. A later method can add another schedule when that method needs it.
-
-Legacy recipes compile into this program. The legacy compiler is what reads the discriminator component and its input bindings, and writes today's policy. `[adversarial]` remains the implicit first term, and `[gradient_penalty]` is that term's penalty. `[prior_regularizer]` and each `[[objectives]]` entry become generator terms. Each adversarial term stores its loss and penalty callable at compile time; the program stores the prior-spread callable. The executor does not read `[adversarial]`, `[gradient_penalty]`, `[prior_regularizer]`, `[[objectives]]`, or `[[adversarial_terms]]` during the update. A recipe that omits `[[adversarial_terms]]` keeps today's term, files, and fingerprints. Replicated and accumulated execution keep their own loops until they run this same program, and they reject a recipe that adds extra adversarial terms.
-
-The legacy compiler records this policy, and the executor runs those records:
-
-- The real sample binding is `batch.real`. The fake sample binding is `generated`.
-- On the critic step, the fake sample is detached before the forward. Both scores stay attached. Gradients enter the critic. The penalty scores those same samples with that same sample-detach policy. Its coefficient comes from `[gradient_penalty]`, including when `adversarial.weight` is 0. That weight does not scale the penalty.
-- On the generator step, the fake sample and its score stay attached. The real sample is not detached before the forward; its score is detached after the forward, because the relativistic loss needs the value. `adversarial.weight` scales only the adversarial scalar. Critic parameters are frozen for this step.
-- The critic input whose path is `candidate` stays attached on both steps. Every other critic input is detached on both steps, whether it comes from the batch or from a component. A detached input is resolved against a detached context, so a component-produced condition sees detached inputs.
-
-These records describe the current recipe. They do not implement another training method.
-
-`[[adversarial_terms]]` adds further terms, in list order, after that implicit first term. Each term names an existing non-reuse component, required `real` and `fake` binding paths, and an `id`. Every term uses the dependency-provided loss. Resolved ParticleGAN recipes currently support one critic network; additional terms are limited to the concrete reference execution path. `weight` defaults to 1 and may be 0. Weight 0 still runs that term's forward and scales only its adversarial scalar by zero. `penalty` defaults to false, so an extra term does not take the legacy gradient penalty. `penalty = true` builds a separate penalty from `[gradient_penalty]` using that term's `penalty_coeff` (the default is `[gradient_penalty].coeff`). All scoring components share one critic optimizer, one EMA critic and one learning-rate handover. Two terms may name one component and keep different penalty coefficients. A term may override `inputs`; otherwise it uses the component's inputs. Exactly one of those paths is `candidate`.
-
-Extra terms use the legacy detach policy above. Conditioning inputs stay detached on both steps. A trainable component whose only use is that detached conditioning still fails validation. A component used as a real or fake sample is generator-reachable and is not reported as disconnected. The schedule stays `d-then-g-v1`. Replicated execution rejects these extra terms.
-
-Objective forwards run on the generator step even at weight 0. Names in an objective's `detach` list contribute no gradient. `freeze_parameters` on a reused module blocks that module's parameter gradients for the forward and still passes gradients to its inputs.
-
-Parameter groups are ordered sequences with duplicates removed by identity. The same parameter in two groups fails validation. The legacy compiler builds the critic group from the trainable parameters of `discriminator`, in parameter order, and the generator group from `generator_parameters()`, so optimizer checkpoints keep their parameter mapping. Extra terms append the trainable parameters of their modules after that discriminator sequence; a parameter already owned by an earlier term is kept at its first occurrence. Modules used by those extra terms are removed from the generator group. A legacy recipe has no extra terms, so both sequences stay the same. The executor then uses those sequences and does not look up the component name again.
-
-Changing objective or regularizer settings may change batch/distributed semantics. No configuration in this checkpoint is approved for multi-GPU or cluster execution. Unsupported device/execution settings must fail rather than silently run a different profile.
-
-## Validation and qualification
-
-`hypergan validate demo` checks the configuration without importing torch or executing custom Python factories. Training constructs components and validates their actual interfaces. Configuration errors, unavailable bindings and runtime failures return a nonzero exit status.
-
-The built-in configuration is labelled reference-only, with its runtime recorded as not certified. It does not receive an application approval stamp. Future qualification must apply to an exact resolved configuration, component versions and tested execution profile. Custom values or implementations receive an unqualified warning and may run when compatible. Numerical-reference qualification does not establish image quality or application readiness. Review the recorded qualification and configuration in the run manifest rather than relying on a recipe's name.
-
-Sample artifacts preserve inference state. Separate [complete training checkpoints](recovery.md) restore optimizer/RNG/data-position state with exact configuration and runtime compatibility. Changing a seed or loading an inference artifact is not exact training resume. [Image-folder data](image-data.md) provides content and preprocessing identity for custom image components; it does not change the reference model into an image GAN.
-
-## Scalar metrics
-
-Metrics publish completed update values to `events.jsonl`, with immutable definitions
-in `metrics/catalog-<sha256>.json`. No optional training dependencies are needed to
-validate these settings or read a catalog.
-
-```toml
-[metrics]
-preset = "standard" # "none" starts with no published values
-# Every ID is independently removable. Unknown IDs fail validation.
-disable = ["loss/d_adversarial_raw", "loss/g_adversarial_raw"]
-every_steps = 1     # sample this boundary, not an average of skipped steps
-
-[metrics.overrides."loss/total"]
-enabled = false
-```
-
-The standard preset includes D/G totals, their combined diagnostic sum, weighted
-adversarial, gradient penalty, prior regularizer and additional objective
-contributions, raw D/G adversarial values, learning-rate multiplier and update
-seconds. The combined sum is **not** a GAN quality score or a joint optimization
-objective. Catalogs include formula, coefficient, units, phase owner and immutable
-definition hashes. Gradient penalties report whether the lazy schedule applied
-and its effective coefficient. Upstream gradient/prior regularizers expose their
-weighted contribution only: raw values are explicitly unavailable and never
-recovered by dividing by a coefficient.
-
-`preset = "none"` emits no metric values, while lifecycle events and mandatory
-finite/update validation remain active. `overrides` can explicitly enable one
-built-in ID with the empty preset. Disabling D or G publication does not prevent
-the combined sum from using those already computed internal values. Metrics
-settings may change during resume without changing numerical identity; the new
-attempt references a new catalog and retains the previous revision. Changing
-objectives, weights or the training schedule still invalidates numerical resume.
-
-Give additional objectives a stable `id`, for example `id = "reconstruction"`,
-to publish `loss/objectives/reconstruction`. Without an explicit ID, a deterministic
-content hash names the term. Repeated identical terms require distinct explicit
-IDs. Custom scalar factories and manual or interval snapshot evaluation are
-described below. Unsupported scheduling modes fail validation. The
-[CIFAR recipe](cifar-recipe.md) includes a pinned Inception FID adapter.
-
-## Custom metrics and explicit snapshot evaluation
-
-Custom metrics use ordinary importable Python factories. Structural validation
-checks configuration without importing a factory. Runtime preflight executes
-`describe()` in a fresh bounded worker and records its source hashes and output
-metadata. Selected calls execute in fresh workers too; no live trainer or tensor
-is passed to a primitive transform. Every custom metric is explicit opt-in.
-
-```toml
-[metrics.custom.loss_ratio]
-factory = "hypergan.metric_examples:ScalarRatio"
-inputs = { numerator = "update.g_loss", denominator = "update.d_loss" }
-mode = "scalar"
-every_steps = 100
-timeout = 10
-on_error = "disable"
-```
-
-`describe()` returns `kind = "scalar"` plus optional text `label`, `unit`,
-`direction` (`none`, `minimize`, `maximize`) and `description`. For this mode,
-`evaluate(*, context, **inputs)` returns a finite Python number. Bindings select
-the internal D/G totals, raw/weighted adversarial values, gradient penalty, prior
-regularizer, learning-rate scale, step or step seconds via `update.<name>`.
-They remain available when the corresponding built-in published metric is
-removed. Factory construction/description changes create a different definition
-hash on resume, independently of numerical recipe identity.
-
-A selected custom call queues a snapshot of primitive scalars without waiting
-for the factory. A background dispatcher runs one fresh CPU worker at a time,
-with one outstanding observation per metric (at most 32 total, including
-completed results). A busy metric drops new observations with an explicit
-`dropped` status; accepted observations record `queued`. Results arrive in
-`metric` events at their original training step. Choose a cadence suited to
-worker startup cost; built-in scalars require no plugin worker.
-
-The per-metric timeout includes queue time, worker startup, evaluation and
-shutdown, with broker cleanup grace additional. Scalar workers hide CUDA
-devices, cap numerical-library CPU threads and lower process priority where
-supported. These defaults apply only to the disposable worker. There are no
-implicit retries. `on_error = "disable"` records a visible reason and disables
-that metric for the remainder of the attempt; a new attempt preflights it again.
-`on_error = "fail"` fails the attempt when its asynchronous result is collected.
-Normal completion drains accepted observations before its final checkpoint.
-A cooperative signal cancels outstanding observations and reaps their workers,
-including when the signal arrives during terminal draining. Optional observations
-record `cancelled` at their source step; required observations retain `on_error =
-"fail"` and fail the attempt on cancellation. Exceptional shutdown also cancels
-outstanding observations and reaps their workers.
-A required failure can therefore arrive after subsequent completed updates;
-resume replays from the selected complete checkpoint. Disabling optional
-publication never disables mandatory numerical validation.
-
-Factories are trusted Python. Input/output bytes and deadlines are bounded;
-arbitrary allocations, external state and subprocesses created by plugin code
-are not sandboxed. Instances and global RNG state are isolated from training,
-but persistent evaluator state across calls is not supported.
-
-Snapshot metrics use a separate evaluation dataset/iterator and RNG, and an
-immutable copied EMA inference bundle. A declared snapshot metric is scheduled by
-default: an omitted `trigger` resolves to `trigger = "interval"` with
-`every_steps = 10000` and `on_busy = "skip"`, and an explicit `trigger =
-"interval"` without `every_steps` takes the same 10,000-step default. Choose
-`trigger = "manual"` to opt out and evaluate that metric only on request. The
-resolved defaults are recorded in the resolved configuration, the metric catalog
-and the run manifest, so a run's cadence is always explicit in its provenance.
-
-```toml
-[metrics.custom.color_mean]
-factory = "hypergan.metric_examples:ColorMomentDistance"
-mode = "snapshot"
-trigger = "manual" # explicit opt-out; omitting this schedules it every 10,000 steps
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-timeout = 120
-on_error = "fail"
-[metrics.custom.color_mean.args]
-statistic = "mean" # "spread" measures population standard deviation
-color_space = "rgb"
-low = -1.0
-high = 1.0
-[metrics.custom.color_mean.evaluation]
-device = "cuda" # default; CPU correctness fixtures opt in explicitly
-sample_count = 256
-batch_size = 16
-seed = 123
-[metrics.custom.color_mean.evaluation.data]
-factory = "my_project.data:EvaluationData"
-args = { split = "validation" }
-```
-
-Snapshot metrics normally evaluate `sampling.generated`, or the adversarial
-generator output when that sampling override is absent. Set
-`generated = "generated"` inside a metric's `evaluation` table to measure the
-adversarial generator output independently of a conditional reconstruction shown
-by the sampler. A component binding such as
-`generated = "components.reconstruction"` selects another declared output.
-Each metric records its resolved `generated_binding` in the evaluation protocol.
-New inference bundles retain the selected component and its dependencies; an
-older bundle that omitted those components cannot evaluate that override.
-
-`hypergan.colorization_metrics:SampleDiversityRatio` measures generated/reference
-sample spread after RGB average pooling (`args.pool_size = 32` by default).
-Zero means identical generated outputs; one matches reference spread. This is a
-collapse diagnostic, not a quality score: noise can also have substantial spread.
-It needs at least two samples in each set and nonzero reference spread.
-
-Call the standalone evaluation API with the run and metric ID:
-
-```python
-from hypergan.metric_evaluation import evaluate
-receipt = evaluate("runs/experiment", "color_mean", config_path="config.toml")
-```
-
-The integrated CLI exposes the same operation as `hypergan evaluate RUN --metric
-color_mean --config config.toml`. `--bundle` selects an older `model.pt` under
-this run's attempts directory. The selected numerical recipe must match the run;
-observation settings may differ. This standalone command holds the run lock and
-requires a terminal run. It can also explicitly evaluate an interval-configured
-metric. GPU remains the default. The source inference bundle must have saved
-run/attempt/step provenance and a matching SHA256; no old-format migration is provided.
-
-To restore automatic evaluation after that opt-out, or to choose a different
-cadence, write the scheduling fields out and explicitly select the evaluation
-device; keep the factory, inputs, arguments and evaluation protocol:
-
-```toml
-# Fields in [metrics.custom.color_mean]
-trigger = "interval"
-every_steps = 10000
-on_busy = "skip"
-# Field in [metrics.custom.color_mean.evaluation]
-device = "cuda:1"
-```
-
-Interval evaluation has no device fallback. A snapshot metric that resolves to
-`trigger = "interval"` and names no `evaluation.device` is rejected during
-configuration resolution, before training starts; the error names the metric and
-both remedies (an explicit device, or `trigger = "manual"`). A manual metric may
-still omit the device and resolve to the `cuda` default, because nothing runs it
-until an explicit `hypergan evaluate` on a stopped run.
-
-When every enabled snapshot metric is manual, the run's `evaluation_schedule` is
-empty and no evaluation ever fires. `hypergan train`, `resume`, `validate` and
-`preflight` print a warning naming those metrics so the absent schedule is not
-silent, and the viewer shows each of them as `manual` with no next step.
-
-That launch warning is easy to miss among other configuration warnings, so the
-same condition is also reported while the run is under way:
-
-- `hypergan train` and `hypergan resume` print one extra `hint:` line after the
-  warnings block, naming the exact edit and the command that applies it, for
-  example `hint: remove 'trigger = "manual"' from [metrics.custom.fid50k_train]
-  to evaluate it every 10000 steps, then apply it with `hypergan resume RUN
-  --config CONFIG``.
-- The periodic progress output carries a one-line `reminder:` on its first
-  printed progress line and every tenth one after that. With `--progress-json`
-  those same progress rows gain an `evaluation_reminder` string field; every
-  existing field keeps its meaning, and rows without the reminder omit it.
-- The viewer's **Snapshot evaluations** panel shows a persistent notice above
-  the schedule cards naming the manual metrics and the same edit. Runs with any
-  scheduled metric, or any recorded `evaluation_schedule`, never show it.
-
-Neither the hint nor the reminder appears for a recipe with no snapshot metrics
-or with any metric on an interval.
-
-An existing run resumes under its own recorded settings: the manifest stores the
-resolved configuration, including the resolved trigger, so a run created with
-`trigger = "manual"` keeps that schedule and is unaffected by the default. Adding
-a schedule to an existing run is an observation change, not a numerical one:
-`hypergan train CONFIG --run-dir RUN` on an existing directory still requires the
-whole configuration to match and refuses with a message naming `metrics` as the
-differing section, while `hypergan resume RUN --config CONFIG` accepts the new
-schedule and continues the same run.
-
-The scheduler evaluates at completed global training steps divisible by
-`every_steps`, independently of checkpoint and scalar-metric cadence. Resume
-continues that global step cadence: resuming at step 41,000 with an interval of
-10,000 schedules step 50,000 next. It does not backfill missed intervals.
-Recovery from an earlier snapshot may produce another evaluation at a replayed
-step; source attempt identity distinguishes those measurements.
-
-An accepted evaluation uses an immutable inference snapshot taken at its source
-step and runs in a separate worker while training continues. Its result is
-plotted at that source step even if several more updates have completed. Capturing
-the snapshot still has a copy/I/O cost. An evaluation using the training GPU
-shares its memory and compute: training steps slow down and peak memory rises
-while that evaluation runs, which is most visible for large sample counts.
-Resolution warns when an interval metric's device may be the training device;
-choose a separate available GPU to avoid that
-contention. Device indices refer to the process's visible CUDA devices, including
-any `CUDA_VISIBLE_DEVICES` mapping. CPU evaluation must be selected explicitly
-for small correctness fixtures.
-
-`on_busy = "skip"` is the only supported busy policy and the default. A due
-interval is recorded as skipped when the evaluator is busy; it is not queued
-for catch-up. One evaluation worker runs at a time across the run. When several
-metrics are due together, selection rotates between them and unselected intervals
-are recorded as busy skips. Factory failures and timeouts are visible:
-`on_error = "disable"` disables that metric for the remainder of the attempt, while `on_error = "fail"`
-fails training when the asynchronous failure is collected. A failure may arrive
-after subsequent updates; recovery starts from a complete saved checkpoint.
-Normal completion or a step/time budget stop waits for accepted evaluation work
-within its bounded deadline. A signal or exceptional shutdown cancels outstanding
-snapshot evaluations and reaps their workers; cancellation itself does not fail
-training. Cancelled work has an explicit status and no fabricated metric value.
-A new attempt starts a fresh scheduler and never resumes a partial evaluation.
-
-The viewer shows configured snapshot metrics before the first result, including
-manual scheduling or the next interval step, and exposes evaluation status.
-
-Snapshot `evaluate(*, batches, context)` receives a bounded iterator of dictionaries
-with the explicitly bound generated/reference tensors. It must consume the full
-declared sample count and return a finite scalar or, with `kind = "histogram"`,
-`{"edges": [...], "counts": [...]}` with ordered finite edges and at most 512
-nonnegative bins. Data factories follow the normal batched tensor API; custom
-evaluation data also provides `resume_identity()` identifying its actual dataset,
-split and preprocessing. There is no implicit training-data fallback.
-
-`ColorMomentDistance` compares pixel-weighted RGB mean or population spread.
-`ColorHistogramDifference` produces absolute differences of fixed-bin pooled RGB
-probabilities. Both require declared RGB ranges and finite NCHW RGB tensors.
-These are color-statistic diagnostics, not semantic or spatial-quality claims.
-Other modalities can use the generic snapshot protocol without the RGB examples.
-
-Results live in `metrics/evaluations/<id>/`, with a receipt, one immutable JSONL
-result and an atomic `stream.json` registration. They retain evaluated snapshot,
-source attempt/step, EMA choice, sample count, seed, data identity, factory/runtime
-sources and protocol hash. Late results do not inherit the trainer's current
-step. Scalar values use `metrics`; histograms use `distributions`. Failures have
-explicit statuses; unknown source position is marked `source_position_known =
-false` and has no plotted value. An interrupted evaluator restarts only as a new
-evaluation ID; the next explicit evaluation reconciles abandoned receipts and
-releases temporary snapshot copies. It also recovers a completed result whose
-registration was interrupted, without recomputing that result.
-
-Partial evaluation-job resume remains unsupported. No dataset or weight downloads
-occur implicitly. The Inception FID adapter requires pinned local weights and an
-explicit preprocessing/sample protocol; see the [CIFAR recipe](cifar-recipe.md).
-
-### Sample diversity and collapse monitoring
-
-The `standard` metrics preset includes diversity observations at **preview cadence**
-(`--preview-every`), using the existing CPU-rendered EMA samples. No additional
-training forward pass or GPU evaluator is needed. Enable previews to collect these
-metrics; `metrics.every_steps` still controls update scalars, not previews.
-
-- `diversity/generated_rms` and `diversity/reference_rms`: RMS distance across
-  distinct sample pairs, computed as `sqrt(2 * mean(unbiased sample variance))`.
-  These work with real floating-point vectors, images and other batched tensors.
-- `diversity/ratio`: generated spread divided by real spread. Zero means identical
-  generated outputs, and one matches the reference spread.
-- `diversity/pooled4_generated_rms`, `diversity/pooled4_reference_rms`, and
-  `diversity/pooled4_ratio`: the same statistics after averaging NCHW images down
-  to 4x4, reducing the influence of fine texture on the diversity comparison.
-
-The viewer selects generated spread and both ratios by default. Previews record sample counts and the
-selected `sampling.generated` binding. Real spread uses the first available real
-samples from the completed local batch (rank zero in distributed runs), without
-repeating rows to fill the display grid.
-Fewer than two samples, incompatible shapes, unsupported pooling, or zero reference
-spread produce explicit unavailable statuses where applicable, not fabricated
-zeros or infinities. Disable an individual metric with `metrics.disable`, or all
-of them with `metrics.preset = "none"`.
-
-These are collapse diagnostics, not quality scores or counts of semantic modes.
-Noise can have large variance; compare coarse and full-resolution spread together.
-A preview is a small sample (at most 16 outputs), and conditioning variation can
-hide a generator that ignores its latent input. Conditional applications should
-also evaluate repeated identical conditions when latent diversity matters.
-
-For larger scheduled or manual evaluations, use the general snapshot factory
-`hypergan.diversity_metrics:SampleDiversity` with the existing snapshot protocol:
-
-```toml
-[metrics.custom.sample_diversity]
-factory = "hypergan.diversity_metrics:SampleDiversity"
-mode = "snapshot"
-every_steps = 1000
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.sample_diversity.args]
-statistic = "ratio" # alternatively "generated_rms" or "reference_rms"
-pool_size = 4       # omit for full-resolution images or non-image tensors
-[metrics.custom.sample_diversity.evaluation]
-device = "cpu"
-sample_count = 256
-batch_size = 16
-seed = 123
-[metrics.custom.sample_diversity.evaluation.data]
-factory = "my_project.data:EvaluationData"
-args = { split = "validation" }
-```
-
-This factory merges centered moments across the whole evaluation, including
-between-batch differences; changing evaluation batch size does not average away
-collapse or inflate spread. It requires no pretrained metric model. Choose the
-evaluation device and sample count to fit the generator's inference cost.
+- `[train]` fields can be addressed as `train.<field>`, `training.<field>`, `trainer.<field>`, or `optimizer.<field>`.
+- `[[losses]]` entries can be addressed by list index (`losses.0.weight=0.5`), `id` (`losses.reconstruction.weight=0.5`), or `critic` name (`losses.discriminator.penalty=2.0`).

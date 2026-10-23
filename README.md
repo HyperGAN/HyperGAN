@@ -253,11 +253,10 @@ See:
 ## Development and migration
 
 The map/reduce storage and shared Rust reducers now live in **Foldlite DB**.
-This branch requires `foldlitedb>=0.1.1,<0.2`. Until its first package release,
-install your Foldlite checkout before HyperGAN:
+This branch requires `foldlitedb>=0.1.2,<0.2`:
 
 ```sh
-python -m pip install -e /nvme/dev/255bits/foldlitedb
+python -m pip install "foldlitedb>=0.1.2,<0.2"
 python -m pip install -e '.[dev,web]'
 ```
 

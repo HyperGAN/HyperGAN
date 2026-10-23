@@ -47,13 +47,12 @@ controlled. A new query performs an initial historical pass; reopening the same
 query consumes only its suffix. Live fanout continues to forward unchanged frames;
 connected viewers reduce their live suffix through the same Foldlite WASM module.
 
-## Installing the extraction branch
+## Installing Foldlite DB
 
-Before Foldlite's first package release, install its local source or a built wheel
-before installing HyperGAN. For the adjacent checkouts used during extraction:
+Install `foldlitedb` before or alongside HyperGAN:
 
 ```sh
-python -m pip install -e /nvme/dev/255bits/foldlitedb
+python -m pip install "foldlitedb>=0.1.2,<0.2"
 python -m pip install -e '.[web,test]'
 python -m pytest tests/foundation/test_run_state.py tests/foundation/test_event_views.py tests/web
 ```

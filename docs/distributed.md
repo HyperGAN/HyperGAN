@@ -1,8 +1,8 @@
-# CPU distributed numerical groundwork
+# Distributed numerical groundwork
 
-The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](../reports/resurrection-status.md) for the current combined scope.
+The [local CUDA/NCCL extension](replicated-cuda.md) applies this contract to rank-owned GPUs. Public CLI commands (`hypergan train` and `hypergan resume`) support single-GPU execution as well as multi-GPU distributed training via `--devices 0,1` (or `--profile cuda-replicated-nccl` and `--profile cpu-replicated-gloo`). CPU-specific examples and original qualification evidence below remain explicit correctness fixtures.
 
-`hypergan.distributed_training.ReplicatedCPUTrainer` implements bounded, fixed-world-size CPU GAN updates over Gloo. It is an internal strategy with explicit gradient reduction, **not DDP**. The product `train`/`resume` CLI remains single-process CPU; no distributed CLI, GPU execution or cluster launching is enabled here. Separate [fixed-topology checkpoint APIs](distributed-recovery.md) now recover this internal strategy. The lower-level `GlooCollectives` primitives remain the numerical building blocks described below.
+`hypergan.distributed_training.ReplicatedCPUTrainer` implements bounded, fixed-world-size CPU GAN updates over Gloo with explicit gradient reduction, while `ReplicatedCUDATrainer` executes the same contract over NCCL on rank-owned GPUs. Separate [fixed-topology checkpoint APIs](distributed-recovery.md) recover these strategies. The lower-level `GlooCollectives` primitives remain the numerical building blocks described below.
 
 ## Complete replicated CPU updates
 

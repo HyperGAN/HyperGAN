@@ -62,14 +62,13 @@ and spread can remain high for saturated or nonsensical images: none of these
 alone establishes quality or absence of collapse. Training also reports the
 RGB reconstruction loss directly.
 
-On the prepared machine:
+To launch training in a dedicated run directory:
 
 ```sh
-bash ~/dev/hypergan/training-runs/start-ae.sh
+hypergan train examples/logos-ae-gan-256.toml \
+    --run-dir ./runs/train-ae-dino -d 1
 ```
 
-This pins physical GPU1 and uses `logos-ae-env`, `logos-ae-gan-256/ae.toml`, and
-a fresh `train-ae-dino` directory. Ctrl-C saves a recoverable boundary; repeat
-the command to resume. `start-color.sh` continues to select the previous ResNet
-colorization trial. The AE smoke run is separate from the owner run, which is
-left unstarted for manual control.
+This selects GPU 1 and uses a fresh `./runs/train-ae-dino` directory. Ctrl-C saves a
+recoverable boundary; repeat the command to resume. The AE smoke run is separate
+from the full training run, which is left unstarted for manual control.

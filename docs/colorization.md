@@ -34,9 +34,9 @@ L2 = mean((BW(Xhat) - B)^2)            # reconstruction: update E only
 Grayscale reconstruction asks the encoder to recover structure without requiring
 the original colors. It does not force each colorization to have plausible colors;
 the unconditional GAN learns the overall RGB distribution. RGB reconstruction is
-an available comparison: bind the objective's input to `components.reconstruction`
-and its target to `batch.real`, and remove the unused `reconstruction_gray`
-component. Neither form constrains aggregate encoder particle
+an available comparison: bind the objective's `input` to `reconstruction`
+and its `target` to `batch.real`, and remove the unused `reconstruction_gray`
+network. Neither form constrains aggregate encoder particle
 usage. Hard routing and a moving decoder can still make the encoder collapse.
 
 The discriminator receives a single RGB candidate, using the pretrained ResNet18
@@ -141,8 +141,8 @@ Keep the evaluation seed, count, held-out inventory and sample multiplicity
 fixed when comparing checkpoints. Show grayscale inputs, source RGB and generated
 RGB previews together. The `comparison` view has one example per row and labelled
 `X | B | X_hat` columns. The separate `random` view shows uniform-prior samples;
-`g` remains the conditional reconstruction. `sampling.generated` explicitly binds
-sampling and paired evaluation to `components.reconstruction`, so changing the GAN
+`g` remains the conditional reconstruction. `sampling.output` explicitly binds
+sampling and paired evaluation to `reconstruction`, so changing the GAN
 input does not silently turn conditional metrics into unconditional comparisons.
 A short smoke test establishes execution and recovery,
 not a quality score. Do not select checkpoints solely by one color statistic.
@@ -156,16 +156,16 @@ avoid making every metric compete for the single evaluator at every boundary.
 Colliding intervals or a still-busy evaluator produce explicit skipped events.
 Evaluation shares GPU 1, so it temporarily slows training.
 
-## Local owner workflow
+## Local workflow
 
-The prepared machine-specific configuration, pinned artifacts and isolated
-environment live under `~/dev/hypergan/training-runs/`. Run:
+Run the colorization recipe with a dedicated run directory:
 
 ```sh
-bash ~/dev/hypergan/training-runs/start-color.sh
+hypergan train examples/logos-colorization-256.toml \
+    --run-dir ./runs/train-color-resnet -d 1
 ```
 
-The launcher pins physical GPU 1 by UUID and uses a fresh `train-color-resnet` run.
+This command selects GPU 1 and uses a fresh `./runs/train-color-resnet` run directory.
 Interrupt it with Ctrl-C to save a recoverable boundary. Repeating the same
 command resumes the latest complete checkpoint. It does not touch the CIFAR run.
 The default total schedule is 200,000 updates; batch size starts at 16. The fast
@@ -174,13 +174,6 @@ state without promising bitwise-identical future learning trajectories.
 
 Configuration and dataset/component dependency checks remain enforced on resume;
 HyperGAN release hashes remain provenance, not compatibility rejection keys.
-The validation run is separate from `train-color-resnet`, leaving it fresh.
-The collapsed projected run and its launcher `start-color-projected.sh` remain
-available. The updated launcher uses `colorization-resnet-env` and
-`logos-colorization-resnet-256/colorization.toml`. The earlier random-prior run
-and its `start-color-random.sh` launcher are preserved, along with
-`start-color-original.sh`.
-
-The previous DINO + RGB run is preserved under `train-color-critic`, with its
-configuration, environment, and `start-color-critic.sh` launcher. Use a fresh run
-when changing discriminator architecture; old checkpoints are not compatible.
+The validation run is separate from `./runs/train-color-resnet`, leaving it fresh.
+Use a fresh run directory when changing discriminator architecture; old checkpoints
+are not compatible across differing network definitions.

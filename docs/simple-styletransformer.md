@@ -12,8 +12,8 @@ losses, penalties, batch size, seeds, and schedule.
 
 ## Architecture
 
-This ports `/mnt/ml7tb/experiments/gemini3/lib/simple_styletransformer_generator.py`
-(source SHA256 `a5247b5d23279b65f0660247e6402741dc02e61388166281d5e353311b50e546`).
+This ports `simple_styletransformer_generator.py`
+(source SHA256 `a5247b5d23279b65f0660247e6402741dc02e61388166281d5e353311b50e546`) into HNDL.
 The requested Fourier renderer and learned coordinate warp are retained:
 
 - Three ordinary linear layers map the existing 512-dimensional latent to
@@ -98,11 +98,13 @@ existing backend setting.
 ## Local launch
 
 ```bash
-../training-runs/start-simple-styletransformer-resnet-128-low-g-lr.sh
+hypergan train examples/simple-styletransformer-resnet-128-low-g-lr.toml \
+    --run-dir ./runs/train-simple-styletransformer-resnet-128-low-g-lr \
+    -d 0 --preview-every 100 --checkpoint-every 1000
 ```
 
-The launcher uses physical GPU 0 and writes to
-`/mnt/ml7tb/hypergan-training-runs/train-simple-styletransformer-resnet-128-low-g-lr`.
+This command uses GPU 0 and writes to
+`./runs/train-simple-styletransformer-resnet-128-low-g-lr`.
 It keeps batch 64, previews every 100 steps, and checkpoints every 1000 steps.
 Training is left for the user to launch; convergence has not been evaluated.
 
@@ -110,14 +112,16 @@ Training is left for the user to launch; convergence has not been evaluated.
 
 The [normal-rate recipe](../examples/simple-styletransformer-resnet-128-normal-g-lr.toml)
 uses the same generator and training settings, restoring G to `0.0002`.
-Its optimizer settings are `lr=0.0002`, `d_lr_mult=1`, and `prior_lr_mult=10`,
+Its `[train]` optimizer settings are `lr=0.0002`, `d_lr_mult=1`, and `prior_lr_mult=10`,
 so D remains at `0.0002` and the learned prior remains at `0.002`.
 The seeds match the lower-rate recipe.
 
 ```bash
-../training-runs/start-simple-styletransformer-resnet-128-normal-g-lr.sh
+hypergan train examples/simple-styletransformer-resnet-128-normal-g-lr.toml \
+    --run-dir ./runs/train-simple-styletransformer-resnet-128-normal-g-lr \
+    -d 1 --preview-every 100 --checkpoint-every 1000
 ```
 
-This launcher selects physical GPU 1 and uses a separate run directory:
-`/mnt/ml7tb/hypergan-training-runs/train-simple-styletransformer-resnet-128-normal-g-lr`.
+This command selects GPU 1 and uses a separate run directory:
+`./runs/train-simple-styletransformer-resnet-128-normal-g-lr`.
 Training is left for the user to launch.

@@ -170,7 +170,7 @@ consumer reduction. A client records its cursor only after applying the complete
 frame. SSE received IDs are deliberately not treated as application commits.
 
 Resource bounds are explicit: 32 subscribers, 1 MiB/256 queued messages per
-subscriber, 4096 frames per reconnect replay, 64 registered streams, 4096 lineage
+subscriber, 4096 frames per reconnect replay, 4096 registered streams (and `ObservationTap(max_events=4096)` stream buffer capacity), 4096 lineage
 attempts, eight cached/pending history jobs with one reducer job active, 32 selected
 metrics and 2048 grouped states per bootstrap. Responses cap bootstrap state at
 1 MiB; history jobs have a 180-second runtime budget, reported in capabilities.
@@ -218,7 +218,7 @@ device, the busy policy, skipped counts, the last recorded reason, and the
 per-result source step, value, status, duration, sample count, attempt and
 evaluation ID -- is behind that one **Details** expansion, which also holds
 each result's raw export link, its recorded protocol document and, for histogram
-metrics, its bar plot and exact bin table. The panel reads at most the 64
+metrics, its bar plot and exact bin table. The panel reads at most the 4096
 registered observation streams the server admits, and builds those tables, plots
 and protocol documents only when a list is expanded. When every one
 of them sets `trigger = "manual"` and the run records no schedule, the panel

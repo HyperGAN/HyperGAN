@@ -19,7 +19,7 @@ from .web_files import read_artifact, read_json, _open
 from .web_service import MAX_STREAMS, ObservationService, RunObservationService, MapSpec, ViewSpec
 from .web_session import LocalSession
 
-STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css', 'runs.js', 'runs.css'}
+STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css', 'runs.js', 'runs.css', 'logo.png'}
 
 _disk_cache: dict[Path, tuple[float, int]] = {}
 _ORIG_LIST_REGISTERED_RUNS = getattr(_reg_mod, "list_registered_runs", None)
@@ -306,13 +306,14 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HyperGAN Runs — Dashboard</title>
+  <link rel="icon" type="image/png" href="/assets/logo.png">
   <link rel="stylesheet" href="/assets/runs.css">
   <script src="/assets/runs.js" defer></script>
 </head>
 <body>
   <main class="container">
     <header class="header">
-      <a class="brand" href="/" aria-label="HyperGAN home"><span class="brand-mark">H</span> HYPERGAN</a>
+      <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="28" height="28" alt=""> HYPERGAN</a>
       <span class="root-path" title="{root}">{root}</span>
     </header>
     <div class="page-heading"><div><h1>Training runs</h1>
@@ -1092,7 +1093,12 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             if asset == 'index.html':
                 return Response('HyperGAN viewer assets are not installed.', media_type='text/plain', status_code=503)
             raise FileNotFoundError('Unknown static asset')
-        media = 'text/html' if asset.endswith('.html') else 'text/css' if asset.endswith('.css') else 'text/javascript'
+        media = (
+            'text/html' if asset.endswith('.html')
+            else 'text/css' if asset.endswith('.css')
+            else 'image/png' if asset.endswith('.png')
+            else 'text/javascript'
+        )
         body = resource.read_bytes()
         if dev.active and asset == 'index.html':
             body = body.replace(b'</body>', f'<script type="module" src="{RELOAD_ASSET}"></script>\n  </body>'.encode(), 1)

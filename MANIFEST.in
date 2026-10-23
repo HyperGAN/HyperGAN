@@ -22,7 +22,7 @@ recursive-include tests/unit *.py
 recursive-include tests/playbooks *.py
 recursive-include tests/e2e_integration *.py
 recursive-include scripts *.py *.sh
-recursive-include src/hypergan/web_assets *.html *.css *.js *.txt *.json
+recursive-include src/hypergan/web_assets *.html *.css *.js *.txt *.json *.png
 recursive-include src/hypergan/networks *.hndl
 recursive-include src/hypergan/models *.toml
 recursive-include frontend *.json *.js *.mjs *.md

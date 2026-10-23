@@ -64,16 +64,11 @@ a {
   font-weight: 700;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
+  display: block;
   height: 30px;
   width: 30px;
-  background: var(--accent);
-  color: #1a2020;
   border-radius: 7px;
-  font-size: 20px;
-  letter-spacing: -2px;
-  padding-right: 2px;
+  object-fit: cover;
 }
 .brand-separator {
   color: #535d5c;

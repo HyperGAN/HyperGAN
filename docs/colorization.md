@@ -2,6 +2,8 @@
 
 ![HyperGAN 2.0 Logo Colorization: Grayscale HG to 4×4 Colorized Grid](assets/hypergan-colorizer-banner.png)
 
+_Assets: [128×128 grayscale HG input (`assets/hg-bw-128.png`)](assets/hg-bw-128.png) · [128×128 single colorized badge (`assets/hypergan-logo.png`)](assets/hypergan-logo.png) · [512×512 4×4 colorized grid (`assets/hypergan-logo-grid.png`)](assets/hypergan-logo-grid.png) · [736×512 workflow banner (`assets/hypergan-colorizer-banner.png`)](assets/hypergan-colorizer-banner.png)._
+
 ## 128×128 conditional colorization (`examples/logos-colorization-128.toml`)
 
 `examples/logos-colorization-128.toml` is a declarative `hypergan-model/1` model

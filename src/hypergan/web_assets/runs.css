@@ -9,7 +9,7 @@ a, button, input, select { outline-offset: 4px; }
 .header, .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .header { padding-bottom: 20px; border-bottom: 1px solid #283145; }
 .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; color: #fff; font-weight: 750; letter-spacing: .06em; }
-.brand-mark { background: #38bdf8; color: #0b0d13; padding: 2px 8px; border-radius: 4px; }
+.brand-mark { display: block; width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
 .root-path { color: #94a3b8; font: 12px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; min-width: 0; }
 .page-heading { margin: 28px 0 24px; }
 h1 { margin: 0; font-size: 28px; letter-spacing: -.03em; }

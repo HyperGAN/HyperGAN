@@ -49,7 +49,7 @@ fn = "toy_project:scatter"
 args = { size = 64 }
 
 # A cheap metric: a function of values the update computes anyway.
-[metrics.custom.d_over_g]
+[metrics.d_over_g]
 fn = "toy_project:d_over_g"
 inputs = { d = "d_loss", g = "g_loss" }
 every_steps = 10

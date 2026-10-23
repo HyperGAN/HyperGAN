@@ -207,7 +207,7 @@ TF32 and cuDNN benchmarking, and sets the cuBLAS workspace before CUDA
 initialization:
 
 ```toml
-[training.backend]
+[train.backend]
 deterministic_algorithms = true
 cudnn_deterministic = true
 cudnn_benchmark = false

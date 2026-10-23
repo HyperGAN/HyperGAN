@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 import re
 
-from .model_file import FORMAT, ModelFileError, is_model_file, lower as _lower, model_warnings, upstream, producer
+from .model_file import FORMAT, ConfigError, ModelFileError, is_model_file, lower as _lower, model_warnings, upstream, producer
 from .toml_writer import dumps as _dumps
 
 try:
@@ -37,7 +37,7 @@ from .model_file import resolve_inheritance, collect_source_files
 
 PACKAGED = Path(__file__).with_name('models')
 
-__all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError',
+__all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'ConfigError',
            'model', 'load', 'load_bundle', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
            'validate_config', 'init_project', 'new', 'list_templates',
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
@@ -224,6 +224,17 @@ def override(model, changes=None, /, **sections):
 
     norm_changes = {}
     for dotted, value in (changes or {}).items():
+        if is_model and dotted in ('trainer', 'training', 'optimizer') and isinstance(value, dict):
+            for k, v in value.items():
+                norm_changes[f'train.{k}'] = v
+            continue
+        if not is_model and dotted in ('train', 'trainer') and isinstance(value, dict):
+            for k, v in value.items():
+                if k in OPTIMIZER_FIELDS and 'optimizer' in spec:
+                    norm_changes[f'optimizer.{k}'] = v
+                else:
+                    norm_changes[f'training.{k}'] = v
+            continue
         if dotted.startswith('trainer.'):
             dotted = 'train.' + dotted[len('trainer.'):]
         if not is_model and (dotted.startswith('train.') or dotted.startswith('training.')):
@@ -253,13 +264,20 @@ def override(model, changes=None, /, **sections):
         if isinstance(target, dict) and last_key == 'id' and value is None:
             target['__id_required__'] = True
 
+    norm_sections = {}
+    for key, value in sections.items():
+        if is_model and key in ('trainer', 'training', 'optimizer') and isinstance(value, dict):
+            norm_sections.setdefault('train', {}).update(deepcopy(value))
+        else:
+            norm_sections[key] = value
+
     def merge(into, update):
         for key, value in update.items():
             if isinstance(value, dict) and isinstance(into.get(key), dict):
                 merge(into[key], value)
             else:
                 into[key] = deepcopy(value)
-    merge(spec, sections)
+    merge(spec, norm_sections)
     return Model(spec, base=model.base, path=None)
 
 
@@ -870,10 +888,14 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
                    profile=None, service_policy=None, devices=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
-                   preview_name=None, sets=None, **extra):
+                   preview_name=None, sets=None, overrides=None, **extra):
     """Validate and prepare a run resumption, returning a PreparedExecution."""
     from .execution import prepare_resume as _prepare_resume
     run_path = _run_path(run_dir)
+    merged_sets = dict(sets or {})
+    if overrides:
+        merged_sets.update(overrides)
+    sets = merged_sets or None
     if model is None and (sets or steps is not None):
         model = _load_stored_run_model(run_path)
     if sets:
@@ -1583,8 +1605,12 @@ def lift(raw, *, base=None):
     """Lift an engine recipe dictionary into a Model conforming to hypergan-model/1."""
     from .config import DEFAULT
     from .model_file import PENALTY_FIELDS
+    if isinstance(raw, Model):
+        return raw if is_model_file(raw.spec) else lift(raw.spec, base=base or raw.base)
     raw = deepcopy(raw)
     base = Path.cwd() if base is None else Path(base)
+    if is_model_file(raw):
+        return from_dict(raw, base=base)
     components = raw.get('components', {}) or deepcopy(DEFAULT.get('components', {}))
     networks = {}
     losses = []
@@ -2153,10 +2179,25 @@ def _flatten_diff_dict(d, prefix=""):
     return flat
 
 
-def diff(target_a, target_b):
+def diff(target_a, target_b=None, *, sets=None, overrides=None):
     """Compare two configurations, models, runs, or checkpoints, returning differences."""
+    merged_sets = dict(sets or {})
+    if overrides:
+        merged_sets.update(overrides)
+    if target_b is None:
+        if not merged_sets:
+            raise ValueError("diff requires target_b or overrides/sets")
+        m_b = override(_model(target_a), merged_sets)
+        target_b_label = f"{getattr(target_a, 'path', target_a)} (with overrides)"
+        cfg_b = _extract_diff_config(m_b)
+    elif merged_sets:
+        m_b = override(_model(target_b), merged_sets)
+        target_b_label = str(getattr(target_b, "path", target_b))
+        cfg_b = _extract_diff_config(m_b)
+    else:
+        target_b_label = str(getattr(target_b, "path", target_b))
+        cfg_b = _extract_diff_config(target_b)
     cfg_a = _extract_diff_config(target_a)
-    cfg_b = _extract_diff_config(target_b)
     flat_a = _flatten_diff_dict(cfg_a)
     flat_b = _flatten_diff_dict(cfg_b)
     all_keys = sorted(set(flat_a.keys()) | set(flat_b.keys()))
@@ -2168,7 +2209,7 @@ def diff(target_a, target_b):
             differences[k] = {"a": val_a, "b": val_b}
     return {
         "target_a": str(getattr(target_a, "path", target_a)),
-        "target_b": str(getattr(target_b, "path", target_b)),
+        "target_b": target_b_label,
         "identical": len(differences) == 0,
         "differences": differences,
     }

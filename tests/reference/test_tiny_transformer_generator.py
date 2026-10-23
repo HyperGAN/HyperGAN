@@ -13,7 +13,8 @@ NETWORKS = Path(__file__).parents[2] / 'examples/networks'
 @pytest.mark.parametrize('side,z_dim', [(32, 64), (128, 512), (128, 64)])
 def test_initial_conditioning_gradients_and_checkpoint(side, z_dim):
     if (side, z_dim) == (128, 64):
-        config = tomllib.loads((NETWORKS.parent / 'logos-tiny-transformer-resnet-features-128.toml').read_text())
+        from hypergan.config import load_config
+        config = load_config(NETWORKS.parent / 'logos-tiny-transformer-resnet-features-128.toml')
         source = config['components']['generator']['args']['source']
     else:
         source = (NETWORKS / f'tiny-transformer-generator-{side}.hndl').read_text()

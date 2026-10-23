@@ -60,7 +60,7 @@ except ModuleNotFoundError:  # Python 3.10
 from .network_config import read_source
 
 FORMAT = 'hypergan-model/1'
-TOP_LEVEL = {'format', 'name', 'defaults', 'recipe', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
+TOP_LEVEL = {'format', 'name', 'description', 'defaults', 'recipe', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
              'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'extends'}
 
 CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
@@ -368,10 +368,12 @@ class _Lowering:
         args = _table(spec_copy.pop('args', {}), f'{location}.args')
         spec_copy.pop('batch_size', None)
         if kind == 'builtin':
-            if {'shuffle', 'workers'} & set(spec_copy):
+            if spec['builtin'] != 'image_folder' and ({'shuffle', 'workers'} & set(spec_copy)):
                 raise ModelFileError(f'{location}: shuffle/workers apply to item-level datasets (dataset = "module:Class")')
             for k, v in spec_copy.items():
                 args.setdefault(k, v)
+            if spec['builtin'] == 'cifar10':
+                return {'factory': 'hypergan.image_data:CIFAR10Data', 'args': args}
             if spec['builtin'] not in BUILTIN_DATA:
                 raise ModelFileError(f'{location}.builtin must be one of {", ".join(BUILTIN_DATA)}')
             if spec['builtin'] == 'image_folder' and 'channels' in args:
@@ -393,6 +395,8 @@ class _Lowering:
 
     def prior(self, spec):
         spec = _table(deepcopy(spec), 'prior')
+        if 'type' in spec and 'kind' not in spec:
+            spec['kind'] = spec.pop('type')
         result = {key: spec.pop(key) for key in PRIOR_FIELDS if key in spec}
         args = spec.pop('args', {})
         if not isinstance(args, dict):
@@ -572,13 +576,19 @@ class _Lowering:
         return result
 
     def metrics(self, spec):
-        spec = _table(deepcopy(spec), 'metrics', {'preset', 'disable', 'every_steps', 'every', 'overrides', 'custom'})
+        spec = _table(deepcopy(spec), 'metrics')
         if 'every' in spec:
             every_val = spec.pop('every')
             spec.setdefault('every_steps', every_val)
-        custom = {}
+        raw_custom = []
         for name, metric in _table(spec.pop('custom', {}), 'metrics.custom').items():
-            location = f'metrics.custom.{name}'
+            raw_custom.append((name, metric, f'metrics.custom.{name}'))
+        for name in list(spec.keys()):
+            if name not in ('preset', 'disable', 'every_steps', 'every', 'overrides') and isinstance(spec[name], dict):
+                raw_custom.append((name, spec.pop(name), f'metrics.{name}'))
+        _table(spec, 'metrics', {'preset', 'disable', 'every_steps', 'every', 'overrides'})
+        custom = {}
+        for name, metric, location in raw_custom:
             metric = deepcopy(_table(metric, location, {'fn', 'factory', 'args', 'inputs', 'every_steps', 'every', 'timeout', 'on_error',
                                       'label', 'unit', 'direction', 'description'}))
             if 'every' in metric:

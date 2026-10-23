@@ -246,11 +246,11 @@ def test_new_template_without_dataset_and_self_documenting_comments(tmp_path):
     assert "# HyperGAN Experiment Configuration" in raw_text
     assert "# Start training: hypergan train my_transformer.toml" in raw_text
     assert "# Validate config: hypergan validate my_transformer.toml" in raw_text
-    assert "[dataset]" in raw_text
-    assert "[architecture]" in raw_text
+    assert "[data]" in raw_text
+    assert "[networks]" in raw_text
     assert "[losses]" in raw_text
-    assert "[trainer]" in raw_text
-    assert "[SamplePreview]" in raw_text
+    assert "[train]" in raw_text
+    assert "[sampling]" in raw_text
 
     parsed = tomllib.loads(raw_text)
     assert parsed["format"] == "hypergan-model/1"

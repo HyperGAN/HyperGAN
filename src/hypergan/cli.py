@@ -128,7 +128,7 @@ def _parser():
     commands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,validate,recipes,tag,rm,gc,prune,checkpoint,inspect,compare,diff,doctor,report}",
+        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,explain,validate,recipes,tag,rm,gc,prune,checkpoint,inspect,compare,diff,doctor,report}",
     )
     commands.add_parser("version")
     recipes_cmd = commands.add_parser("recipes", help="List available recipes and qualification status")
@@ -222,8 +222,16 @@ def _parser():
 
     diff_cmd = commands.add_parser("diff", help="Compare two recipes, runs, or checkpoints")
     diff_cmd.add_argument("target_a", type=str, help="first recipe TOML, run directory/slug/tag, or checkpoint")
-    diff_cmd.add_argument("target_b", type=str, help="second recipe TOML, run directory/slug/tag, or checkpoint")
+    diff_cmd.add_argument("target_b", nargs="?", default=None, type=str, help="second recipe TOML, run directory/slug/tag, or checkpoint (optional when -s/--set is passed)")
+    diff_cmd.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                          help="override configuration value on the target before comparing")
     diff_cmd.add_argument("--json", action="store_true", help="output diff as JSON")
+
+    explain_cmd = commands.add_parser("explain", help="Explain each network's role, inputs, optimizer group, and gradient sources")
+    explain_cmd.add_argument("path", nargs="?", type=Path, default=None, help="model .toml, project directory, or run directory/slug/tag")
+    explain_cmd.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                             help="override configuration value before explaining (e.g. --set train.lr=0.0005)")
+    explain_cmd.add_argument("--json", action="store_true", help="output explanation as JSON")
 
     doctor_cmd = commands.add_parser("doctor", help="Inspect Python, PyTorch, CUDA devices, workspace, and runner health")
     doctor_cmd.add_argument("--json", action="store_true", help="output diagnostic report as JSON")
@@ -830,10 +838,27 @@ def _extract_diffable_config(target, hg):
     raise FileNotFoundError(f"Run or recipe target '{target_str}' not found or contains no configuration")
 
 
-def _run_diff(target_a, target_b, is_json=False):
+def _run_diff(target_a, target_b=None, sets=None, is_json=False):
     from . import api as hg
+    from .api import _clean_diff_dict
+    if target_b is None and not sets:
+        raise ValueError("diff requires a second target (target_b) or at least one -s/--set override")
     cfg_a = _extract_diffable_config(target_a, hg)
-    cfg_b = _extract_diffable_config(target_b, hg)
+    if target_b is None:
+        m_a = hg.load(target_a)
+        expanded = _expand_set_overrides_for_model(m_a, sets)
+        m_b = hg.override(m_a, expanded)
+        cfg_b = _clean_diff_dict(dict(hg.resolve(m_b)))
+        target_b_display = f"{target_a} (with overrides)"
+    elif sets:
+        m_b = hg.load(target_b)
+        expanded = _expand_set_overrides_for_model(m_b, sets)
+        m_b = hg.override(m_b, expanded)
+        cfg_b = _clean_diff_dict(dict(hg.resolve(m_b)))
+        target_b_display = f"{target_b} (with overrides)"
+    else:
+        cfg_b = _extract_diffable_config(target_b, hg)
+        target_b_display = str(target_b)
 
     flat_a = _flatten_dict(cfg_a)
     flat_b = _flatten_dict(cfg_b)
@@ -849,7 +874,7 @@ def _run_diff(target_a, target_b, is_json=False):
     identical = len(differences) == 0
     res = {
         "target_a": str(target_a),
-        "target_b": str(target_b),
+        "target_b": target_b_display,
         "identical": identical,
         "differences": differences,
     }
@@ -857,9 +882,9 @@ def _run_diff(target_a, target_b, is_json=False):
         _print_json(res)
     else:
         if identical:
-            print(f"No differences found between {target_a} and {target_b}.")
+            print(f"No differences found between {target_a} and {target_b_display}.")
         else:
-            print(f"Differences between {target_a} and {target_b}:")
+            print(f"Differences between {target_a} and {target_b_display}:")
             print(f"{'Key':<35} {'Target A':<25} {'Target B':<25}")
             print("-" * 87)
             for k, diff in differences.items():
@@ -1272,7 +1297,28 @@ def _dispatch(args, *, output=None):
                 from .inspection import format_comparison_table
                 print(format_comparison_table(comp))
         elif args.command == "diff":
-            return _run_diff(args.target_a, args.target_b, is_json=getattr(args, "json", False))
+            d_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
+            return _run_diff(args.target_a, args.target_b, sets=d_sets, is_json=getattr(args, "json", False))
+        elif args.command == "explain":
+            explain_path = args.path
+            if explain_path is None:
+                explain_path = hg.resolve_run_target(None)
+            elif explain_path.is_dir() and not (explain_path / "model.toml").is_file():
+                configs_dir = explain_path / "configs"
+                cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
+                if cand_tomls:
+                    explain_path = cand_tomls[0]
+            m = hg.load(explain_path)
+            e_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
+            if e_sets:
+                e_sets = _expand_set_overrides_for_model(m, e_sets)
+                m = hg.override(m, e_sets)
+            text = hg.explain(m)
+            if getattr(args, "json", False):
+                _print_json({"path": str(explain_path), "explanation": text})
+            else:
+                print(text)
+            return 0
         elif args.command == "doctor":
             return _run_doctor(is_json=getattr(args, "json", False))
         elif args.command == "report":

@@ -29,19 +29,20 @@ hypergan evaluate /path/to/run --metric fid_smoke
 hypergan resume /path/to/run
 ```
 
-The metric ID comes from your `metrics.custom` configuration. Standalone evaluation is
+The metric ID comes from your `[evaluations.<id>]` configuration. Standalone evaluation is
 serialized with training, runs in a fresh supervised process and consumes an
 immutable EMA snapshot. Its receipt and independent metric stream record the
 snapshot hash, update, reference identity, factory sources and complete settings.
 `--bundle` selects an earlier immutable snapshot explicitly. Evaluation settings
 can be supplied with `--config` without changing the numerical recipe.
 
-To change the cadence of an interval metric, or to restore it after an explicit
-`trigger = "manual"`, write the scheduling fields out:
+To change the cadence of an interval metric under `[evaluations.<id>]`, set `every`
+(or omit `every` for manual-only evaluation):
 
 ```toml
-trigger = "interval"
-every_steps = 10000
+[evaluations.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+every = 10000
 on_busy = "skip"
 ```
 

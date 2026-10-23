@@ -19,7 +19,8 @@ def test_feature_only_scores_freezing_and_penalty(tmp_path, side):
     if side == 32:
         source = (NETWORKS / 'resnet18-features-discriminator-32.hndl').read_text()
     else:
-        config = tomllib.loads((NETWORKS.parent / 'logos-tiny-transformer-resnet-features-128.toml').read_text())
+        from hypergan.config import load_config
+        config = load_config(NETWORKS.parent / 'logos-tiny-transformer-resnet-features-128.toml')
         source = config['components']['discriminator']['args']['source']
     with torch.random.fork_rng(devices=[]):
         path = tmp_path / 'resnet18.pth'

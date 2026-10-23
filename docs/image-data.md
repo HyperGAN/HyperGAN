@@ -186,7 +186,7 @@ an optional cache directory, disabled by default:
 
 ```toml
 [data.args]
-cache_dir = "/mnt/ml7tb/hypergan-cache/logos-128"
+cache_dir = "./cache/logos-128"
 ```
 
 Workers save the exact preprocessed RGB uint8 bytes on first access. Later

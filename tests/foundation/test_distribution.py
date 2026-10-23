@@ -6,6 +6,14 @@ import importlib.metadata
 def test_distribution_contains_only_supported_package():
     distribution = importlib.metadata.distribution("hypergan")
     files = {str(path).replace("\\", "/") for path in distribution.files}
+    if any(path.startswith("__editable__.") for path in files):
+        from pathlib import Path
+        import hypergan
+        pkg_root = Path(hypergan.__file__).resolve().parent
+        src_root = pkg_root.parent
+        files |= {p.relative_to(src_root).as_posix() for p in pkg_root.rglob("*") if p.is_file() and "__pycache__" not in p.parts}
+    elif any(path.startswith("src/hypergan/") for path in files):
+        files |= {path.removeprefix("src/") for path in files if path.startswith("src/hypergan/")}
     assert "hypergan/cli.py" in files
     assert "hypergan/__main__.py" in files
     assert not any("needs_pytorch" in path for path in files)

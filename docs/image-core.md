@@ -51,9 +51,10 @@ execution. Existing replicated shared-draw behavior remains supported.
 An auxiliary call can reuse an existing non-discriminator factory component:
 
 ```toml
-[components.reconstruction]
+[networks.reconstruction]
+role = "auxiliary"
 reuse = "generator"
-inputs = { z = "components.encoder.latent" }
+inputs = { z = "encoder.latent" }
 freeze_parameters = true
 ```
 
@@ -84,7 +85,7 @@ source's accelerated policy (`deterministic_algorithms = false`,
 `cudnn_benchmark = true`, TF32 on); the strict variant is:
 
 ```toml
-[training.backend]
+[train.backend]
 deterministic_algorithms = true
 cudnn_deterministic = true
 cudnn_benchmark = false

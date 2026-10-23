@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 from .config import config_values, fingerprint, load_config, resolve_config, resume_compatible
+from .model_file import ConfigError
 from .previews import sample_name
 from .execution_profiles import load_execution_profile, resolve_execution_profile
 
@@ -313,17 +314,17 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             remedy = ('`hypergan resume RUN --config CONFIG` continues this run with changed '
                       'observation settings' if set(changed) <= {'metrics', 'samplers'} else
                       'use a new run directory for a different numerical configuration')
-            raise ValueError('Training configuration differs from the original run in '
-                             + ', '.join(changed) + '; ' + remedy)
+            raise ConfigError('Training configuration differs from the original run in '
+                              + ', '.join(changed) + '; ' + remedy)
     if fingerprint(config) != manifest['config_sha256']:
         compat = resume_compatible(config, manifest['config'])
         if (not compat
                 or fingerprint(manifest['config']) != manifest['config_sha256']):
             diffs = getattr(compat, 'differences', ())
             diff_str = f" in {', '.join(diffs)}" if diffs else ""
-            raise ValueError(f'Resume configuration differs from the original run{diff_str}; only an increased '
-                             'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
-                             'pinned training-image skipping, or changing its pixel cache, is allowed')
+            raise ConfigError(f'Resume configuration differs from the original run{diff_str}; only an increased '
+                              'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
+                              'pinned training-image skipping, or changing its pixel cache, is allowed')
     saved = manifest.get('execution')
     if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
         raise ValueError('Run has no supported numerical execution identity')

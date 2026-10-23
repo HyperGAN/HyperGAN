@@ -84,10 +84,10 @@ The `[prior]` section configures the latent distribution sampled by the generato
 
 ```toml
 [prior]
-kind = "particles"                # or type = "particles" | "gaussian" | "mog" | "mixture_of_gaussians"
+kind = "particles"                # or type = "particles" | "gaussian" | "mog"
 z_dim = 128
 num_particles = 16384
-sigma = 0.2126
+init_std = 1.0                    # for kind = "mog", use fixed_sigma = 0.2126 or sigma_rel = 0.025
 learnable = true
 initialization_seed = 2
 initialization_device = "cpu"
@@ -95,15 +95,13 @@ initialization_device = "cpu"
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `kind` / `type` | `string` | Prior distribution family: `"particles"` (learned particle table), `"gaussian"` (fixed standard normal), or `"mog"` / `"mixture_of_gaussians"` (learned mixture of Gaussians). |
-| `z_dim` | `int` | Latent vector dimensionality (automatically inferred from the generator's `latent` input shape when omitted). |
+| `kind` / `type` | `string` | Prior distribution family: `"particles"` (learned particle table), `"gaussian"` (fixed standard normal), or `"mog"` (learned mixture of Gaussians). |
+| `z_dim` | `int` | Latent vector dimensionality. |
 | `num_particles` | `int` | Number of particles or mixture components in `"particles"` / `"mog"` priors (e.g., `10000`, `16384`, `65536`). |
-| `sigma` / `fixed_sigma` | `float` | Isotropic Gaussian noise scale added to selected particle centers. |
+| `init_std` | `float` | Initial standard deviation for particle or Gaussian draws (`1.0` by default). |
+| `sigma` / `fixed_sigma` | `float` | Isotropic Gaussian noise scale added to selected particle centers in `"mog"` priors. |
 | `sigma_rel` | `float` | Relative nearest-neighbor calibration scale for `"mog"` priors when `sigma` / `fixed_sigma` is omitted (default `0.025`). |
-| `step_size`, `steps` | `float`, `int` | Optional Langevin/particle transition step size and inner step count. |
-| `temperature` | `float` | Sampling or routing temperature. |
-| `normalize` / `standardize` | `bool` | Whether to standardize the learned particle table across rows. |
-| `ema_decay`, `weight_decay` | `float` | Optional EMA smoothing and weight decay on learned particle parameters. |
+| `standardize` | `bool` | Whether to standardize the learned `"mog"` particle table across rows. |
 | `learnable` | `bool` | Whether particle centers are updated by the prior optimizer (`true` by default). |
 | `initialization_seed` | `int` | Dedicated deterministic seed for initializing the particle table. |
 | `initialization_device` | `string` | Device used for initial particle table draw (`"execution"` or `"cpu"`). |
@@ -143,7 +141,19 @@ role = "critic"
 inputs = { x = "candidate" }
 input_shape = ["B", 3, 64, 64]
 output_shape = ["B", 1]
-hndl = "networks/discriminator-64.hndl"
+# Or load from a standalone file: hndl = "networks/discriminator-64.hndl"
+source = """
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+"""
 ```
 
 ### Network Specification Fields
@@ -218,7 +228,6 @@ All training objectives—adversarial losses, prior spread regularization, paire
 [[losses]]
 type = "adversarial"
 critic = "discriminator"
-loss = "r3gan"                    # "r3gan" | "logistic" | "hinge" | "wgan"
 weight = 1.0
 penalty = 1.0
 
@@ -232,7 +241,7 @@ rows = "sampled_unique"           # "sampled_unique" | "full"
 [[losses]]
 type = "reconstruction"           # or type = "objective"
 id = "recon_l1"
-fn = "l1"                         # or kind = "l1" | "l2" | "mse" | "perceptual" | "module:callable"
+fn = "l1"                         # "l1" | "mse" | "module:callable"
 input = "generated"
 target = "batch.real"
 weight = 0.5
@@ -252,7 +261,6 @@ anchor_decay = 0.999
    - `critic`: Name of a `[networks.<name>]` entry with `role = "critic"`.
    - `weight`: Scalar multiplier on the adversarial loss (default `1.0`).
    - `penalty`: Critic gradient penalty coefficient (`>= 0`, default `1.0`; `0` disables the gradient penalty for this term).
-   - `loss`: Adversarial formulation selector (`"r3gan"`, `"logistic"`, `"hinge"`, `"wgan"`).
    - `real`, `fake`: Sample bindings (defaults to `real = "batch.real"` and `fake = "generated"`). Additional adversarial terms can score custom bindings or override `inputs` for multi-critic training.
    - `id`: Unique identifier for additional adversarial terms (the primary adversarial loss publishes as `loss/d_adversarial` and `loss/g_adversarial`).
 
@@ -299,11 +307,11 @@ initialization = "deterministic_orthogonal"
 
 # Optimizer & learning rate settings
 lr = 0.0002
-d_lr_mult = 1.5                   # or explicit g_lr / d_lr
+d_lr_mult = 1.5
 prior_lr_mult = 10.0
-betas = [0.0, 0.999]              # or g_betas / d_betas
+betas = [0.0, 0.999]
 prior_betas = [0.5, 0.999]
-ema = 0.995                       # or ema_decay = 0.995
+ema = 0.995
 lr_anneal_start = 0.6
 lr_floor = 0.05
 
@@ -328,16 +336,11 @@ cublas_workspace_config = ":4096:8"
 | `seed` | `int` | Base deterministic RNG seed. |
 | `device` | `string` | Target execution device (`"cuda"`, `"cuda:0"`, `"cuda:1"`, `"cpu"`). |
 | `lr` | `float` | Base generator/encoder learning rate (e.g., `0.0002`). |
-| `g_lr`, `d_lr` | `float` | Explicit generator and critic learning rates (or use `lr` with `d_lr_mult`). |
 | `d_lr_mult`, `prior_lr_mult` | `float` | Multipliers relative to `lr` for the critic Adam group (`1.5`) and learnable prior table (`10.0`). |
-| `betas` / `g_betas`, `d_betas` | `[float, float]` | Adam `[beta1, beta2]` coefficients for network parameters (default `[0.0, 0.999]`). |
+| `betas` | `[float, float]` | Adam `[beta1, beta2]` coefficients for network parameters (default `[0.0, 0.999]`). |
 | `prior_betas` | `[float, float]` | Adam `[beta1, beta2]` coefficients for the learnable prior table. |
-| `weight_decay` | `float` | Optional parameter weight decay. |
-| `ema` / `ema_decay` | `float` | Exponential moving average decay for inference generator weights (`[0, 1)`, default `0.995`). |
-| `grad_clip` | `float` | Optional gradient norm clipping threshold. |
-| `compile` | `bool` | Whether to wrap networks with `torch.compile` where supported. |
-| `n_critic` | `int` | Number of critic updates per generator update (`1` by default). |
-| `precision` | `string` | Numerical precision policy (`"float32"`, `"fp16"`, `"bf16"`). |
+| `implementation` | `string` | Optimizer implementation (`"recipe"`, `"device_adam"`, or `"torch_fused_adam"`). |
+| `ema` | `float` | Exponential moving average decay for inference generator weights (`[0, 1)`, default `0.995`). |
 | `initialization` | `string` | Weight initialization policy: `"deterministic_orthogonal"` or `"constructor"`. |
 | `lr_anneal_start`, `lr_floor` | `float` | Fraction of `steps` where learning-rate cosine/linear annealing begins (`0.6`) and final floor multiplier (`0.05`; set `lr_floor = 1.0` for a constant learning rate that allows seamless `--steps` extension on resume). |
 | `d_guard_ratio`, `d_guard_min_steps` | `float`, `int` | Critic spike guard threshold (`5.0`) and warmup step count (`200`). |
@@ -354,7 +357,6 @@ Snapshot evaluations run against an isolated copy of the EMA generator and a ded
 
 ```toml
 [evaluations.fid50k_train]
-metric = "fid"                    # "fid" | "kid" | "is" | "prc" | "coverage", or factory = "module:Class"
 factory = "hypergan.image_metrics:InceptionFID"
 every = 10000                     # omit `every` for manual-only evaluation (`trigger = "manual"`)
 device = "cuda:0"
@@ -380,7 +382,6 @@ horizontal_flip = false
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `metric` | `string` | Built-in evaluation metric identifier (`"fid"`, `"kid"`, `"is"`, `"prc"`, `"coverage"`). |
 | `factory` / `fn` | `string` | Importable Python evaluator class (`factory = "pkg.mod:Class"`) or function (`fn = "pkg.mod:func"`). |
 | `every` / `every_steps` | `int` | Interval in global training steps for automatic background evaluation. Omit to configure the metric as `manual` (run only via `hypergan eval`). |
 | `samples` | `int` | Total number of generated and reference examples to evaluate (required). |
@@ -405,7 +406,7 @@ disable = ["loss/d_adversarial_raw", "loss/g_adversarial_raw"]
 [metrics.overrides."loss/total"]
 enabled = false
 
-[metrics.custom.loss_ratio]
+[metrics.loss_ratio]
 factory = "hypergan.metric_examples:ScalarRatio"
 inputs = { numerator = "g_loss", denominator = "d_loss" }
 every_steps = 100
@@ -444,15 +445,13 @@ args = { root = "./data/images", height = 64, width = 64, mode = "RGB", resize =
 
 ```toml
 [sampling]
-count = 16                        # number of samples in periodic preview grids (or grid_size / fixed_count)
-seed = 123                        # deterministic preview seed (or fixed_seed)
-ema = true                        # sample from EMA generator weights
+count = 16                        # number of samples in periodic preview grids
+seed = 123                        # deterministic preview seed
 output = "generator"              # primary generated output binding (default: generator output)
-views = { gray = "input_gray", random = "generated" }
+views = { real = "batch.real", random = "generated" }
 comparison = [
   { label = "X", binding = "batch.real" },
-  { label = "B", binding = "input_gray" },
-  { label = "X_hat", binding = "reconstruction" },
+  { label = "G(z)", binding = "generated" },
 ]
 
 [samplers.custom_grid]

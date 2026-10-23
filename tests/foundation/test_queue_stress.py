@@ -82,7 +82,10 @@ def _multiprocess_status_and_cancel_worker(queue_path_str: str, iterations: int)
 def test_concurrent_multiprocess_queue_operations(temp_queue, monkeypatch):
     """Stress-test advisory flock across independent parallel OS processes."""
     # Spawned workers must import this fixture module outside the checkout.
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]))
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parent))
+    monkeypatch.setitem(sys.modules, "test_queue_stress", sys.modules[__name__])
+    for fn in (_multiprocess_adder_worker, _multiprocess_reader_worker, _multiprocess_status_and_cancel_worker):
+        monkeypatch.setattr(fn, "__module__", "test_queue_stress")
     ctx = multiprocessing.get_context("spawn")
     processes = []
 
@@ -542,6 +545,12 @@ def test_systemd_install_service_syntax_and_validation(tmp_path):
                 capture_output=True,
                 text=True
             )
+            if res.returncode != 0 and ("Failed to initialize manager" in res.stderr or "Failed to lookup RuntimeDirectory" in res.stderr):
+                res = subprocess.run(
+                    [systemd_analyze_bin, "verify", str(temp_unit)],
+                    capture_output=True,
+                    text=True
+                )
             # systemd-analyze verify prints warnings or errors; exit code 0 indicates valid syntax
             assert res.returncode == 0, f"systemd-analyze failed on {sc['expected_svc']}: {res.stderr}"
 

@@ -16,6 +16,7 @@ from .particlegan_integration import (PARTICLEGAN_DEFAULT_FIELDS, particlegan_de
 from .network_config import packaged_source, read_source, validate_network_args, materialize_networks
 
 from .metrics import DEFAULT_METRICS, evaluation_warnings, objective_id, validate_metrics
+from .model_file import ModelFileError
 
 try:
     import tomllib
@@ -475,7 +476,7 @@ def resolve_config(raw):
             prior["args"]["z_dim"] = latent_dim
             prior_z_dim = latent_dim
         elif latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
-            raise ValueError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
+            raise ModelFileError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
 
     _positive(result["adversarial"]["weight"], "adversarial.weight", zero=True)
     penalty = result["gradient_penalty"]
@@ -772,15 +773,17 @@ def _diff_keys(current, saved, prefix=""):
         all_keys = sorted(set(current) | set(saved))
         for k in all_keys:
             p = f"{prefix}.{k}" if prefix else k
+            norm_p = "prior." + p[len("prior.args."):] if p.startswith("prior.args.") else p
             if k not in current or k not in saved:
-                diffs.append(p)
+                diffs.append(norm_p)
             elif not _json_same(current[k], saved[k]):
                 if isinstance(current[k], dict) and isinstance(saved[k], dict):
                     diffs.extend(_diff_keys(current[k], saved[k], p))
                 else:
-                    diffs.append(p)
+                    diffs.append(norm_p)
     elif not _json_same(current, saved):
-        diffs.append(prefix or "config")
+        norm_p = "prior." + prefix[len("prior.args."):] if prefix.startswith("prior.args.") else (prefix or "config")
+        diffs.append(norm_p)
     return diffs
 
 

@@ -305,7 +305,7 @@ def test_nonfinite_and_deeply_nested_complete_json_fail_cleanly(tmp_path):
     row = event(1)
     row['loss'] = float('nan')
     append(tmp_path, row)
-    with pytest.raises(ValueError, match='nonfinite'):
+    with pytest.raises(ValueError, match='(?i)nonfinite'):
         read_event_page(tmp_path)
     (tmp_path / 'events.jsonl').write_bytes(b'[' * 2000 + b']' * 2000 + b'\n')
     with pytest.raises(ValueError, match='Corrupt complete event row'):

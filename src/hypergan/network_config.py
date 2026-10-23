@@ -76,7 +76,16 @@ def _validate_imajev_provider(options):
     if not isinstance(options, dict):
         raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
     common_required = {'base_model_path', 'adapter_path'}
-    common_optional = {'temperature', 'image_size', 'compile', 'target_layer', 'state_embed_dim'}
+    common_optional = {
+        'temperature',
+        'image_size',
+        'compile',
+        'target_layer',
+        'state_embed_dim',
+        'tau',
+        'mode',
+        'sobolev_precondition',
+    }
     if 'queries' in options:
         if {'question', 'options', 'state'} & set(options):
             raise ValueError('imajev_4b cannot specify both queries and top-level question/options/state')
@@ -131,6 +140,17 @@ def _validate_imajev_provider(options):
         state_embed_dim = options['state_embed_dim']
         if type(state_embed_dim) is not int or not 4 <= state_embed_dim <= 256:
             raise ValueError('imajev_4b state_embed_dim must be an integer in [4, 256]')
+    if 'tau' in options:
+        tau = options['tau']
+        if type(tau) not in (int, float) or not math.isfinite(tau) or tau <= 0:
+            raise ValueError('imajev_4b tau must be a finite positive number')
+    if 'mode' in options:
+        mode = options['mode']
+        if mode not in ('joint_log_odds', 'pooled_features', 'pooled_vision', 'decision_logits', 'decision_probs'):
+            raise ValueError('imajev_4b mode must be "joint_log_odds", "pooled_features", "pooled_vision", "decision_logits", or "decision_probs"')
+    if 'sobolev_precondition' in options:
+        if type(options['sobolev_precondition']) is not bool:
+            raise ValueError('imajev_4b sobolev_precondition must be a boolean')
 
 
 def validate_pretrained_providers(providers):

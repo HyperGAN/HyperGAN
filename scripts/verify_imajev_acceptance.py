@@ -845,6 +845,28 @@ def load_checkpoint_and_generate(
     if not ckpt_file.exists():
         raise FileNotFoundError(f"Checkpoint not found at: {ckpt_file}")
 
+    if ckpt_file.is_dir():
+        if (ckpt_file / "model.pt").is_file():
+            ckpt_file = ckpt_file / "model.pt"
+        elif (ckpt_file / "state.pt").is_file():
+            ckpt_file = ckpt_file / "state.pt"
+        else:
+            try:
+                import hypergan.api as hg
+                resolved_dir = hg.resolve_checkpoint(ckpt_file, "latest")
+                if (resolved_dir / "model.pt").is_file():
+                    ckpt_file = resolved_dir / "model.pt"
+                elif (resolved_dir / "state.pt").is_file():
+                    ckpt_file = resolved_dir / "state.pt"
+                else:
+                    ckpt_file = resolved_dir
+            except Exception:
+                pt_candidates = list(ckpt_file.glob("**/model.pt")) + list(ckpt_file.glob("**/state.pt"))
+                if pt_candidates:
+                    ckpt_file = sorted(pt_candidates, key=lambda p: p.stat().st_mtime)[-1]
+                else:
+                    raise FileNotFoundError(f"No checkpoint file found in directory: {ckpt_file}")
+
     dev = torch.device(device)
     raw_state = torch.load(ckpt_file, map_location=dev, weights_only=False)
 
@@ -855,6 +877,35 @@ def load_checkpoint_and_generate(
             generator = raw_state["generator"]
         elif "model" in raw_state and hasattr(raw_state["model"], "forward"):
             generator = raw_state["model"]
+        elif raw_state.get("kind") == "ema-inference" and "components" in raw_state:
+            from hypergan.recipes import ComponentGraph
+            graph = ComponentGraph(raw_state["components"]).to(dev).eval().requires_grad_(False)
+            for name, weights in raw_state.get("model_states", {}).items():
+                if name in graph.models:
+                    graph.models[name].load_state_dict(weights)
+            if "image_generator" in graph.models:
+                generator = graph.models["image_generator"]
+            elif "generator" in graph.models:
+                generator = graph.models["generator"]
+            else:
+                generator = list(graph.models.values())[0]
+        elif "ema_graph" in raw_state or "graph" in raw_state:
+            raw_weights = raw_state.get("ema_graph", raw_state.get("graph", {}))
+            if recipe_path and Path(recipe_path).exists():
+                import hypergan.api as hg
+                from hypergan.recipes import ComponentGraph
+                from hypergan.config import resolve_config
+                cfg = resolve_config(hg.load_recipe(recipe_path))
+                graph = ComponentGraph(cfg["components"]).to(dev).eval().requires_grad_(False)
+                for name, model in graph.models.items():
+                    prefix = f"models.{name}."
+                    matching = {k[len(prefix):]: v for k, v in raw_weights.items() if k.startswith(prefix)}
+                    if matching:
+                        model.load_state_dict(matching, strict=False)
+                if "image_generator" in graph.models:
+                    generator = graph.models["image_generator"]
+                elif "generator" in graph.models:
+                    generator = graph.models["generator"]
 
     if generator is None:
         # Attempt to lift and instantiate from recipe if provided
@@ -871,14 +922,39 @@ def load_checkpoint_and_generate(
                 f"Cannot extract generator from {ckpt_file}. Recipe file required."
             )
 
+    generator = generator.to(dev)
     generator.eval()
+
+    # Determine generator latent dimension (support 128 as default, fallback to 64 or probe)
+    z_dim = 128
+    if hasattr(generator, "z_dim"):
+        z_dim = generator.z_dim
+    elif hasattr(generator, "input_shape") and generator.input_shape:
+        try:
+            z_dim = int(generator.input_shape[-1])
+        except Exception:
+            pass
+    else:
+        try:
+            with torch.no_grad():
+                _test_z = torch.randn(1, 128, device=dev)
+                generator(_test_z)
+                z_dim = 128
+        except Exception:
+            try:
+                with torch.no_grad():
+                    _test_z = torch.randn(1, 64, device=dev)
+                    generator(_test_z)
+                    z_dim = 64
+            except Exception:
+                z_dim = 128
+
     samples = []
     with torch.no_grad():
         generated_count = 0
         while generated_count < num_samples:
             cur_b = min(batch_size, num_samples - generated_count)
-            # Default latent vector
-            z = torch.randn(cur_b, 64, device=dev)
+            z = torch.randn(cur_b, z_dim, device=dev)
             batch_images = generator(z)
             samples.append(batch_images.cpu())
             generated_count += cur_b
@@ -905,6 +981,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--samples",
+        "--count",
         type=int,
         default=64,
         help="Number of samples to evaluate (must be >= 64)",

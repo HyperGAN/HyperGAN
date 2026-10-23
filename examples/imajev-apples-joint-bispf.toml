@@ -1,0 +1,365 @@
+# Data-less ImaJev-4B Constraint GAN recipe integrating joint 6-query scoring,
+# multiscale pyramid generator, optical wavefront prior, and on-manifold diversity.
+schema_version = 1
+name = "constraints/imajev-apples-joint-64-bispf"
+defaults = "particlegan"
+
+[data]
+factory = "hypergan.constraint_data:JointMultiQueryConstraintData"
+[data.args]
+tau = 3.0
+temperature = 1.30515697
+jitter_std = 0.0
+target_prob = 0.85
+
+[[data.args.queries]]
+state = { task = "apple_generation", aspect = "subject" }
+question = "What is the main subject shown in this image?"
+options = [
+  "a recognizable apple fruit",
+  "an orange or lemon citrus fruit",
+  "a banana or pear",
+  "random noise, static, checkerboard pattern, or solid color",
+]
+target_modes = [0]
+
+[[data.args.queries]]
+state = { task = "apple_generation", aspect = "color" }
+question = "What color is the apple shown in this image?"
+options = [
+  "a bright red apple",
+  "a crisp green apple",
+  "a golden yellow or two-tone Honeycrisp apple",
+  "monochrome gray, purple, blue, or static noise",
+]
+target_modes = [0, 1, 2]
+
+[[data.args.queries]]
+state = { task = "apple_generation", aspect = "bites" }
+question = "How many bites are taken out of the apple?"
+options = [
+  "zero bites — a complete, intact whole apple",
+  "one bite taken out showing pale apple flesh",
+  "multiple bites taken out or an eaten apple core",
+  "no apple visible, only noise or abstract shapes",
+]
+target_modes = [0, 1, 2]
+
+[[data.args.queries]]
+state = { task = "apple_generation", aspect = "sitting_on" }
+question = "What surface or background is the apple sitting on?"
+options = [
+  "a warm wooden table or rustic surface",
+  "a clean white or light studio surface",
+  "a dark moody background or dark slate surface",
+  "harsh digital static, grid lines, or corrupted pixels",
+]
+target_modes = [0, 1, 2]
+
+[[data.args.queries]]
+state = { task = "apple_generation", aspect = "style" }
+question = "What is the visual style and lighting of this apple image?"
+options = [
+  "a glossy photorealistic close-up with specular highlight",
+  "a soft painterly still-life illustration",
+  "a vibrant crisp product photo with natural shadow",
+  "flat unshaded blotches, noise, or checkerboard artifacts",
+]
+target_modes = [0, 1, 2]
+
+[[data.args.queries]]
+state = { task = "apple_generation", aspect = "stem_leaf" }
+question = "Does the apple have a visible stem or green leaf at the top?"
+options = [
+  "a stem with a fresh green leaf attached",
+  "a simple brown stem without a leaf",
+  "a natural top indentation without a stem",
+  "distorted noise or unrecognizable blob",
+]
+target_modes = [0, 1, 2]
+
+[components.image_generator]
+factory = "hndl"
+inputs = { x = "latent" }
+trainable = true
+[components.image_generator.args]
+input_shape = ["B", 128]
+output_shape = ["B", 3, 64, 64]
+file = "networks/multiscale-pyramid-generator-64.hndl"
+
+[components.generator]
+factory = "hndl"
+inputs = { x = "components.image_generator" }
+[components.generator.args]
+input_shape = ["B", 3, 64, 64]
+output_shape = ["B", 30]
+source = """
+pretrained(${readout_path}, provider="imajev_4b", sha256=${readout_sha256},
+           readout="joint_log_odds", trainable=False, name="imajev")
+"""
+[components.generator.args.parameters]
+readout_path = "/nvme/dev/imajev/artifacts/imajev-4b/decision_readout.pt"
+readout_sha256 = "7a98c7aac7c0f648ac2fdfd563dc6ccce4cdf4e81b47c6a6a0dae1725b409326"
+
+[components.generator.args.pretrained_providers.imajev_4b]
+base_model_path = "/nvme/dev/imajev/.cache/huggingface/hub/models--Qwen--Qwen3.5-4B/snapshots/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+adapter_path = "/nvme/dev/imajev/artifacts/imajev-4b"
+mode = "joint_log_odds"
+sobolev_precondition = true
+tau = 3.0
+temperature = 1.30515697
+image_size = 64
+target_layer = -1
+
+[[components.generator.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "subject" }
+question = "What is the main subject shown in this image?"
+options = [
+  "a recognizable apple fruit",
+  "an orange or lemon citrus fruit",
+  "a banana or pear",
+  "random noise, static, checkerboard pattern, or solid color",
+]
+
+[[components.generator.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "color" }
+question = "What color is the apple shown in this image?"
+options = [
+  "a bright red apple",
+  "a crisp green apple",
+  "a golden yellow or two-tone Honeycrisp apple",
+  "monochrome gray, purple, blue, or static noise",
+]
+
+[[components.generator.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "bites" }
+question = "How many bites are taken out of the apple?"
+options = [
+  "zero bites — a complete, intact whole apple",
+  "one bite taken out showing pale apple flesh",
+  "multiple bites taken out or an eaten apple core",
+  "no apple visible, only noise or abstract shapes",
+]
+
+[[components.generator.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "sitting_on" }
+question = "What surface or background is the apple sitting on?"
+options = [
+  "a warm wooden table or rustic surface",
+  "a clean white or light studio surface",
+  "a dark moody background or dark slate surface",
+  "harsh digital static, grid lines, or corrupted pixels",
+]
+
+[[components.generator.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "style" }
+question = "What is the visual style and lighting of this apple image?"
+options = [
+  "a glossy photorealistic close-up with specular highlight",
+  "a soft painterly still-life illustration",
+  "a vibrant crisp product photo with natural shadow",
+  "flat unshaded blotches, noise, or checkerboard artifacts",
+]
+
+[[components.generator.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "stem_leaf" }
+question = "Does the apple have a visible stem or green leaf at the top?"
+options = [
+  "a stem with a fresh green leaf attached",
+  "a simple brown stem without a leaf",
+  "a natural top indentation without a stem",
+  "distorted noise or unrecognizable blob",
+]
+
+[components.vision_features]
+factory = "hndl"
+inputs = { x = "components.image_generator" }
+trainable = false
+[components.vision_features.args]
+input_shape = ["B", 3, 64, 64]
+output_shape = ["B", 2560]
+source = """
+pretrained(${readout_path}, provider="imajev_4b", sha256=${readout_sha256},
+           readout="pooled_vision", trainable=False, name="imajev")
+"""
+[components.vision_features.args.parameters]
+readout_path = "/nvme/dev/imajev/artifacts/imajev-4b/decision_readout.pt"
+readout_sha256 = "7a98c7aac7c0f648ac2fdfd563dc6ccce4cdf4e81b47c6a6a0dae1725b409326"
+
+[components.vision_features.args.pretrained_providers.imajev_4b]
+base_model_path = "/nvme/dev/imajev/.cache/huggingface/hub/models--Qwen--Qwen3.5-4B/snapshots/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
+adapter_path = "/nvme/dev/imajev/artifacts/imajev-4b"
+mode = "pooled_vision"
+image_size = 64
+target_layer = -1
+
+[[components.vision_features.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "subject" }
+question = "What is the main subject shown in this image?"
+options = [
+  "a recognizable apple fruit",
+  "an orange or lemon citrus fruit",
+  "a banana or pear",
+  "random noise, static, checkerboard pattern, or solid color",
+]
+
+[[components.vision_features.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "color" }
+question = "What color is the apple shown in this image?"
+options = [
+  "a bright red apple",
+  "a crisp green apple",
+  "a golden yellow or two-tone Honeycrisp apple",
+  "monochrome gray, purple, blue, or static noise",
+]
+
+[[components.vision_features.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "bites" }
+question = "How many bites are taken out of the apple?"
+options = [
+  "zero bites — a complete, intact whole apple",
+  "one bite taken out showing pale apple flesh",
+  "multiple bites taken out or an eaten apple core",
+  "no apple visible, only noise or abstract shapes",
+]
+
+[[components.vision_features.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "sitting_on" }
+question = "What surface or background is the apple sitting on?"
+options = [
+  "a warm wooden table or rustic surface",
+  "a clean white or light studio surface",
+  "a dark moody background or dark slate surface",
+  "harsh digital static, grid lines, or corrupted pixels",
+]
+
+[[components.vision_features.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "style" }
+question = "What is the visual style and lighting of this apple image?"
+options = [
+  "a glossy photorealistic close-up with specular highlight",
+  "a soft painterly still-life illustration",
+  "a vibrant crisp product photo with natural shadow",
+  "flat unshaded blotches, noise, or checkerboard artifacts",
+]
+
+[[components.vision_features.args.pretrained_providers.imajev_4b.queries]]
+state = { task = "apple_generation", aspect = "stem_leaf" }
+question = "Does the apple have a visible stem or green leaf at the top?"
+options = [
+  "a stem with a fresh green leaf attached",
+  "a simple brown stem without a leaf",
+  "a natural top indentation without a stem",
+  "distorted noise or unrecognizable blob",
+]
+
+[components.discriminator]
+factory = "hndl"
+inputs = { x = "candidate" }
+[components.discriminator.args]
+input_shape = ["B", 30]
+output_shape = ["B", 1]
+source = """
+linear(64)
+leaky_relu(0.2)
+linear(1)
+"""
+
+[[objectives]]
+id = "optical_wavefront"
+factory = "hypergan.constraint_data:OpticalWavefrontPrior"
+inputs = { image = "components.image_generator" }
+weight = 0.05
+
+[[objectives]]
+id = "mode_entropy"
+factory = "hypergan.constraint_data:MarginalShannonEntropyRegularizer"
+inputs = { logits = "components.generator" }
+weight = 0.05
+[objectives.args]
+query_indices = [1, 2, 3, 4]
+num_classes = 5
+num_modes = 3
+min_entropy_ratio = 0.85
+input_mode = "joint_log_odds"
+
+[[objectives]]
+id = "vision_repulsion"
+factory = "hypergan.constraint_data:NormalizedVisionCosineRepulsion"
+inputs = { features = "components.vision_features" }
+weight = 0.02
+[objectives.args]
+margin = 0.88
+
+[[objectives]]
+id = "apple_prob"
+factory = "hypergan.constraint_data:OptionProbability"
+inputs = { logits = "components.generator" }
+detach = ["logits"]
+weight = 1.0
+[objectives.args]
+index = 0
+input_mode = "joint_log_odds"
+query_index = 0
+num_classes = 5
+
+[[objectives]]
+id = "noise_prob"
+factory = "hypergan.constraint_data:OptionProbability"
+inputs = { logits = "components.generator" }
+detach = ["logits"]
+weight = 1.0
+[objectives.args]
+index = 3
+input_mode = "joint_log_odds"
+query_index = 0
+num_classes = 5
+
+[[objectives]]
+id = "unknown_prob"
+factory = "hypergan.constraint_data:OptionProbability"
+inputs = { logits = "components.generator" }
+detach = ["logits"]
+weight = 1.0
+[objectives.args]
+index = 4
+input_mode = "joint_log_odds"
+query_index = 0
+num_classes = 5
+
+[prior]
+kind = "particles"
+initialization_device = "cpu"
+initialization_seed = 26003
+[prior.args]
+num_particles = 512
+z_dim = 128
+
+[training]
+steps = 150
+batch_size = 2
+seed = 26002
+device = "cuda:0"
+ema = 0.95
+phase_draws = "shared"
+
+[training.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[optimizer]
+lr = 0.025
+d_lr_mult = 0.5
+prior_lr_mult = 2.0
+
+[sampling]
+generated = "components.image_generator"
+count = 16
+seed = 36002
+
+[metrics]
+preset = "standard"
+every_steps = 5

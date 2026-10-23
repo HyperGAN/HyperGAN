@@ -334,10 +334,10 @@ def _parser():
             p.add_argument("--run-dir", type=Path, required=False, default=None, help="explicit run directory override")
             p.add_argument("--config", type=Path, default=None, help="verify exact compatibility with this configuration")
         else:
-            p.add_argument("config", type=Path, help="configuration file or existing run directory/slug/ID to resume")
+            p.add_argument("config", nargs="?", type=Path, default=None, help="configuration file or existing run directory/slug/ID to resume")
             p.add_argument("-n", "--name", default=None, help="custom experiment name / slug for the run")
             p.add_argument("--run-dir", type=Path, required=False, default=None, help="new run directory, or an existing run to resume")
-            p.add_argument("--config", type=Path, default=None, help="explicit configuration file override")
+            p.add_argument("--config", dest="config_opt", type=Path, default=None, help="explicit configuration file override")
         p.add_argument("-d", "--devices", default=None,
                        help="device(s) to train on: 0, 0,1, gpu0,gpu1, auto, cpu")
         p.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
@@ -782,6 +782,7 @@ def _flatten_dict(d, prefix=""):
 
 
 def _extract_diffable_config(target, hg):
+    from .api import _clean_diff_dict
     target_str = str(target)
     target_p = Path(target_str)
 
@@ -789,10 +790,7 @@ def _extract_diffable_config(target, hg):
         if not target_p.is_file():
             raise FileNotFoundError(f"Run or recipe target '{target_str}' not found")
         m = hg.load(target_p)
-        try:
-            return dict(hg.resolve(m))
-        except Exception:
-            return getattr(m, "spec", dict(m)) if hasattr(m, "spec") else dict(m)
+        return _clean_diff_dict(dict(hg.resolve(m)))
 
     if target_str.endswith(".pt") or (target_p.is_file() and target_p.suffix == ".pt"):
         if not target_p.is_file():
@@ -802,7 +800,7 @@ def _extract_diffable_config(target, hg):
             state = torch.load(target_p, map_location="cpu", weights_only=True)
             if isinstance(state, dict):
                 if "config" in state and isinstance(state["config"], dict):
-                    return state["config"]
+                    return _clean_diff_dict(state["config"])
                 if "model_state_dict" in state:
                     return {k: list(v.shape) for k, v in state["model_state_dict"].items() if hasattr(v, "shape")}
             return {}
@@ -819,17 +817,15 @@ def _extract_diffable_config(target, hg):
         try:
             m_data = json.loads(manifest_p.read_text(encoding="utf-8"))
             if "config" in m_data and isinstance(m_data["config"], dict):
-                return m_data["config"]
+                return _clean_diff_dict(m_data["config"])
         except Exception:
             pass
 
-    recipe_p = resolved / "recipe.toml"
-    if recipe_p.is_file():
-        try:
+    for fname in ("model.toml", "recipe.toml", "config.toml"):
+        recipe_p = resolved / fname
+        if recipe_p.is_file():
             m = hg.load(recipe_p)
-            return dict(hg.resolve(m))
-        except Exception:
-            pass
+            return _clean_diff_dict(dict(hg.resolve(m)))
 
     raise FileNotFoundError(f"Run or recipe target '{target_str}' not found or contains no configuration")
 
@@ -1566,6 +1562,16 @@ def _dispatch(args, *, output=None):
                            preview_name=args.preview_name)
             sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
             is_resume_cmd = args.command == "resume"
+            if not is_resume_cmd:
+                if getattr(args, "config", None) is None and getattr(args, "config_opt", None) is not None:
+                    rd = getattr(args, "run_dir", None)
+                    if rd is not None and _is_valid_run_dir(rd.resolve()):
+                        args.config = rd
+                    else:
+                        args.config = args.config_opt
+                        args.config_opt = None
+                if getattr(args, "config", None) is None and getattr(args, "run_dir", None) is None:
+                    _parser().error("the following arguments are required: config")
             target_arg = getattr(args, "run_dir", None) if is_resume_cmd else getattr(args, "config", None)
             if target_arg is None:
                 target_arg = getattr(args, "config", None) or getattr(args, "run_dir", None)
@@ -1589,7 +1595,7 @@ def _dispatch(args, *, output=None):
 
             if is_run_dir:
                 args.run_dir = target_path
-                config_override = getattr(args, "config", None) if is_resume_cmd else None
+                config_override = getattr(args, "config", None) if is_resume_cmd else getattr(args, "config_opt", None)
                 manifest_p = args.run_dir / "manifest.json"
                 manifest_data = {}
                 if manifest_p.is_file():

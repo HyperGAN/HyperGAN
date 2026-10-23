@@ -67,15 +67,22 @@ CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
 ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
 RESERVED = {'latent', 'batch', 'generated', 'candidate', 'prior', 'components', 'update', 'evaluation',
             'reference'}
-NETWORK_FIELDS = {'role', 'hndl', 'source', 'module', 'reuse', 'args', 'inputs', 'input_shape', 'output_shape',
-                  'trainable', 'freeze_parameters', 'optimizer'}
+HNDL_EXTRA_FIELDS = ('parameters', 'pretrained_providers', 'input_dtype', 'networks', 'network_files')
+NETWORK_FIELDS = {'role', 'hndl', 'file', 'source', 'module', 'reuse', 'args', 'inputs', 'input_shape', 'output_shape',
+                  'trainable', 'freeze_parameters', 'optimizer', *HNDL_EXTRA_FIELDS}
 OPTIMIZER_FIELDS = {'lr', 'd_lr_mult', 'prior_lr_mult', 'betas', 'prior_betas', 'implementation',
                     'd_guard_ratio', 'd_guard_min_steps', 'latent_damping_max_rate'}
 TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'initialization', 'ema', 'lr_anneal_start', 'lr_floor',
                    'network_lr_floor', 'network_lr_horizon_cap', 'input_noise_std', 'input_noise_anneal_end',
                    'output_noise_std', 'output_noise_warmup', 'phase_draws', 'data_rng_device',
                    'data_seed_offset', 'prior_seed_offset', 'backend', 'every_steps'}
+RUN_CADENCE_FIELDS = {'checkpoint_every', 'preview_every', 'progress_every'}
+RUN_FIELDS = {'devices', 'env', 'viewer', 'cpu_threads', *RUN_CADENCE_FIELDS}
 PENALTY_FIELDS = {'kappa', 'lazy_k', 'anchor_weight', 'anchor_decay'}
+_EVAL_FIELDS = {'fn', 'factory', 'args', 'inputs', 'every', 'every_steps', 'device', 'samples', 'batch_size',
+                'seed', 'data', 'output', 'target', 'timeout', 'on_error', 'on_busy', 'label', 'unit',
+                'direction', 'description', 'reduce', 'kind'}
+_PATH_KEYS = {'hndl', 'file', 'root', 'manifest', 'cache_dir', 'weights_path', 'source_path', 'path', 'network_files'}
 PRIOR_FIELDS = {'kind', 'initialization_device', 'initialization_seed', 'fixed_sigma'}
 BUILTIN_DATA = ('gaussian_grid', 'paired_linear', 'image_folder')
 ITEM_DATA = 'hypergan.item_data:ItemData'
@@ -147,6 +154,9 @@ def normalize_checkpoint_policy(policy=None):
 
 class ModelFileError(ValueError):
     """A model file field is missing, unknown or inconsistent; the message names it."""
+
+
+ConfigError = ModelFileError
 
 
 def is_model_file(raw):
@@ -222,9 +232,11 @@ class _Lowering:
                 raise ModelFileError(f'networks.{name}.role must be one of {", ".join(ROLES)}')
             roles.setdefault(role, []).append(name)
         generators = roles.get('generator', [])
-        if len(generators) != 1:
-            raise ModelFileError(f'Exactly one network may have role = "generator" today (found {len(generators)}); '
+        primary_generators = [n for n in generators if 'reuse' not in self.networks[n]]
+        if len(primary_generators) != 1:
+            raise ModelFileError(f'Exactly one network may have role = "generator" today (found {len(primary_generators)}); '
                                  'more generators need an engine with several generator outputs')
+        primary_gen = primary_generators[0]
         adversarial = [loss for loss in losses if loss.get('type') == 'adversarial']
         if not adversarial:
             raise ModelFileError('losses must include at least one type = "adversarial" term naming a critic')
@@ -238,13 +250,31 @@ class _Lowering:
             raise ModelFileError(f'Critic(s) {", ".join(sorted(unused))} are in no adversarial loss')
         primary = adversarial[0]['critic']
         self.names = {name: name for name in self.networks}
-        self.names[generators[0]] = 'generator'
+        self.names[primary_gen] = 'generator'
         self.names[primary] = 'discriminator'
-        for name, lowered in self.names.items():
-            if lowered in ('generator', 'discriminator') and name not in (generators[0], primary):
-                raise ModelFileError(f'networks.{name}: the names generator/discriminator are reserved for the '
-                                     'generator and the first adversarial loss critic; rename this network')
-        self.generator, self.primary = generators[0], primary
+        used_lowered = set(self.names.values())
+        for name, lowered in list(self.names.items()):
+            if lowered == 'discriminator' and name != primary:
+                if self.networks[name].get('role') == 'critic':
+                    alt = 'critic_discriminator'
+                    while alt in used_lowered:
+                        alt += '_2'
+                    self.names[name] = alt
+                    used_lowered.add(alt)
+                else:
+                    raise ModelFileError(f'networks.{name}: the names generator/discriminator are reserved for the '
+                                         'generator and the first adversarial loss critic; rename this network')
+            elif lowered == 'generator' and name != primary_gen:
+                if self.networks[name].get('role') == 'generator' and 'reuse' in self.networks[name]:
+                    alt = 'generator_reuse'
+                    while alt in used_lowered:
+                        alt += '_2'
+                    self.names[name] = alt
+                    used_lowered.add(alt)
+                else:
+                    raise ModelFileError(f'networks.{name}: the names generator/discriminator are reserved for the '
+                                         'generator and the first adversarial loss critic; rename this network')
+        self.generator, self.primary = primary_gen, primary
 
     def bind(self, path, location):
         if not isinstance(path, str) or not path or not all(path.split('.')):
@@ -267,18 +297,24 @@ class _Lowering:
     # -- sections --------------------------------------------------------------
     def component(self, name, spec):
         location = f'networks.{name}'
+        raw_inputs = spec.get('inputs')
+        if raw_inputs is None and spec.get('role') == 'critic':
+            for loss in self.raw.get('losses', []):
+                if isinstance(loss, dict) and loss.get('type') == 'adversarial' and loss.get('critic') == name and isinstance(loss.get('inputs'), dict):
+                    raw_inputs = loss['inputs']
+                    break
         if 'reuse' in spec:
             target = spec['reuse']
             if target not in self.networks:
                 raise ModelFileError(f'{location}.reuse must name another network')
-            result = {'reuse': self.names[target], 'inputs': self.bind_all(spec.get('inputs'), f'{location}.inputs')}
+            result = {'reuse': self.names[target], 'inputs': self.bind_all(raw_inputs, f'{location}.inputs')}
             if 'freeze_parameters' in spec:
                 result['freeze_parameters'] = spec['freeze_parameters']
             return result
-        kind = _one_of(spec, ('hndl', 'source', 'module'), location)
+        kind = _one_of(spec, ('hndl', 'file', 'source', 'module'), location)
         args = deepcopy(_table(spec.get('args', {}), f'{location}.args'))
         if kind == 'module':
-            if 'input_shape' in spec or 'output_shape' in spec:
+            if ('input_shape' in spec or 'output_shape' in spec) or (set(HNDL_EXTRA_FIELDS) & set(spec)):
                 raise ModelFileError(f'{location}: input_shape/output_shape describe HNDL networks; pass module settings in args')
             factory = spec['module']
             if callable(factory):
@@ -286,43 +322,73 @@ class _Lowering:
                 factory = import_path(factory, f'{location}.module')
         else:
             factory = 'hndl'
-            if kind == 'hndl':
-                file = Path(spec['hndl'])
+            if kind in ('hndl', 'file'):
+                file = Path(spec[kind])
                 if not file.is_absolute():
                     if self.base is None:
-                        raise ModelFileError(f'{location}.hndl is relative but the model has no file location; use an absolute path or source')
+                        raise ModelFileError(f'{location}.{kind} is relative but the model has no file location; use an absolute path or source')
                     file = self.base / file
                 try:
                     args['source'] = read_source(file)
                 except OSError as exc:
-                    raise ModelFileError(f'{location}.hndl: cannot read {file}: {exc}') from exc
+                    raise ModelFileError(f'{location}.{kind}: cannot read {file}: {exc}') from exc
             else:
                 args['source'] = spec['source']
             for key in ('input_shape', 'output_shape'):
                 if key not in spec:
                     raise ModelFileError(f'{location}.{key} is required for an HNDL network')
                 args[key] = deepcopy(spec[key])
-        result = {'factory': factory, 'args': args, 'inputs': self.bind_all(spec.get('inputs'), f'{location}.inputs')}
+            for key in HNDL_EXTRA_FIELDS:
+                if key in spec:
+                    args.setdefault(key, deepcopy(spec[key]))
+            if 'network_files' in args:
+                net_files = _table(args.pop('network_files'), f'{location}.network_files')
+                inline_nets = deepcopy(_table(args.get('networks', {}), f'{location}.networks'))
+                for sub_name, sub_path in net_files.items():
+                    sub_file = Path(sub_path)
+                    if not sub_file.is_absolute():
+                        if self.base is None:
+                            raise ModelFileError(f'{location}.network_files.{sub_name} is relative but the model has no file location')
+                        sub_file = self.base / sub_file
+                    try:
+                        inline_nets[sub_name] = read_source(sub_file)
+                    except OSError as exc:
+                        raise ModelFileError(f'{location}.network_files.{sub_name}: cannot read {sub_file}: {exc}') from exc
+                args['networks'] = inline_nets
+        result = {'factory': factory, 'args': args, 'inputs': self.bind_all(raw_inputs, f'{location}.inputs')}
         if 'trainable' in spec:
             result['trainable'] = spec['trainable']
         return result
 
     def data(self, spec, location):
-        _table(spec, location, {'builtin', 'factory', 'dataset', 'args', 'shuffle', 'workers'})
+        _table(spec, location)
         kind = _one_of(spec, ('builtin', 'factory', 'dataset'), location)
-        args = deepcopy(_table(spec.get('args', {}), f'{location}.args'))
-        if kind != 'dataset' and ({'shuffle', 'workers'} & set(spec)):
-            raise ModelFileError(f'{location}: shuffle/workers apply to item-level datasets (dataset = "module:Class")')
+        spec_copy = deepcopy(spec)
+        spec_copy.pop(kind)
+        args = _table(spec_copy.pop('args', {}), f'{location}.args')
+        spec_copy.pop('batch_size', None)
         if kind == 'builtin':
+            if {'shuffle', 'workers'} & set(spec_copy):
+                raise ModelFileError(f'{location}: shuffle/workers apply to item-level datasets (dataset = "module:Class")')
+            for k, v in spec_copy.items():
+                args.setdefault(k, v)
             if spec['builtin'] not in BUILTIN_DATA:
                 raise ModelFileError(f'{location}.builtin must be one of {", ".join(BUILTIN_DATA)}')
+            if spec['builtin'] == 'image_folder' and 'channels' in args:
+                ch = args.pop('channels')
+                if 'mode' not in args:
+                    args['mode'] = 'L' if ch == 1 else 'RGB'
             return {'factory': spec['builtin'], 'args': args}
         if kind == 'factory':
+            for k, v in spec_copy.items():
+                args.setdefault(k, v)
             return {'factory': spec['factory'], 'args': args}
         item = {'dataset': spec['dataset'], 'args': args}
         for key in ('shuffle', 'workers'):
-            if key in spec:
-                item[key] = spec[key]
+            if key in spec_copy:
+                item[key] = spec_copy.pop(key)
+        for k, v in spec_copy.items():
+            args.setdefault(k, v)
         return {'factory': ITEM_DATA, 'args': item}
 
     def prior(self, spec):
@@ -347,18 +413,47 @@ class _Lowering:
             _table(loss, location)
             kind = loss.get('type')
             if kind == 'adversarial':
-                _table(loss, location, {'type', 'id', 'critic', 'weight', 'penalty', 'real', 'fake', 'inputs'})
-                penalty = loss.get('penalty', 1.0)
+                _table(loss, location, {'type', 'id', 'critic', 'weight', 'penalty', 'real', 'fake', 'inputs'} | PENALTY_FIELDS)
+                raw_penalty = loss.get('penalty', 1.0)
+                penalty_extra = {k: deepcopy(loss[k]) for k in PENALTY_FIELDS if k in loss}
+                if isinstance(raw_penalty, dict):
+                    _table(raw_penalty, f'{location}.penalty', PENALTY_FIELDS | {'weight', 'coeff'})
+                    penalty = raw_penalty.get('weight', raw_penalty.get('coeff', 1.0))
+                    for k in PENALTY_FIELDS:
+                        if k in raw_penalty:
+                            penalty_extra.setdefault(k, deepcopy(raw_penalty[k]))
+                else:
+                    penalty = raw_penalty
                 if type(penalty) not in (int, float) or penalty < 0:
                     raise ModelFileError(f'{location}.penalty is the critic regularization coefficient: a nonnegative number (0 disables it)')
+                if penalty_extra:
+                    recipe.setdefault('gradient_penalty', {}).update(penalty_extra)
                 if loss['critic'] == self.primary and 'adversarial' not in recipe:
-                    real, fake = loss.get('real', 'batch.real'), loss.get('fake', 'generated')
-                    if (real, fake) != ('batch.real', 'generated') or 'inputs' in loss:
+                    real_raw, fake_raw = loss.get('real', 'batch.real'), loss.get('fake', 'generated')
+                    disc_inputs = self.networks[self.primary].get('inputs', {})
+                    cond_vals = {v for v in disc_inputs.values() if v != 'candidate' and not str(v).startswith('candidate.')}
+                    if real_raw != 'batch.real' and real_raw in cond_vals and 'inputs' not in loss:
                         raise ModelFileError(f'{location}: the first adversarial loss compares batch.real with generated '
                                              'through its critic\'s own inputs (engine limit); put other comparisons in later adversarial losses')
+                    adv = {'weight': loss.get('weight', 1.0)}
                     if 'id' in loss:
-                        raise ModelFileError(f'{location}: the first adversarial loss publishes as loss/d_adversarial and loss/g_adversarial; remove id')
-                    recipe['adversarial'] = {'weight': loss.get('weight', 1.0)}
+                        if not isinstance(loss['id'], str) or _ID.fullmatch(loss['id']) is None:
+                            raise ModelFileError(f'{location}.id is required: it names the loss in metrics')
+                        if loss['id'] in seen_ids:
+                            raise ModelFileError(f'{location}: loss id {loss["id"]!r} is repeated; give each loss an id')
+                        seen_ids.add(loss['id'])
+                        adv['id'] = loss['id']
+                    if real_raw != 'batch.real':
+                        adv['real'] = self.bind(real_raw, f'{location}.real')
+                    if fake_raw != 'generated':
+                        adv['fake'] = self.bind(fake_raw, f'{location}.fake')
+                    if 'inputs' in loss:
+                        bound_inputs = self.bind_all(loss['inputs'], f'{location}.inputs')
+                        non_cand = {k: v for k, v in bound_inputs.items() if v != 'candidate' and not v.startswith('candidate.')}
+                        if non_cand:
+                            adv['inputs'] = non_cand
+                            recipe['components']['discriminator'].setdefault('inputs', {}).update(non_cand)
+                    recipe['adversarial'] = adv
                     recipe.setdefault('gradient_penalty', {})['coeff'] = penalty
                     continue
                 term = {'id': loss.get('id', loss['critic']), 'component': self.names[loss['critic']],
@@ -368,13 +463,23 @@ class _Lowering:
                 if penalty > 0:
                     term['penalty_coeff'] = penalty
                 if 'inputs' in loss:
-                    term['inputs'] = self.bind_all(loss['inputs'], f'{location}.inputs')
+                    bound_inputs = self.bind_all(loss['inputs'], f'{location}.inputs')
+                    non_cand = {k: v for k, v in bound_inputs.items() if v != 'candidate' and not v.startswith('candidate.')}
+                    if non_cand:
+                        term['inputs'] = non_cand
                 if term['id'] in seen_ids:
                     raise ModelFileError(f'{location}: loss id {term["id"]!r} is repeated; give each loss an id')
                 seen_ids.add(term['id'])
                 recipe.setdefault('adversarial_terms', []).append(term)
             elif kind in ('objective', 'reconstruction'):
+                loss = deepcopy(loss)
+                id_cleared = loss.pop('__id_required__', False)
                 _table(loss, location, {'type', 'id', 'fn', 'args', 'inputs', 'input', 'target', 'weight', 'detach', 'owner', 'network'})
+                if kind == 'reconstruction' and not id_cleared:
+                    loss.setdefault('id', 'reconstruction')
+                    if 'inputs' not in loss:
+                        loss.setdefault('input', 'generated')
+                        loss.setdefault('target', 'batch.real')
                 if not isinstance(loss.get('id'), str) or _ID.fullmatch(loss['id']) is None:
                     raise ModelFileError(f'{location}.id is required: it names the loss in metrics (loss/objectives/<id>)')
                 if loss['id'] in seen_ids:
@@ -417,15 +522,18 @@ class _Lowering:
                 raise ModelFileError(f'{location}.type must be adversarial, objective, reconstruction or prior')
 
     def train(self, spec, recipe):
-        _table(spec, 'train', OPTIMIZER_FIELDS | TRAINING_FIELDS)
+        _table(spec, 'train', OPTIMIZER_FIELDS | TRAINING_FIELDS | RUN_CADENCE_FIELDS)
         optimizer = {key: deepcopy(value) for key, value in spec.items() if key in OPTIMIZER_FIELDS}
         training = {key: deepcopy(value) for key, value in spec.items() if key in TRAINING_FIELDS}
+        run_cadence = {key: deepcopy(value) for key, value in spec.items() if key in RUN_CADENCE_FIELDS}
         if optimizer:
             recipe['optimizer'] = optimizer
         if training:
-            recipe['training'] = training
-            if 'every_steps' in training:
-                recipe.setdefault('metrics', {})['every_steps'] = training.pop('every_steps')
+            recipe.setdefault('training', {}).update(training)
+            if 'every_steps' in recipe['training']:
+                recipe.setdefault('metrics', {})['every_steps'] = recipe['training'].pop('every_steps')
+        if run_cadence:
+            recipe.setdefault('run', {}).update(run_cadence)
 
     def sampling(self, spec):
         _table(spec, 'sampling', {'count', 'seed', 'output', 'particle_ids', 'views', 'comparison'})
@@ -464,12 +572,18 @@ class _Lowering:
         return result
 
     def metrics(self, spec):
-        spec = _table(deepcopy(spec), 'metrics', {'preset', 'disable', 'every_steps', 'overrides', 'custom'})
+        spec = _table(deepcopy(spec), 'metrics', {'preset', 'disable', 'every_steps', 'every', 'overrides', 'custom'})
+        if 'every' in spec:
+            every_val = spec.pop('every')
+            spec.setdefault('every_steps', every_val)
         custom = {}
         for name, metric in _table(spec.pop('custom', {}), 'metrics.custom').items():
             location = f'metrics.custom.{name}'
-            _table(metric, location, {'fn', 'factory', 'args', 'inputs', 'every_steps', 'timeout', 'on_error',
-                                      'label', 'unit', 'direction', 'description'})
+            metric = deepcopy(_table(metric, location, {'fn', 'factory', 'args', 'inputs', 'every_steps', 'every', 'timeout', 'on_error',
+                                      'label', 'unit', 'direction', 'description'}))
+            if 'every' in metric:
+                ev = metric.pop('every')
+                metric.setdefault('every_steps', ev)
             inputs = {key: value if '.' in value else 'update.' + value
                       for key, value in _table(metric.get('inputs'), f'{location}.inputs').items()}
             lowered = {'mode': 'scalar', 'inputs': inputs}
@@ -491,12 +605,27 @@ class _Lowering:
         return {'factory': adapter, 'args': args}
 
     def evaluations(self, spec):
+        raw_spec = _table(deepcopy(spec), 'evaluations')
+        shared_defaults = {}
+        subtables = {}
+        for k, v in raw_spec.items():
+            if k in _EVAL_FIELDS and (not isinstance(v, dict) or k in ('data', 'args', 'inputs')):
+                shared_defaults[k] = v
+            else:
+                subtables[k] = v
         custom = {}
-        for name, evaluation in _table(spec, 'evaluations').items():
+        for name, evaluation in subtables.items():
             location = f'evaluations.{name}'
-            _table(evaluation, location, {'fn', 'factory', 'args', 'inputs', 'every', 'device', 'samples', 'batch_size',
-                                          'seed', 'data', 'output', 'timeout', 'on_error', 'label', 'unit', 'direction',
-                                          'description', 'reduce', 'kind'})
+            _table(evaluation, location, _EVAL_FIELDS)
+            merged = deepcopy(shared_defaults)
+            merged.update(deepcopy(evaluation))
+            evaluation = merged
+            if 'every_steps' in evaluation:
+                ev = evaluation.pop('every_steps')
+                evaluation.setdefault('every', ev)
+            if 'target' in evaluation:
+                tgt = evaluation.pop('target')
+                evaluation.setdefault('output', tgt)
             inputs = evaluation.get('inputs', {'generated': 'generated', 'reference': 'reference'})
             inputs = {key: value if value.startswith('evaluation.') else 'evaluation.' + value
                       for key, value in _table(inputs, f'{location}.inputs').items()}
@@ -517,7 +646,7 @@ class _Lowering:
                 lowered.update(trigger='interval', every_steps=evaluation['every'])
             else:
                 lowered['trigger'] = 'manual'
-            lowered.update({key: evaluation[key] for key in ('timeout', 'on_error') if key in evaluation})
+            lowered.update({key: evaluation[key] for key in ('timeout', 'on_error', 'on_busy') if key in evaluation})
             lowered.update(self._plugin(evaluation, location, SNAPSHOT_FUNCTION))
             custom[name] = lowered
         return custom
@@ -557,13 +686,14 @@ class _Lowering:
                 reach[name].add(f"fooling {term['component']}")
         if 'adversarial' in recipe:
             disc_inputs = components.get('discriminator', {}).get('inputs', {})
+            fake_path = recipe['adversarial'].get('fake', 'generated')
             if any(p == 'candidate' or p.startswith('candidate.') or producer(p) == 'generator' for p in disc_inputs.values()):
-                for name in upstream('generated', components):
+                for name in upstream(fake_path, components):
                     reach[name].add('fooling discriminator')
 
         for orig_name, lowered_name in self.names.items():
             role = self.networks[orig_name].get('role')
-            if role == 'generator' and not reach.get(lowered_name):
+            if role == 'generator' and 'reuse' not in self.networks[orig_name] and not reach.get(lowered_name):
                 raise ModelFileError(
                     f"Network {orig_name!r} has role = 'generator' but no adversarial or objective loss trains it"
                 )
@@ -621,6 +751,8 @@ class _Lowering:
         if 'data' not in raw:
             raise ModelFileError('data is required (builtin, factory or dataset)')
         recipe['data'] = self.data(raw['data'], 'data')
+        if isinstance(raw['data'], dict) and 'batch_size' in raw['data']:
+            recipe.setdefault('training', {}).setdefault('batch_size', raw['data']['batch_size'])
         if 'prior' in raw:
             recipe['prior'] = self.prior(raw['prior'])
         recipe['components'] = {self.names[name]: self.component(name, spec) for name, spec in self.networks.items()}
@@ -649,7 +781,8 @@ class _Lowering:
             self.checkpoints(raw['checkpoints'])
             recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])
         if 'run' in raw:
-            recipe['run'] = deepcopy(raw['run'])
+            _table(raw['run'], 'run', RUN_FIELDS)
+            recipe.setdefault('run', {}).update(deepcopy(raw['run']))
         recipe['format'] = FORMAT
 
         recipe['name_map'] = dict(self.names)
@@ -696,21 +829,27 @@ def _deep_merge(base, override):
     return deepcopy(override)
 
 
-def _anchor_relative_paths(spec, base_dir):
+def _anchor_relative_paths(spec, base_dir, _in_path_container=False):
     """Anchor relative file paths (not starting with '${') to base_dir."""
     if isinstance(spec, dict):
         res = {}
         for k, v in spec.items():
             if isinstance(v, str):
-                if not v.startswith("${") and not Path(v).is_absolute() and (base_dir / v).exists():
+                is_path_field = (
+                    k in _PATH_KEYS
+                    or _in_path_container
+                    or v.startswith("./")
+                    or v.startswith("../")
+                )
+                if is_path_field and not v.startswith("${") and not Path(v).is_absolute() and (base_dir / v).exists():
                     res[k] = str((base_dir / v).resolve())
                 else:
                     res[k] = v
             else:
-                res[k] = _anchor_relative_paths(v, base_dir)
+                res[k] = _anchor_relative_paths(v, base_dir, _in_path_container=(k == 'network_files'))
         return res
     elif isinstance(spec, list):
-        return [_anchor_relative_paths(item, base_dir) for item in spec]
+        return [_anchor_relative_paths(item, base_dir, _in_path_container=_in_path_container) for item in spec]
     return deepcopy(spec)
 
 

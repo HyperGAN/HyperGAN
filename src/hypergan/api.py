@@ -199,11 +199,14 @@ def _segment(container, key, location):
     if isinstance(container, list):
         if key.isdigit() and int(key) < len(container):
             return int(key)
-        # Losses, like other lists of tables, can be addressed by id or critic.
+        # Losses, like other lists of tables, can be addressed by id, critic, or type.
         for index, item in enumerate(container):
             if isinstance(item, dict) and key in (item.get('id'), item.get('critic')):
                 return index
-        raise KeyError(f'{location}: no list element {key!r} (use an index, id or critic name)')
+        for index, item in enumerate(container):
+            if isinstance(item, dict) and key == item.get('type'):
+                return index
+        raise KeyError(f'{location}: no list element {key!r} (use an index, id, critic, or type name)')
     return key
 
 
@@ -231,7 +234,7 @@ def override(model, changes=None, /, **sections):
                 norm_changes[f'training.{field}'] = value
             else:
                 norm_changes[dotted] = value
-        elif is_model and dotted.startswith('training.'):
+        elif is_model and (dotted.startswith('training.') or dotted.startswith('optimizer.')):
             field = dotted.split('.', 1)[1]
             norm_changes[f'train.{field}'] = value
         else:
@@ -245,7 +248,10 @@ def override(model, changes=None, /, **sections):
             if isinstance(target, dict) and key not in target:
                 target[key] = {}
             target = target[key]
-        target[_segment(target, parts[-1], dotted) if isinstance(target, list) else parts[-1]] = deepcopy(value)
+        last_key = _segment(target, parts[-1], dotted) if isinstance(target, list) else parts[-1]
+        target[last_key] = deepcopy(value)
+        if isinstance(target, dict) and last_key == 'id' and value is None:
+            target['__id_required__'] = True
 
     def merge(into, update):
         for key, value in update.items():
@@ -277,9 +283,12 @@ def _relocated(spec, base, destination):
                 if shared != Path(shared.anchor) else source.as_posix())
 
     for network in (spec.get('networks') or {}).values():
-        file = network.get('hndl') if isinstance(network, dict) else None
-        if file is not None:
-            network['hndl'] = relocated(file)
+        if isinstance(network, dict):
+            for hndl_key in ('hndl', 'file'):
+                if network.get(hndl_key) is not None:
+                    network[hndl_key] = relocated(network[hndl_key])
+            for name, file in (network.get('network_files') or {}).items():
+                network['network_files'][name] = relocated(file)
     for component in (spec.get('components') or {}).values():
         args = component.get('args', {})
         if component.get('factory') == 'hndl' and 'file' in args:
@@ -413,6 +422,14 @@ def explain(model):
     recipe = lower(model)
     components = recipe.get('components', {})
     name_map = recipe.get('name_map', {})
+    inv_name_map = {v: k for k, v in name_map.items()}
+    opt_cfg = recipe.get('optimizer', {})
+    rec_cfg = recipe.get('recipe', {})
+    eff_lr = opt_cfg.get('lr', rec_cfg.get('lr', 0.0002))
+    eff_d_mult = opt_cfg.get('d_lr_mult', rec_cfg.get('d_lr_mult', 1.0))
+    eff_d_lr = eff_lr * eff_d_mult if isinstance(eff_lr, (int, float)) and isinstance(eff_d_mult, (int, float)) else None
+    g_lr_str = f'optimizer.lr ({eff_lr:g})' if isinstance(eff_lr, (int, float)) else 'optimizer.lr'
+    d_lr_str = f'optimizer.lr * d_lr_mult ({eff_d_lr:g})' if isinstance(eff_d_lr, (int, float)) else 'optimizer.lr * d_lr_mult'
     reach = {name: [] for name in components}
     for term in recipe.get('objectives', []):
         detached = set(term.get('detach', ['target'] if 'target' in term.get('inputs', {}) else []))
@@ -426,13 +443,16 @@ def explain(model):
     terms = []
     if 'adversarial' in recipe:
         disc_inputs = components.get('discriminator', {}).get('inputs', {})
+        fake_path = recipe['adversarial'].get('fake', 'generated')
         if any(p == 'candidate' or p.startswith('candidate.') or producer(p) == 'generator' for p in disc_inputs.values()):
-            terms.append(('discriminator', 'generated'))
+            terms.append(('discriminator', fake_path))
     for t in recipe.get('adversarial_terms', ()):
         terms.append((t['component'], t['fake']))
     for critic_name, fake in terms:
+        orig_critic = inv_name_map.get(critic_name, critic_name)
+        critic_label = f'{critic_name} ({orig_critic})' if orig_critic != critic_name else critic_name
         for name in upstream(fake, components):
-            reach[name].append(f'fooling {critic_name}')
+            reach[name].append(f'fooling {critic_label}')
 
     lines = []
     networks = model.spec.get('networks') if is_model_file(model.spec) else None
@@ -441,9 +461,9 @@ def explain(model):
             comp_name = name_map.get(orig_name, orig_name)
             role = net_spec.get('role', 'generator')
             spec = components.get(comp_name, {})
-            factory = spec.get('factory', net_spec.get('hndl') or net_spec.get('module') or 'unknown')
+            factory = spec.get('factory', net_spec.get('hndl') or net_spec.get('file') or net_spec.get('module') or 'unknown')
             if role == 'critic':
-                group = 'critic Adam (shared by all critics), lr = optimizer.lr * d_lr_mult'
+                group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
             elif 'reuse' in net_spec or 'reuse' in spec:
                 reuse_target = net_spec.get('reuse') or spec.get('reuse')
                 group = f'parameters of {reuse_target}'
@@ -452,7 +472,7 @@ def explain(model):
             elif role == 'shared':
                 group = f'parameters of {spec.get("reuse")}'
             else:
-                group = 'generator-side Adam, lr = optimizer.lr'
+                group = f'generator-side Adam, lr = {g_lr_str}'
             lines.append(f'{orig_name} [{role}] {factory}')
             inputs_str = ', '.join(f'{k} <- {v}' for k, v in net_spec.get('inputs', {}).items())
             lines.append(f'  inputs: {inputs_str}')
@@ -462,13 +482,14 @@ def explain(model):
                 lines.append('  gradient from: ' + (', '.join(received) or '-'))
     else:
         for name, spec in components.items():
+            orig_name = inv_name_map.get(name, name)
             factory = spec.get('factory', 'reuse')
             role = 'critic' if name == 'discriminator' or any(t.get('component') == name for t in recipe.get('adversarial_terms', [])) else 'generator'
             if role == 'critic':
-                group = 'critic Adam (shared by all critics), lr = optimizer.lr * d_lr_mult'
+                group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
             else:
-                group = 'generator-side Adam, lr = optimizer.lr'
-            lines.append(f'{name} [{role}] {factory}')
+                group = f'generator-side Adam, lr = {g_lr_str}'
+            lines.append(f'{orig_name} [{role}] {factory}')
             inputs_str = ', '.join(f'{k} <- {v}' for k, v in spec.get('inputs', {}).items())
             lines.append(f'  inputs: {inputs_str}')
             lines.append(f'  optimizer: {group}')
@@ -820,13 +841,14 @@ def _load_stored_run_model(run_path: Path):
             try:
                 cs_data = json.loads(cs_manifest.read_text(encoding='utf-8'))
                 files = cs_data.get('files') or []
-                if files and isinstance(files[0], dict) and files[0].get('snapshot'):
-                    snap = cs_dir / files[0]['snapshot']
-                    if snap.is_file():
-                        return load(snap)
+                for f_entry in files:
+                    if isinstance(f_entry, dict) and f_entry.get('snapshot'):
+                        snap = cs_dir / f_entry['snapshot']
+                        if snap.is_file() and snap.name != 'hypergan.toml':
+                            return load(snap)
             except Exception:
                 pass
-        tomls = sorted(cs_dir.rglob('*.toml'))
+        tomls = [p for p in sorted(cs_dir.rglob('*.toml')) if p.name != 'hypergan.toml']
         if tomls:
             return load(tomls[0])
     if (run_path / 'manifest.json').is_file():
@@ -835,6 +857,11 @@ def _load_stored_run_model(run_path: Path):
         saved_config = manifest.get('config')
         if not isinstance(saved_config, dict):
             raise ValueError(f"Run {run_path} has no recorded configuration in manifest.json")
+        if 'components' in saved_config and 'networks' not in saved_config:
+            try:
+                return lift(saved_config, base=run_path)
+            except Exception:
+                pass
         return from_dict(saved_config, base=run_path)
     raise ValueError(f"Run directory {run_path} does not exist or has no configuration")
 
@@ -1659,7 +1686,12 @@ def lift(raw, *, base=None):
         else:
             model_spec['data'] = data
     if 'prior' in raw:
-        model_spec['prior'] = deepcopy(raw['prior'])
+        prior_spec = deepcopy(raw['prior'])
+        prior_args = prior_spec.pop('args', None)
+        if isinstance(prior_args, dict):
+            for k, v in prior_args.items():
+                prior_spec.setdefault(k, v)
+        model_spec['prior'] = prior_spec
     if 'training' in raw or 'optimizer' in raw:
         train_table = deepcopy(raw.get('training', {}))
         if 'optimizer' in raw:
@@ -1708,7 +1740,7 @@ def lift(raw, *, base=None):
                     eval_entry['every'] = metric['every_steps']
                 elif 'every_steps' in metric and metric.get('trigger') != 'manual':
                     eval_entry['every'] = metric['every_steps']
-                for k in ('timeout', 'on_error'):
+                for k in ('timeout', 'on_error', 'on_busy'):
                     if k in metric:
                         eval_entry[k] = metric[k]
                 if 'factory' not in eval_entry and eval_entry.get('kind') != 'factory':
@@ -2048,32 +2080,37 @@ def compare(runs, metric="fid50k_train", at_steps=None):
     return runs_compare(runs, metric=metric, at_steps=at_steps)
 
 
+def _clean_diff_dict(cfg):
+    if not isinstance(cfg, dict):
+        return cfg
+    cleaned = deepcopy(cfg)
+    for k in ("warnings", "qualification", "_source_path", "name_map", "schema_version", "format"):
+        cleaned.pop(k, None)
+    if isinstance(cleaned.get("recipe"), dict):
+        cleaned.pop("recipe", None)
+    return cleaned
+
+
 def _extract_diff_config(target):
     if isinstance(target, Model):
-        try:
-            return dict(resolve(target))
-        except Exception:
-            return dict(target.spec)
+        return _clean_diff_dict(dict(resolve(target)))
     if isinstance(target, Run):
         if target.manifest.get("config") and isinstance(target.manifest["config"], dict):
-            return target.manifest["config"]
+            return _clean_diff_dict(target.manifest["config"])
         target = target.path
     if isinstance(target, dict):
         if "components" in target or "networks" in target:
-            return target
+            return _clean_diff_dict(dict(resolve(from_dict(target))))
         if "config" in target and isinstance(target["config"], dict):
-            return target["config"]
-        return target
+            return _clean_diff_dict(target["config"])
+        return _clean_diff_dict(target)
     target_str = str(target)
     target_p = Path(target_str)
     if target_str.endswith(".toml") or (target_p.is_file() and target_p.suffix == ".toml"):
         if not target_p.is_file():
             raise FileNotFoundError(f"Recipe target '{target_str}' not found")
         m = load(target_p)
-        try:
-            return dict(resolve(m))
-        except Exception:
-            return getattr(m, "spec", dict(m)) if hasattr(m, "spec") else dict(m)
+        return _clean_diff_dict(dict(resolve(m)))
     if target_str.endswith(".pt") or (target_p.is_file() and target_p.suffix == ".pt"):
         if not target_p.is_file():
             raise FileNotFoundError(f"Checkpoint file '{target_str}' not found")
@@ -2081,7 +2118,7 @@ def _extract_diff_config(target):
         state = torch.load(target_p, map_location="cpu", weights_only=True)
         if isinstance(state, dict):
             if "config" in state and isinstance(state["config"], dict):
-                return state["config"]
+                return _clean_diff_dict(state["config"])
             if "model_state_dict" in state:
                 return {k: list(v.shape) for k, v in state["model_state_dict"].items() if hasattr(v, "shape")}
         return {}
@@ -2091,16 +2128,14 @@ def _extract_diff_config(target):
         try:
             m_data = json.loads(manifest_p.read_text(encoding="utf-8"))
             if "config" in m_data and isinstance(m_data["config"], dict):
-                return m_data["config"]
+                return _clean_diff_dict(m_data["config"])
         except Exception:
             pass
-    recipe_p = resolved / "recipe.toml"
-    if recipe_p.is_file():
-        try:
+    for fname in ("model.toml", "recipe.toml", "config.toml"):
+        recipe_p = resolved / fname
+        if recipe_p.is_file():
             m = load(recipe_p)
-            return dict(resolve(m))
-        except Exception:
-            pass
+            return _clean_diff_dict(dict(resolve(m)))
     raise FileNotFoundError(f"Run or recipe target '{target_str}' not found or contains no configuration")
 
 

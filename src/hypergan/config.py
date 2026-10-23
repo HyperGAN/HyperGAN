@@ -376,7 +376,12 @@ def resolve_config(raw):
         elif key in ("adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
-            allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
+            extra = (
+                {'particle_ids', 'generated', 'views', 'comparison'}
+                if key == 'sampling'
+                else ({'id', 'real', 'fake', 'inputs'} if key == 'adversarial' else set())
+            )
+            allowed = set(result[key]) | extra
             _keys(value, allowed, key)
             result[key].update(deepcopy(value))
         else:
@@ -593,6 +598,12 @@ def resolve_config(raw):
     _resolve_adversarial_terms(result)
     _resolve_samplers(result)
     paths = [p for c in components.values() for p in c["inputs"].values()] + [p for t in result["objectives"] for p in t["inputs"].values()]
+    adv_cfg = result.get("adversarial", {})
+    for k in ("real", "fake"):
+        if k in adv_cfg:
+            paths.append(adv_cfg[k])
+    if isinstance(adv_cfg.get("inputs"), dict):
+        paths.extend(adv_cfg["inputs"].values())
     for term in result.get("adversarial_terms", ()):
         paths.extend((term["real"], term["fake"], *term["inputs"].values()))
     # Particle IDs have their own validation below, including their field name
@@ -641,6 +652,10 @@ def resolve_config(raw):
         for path in term["inputs"].values():
             if path.startswith("components."):
                 visit(path.split(".")[1], set())
+    for k in ("real", "fake"):
+        path = adv_cfg.get(k)
+        if isinstance(path, str) and path.startswith("components."):
+            visit(path.split(".")[1], set())
     for term in result.get("adversarial_terms", ()):
         for path in (term["real"], term["fake"]):
             if path.startswith("components."):
@@ -711,6 +726,8 @@ def numerical_values(config):
         values.pop('recipe', None)
     if values.get('training', {}).get('initialization') == 'constructor':
         values['training'].pop('initialization', None)
+    if isinstance(values.get('adversarial'), dict):
+        values['adversarial'].pop('id', None)
     return values
 
 
@@ -886,12 +903,16 @@ def _normalize_model_hndl_paths(raw: dict, base: Path | None = None) -> dict:
         return raw
     updated = None
     for name, spec in networks.items():
-        if isinstance(spec, dict) and isinstance(spec.get("hndl"), str):
-            resolved = _resolve_hndl_target(spec["hndl"], base)
-            if resolved != (Path(spec["hndl"]) if Path(spec["hndl"]).is_absolute() else ((base / spec["hndl"]) if base is not None else Path(spec["hndl"]))):
-                if updated is None:
-                    updated = deepcopy(raw)
-                updated["networks"][name]["hndl"] = str(resolved)
+        if isinstance(spec, dict):
+            for hndl_key in ("hndl", "file"):
+                if isinstance(spec.get(hndl_key), str):
+                    raw_path = spec[hndl_key]
+                    resolved = _resolve_hndl_target(raw_path, base)
+                    expected = Path(raw_path) if Path(raw_path).is_absolute() else ((base / raw_path) if base is not None else Path(raw_path))
+                    if resolved != expected:
+                        if updated is None:
+                            updated = deepcopy(raw)
+                        updated["networks"][name][hndl_key] = str(resolved)
     return updated if updated is not None else raw
 
 

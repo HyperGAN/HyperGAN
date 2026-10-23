@@ -320,20 +320,26 @@ def _prior(config):
 
 def _optimizers(config):
     optimizer, training = _section(config, 'optimizer'), _section(config, 'training')
+    recipe_sec = _section(config, 'recipe')
+    lr = optimizer.get('lr') if optimizer.get('lr') is not None else recipe_sec.get('lr')
+    d_lr_mult = optimizer.get('d_lr_mult') if optimizer.get('d_lr_mult') is not None else recipe_sec.get('d_lr_mult')
+    betas = optimizer.get('betas') if optimizer.get('betas') is not None else recipe_sec.get('betas')
+    prior_lr_mult = optimizer.get('prior_lr_mult') if optimizer.get('prior_lr_mult') is not None else recipe_sec.get('prior_lr_mult')
+    prior_betas = optimizer.get('prior_betas') if optimizer.get('prior_betas') is not None else recipe_sec.get('prior_betas')
     critics = list(dict.fromkeys(['discriminator'] + [t.get('component') for t in config.get('adversarial_terms') or ()]))
     generator_groups = [name for name, role in roles(config).items() if role not in ('critic', 'alias')]
     trainable, reason = _prior_table(config)
-    prior_group = ({'lr': _product(optimizer.get('lr'), optimizer.get('prior_lr_mult')),
-                    'lr_mult': optimizer.get('prior_lr_mult'), 'betas': optimizer.get('prior_betas')}
+    prior_group = ({'lr': _product(lr, prior_lr_mult),
+                    'lr_mult': prior_lr_mult, 'betas': prior_betas}
                    if trainable else unavailable(reason))
     result = {
         'generator': {'type': 'ParticleGAN', 'implementation': 'particlegan',
-                      'lr': optimizer.get('lr'), 'betas': optimizer.get('betas'), 'components': generator_groups,
+                      'lr': lr, 'betas': betas, 'components': generator_groups,
                       'owner': 'particlegan'},
         'prior': prior_group,
         'critic': {'type': 'ParticleGAN', 'implementation': 'particlegan',
-                   'lr': _product(optimizer.get('lr'), optimizer.get('d_lr_mult')), 'lr_mult': optimizer.get('d_lr_mult'),
-                   'betas': optimizer.get('betas'), 'components': critics,
+                   'lr': _product(lr, d_lr_mult), 'lr_mult': d_lr_mult,
+                   'betas': betas, 'components': critics,
                    'owner': 'particlegan'},
         'schedule': {'lr_anneal_start': training.get('lr_anneal_start'), 'lr_floor': training.get('lr_floor'),
                      'network_lr_floor': training.get('network_lr_floor'),
@@ -354,10 +360,11 @@ def _defaults_source(config, manifest):
     return recorded if recorded in ('hypergan', 'particlegan') else 'unknown'
 
 
-def _network(name, spec, role):
+def _network(name, spec, role, display_name=None):
     group = ('critic' if role == 'critic' else 'shared with ' + str(spec['reuse']) if 'reuse' in spec
              else 'generator')
-    entry = {'name': name, 'role': role, 'optimizer_group': group, 'factory': spec.get('factory', 'reuse'),
+    entry = {'name': name, 'display_name': display_name or name, 'role': role, 'optimizer_group': group,
+             'factory': spec.get('factory', 'reuse'),
              'inputs': spec.get('inputs') or {}, 'trainable': spec.get('trainable', True),
              'freeze_parameters': spec.get('freeze_parameters', False)}
     args = spec.get('args') if isinstance(spec.get('args'), dict) else {}
@@ -393,8 +400,10 @@ def describe_config(config, manifest=None):
     runtime = manifest.get('runtime') or {}
     formulation = _formulation(config, manifest)
     component_roles = roles(config)
+    raw_name_map = config.get('name_map') if isinstance(config.get('name_map'), dict) else {}
+    inv_name_map = {v: k for k, v in raw_name_map.items()}
     data, metrics = _section(config, 'data'), _section(config, 'metrics')
-    return {
+    res = {
         'schema_version': SCHEMA_VERSION,
         'run_id': manifest.get('run_id'),
         'name': config.get('name'),
@@ -407,7 +416,7 @@ def describe_config(config, manifest=None):
         'prior': _prior(config),
         'losses': _losses(config),
         'optimizers': _optimizers(config),
-        'networks': [_network(n, s, component_roles[n]) for n, s in config['components'].items()],
+        'networks': [_network(n, s, component_roles[n], display_name=inv_name_map.get(n, n)) for n, s in config['components'].items()],
         'edges': _edges(config),
         'data': {'factory': data.get('factory'), 'args': _bounded(data.get('args') or {}, 4096)},
         'training': redact(_section(config, 'training')),
@@ -417,6 +426,9 @@ def describe_config(config, manifest=None):
                 'attempt_index': manifest.get('attempt_index'), 'total_steps': manifest.get('total_steps')},
         'warnings': [redact_text(w)[:500] for w in (manifest.get('warnings') or [])[:32]],
     }
+    if raw_name_map:
+        res['name_map'] = dict(raw_name_map)
+    return res
 
 
 def _merge_recorded(result, recorded, config_sha256):

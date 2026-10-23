@@ -316,9 +316,12 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             raise ValueError('Training configuration differs from the original run in '
                              + ', '.join(changed) + '; ' + remedy)
     if fingerprint(config) != manifest['config_sha256']:
-        if (not resume_compatible(config, manifest['config'])
+        compat = resume_compatible(config, manifest['config'])
+        if (not compat
                 or fingerprint(manifest['config']) != manifest['config_sha256']):
-            raise ValueError('Resume configuration differs from the original run; only an increased '
+            diffs = getattr(compat, 'differences', ())
+            diff_str = f" in {', '.join(diffs)}" if diffs else ""
+            raise ValueError(f'Resume configuration differs from the original run{diff_str}; only an increased '
                              'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
                              'pinned training-image skipping, or changing its pixel cache, is allowed')
     saved = manifest.get('execution')

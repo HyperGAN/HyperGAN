@@ -39,8 +39,21 @@ When serving a workspace or runs directory (or when runs are registered in the g
 - **`GET /` (Global Runs Dashboard)**: Lists discovered and registered runs with labeled search (name, slug, or ID), status filters, result counts, and clear-filter feedback. Complete includes `completed`; Stopped includes `interrupted` and cancelled runs. Creation times appear in the browser's time zone, with UTC timestamps in tooltips; missing recorded times show `Unknown`. Sort newest first (default), oldest first, or by name. The responsive table becomes run cards on narrow screens. While the tab is visible, `/api/runs` refreshes every 3 seconds, including empty dashboards, adding and removing runs and updating progress, throughput (`it/s`), disk usage, and available controls without resetting filters. A Refresh button and visible failure/retry messages support recovery. FID columns are omitted from this overview.
 - **`GET /api/runs` and `GET /api/v1/runs`**: Returns a JSON array of all discovered/registered runs with their `run_id`, `short_id`, `slug`, `name`, `status`, `active`, `running`, `pid`, `created_at`, `step`, `total_steps`, `steps_per_second`, `latest_fid`, `best_fid`, `best_step`, `disk_bytes`, `disk_formatted`, `run_dir`, and `url`. `created_at` is an ISO 8601 UTC timestamp from recorded creation metadata or the first launch receipt (`launch/0001.json`), or `null` when unavailable. It does not use the manifest's modification time, which changes during training. FID fields remain available to API clients.
 - **`GET /runs/<id_or_slug_or_tag>`**: Opens the per-run Web Observatory UI for any run addressed by its full `run_id`, 8-character `short_id`, Docker-style `slug` (e.g. `fleet-hawk`), custom tag (`hypergan tag <run> <tag>`), or directory name. Automatically ensures built-in scalar projections are up to date before serving.
-- **`POST /api/runs/<id>/checkpoint` (and `POST /api/v1/runs/<id>/checkpoint`)**: Submits an immediate durable checkpoint request to an active run at the next update boundary (returns HTTP 400 if the run is not active).
-- **`POST /api/runs/<id>/stop` (and `POST /api/v1/runs/<id>/stop`)**: Gracefully stops an active training run via SIGINT so it saves a checkpoint and halts cleanly (returns HTTP 400 if the run is not active).
+- **`POST /api/runs/<id>/checkpoint` (and `POST /api/v1/runs/<id>/checkpoint`)**: Submits an idempotent, attempt-bound durable checkpoint request to an active run at the next completed update boundary (returns HTTP 400 if the run is not active). Accepts an optional JSON body `{"request_id": "...", "attempt_id": "..."}`.
+- **`POST /api/runs/<id>/sample` (and `POST /api/v1/runs/<id>/sample`)**: Submits an idempotent, attempt-bound bounded preview sample request to an active run at the next completed update boundary without disturbing training RNG or optimizer state (returns HTTP 400 if the run is not active). Accepts an optional JSON body `{"request_id": "...", "attempt_id": "..."}`.
+- **`POST /api/runs/<id>/stop` (and `POST /api/v1/runs/<id>/stop`)**: Submits an idempotent, attempt-bound graceful stop request (and signals local runs via SIGINT when running on the same host) so the trainer saves a boundary checkpoint and halts cleanly at the next completed update boundary (returns HTTP 400 if the run is not active).
+- **`GET /api/runs/<id>/requests/<request_id>` (and `GET /api/v1/runs/<id>/requests/<request_id>`)**: Reads the durable status or receipt (`pending`, `succeeded`, `failed`, or `rejected`) for a control request (`checkpoint`, `sample`, or `stop`).
+
+### Headless cluster attachment and file-backed control requests
+
+Scheduled and multi-node cluster jobs run headlessly by default (`--no-server` or no local viewer per rank), with only the designated writer publishing global progress, events, and preview artifacts to the run directory. Attach `hypergan view` or `hypergan serve` to a shared or synchronized run directory from a login node or local workstation (or tunnel to a single service on the allocated host via SSH or `--public-origin`):
+
+```sh
+# Attach to a headless cluster run on a shared filesystem without importing torch
+hypergan serve /shared/experiments/runs/cluster-run --host 127.0.0.1 --port 8765 --auth token
+```
+
+When a run's `.run.lock`, `launch/*.json`, `manifest.json`, or `summary.json` records a `hostname` different from the viewer host while the run is in `running` or `initializing` state, HyperGAN marks the run as active and remote (`remote: true`, `active: true`). Viewer disconnection never cancels or signals the remote training job. Control actions (`checkpoint`, `sample`, and `stop`) use the file-backed request queue under `checkpoint_requests/pending/` and `checkpoint_requests/receipts/` rather than local PID signals, so idempotent control requests and receipts work identically for local and headless cluster runs. When `--auth token` is enabled, all state-changing `POST` routes under both `/api/v1/runs/*` and `/api/runs/*` require a valid session cookie or `Authorization: Bearer <token>` header.
 
 ### Remote browsers over plain HTTP
 
@@ -134,7 +147,9 @@ bootstrap state and SSE envelopes. Every per-run route is served with full parit
 - `/api/runs/{run_id}/stream` & `/api/v1/runs/{run_id}/stream?stream_id=projection:{map_revision}&cursor=...`: SSE continuation.
 - `/api/runs/{run_id}/artifacts` & `/api/v1/runs/{run_id}/artifacts`: bounded artifact index; append `/{artifact_id}` to download a digest-verified entry.
 - `POST /api/runs/{run_id}/checkpoint` & `POST /api/v1/runs/{run_id}/checkpoint`: trigger an immediate checkpoint on an active run.
-- `POST /api/runs/{run_id}/stop` & `POST /api/v1/runs/{run_id}/stop`: gracefully stop an active run.
+- `POST /api/runs/{run_id}/sample` & `POST /api/v1/runs/{run_id}/sample`: trigger an immediate preview sample on an active run at the next completed update boundary.
+- `POST /api/runs/{run_id}/stop` & `POST /api/v1/runs/{run_id}/stop`: gracefully stop an active run at the next completed update boundary.
+- `GET /api/runs/{run_id}/requests/{request_id}` & `GET /api/v1/runs/{run_id}/requests/{request_id}`: inspect the pending or acknowledged receipt for a `checkpoint`, `sample`, or `stop` request.
 
 The global `/api/v1/stream` also reports run creation and future stream
 registrations. This lets an automatically started viewer wait for the first run

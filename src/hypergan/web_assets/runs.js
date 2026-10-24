@@ -101,7 +101,7 @@ function updateRow(row, run) {
 function updateActions(row, active = row.dataset.active === 'true') {
   for (const button of row.querySelectorAll('[data-action]')) {
     const action = button.dataset.action;
-    const label = action === 'stop' ? 'Stop' : 'Checkpoint';
+    const label = action === 'stop' ? 'Stop' : action === 'sample' ? 'Sample' : 'Checkpoint';
     const pending = pendingActions.get(row.dataset.id);
     button.hidden = !active;
     button.disabled = Boolean(pending);
@@ -164,16 +164,18 @@ body.addEventListener('click', async event => {
   const notice = byId('action-status');
   pendingActions.set(id, action);
   updateActions(row);
+  const actionLabel = action === 'stop' ? 'stop' : action === 'sample' ? 'sample' : 'checkpoint';
+  const titleLabel = action === 'stop' ? 'Stop' : action === 'sample' ? 'Sample' : 'Checkpoint';
   notice.hidden = false;
   notice.classList.remove('error');
-  notice.textContent = `${action === 'stop' ? 'Requesting stop' : 'Requesting checkpoint'} for ${name}…`;
+  notice.textContent = `Requesting ${actionLabel} for ${name}…`;
   try {
     const response = await fetch(`/api/runs/${encodeURIComponent(id)}/${action}`, {method: 'POST'});
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || `HTTP ${response.status}`);
     }
-    notice.textContent = `${action === 'stop' ? 'Stop' : 'Checkpoint'} requested for ${name}.`;
+    notice.textContent = `${titleLabel} requested for ${name}.`;
     await refreshRuns();
   } catch (error) {
     notice.textContent = `Could not ${action} ${name}: ${error.message}`;

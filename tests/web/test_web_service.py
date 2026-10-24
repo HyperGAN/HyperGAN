@@ -630,8 +630,58 @@ def test_console_control_is_no_longer_served(tmp_path):
         assert client.get(route).status_code == 404
         assert client.put(route, json={'progress_every': 7}).status_code == 404
         assert not (tmp_path / 'console.json').exists()
-        assert client.get('/api/v1/capabilities').json()['controls'] == []
+        assert client.get('/api/v1/capabilities').json()['controls'] == ['checkpoint', 'stop', 'sample']
         assert not [name for name in client.get('/api/v1/openapi.json').json()['paths'] if 'console' in name]
+
+
+def test_authenticated_control_endpoints_checkpoint_sample_stop_and_request_receipts(tmp_path):
+    manifest = fixture_run(tmp_path)
+    manifest['status'] = 'running'
+    manifest['hostname'] = 'remote-gpu-worker-01.internal'
+    atomic_json(tmp_path / 'manifest.json', manifest)
+    session = LocalSession(8123, auth='token')
+    session.write_credentials(tmp_path / 'session.json')
+    token = json.loads((tmp_path / 'session.json').read_text())['token']
+
+    with TestClient(create_app(tmp_path, session, poll_seconds=.01), base_url=session.origin) as client:
+        # Read-only /api/runs/run is public, but all state-changing POST routes require authentication
+        assert client.get('/api/runs/run').status_code == 200
+        for prefix in ('/api/v1/runs/run', '/api/runs/run'):
+            for action in ('checkpoint', 'sample', 'stop'):
+                assert client.post(f'{prefix}/{action}').status_code == 401
+
+        assert client.post('/api/v1/session', json={'token': token}).status_code == 200
+
+        # Remote running fixture is recognized as active and exposes hostname + remote in manifest
+        pub = client.get('/api/v1/runs/run').json()
+        assert pub['status'] == 'running'
+        assert pub['remote'] is True
+        assert pub['hostname'] == 'remote-gpu-worker-01.internal'
+
+        # Idempotent checkpoint request + receipt lookup
+        ckpt1 = client.post('/api/v1/runs/run/checkpoint', json={'request_id': 'ckpt-req-1'}).json()
+        ckpt2 = client.post('/api/runs/run/checkpoint', json={'request_id': 'ckpt-req-1'}).json()
+        assert ckpt1['ok'] is True and ckpt1['request_id'] == 'ckpt-req-1'
+        assert ckpt1['receipt'] == ckpt2['receipt']
+        assert client.get('/api/v1/runs/run/requests/ckpt-req-1').json() == ckpt1['receipt']
+
+        # Idempotent sample request + receipt lookup
+        samp1 = client.post('/api/v1/runs/run/sample', json={'request_id': 'sample-req-1'}).json()
+        samp2 = client.post('/api/runs/run/sample', json={'request_id': 'sample-req-1'}).json()
+        assert samp1['ok'] is True and samp1['request_id'] == 'sample-req-1'
+        assert samp1['receipt']['request']['action'] == 'sample'
+        assert samp1['receipt'] == samp2['receipt']
+        assert client.get('/api/runs/run/requests/sample-req-1').json() == samp1['receipt']
+
+        # Idempotent stop request + receipt lookup on remote cluster run (no local PID required)
+        stop1 = client.post('/api/v1/runs/run/stop', json={'request_id': 'stop-req-1'}).json()
+        stop2 = client.post('/api/runs/run/stop', json={'request_id': 'stop-req-1'}).json()
+        assert stop1['ok'] is True and stop1['request_id'] == 'stop-req-1'
+        assert stop1['remote'] is True and stop1['signaled'] is False
+        assert stop1['receipt']['request']['action'] == 'stop'
+        assert stop1['receipt'] == stop2['receipt']
+        assert client.get('/api/v1/runs/run/requests/stop-req-1').json() == stop1['receipt']
+        assert client.get('/api/v1/runs/run/requests/nonexistent').status_code == 404
 
 
 @pytest.mark.parametrize('status,next_step', [('running', 30000), ('disabled', None)])

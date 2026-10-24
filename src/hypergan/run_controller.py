@@ -3,6 +3,7 @@
 The execution interface is internal. Public training commands remain separate
 from adapters that configure a fenced attempt before constructing workers.
 """
+from contextlib import nullcontext
 from dataclasses import dataclass
 import json
 import math
@@ -274,7 +275,9 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
         environment = execution.environment()
         run_dir.mkdir(parents=True, exist_ok=True)
         sync_directory(run_dir.parent)
-        with run_lock(run_dir):
+        node_rank = execution.profile['execution'].get('node_rank', 0) if hasattr(execution, 'profile') else 0
+        lock_ctx = run_lock(run_dir) if node_rank == 0 else nullcontext()
+        with lock_ctx:
             managed = True
             try:
                 from .provenance import write_launch_provenance, snapshot_config_sources, determine_attempt
@@ -347,7 +350,9 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
         raise ValueError(f'Run directory does not exist: {run_dir}')
-    with run_lock(run_dir):
+    node_rank = execution_factory.profile['execution'].get('node_rank', 0) if hasattr(execution_factory, 'profile') else 0
+    lock_ctx = run_lock(run_dir) if node_rank == 0 else nullcontext()
+    with lock_ctx:
         manifest = json.loads((run_dir / 'manifest.json').read_text())
         required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
         if not isinstance(manifest, dict) or not required.issubset(manifest) or manifest['schema_version'] != 1:

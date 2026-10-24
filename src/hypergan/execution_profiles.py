@@ -161,12 +161,12 @@ def resolve_execution_profile(values, config):
         raise ValueError(f'{name} requires world_size between 2 and 64')
 
     nodes = _positive_integer(execution.get('nodes', 1), 'execution.nodes')
+    if name == 'cpu-single' and nodes != 1:
+        raise ValueError('cpu-single requires nodes=1')
     if nodes > world:
         raise ValueError('execution.nodes cannot exceed execution.world_size')
     if world % nodes != 0:
         raise ValueError(f'Global execution.world_size ({world}) must divide evenly across execution.nodes ({nodes})')
-    if name == 'cpu-single' and nodes != 1:
-        raise ValueError('cpu-single requires nodes=1')
 
     node_rank = _non_negative_integer(execution.get('node_rank', 0), 'execution.node_rank')
     if node_rank >= nodes:
@@ -185,6 +185,9 @@ def resolve_execution_profile(values, config):
         rendezvous = _validate_rendezvous(execution['rendezvous'])
     else:
         rendezvous = 'file://' if nodes == 1 else 'tcp://127.0.0.1:29500'
+
+    if name == 'cpu-single' and rendezvous.startswith('tcp://'):
+        raise ValueError('cpu-single requires file:// rendezvous; tcp:// is unsupported for single-device execution')
 
     # Reconcile aggregation from profile root or execution table
     root_agg = values.get('aggregation')

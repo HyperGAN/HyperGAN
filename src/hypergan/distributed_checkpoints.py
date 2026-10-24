@@ -62,9 +62,11 @@ def distributed_runtime_info(trainer):
     backend = dist.get_backend()
     device = getattr(trainer, 'device', torch.device('cpu'))
     if backend == 'nccl':
-        if (device != torch.device('cuda', trainer.rank)
-                or torch.cuda.current_device() != trainer.rank
-                or torch.cuda.device_count() < trainer.world_size):
+        ranks_per_node = getattr(trainer, 'ranks_per_node', trainer.world_size)
+        local_rank = trainer.rank % ranks_per_node
+        if (device != torch.device('cuda', local_rank)
+                or torch.cuda.current_device() != local_rank
+                or torch.cuda.device_count() < ranks_per_node):
             raise ValueError('NCCL runtime requires rank-owned visible CUDA devices')
         runtime = runtime_info('cuda:0')
         runtime['device'] = 'cuda'
@@ -76,7 +78,7 @@ def distributed_runtime_info(trainer):
         nccl_ver = getattr(getattr(torch, 'cuda', None), 'nccl', None)
         cuda['nccl'] = list(nccl_ver.version()) if nccl_ver and hasattr(nccl_ver, 'version') else []
         rank_devices = []
-        for rank in range(trainer.world_size):
+        for rank in range(ranks_per_node):
             prop = torch.cuda.get_device_properties(rank)
             uuid_str = str(getattr(prop, 'uuid', 'unavailable'))
             if is_rocm and uuid_str in ('None', ''):
@@ -106,7 +108,9 @@ def _rank_state(trainer, last_batch):
     # Keep wire payloads device-independent; CUDA tensors never travel through
     # pickle with a rank-local device ordinal. Host copies complete pending work.
     if trainer.device.type == 'cuda':
-        if torch.cuda.current_device() != trainer.rank:
+        ranks_per_node = getattr(trainer, 'ranks_per_node', trainer.world_size)
+        local_rank = trainer.rank % ranks_per_node
+        if torch.cuda.current_device() != local_rank:
             raise ValueError('CUDA checkpoint requires the rank-owned current device')
         torch.cuda.synchronize(trainer.device)
     state = trainer_state(trainer, last_batch)
@@ -137,7 +141,8 @@ def _agree(operation, value=None, error=None):
     # Custom hooks may change the ambient device before failing. Agree on that
     # failure using this rank's device, never another rank's NCCL communicator.
     if dist.get_backend() == 'nccl':
-        torch.cuda.set_device(dist.get_rank())
+        device_idx = dist.get_rank() if torch.cuda.device_count() >= dist.get_world_size() else (dist.get_rank() % torch.cuda.device_count())
+        torch.cuda.set_device(device_idx)
     peers = [None] * dist.get_world_size()
     dist.all_gather_object(peers, {'operation': operation, 'value': value, 'error': error})
     if any(peer['operation'] != operation for peer in peers):
@@ -217,10 +222,11 @@ def _distributed_checkpoint_identity(trainer):
                  'preview_snapshot', 'snapshot_renderer', 'previews', 'bounded_observer'):
         implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
     runtime = distributed_runtime_info(trainer)
+    topology = {k: v for k, v in strategy.items() if k not in ('node_rank', 'rendezvous')}
     return _json({'hypergan_checkpoint_version': CURRENT_VERSION,
                   'config': numerical_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
                   'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
-                  'topology': strategy, 'source': source_info(trainer.config)})
+                  'topology': topology, 'source': source_info(trainer.config)})
 
 
 def distributed_checkpoint_identity(trainer):
@@ -326,6 +332,9 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
         error, descriptor, payload = None, None, None
         try:
             root = _root(run_dir)
+            sync_packet = [controller_id, command_sequence, metadata] if rank == 0 else [None, None, None]
+            dist.broadcast_object_list(sync_packet, src=0)
+            controller_id, command_sequence, metadata = sync_packet
             validate_fence(controller_id, command_sequence)
             if world_size > 64:
                 raise ValueError('Prepared checkpoints support at most 64 ranks')
@@ -428,8 +437,13 @@ def _validate_restore_identity(saved, current):
     # Source provenance is recorded but does not decide restore compatibility.
     excluded = {'hypergan_checkpoint_version', 'runtime', 'implementation', 'source',
                 'config', 'config_sha256'}
-    if not _same_json({key: value for key, value in saved.items() if key not in excluded},
-                      {key: value for key, value in current.items() if key not in excluded}):
+    saved_cmp = {key: value for key, value in saved.items() if key not in excluded}
+    current_cmp = {key: value for key, value in current.items() if key not in excluded}
+    if isinstance(saved_cmp.get('topology'), dict):
+        saved_cmp['topology'] = {k: v for k, v in saved_cmp['topology'].items() if k != 'rendezvous'}
+    if isinstance(current_cmp.get('topology'), dict):
+        current_cmp['topology'] = {k: v for k, v in current_cmp['topology'].items() if k != 'rendezvous'}
+    if not _same_json(saved_cmp, current_cmp):
         raise ValueError('Distributed checkpoint config/data/topology identity differs')
 
 

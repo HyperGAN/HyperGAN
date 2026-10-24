@@ -43,7 +43,8 @@ def _ready(state):
     if torch.get_num_threads() != 1 or torch.get_default_dtype() != torch.float32:
         raise ValueError('Replicated execution requires one CPU thread and float32 default dtype')
     if trainer.device.type == 'cuda':
-        if torch.cuda.current_device() != trainer.rank:
+        local_rank = trainer.rank % trainer.ranks_per_node
+        if torch.cuda.current_device() != local_rank:
             raise ValueError('Replicated CUDA worker no longer owns its assigned current device')
         torch.cuda.synchronize(trainer.device)
     return {'step': trainer.step, 'ready': True, 'inference_available': state['batch'] is not None}
@@ -55,7 +56,7 @@ def create_worker(rank, world_size, config, execution, context):
                                     execution=execution)
     if any(trainer.strategy_info.get(key) != value for key, value in execution.items()):
         raise ValueError('Actual replicated strategy differs from resolved execution profile')
-    return {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context}
+    return {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context, 'execution': execution}
 
 
 def _information(state):
@@ -133,7 +134,8 @@ def handle_command(state, operation, payload):
         return {**_ready(state), 'checkpoint_path': str(path), 'saved_step': info['step']}
     if operation == 'prepare':
         metadata = payload['metadata']
-        if any(metadata[key] != context[key] for key in ('run_id', 'attempt_id')):
+        node_rank = state.get('execution', {}).get('node_rank', 0)
+        if node_rank == 0 and any(metadata[key] != context[key] for key in ('run_id', 'attempt_id')):
             raise ValueError('Checkpoint lineage differs from the immutable worker attempt')
         receipt = prepare_distributed_checkpoint(context['run_dir'], trainer, state['batch'], metadata,
             command_sequence=payload['command_sequence'], controller_id=payload['controller_id'])

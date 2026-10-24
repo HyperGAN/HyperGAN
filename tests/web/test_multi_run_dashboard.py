@@ -406,3 +406,95 @@ def test_replaced_run_directory_evicts_stale_service_and_resolves_new_run_id(tmp
         res_stale = client.get(f"/api/v1/runs/{old_run_id}/status")
         assert res_stale.status_code == 404
         assert f"Unknown run identity: {old_run_id}" in res_stale.json()["error"]
+
+
+def test_workspace_runs_subdir_discovery_and_projection(tmp_path):
+    from hypergan.web_autostart import Projector as BgProjector, _manifest_roots
+    from hypergan.web_server import ServiceRegistry
+
+    workspace = tmp_path / "training-runs"
+    workspace.mkdir()
+    (workspace / "hypergan.toml").write_text('[workspace]\nruns_root = "runs"\n', encoding="utf-8")
+    nested_runs = workspace / "runs"
+    nested_runs.mkdir()
+
+    # Create one top-level run and one nested run inside <workspace>/runs/
+    create_mock_run(
+        workspace,
+        "top_run_01",
+        dir_name="top-run",
+        status="complete",
+        step=100,
+    )
+    nested_dir = create_mock_run(
+        nested_runs,
+        "nested_run_02",
+        dir_name="imajev-apples-joint-64-bispf-600",
+        status="running",
+        step=50,
+    )
+
+    registry = ServiceRegistry(workspace)
+    assert registry.is_single() is False
+
+    discovered = registry._discover_runs()
+    run_ids = [r["run_id"] for r in discovered]
+    assert run_ids == ["nested_run_02", "top_run_01"]
+
+    # Resolve by run_id and by directory name inside <workspace>/runs/
+    assert registry.resolve_run_dir("nested_run_02") == nested_dir.resolve()
+    assert registry.resolve_run_dir("imajev-apples-joint-64-bispf-600") == nested_dir.resolve()
+
+    # Projector and _manifest_roots also include <workspace>/runs/
+    projector = BgProjector(workspace)
+    cand_paths = projector._candidate_runs()
+    assert nested_dir.resolve() in cand_paths
+    assert nested_dir.resolve() in {p.resolve() for p in _manifest_roots(workspace)}
+
+    session = LocalSession(8765, auth="none")
+    app = create_app(workspace, session=session)
+    with TestClient(app, base_url=session.origin) as client:
+        res_runs = client.get("/api/runs")
+        assert res_runs.status_code == 200
+        api_ids = [r["run_id"] for r in res_runs.json()]
+        assert api_ids == ["nested_run_02", "top_run_01"]
+
+        res_detail = client.get("/runs/nested_run_02")
+        assert res_detail.status_code == 200
+
+        res_status = client.get("/api/v1/runs/nested_run_02/status")
+        assert res_status.status_code == 200
+        assert res_status.json()["run_id"] == "nested_run_02"
+
+
+def test_crashed_unlocked_run_lock_resolves_to_stopped_in_dashboard(tmp_path):
+    import os
+    from hypergan.inspection import check_run_active
+
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+
+    # Run with unlocked .run.lock file and raw status='running' (crashed run)
+    crashed_dir = create_mock_run(
+        runs_root,
+        "crashed_run_01",
+        dir_name="crashed-run",
+        status="running",
+        step=42,
+    )
+    lock_file = crashed_dir / ".run.lock"
+    lock_file.write_text(json.dumps({"pid": 999999, "hostname": "old-hostname"}), encoding="utf-8")
+    stale_time = time.time() - 7200
+    for f in (lock_file, crashed_dir / "summary.json", crashed_dir / "manifest.json", crashed_dir / "events.jsonl"):
+        if f.exists():
+            os.utime(f, (stale_time, stale_time))
+
+    is_active, pid = check_run_active(crashed_dir)
+    assert is_active is False
+    assert pid is None
+
+    summary = read_run_summary(crashed_dir)
+    assert summary["status"] == "stopped"
+    assert summary["active"] is False
+    assert summary["running"] is False
+

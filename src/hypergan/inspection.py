@@ -121,6 +121,23 @@ def inspect_run_host(run_dir: Union[Path, str]) -> Dict[str, Any]:
     }
 
 
+def _is_stale_unlocked_remote_run(run_dir: Path, lock_file: Path, max_idle_seconds: float = 3600.0) -> bool:
+    """Return True if a run with an unlocked .run.lock file has had no file activity within max_idle_seconds."""
+    if not lock_file.exists():
+        return False
+    import time
+    latest_mtime = 0.0
+    for candidate in (lock_file, run_dir / "summary.json", run_dir / "manifest.json", run_dir / "events.jsonl"):
+        try:
+            if candidate.exists():
+                latest_mtime = max(latest_mtime, candidate.stat().st_mtime)
+        except OSError:
+            pass
+    if latest_mtime <= 0.0:
+        return False
+    return (time.time() - latest_mtime) > max_idle_seconds
+
+
 def check_run_active(run_dir: Union[Path, str]) -> Tuple[bool, Optional[int]]:
     """Test non-blocking flock on .run.lock (or remote cluster run state) to check if training is active."""
     run_dir = Path(run_dir).resolve()
@@ -147,7 +164,7 @@ def check_run_active(run_dir: Union[Path, str]) -> Tuple[bool, Optional[int]]:
 
     if not is_active:
         host_info = inspect_run_host(run_dir)
-        if host_info["remote"]:
+        if host_info["remote"] and not _is_stale_unlocked_remote_run(run_dir, lock_file):
             manifest = _read_manifest_safe(run_dir)
             m_status = str(manifest.get("status") or "").strip().lower() if manifest else ""
             summary = read_summary_json(run_dir) if not m_status else None

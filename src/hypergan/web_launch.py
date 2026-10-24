@@ -123,6 +123,10 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
             started_at = time.time()
             runs_root = _wa.find_runs_root(root)
             candidate_roots = [runs_root, root]
+            if root.parent != root:
+                candidate_roots.append(root.parent.resolve())
+                if root.parent.name == "runs" and root.parent.parent != root.parent:
+                    candidate_roots.append(root.parent.parent.resolve())
             if root.name == "runs" and root.parent != root:
                 candidate_roots.append(root.parent.resolve())
             if (root / "runs").is_dir():

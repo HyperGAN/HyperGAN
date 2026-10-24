@@ -463,23 +463,21 @@ def test_optical_wavefront_device_and_dtype_transfers():
         assert x_cuda.grad.is_cuda
 
 
-def test_optical_wavefront_envelope_prior_and_resume_identity():
-    """Verify multi-scale optical wavefront envelope prior with latent conditioning."""
+def test_optical_wavefront_no_procedural_shader_and_resume_identity():
+    """Verify OpticalWavefrontPrior is strictly domain-agnostic and has no procedural basis."""
     prior = OpticalWavefrontPrior(
-        weight_seam=0.0,
-        weight_biharmonic=0.0,
-        weight_psd=0.0,
-        weight_optical_envelope=20.0,
+        weight_seam=1.5,
+        weight_biharmonic=0.2,
+        weight_psd=0.05,
     )
-    assert prior.resume_identity()["weight_optical_envelope"] == 20.0
-
-    img = torch.zeros(2, 3, 64, 64, requires_grad=True)
-    latent = torch.randn(2, 128)
-    out = prior(image=img, latent=latent, return_dict=True)
-    assert out["loss_optical_envelope"].item() > 0.0
-    assert torch.isclose(out["total_loss"], 20.0 * out["loss_optical_envelope"])
-    out["total_loss"].backward()
-    assert img.grad is not None and torch.isfinite(img.grad).all()
+    assert not hasattr(prior, "_get_optical_basis")
+    assert not hasattr(prior, "weight_optical_envelope")
+    ident = prior.resume_identity()
+    assert ident["weight_seam"] == 1.5
+    assert ident["weight_biharmonic"] == 0.2
+    assert ident["weight_psd"] == 0.05
+    with pytest.raises(TypeError):
+        OpticalWavefrontPrior(weight_optical_envelope=20.0)
 
 
 # ============================================================================

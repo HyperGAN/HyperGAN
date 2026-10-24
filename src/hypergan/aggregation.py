@@ -128,9 +128,92 @@ class GradientAllreduceStrategy:
         }
 
 
+def _synchronize_optimizer_regularizers(
+    trainer: Any = None, optimizers: Any = None
+) -> None:
+    """Synchronize all optimizer regularizer states across ranks (Issue #186 M2).
+
+    ParticleGAN optimizers (DeviceK3PGeneratorAdam and DeviceKA2CriticAdam) maintain
+    internal regularizer states (opt_g: latent_history, opt_d: record with last_sur,
+    ema_residual, ema_data_scale, and ema_critic modules). During multi-rank local steps
+    on distinct shards, these states drift. At synchronization boundaries, this function
+    synchronizes both tensor buffers and scalar controller records across all ranks
+    so that ReplicatedTrainer._replica_digest achieves bitwise replica agreement.
+    """
+    if not dist.is_available() or not dist.is_initialized():
+        return
+    world_size = dist.get_world_size()
+    if world_size <= 1:
+        return
+
+    opts = []
+    if optimizers is not None:
+        opts = optimizers if isinstance(optimizers, (list, tuple)) else [optimizers]
+    elif trainer is not None:
+        for opt_name in ("opt_g", "opt_d"):
+            opt = getattr(trainer, opt_name, None)
+            if opt is not None:
+                opts.append(opt)
+
+    comm_device = getattr(trainer, "device", None)
+    if comm_device is None:
+        try:
+            backend = dist.get_backend()
+            comm_device = torch.device(
+                f"cuda:{torch.cuda.current_device()}" if backend == "nccl" else "cpu"
+            )
+        except Exception:
+            comm_device = torch.device("cpu")
+
+    for opt in opts:
+        # 1. Synchronize latent and direct history tensor buffers (opt_g)
+        for hist_attr in ("latent_history", "direct_history"):
+            hist = getattr(opt, hist_attr, None)
+            if hist is not None and isinstance(hist, torch.Tensor) and hist.is_floating_point():
+                data = hist.data.contiguous()
+                dist.all_reduce(data, op=dist.ReduceOp.SUM)
+                hist.data.copy_(data)
+
+        # 2. Synchronize critic step record scalar records (opt_d.record)
+        rec = getattr(opt, "record", None)
+        if rec is not None:
+            # Synchronize last_sur (scalar surrogate loss)
+            if getattr(rec, "last_sur", None) is not None:
+                sur = torch.tensor([float(rec.last_sur)], dtype=torch.float64, device=comm_device)
+                dist.all_reduce(sur, op=dist.ReduceOp.SUM)
+                rec.last_sur = float((sur / world_size).item())
+
+            # Synchronize ema_residual and ema_data_scale
+            if hasattr(rec, "ema_residual") and hasattr(rec, "ema_data_scale"):
+                stats = torch.tensor(
+                    [float(rec.ema_residual), float(rec.ema_data_scale)],
+                    dtype=torch.float64,
+                    device=comm_device,
+                )
+                dist.all_reduce(stats, op=dist.ReduceOp.SUM)
+                rec.ema_residual = float((stats[0] / world_size).item())
+                rec.ema_data_scale = float((stats[1] / world_size).item())
+
+        # 3. Synchronize EMA critic network if attached to optimizer
+        ema_critic = getattr(opt, "ema_critic", None)
+        if ema_critic is not None and isinstance(ema_critic, torch.nn.Module):
+            for p in ema_critic.parameters():
+                data = p.data.contiguous()
+                dist.all_reduce(data, op=dist.ReduceOp.SUM)
+                p.data.copy_(data / world_size)
+            for name, buf in ema_critic.named_buffers():
+                if buf.is_floating_point():
+                    data = buf.data.contiguous()
+                    dist.all_reduce(data, op=dist.ReduceOp.SUM)
+                    buf.data.copy_(data / world_size)
+                else:
+                    dist.broadcast(buf.data, src=0)
+
+
 # ==============================================================================
 # Canonical Strategy 2: "parameter_average"
 # ==============================================================================
+
 
 class ParameterAverageStrategy:
     """Periodic cross-rank parameter averaging (FedAvg / Local SGD)."""
@@ -223,6 +306,8 @@ class ParameterAverageStrategy:
                         data = val.data.contiguous()
                         dist.all_reduce(data, op=dist.ReduceOp.SUM)
                         val.data.copy_(data / world_size)
+
+        _synchronize_optimizer_regularizers(self.trainer, opts)
 
     def state_dict(self) -> Dict[str, Any]:
         return {
@@ -392,16 +477,25 @@ class PseudoGradientStrategy:
                         else:
                             dist.broadcast(buf.data, src=0)
 
-            # Synchronize optimizer floating moments across ranks
-            for opt_name in ("opt_g", "opt_d"):
-                opt = getattr(self.trainer, opt_name, None)
-                if opt is not None and hasattr(opt, "state"):
-                    for param_state in opt.state.values():
-                        for key, val in param_state.items():
-                            if isinstance(val, torch.Tensor) and val.is_floating_point():
-                                data = val.data.contiguous()
-                                dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                                val.data.copy_(data / world_size)
+            # Synchronize optimizer floating moments and regularizers across ranks
+            opts = []
+            if optimizers is not None:
+                opts = optimizers if isinstance(optimizers, (list, tuple)) else [optimizers]
+            elif self.trainer is not None:
+                for opt_name in ("opt_g", "opt_d"):
+                    opt = getattr(self.trainer, opt_name, None)
+                    if opt is not None and hasattr(opt, "state"):
+                        opts.append(opt)
+
+            for opt in opts:
+                for param_state in getattr(opt, "state", {}).values():
+                    for key, val in param_state.items():
+                        if isinstance(val, torch.Tensor) and val.is_floating_point():
+                            data = val.data.contiguous()
+                            dist.all_reduce(data, op=dist.ReduceOp.SUM)
+                            val.data.copy_(data / world_size)
+
+            _synchronize_optimizer_regularizers(self.trainer, opts)
 
     def state_dict(self) -> Dict[str, Any]:
         if not self.anchor:

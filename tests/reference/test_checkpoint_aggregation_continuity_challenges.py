@@ -346,11 +346,11 @@ def test_pseudo_gradient_exact_resume_continuity_and_state_parity(tmp_path):
 # ==============================================================================
 
 def test_empirical_reproduction_unsynchronized_regularizer_divergence(tmp_path):
-    """Demonstrate the critical bug: out-of-the-box ReplicatedCPUTrainer crashes at sync boundary
+    """Verify that out-of-the-box ReplicatedCPUTrainer succeeds at sync boundary.
 
-    When running parameter_average or pseudo_gradient without synchronizing optimizer regularizer state,
-    rank 0 and rank 1 diverge in opt_d.record (last_sur) and opt_g (latent.history) during local steps.
-    _assert_replicas('complete replicated state') at line 531 crashes with ValueError.
+    Now that optimizer regularizers are synchronized natively within aggregation strategies,
+    rank 0 and rank 1 agree on complete replicated state at sync boundaries without requiring
+    external test-harness synchronization (sync_regularizers=False).
     """
     root = tmp_path / 'repro_fixture'
     run = tmp_path / 'repro_run'
@@ -362,9 +362,10 @@ def test_empirical_reproduction_unsynchronized_regularizer_divergence(tmp_path):
         'outer_momentum': 0.9,
     }
 
-    # Running with sync_regularizers=False reproduces the crash in ReplicatedTrainer._assert_replicas
-    with pytest.raises(RuntimeError, match="Ranks disagree on complete replicated state"):
-        launch_worker(root, run, 'split', agg_cfg, sync_regularizers=False)
+    # Running with sync_regularizers=False verifies native regularizer sync succeeds without crash
+    results = launch_worker(root, run, 'split', agg_cfg, sync_regularizers=False)
+    assert len(results) == 2
+    assert all(r.get('passed') is True for r in results)
 
 
 # ==============================================================================

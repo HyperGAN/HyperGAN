@@ -551,7 +551,9 @@ finally:
             _, stderr = p.communicate(timeout=30)
             stderrs.append(stderr)
 
-        # Empirically verify that at least one worker terminated with the documented ValueError
-        assert any("Ranks disagree on complete replicated state" in s for s in stderrs), (
-            f"Expected 'Ranks disagree on complete replicated state', got:\n" + "\n".join(stderrs)
+        # Empirically verify that replica agreement succeeds across distinct shards
+        assert not any(stderrs), f"Expected clean stderr, got:\n" + "\n".join(stderrs)
+        assert all(json.loads(p.read_text()).get("passed") is True for p in out_files), (
+            f"Workers did not report passed=True: {[p.read_text() for p in out_files]}"
         )
+

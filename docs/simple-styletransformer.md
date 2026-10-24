@@ -70,7 +70,7 @@ HNDL adds `broadcast_mul`, `coordinate_grid`, `fourier_features`, and
 `grid_sample`. The coordinate grids and Fourier table are persistent buffers,
 so checkpoints and EMA copies retain their values. All architecture operations
 are visible in the `.hndl` file. These operators were released in HNDL 0.7.0;
-the `train` extra requires HNDL 0.9.0 or newer.
+the `train` extra requires HNDL 0.10.0 or newer.
 
 Validation completed:
 

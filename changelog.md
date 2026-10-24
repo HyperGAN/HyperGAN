@@ -2,7 +2,7 @@
 
 ## 2.0.0a1 — 2026-10-23
 
-HyperGAN 2.0.0a1 is a ground-up architectural rebuild centered on configurable ParticleGAN (`>=0.9.2,<0.10`) primitives, declarative `hypergan-model/1` TOML model files, HNDL (`>=0.9.0`) networks, reproducible training lifecycles, a functional Python API (`import hypergan as hg`), and real-time web observation (`hypergan view`) backed by Foldlite DB (`>=0.1.2,<0.2`).
+HyperGAN 2.0.0a1 is a ground-up architectural rebuild centered on configurable ParticleGAN (`>=0.9.2,<0.10`) primitives, declarative `hypergan-model/1` TOML model files, HNDL (`>=0.10.0`) networks, reproducible training lifecycles, a functional Python API (`import hypergan as hg`), and real-time web observation (`hypergan view`) backed by Foldlite DB (`>=0.1.2,<0.2`).
 
 - **Unified `format = "hypergan-model/1"` Configuration Standard**:
   - Single, human-editable TOML model schema (`[data]`, `[prior]`, `[networks.<name>]`, `[[losses]]`, `[penalty]`, `[train]`, `[evaluations.<id>]`, `[metrics]`, `[sampling]`, `[checkpoints]`, `[run]`).

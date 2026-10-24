@@ -220,6 +220,8 @@ class ComponentGraph(nn.Module):
 
     def resolve(self, path, context, active=None):
         parts = path.split(".")
+        if parts[0] == "generated" and "generated" not in context:
+            context["generated"] = self.call("generator", context, active)
         if parts[0] == 'prior' and parts[1] not in context['prior']:
             prior = context.get('_prior')
             if prior is None:
@@ -258,9 +260,10 @@ class ComponentGraph(nn.Module):
         finally:
             active.remove(name)
 
-    def generate(self, latent, batch, *, prior=None):
+    def generate(self, latent, batch, *, prior=None, lazy=False):
         context = {"latent": latent, "batch": batch, "components": {}, 'prior': {}, '_prior': prior}
-        context["generated"] = self.call("generator", context)
+        if not lazy:
+            context["generated"] = self.call("generator", context)
         return context
 
     def critic(self, candidate, context, module=None):

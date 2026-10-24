@@ -1,0 +1,4 @@
+# Frozen ImaJev-4B typed decision readout mapping [-1, 1] RGB images to
+# centered calibrated option logits over the configured candidate actions + unknown.
+pretrained(${readout_path}, provider="imajev_4b", sha256=${readout_sha256},
+           readout="decision_logits", trainable=False, name="imajev")

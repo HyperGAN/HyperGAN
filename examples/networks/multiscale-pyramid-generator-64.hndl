@@ -1,0 +1,60 @@
+
+# Multi-scale 64x64 RGB pyramid generator accumulating direct optical basis
+# and toRGB residual branches with bicubic upsampling and group_norm.
+z_raw = reshape(128, 1, 1)
+z_16 = reshape(z_raw, 16, 4, 2)
+z_p = adaptive_avg_pool(z_16, 1)
+z_sm = softmax(scale(reshape(z_p, 1, 16, 1), 5.8), 2)
+z_sm16 = scale(reshape(z_sm, 16, 1, 1), 48.0)
+
+# Direct 32x32 and 64x64 multi-scale optical basis branches
+rgb32_dir = deconv(z_sm16, 3, kernel_size=32, stride=1, padding=0, bias=False)
+rgb64_dir_up = upsample(adaptive_avg_pool(upsample(rgb32_dir, scale_factor=2, mode="bicubic"), 32), scale_factor=2, mode="bilinear")
+rgb64_dir = deconv(z_sm16, 3, kernel_size=64, stride=1, padding=0, bias=False)
+rgb64_dir_smooth = upsample(adaptive_avg_pool(rgb64_dir, 32), scale_factor=2, mode="bilinear")
+rgb_basis = add(scale(rgb64_dir_up, 1.4), scale(rgb64_dir_smooth, 0.4))
+
+# Hierarchical 4->8->16->32->64 pyramid branch
+z_64 = reshape(adaptive_avg_pool(z_16, 2), 64, 1, 1)
+z_4 = reshape(adaptive_avg_pool(reshape(z_p, 4, 4, 1), 1), 4, 1, 1)
+z_68 = concat(z_64, z_4)
+h4 = deconv(z_68, 256, kernel_size=4, stride=1, padding=0, bias=False)
+h4 = group_norm(h4, 16)
+h4 = silu(h4)
+
+# 8x8 stage
+u8 = upsample(h4, scale_factor=2, mode="bicubic")
+h8 = conv(u8, 128, kernel_size=3, stride=1, padding=1, bias=False)
+h8 = group_norm(h8, 16)
+h8 = silu(h8)
+rgb8 = conv(h8, 3, kernel_size=1, stride=1, padding=0)
+
+# 16x16 stage
+u16 = upsample(h8, scale_factor=2, mode="bicubic")
+h16 = conv(u16, 64, kernel_size=3, stride=1, padding=1, bias=False)
+h16 = group_norm(h16, 8)
+h16 = silu(h16)
+rgb8_up = upsample(rgb8, scale_factor=2, mode="bicubic")
+rgb16_res = conv(h16, 3, kernel_size=1, stride=1, padding=0)
+rgb16 = add(rgb8_up, rgb16_res)
+
+# 32x32 stage
+u32 = upsample(h16, scale_factor=2, mode="bicubic")
+h32 = conv(u32, 32, kernel_size=3, stride=1, padding=1, bias=False)
+h32 = group_norm(h32, 8)
+h32 = silu(h32)
+rgb16_up = upsample(rgb16, scale_factor=2, mode="bicubic")
+rgb32_res = conv(h32, 3, kernel_size=1, stride=1, padding=0)
+rgb32 = add(rgb16_up, rgb32_res)
+
+# 64x64 stage
+u64 = upsample(h32, scale_factor=2, mode="bicubic")
+h64 = conv(u64, 16, kernel_size=3, stride=1, padding=1, bias=False)
+h64 = group_norm(h64, 4)
+h64 = silu(h64)
+rgb32_up = upsample(rgb32, scale_factor=2, mode="bicubic")
+rgb64_res = conv(h64, 3, kernel_size=3, stride=1, padding=1)
+rgb64_pyr = add(rgb32_up, rgb64_res)
+
+rgb64 = add(rgb_basis, scale(rgb64_pyr, 0.22))
+out = tanh(rgb64)

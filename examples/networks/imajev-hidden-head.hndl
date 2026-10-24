@@ -1,0 +1,3 @@
+# Frozen ImaJev-4B hidden-state representation [B, 2560] at target_layer.
+pretrained(${readout_path}, provider="imajev_4b", sha256=${readout_sha256},
+           readout="hidden_state", trainable=False, name="imajev")

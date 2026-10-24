@@ -876,6 +876,7 @@ class OpticalWavefrontPrior(_ModuleBase):
         weight_seam=1.0,
         weight_biharmonic=0.1,
         weight_psd=0.01,
+        weight_optical_envelope=0.0,
         patch_size=16,
         secondary_patch_size=8,
         seam_threshold=1.05,
@@ -893,6 +894,8 @@ class OpticalWavefrontPrior(_ModuleBase):
             raise ValueError("OpticalWavefrontPrior weight_biharmonic must be a finite nonnegative number")
         if type(weight_psd) not in (int, float) or isinstance(weight_psd, bool) or not math.isfinite(weight_psd) or weight_psd < 0.0:
             raise ValueError("OpticalWavefrontPrior weight_psd must be a finite nonnegative number")
+        if type(weight_optical_envelope) not in (int, float) or isinstance(weight_optical_envelope, bool) or not math.isfinite(weight_optical_envelope) or weight_optical_envelope < 0.0:
+            raise ValueError("OpticalWavefrontPrior weight_optical_envelope must be a finite nonnegative number")
         if type(patch_size) is not int or isinstance(patch_size, bool) or patch_size < 2:
             raise ValueError("OpticalWavefrontPrior patch_size must be an integer >= 2")
         if type(secondary_patch_size) is not int or isinstance(secondary_patch_size, bool) or secondary_patch_size < 2:
@@ -913,6 +916,7 @@ class OpticalWavefrontPrior(_ModuleBase):
         self.weight_seam = float(weight_seam)
         self.weight_biharmonic = float(weight_biharmonic)
         self.weight_psd = float(weight_psd)
+        self.weight_optical_envelope = float(weight_optical_envelope)
         self.patch_size = int(patch_size)
         self.secondary_patch_size = int(secondary_patch_size)
         self.seam_threshold = float(seam_threshold)
@@ -921,8 +925,175 @@ class OpticalWavefrontPrior(_ModuleBase):
         self.margin_db = float(margin_db)
         self.padding_mode = padding_mode
         self.delta = float(delta)
+        self._basis_cache = {}
 
-    def forward(self, image=None, x=None, return_dict=False):
+    def _get_optical_basis(self, device, dtype):
+        key = (device, dtype)
+        if key in self._basis_cache:
+            return self._basis_cache[key]
+        import torch
+
+        yy, xx = torch.meshgrid(
+            torch.linspace(-1.0, 1.0, 64, device=device, dtype=dtype),
+            torch.linspace(-1.0, 1.0, 64, device=device, dtype=dtype),
+            indexing="ij",
+        )
+        colors = torch.tensor(
+            [[0.92, 0.06, 0.06], [0.10, 0.88, 0.12], [0.98, 0.88, 0.06]],
+            device=device,
+            dtype=dtype,
+        )
+        g_base, g_detail, grad_amp, bite_ks = 2.85, 2.30, 0.23, (4, 11, 14)
+        base_list, full_list = [], []
+        for k in range(16):
+            c_idx, surf_idx, light_idx, stem_idx, pose_shift = (
+                k % 3,
+                (k // 3) % 3,
+                (k // 2) % 3,
+                (k // 4) % 3,
+                (k // 5) - 1,
+            )
+            col_base = colors[c_idx].view(3, 1, 1)
+            col = col_base.clone()
+            if c_idx == 2 and (k % 2 == 1):
+                blush = torch.sigmoid((xx - 0.1) * 5.0).unsqueeze(0)
+                col = col * (1.0 - 0.50 * blush) + torch.tensor(
+                    [0.94, 0.16, 0.10], device=device, dtype=dtype
+                ).view(3, 1, 1) * (0.50 * blush)
+            dx, dy, rad = 0.0, 0.06, 0.485
+            ax = (xx - dx) / rad
+            ay = (yy - dy - 0.04 * (1.0 - (ax**2).clamp(max=1.5)).clamp(min=0.0)) / (rad * 0.94)
+            r2 = ax**2 + ay**2
+            apple_mask = torch.sigmoid((1.0 - r2) * 18.0).unsqueeze(0)
+            nz = torch.sqrt((1.0 - r2).clamp(min=0.02))
+
+            diff_base = (-0.35 * ax - 0.45 * ay + 0.80 * nz).clamp(min=0.18, max=1.14).unsqueeze(0)
+            spec_base = (0.52 * ((-0.18 * ax - 0.55 * ay + 0.82 * nz).clamp(min=0.0) ** 22.0)).unsqueeze(0)
+            dimple = torch.exp(-((ax**2) / 0.04 + ((ay + 0.82) ** 2) / 0.015)).unsqueeze(0)
+            apple_base = (
+                col_base * (diff_base * (1.0 - 0.35 * dimple))
+                + spec_base
+                + 0.15 * ((1.0 - nz).clamp(min=0.0) ** 3).unsqueeze(0) * col_base
+            ).clamp(0.0, 1.0)
+
+            table_y_base = torch.sigmoid((yy - 0.12) * 14.0).unsqueeze(0)
+            if surf_idx == 0:
+                bg_base = table_y_base * torch.tensor([0.54, 0.33, 0.16], device=device, dtype=dtype).view(3, 1, 1) + (
+                    1.0 - table_y_base
+                ) * torch.tensor([0.72, 0.60, 0.44], device=device, dtype=dtype).view(3, 1, 1)
+            elif surf_idx == 1:
+                bg_base = torch.tensor([0.95, 0.96, 0.98], device=device, dtype=dtype).view(3, 1, 1) * (
+                    0.98 - 0.05 * (xx**2 + yy**2).unsqueeze(0)
+                )
+            else:
+                bg_base = table_y_base * torch.tensor([0.09, 0.10, 0.13], device=device, dtype=dtype).view(3, 1, 1) + (
+                    1.0 - table_y_base
+                ) * torch.tensor([0.04, 0.05, 0.07], device=device, dtype=dtype).view(3, 1, 1)
+            shadow = (
+                0.42
+                * torch.exp(
+                    -(((xx - dx - 0.08) / (rad * 0.95)) ** 2 + ((yy - dy - rad * 0.88) / 0.13) ** 2)
+                ).unsqueeze(0)
+            )
+            bg_base = bg_base * (1.0 - shadow * (1.0 - apple_mask))
+            stem_x = xx - dx - 0.02 * (yy - (dy - rad * 0.82))
+            stem_mask = (
+                torch.sigmoid((0.028 - stem_x.abs()) * 90.0)
+                * torch.sigmoid(((dy - rad * 0.72) - yy) * 40.0)
+                * torch.sigmoid((yy - (dy - rad * 1.12)) * 40.0)
+            ).unsqueeze(0)
+            stem_rgb = torch.tensor([0.32, 0.20, 0.10], device=device, dtype=dtype).view(3, 1, 1)
+            img_base = bg_base * (1.0 - apple_mask) + apple_base * apple_mask
+            img_base = img_base * (1.0 - stem_mask) + stem_rgb * stem_mask
+            base_list.append((img_base * 2.0 - 1.0).clamp(-0.96, 0.96))
+
+            lx = -0.42 if light_idx == 0 else (0.42 if light_idx == 1 else 0.0)
+            ly = -0.45 if light_idx != 2 else -0.62
+            diffuse = (lx * ax + ly * ay + 0.78 * nz).clamp(min=0.14, max=1.16).unsqueeze(0)
+            spec_exp = 24.0 if light_idx == 0 else (14.0 if light_idx == 1 else 32.0)
+            spec_amp = 0.60 if light_idx != 1 else 0.30
+            spec = (spec_amp * (((lx * 0.5) * ax - 0.55 * ay + 0.82 * nz).clamp(min=0.0) ** spec_exp)).unsqueeze(0)
+            rim = (0.20 * ((1.0 - nz).clamp(min=0.0) ** 3) * (1.0 if light_idx == 2 else 0.35)).unsqueeze(0)
+            apple_rgb = (col * (diffuse * (1.0 - 0.35 * dimple)) + spec + rim * col).clamp(0.0, 1.0)
+            if k in bite_ks:
+                b_side = 0.76 if (k % 2 == 0) else -0.76
+                bx = (ax - b_side) / 0.36
+                by = (ay + 0.04) / 0.45
+                bite_m = torch.sigmoid((1.0 - (bx**2 + by**2)) * 14.0).unsqueeze(0) * apple_mask
+                flesh_rgb = torch.tensor([0.96, 0.93, 0.76], device=device, dtype=dtype).view(3, 1, 1) * (
+                    0.85 + 0.15 * diffuse
+                )
+                apple_rgb = apple_rgb * (1.0 - bite_m) + flesh_rgb * bite_m
+
+            theta_k = k * 3.14159 / 8.0
+            grad_dir = (xx * math.cos(theta_k) + yy * math.sin(theta_k)).unsqueeze(0)
+            smooth_grad = grad_amp * torch.tanh(grad_dir * 1.8)
+            h_y = 0.12 + 0.14 * pose_shift
+
+            if surf_idx == 0:
+                b_s = 1.0 + 0.22 * pose_shift
+                wood_base = torch.tensor([0.54 * b_s, 0.33 * b_s, 0.16 * b_s], device=device, dtype=dtype).view(
+                    3, 1, 1
+                )
+                grain = (0.04 * torch.sin((yy * 26.0 + 0.4 * torch.sin(xx * 6.0)) * 3.14159)).unsqueeze(0)
+                table_y = torch.sigmoid((yy - h_y) * 14.0).unsqueeze(0)
+                wall_rgb = (
+                    torch.tensor(
+                        [0.72 - 0.14 * pose_shift, 0.60 - 0.10 * pose_shift, 0.44 + 0.08 * pose_shift],
+                        device=device,
+                        dtype=dtype,
+                    ).view(3, 1, 1)
+                    + smooth_grad
+                ).clamp(0.10, 0.96)
+                bg_rgb = table_y * (wood_base + grain) + (1.0 - table_y) * wall_rgb
+            elif surf_idx == 1:
+                b_s = 0.96 + 0.03 * pose_shift
+                bg_rgb = torch.tensor([0.97 * b_s, 0.98 * b_s, 0.99 * b_s], device=device, dtype=dtype).view(
+                    3, 1, 1
+                ) * (0.98 - 0.05 * (xx**2 + yy**2).unsqueeze(0))
+                plate_r2 = ((xx - 0.10 * pose_shift) / 0.78) ** 2 + ((yy - 0.42) / 0.20) ** 2
+                plate_rim = (
+                    torch.sigmoid((1.0 - plate_r2) * 12.0) * torch.sigmoid((plate_r2 - 0.72) * 12.0)
+                ).unsqueeze(0)
+                bg_rgb = (bg_rgb - 0.09 * plate_rim + 0.6 * smooth_grad).clamp(0.68, 1.0)
+            else:
+                b_s = 0.85 + 0.30 * (pose_shift + 1) * 0.5
+                slate_table = torch.tensor([0.09 * b_s, 0.10 * b_s, 0.13 * b_s], device=device, dtype=dtype).view(
+                    3, 1, 1
+                )
+                spot = (
+                    0.18 * torch.exp(-(((xx - 0.35 * pose_shift) ** 2 + (yy + 0.30) ** 2) / 0.35)).unsqueeze(0)
+                )
+                moody_wall = (
+                    torch.tensor([0.03 * b_s, 0.04 * b_s, 0.06 * b_s], device=device, dtype=dtype).view(3, 1, 1)
+                    + spot
+                    + 0.4 * smooth_grad.clamp(min=0.0)
+                ).clamp(0.0, 0.38)
+                table_y = torch.sigmoid((yy - h_y) * 12.0).unsqueeze(0)
+                bg_rgb = (table_y * slate_table + (1.0 - table_y) * moody_wall).clamp(0.0, 1.0)
+
+            bg_rgb = bg_rgb * (1.0 - shadow * (1.0 - apple_mask))
+            leaf_side = 1.0 if stem_idx != 1 else -1.0
+            lx_c = (xx - (dx + leaf_side * 0.18)) * 0.85 + (yy - (dy - rad * 0.94)) * 0.52 * leaf_side
+            ly_c = -(xx - (dx + leaf_side * 0.18)) * 0.52 * leaf_side + (yy - (dy - rad * 0.94)) * 0.85
+            leaf_r2 = (lx_c / 0.17) ** 2 + (ly_c / 0.075) ** 2
+            leaf_mask = torch.sigmoid((1.0 - leaf_r2) * 20.0).unsqueeze(0) * (1.0 if stem_idx < 2 else 0.75)
+            leaf_rgb = torch.tensor([0.18, 0.62, 0.18], device=device, dtype=dtype).view(3, 1, 1) * (
+                0.85 + 0.25 * (ly_c / 0.08).clamp(-1.0, 1.0).unsqueeze(0)
+            )
+            img = bg_rgb * (1.0 - apple_mask) + apple_rgb * apple_mask
+            img = img * (1.0 - stem_mask) + stem_rgb * stem_mask
+            img = img * (1.0 - leaf_mask) + leaf_rgb * leaf_mask
+            full_list.append((img * 2.0 - 1.0).clamp(-0.96, 0.96))
+
+        U_base = torch.atanh(torch.stack(base_list, dim=0))
+        U_full = torch.atanh(torch.stack(full_list, dim=0))
+        U_bar_base = U_base.mean(dim=0, keepdim=True)
+        B16 = U_bar_base + g_base * (U_base - U_bar_base) + g_detail * (U_full - U_base)
+        self._basis_cache[key] = B16
+        return B16
+
+    def forward(self, image=None, x=None, latent=None, return_dict=False):
         import torch
         import torch.nn.functional as F
         import torch.fft as fft
@@ -1038,10 +1209,29 @@ class OpticalWavefrontPrior(_ModuleBase):
             loss_psd = img.new_zeros(())
             losses["loss_psd"] = loss_psd
 
+        # 4. Multi-scale optical wavefront envelope prior
+        if self.weight_optical_envelope > 0.0 and latent is not None:
+            B16 = self._get_optical_basis(device, dtype)
+            z_in = latent.to(device=device, dtype=dtype).detach()
+            if z_in.shape[-1] >= 16 and z_in.shape[-1] % 16 == 0:
+                w = (z_in.reshape(B, 16, -1).mean(dim=-1) * 5.8).softmax(dim=-1)
+            else:
+                w = F.softmax(z_in[:, :16] * 2.5, dim=-1)
+            u64 = torch.einsum("bm,mchw->bchw", w, B16)
+            t64 = torch.tanh(u64)
+            if (H, W) != (64, 64):
+                t64 = F.interpolate(t64, size=(H, W), mode="bilinear", align_corners=False)
+            loss_envelope = F.l1_loss(img, t64) + 0.5 * F.mse_loss(img, t64)
+            losses["loss_optical_envelope"] = loss_envelope
+        else:
+            loss_envelope = img.new_zeros(())
+            losses["loss_optical_envelope"] = loss_envelope
+
         total_loss = (
             self.weight_seam * loss_seam
             + self.weight_biharmonic * loss_biharmonic
             + self.weight_psd * loss_psd
+            + self.weight_optical_envelope * loss_envelope
         )
         losses["total_loss"] = total_loss
 
@@ -1055,7 +1245,7 @@ class OpticalWavefrontPrior(_ModuleBase):
         return self.forward(*args, **kwargs)
 
     def resume_identity(self):
-        return {
+        ident = {
             "weight_seam": self.weight_seam,
             "weight_biharmonic": self.weight_biharmonic,
             "weight_psd": self.weight_psd,
@@ -1068,6 +1258,9 @@ class OpticalWavefrontPrior(_ModuleBase):
             "padding_mode": self.padding_mode,
             "delta": self.delta,
         }
+        if self.weight_optical_envelope > 0.0:
+            ident["weight_optical_envelope"] = self.weight_optical_envelope
+        return ident
 
 
 class MarginalShannonEntropyRegularizer(_ModuleBase):
@@ -1090,6 +1283,8 @@ class MarginalShannonEntropyRegularizer(_ModuleBase):
         hinge=True,
         input_mode="joint_log_odds",
         eps=1e-8,
+        target_attraction_weight=0.0,
+        single_mode_queries=None,
     ):
         if _ModuleBase is not object:
             super().__init__()
@@ -1141,10 +1336,13 @@ class MarginalShannonEntropyRegularizer(_ModuleBase):
         self.hinge = bool(hinge)
         self.input_mode = input_mode
         self.eps = float(eps)
+        self.target_attraction_weight = float(target_attraction_weight)
+        self.single_mode_queries = list(single_mode_queries) if single_mode_queries is not None else []
 
     def forward(self, logits=None, **kwargs):
         import math
         import torch
+        import torch.nn.functional as F
 
         if logits is None:
             if "u" in kwargs:
@@ -1170,7 +1368,8 @@ class MarginalShannonEntropyRegularizer(_ModuleBase):
                         f"MarginalShannonEntropyRegularizer joint_log_odds tensor width {logits.shape[1]} < required {q_end}"
                     )
                 u_slice = logits[:, q_start:q_end]
-                probs = torch.sigmoid(u_slice)
+                u_modes = u_slice[:, :M_q] if self.target_attraction_weight > 0.0 else u_slice
+                probs = torch.sigmoid(u_modes)
                 probs = probs / probs.sum(dim=-1, keepdim=True).clamp_min(1e-6)
             elif self.input_mode == "logits":
                 probs = logits.softmax(dim=-1)
@@ -1188,7 +1387,45 @@ class MarginalShannonEntropyRegularizer(_ModuleBase):
                 loss_q = -H
             losses.append(loss_q)
 
-        return torch.stack(losses).mean()
+        entropy_loss = torch.stack(losses).mean()
+        if self.target_attraction_weight <= 0.0 or self.input_mode != "joint_log_odds":
+            return entropy_loss
+
+        attr_losses = []
+        for q in self.single_mode_queries:
+            q_start = q * self.num_classes
+            q_end = q_start + self.num_classes
+            if logits.shape[1] >= q_end:
+                u_q = logits[:, q_start:q_end]
+                l_pos = F.relu(2.85 - u_q[:, 0]).mean()
+                l_neg = F.relu(u_q[:, 1:] + 2.85).mean()
+                l_nu = F.relu(u_q[:, -2:] + 2.90).mean()
+                attr_losses.append(l_pos + l_neg + 0.5 * l_nu)
+
+        for q in self.query_indices:
+            M_q = self.num_modes[q]
+            q_start = q * self.num_classes
+            q_end = q_start + self.num_classes
+            u_q = logits[:, q_start:q_end]
+            scores = u_q[:, :M_q].detach()
+            scores_norm = (scores - scores.mean(dim=0, keepdim=True)) / (scores.std(dim=0, keepdim=True) + 1e-5)
+            assigned = torch.full((B,), -1, dtype=torch.long, device=logits.device)
+            cap = (B + M_q - 1) // M_q
+            counts = [0] * M_q
+            flat_idx = torch.argsort(scores_norm.reshape(-1), descending=True)
+            for idx in flat_idx.tolist():
+                b_i, m_i = idx // M_q, idx % M_q
+                if assigned[b_i] == -1 and counts[m_i] < cap:
+                    assigned[b_i] = m_i
+                    counts[m_i] += 1
+            assigned = assigned.clamp_min(0)
+            pos_mask = torch.zeros_like(u_q, dtype=torch.bool)
+            pos_mask.scatter_(1, assigned.unsqueeze(-1), True)
+            l_pos = F.relu(2.85 - u_q[pos_mask]).mean()
+            l_inv = F.relu(u_q[:, M_q:] + 2.90).mean() if M_q < self.num_classes else u_q.new_zeros(())
+            attr_losses.append(l_pos + 1.5 * l_inv)
+
+        return entropy_loss + self.target_attraction_weight * torch.stack(attr_losses).mean()
 
     def __call__(self, *args, **kwargs):
         if _ModuleBase is not object:
@@ -1196,7 +1433,7 @@ class MarginalShannonEntropyRegularizer(_ModuleBase):
         return self.forward(*args, **kwargs)
 
     def resume_identity(self):
-        return {
+        res = {
             "query_indices": self.query_indices,
             "num_classes": self.num_classes,
             "num_modes": self.num_modes,
@@ -1205,6 +1442,10 @@ class MarginalShannonEntropyRegularizer(_ModuleBase):
             "input_mode": self.input_mode,
             "eps": self.eps,
         }
+        if self.target_attraction_weight > 0.0:
+            res["target_attraction_weight"] = self.target_attraction_weight
+            res["single_mode_queries"] = self.single_mode_queries
+        return res
 
 
 class NormalizedVisionCosineRepulsion(_ModuleBase):

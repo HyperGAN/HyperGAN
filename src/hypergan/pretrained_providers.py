@@ -224,6 +224,17 @@ def _compile_imajev_runtime(runtime):
                     if fn not in compiled_fns:
                         compiled_fns[fn] = torch.compile(fn)
                     setattr(linear_attn, attr, compiled_fns[fn])
+    if runtime.get('processor') is not None:
+        try:
+            from transformers.models.qwen3_5 import modeling_qwen3_5
+            if not getattr(modeling_qwen3_5, '_hypergan_compiled', False):
+                for attr in ('torch_chunk_gated_delta_rule', 'causal_conv1d_fn'):
+                    fn = getattr(modeling_qwen3_5, attr, None)
+                    if callable(fn):
+                        setattr(modeling_qwen3_5, attr, torch.compile(fn))
+                modeling_qwen3_5._hypergan_compiled = True
+        except Exception:
+            pass
     runtime['compiled'] = True
 
 
@@ -573,6 +584,8 @@ def _imajev_builder(config):
 
             @staticmethod
             def backward(ctx, *grad_outputs):
+                if all(g is None or not torch.any(g != 0) for g in grad_outputs):
+                    return torch.zeros_like(ctx.x_detached), None, None
                 grad_out = grad_outputs if ctx.is_tuple else grad_outputs[0]
                 if ctx.cache is not None:
                     cached_grad_out, cached_grad_x = ctx.cache
@@ -665,28 +678,48 @@ def _imajev_builder(config):
 
             def _extract_hidden_state(self, m, embeds, position_ids, attention_mask=None):
                 target_layer = int(self._config.get('target_layer', -1))
-                layers = getattr(getattr(m, 'language_model', None), 'layers', None)
+                lm = m.language_model
+                layers = getattr(lm, 'layers', None)
                 num_layers = len(layers) if layers is not None else 32
                 layer_idx = target_layer if target_layer >= 0 else num_layers + target_layer
                 kwargs = {'use_cache': False}
                 if attention_mask is not None:
                     import inspect
-                    sig = inspect.signature(m.language_model.forward)
+                    sig = inspect.signature(lm.forward)
                     if 'attention_mask' in sig.parameters or any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()):
                         kwargs['attention_mask'] = attention_mask
-                if layer_idx == num_layers - 1:
-                    return m.language_model(
+                use_ckpt = (
+                    torch.is_grad_enabled()
+                    and embeds.requires_grad
+                    and hasattr(lm, 'gradient_checkpointing_enable')
+                )
+                toggled_mods = []
+                if use_ckpt:
+                    if not getattr(lm, 'is_gradient_checkpointing', False):
+                        lm.gradient_checkpointing_enable(
+                            gradient_checkpointing_kwargs={'use_reentrant': False}
+                        )
+                    for mod in lm.modules():
+                        if getattr(mod, 'gradient_checkpointing', False) and not mod.training:
+                            mod.training = True
+                            toggled_mods.append(mod)
+                try:
+                    if layer_idx == num_layers - 1:
+                        return lm(
+                            inputs_embeds=embeds,
+                            position_ids=position_ids,
+                            **kwargs,
+                        ).last_hidden_state
+                    out = lm(
                         inputs_embeds=embeds,
                         position_ids=position_ids,
+                        output_hidden_states=True,
                         **kwargs,
-                    ).last_hidden_state
-                out = m.language_model(
-                    inputs_embeds=embeds,
-                    position_ids=position_ids,
-                    output_hidden_states=True,
-                    **kwargs,
-                )
-                return m.language_model.norm(out.hidden_states[layer_idx + 1])
+                    )
+                    return lm.norm(out.hidden_states[layer_idx + 1])
+                finally:
+                    for mod in toggled_mods:
+                        mod.training = False
 
             def _compute_vision_tokens(self, x, runtime, grid_thw_1):
                 import torch.nn.functional as F

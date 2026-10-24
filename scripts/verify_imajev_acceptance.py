@@ -893,19 +893,16 @@ def load_checkpoint_and_generate(
             raw_weights = raw_state.get("ema_graph", raw_state.get("graph", {}))
             if recipe_path and Path(recipe_path).exists():
                 import hypergan.api as hg
-                from hypergan.recipes import ComponentGraph
-                from hypergan.config import resolve_config
-                cfg = resolve_config(hg.load_recipe(recipe_path))
-                graph = ComponentGraph(cfg["components"]).to(dev).eval().requires_grad_(False)
-                for name, model in graph.models.items():
-                    prefix = f"models.{name}."
-                    matching = {k[len(prefix):]: v for k, v in raw_weights.items() if k.startswith(prefix)}
-                    if matching:
-                        model.load_state_dict(matching, strict=False)
-                if "image_generator" in graph.models:
-                    generator = graph.models["image_generator"]
-                elif "generator" in graph.models:
-                    generator = graph.models["generator"]
+                from hypergan.recipes import construct
+                from hypergan.config import resolve_config_at
+                cfg = resolve_config_at(hg.load_recipe(recipe_path), Path(recipe_path).parent)
+                target_name = "image_generator" if "image_generator" in cfg["components"] else "generator"
+                model = construct(cfg["components"][target_name]).to(dev).eval().requires_grad_(False)
+                prefix = f"models.{target_name}."
+                matching = {k[len(prefix):]: v for k, v in raw_weights.items() if k.startswith(prefix)}
+                if matching:
+                    model.load_state_dict(matching, strict=False)
+                generator = model
 
     if generator is None:
         # Attempt to lift and instantiate from recipe if provided
@@ -949,17 +946,210 @@ def load_checkpoint_and_generate(
             except Exception:
                 z_dim = 128
 
+    # Extract learned particle buffer if checkpoint comes from ParticleGAN
+    learned_particles = None
+    if isinstance(raw_state, dict):
+        for prior_key in ("ema_prior", "prior"):
+            p_state = raw_state.get(prior_key)
+            if isinstance(p_state, dict) and isinstance(p_state.get("z"), torch.Tensor) and p_state["z"].ndim == 2:
+                learned_particles = p_state["z"].to(dev)
+                break
+
     samples = []
     with torch.no_grad():
         generated_count = 0
         while generated_count < num_samples:
             cur_b = min(batch_size, num_samples - generated_count)
-            z = torch.randn(cur_b, z_dim, device=dev)
+            if learned_particles is not None and len(learned_particles) > 0:
+                idx = torch.arange(generated_count, generated_count + cur_b, device=dev) % len(learned_particles)
+                z = learned_particles[idx]
+            else:
+                z = torch.randn(cur_b, z_dim, device=dev)
             batch_images = generator(z)
             samples.append(batch_images.cpu())
             generated_count += cur_b
 
+    # Tag generator if loaded from a full HyperGAN checkpoint or recipe
+    is_hypergan_ckpt = bool(
+        recipe_path is not None
+        or (
+            isinstance(raw_state, dict)
+            and any(k in raw_state for k in ("components", "config", "ema_graph", "graph", "prior", "ema_prior"))
+        )
+    )
+    try:
+        generator._is_hypergan_checkpoint = is_hypergan_ckpt
+    except Exception:
+        pass
+
     return torch.cat(samples, dim=0), generator
+
+
+def build_real_vlm_eval_fn(
+    device: str = "cuda:0",
+    batch_size: int = 16,
+    base_model_path: str = "/nvme/dev/imajev/.cache/huggingface/hub/models--Qwen--Qwen3.5-4B/snapshots/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+    adapter_path: str = "/nvme/dev/imajev/artifacts/imajev-4b",
+    image_size: int = 64,
+    temperature: float = 1.30515697,
+) -> Optional[Callable[[torch.Tensor], Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], torch.Tensor]]]:
+    """Construct live ImaJev-4B VLM evaluation callback if local weights and CUDA are available."""
+    dev = torch.device(device)
+    if dev.type != "cuda":
+        return None
+    base_dir = Path(base_model_path)
+    adapter_dir = Path(adapter_path)
+    readout_pt = adapter_dir / "decision_readout.pt"
+    if not (base_dir.is_dir() and (adapter_dir / "decision_readout.json").is_file() and readout_pt.is_file()):
+        return None
+
+    from hypergan.pretrained_providers import (
+        _IMAJEV_RUNTIME_CACHE,
+        _compile_imajev_runtime,
+        _load_imajev_runtime,
+        _prepare_imajev_joint_prompts,
+    )
+
+    cache_key = (str(base_dir), str(adapter_dir), str(dev))
+    runtime = _IMAJEV_RUNTIME_CACHE.get(cache_key)
+    if runtime is None:
+        runtime = _load_imajev_runtime(str(base_dir), str(adapter_dir), dev)
+        _IMAJEV_RUNTIME_CACHE[cache_key] = runtime
+    _compile_imajev_runtime(runtime)
+
+    raw_w = torch.load(readout_pt, map_location=dev, weights_only=True)
+    if isinstance(raw_w, dict):
+        w = raw_w.get("weight", next(iter(raw_w.values()))).to(device=dev, dtype=torch.float32)
+    else:
+        w = raw_w.to(device=dev, dtype=torch.float32)
+
+    in_dist_cfg = {
+        "image_size": image_size,
+        "queries": [
+            {
+                "question": q["question"],
+                "options": q["options"][:-1],
+                "state": {"task": "apple_generation", "aspect": q["aspect"]},
+            }
+            for q in IN_DISTRIBUTION_QUERIES
+        ],
+    }
+    in_dist_bundle = _prepare_imajev_joint_prompts(runtime, in_dist_cfg)
+
+    # Prepare rotated held-out audit queries
+    audit_rot_specs = []
+    audit_cfg_queries = []
+    for q in HELD_OUT_AUDIT_QUERIES:
+        rots = apply_cyclic_option_rotations(q["options"], n_rotations=4)
+        for orig_indices, rot_opts in rots:
+            audit_rot_specs.append((q["aspect"], orig_indices, len(q["options"])))
+            audit_cfg_queries.append({
+                "question": q["question"],
+                "options": rot_opts[:-1],
+                "state": {"task": "apple_audit", "aspect": q["aspect"]},
+            })
+    audit_bundle = _prepare_imajev_joint_prompts(
+        runtime, {"image_size": image_size, "queries": audit_cfg_queries}
+    )
+
+    def _eval_bundle_probs(imgs_b: torch.Tensor, bundle: Dict[str, Any]) -> Tuple[torch.Tensor, torch.Tensor]:
+        m = runtime["model"].model
+        B = imgs_b.shape[0]
+        x_work = imgs_b.to(dev).clamp(-1.0, 1.0)
+        if x_work.shape[-2:] != (image_size, image_size):
+            x_sized = F.interpolate(x_work, size=(image_size, image_size), mode="bilinear", align_corners=False)
+        else:
+            x_sized = x_work
+        merged_h = image_size // 32
+        num_patches = (image_size // 16) * (image_size // 16)
+        patches = (
+            x_sized.unsqueeze(1)
+            .expand(B, 2, 3, image_size, image_size)
+            .view(B, 1, 2, 3, merged_h, 2, 16, merged_h, 2, 16)
+            .permute(0, 1, 4, 7, 5, 8, 3, 2, 6, 9)
+            .contiguous()
+            .view(B * num_patches, 1536)
+        )
+        vision_out = m.get_image_features(patches, bundle["grid_thw_1"].expand(B, -1), return_dict=True)
+        V = torch.stack(vision_out.pooler_output, dim=0)
+        pooled_v = V.float().mean(dim=1)
+
+        Q = bundle["num_queries"]
+        base_embeds = bundle["base_embeds"]
+        image_mask = bundle["image_mask"]
+        positions = bundle["positions"]
+        attn_mask = bundle["attn_mask"]
+        readout_token_indices = bundle["readout_token_indices"]
+        query_readout_indices = bundle["query_readout_indices"]
+        N_vis = V.shape[1]
+        D = base_embeds.shape[-1]
+        L_max = base_embeds.shape[1]
+
+        embeds = base_embeds.unsqueeze(0).expand(B, Q, -1, -1).clone()
+        mask = image_mask.unsqueeze(0).expand(B, Q, -1, -1)
+        V_cast = V.to(device=base_embeds.device, dtype=base_embeds.dtype)
+        embeds.masked_scatter_(mask, V_cast.unsqueeze(1).expand(B, Q, N_vis, D).contiguous())
+        embeds_flat = embeds.view(B * Q, L_max, D)
+        pos_flat = positions[:, None, :, :].expand(-1, B, -1, -1).contiguous().view(positions.shape[0], B * Q, L_max)
+        attn_flat = attn_mask[None, :, :].expand(B, Q, -1).contiguous().view(B * Q, L_max)
+
+        hidden = m.language_model(
+            inputs_embeds=embeds_flat,
+            position_ids=pos_flat,
+            attention_mask=attn_flat,
+            use_cache=False,
+        ).last_hidden_state
+        hidden_bq = hidden.view(B, Q, L_max, D)
+        idx_exp = readout_token_indices.view(1, Q, 1, 1).expand(B, Q, 1, D)
+        H = torch.gather(hidden_bq, 2, idx_exp).squeeze(2).float()
+        W_queries = w[query_readout_indices]
+        logits = torch.einsum("bqd,qkd->bqk", H, W_queries) / temperature
+        probs = logits.softmax(dim=-1)
+        return probs, pooled_v
+
+    def eval_fn(eval_images: torch.Tensor) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], torch.Tensor]:
+        N = eval_images.shape[0]
+        in_dist_list = []
+        feat_list = []
+        audit_accum = {q["aspect"]: torch.zeros(N, len(q["options"]), device=dev) for q in HELD_OUT_AUDIT_QUERIES}
+        audit_counts = {q["aspect"]: 0 for q in HELD_OUT_AUDIT_QUERIES}
+
+        transforms = apply_spatial_transformations(eval_images.to(dev), shift=(4, 4), crop_scale=0.9)
+        with torch.no_grad():
+            for start in range(0, N, batch_size):
+                end = min(start + batch_size, N)
+                probs_b, feats_b = _eval_bundle_probs(eval_images[start:end], in_dist_bundle)
+                in_dist_list.append(probs_b)
+                feat_list.append(feats_b)
+
+            for t_img in transforms.values():
+                t_probs_all = []
+                for start in range(0, N, batch_size):
+                    end = min(start + batch_size, N)
+                    p_b, _ = _eval_bundle_probs(t_img[start:end], audit_bundle)
+                    t_probs_all.append(p_b)
+                t_probs = torch.cat(t_probs_all, dim=0)  # [N, Q_rot, K]
+                for rot_idx, (aspect, orig_indices, K_q) in enumerate(audit_rot_specs):
+                    p_rot = t_probs[:, rot_idx, :K_q]
+                    unrot = torch.zeros_like(p_rot)
+                    for new_pos, orig_pos in enumerate(orig_indices):
+                        unrot[:, orig_pos] = p_rot[:, new_pos]
+                    audit_accum[aspect] += unrot
+                    audit_counts[aspect] += 1
+
+        full_in_dist = torch.cat(in_dist_list, dim=0)
+        full_feats = torch.cat(feat_list, dim=0)
+        in_dist_dict = {
+            q["aspect"]: full_in_dist[:, idx, : len(q["options"])]
+            for idx, q in enumerate(IN_DISTRIBUTION_QUERIES)
+        }
+        audit_dict = {
+            aspect: audit_accum[aspect] / max(audit_counts[aspect], 1)
+            for aspect in audit_accum
+        }
+        return in_dist_dict, audit_dict, full_feats
+
+    return eval_fn
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
@@ -1062,20 +1252,32 @@ def main(argv: Optional[List[str]] = None) -> int:
                 device=device,
                 batch_size=args.batch_size,
             )
-            # When evaluating a real generator checkpoint without live VLM in CI,
-            # we evaluate optical/spatial metrics directly on images and synthetic/mock VLM scoring.
-            fixtures = generate_synthetic_test_batch(
-                batch_size=args.samples,
-                scenario="pass",
-                device=device,
+            real_eval_fn = (
+                build_real_vlm_eval_fn(device=device, batch_size=args.batch_size)
+                if getattr(generator, "_is_hypergan_checkpoint", False)
+                else None
             )
-            report = evaluate_acceptance(
-                images=images,
-                features=fixtures["features"],
-                in_dist_probs=fixtures["in_distribution_probs"],
-                audit_probs=fixtures["audit_probs"],
-                device=device,
-            )
+            if real_eval_fn is not None:
+                report = evaluate_acceptance(
+                    images=images.to(device),
+                    model_eval_fn=real_eval_fn,
+                    device=device,
+                )
+            else:
+                # When evaluating a mock generator checkpoint without live VLM in CI (e.g. CPU),
+                # we evaluate optical/spatial metrics directly on images and synthetic/mock VLM scoring.
+                fixtures = generate_synthetic_test_batch(
+                    batch_size=args.samples,
+                    scenario="pass",
+                    device=device,
+                )
+                report = evaluate_acceptance(
+                    images=images,
+                    features=fixtures["features"],
+                    in_dist_probs=fixtures["in_distribution_probs"],
+                    audit_probs=fixtures["audit_probs"],
+                    device=device,
+                )
         else:
             # Standalone invocation without checkpoint defaults to synthetic pass verification
             fixtures = generate_synthetic_test_batch(

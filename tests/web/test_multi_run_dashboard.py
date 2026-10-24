@@ -497,4 +497,3 @@ def test_crashed_unlocked_run_lock_resolves_to_stopped_in_dashboard(tmp_path):
     assert summary["status"] == "stopped"
     assert summary["active"] is False
     assert summary["running"] is False
-

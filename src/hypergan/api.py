@@ -44,7 +44,9 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
            'train', 'resume', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
-           'lift', 'load_recipe', 'describe', 'describe_model', 'data_check', 'check_data', 'preflight', 'preflight_check', 'serve', 'viewer_status',
+           'lift', 'load_recipe', 'describe', 'describe_model', 'data_check', 'check_data',
+           'download_dataset', 'dataset_info', 'list_datasets',
+           'preflight', 'preflight_check', 'serve', 'viewer_status',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
            'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
@@ -1893,6 +1895,34 @@ def data_check(config, output=None):
 
 
 check_data = data_check
+
+
+def dataset_info(name="cifar10"):
+    """Return source URL, version, expected bytes, checksums, and usage notice for a qualified dataset."""
+    from .dataset_download import dataset_info as _dataset_info
+    return _dataset_info(name)
+
+
+def list_datasets():
+    """Return metadata for all qualified datasets available via explicit opt-in download."""
+    from .dataset_download import list_datasets as _list_datasets
+    return _list_datasets()
+
+
+def download_dataset(name="cifar10", destination=None, *, cache_dir=None, url=None,
+                     source_archive=None, verify_only=False, timeout=60.0):
+    """Acquire, verify, and extract a qualified dataset into destination, writing dataset-manifest.json."""
+    from .dataset_download import download_dataset as _download_dataset
+    return _download_dataset(
+        name,
+        destination,
+        cache_dir=cache_dir,
+        url=url,
+        source_archive=source_archive,
+        verify_only=verify_only,
+        timeout=timeout,
+    )
+
 
 
 def preflight(config, profile=None, runtime=False):

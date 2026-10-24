@@ -109,7 +109,11 @@ def _rank_state(trainer, last_batch):
         if torch.cuda.current_device() != trainer.rank:
             raise ValueError('CUDA checkpoint requires the rank-owned current device')
         torch.cuda.synchronize(trainer.device)
-    return move_tensors(trainer_state(trainer, last_batch), 'cpu')
+    state = trainer_state(trainer, last_batch)
+    strategy = getattr(trainer, 'aggregation_strategy', getattr(trainer, 'aggregation', None))
+    if strategy is not None and hasattr(strategy, 'state_dict') and callable(strategy.state_dict):
+        state['aggregation'] = move_tensors(strategy.state_dict(), 'cpu')
+    return move_tensors(state, 'cpu')
 
 
 def _validate_rank_rng(trainer, state):
@@ -366,8 +370,14 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
                         os.fsync(output.fileno())
                     records.append({'rank': index, 'file': filename, 'bytes': len(rank_payload),
                                     'sha256': hashlib.sha256(rank_payload).hexdigest()})
+                strategy = getattr(trainer, 'aggregation_strategy', getattr(trainer, 'aggregation', None))
+                agg_meta = strategy.manifest_metadata() if hasattr(strategy, 'manifest_metadata') else (
+                    dict(strategy) if isinstance(strategy, dict) else None
+                )
                 info = dict(lineage, schema_version=SCHEMA, kind=KIND, step=trainer.step,
                             identity=identity, replicated_sha256=descriptor['replicated_sha256'], ranks=records)
+                if agg_meta is not None:
+                    info['aggregation'] = agg_meta
                 if len((json.dumps(info, indent=2, allow_nan=False) + '\n').encode()) > MAX_METADATA_BYTES:
                     raise ValueError('Distributed checkpoint metadata exceeds its byte bound')
                 atomic_json(temporary / 'manifest.json', info)
@@ -444,7 +454,8 @@ def _read(root, checkpoint, expected_identity, expected_run):
         raise ValueError('Select a completed distributed checkpoint directory inside this run')
     info = _read_json(target / 'manifest.json')
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    if not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary', 'source', 'initial_source'} or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
+    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation'}
+    if not isinstance(info, dict) or not required <= set(info) <= allowed or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
         raise ValueError('Invalid distributed checkpoint metadata/schema')
     from .run_state import validate_event_boundary
     validate_event_boundary(root.parent, info)

@@ -105,7 +105,7 @@ def _restore_trainer(trainer, state):
     import torch
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
-    if not isinstance(state, dict) or set(state) != required:
+    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation'}:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if getattr(trainer, 'device', torch.device('cpu')).type == 'cuda':
         rng = state['rng']
@@ -181,6 +181,10 @@ def _restore_trainer(trainer, state):
         stream.set_state(state['streams'][name])
     if state['data'] is not None:
         trainer.data.load_state_dict(state['data'])
+    if 'aggregation' in state:
+        strategy = getattr(trainer, 'aggregation_strategy', getattr(trainer, 'aggregation', None))
+        if strategy is not None and hasattr(strategy, 'load_state_dict') and callable(strategy.load_state_dict):
+            strategy.load_state_dict(state['aggregation'])
     # Constructors and custom load hooks can consume global randomness.
     restore_rng(state['rng'])
     from .recipes import move_tensors

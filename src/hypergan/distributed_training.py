@@ -117,6 +117,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             super(ReplicatedTrainer, self).__init__(local_config)
             self.config = config
         self._phase('initialization', initialize)
+        from .aggregation import resolve_aggregation_strategy
+        self.aggregation_strategy = resolve_aggregation_strategy(self.strategy_info['aggregation'], trainer=self)
         self._phase('module compatibility', self._check_modules)
         if accumulation_steps > 1:
             self._phase('accumulation compatibility', self._check_accumulation)
@@ -291,6 +293,11 @@ class ReplicatedTrainer(ReferenceTrainer):
         return flags
 
     def _reduce_gradients(self, optimizer, name):
+        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
+            if hasattr(self.aggregation_strategy, 'on_backward'):
+                self.aggregation_strategy.on_backward(optimizer, name)
+            if getattr(self.aggregation_strategy, 'name', None) != 'gradient_allreduce':
+                return
         parameters = self._parameters(optimizer)
         present = [p.grad is not None for p in parameters]
         sparse = any(p.grad.layout != torch.strided for p in parameters if p.grad is not None)
@@ -504,19 +511,26 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
 
             if getattr(self.opt_g, '_protected', None) is not None:
-                dist.all_reduce(self.opt_g._protected)
-                self.opt_g._protected /= self.world_size
+                if getattr(self.aggregation_strategy, 'name', None) == 'gradient_allreduce':
+                    dist.all_reduce(self.opt_g._protected)
+                    self.opt_g._protected /= self.world_size
 
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
             self._phase('generator optimizer', self.opt_g.step)
             self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
+            if hasattr(self, 'aggregation_strategy') and hasattr(self.aggregation_strategy, 'on_step_complete'):
+                self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
         finally:
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
-        self._assert_replicas('complete replicated state')
+        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
+            if self.aggregation_strategy.should_assert_replicas(step):
+                self._assert_replicas('complete replicated state')
+        else:
+            self._assert_replicas('complete replicated state')
         values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
             d_penalty, d_adversarial, d_adversarial_weighted, g_adversarial_weighted,
             *objective_losses]), dtype=torch.float64, device=self.device)
@@ -856,6 +870,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
             self._phase('generator optimizer', self.opt_g.step)
             self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
+            if hasattr(self, 'aggregation_strategy') and hasattr(self.aggregation_strategy, 'on_step_complete'):
+                self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
         finally:
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
@@ -863,7 +879,11 @@ class ReplicatedTrainer(ReferenceTrainer):
         g_loss = weighted_adversarial.detach() + prior_loss + sum(objective_losses)
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
-        self._assert_replicas('complete replicated state')
+        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
+            if self.aggregation_strategy.should_assert_replicas(step):
+                self._assert_replicas('complete replicated state')
+        else:
+            self._assert_replicas('complete replicated state')
         values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
             d_penalty, d_adversarial_raw, d_adversarial, weighted_adversarial,
             *objective_losses]), dtype=torch.float64, device=self.device)

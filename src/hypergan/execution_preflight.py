@@ -110,7 +110,8 @@ def _runtime_worker(rank, world_size, config, profile, directory):
         else:
             from .distributed_training import ReplicatedTrainer
             trainer = ReplicatedTrainer(config, world_size=world_size,
-                                           accumulation_steps=requested['accumulation_steps'])
+                                           accumulation_steps=requested['accumulation_steps'],
+                                           execution=requested)
         if trainer.step != 0:
             raise ValueError('Preflight constructed a trainer with a nonzero update counter')
         if torch.get_num_threads() != 1:

@@ -51,7 +51,8 @@ def _ready(state):
 
 def create_worker(rank, world_size, config, execution, context):
     trainer = ReplicatedTrainer(resolve_config(config), world_size=world_size,
-                                    accumulation_steps=execution['accumulation_steps'])
+                                    accumulation_steps=execution['accumulation_steps'],
+                                    execution=execution)
     if any(trainer.strategy_info.get(key) != value for key, value in execution.items()):
         raise ValueError('Actual replicated strategy differs from resolved execution profile')
     return {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context}

@@ -33,10 +33,35 @@ class ReplicatedTrainer(ReferenceTrainer):
     statistics require their own explicit collective implementation.
     """
 
-    def __init__(self, config, *, world_size=2, accumulation_steps=1):
+    def __init__(self, config, *, world_size=2, accumulation_steps=1,
+                 nodes=1, node_rank=0, ranks_per_node=None, rendezvous=None,
+                 aggregation=None, execution=None, **kwargs):
+        if execution is not None:
+            world_size = execution.get('world_size', world_size)
+            accumulation_steps = execution.get('accumulation_steps', accumulation_steps)
+            nodes = execution.get('nodes', nodes)
+            node_rank = execution.get('node_rank', node_rank)
+            ranks_per_node = execution.get('ranks_per_node', ranks_per_node)
+            rendezvous = execution.get('rendezvous', rendezvous)
+            if 'aggregation' in execution:
+                aggregation = execution['aggregation']
+        if ranks_per_node is None:
+            ranks_per_node = world_size // nodes
+        if rendezvous is None:
+            rendezvous = 'file://' if nodes == 1 else 'tcp://127.0.0.1:29500'
+        if aggregation is None:
+            aggregation = {'strategy': 'gradient_allreduce', 'sync_every_steps': 1,
+                           'outer_lr': 1.0, 'outer_momentum': 0.0}
+        else:
+            aggregation = dict(aggregation)
         self.collectives = Collectives(world_size)
         self.device = self.collectives.device
         self.world_size, self.rank = world_size, dist.get_rank()
+        self.nodes = nodes
+        self.node_rank = node_rank
+        self.ranks_per_node = ranks_per_node
+        self.rendezvous = rendezvous
+        self.aggregation = aggregation
         self.checkpoint_ready = False
         self._poisoned = False
         config = self._phase('configuration', lambda: resolve_config(config_values(config)))
@@ -62,12 +87,25 @@ class ReplicatedTrainer(ReferenceTrainer):
             raise ValueError('accumulation_steps must divide local_batch_size evenly')
         self.accumulation_steps = accumulation_steps
         self.microbatch_size = self.local_batch_size // accumulation_steps
-        self.strategy_info = {'name': 'cuda-replicated-nccl' if self.device.type == 'cuda' else 'cpu-replicated-gloo', 'world_size': world_size,
-                              'global_batch_size': self.global_batch_size, 'local_batch_size': self.local_batch_size,
-                              'accumulation_steps': accumulation_steps, 'microbatch_size': self.microbatch_size,
-                              'accumulation_algorithm': 'detached-logit-vjp-replay-v1' if accumulation_steps > 1 else 'retained-local-graph-v1',
-                              'gradient_reduction': 'post-backward-mean',
-                              'buffers': 'require-replica-equality', 'data': 'replicated-global-draw-rank-slice', 'qualification': 'unqualified'}
+        self.strategy_info = {
+            'name': 'cuda-replicated-nccl' if self.device.type == 'cuda' else 'cpu-replicated-gloo',
+            'world_size': world_size,
+            'nodes': nodes,
+            'node_rank': node_rank,
+            'ranks_per_node': ranks_per_node,
+            'rendezvous': rendezvous,
+            'accumulation_steps': accumulation_steps,
+            'global_batch_size': self.global_batch_size,
+            'local_batch_size': self.local_batch_size,
+            'microbatch_size': self.microbatch_size,
+            'accumulation_algorithm': ('detached-logit-vjp-replay-v1' if accumulation_steps > 1
+                                       else 'retained-local-graph-v1'),
+            'aggregation': aggregation,
+            'gradient_reduction': 'post-backward-mean',
+            'buffers': 'require-replica-equality',
+            'data': 'replicated-global-draw-rank-slice',
+            'qualification': 'unqualified',
+        }
         torch.set_num_threads(1)
         def initialize():
             # Keep the shared recipe identity unchanged across ranks. Only native
@@ -849,7 +887,7 @@ class ReplicatedTrainer(ReferenceTrainer):
 class ReplicatedCPUTrainer(ReplicatedTrainer):
     """Existing CPU/Gloo entry point; CUDA callers use ReplicatedTrainer."""
 
-    def __init__(self, config, *, world_size=2, accumulation_steps=1):
+    def __init__(self, config, *, world_size=2, accumulation_steps=1, **kwargs):
         if dist.is_initialized() and dist.get_backend() != 'gloo':
             raise ValueError('ReplicatedCPUTrainer requires the default Gloo group')
-        super().__init__(config, world_size=world_size, accumulation_steps=accumulation_steps)
+        super().__init__(config, world_size=world_size, accumulation_steps=accumulation_steps, **kwargs)

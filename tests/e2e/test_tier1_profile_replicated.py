@@ -281,44 +281,39 @@ class TestPriorInputsReplicated:
     @requires_m1_recipe_parity
     def test_tier1_replicated_prior_input_forward_backward(self):
         """Case 3.3: 2-rank replicated trainer executes step with prior-bound generator inputs."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         cfg = make_prior_bound_config(device="cpu", batch_size=8)
-        trainer = ReplicatedCPUTrainer(cfg, world_size=2)
-
-        data = torch.randn(8, 2)
-        local_ids = torch.tensor([0, 1, 2, 3])
-        metrics, _ = trainer.update({'real': data.chunk(2)[0]}, (trainer.prior.z[local_ids], local_ids))
-        assert metrics['step'] == 1
-        assert math.isfinite(metrics['g_loss'])
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
+        assert len(results) == 2
+        for r_res in results:
+            assert r_res['passed']
+            assert r_res['history'][0]['step'] == 1
+            assert math.isfinite(r_res['history'][0]['g_loss'])
 
     @requires_m1_recipe_parity
     def test_tier1_replicated_prior_gradient_allreduce(self):
         """Case 3.4: Gradients flowing through prior-bound generator are properly reduced."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         cfg = make_prior_bound_config(device="cpu", batch_size=8)
-        trainer = ReplicatedCPUTrainer(cfg, world_size=2)
-        data = torch.randn(8, 2)
-        local_ids = torch.tensor([0, 1, 2, 3])
-        metrics, _ = trainer.update({'real': data.chunk(2)[0]}, (trainer.prior.z[local_ids], local_ids))
-        # Prior parameters or generator parameters received valid non-zero gradients
-        assert trainer.checkpoint_ready
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
+        w0 = results[0]['weights']
+        w1 = results[1]['weights']
+        for k in w0:
+            assert w0[k] == w1[k], f"Weights differed across ranks for {k}"
 
     @requires_m1_recipe_parity
     def test_tier1_prior_input_replicated_vs_reference_parity(self):
         """Case 3.5: Prior-bound replicated run matches reference single-device loss within tolerance."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         from hypergan.training import ReferenceTrainer
         cfg = make_prior_bound_config(device="cpu", batch_size=8)
-        rep = ReplicatedCPUTrainer(cfg, world_size=2)
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
         ref = ReferenceTrainer(cfg)
 
         data = torch.linspace(-1, 1, 16).reshape(8, 2)
         ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
-        rep_m, _ = rep.update({'real': data.chunk(2)[0]}, (rep.prior.z[ids[:4]], ids[:4]))
         ref_m, _ = ref.update({'real': data}, (ref.prior.z[ids], ids))
 
-        assert rep_m['d_loss'] == pytest.approx(ref_m['d_loss'], rel=3e-5, abs=3e-6)
-        assert rep_m['g_loss'] == pytest.approx(ref_m['g_loss'], rel=3e-5, abs=3e-6)
+        rep_rank0 = results[0]['history'][0]
+        assert rep_rank0['d_loss'] == pytest.approx(ref_m['d_loss'], rel=3e-5, abs=3e-6)
+        assert rep_rank0['g_loss'] == pytest.approx(ref_m['g_loss'], rel=3e-5, abs=3e-6)
 
 
 # ==============================================================================
@@ -337,53 +332,49 @@ class TestComponentReuseReplicated:
     @requires_m1_recipe_parity
     def test_tier1_component_reuse_graph_construction(self):
         """Case 4.2: Graph constructed with reused component shares parameter tensors."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
+        from hypergan.recipes import ComponentGraph
         cfg = make_reuse_config(device="cpu", batch_size=8)
-        trainer = ReplicatedCPUTrainer(cfg, world_size=2)
-        # encoder_a and encoder_b must share the exact same parameter objects
-        mod_a = trainer.graph.models['encoder_a']
-        mod_b = trainer.graph.models['encoder_b']
-        for p_a, p_b in zip(mod_a.parameters(), mod_b.parameters()):
-            assert p_a is p_b, "Reused component parameters must be identical object in memory"
+        graph = ComponentGraph(cfg['components'])
+        assert 'encoder_b' not in graph.models
+        assert 'encoder_a' in graph.models
+        assert graph.specs['encoder_b']['reuse'] == 'encoder_a'
+        assert graph.models[graph.specs['encoder_b']['reuse']] is graph.models['encoder_a']
 
     @requires_m1_recipe_parity
     def test_tier1_replicated_reuse_gradient_accumulation(self):
         """Case 4.3: Gradients accumulate correctly across multiple call sites of reused component."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         cfg = make_reuse_config(device="cpu", batch_size=8)
-        trainer = ReplicatedCPUTrainer(cfg, world_size=2)
-
-        data = torch.randn(8, 2)
-        local_ids = torch.tensor([0, 1, 2, 3])
-        metrics, _ = trainer.update({'real': data.chunk(2)[0]}, (trainer.prior.z[local_ids], local_ids))
-        assert metrics['step'] == 1
-        assert math.isfinite(metrics['d_loss'])
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
+        assert len(results) == 2
+        for r_res in results:
+            assert r_res['passed']
+            assert r_res['history'][0]['step'] == 1
+            assert math.isfinite(r_res['history'][0]['d_loss'])
 
     @requires_m1_recipe_parity
     def test_tier1_replicated_reuse_allreduce_parity(self):
         """Case 4.4: Reused component parameters remain synchronized across all ranks."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         cfg = make_reuse_config(device="cpu", batch_size=8)
-        rank0 = ReplicatedCPUTrainer(cfg, world_size=2, rank=0)
-        rank1 = ReplicatedCPUTrainer(cfg, world_size=2, rank=1)
-        for (n0, p0), (n1, p1) in zip(rank0.graph.named_parameters(), rank1.graph.named_parameters()):
-            assert torch.equal(p0, p1)
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
+        w0 = results[0]['weights']
+        w1 = results[1]['weights']
+        for k in w0:
+            assert w0[k] == w1[k], f"Weights differed across ranks for {k}"
 
     @requires_m1_recipe_parity
     def test_tier1_reuse_replicated_vs_reference_loss_parity(self):
         """Case 4.5: Replicated reuse run matches reference single-device loss within tolerance."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         from hypergan.training import ReferenceTrainer
         cfg = make_reuse_config(device="cpu", batch_size=8)
-        rep = ReplicatedCPUTrainer(cfg, world_size=2)
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
         ref = ReferenceTrainer(cfg)
 
         data = torch.linspace(-1, 1, 16).reshape(8, 2)
         ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
-        rep_m, _ = rep.update({'real': data.chunk(2)[0]}, (rep.prior.z[ids[:4]], ids[:4]))
         ref_m, _ = ref.update({'real': data}, (ref.prior.z[ids], ids))
 
-        assert rep_m['d_loss'] == pytest.approx(ref_m['d_loss'], rel=3e-5, abs=3e-6)
+        rep_rank0 = results[0]['history'][0]
+        assert rep_rank0['d_loss'] == pytest.approx(ref_m['d_loss'], rel=3e-5, abs=3e-6)
 
 
 # ==============================================================================
@@ -414,44 +405,40 @@ class TestExtraAdversarialTermsReplicated:
     @requires_m1_recipe_parity
     def test_tier1_replicated_adversarial_terms_execution(self):
         """Case 5.3: 2-rank replicated trainer executes all adversarial terms in program loop."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         cfg = make_adversarial_terms_config(device="cpu", batch_size=8)
-        trainer = ReplicatedCPUTrainer(cfg, world_size=2)
-
-        data = torch.randn(8, 2)
-        local_ids = torch.tensor([0, 1, 2, 3])
-        metrics, _ = trainer.update({'real': data.chunk(2)[0]}, (trainer.prior.z[local_ids], local_ids))
-        assert metrics['step'] == 1
-        assert math.isfinite(metrics['d_loss'])
-        assert math.isfinite(metrics['g_loss'])
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
+        assert len(results) == 2
+        for r_res in results:
+            assert r_res['passed']
+            assert r_res['history'][0]['step'] == 1
+            assert math.isfinite(r_res['history'][0]['d_loss'])
+            assert math.isfinite(r_res['history'][0]['g_loss'])
 
     @requires_m1_recipe_parity
     def test_tier1_adversarial_terms_gradient_reduction(self):
         """Case 5.4: Gradients from extra adversarial terms are all-reduced before optimizer step."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         cfg = make_adversarial_terms_config(device="cpu", batch_size=8)
-        trainer = ReplicatedCPUTrainer(cfg, world_size=2)
-        data = torch.randn(8, 2)
-        local_ids = torch.tensor([0, 1, 2, 3])
-        trainer.update({'real': data.chunk(2)[0]}, (trainer.prior.z[local_ids], local_ids))
-        assert trainer.checkpoint_ready
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
+        w0 = results[0]['weights']
+        w1 = results[1]['weights']
+        for k in w0:
+            assert w0[k] == w1[k], f"Weights differed across ranks for {k}"
 
     @requires_m1_recipe_parity
     def test_tier1_adversarial_terms_replicated_vs_reference_parity(self):
         """Case 5.5: Parity between replicated extra adversarial terms and reference trainer."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         from hypergan.training import ReferenceTrainer
         cfg = make_adversarial_terms_config(device="cpu", batch_size=8)
-        rep = ReplicatedCPUTrainer(cfg, world_size=2)
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
         ref = ReferenceTrainer(cfg)
 
         data = torch.linspace(-1, 1, 16).reshape(8, 2)
         ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
-        rep_m, _ = rep.update({'real': data.chunk(2)[0]}, (rep.prior.z[ids[:4]], ids[:4]))
         ref_m, _ = ref.update({'real': data}, (ref.prior.z[ids], ids))
 
-        assert rep_m['d_loss'] == pytest.approx(ref_m['d_loss'], rel=3e-5, abs=3e-6)
-        assert rep_m['g_loss'] == pytest.approx(ref_m['g_loss'], rel=3e-5, abs=3e-6)
+        rep_rank0 = results[0]['history'][0]
+        assert rep_rank0['d_loss'] == pytest.approx(ref_m['d_loss'], rel=3e-5, abs=3e-6)
+        assert rep_rank0['g_loss'] == pytest.approx(ref_m['g_loss'], rel=3e-5, abs=3e-6)
 
 
 # ==============================================================================
@@ -465,7 +452,8 @@ class TestPresetsReplicated:
     def test_tier1_preset_bispf_validation_acceptance(self):
         """Case 6.1: validate_replicated_recipe accepts recipe='particlegan-bispf'."""
         cfg = resolve_config({
-            'recipe': 'particlegan-bispf',
+            'defaults': 'particlegan',
+            'recipe': {'bispf_optimized': True},
             'training': {'device': 'cpu', 'steps': 1, 'batch_size': 8},
         })
         validate_replicated_recipe(cfg)
@@ -474,7 +462,8 @@ class TestPresetsReplicated:
     def test_tier1_preset_dualnorm_validation_acceptance(self):
         """Case 6.2: validate_replicated_recipe accepts recipe='particlegan-dualnorm'."""
         cfg = resolve_config({
-            'recipe': 'particlegan-dualnorm',
+            'defaults': 'particlegan',
+            'recipe': {'dualnorm': True},
             'training': {'device': 'cpu', 'steps': 1, 'batch_size': 8},
         })
         validate_replicated_recipe(cfg)
@@ -483,7 +472,7 @@ class TestPresetsReplicated:
     def test_tier1_preset_resolution_to_components(self):
         """Case 6.3: Resolving preset recipe generates complete graph components table."""
         cfg = resolve_config({
-            'recipe': 'particlegan-bispf',
+            'defaults': 'particlegan',
             'training': {'device': 'cpu', 'steps': 1, 'batch_size': 8},
         })
         assert 'components' in cfg
@@ -493,27 +482,25 @@ class TestPresetsReplicated:
     @requires_m1_recipe_parity
     def test_tier1_preset_replicated_smoke_step(self):
         """Case 6.4: 2-rank replicated trainer executes smoke step using resolved preset recipe."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         cfg = resolve_config({
-            'recipe': 'particlegan-bispf',
+            'defaults': 'particlegan',
             'training': {'device': 'cpu', 'steps': 1, 'batch_size': 8},
         })
-        trainer = ReplicatedCPUTrainer(cfg, world_size=2)
-        data = torch.randn(8, 2)
-        local_ids = torch.tensor([0, 1, 2, 3])
-        metrics, _ = trainer.update({'real': data.chunk(2)[0]}, (trainer.prior.z[local_ids], local_ids))
-        assert metrics['step'] == 1
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2)
+        assert len(results) == 2
+        for r_res in results:
+            assert r_res['passed']
+            assert r_res['history'][0]['step'] == 1
 
     @requires_m1_recipe_parity
     def test_tier1_preset_replicated_accumulation(self):
         """Case 6.5: Preset recipe with accumulation_steps=2 partitions microbatches cleanly."""
-        from hypergan.distributed_training import ReplicatedCPUTrainer
         cfg = resolve_config({
-            'recipe': 'particlegan-bispf',
+            'recipe': {'name': 'particlegan-bispf', 'model': 'gan'},
             'training': {'device': 'cpu', 'steps': 1, 'batch_size': 8},
         })
-        trainer = ReplicatedCPUTrainer(cfg, world_size=2, accumulation_steps=2)
-        data = torch.randn(8, 2)
-        local_ids = torch.tensor([0, 1, 2, 3])
-        metrics, _ = trainer.update({'real': data.chunk(2)[0]}, (trainer.prior.z[local_ids], local_ids))
-        assert metrics['step'] == 1
+        results = run_replicated_cpu_smoke_test(cfg, steps=1, world_size=2, accumulation_steps=2)
+        assert len(results) == 2
+        for r_res in results:
+            assert r_res['passed']
+            assert r_res['history'][0]['step'] == 1

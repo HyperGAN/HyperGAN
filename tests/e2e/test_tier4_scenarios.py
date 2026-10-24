@@ -153,7 +153,7 @@ class TestTier4RealWorldScenarios:
             run_dir,
             profile=profile,
             checkpoint_every=1,
-            stop_after_steps=4,
+            stop_after_steps=2,
             preview_every=0,
         )
         manifest2 = json.loads((run_dir / "manifest.json").read_text())

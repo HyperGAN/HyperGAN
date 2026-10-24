@@ -270,9 +270,10 @@ def _broker_main(sock, identity, world_size, limits, bootstrap, started, initial
     deadline = started + limits['startup_timeout']
     terminal = None
     try:
-        temp_dir_ctx = tempfile.TemporaryDirectory(prefix='hypergan-worker-service-') if rendezvous is None else nullcontext()
+        is_unspecified = rendezvous in (None, 'file://')
+        temp_dir_ctx = tempfile.TemporaryDirectory(prefix='hypergan-worker-service-') if is_unspecified else nullcontext()
         with temp_dir_ctx as temporary:
-            effective_rendezvous = (Path(temporary) / 'rendezvous').as_uri() if rendezvous is None else rendezvous
+            effective_rendezvous = (Path(temporary) / 'rendezvous').as_uri() if is_unspecified else rendezvous
             try:
                 for rank in range(start_rank, start_rank + local_ranks_count):
                     if not parent.is_alive():

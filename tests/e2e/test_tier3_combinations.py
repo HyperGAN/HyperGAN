@@ -181,7 +181,7 @@ class TestTier3CrossFeatureCombinations:
         """Combination 5: Preset ParticleGAN recipe on cpu-replicated-gloo."""
         from hypergan.execution_profiles import validate_replicated_recipe
         cfg = resolve_config({
-            'recipe': 'particlegan-bispf',
+            'defaults': 'particlegan',
             'training': {'device': 'cpu', 'steps': 2, 'batch_size': 8},
         })
         validate_replicated_recipe(cfg)
@@ -196,7 +196,7 @@ class TestTier3CrossFeatureCombinations:
         """Combination 6: Preset ParticleGAN recipe on cuda-replicated-nccl."""
         from hypergan.execution_profiles import validate_replicated_recipe
         cfg = resolve_config({
-            'recipe': 'particlegan-bispf',
+            'defaults': 'particlegan',
             'training': {'device': 'cuda', 'steps': 2, 'batch_size': 8},
         })
         validate_replicated_recipe(cfg)
@@ -249,7 +249,7 @@ class TestTier3CrossFeatureCombinations:
         """Combination 9: Compound recipe combining presets, component reuse, and extra adversarial terms."""
         from hypergan.execution_profiles import validate_replicated_recipe
         cfg = resolve_config({
-            'recipe': 'particlegan-bispf',
+            'defaults': 'particlegan',
             'training': {'device': 'cpu', 'steps': 2, 'batch_size': 8},
         })
         cfg['components']['critic_shared'] = {

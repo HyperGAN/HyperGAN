@@ -47,8 +47,9 @@ def check_m1_recipe_parity() -> bool:
         from hypergan.execution_profiles import validate_replicated_recipe
         # Test config with prior inputs
         prior_cfg = resolve_config({
+            'prior': {'kind': 'mog', 'fixed_sigma': 0.05, 'args': {'num_particles': 8, 'z_dim': 4}},
             'components': {
-                'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [4]}, 'inputs': {'x': 'prior.z'}},
+                'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [4]}, 'inputs': {'input': 'prior.means'}},
                 'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}},
             },
             'training': {'device': 'cpu', 'steps': 1, 'batch_size': 4},
@@ -140,15 +141,9 @@ def check_replicated_worker_parity() -> bool:
     """Check if ReplicatedTrainer / replicated_worker supports resolved execution profile schema."""
     try:
         import inspect
-        from hypergan.distributed_training import ReplicatedCPUTrainer
-        import hypergan.replicated_worker as rw
-        src_trainer = inspect.getsource(ReplicatedCPUTrainer.__init__)
-        src_worker = inspect.getsource(rw.create_worker)
-        if 'nodes' in src_trainer or 'ranks_per_node' in src_trainer:
-            return True
-        if 'trainer.strategy_info.items()' in src_worker or 'key in trainer.strategy_info' in src_worker:
-            return True
-        return False
+        from hypergan.distributed_training import ReplicatedTrainer
+        src_trainer = inspect.getsource(ReplicatedTrainer.__init__)
+        return 'nodes' in src_trainer and 'ranks_per_node' in src_trainer
     except Exception:
         return False
 
@@ -245,13 +240,20 @@ def make_toy_config(
 
 
 def make_prior_bound_config(device: str = "cpu", batch_size: int = 8) -> Dict[str, Any]:
-    """Build a config with prior-bound generator inputs ('prior.z')."""
+    """Build a config with prior-bound component inputs ('prior.means')."""
     cfg = {
+        'prior': {'kind': 'mog', 'fixed_sigma': 0.05, 'args': {'num_particles': 8, 'z_dim': 4}},
         'components': {
             'generator': {
-                'factory': 'mlp',
-                'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]},
-                'inputs': {'x': 'prior.z'},
+                'factory': 'linear',
+                'args': {'in_features': 4, 'out_features': 2, 'bias': False},
+                'inputs': {'input': 'latent'},
+            },
+            'encoder': {
+                'factory': 'linear',
+                'args': {'in_features': 4, 'out_features': 4, 'bias': False},
+                'inputs': {'input': 'prior.means'},
+                'trainable': True,
             },
             'discriminator': {
                 'factory': 'linear',
@@ -259,7 +261,13 @@ def make_prior_bound_config(device: str = "cpu", batch_size: int = 8) -> Dict[st
                 'inputs': {'input': 'candidate'},
             },
         },
-        'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
+        'objectives': [
+            {
+                'factory': 'mse',
+                'inputs': {'input': 'components.encoder', 'target': 'prior.means'},
+                'weight': 0.5,
+            }
+        ],
         'training': {'steps': 2, 'batch_size': batch_size, 'device': device, 'seed': 123},
     }
     return resolve_config(cfg)
@@ -276,12 +284,12 @@ def make_reuse_config(device: str = "cpu", batch_size: int = 8) -> Dict[str, Any
             },
             'encoder_a': {
                 'factory': 'mlp',
-                'args': {'input_dim': 2, 'output_dim': 2, 'hidden': [4]},
-                'inputs': {'x': 'candidate'},
+                'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [4]},
+                'inputs': {'x': 'latent'},
             },
             'encoder_b': {
                 'reuse': 'encoder_a',
-                'inputs': {'x': 'candidate'},
+                'inputs': {'x': 'latent'},
             },
             'discriminator': {
                 'factory': 'linear',
@@ -289,7 +297,14 @@ def make_reuse_config(device: str = "cpu", batch_size: int = 8) -> Dict[str, Any
                 'inputs': {'input': 'candidate'},
             },
         },
-        'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
+        'objectives': [
+            {
+                'factory': 'mse',
+                'inputs': {'input': 'components.encoder_b', 'target': 'batch.real'},
+                'weight': 1.0,
+            }
+        ],
+        'prior': {'kind': 'particles', 'args': {'num_particles': 16, 'z_dim': 4}},
         'training': {'steps': 2, 'batch_size': batch_size, 'device': device, 'seed': 123},
     }
     return resolve_config(cfg)

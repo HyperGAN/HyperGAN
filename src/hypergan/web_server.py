@@ -122,6 +122,19 @@ def _run_created_at(run_dir: Path, manifest: dict, summary: dict | None) -> str 
         return None
 
 
+def _is_stale_unmodified_run(run_dir: Path, max_idle_seconds: float = 3600.0) -> bool:
+    latest_mtime = 0.0
+    for candidate in (run_dir / ".run.lock", run_dir / "summary.json", run_dir / "manifest.json", run_dir / "events.jsonl"):
+        try:
+            if candidate.exists():
+                latest_mtime = max(latest_mtime, candidate.stat().st_mtime)
+        except OSError:
+            pass
+    if latest_mtime <= 0.0:
+        return False
+    return (time.time() - latest_mtime) > max_idle_seconds
+
+
 def read_run_summary(run_dir: Path) -> dict:
     run_dir = Path(run_dir).resolve()
     summary_path = run_dir / "summary.json"
@@ -183,8 +196,17 @@ def read_run_summary(run_dir: Path) -> dict:
         or str(run_id)[:8]
     )
     raw_status = (summary.get("status") if summary else None) or manifest.get("status") or "unknown"
-    status = "running" if is_active else raw_status
-    active = bool(is_active or status == "running" or (summary and (summary.get("active") or summary.get("running"))))
+    if is_active:
+        status = "running"
+    elif (
+        str(raw_status).strip().lower() in ("running", "initializing")
+        and ((run_dir / ".run.lock").exists() or _is_stale_unmodified_run(run_dir))
+        and getattr(_insp_mod, "check_run_active", None) is _ORIG_CHECK_RUN_ACTIVE
+    ):
+        status = "stopped"
+    else:
+        status = raw_status
+    active = bool(is_active or status == "running" or (summary and (summary.get("active") or summary.get("running")) and status == "running"))
     running = bool(is_active)
 
     step = (summary.get("step") if summary and "step" in summary else None)
@@ -379,10 +401,15 @@ class ServiceRegistry:
         self._lock = asyncio.Lock()
 
     def is_single(self) -> bool:
-        if (self.root / "manifest.json").is_file():
+        if (self.root / "manifest.json").is_file() or (self.root / "summary.json").is_file():
             return True
+        if (self.root / "hypergan.toml").is_file() or (self.root / "runs").is_dir():
+            return False
         try:
-            if self.root.is_dir() and any((d / "manifest.json").is_file() for d in self.root.iterdir() if d.is_dir()):
+            if self.root.is_dir() and any(
+                (d / "manifest.json").is_file() or (d / "summary.json").is_file()
+                for d in self.root.iterdir() if d.is_dir()
+            ):
                 return False
         except OSError:
             pass
@@ -480,15 +507,19 @@ class ServiceRegistry:
 
         candidate_dirs: list[Path] = []
         seen_dirs: set[Path] = set()
-        try:
-            for entry in sorted(root.iterdir()):
-                if entry.is_dir() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
-                    resolved = entry.resolve()
-                    if resolved not in seen_dirs:
-                        seen_dirs.add(resolved)
-                        candidate_dirs.append(resolved)
-        except OSError:
-            pass
+        search_roots = [root]
+        if (root / "runs").is_dir():
+            search_roots.append(root / "runs")
+        for sroot in search_roots:
+            try:
+                for entry in sorted(sroot.iterdir()):
+                    if entry.is_dir() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
+                        resolved = entry.resolve()
+                        if resolved not in seen_dirs:
+                            seen_dirs.add(resolved)
+                            candidate_dirs.append(resolved)
+            except OSError:
+                pass
 
         for reg_dir in self._iter_registered_run_dirs():
             if reg_dir not in seen_dirs:
@@ -508,6 +539,14 @@ class ServiceRegistry:
                     results.append(summary)
             except OSError:
                 continue
+        results.sort(
+            key=lambda r: (
+                bool(r.get("running") or r.get("active")),
+                _created_at(r.get("created_at")) or _created_at(r.get("updated_at")) or "",
+                str(r.get("run_id", "")),
+            ),
+            reverse=True,
+        )
         return results
 
     def discover_runs(self) -> list[dict]:
@@ -562,19 +601,31 @@ class ServiceRegistry:
             if run_id == "run" or self._matches_run_entry(self.root, run_id):
                 return self.root
 
-        # Check direct subdirectory
-        if candidate.is_dir() and not candidate.is_symlink() and ((candidate / "manifest.json").is_file() or (candidate / "summary.json").is_file()):
-            return candidate
+        # Check direct subdirectory (and runs/ subdirectory if present)
+        for direct in (candidate, (self.root / "runs" / run_id).resolve()):
+            try:
+                if not direct.is_relative_to(root_resolved):
+                    continue
+            except ValueError:
+                continue
+            if direct.is_dir() and not direct.is_symlink() and ((direct / "manifest.json").is_file() or (direct / "summary.json").is_file()):
+                return direct
 
         # Scan subdirectories and registered runs
         search_dirs: list[Path] = []
-        try:
-            if self.root.is_dir():
-                for entry in self.root.iterdir():
-                    if entry.is_dir() and not entry.is_symlink() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
-                        search_dirs.append(entry.resolve())
-        except OSError:
-            pass
+        search_roots = [self.root]
+        if (self.root / "runs").is_dir():
+            search_roots.append(self.root / "runs")
+        for sroot in search_roots:
+            try:
+                if sroot.is_dir():
+                    for entry in sroot.iterdir():
+                        if entry.is_dir() and not entry.is_symlink() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
+                            resolved = entry.resolve()
+                            if resolved not in search_dirs:
+                                search_dirs.append(resolved)
+            except OSError:
+                pass
         for reg_dir in self._iter_registered_run_dirs():
             if reg_dir not in search_dirs:
                 search_dirs.append(reg_dir)

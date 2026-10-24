@@ -12,7 +12,7 @@ import os
 from pathlib import Path, PurePosixPath
 import tempfile
 
-from .data import ImageDataError, ImageFolder, _EXTENSIONS, _digest, _positive_int
+from .data import ImageDataError, ImageFolder, _EXTENSIONS, _FORMATS, _digest, _positive_int
 
 
 def _heldout(sha256):
@@ -224,7 +224,7 @@ class ColorizationData(ImageFolder):
 
     def _decode(self, content, name):
         try:
-            with self._image.open(BytesIO(content)) as image:
+            with self._image.open(BytesIO(content), formats=_FORMATS) as image:
                 # Do not mutate process-global warning filters from decoder
                 # threads. Enforce Pillow's warning limit explicitly as an error.
                 limit = self._image.MAX_IMAGE_PIXELS

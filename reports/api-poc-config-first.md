@@ -98,7 +98,7 @@ inputs = { x = "candidate" }
 
 # Everything the model optimizes, in one place.
 [[losses]]
-type = "adversarial"                     # RpGAN logistic + K3P; penalty = coefficient
+type = "adversarial"                     # ParticleGAN adversarial objective; penalty = coefficient
 critic = "pair_critic"
 penalty = 1.0
 
@@ -118,7 +118,7 @@ target = "batch.real"
 [[losses]]
 type = "prior"                           # particle-table spread regularizer
 
-[penalty]                                # shared K3P settings (kappa, lazy_k, anchor_*)
+[penalty]                                # shared critic settings (kappa, lazy_k, anchor_*)
 kappa = 1.0
 
 [train]                                  # optimizer + schedule fields in one table

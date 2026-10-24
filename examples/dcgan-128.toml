@@ -1,24 +1,22 @@
 # Unconditional 128x128 RGB DCGAN; both complete networks are declared below.
 # Supply a pinned ColorizationData manifest with height=width=128. It also
 # preserves approved exclusions, transparent-image compositing and data splits.
-schema_version = 1
+format = "hypergan-model/1"
 name = "images/logos-dcgan-128"
 
 [data]
 factory = "hypergan.colorization_data:ColorizationData"
+
 [data.args]
-root = "/mnt/ml7tb/data/logos256"
+root = "./data/logos256"
 manifest = "./dataset-manifest-128.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "train"
 shuffle = true
 
-[components.generator]
-factory = "hndl"
+[networks.generator]
+role = "generator"
 inputs = { z = "latent" }
-[components.generator.args]
-input_shape = ["B", 128]
-output_shape = ["B", 3, 128, 128]
 source = """
 reshape(128, 1, 1)
 deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
@@ -39,15 +37,12 @@ relu()
 deconv(3, kernel_size=4, stride=2, padding=1)
 tanh()
 """
+input_shape = ["B", 128]
+output_shape = ["B", 3, 128, 128]
 
-[components.discriminator]
-factory = "hndl"
+[networks.discriminator]
+role = "critic"
 inputs = { x = "candidate" }
-[components.discriminator.args]
-input_shape = ["B", 3, 128, 128]
-output_shape = ["B", 1]
-# No batch normalization: each critic score stays independent of other examples
-# for the per-example critic gradient penalty. Scores are unrestricted logits.
 source = """
 conv(64, kernel_size=4, stride=2, padding=1)
 leaky_relu(0.2)
@@ -62,39 +57,22 @@ leaky_relu(0.2)
 conv(1, kernel_size=4, stride=1, padding=0)
 flatten()
 """
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 1]
 
 [prior]
 kind = "mog"
 initialization_device = "cpu"
 initialization_seed = 25003
-[prior.args]
 num_particles = 4096
 z_dim = 128
 sigma_rel = 0.025
 
-[adversarial]
-weight = 1.0
-
-[gradient_penalty]
-coeff = 1.0
+[penalty]
 kappa = 1.0
 lazy_k = 8
 
-[prior_regularizer]
-rows = "full"
-weight = 1.0
-target_std = 1.0
-eps = 0.0001
-
-[optimizer]
-implementation = "torch_fused_adam"
-lr = 0.0002
-d_lr_mult = 1.0
-prior_lr_mult = 10.0
-betas = [0.5, 0.999]
-prior_betas = [0.5, 0.999]
-
-[training]
+[train]
 steps = 200000
 batch_size = 64
 seed = 25002
@@ -106,8 +84,14 @@ phase_draws = "independent"
 data_rng_device = "cpu"
 data_seed_offset = 2
 prior_seed_offset = 3
+implementation = "torch_fused_adam"
+lr = 0.0002
+d_lr_mult = 1.0
+prior_lr_mult = 10.0
+betas = [0.5, 0.999]
+prior_betas = [0.5, 0.999]
 
-[training.backend]
+[train.backend]
 deterministic_algorithms = false
 cudnn_deterministic = false
 cudnn_benchmark = true
@@ -121,3 +105,16 @@ seed = 35002
 [metrics]
 preset = "standard"
 every_steps = 10
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001

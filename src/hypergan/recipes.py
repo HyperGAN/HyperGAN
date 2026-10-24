@@ -139,7 +139,7 @@ def make_prior(spec, *, device=None, recipe=None):
     prior = prior.to(device) if device is not None else prior
     if recipe:
         # Inference workers must reconstruct persistent recipe-owned buffers
-        # before strict loading, including initial SBNP reference moments.
+        # before strict loading, including initial prior reference buffers.
         from particlegan import Recipe
         Recipe(**recipe).apply_prior_policy(prior)
     return prior

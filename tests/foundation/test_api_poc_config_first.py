@@ -104,11 +104,27 @@ def test_legacy_file_references_survive_external_cwd_override_and_save(tmp_path,
     import sys
     project = tmp_path / 'project'
     project.mkdir()
-    raw = tomllib.loads((ROOT / 'examples' / 'cifar-pretrained-sagan.toml').read_text())
-    critic = ROOT / 'examples' / raw['components']['discriminator']['args']['file']
+    model_example = hg.load(ROOT / 'examples' / 'cifar-pretrained-sagan.toml')
+    raw = hg.lower(model_example)
+    raw.pop('format', None)
+    raw.pop('name_map', None)
+    critic = ROOT / 'examples' / model_example.spec['networks']['discriminator']['hndl']
     (project / 'critic.hndl').write_bytes(critic.read_bytes())
+    raw['components']['discriminator']['args'].pop('source', None)
     raw['components']['discriminator']['args']['file'] = 'critic.hndl'
     attention = ROOT / 'src' / 'hypergan' / 'networks' / 'image_attention.hndl'
+    net_files_map = {
+        'generator': {
+            'image_generator': '../src/hypergan/networks/image_generator.hndl',
+            'image_attention': '../src/hypergan/networks/image_attention.hndl',
+        },
+        'encoder': {
+            'image_encoder': '../src/hypergan/networks/image_encoder.hndl',
+        },
+    }
+    for comp_name, files in net_files_map.items():
+        raw['components'][comp_name]['args'].pop('networks', None)
+        raw['components'][comp_name]['args']['network_files'] = dict(files)
     for component in raw['components'].values():
         files = component.get('args', {}).get('network_files', {})
         for name, path in files.items():
@@ -192,7 +208,7 @@ def test_unused_critic_and_missing_prior_loss_are_reported():
 
 def test_load_config_accepts_model_files_and_mappings_without_changing_recipes():
     paired = ROOT / 'examples' / 'paired-linear.toml'
-    assert fingerprint(load_config(paired)) == fingerprint(resolve_config(tomllib.loads(paired.read_text())))
+    assert fingerprint(load_config(paired)) == fingerprint(resolve_config(lower(tomllib.loads(paired.read_text()))))
     resolved = load_config(EXAMPLES / 'simple.toml')
     assert fingerprint(load_config(resolved)) == fingerprint(resolved)               # resolved mapping
     spec = hg.load(EXAMPLES / 'simple.toml').spec

@@ -52,7 +52,7 @@ Submission returns `pending`; it does **not** mean that a checkpoint was saved. 
 
 The queue allows at most 256 pending requests and processes at most 32 per boundary. Individual protocol records are capped at 8 KiB; completed receipts are retained for future idempotent retries. Queue-lock contention reports a retryable error to producers and defers trainer polling.
 
-This is a local filesystem protocol for a trusted run directory, not a remote authenticated service. A request racing the last polling boundary, or sent to a process that has died, can remain pending. It is not automatically retried against a new attempt: a later attempt rejects stale requests. Resume the run deliberately and submit a new request for that attempt if needed. Polling a receipt has no timeout or execution guarantee; supervisors must also inspect attempt status and liveness. Cancellation and browser controls are still planned.
+This is a local filesystem protocol for a trusted run directory, not a remote authenticated service. A request racing the last polling boundary, or sent to a process that has died, can remain pending. It is not automatically retried against a new attempt: a later attempt rejects stale requests. Resume the run deliberately and submit a new request for that attempt if needed. Polling a receipt has no timeout or execution guarantee; supervisors must also inspect attempt status and liveness. Browser UI run controls (`RunController` start/stop/resume/checkpoint/sample/evaluate and `/api/runs/<id>/checkpoint` & `/api/runs/<id>/stop`) are implemented and shipped in the [Web Observatory](local-web.md).
 
 ## Periodic previews
 

@@ -29,8 +29,7 @@ def test_every_example_describes(path):
     text = json.dumps(result, allow_nan=False)
     assert not LOCAL_PATH.search(text), 'absolute local path leaked'
     assert len(text) < 256 * 1024
-    expected_family = config.get('recipe', {}).get('critic_formulation', 'k3p')
-    assert result['formulation']['family'] == expected_family
+    assert result['formulation']['family'] == 'particlegan'
     assert result['formulation']['parameters']['coeff'] == config['gradient_penalty']['coeff']
     names = [entry['name'] for entry in result['networks']]
     assert names == list(config['components'])
@@ -48,7 +47,7 @@ def test_every_example_describes(path):
         for term in result['losses'][side]:
             assert term['metric'] or term['metric_note']
     objectives = {term['metric'] for term in result['losses']['generator'] if term['kind'] not in (
-        'rpgan_g', 'non_saturating_g', 'particle_spread', 'sbnp')}
+        'adversarial_g', 'prior_regularizer')}
     assert objectives == {'loss/objectives/' + objective_id(t) for t in config['objectives']}
     assert result['optimizers']['critic']['lr'] == pytest.approx(
         config['optimizer']['lr'] * config['optimizer']['d_lr_mult'])
@@ -57,7 +56,7 @@ def test_every_example_describes(path):
 def test_multi_critic_terms_are_listed_without_a_per_term_series():
     config = load_config(next(p for p in EXAMPLES if p.stem == 'color-words'))
     result = describe_config(config)
-    critics = [t['critic'] for t in result['losses']['discriminator'] if t['kind'] == 'rpgan_d']
+    critics = [t['critic'] for t in result['losses']['discriminator'] if t['kind'] == 'adversarial_d']
     assert critics == ['discriminator'] + [t['component'] for t in config['adversarial_terms']]
     assert all(t['metric'] is None and 'summed' in t['metric_note'] for t in result['losses']['discriminator'])
     assert set(result['optimizers']['critic']['components']) == set(critics)
@@ -82,17 +81,18 @@ def test_default_configuration_and_packaged_source_file():
     assert result['provenance']['defaults_source'] == 'unknown'
 
 
-def test_legacy_configuration_is_shown_not_rederived():
+def test_recorded_dependency_recipe_is_not_interpreted_or_exposed():
     config = json.loads(json.dumps(resolve_config({})))
-    config['adversarial'].update(loss_type='logistic', mode='rp')
-    config['gradient_penalty'].update(arm='b_cap', norm='l2', target_anneal=0.5)
-    for key in ('anchor_weight', 'anchor_decay'):
-        del config['gradient_penalty'][key]
-    result = describe_run({'config': config, 'source': {'particlegan_distribution_version': '0.5.0'}})
+    config['recipe'] = {'name': 'opaque-upstream-preset', 'critic_formulation': 'future-formulation',
+                        'optimizer_family': 'future-optimizer', 'prior_regularizer': 'future-regularizer'}
+    result = describe_run({'config': config, 'source': {'particlegan_distribution_version': '0.9.0'}})
     formulation = result['formulation']
-    assert formulation['family'] == 'legacy' and formulation['particlegan'] == '0.5.0'
-    assert formulation['parameters']['arm'] == 'b_cap' and 'penalty' not in formulation['equations']
-    assert result['losses']['discriminator'][1]['kind'] == 'penalty_b_cap'
+    assert formulation['family'] == 'particlegan' and formulation['particlegan'] == '0.9.0'
+    assert formulation['snapshot_recorded'] and formulation['equations'] == {}
+    assert result['optimizers']['generator']['type'] == 'ParticleGAN'
+    text = json.dumps(result)
+    for internal in config['recipe'].values():
+        assert internal not in text
 
 
 def test_missing_configuration_is_not_found():
@@ -150,12 +150,13 @@ def test_description_never_imports_torch(tmp_path):
     subprocess.run([sys.executable, '-c', code, *map(str, EXAMPLES)], cwd=tmp_path, check=True)
 
 
-def test_anchor_weight_appears_in_the_penalty_and_zero_turns_it_off():
-    result = describe_config(resolve_config({}))
-    assert 'w·P' in result['formulation']['equations']['penalty']
-    config = resolve_config({'gradient_penalty': {'anchor_weight': 0.0}})
-    equations = describe_config(config)['formulation']['equations']
-    assert 'P' not in equations['penalty'].split('(', 1)[1] and equations['P'].startswith('off')
+def test_configuration_overrides_are_reported_without_deriving_dependency_equations():
+    config = resolve_config({'gradient_penalty': {'coeff': 0.25, 'anchor_weight': 0.0}})
+    result = describe_config(config)
+    assert result['formulation']['equations'] == {}
+    assert result['formulation']['parameters']['coeff'] == 0.25
+    assert result['losses']['discriminator'][1]['kind'] == 'critic_regularizer'
+    assert 'anchor_weight' not in result['losses']['discriminator'][1]
 
 
 def test_malformed_recorded_graph_lists_are_ignored():

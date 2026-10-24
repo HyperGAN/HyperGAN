@@ -68,7 +68,7 @@ a non-image and is not expanded. No source images were changed or deleted.
   Installing the declared web extras resolved it and that exact test passed.
 - Actual pinned DINO CPU and physical GPU-1 forward/image-double-backward checks
   passed. Backbone parameters stay frozen and particle gradients are nonzero.
-- A real-logo fixture public CLI run trained through lazy b-cap at step 8,
+- A real-logo fixture public CLI run trained through lazy critic regularization at step 8,
   resumed to step 10, and recovered from an older step-4 snapshot to step 5.
   Exact restoration compared 1,050 tensors and 2,717 values.
 - The **actual start-color.sh** launcher with the full inventory trained to

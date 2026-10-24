@@ -11,7 +11,7 @@ from .ports import DEFAULT_VIEWER_PORT, PORT_SEARCH_LIMIT
 
 
 def require_web():
-    missing = [name for name in ('starlette', 'uvicorn', 'wasmtime')
+    missing = [name for name in ('starlette', 'uvicorn')
                if importlib.util.find_spec(name) is None]
     if missing:
         raise RuntimeError("Local serving requires 'hypergan[web]' (missing " + ', '.join(missing) + ')')
@@ -26,6 +26,12 @@ def bind_server(port=0, host="0.0.0.0"):
         # defeating occupied-port preflight and making request routing ambiguous.
         if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        elif sys.platform.startswith('linux'):
+            # A restart must not fail on the previous viewer's TIME_WAIT
+            # connections; on Linux a live listener on any address still makes
+            # bind raise EADDRINUSE. BSD/macOS would let a wildcard bind share a
+            # port with a loopback listener, so the option stays off there.
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         listener.bind((host, port))
         listener.listen(128)
         return listener
@@ -117,6 +123,10 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
             started_at = time.time()
             runs_root = _wa.find_runs_root(root)
             candidate_roots = [runs_root, root]
+            if root.parent != root:
+                candidate_roots.append(root.parent.resolve())
+                if root.parent.name == "runs" and root.parent.parent != root.parent:
+                    candidate_roots.append(root.parent.parent.resolve())
             if root.name == "runs" and root.parent != root:
                 candidate_roots.append(root.parent.resolve())
             if (root / "runs").is_dir():
@@ -264,5 +274,3 @@ def stop_dashboard(runs_root=None, timeout: float = 8.0):
     """Cleanly stop the root dashboard or viewer for a given runs root, run directory, tag, or slug."""
     from .web_autostart import stop_dashboard as _sd
     return _sd(runs_root, timeout=timeout)
-
-

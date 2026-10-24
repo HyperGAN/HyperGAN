@@ -320,3 +320,43 @@ def test_prune_checkpoints_invariant_s3_and_empty_run(tmp_path):
     assert rep["retained_count"] == 1
     assert rep["deleted_count"] == 0
     assert c10.is_dir()
+
+
+class _UnsafeCustomPayload:
+    pass
+
+
+def test_extract_ema_bundle_rejects_unrestricted_pickle_payload(tmp_path):
+    import pickle
+
+    ckpt_dir = tmp_path / "unsafe_ckpt"
+    ckpt_dir.mkdir(parents=True)
+    manifest = {
+        "run_id": "test-run",
+        "attempt_id": "att-1",
+        "step": 10,
+        "config": {
+            "components": {
+                "generator": {
+                    "factory": "custom_gen",
+                    "inputs": {"z": "prior.z"},
+                }
+            },
+            "sampling": {},
+        },
+    }
+    (ckpt_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    # Save a payload containing a custom class not allowed by weights_only=True
+    torch.save({"payload": _UnsafeCustomPayload()}, ckpt_dir / "state.pt")
+    with pytest.raises(pickle.UnpicklingError):
+        extract_ema_bundle(ckpt_dir)
+
+    # Also test model.pt path directly and via directory fallback
+    model_dir = tmp_path / "unsafe_model_dir"
+    model_dir.mkdir(parents=True)
+    torch.save({"kind": "ema-inference", "payload": _UnsafeCustomPayload()}, model_dir / "model.pt")
+    with pytest.raises(pickle.UnpicklingError):
+        extract_ema_bundle(model_dir / "model.pt")
+    with pytest.raises(pickle.UnpicklingError):
+        extract_ema_bundle(model_dir)

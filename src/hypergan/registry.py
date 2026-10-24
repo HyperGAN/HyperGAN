@@ -63,7 +63,7 @@ NOUNS: Tuple[str, ...] = (
     "photon", "pioneer", "prism", "pulsar", "quartz", "quasar", "raven", "reef",
 )
 
-_PYTEST_PATH_RE = re.compile(r"^(.*/pytest-of-[^/\\]+[/\\]pytest-\d+[/\\][^/\\]+)")
+_PYTEST_PATH_RE = re.compile(r"^(.*[/\\]pytest-of-[^/\\]+[/\\]pytest-\d+[/\\][^/\\]+)")
 
 
 def slug_from_id(run_id: str) -> str:

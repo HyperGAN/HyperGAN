@@ -3,7 +3,7 @@ import hashlib
 from importlib.resources import files
 from pathlib import Path
 
-CORE_ASSETS = ('app.js', 'index.html', 'style.css', 'view-worker.js')
+CORE_ASSETS = ('app.js', 'index.html', 'style.css', 'view-worker.js', 'runs.js', 'runs.css')
 
 
 def compute_asset_hash(asset_dir: Path | None = None) -> str:

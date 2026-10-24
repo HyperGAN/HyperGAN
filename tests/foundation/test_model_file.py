@@ -174,3 +174,155 @@ def test_upstream_reachability():
     assert upstream('components.gen', components) == {'gen', 'enc'}
     assert upstream('components.enc', components) == {'enc'}
     assert upstream('latent', components) == set()
+
+
+def test_hndl_extra_fields_and_file_alias(tmp_path):
+    sub_hndl = tmp_path / 'sub_block.hndl'
+    sub_hndl.write_text('linear()\n', encoding='utf-8')
+    main_hndl = tmp_path / 'gen.hndl'
+    main_hndl.write_text('linear()\n', encoding='utf-8')
+
+    spec = {
+        'format': 'hypergan-model/1',
+        'data': {'builtin': 'gaussian_grid'},
+        'networks': {
+            'g': {
+                'role': 'generator',
+                'file': 'gen.hndl',
+                'inputs': {'z': 'latent'},
+                'input_shape': ['B', 4],
+                'output_shape': ['B', 2],
+                'parameters': {'width': 64},
+                'input_dtype': {'z': 'float32'},
+                'networks': {'inline_blk': 'linear()'},
+                'network_files': {'file_blk': 'sub_block.hndl'},
+                'pretrained_providers': {'prov': {'factory': 'pkg:fn'}},
+            },
+            'd': {
+                'role': 'critic',
+                'source': 'linear()',
+                'inputs': {'x': 'candidate'},
+                'input_shape': ['B', 2],
+                'output_shape': ['B', 1],
+            },
+        },
+        'losses': [{'type': 'adversarial', 'critic': 'd'}],
+    }
+    lowered = lower(spec, base=tmp_path)
+    g_args = lowered['components']['generator']['args']
+    assert g_args['source'].strip() == 'linear()'
+    assert g_args['parameters'] == {'width': 64}
+    assert g_args['input_dtype'] == {'z': 'float32'}
+    assert g_args['networks']['inline_blk'] == 'linear()'
+    assert g_args['networks']['file_blk'].strip() == 'linear()'
+    assert g_args['pretrained_providers'] == {'prov': {'factory': 'pkg:fn'}}
+
+
+def test_flat_data_keys_and_batch_size_promotion():
+    spec = {
+        'format': 'hypergan-model/1',
+        'data': {
+            'builtin': 'image_folder',
+            'root': '/tmp/images',
+            'height': 64,
+            'width': 64,
+            'channels': 1,
+            'batch_size': 32,
+        },
+        'networks': {
+            'g': {'role': 'generator', 'module': 'mod:Gen', 'inputs': {'z': 'latent'}},
+            'd': {'role': 'critic', 'module': 'mod:Critic', 'inputs': {'x': 'candidate'}},
+        },
+        'losses': [{'type': 'adversarial', 'critic': 'd'}],
+    }
+    lowered = lower(spec)
+    assert lowered['data'] == {
+        'factory': 'image_folder',
+        'args': {'root': '/tmp/images', 'height': 64, 'width': 64, 'mode': 'L'},
+    }
+    assert lowered['training']['batch_size'] == 32
+
+
+def test_adversarial_inline_penalty_and_reconstruction_defaults():
+    spec = {
+        'format': 'hypergan-model/1',
+        'data': {'builtin': 'gaussian_grid'},
+        'networks': {
+            'g': {'role': 'generator', 'module': 'mod:Gen', 'inputs': {'z': 'latent'}},
+            'g_ema': {'role': 'generator', 'reuse': 'g', 'inputs': {'z': 'latent'}},
+            'critic_a': {'role': 'critic', 'module': 'mod:Critic', 'inputs': {'x': 'candidate'}},
+            'discriminator': {'role': 'critic', 'module': 'mod:Critic', 'inputs': {'x': 'candidate'}},
+        },
+        'losses': [
+            {
+                'type': 'adversarial',
+                'id': 'main_adv',
+                'critic': 'critic_a',
+                'penalty': {'weight': 2.0, 'lazy_k': 4, 'kappa': 0.5},
+            },
+            {
+                'type': 'adversarial',
+                'critic': 'discriminator',
+                'weight': 0.5,
+            },
+            {
+                'type': 'reconstruction',
+                'fn': 'l1',
+                'weight': 0.25,
+            },
+        ],
+    }
+    lowered = lower(spec)
+    assert lowered['adversarial']['id'] == 'main_adv'
+    assert lowered['gradient_penalty'] == {'coeff': 2.0, 'lazy_k': 4, 'kappa': 0.5}
+    assert lowered['objectives'][0]['id'] == 'reconstruction'
+    assert lowered['objectives'][0]['inputs'] == {'input': 'generated', 'target': 'batch.real'}
+    assert 'critic_discriminator' in lowered['components']
+
+
+def test_train_cadence_and_run_validation():
+    spec = {
+        'format': 'hypergan-model/1',
+        'data': {'builtin': 'gaussian_grid'},
+        'networks': {
+            'g': {'role': 'generator', 'module': 'mod:Gen', 'inputs': {'z': 'latent'}},
+            'd': {'role': 'critic', 'module': 'mod:Critic', 'inputs': {'x': 'candidate'}},
+        },
+        'losses': [{'type': 'adversarial', 'critic': 'd'}],
+        'train': {'steps': 100, 'checkpoint_every': 50, 'preview_every': 25},
+        'metrics': {'every': 5},
+        'evaluations': {
+            'samples': 128,
+            'batch_size': 32,
+            'seed': 7,
+            'data': {'builtin': 'gaussian_grid'},
+            'fid': {
+                'factory': 'hypergan.image_metrics:InceptionFID',
+                'every_steps': 50,
+                'target': 'generated',
+                'on_busy': 'skip',
+            },
+        },
+    }
+    lowered = lower(spec)
+    assert lowered['run']['checkpoint_every'] == 50
+    assert lowered['run']['preview_every'] == 25
+    assert lowered['metrics']['every_steps'] == 5
+    fid_eval = lowered['metrics']['custom']['fid']
+    assert fid_eval['every_steps'] == 50
+    assert fid_eval['on_busy'] == 'skip'
+    assert fid_eval['evaluation']['sample_count'] == 128
+
+    bad_run = dict(spec, run={'unknown_run_key': 123})
+    with pytest.raises(ModelFileError, match='Unknown run field'):
+        lower(bad_run)
+
+
+def test_override_by_loss_type_and_optimizer_prefix():
+    m = hg.packaged('gaussian-grid')
+    m2 = hg.override(m, {'losses.prior.weight': 2.5, 'optimizer.lr': 5e-4})
+    lowered = hg.lower(m2)
+    assert lowered['prior_regularizer']['weight'] == 2.5
+    assert lowered['optimizer']['lr'] == 5e-4
+    explained = hg.explain(m2)
+    assert '0.0005' in explained

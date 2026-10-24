@@ -43,21 +43,20 @@ cross-channel projections feed independent spectral convolutional heads, yieldin
 `[B, 4, 4, 4]` logits. All four feature depths are 8x8, so there is no cross-scale
 fusion. The stable generator uses the paper’s 128px depths (5/4/4/4/4), a 512-dimensional
 latent and raw RGB output. The existing reduced-depth generator remains available
-for other recipes. Logistic relativistic loss, lazy b-cap penalty, MoG prior type,
+for other recipes. Logistic relativistic loss, lazy critic regularization penalty, MoG prior type,
 optimizer settings, update schedule and seeds are retained. Only the prior latent
 width changes to match the new generator input.
 
 Set the example's dataset manifest, digest, DINOv3 weights and pinned source
-checkout before using it. The prepared local configuration is
-`../training-runs/transgan-projected-dinov3-128-stable.toml`; its launcher is:
+checkout before using it. Launch training with:
 
 ```bash
-../training-runs/start-transgan-projected-dinov3-128-stable.sh
+hypergan train examples/transgan-projected-dinov3-128-stable.toml \
+    --run-dir ./runs/train-transgan-projected-dinov3-128-stable -d 1
 ```
 
-The local launcher uses the `HyperGAN` develop checkout, existing `transgan-128-env`,
-GPU UUID from the projected-DINO launcher, and a separate
-`train-transgan-projected-dinov3-128-stable` run directory. It accepts additional
+This command uses GPU 1 and a separate
+`./runs/train-transgan-projected-dinov3-128-stable` run directory. It accepts additional
 training CLI arguments. The default duration is the configured 200,000 steps;
 `--stop-after-steps 128` bounds an initial run without changing its target duration.
 
@@ -98,13 +97,16 @@ batch size and seeds. Its only numerical configuration difference is an empty
 DiffAug transform list: the operation becomes identity and consumes no RNG.
 This is an augmentation ablation, starting from scratch with the same seed.
 
-The local launcher is
-`../training-runs/start-transgan-projected-dinov3-128-no-diffaug.sh`.
-It uses physical GPU 0 (`GPU-ed080e41-3193-3755-6756-f3d46c433331`), while the
-augmented run uses physical GPU 1. Checkpoints and previews for this run live in
-`/mnt/ml7tb/hypergan-training-runs/train-transgan-projected-dinov3-128-no-diffaug`
-to avoid filling the home filesystem. Checkpoint, preview and metric cadences
-match the augmented launcher.
+Launch this ablation on GPU 0 with a separate run directory:
+
+```bash
+hypergan train examples/transgan-projected-dinov3-128-no-diffaug.toml \
+    --run-dir ./runs/train-transgan-projected-dinov3-128-no-diffaug -d 0
+```
+
+It uses GPU 0 while the augmented run uses GPU 1. Checkpoints and previews for
+this run live in `./runs/train-transgan-projected-dinov3-128-no-diffaug`.
+Checkpoint, preview and metric cadences match the augmented configuration.
 
 ## Full-depth generator with a ResNet critic
 
@@ -118,19 +120,20 @@ the frozen backbone. DiffAug remains disabled.
 
 The full-depth 512-latent TransGAN, prior, optimizer, loss, gradient penalty,
 batch size, seeds and update schedule match the no-DiffAug baseline. A resolved
-configuration comparison permits only the discriminator component and run name
+configuration comparison permits only the discriminator network and run name
 to differ. This compares critic designs, including their heads and pixel paths,
 rather than isolating the pretrained backbone alone.
 
-Run the prepared local launcher manually:
+Launch training manually:
 
 ```bash
-../training-runs/start-transgan-resnet-multiscale-128-stable.sh
+hypergan train examples/transgan-resnet-multiscale-128-stable.toml \
+    --run-dir ./runs/train-transgan-resnet-multiscale-128-stable -d 0
 ```
 
-It uses physical GPU 0 and a separate run directory on the data volume:
-`/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-stable`.
-The older launcher without the `-stable` suffix uses the earlier reduced-depth
+It uses GPU 0 and a separate run directory:
+`./runs/train-transgan-resnet-multiscale-128-stable`.
+The older configuration without the `-stable` suffix uses the earlier reduced-depth
 generator and is a different configuration.
 
 Validation: 10 pretrained-provider tests passed. A CPU check with the real
@@ -168,16 +171,17 @@ outputs and finite nonzero latent gradients. These checks do not establish
 improved conditioning or convergence.
 
 The no-DiffAug ResNet critic, prior, optimizer, losses, batch size, seeds and
-schedule match the ResNet stable recipe. The prepared launcher starts a new
+schedule match the ResNet stable recipe. Start a new
 run from scratch; generator weight compatibility does not bypass full training
 checkpoint recipe checks.
 
 ```bash
-../training-runs/start-transgan-resnet-multiscale-128-e2.sh
+hypergan train examples/transgan-resnet-multiscale-128-e2.toml \
+    --run-dir ./runs/train-transgan-resnet-multiscale-128-e2 -d 0
 ```
 
-It selects physical GPU 0 and writes to
-`/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-e2`.
+It selects GPU 0 and writes to
+`./runs/train-transgan-resnet-multiscale-128-e2`.
 Training is left for the user to launch.
 
 ## E3-style latent shortcuts on the other GPU
@@ -204,7 +208,7 @@ It uses the baseline residual gains, without E2's scaling. Stem, upsampling,
 attention widths, normalization and RGB readout remain unchanged. Added
 projections consume initialization RNG, so the same seed does not imply
 identical initial backbone values across configurations. No existing training
-checkpoint is resumed; the launcher starts a separate run from scratch.
+checkpoint is resumed; start a separate run from scratch.
 
 The ResNet critic, disabled DiffAug, prior, optimizer, losses, batch size, seeds
 and schedule match the stable ResNet recipe. Numerical tests verify that the
@@ -215,13 +219,13 @@ disconnected. A two-image batch checks that conditioning stays per image.
 Training performance and convergence remain to be measured.
 
 ```bash
-../training-runs/start-transgan-resnet-multiscale-128-e3.sh
+hypergan train examples/transgan-resnet-multiscale-128-e3.toml \
+    --run-dir ./runs/train-transgan-resnet-multiscale-128-e3 -d 1
 ```
 
-The launcher selects physical GPU 1
-(`GPU-548116b7-9dbe-de58-b3d9-a6e27b0f74ce`) and writes to
-`/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-e3`.
-E2's launcher remains on GPU 0. Training is left for the user to launch.
+This command selects GPU 1 and writes to
+`./runs/train-transgan-resnet-multiscale-128-e3`.
+E2 remains on GPU 0. Training is left for the user to launch.
 
 ## Equalized linear projections
 
@@ -257,18 +261,19 @@ default operators, all 128 projections and a full 128px forward/backward pass.
 Convergence remains to be measured.
 
 The `equalized` arguments were released in HNDL 0.7.0; the `train` extra
-requires HNDL 0.9.0 or newer.
+requires HNDL 0.10.0 or newer.
 
 Validation: 963 HNDL CPU tests and 16 HyperGAN tests passed. HNDL generated
 documentation and lint checks passed. CUDA/reduced-precision tests were not
 run as part of this preparation.
 
 ```bash
-../training-runs/start-transgan-resnet-multiscale-128-equalized.sh
+hypergan train examples/transgan-resnet-multiscale-128-equalized.toml \
+    --run-dir ./runs/train-transgan-resnet-multiscale-128-equalized -d 0
 ```
 
-The launcher uses physical GPU 0 and writes to
-`/mnt/ml7tb/hypergan-training-runs/train-transgan-resnet-multiscale-128-equalized`.
+This command uses GPU 0 and writes to
+`./runs/train-transgan-resnet-multiscale-128-equalized`.
 Training is left for the user to launch.
 
 ## Smaller style transformer with a lower generator learning rate

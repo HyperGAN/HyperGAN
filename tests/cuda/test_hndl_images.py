@@ -39,7 +39,7 @@ def test_native_feature_pool_deterministic_second_derivative(size):
     torch.testing.assert_close(repeated[0][0], reference, atol=1e-6, rtol=1e-6)
 
 
-def test_native_sagan_broadcast_and_constants_support_pixel_bcap():
+def test_native_sagan_broadcast_and_constants_support_pixel_penalty():
     pixel = _PixelDiscriminator(width=8).cuda()
     real = torch.randn(2, 3, 32, 32, device='cuda')
     fake = torch.randn_like(real)

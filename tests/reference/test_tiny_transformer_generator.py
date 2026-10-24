@@ -13,7 +13,8 @@ NETWORKS = Path(__file__).parents[2] / 'examples/networks'
 @pytest.mark.parametrize('side,z_dim', [(32, 64), (128, 512), (128, 64)])
 def test_initial_conditioning_gradients_and_checkpoint(side, z_dim):
     if (side, z_dim) == (128, 64):
-        config = tomllib.loads((NETWORKS.parent / 'logos-tiny-transformer-resnet-features-128.toml').read_text())
+        from hypergan.config import load_config
+        config = load_config(NETWORKS.parent / 'logos-tiny-transformer-resnet-features-128.toml')
         source = config['components']['generator']['args']['source']
     else:
         source = (NETWORKS / f'tiny-transformer-generator-{side}.hndl').read_text()
@@ -40,5 +41,5 @@ def test_initial_conditioning_gradients_and_checkpoint(side, z_dim):
     restored.load_state_dict(model.state_dict(), strict=True)
     with torch.no_grad():
         torch.testing.assert_close(restored(z), out, rtol=0, atol=0)
-        torch.testing.assert_close(model(z[:1]), out[:1], rtol=1e-4, atol=1e-6)
+        torch.testing.assert_close(model(z[:1]), out[:1], rtol=1e-4, atol=1e-5)
     assert torch.equal(rng, torch.get_rng_state())

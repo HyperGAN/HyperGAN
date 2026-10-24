@@ -30,8 +30,9 @@ The token never enters a URL, storage, telemetry, or browser logs.
   Omit revision for the active training catalog; independent evaluation documents
   always supply their own catalog revision.
 - `GET /runs/r/model` -> the Model tab document (`Model` in `/openapi.json`):
-  `formulation` (K3P name, loss, equations, penalty parameters; `family:"legacy"`
-  shows a pre-0.8 run's recorded fields), `prior`, `losses.discriminator` /
+  `formulation` (`family:"particlegan"`, provider name/version, recipe-snapshot
+  status and host weights; equations are empty),
+  `prior`, `losses.discriminator` /
   `losses.generator` terms with weights and their metric series id (`metric`,
   or `null` plus `metric_note` when no per-term series exists), `optimizers`
   (groups, schedule, noise, EMA), `networks` (role, factory, inputs, shapes,
@@ -59,7 +60,7 @@ The token never enters a URL, storage, telemetry, or browser logs.
   position, because positions shift as versions arrive or are pruned.
 - `GET /runs/r/views` -> `{ "map_revision":"...", "streams":[{"stream_id":"evaluation:<id>", "cursor":"...", "caught_up":true, "error":null}], "discovery_error":null }`.
   Training, projection and independent evaluation sources share this inventory.
-  At most 64 streams are registered. Inventory overflow is visible without
+  At most 4,096 streams are registered. Inventory overflow is visible without
   stopping existing streams or run metadata updates.
 - `GET /runs/r/views/{map_revision}/bootstrap?series=loss%2Fd_total,...&bucket_steps=8`
   returns the following object, or 202 while background historical reduction runs.
@@ -112,7 +113,7 @@ after reconnect, and on `stream_added`, the browser reads the stream inventory.
 For each evaluation it reads `GET /runs/r/events?stream_id=evaluation:<id>&limit=2`
 and the event's explicit `catalog` revision. The current protocol is exactly one
 terminal document per evaluation. No live/history reducer runs for these reads.
-The browser serializes result loads, retains at most the 64 registered streams
+The browser serializes result loads, retains at most the 4,096 registered streams
 the server admits (`MAX_STREAMS`), and allocates per-result tables, histogram
 plots and protocol documents only on expansion. There is no recurring HTTP poll.
 Completed scalar results are grouped by metric ID across streams and drawn as one

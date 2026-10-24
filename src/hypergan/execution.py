@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 from .config import config_values, fingerprint, load_config, resolve_config, resume_compatible
+from .model_file import ConfigError
 from .previews import sample_name
 from .execution_profiles import load_execution_profile, resolve_execution_profile
 
@@ -176,6 +177,15 @@ def _apply_devices(devices, config, profile, context_path):
     resolved = resolve_device_aliases(devices, ws_data)
 
     dev_list = [d.strip() for d in (resolved if isinstance(resolved, list) else resolved.split(",")) if d.strip()]
+    # Note on Device Ordering (Phase 2C):
+    # Setting CUDA_DEVICE_ORDER=PCI_BUS_ID ensures that on NVIDIA GPUs, device indices
+    # deterministically correspond to PCI bus ID ordering rather than heuristic driver ordering.
+    # On AMD ROCm / HIP runtimes, CUDA_DEVICE_ORDER is not a native driver setting (ROCm uses
+    # PCIe bus ID ordering by default or respects HIP_DEVICE_ORDER / ROCR_VISIBLE_DEVICES).
+    # Setting CUDA_DEVICE_ORDER here is harmless on ROCm and strictly preserves existing
+    # NVIDIA behavior. PyTorch ROCm honors CUDA_VISIBLE_DEVICES as an alias.
+    # The exact alignment between PyTorch device index, PCI bus ID, and amd-smi / rocm-smi
+    # is verified empirically on AMD hardware via the preflight report (Section 4).
     if len(dev_list) > 1:
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(dev_list)
@@ -318,14 +328,17 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             remedy = ('`hypergan resume RUN --config CONFIG` continues this run with changed '
                       'observation settings' if set(changed) <= {'metrics', 'samplers'} else
                       'use a new run directory for a different numerical configuration')
-            raise ValueError('Training configuration differs from the original run in '
-                             + ', '.join(changed) + '; ' + remedy)
+            raise ConfigError('Training configuration differs from the original run in '
+                              + ', '.join(changed) + '; ' + remedy)
     if fingerprint(config) != manifest['config_sha256']:
-        if (not resume_compatible(config, manifest['config'])
+        compat = resume_compatible(config, manifest['config'])
+        if (not compat
                 or fingerprint(manifest['config']) != manifest['config_sha256']):
-            raise ValueError('Resume configuration differs from the original run; only an increased '
-                             'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
-                             'pinned training-image skipping, or changing its pixel cache, is allowed')
+            diffs = getattr(compat, 'differences', ())
+            diff_str = f" in {', '.join(diffs)}" if diffs else ""
+            raise ConfigError(f'Resume configuration differs from the original run{diff_str}; only an increased '
+                              'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
+                              'pinned training-image skipping, or changing its pixel cache, is allowed')
     saved = manifest.get('execution')
     if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
         raise ValueError('Run has no supported numerical execution identity')

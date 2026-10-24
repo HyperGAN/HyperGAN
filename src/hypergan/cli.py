@@ -128,7 +128,7 @@ def _parser():
     commands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,validate,recipes,tag,rm,gc,prune,checkpoint,inspect,compare,diff,doctor,report}",
+        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,explain,validate,recipes,tag,rm,gc,prune,checkpoint,inspect,compare,diff,doctor,report}",
     )
     commands.add_parser("version")
     recipes_cmd = commands.add_parser("recipes", help="List available recipes and qualification status")
@@ -168,6 +168,20 @@ def _parser():
     data_check = commands.add_parser("data-check")
     data_check.add_argument("config", type=Path)
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
+    download_data = commands.add_parser(
+        "download-data",
+        help="Opt-in acquisition, checksum verification, and manifest preparation for qualified datasets",
+    )
+    download_data.add_argument("dataset", nargs="?", default="cifar10", help="qualified dataset identifier (default: cifar10)")
+    download_data.add_argument("-o", "--output", type=Path, default=None, help="destination directory for extracted dataset and dataset-manifest.json")
+    download_data.add_argument("--cache-dir", type=Path, default=None, help="archive download cache directory (default: <output>/.cache)")
+    download_data.add_argument("--info", action="store_true", help="show source URL, version, expected bytes, checksums, and usage notice without downloading")
+    download_data.add_argument("--list", dest="list_datasets", action="store_true", help="list qualified datasets available for download")
+    download_data.add_argument("--verify-only", action="store_true", help="verify existing archive/extracted files without downloading")
+    download_data.add_argument("--source-archive", type=Path, default=None, help="verify and extract an already-downloaded local archive file")
+    download_data.add_argument("--url", default=None, help="override download URL (archive must still pass pinned size and SHA256 verification)")
+    download_data.add_argument("--timeout", type=float, default=60.0, help="network timeout in seconds (default: 60)")
+    download_data.add_argument("--json", action="store_true", help="output result as JSON")
     inspect = commands.add_parser("inspect", help="Inspect raw run manifest JSON")
     inspect.add_argument("path", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or manifest path")
     inspect.add_argument("--json", action="store_true", help="output manifest JSON")
@@ -222,8 +236,16 @@ def _parser():
 
     diff_cmd = commands.add_parser("diff", help="Compare two recipes, runs, or checkpoints")
     diff_cmd.add_argument("target_a", type=str, help="first recipe TOML, run directory/slug/tag, or checkpoint")
-    diff_cmd.add_argument("target_b", type=str, help="second recipe TOML, run directory/slug/tag, or checkpoint")
+    diff_cmd.add_argument("target_b", nargs="?", default=None, type=str, help="second recipe TOML, run directory/slug/tag, or checkpoint (optional when -s/--set is passed)")
+    diff_cmd.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                          help="override configuration value on the target before comparing")
     diff_cmd.add_argument("--json", action="store_true", help="output diff as JSON")
+
+    explain_cmd = commands.add_parser("explain", help="Explain each network's role, inputs, optimizer group, and gradient sources")
+    explain_cmd.add_argument("path", nargs="?", type=Path, default=None, help="model .toml, project directory, or run directory/slug/tag")
+    explain_cmd.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
+                             help="override configuration value before explaining (e.g. --set train.lr=0.0005)")
+    explain_cmd.add_argument("--json", action="store_true", help="output explanation as JSON")
 
     doctor_cmd = commands.add_parser("doctor", help="Inspect Python, PyTorch, CUDA devices, workspace, and runner health")
     doctor_cmd.add_argument("--json", action="store_true", help="output diagnostic report as JSON")
@@ -334,10 +356,10 @@ def _parser():
             p.add_argument("--run-dir", type=Path, required=False, default=None, help="explicit run directory override")
             p.add_argument("--config", type=Path, default=None, help="verify exact compatibility with this configuration")
         else:
-            p.add_argument("config", type=Path, help="configuration file or existing run directory/slug/ID to resume")
+            p.add_argument("config", nargs="?", type=Path, default=None, help="configuration file or existing run directory/slug/ID to resume")
             p.add_argument("-n", "--name", default=None, help="custom experiment name / slug for the run")
             p.add_argument("--run-dir", type=Path, required=False, default=None, help="new run directory, or an existing run to resume")
-            p.add_argument("--config", type=Path, default=None, help="explicit configuration file override")
+            p.add_argument("--config", dest="config_opt", type=Path, default=None, help="explicit configuration file override")
         p.add_argument("-d", "--devices", default=None,
                        help="device(s) to train on: 0, 0,1, gpu0,gpu1, auto, cpu")
         p.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
@@ -356,6 +378,7 @@ def _parser():
     sample.add_argument("--count", type=_positive_int, default=16, help="number of samples to generate (default: 16)")
     sample.add_argument("--seed", type=int, default=None, help="random seed for sampling (default: [sampling].seed in config, or 42)")
     sample.add_argument("--output", type=Path, default=None, help="output file path for samples (e.g. sample.png or sample.json)")
+    sample.add_argument("-i", "--input", dest="inputs", action="append", default=[], metavar="PATH_OR_KEY=PATH", help="conditioning input image file path or KEY=PATH binding for conditional models")
     sample.add_argument("--sampler", help="sampler name declared in [samplers], or module:function import path")
     sample.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
     sample.add_argument("--json", action="store_true", help="output sample info as JSON")
@@ -502,7 +525,7 @@ def _load_stored_run_model(run_dir: Path):
 
 def _check_reexec(run_spec, ws_data):
     """Determine if re-exec is required based on [run].env or workspace env profiles.
-    
+
     Returns:
         (needs_reexec, target_python, target_src_paths, target_env_vars)
     """
@@ -782,6 +805,7 @@ def _flatten_dict(d, prefix=""):
 
 
 def _extract_diffable_config(target, hg):
+    from .api import _clean_diff_dict
     target_str = str(target)
     target_p = Path(target_str)
 
@@ -789,10 +813,7 @@ def _extract_diffable_config(target, hg):
         if not target_p.is_file():
             raise FileNotFoundError(f"Run or recipe target '{target_str}' not found")
         m = hg.load(target_p)
-        try:
-            return dict(hg.resolve(m))
-        except Exception:
-            return getattr(m, "spec", dict(m)) if hasattr(m, "spec") else dict(m)
+        return _clean_diff_dict(dict(hg.resolve(m)))
 
     if target_str.endswith(".pt") or (target_p.is_file() and target_p.suffix == ".pt"):
         if not target_p.is_file():
@@ -802,7 +823,7 @@ def _extract_diffable_config(target, hg):
             state = torch.load(target_p, map_location="cpu", weights_only=True)
             if isinstance(state, dict):
                 if "config" in state and isinstance(state["config"], dict):
-                    return state["config"]
+                    return _clean_diff_dict(state["config"])
                 if "model_state_dict" in state:
                     return {k: list(v.shape) for k, v in state["model_state_dict"].items() if hasattr(v, "shape")}
             return {}
@@ -819,25 +840,40 @@ def _extract_diffable_config(target, hg):
         try:
             m_data = json.loads(manifest_p.read_text(encoding="utf-8"))
             if "config" in m_data and isinstance(m_data["config"], dict):
-                return m_data["config"]
+                return _clean_diff_dict(m_data["config"])
         except Exception:
             pass
 
-    recipe_p = resolved / "recipe.toml"
-    if recipe_p.is_file():
-        try:
+    for fname in ("model.toml", "recipe.toml", "config.toml"):
+        recipe_p = resolved / fname
+        if recipe_p.is_file():
             m = hg.load(recipe_p)
-            return dict(hg.resolve(m))
-        except Exception:
-            pass
+            return _clean_diff_dict(dict(hg.resolve(m)))
 
     raise FileNotFoundError(f"Run or recipe target '{target_str}' not found or contains no configuration")
 
 
-def _run_diff(target_a, target_b, is_json=False):
+def _run_diff(target_a, target_b=None, sets=None, is_json=False):
     from . import api as hg
+    from .api import _clean_diff_dict
+    if target_b is None and not sets:
+        raise ValueError("diff requires a second target (target_b) or at least one -s/--set override")
     cfg_a = _extract_diffable_config(target_a, hg)
-    cfg_b = _extract_diffable_config(target_b, hg)
+    if target_b is None:
+        m_a = hg.load(target_a)
+        expanded = _expand_set_overrides_for_model(m_a, sets)
+        m_b = hg.override(m_a, expanded)
+        cfg_b = _clean_diff_dict(dict(hg.resolve(m_b)))
+        target_b_display = f"{target_a} (with overrides)"
+    elif sets:
+        m_b = hg.load(target_b)
+        expanded = _expand_set_overrides_for_model(m_b, sets)
+        m_b = hg.override(m_b, expanded)
+        cfg_b = _clean_diff_dict(dict(hg.resolve(m_b)))
+        target_b_display = f"{target_b} (with overrides)"
+    else:
+        cfg_b = _extract_diffable_config(target_b, hg)
+        target_b_display = str(target_b)
 
     flat_a = _flatten_dict(cfg_a)
     flat_b = _flatten_dict(cfg_b)
@@ -853,7 +889,7 @@ def _run_diff(target_a, target_b, is_json=False):
     identical = len(differences) == 0
     res = {
         "target_a": str(target_a),
-        "target_b": str(target_b),
+        "target_b": target_b_display,
         "identical": identical,
         "differences": differences,
     }
@@ -861,9 +897,9 @@ def _run_diff(target_a, target_b, is_json=False):
         _print_json(res)
     else:
         if identical:
-            print(f"No differences found between {target_a} and {target_b}.")
+            print(f"No differences found between {target_a} and {target_b_display}.")
         else:
-            print(f"Differences between {target_a} and {target_b}:")
+            print(f"Differences between {target_a} and {target_b_display}:")
             print(f"{'Key':<35} {'Target A':<25} {'Target B':<25}")
             print("-" * 87)
             for k, diff in differences.items():
@@ -1276,7 +1312,28 @@ def _dispatch(args, *, output=None):
                 from .inspection import format_comparison_table
                 print(format_comparison_table(comp))
         elif args.command == "diff":
-            return _run_diff(args.target_a, args.target_b, is_json=getattr(args, "json", False))
+            d_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
+            return _run_diff(args.target_a, args.target_b, sets=d_sets, is_json=getattr(args, "json", False))
+        elif args.command == "explain":
+            explain_path = args.path
+            if explain_path is None:
+                explain_path = hg.resolve_run_target(None)
+            elif explain_path.is_dir() and not (explain_path / "model.toml").is_file():
+                configs_dir = explain_path / "configs"
+                cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
+                if cand_tomls:
+                    explain_path = cand_tomls[0]
+            m = hg.load(explain_path)
+            e_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
+            if e_sets:
+                e_sets = _expand_set_overrides_for_model(m, e_sets)
+                m = hg.override(m, e_sets)
+            text = hg.explain(m)
+            if getattr(args, "json", False):
+                _print_json({"path": str(explain_path), "explanation": text})
+            else:
+                print(text)
+            return 0
         elif args.command == "doctor":
             return _run_doctor(is_json=getattr(args, "json", False))
         elif args.command == "report":
@@ -1388,6 +1445,55 @@ def _dispatch(args, *, output=None):
                 print(out)
         elif args.command == "data-check":
             _print_json(hg.data_check(args.config, output=args.output))
+        elif args.command == "download-data":
+            if getattr(args, "list_datasets", False):
+                datasets = hg.list_datasets()
+                if getattr(args, "json", False):
+                    _print_json({"datasets": datasets})
+                else:
+                    for ds in datasets:
+                        mib = ds["expected_bytes"] / (1024 * 1024)
+                        print(f"{ds['name']} ({ds['version']}) - {ds['expected_bytes']} bytes ({mib:.2f} MiB) - {ds['url']}")
+                        print(f"  {ds['usage_notice']}")
+            elif getattr(args, "info", False):
+                info = hg.dataset_info(args.dataset)
+                if getattr(args, "json", False):
+                    _print_json(info)
+                else:
+                    mib = info["expected_bytes"] / (1024 * 1024)
+                    print(f"Dataset:         {info['name']} ({info['title']})")
+                    print(f"Version:         {info['version']}")
+                    print(f"Source URL:      {info['url']}")
+                    print(f"Archive:         {info['archive_filename']} ({info['expected_bytes']} bytes, {mib:.2f} MiB)")
+                    print(f"Archive SHA256:  {info['archive_sha256']}")
+                    print(f"Extracted dir:   {info['extracted_dir']}")
+                    print(f"Data factory:    {info['factory']}")
+                    print("Pinned files:")
+                    for fname, fsha in info["files_sha256"].items():
+                        print(f"  {fname}: {fsha}")
+                    print(f"Citation:        {info['citation']}")
+                    print(f"Usage notice:    {info['usage_notice']}")
+            else:
+                hg.dataset_info(args.dataset)
+                if args.output is None:
+                    raise ValueError("hypergan download-data requires --output DIR (or pass --info / --list)")
+                res = hg.download_dataset(
+                    args.dataset,
+                    args.output,
+                    cache_dir=args.cache_dir,
+                    url=args.url,
+                    source_archive=args.source_archive,
+                    verify_only=args.verify_only,
+                    timeout=args.timeout,
+                )
+                if getattr(args, "json", False):
+                    _print_json(res)
+                else:
+                    print(f"Prepared dataset: {res['dataset']} ({res['version']})")
+                    print(f"Root directory:   {res['root']}")
+                    print(f"Manifest:         {res['manifest_path']}")
+                    print(f"Usage notice:     {res['usage_notice']}")
+                    print("\nConfiguration snippet:\n" + res["config_snippet"].rstrip())
         elif args.command == "preflight":
             cfg = hg.load(args.config)
             _warnings(hg.resolve(cfg))
@@ -1566,6 +1672,16 @@ def _dispatch(args, *, output=None):
                            preview_name=args.preview_name)
             sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
             is_resume_cmd = args.command == "resume"
+            if not is_resume_cmd:
+                if getattr(args, "config", None) is None and getattr(args, "config_opt", None) is not None:
+                    rd = getattr(args, "run_dir", None)
+                    if rd is not None and _is_valid_run_dir(rd.resolve()):
+                        args.config = rd
+                    else:
+                        args.config = args.config_opt
+                        args.config_opt = None
+                if getattr(args, "config", None) is None and getattr(args, "run_dir", None) is None:
+                    _parser().error("the following arguments are required: config")
             target_arg = getattr(args, "run_dir", None) if is_resume_cmd else getattr(args, "config", None)
             if target_arg is None:
                 target_arg = getattr(args, "config", None) or getattr(args, "run_dir", None)
@@ -1589,7 +1705,7 @@ def _dispatch(args, *, output=None):
 
             if is_run_dir:
                 args.run_dir = target_path
-                config_override = getattr(args, "config", None) if is_resume_cmd else None
+                config_override = getattr(args, "config", None) if is_resume_cmd else getattr(args, "config_opt", None)
                 manifest_p = args.run_dir / "manifest.json"
                 manifest_data = {}
                 if manifest_p.is_file():
@@ -1732,7 +1848,8 @@ def _dispatch(args, *, output=None):
                         exec_argv = [target_executable, *raw_args[1:]]
                     os.execve(target_executable, exec_argv, new_env)
 
-                prepared = hg.prepare_resume(args.run_dir, getattr(args, "checkpoint", None), m, steps=getattr(args, "steps", None), sets=sets, **options)
+                resume_model = m if (config_override or sets) else None
+                prepared = hg.prepare_resume(args.run_dir, getattr(args, "checkpoint", None), resume_model, steps=getattr(args, "steps", None), sets=sets, **options)
             else:
                 config_path = target_path
                 if config_path is not None:
@@ -1908,7 +2025,8 @@ def _dispatch(args, *, output=None):
                     dashboard_url = getattr(args, "_dashboard_url", None)
                     _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url)
                 is_tty = bool(getattr(output.stdout.original, "isatty", lambda: False)()) if output and hasattr(output, "stdout") else False
-                human_footer = (not is_resume_cmd or is_tty) and not getattr(args, "progress_json", False)
+                is_profiled = getattr(prepared, "profile", None) is not None
+                human_footer = (not is_resume_cmd and not is_profiled or is_tty) and not getattr(args, "progress_json", False)
                 run_manifest = prepared.run(on_event=output.progress)
                 dash_footer = getattr(args, "_dashboard_url", None) or ("headless (viewer disabled)" if args.no_server else None)
                 try:
@@ -1916,6 +2034,25 @@ def _dispatch(args, *, output=None):
                 except TypeError:
                     output.result(run_manifest, run_dir=args.run_dir, human=human_footer)
         elif args.command == "sample":
+            raw_inputs = getattr(args, "inputs", None) or []
+            parsed_inputs = None
+            if raw_inputs:
+                if len(raw_inputs) == 1 and "=" not in raw_inputs[0]:
+                    parsed_inputs = Path(raw_inputs[0])
+                else:
+                    parsed_inputs = {}
+                    for item in raw_inputs:
+                        if "=" not in item:
+                            raise ValueError(
+                                f"Invalid --input '{item}'; expected KEY=PATH when multiple --input flags are given"
+                            )
+                        k, v = item.split("=", 1)
+                        k = k.strip()
+                        v = v.strip()
+                        if not k or not v:
+                            raise ValueError(f"Invalid --input '{item}'; expected non-empty KEY=PATH")
+                        parsed_inputs[k] = Path(v)
+
             target_raw = args.run_dir
             target_p = Path(target_raw) if target_raw is not None else None
             is_pt_bundle = bool(target_p and (str(target_p).lower().endswith(".pt") or (target_p.is_file() and target_p.suffix.lower() == ".pt")))
@@ -1942,6 +2079,7 @@ def _dispatch(args, *, output=None):
                     count=args.count or 16,
                     seed=eff_seed,
                     output=args.output,
+                    inputs=parsed_inputs,
                     checkpoint=getattr(args, "checkpoint", None),
                     default_image_png=True,
                 )
@@ -1979,6 +2117,7 @@ def _dispatch(args, *, output=None):
                     resolved_run,
                     count=args.count or 16,
                     seed=eff_seed,
+                    inputs=parsed_inputs,
                     output=args.output,
                     checkpoint=getattr(args, "checkpoint", None),
                     default_image_png=True,
@@ -2087,4 +2226,3 @@ def _dispatch(args, *, output=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

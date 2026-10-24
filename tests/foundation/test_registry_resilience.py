@@ -2,6 +2,7 @@
 lifecycle functions (tag_run, remove_run, gc_all), and workspace variable interpolation.
 """
 
+from contextlib import ExitStack
 from io import StringIO
 import json
 import os
@@ -249,7 +250,7 @@ def test_corrupted_or_missing_metadata_fallback(tmp_path):
     assert any("40,000" in ln for ln in log_lines)
 
 
-def test_tag_run_and_remove_run_lifecycle(tmp_path):
+def test_tag_run_and_remove_run_lifecycle(tmp_path, monkeypatch):
     """Verify tag_run updates summary, manifest, and registry, and remove_run respects active lock and force=True."""
     run_dir = _create_mock_run(
         tmp_path / "lifecycle-run",
@@ -277,11 +278,19 @@ def test_tag_run_and_remove_run_lifecycle(tmp_path):
     assert resolve_run_target("renamed-experiment-v2", cwd=tmp_path) == run_dir.resolve()
 
     # 2. remove_run refuses to remove an active run when force=False
-    with run_lock(run_dir):
+    with ExitStack() as active_run:
+        active_run.enter_context(run_lock(run_dir))
         with pytest.raises(RuntimeError, match=r"is currently active .* Use --force / -f to stop and remove it"):
             remove_run("jade-orbit", force=False, cwd=tmp_path)
         assert run_dir.exists()
 
+        def stop_active_run(target, *, force, cwd):
+            assert target == run_dir.resolve() and force and cwd == tmp_path
+            # A stopped worker closes its handles before the directory is
+            # removed. Windows cannot unlink this fixture's open lock file.
+            active_run.close()
+
+        monkeypatch.setattr("hypergan.inspection.stop_run", stop_active_run)
         # 3. remove_run with force=True stops and removes the active run
         rem = remove_run("jade-orbit", force=True, cwd=tmp_path)
         assert rem == {

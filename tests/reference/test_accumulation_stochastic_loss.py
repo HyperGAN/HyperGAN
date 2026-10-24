@@ -24,6 +24,8 @@ from hypergan.cpu_workers import launch_cpu_workers
 def close(left, right):
     if isinstance(left, torch.Tensor):
         torch.testing.assert_close(left, right, rtol=3e-5, atol=3e-6)
+    elif isinstance(left, float) and isinstance(right, float):
+        torch.testing.assert_close(torch.tensor(left), torch.tensor(right), rtol=3e-5, atol=3e-6)
     elif isinstance(left, dict):
         assert left.keys() == right.keys()
         for key in left:

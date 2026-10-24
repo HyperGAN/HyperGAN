@@ -89,7 +89,7 @@ class RecordingCritic(nn.Module):
 
     def forward(self, x, condition):
         self.condition_requires_grad.append(bool(condition.requires_grad))
-        # The product keeps the shared condition in the paired RpGAN difference.
+        # The product keeps the shared condition in the paired score difference.
         return self.linear(torch.cat((x * condition, condition), -1))
 
 

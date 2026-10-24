@@ -211,7 +211,7 @@ def _equal(actual, expected, *, exact=False, path='state'):
 
 def _numeric_case():
     global _FORWARD_LIMIT, _MAX_FORWARD_ROWS
-    # ParticleGAN 0.8 has one loss (RpGAN logistic); prior rows vary instead.
+    # Keep the dependency loss fixed; vary host-selected prior rows.
     for rows in ('sampled_unique', 'full'):
         config = _config(rows)
         plain = ReplicatedCPUTrainer(config, world_size=2, accumulation_steps=1)

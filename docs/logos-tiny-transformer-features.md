@@ -1,7 +1,7 @@
 # 128px logos with the CIFAR feature-only recipe
 
 The [single-file configuration](../examples/logos-tiny-transformer-resnet-features-128.toml)
-embeds both complete G/D HNDL definitions in `args.source`. It adapts the
+embeds both complete G/D HNDL definitions inline in `source`. It adapts the
 working [CIFAR experiment](cifar-tiny-transformer.md) to logos while retaining
 its latent, prior, optimizer, adversarial objective, and regularization.
 
@@ -36,16 +36,16 @@ Data uses the existing pinned 128px logo manifest and aspect-fit/white-pad
 preprocessing. Unlike CIFAR's replacement sampling and horizontal flips, the
 logo loader traverses shuffled epochs without flips. It requires a CPU data
 RNG; the prior's RNG policy remains unchanged. The example requires a local
-manifest path/hash; the prepared training-runs config supplies both. CIFAR FID
+manifest path and SHA-256 digest. CIFAR FID
 evaluations are omitted because their reference dataset is not this dataset.
 
 The image loader defaults to four decoder threads and one prefetched batch
 of uint8 pixels (3 MiB for this recipe). The logo config also sets
-`cache_dir = "/mnt/ml7tb/hypergan-cache/logos-128"` to reuse exact resized pixels
+`cache_dir = "./cache/logos-128"` to reuse exact resized pixels
 across epochs and restarts. This grows on demand to roughly 20 GiB; the first
 pass still decodes images, while subsequent passes use the cache. Source hashes
 and path checks remain enforced. After a graceful stop, rerunning the same
-launcher enables it on resume. Both independent real-batch draws per training
+command enables it on resume. Both independent real-batch draws per training
 step remain intact.
 See [background loading](image-data.md#background-loading) for tuning and recovery
 details. Already-running processes retain the loader code they imported.
@@ -70,11 +70,13 @@ check; the training recipe retains kappa=1. Peak allocated memory was 4.687 GiB,
 excluding prior and EMA state. This is not a convergence test.
 
 ```bash
-../training-runs/start-logos-tiny-transformer-resnet-features-128.sh
+hypergan train examples/logos-tiny-transformer-resnet-features-128.toml \
+    --run-dir ./runs/train-logos-tiny-transformer-resnet-features-128 \
+    -d 1 --preview-every 100 --checkpoint-every 1000
 ```
 
-The launcher selects physical GPU 1, leaving the CIFAR run on GPU 0. It uses
+This command selects physical GPU 1, leaving the CIFAR run on GPU 0. It uses
 the new run directory
-`/mnt/ml7tb/hypergan-training-runs/train-logos-tiny-transformer-resnet-features-128`,
+`./runs/train-logos-tiny-transformer-resnet-features-128`,
 with previews every 100 steps and checkpoints every 1000. Training is left for
 the user to launch; no existing checkpoint is resumed.

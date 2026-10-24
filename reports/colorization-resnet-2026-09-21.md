@@ -4,7 +4,7 @@ The owner DINO + RGB run stopped at step 3,428 after renewed collapse. The
 previous 1,500-step experiment established temporary spread, not lasting
 stability or useful colorization. This trial substitutes the working CIFAR
 ResNet18 discriminator, adapted to 256px, while retaining the generator,
-encoder, particle prior, losses, b-cap, optimizer and learning rates.
+encoder, particle prior, losses, critic regularization, optimizer and learning rates.
 
 ## Failure evidence
 
@@ -17,7 +17,7 @@ These are small, quantized preview diagnostics, not full-dataset estimates.
 The 512-sample random chroma distance worsened from 0.03723 at step 2,200 to
 0.28402 at 3,300. Meanwhile the 256-sample spread ratio rose from 0.763 at 3,000
 to 1.383 at 3,250. Spatial variation in a degenerate palette can therefore make
-spread appear healthy. The published b-cap loss reached 26,378 near step 3,400;
+spread appear healthy. The published critic regularization loss reached 26,378 near step 3,400;
 this identifies instability, not its root cause.
 
 ## Adaptation
@@ -61,7 +61,7 @@ all 159 default CIFAR state tensors, constructor RNG state, train/eval outputs,
 input gradients, cached context features and pretrained metadata exactly equal.
 
 On physical GPU 1, the installed ResNet recipe completed updates 1–8, then
-resumed its checkpoint and completed updates 9–16. Both attempts exercised b-cap
+resumed its checkpoint and completed updates 9–16. Both attempts exercised critic regularization
 and emitted checkpoints plus paired and random previews. This validates execution
 and recovery only; no long training or alternate-seed run was performed.
 

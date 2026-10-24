@@ -1,29 +1,30 @@
 # Experimental RGB particle AE-GAN. See docs/logos-ae-gan.md.
 # Prepare a dataset manifest and supply local, hash-pinned DINOv3 artifacts.
-schema_version = 1
+format = "hypergan-model/1"
 name = "images/logos-ae-gan-dino-256"
 
 [data]
 factory = "hypergan.colorization_data:ColorizationData"
+
 [data.args]
-root = "/mnt/ml7tb/data/logos256"
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "train"
 shuffle = true
 
-[components.generator]
-factory = "hypergan.colorization_components:ColorizationGenerator"
-# Independent, uniformly sampled prior particles drive both GAN phases.
+[networks.generator]
+role = "generator"
 inputs = { z = "latent" }
-[components.generator.args]
-z_dim = 128
-width = 32
+module = "hypergan.colorization_components:ColorizationGenerator"
+args = { z_dim = 128, width = 32 }
 
-[components.discriminator]
-factory = "hypergan.colorization_components:DINOv3ProjectedDiscriminator"
+[networks.discriminator]
+role = "critic"
 inputs = { x = "candidate" }
-[components.discriminator.args]
+module = "hypergan.colorization_components:DINOv3ProjectedDiscriminator"
+
+[networks.discriminator.args]
 source_path = "./dinov3-source"
 source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
 weights_path = "./dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
@@ -32,59 +33,30 @@ feature_width = 64
 head = "conv"
 pixel_width = 32
 
-[components.encoder]
-factory = "hypergan.autoencoder_components:ParticleAEEncoder256"
+[networks.encoder]
+role = "encoder"
 inputs = { x = "batch.real", means = "prior.means", sigma = "prior.sigma" }
-[components.encoder.args]
-z_dim = 128
-width = 32
-temperature = 0.125
+module = "hypergan.autoencoder_components:ParticleAEEncoder256"
+args = { z_dim = 128, width = 32, temperature = 0.125 }
 
-# Joint AE-GAN: RGB reconstruction updates E, G and the selected particle means.
-[components.reconstruction]
-reuse = "generator"
+[networks.reconstruction]
+role = "auxiliary"
 inputs = { z = "components.encoder.latent" }
-
-[[objectives]]
-id = "rgb_reconstruction"
-factory = "mse"
-inputs = { input = "components.reconstruction", target = "batch.real" }
-weight = 1.0
-detach = ["target"]
+reuse = "generator"
 
 [prior]
 kind = "mog"
 initialization_device = "cpu"
 initialization_seed = 25003
-[prior.args]
 num_particles = 4096
 z_dim = 128
-# Fixed prior noise scale; AE uses a deterministic learned offset at this scale.
 sigma_rel = 0.025
 
-[adversarial]
-weight = 1.0
-
-[gradient_penalty]
-coeff = 1.0
+[penalty]
 kappa = 1.0
 lazy_k = 4
 
-[prior_regularizer]
-rows = "full"
-weight = 1.0
-target_std = 1.0
-eps = 0.0001
-
-[optimizer]
-implementation = "torch_fused_adam"
-lr = 0.0003
-d_lr_mult = 1.5
-prior_lr_mult = 10.0
-betas = [0.0, 0.999]
-prior_betas = [0.5, 0.999]
-
-[training]
+[train]
 steps = 200000
 batch_size = 16
 seed = 25002
@@ -96,8 +68,14 @@ phase_draws = "independent"
 data_rng_device = "cpu"
 data_seed_offset = 2
 prior_seed_offset = 3
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
 
-[training.backend]
+[train.backend]
 deterministic_algorithms = false
 cudnn_deterministic = false
 cudnn_benchmark = true
@@ -107,144 +85,141 @@ cudnn_allow_tf32 = true
 [sampling]
 count = 8
 seed = 35002
-generated = "components.reconstruction"
 particle_ids = "components.encoder.ids"
-views = { random = "components.generator" }
-comparison = [
-  { label = "X", binding = "batch.real" },
-  { label = "X_hat", binding = "components.reconstruction" },
-]
+output = "components.reconstruction"
+
+[sampling.views]
+random = "components.generator"
+
+[[sampling.comparison]]
+label = "X"
+binding = "batch.real"
+
+[[sampling.comparison]]
+label = "X_hat"
+binding = "components.reconstruction"
 
 [metrics]
 preset = "standard"
 every_steps = 10
 
-[metrics.custom.chroma]
+[evaluations.chroma]
 factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 5000
-on_busy = "skip"
+args = { bins = 64, projections = 8 }
+inputs = { generated = "generated", reference = "reference" }
+every = 5000
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.chroma.args]
-bins = 64
-projections = 8
-[metrics.custom.chroma.evaluation]
+on_busy = "skip"
 device = "cuda"
-sample_count = 512
+samples = 512
 batch_size = 8
 seed = 35002
-[metrics.custom.chroma.evaluation.data]
+
+[evaluations.chroma.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.chroma.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.chroma.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
 
-[metrics.custom.structure]
+[evaluations.structure]
 factory = "hypergan.colorization_metrics:GrayscaleStructureDistance"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 6000
-on_busy = "skip"
+inputs = { generated = "generated", reference = "reference" }
+every = 6000
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.structure.evaluation]
+on_busy = "skip"
 device = "cuda"
-sample_count = 512
+samples = 512
 batch_size = 8
 seed = 35002
-[metrics.custom.structure.evaluation.data]
+
+[evaluations.structure.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.structure.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.structure.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
 
-# Independent uniform-prior diagnostics.
-[metrics.custom.random_spread]
+[evaluations.random_spread]
 factory = "hypergan.colorization_metrics:SampleDiversityRatio"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 250
-on_busy = "skip"
+args = { pool_size = 32 }
+inputs = { generated = "generated", reference = "reference" }
+every = 250
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.random_spread.args]
-pool_size = 32
-[metrics.custom.random_spread.evaluation]
-generated = "generated"
+on_busy = "skip"
 device = "cuda"
-sample_count = 256
+samples = 256
 batch_size = 8
 seed = 35002
-[metrics.custom.random_spread.evaluation.data]
+output = "generated"
+
+[evaluations.random_spread.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.random_spread.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.random_spread.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
 
-
-[metrics.custom.random_chroma]
+[evaluations.random_chroma]
 factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
-mode = "snapshot"
-trigger = "interval"
-every_steps = 1100
-on_busy = "skip"
+args = { bins = 64, projections = 8 }
+inputs = { generated = "generated", reference = "reference" }
+every = 1100
 timeout = 600
 on_error = "fail"
-inputs = { generated = "evaluation.generated", reference = "evaluation.reference" }
-[metrics.custom.random_chroma.args]
-bins = 64
-projections = 8
-[metrics.custom.random_chroma.evaluation]
-generated = "generated"
+on_busy = "skip"
 device = "cuda"
-sample_count = 512
+samples = 512
 batch_size = 8
 seed = 35002
-[metrics.custom.random_chroma.evaluation.data]
+output = "generated"
+
+[evaluations.random_chroma.data]
 factory = "hypergan.colorization_data:ColorizationData"
-[metrics.custom.random_chroma.evaluation.data.args]
-root = "/mnt/ml7tb/data/logos256"
+
+[evaluations.random_chroma.data.args]
+root = "./data/logos256"
 manifest = "./dataset-manifest.json"
 manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
 split = "heldout"
 shuffle = false
 repeats = 1
 
-# Editable HNDL architecture sources, resolved relative to this recipe.
-[components.generator.args.network_files]
-colorization_generator16 = "../src/hypergan/networks/colorization_generator16.hndl"
-colorization_generator32 = "../src/hypergan/networks/colorization_generator32.hndl"
-image_attention = "../src/hypergan/networks/image_attention.hndl"
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
 
-# Editable HNDL architecture sources, resolved relative to this recipe.
-[components.discriminator.args.network_files]
-colorization_dinov3_patch_tokens = "../src/hypergan/networks/colorization_dinov3_patch_tokens.hndl"
-colorization_feature_concat = "../src/hypergan/networks/colorization_feature_concat.hndl"
-colorization_random_project = "../src/hypergan/networks/colorization_random_project.hndl"
-colorization_linear_head = "../src/hypergan/networks/colorization_linear_head.hndl"
-colorization_conv_head = "../src/hypergan/networks/colorization_conv_head.hndl"
-colorization_pixel_features = "../src/hypergan/networks/colorization_pixel_features.hndl"
-image_attention = "../src/hypergan/networks/image_attention.hndl"
+[[losses]]
+type = "objective"
+id = "rgb_reconstruction"
+fn = "mse"
+weight = 1.0
+detach = ["target"]
 
-# Editable HNDL architecture sources, resolved relative to this recipe.
-[components.encoder.args.network_files]
-colorization_encoder_features = "../src/hypergan/networks/colorization_encoder_features.hndl"
-colorization_query = "../src/hypergan/networks/colorization_query.hndl"
-autoencoder_offset = "../src/hypergan/networks/autoencoder_offset.hndl"
+[losses.inputs]
+input = "components.reconstruction"
+target = "batch.real"
+
+[[losses]]
+type = "prior"
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001

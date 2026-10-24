@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 from .workspace import find_workspace
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+IMAGE_FORMATS = ("JPEG", "PNG", "WEBP", "BMP", "TIFF")
 
 
 def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
@@ -34,7 +35,7 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
     sample_paths = image_paths[:100]
     for img_path in sample_paths:
         try:
-            with Image.open(img_path) as img:
+            with Image.open(img_path, formats=IMAGE_FORMATS) as img:
                 w, h = img.size
                 widths.append(w)
                 heights.append(h)
@@ -342,13 +343,13 @@ def _add_recipe_comments(body: str, config_name: str, template: Optional[str] = 
 
     commented = body
     section_comments = [
-        (r"(?m)^(\[data\])", "# [dataset] Dataset source, resolution, and preprocessing\n\\1"),
+        (r"(?m)^(\[data\])", "# [data] Dataset source, resolution, and preprocessing\n\\1"),
         (r"(?m)^(\[prior\])", "# [prior] Latent particle distribution\n\\1"),
-        (r"(?m)^(\[networks\.)", "# [architecture] Generator and critic network definitions\n\\1"),
+        (r"(?m)^(\[networks\.)", "# [networks] Generator and critic network definitions\n\\1"),
         (r"(?m)^(\[\[losses\]\])", "# [losses] Adversarial and prior regularization objectives\n\\1"),
-        (r"(?m)^(\[train\])", "# [trainer] Training steps, batch size, device, and initialization\n\\1"),
+        (r"(?m)^(\[train\])", "# [train] Training steps, batch size, device, and initialization\n\\1"),
         (r"(?m)^(\[checkpoints\])", "# [checkpoints] Checkpoint retention and EMA export policy\n\\1"),
-        (r"(?m)^(\[sampling\])", "# [SamplePreview] Periodic sample grid preview configuration\n\\1"),
+        (r"(?m)^(\[sampling\])", "# [sampling] Periodic sample grid preview configuration\n\\1"),
     ]
     for pattern, replacement in section_comments:
         commented = re.sub(pattern, replacement, commented, count=1)
@@ -558,7 +559,7 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
                 "kind": "particles",
                 "initialization_seed": 2,
                 "z_dim": 128,
-                "args": {"num_particles": 10000},
+                "num_particles": 10000,
             },
             "networks": {
                 "generator": {
@@ -599,7 +600,6 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
             },
             "checkpoints": {
                 "keep_last": 3,
-                "keep_best": {"metric": "fid50k_train", "mode": "min", "count": 2},
                 "keep_every": 50000,
                 "export_bundle": "on_eval",
             },
@@ -689,4 +689,3 @@ def init_project(
             f"hypergan train {cfg_path}",
         ],
     }
-

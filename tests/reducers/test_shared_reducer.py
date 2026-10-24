@@ -149,6 +149,7 @@ def test_bootstrap_corruption(reducer):
 
 
 def test_cached_native_resources_close_before_dependency_teardown(tmp_path):
+    pytest.importorskip("wasmtime")
     import subprocess
     import sys
 

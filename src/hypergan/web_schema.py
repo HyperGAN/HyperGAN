@@ -112,7 +112,7 @@ def schemas():
         'metric': {'type': ['string', 'null']}, 'metric_note': {'type': ['string', 'null']}}, ('id', 'metric'))
     model = object_schema({'schema_version': {'const': 1}, 'run_id': {'type': 'string'}, 'name': {'type': ['string', 'null']},
         'config_sha256': {'oneOf': [HASH, {'type': 'null'}]}, 'provenance': {'type': 'object'},
-        'formulation': object_schema({'family': {'enum': ['k3p', 'legacy']}, 'name': {'type': 'string'},
+        'formulation': object_schema({'family': {'enum': ['particlegan']}, 'name': {'type': 'string'},
             'loss': {'type': 'string'}, 'equations': {'type': 'object'}, 'parameters': {'type': 'object'},
             'raw': {'type': 'object'}}, ('family', 'name', 'parameters')),
         'prior': {'type': 'object'},

@@ -453,7 +453,12 @@ class CPUWorkerService:
         local, remote = socket.socketpair()
         process = mp.get_context('spawn').Process(target=_broker_main, name='hypergan-cpu-broker',
                     args=(remote, self._identity, self._world_size, self._limits, bootstrap, started, self._initialize_process_group, self._backend))
+        main_mod = sys.modules.get('__main__')
+        main_file = getattr(main_mod, '__file__', None)
+        restore_main_file = main_file is not None and (main_file == '<stdin>' or not os.path.exists(main_file))
         try:
+            if restore_main_file:
+                main_mod.__file__ = None
             process.start()
             self._process, self._channel = process, _Channel(local)
             self._broker_pid = process.pid
@@ -462,6 +467,8 @@ class CPUWorkerService:
             self._closed = True
             raise
         finally:
+            if restore_main_file:
+                main_mod.__file__ = main_file
             remote.close()
         try:
             total_limit = self._limits['total_timeout'] if (self._limits.get('total_timeout') is not None and math.isfinite(self._limits['total_timeout'])) else float('inf')

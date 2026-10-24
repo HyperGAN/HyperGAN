@@ -3,7 +3,7 @@
 Metrics are facts recorded in the run's authoritative `events.jsonl`. A map consumes
 those documents and produces contributions; a view chooses how to group and reduce
 the contributions. A new reducer or renderer reuses the same map output. This
-module implements the file/worker boundary; it does not start a web server or a
+HyperGAN adapter implements the metric schema and worker boundary over Foldlite DB; it does not start a web server or a
 training observer automatically.
 
 The lightweight CLI uses the same files and reader contracts:
@@ -112,3 +112,9 @@ the run, attempt and evaluated step; snapshot/protocol/evaluation IDs can be add
 A sampler produces examples; a measurement quantifies something. Sharing artifact
 identity does not make them the same operation. Artifact descriptors do not authorize
 arbitrary file access or implement new audio/video/tensor rendering.
+
+Foldlite DB owns bounded document I/O, recovery, writer locks, projection framing,
+realtime replay/backpressure, persisted view state and the Rust/WASM reducer assets.
+HyperGAN retains metric catalog validation, attempt lineage, custom-map worker
+supervision and the existing public file/HTTP contracts. Explicit historical
+bootstrap jobs use a regenerable Foldlite cache; see [cache details](foldlitedb.md).

@@ -537,6 +537,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         if dropped is not None:
             row['observation_gap'] = dict(dropped)
         boundary_event = event in {'start', 'resume', 'checkpoint', 'checkpoint_request',
+                                   'sample_request', 'stop_request',
                                    'checkpoint_boundary', 'observation_gap', 'complete',
                                    'stopped', 'failed', 'interrupted'}
         if not journal.append(row, wait=boundary_event):
@@ -775,10 +776,40 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 observer_error('preview', exc)
                 return
 
+        def sample_now():
+            try:
+                if getattr(execution, 'preview_busy', False):
+                    collect_preview(final=True)
+                if getattr(execution, 'preview_busy', False):
+                    return None, RuntimeError('Preview worker is busy')
+                identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
+                            'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence'],
+                            'name': sample_name(manifest.get('preview_name'))}
+                manifest['next_sample_sequence'] += 1
+                publish()
+                preview_res = execution.preview(run_dir, identity, keep=manifest['preview_keep'])
+                if preview_res is not None:
+                    publish_preview_result(preview_res)
+                elif getattr(execution, 'preview_busy', False):
+                    collect_preview(final=True)
+                sample_path = manifest.get('preview_path')
+                if not sample_path:
+                    return None, RuntimeError('Preview generation produced no artifact path')
+                return sample_path, None
+            except FatalExecutionError:
+                raise
+            except Exception as exc:
+                return None, exc
+
         from .run_requests import pending_requests, acknowledge_request
         request_reader = BackgroundPoll(lambda: pending_requests(run_dir))
+        control_stop_requested = False
+
+        def is_stopping():
+            return bool(control_stop_requested or (stop is not None and stop.reason))
 
         def poll_requests(*, force=False):
+            nonlocal control_stop_requested
             try:
                 if force:
                     pending = request_reader.read_now()
@@ -792,22 +823,47 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 observer_error('checkpoint_requests', exc)
                 return
             matching = []
-            def acknowledge(request, status, path=None, error=None, saved_step=None):
+            matching_sample = []
+            matching_stop = []
+
+            def acknowledge(request, status, path=None, error=None, saved_step=None, *, sample_path=None):
+                action = request.get('action', 'checkpoint')
+                event_name = (
+                    'sample_request' if action == 'sample'
+                    else 'stop_request' if action == 'stop'
+                    else 'checkpoint_request'
+                )
+                step_val = (manifest['steps'] if saved_step is None else saved_step) if status == 'succeeded' else None
                 try:
-                    receipt = acknowledge_request(run_dir, request['request_id'], status=status,
-                                                  attempt_id=attempt_id, checkpoint_path=str(path) if path else None,
-                                                  step=(manifest['steps'] if saved_step is None else saved_step) if path else None, error=error)
+                    receipt = acknowledge_request(
+                        run_dir,
+                        request['request_id'],
+                        status=status,
+                        attempt_id=attempt_id,
+                        checkpoint_path=str(path) if path else None,
+                        artifact_path=str(sample_path) if sample_path else None,
+                        preview_path=str(sample_path) if sample_path else None,
+                        step=step_val,
+                        error=error,
+                    )
                 except Exception as exc:
                     observer_error('checkpoint_acknowledgement', exc)
                     return
-                emit('checkpoint_request', receipt=receipt)
+                emit(event_name, receipt=receipt)
+
             for request in pending:
+                action = request.get('action', 'checkpoint')
                 if request['run_id'] != manifest['run_id'] or request['attempt_id'] != attempt_id:
                     acknowledge(request, 'rejected', error='Request targets a different run or attempt; it cannot be applied after resume')
-                elif not manifest['resume_supported']:
-                    acknowledge(request, 'rejected', error='Full training checkpoints are unsupported for this configuration')
-                else:
-                    matching.append(request)
+                elif action == 'checkpoint':
+                    if not manifest['resume_supported']:
+                        acknowledge(request, 'rejected', error='Full training checkpoints are unsupported for this configuration')
+                    else:
+                        matching.append(request)
+                elif action == 'sample':
+                    matching_sample.append(request)
+                elif action == 'stop':
+                    matching_stop.append(request)
             if matching and manifest.get('checkpoint_path'):
                 # A lost acknowledgement must not repeat a still-identifiable save.
                 try:
@@ -831,6 +887,37 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                                 error=f'{type(error).__name__}: {error}'[:1000] if error else None)
                 if error:
                     observer_error('manual_checkpoint', error)
+            if matching_sample:
+                sample_path, sample_err = sample_now()
+                for request in matching_sample:
+                    acknowledge(
+                        request,
+                        'succeeded' if sample_path else 'rejected',
+                        path=sample_path,
+                        sample_path=sample_path,
+                        error=f'{type(sample_err).__name__}: {sample_err}'[:1000] if sample_err else None,
+                    )
+                if sample_err:
+                    observer_error('manual_sample', sample_err)
+            if matching_stop:
+                control_stop_requested = True
+                if not manifest.get('stop_reason'):
+                    manifest['stop_reason'] = 'stop_request'
+                stop_path, stop_err = None, None
+                if manifest['resume_supported']:
+                    if manifest['last_durable_step'] != manifest['steps'] or not manifest.get('checkpoint_path'):
+                        stop_path, stop_err = checkpoint_now([r['request_id'] for r in matching_stop], observer=True)
+                    else:
+                        stop_path = manifest.get('checkpoint_path')
+                for request in matching_stop:
+                    acknowledge(
+                        request,
+                        'succeeded' if stop_err is None else 'rejected',
+                        path=stop_path if stop_err is None else None,
+                        error=f'{type(stop_err).__name__}: {stop_err}'[:1000] if stop_err else None,
+                    )
+                if stop_err:
+                    observer_error('manual_stop', stop_err)
 
         publish()  # A start/resume observer can immediately submit an attempt-bound request.
         parent = manifest.get('recovery_parent')
@@ -857,6 +944,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         while manifest['steps'] < config['training']['steps']:
             if stop is not None and stop.reason:
                 manifest['stop_reason'] = stop.reason
+                break
+            if control_stop_requested:
+                manifest['stop_reason'] = manifest.get('stop_reason') or 'stop_request'
                 break
             if max_seconds is not None and time.monotonic() - started >= max_seconds:
                 manifest['stop_reason'] = 'max_seconds'
@@ -907,12 +997,12 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             if periodic_checkpoint:
                 checkpoint_now()
             poll_requests(force=periodic_checkpoint)
-            if not (stop is not None and stop.reason):
+            if not is_stopping():
                 evaluations.schedule()
-            if not (stop is not None and stop.reason) and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
+            if not is_stopping() and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
                 preview_now()
             publish(wait=False)
-        evaluations.close(stop_requested=lambda: stop is not None and bool(stop.reason))
+        evaluations.close(stop_requested=is_stopping)
         collect_custom(final=True)
         collect_preview(final=True)
         poll_requests(force=True)
@@ -925,7 +1015,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             checkpoint_now()
         if stop is not None and stop.reason:
             manifest['stop_reason'] = stop.reason
-        if execution.inference_available and not (stop is not None and stop.reason):
+        elif control_stop_requested and not manifest.get('stop_reason'):
+            manifest['stop_reason'] = 'stop_request'
+        if execution.inference_available and not is_stopping():
             bundle_dir = attempt_dir / 'inference'
             bundle_dir.mkdir()
             sync_directory(attempt_dir)

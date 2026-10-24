@@ -175,9 +175,12 @@ def find_runs_root(path: Path | str | None = None, is_run: bool | None = None) -
     if is_run is True or (p / "manifest.json").is_file() or not p.exists():
         return p.parent
 
-    # If p has subdirs containing manifest.json, p is already runs_root:
+    # If p has subdirs containing manifest.json (directly or under p/runs), p is already runs_root:
     try:
-        if p.is_dir() and any((d / "manifest.json").is_file() for d in p.iterdir() if d.is_dir()):
+        if p.is_dir() and (
+            any((d / "manifest.json").is_file() for d in p.iterdir() if d.is_dir())
+            or ((p / "runs").is_dir() and any((d / "manifest.json").is_file() for d in (p / "runs").iterdir() if d.is_dir()))
+        ):
             return p
     except OSError:
         pass
@@ -377,15 +380,24 @@ class Projector:
     def _candidate_runs(self) -> list[Path]:
         if (self.root / 'manifest.json').is_file() or (self.root / 'events.jsonl').is_file():
             return [self.root]
-        try:
-            return sorted(
-                d.resolve()
-                for d in self.root.iterdir()
-                if d.is_dir() and not d.name.startswith('.')
-                and ((d / 'manifest.json').is_file() or (d / 'events.jsonl').is_file())
-            )
-        except OSError:
-            return []
+        search_dirs = [self.root]
+        runs_sub = self.root / 'runs'
+        if runs_sub.is_dir():
+            search_dirs.append(runs_sub)
+        candidates: list[Path] = []
+        seen: set[Path] = set()
+        for search_dir in search_dirs:
+            try:
+                for d in search_dir.iterdir():
+                    if d.is_dir() and not d.name.startswith('.'):
+                        if (d / 'manifest.json').is_file() or (d / 'events.jsonl').is_file():
+                            resolved = d.resolve()
+                            if resolved not in seen:
+                                seen.add(resolved)
+                                candidates.append(resolved)
+            except OSError:
+                pass
+        return sorted(candidates)
 
     def _should_project(self, run_dir: Path) -> tuple[bool, tuple[int, int] | None]:
         from .inspection import check_run_active
@@ -456,17 +468,27 @@ class Projector:
                 time.sleep(self.poll_interval)
 
 
+def _has_sub_runs(root: Path) -> bool:
+    for search_dir in (root, root / 'runs'):
+        try:
+            if search_dir.is_dir() and any(
+                (d / 'manifest.json').is_file() or (d / 'events.jsonl').is_file()
+                for d in search_dir.iterdir()
+                if d.is_dir() and not d.name.startswith('.')
+            ):
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def _project(root, stop):
     from .event_views import Projector as EventProjector
     from .web_files import read_json
 
     threading.Thread(target=_watch_parent, daemon=True).start()
 
-    has_sub_runs = False
-    try:
-        has_sub_runs = any((d / 'manifest.json').is_file() for d in root.iterdir() if d.is_dir())
-    except OSError:
-        pass
+    has_sub_runs = _has_sub_runs(root)
 
     if not has_sub_runs:
         while not (root / 'manifest.json').is_file():
@@ -474,12 +496,9 @@ def _project(root, stop):
                 return
             if (root / '.stop_projector').exists():
                 return
-            try:
-                if any((d / 'manifest.json').is_file() for d in root.iterdir() if d.is_dir()):
-                    has_sub_runs = True
-                    break
-            except OSError:
-                pass
+            if _has_sub_runs(root):
+                has_sub_runs = True
+                break
 
     if not has_sub_runs and (root / 'manifest.json').is_file():
         with EventProjector(root, allow_device_change=True) as projector:
@@ -630,12 +649,11 @@ def _receipt(root, session, mode, status, children):
     from .run_state import atomic_json
     if not (root / 'manifest.json').is_file():
         recorded = set()
-        try:
-            for subdir in root.iterdir():
-                if subdir.is_dir() and (subdir / 'manifest.json').is_file():
-                    recorded.update(_receipt(subdir, session, mode, status, children))
-        except OSError:
-            pass
+        for subdir in _manifest_roots(root):
+            try:
+                recorded.update(_receipt(subdir, session, mode, status, children))
+            except OSError:
+                pass
         return recorded
     observations = root / 'observations'
     if observations.is_symlink():
@@ -653,11 +671,16 @@ def _receipt(root, session, mode, status, children):
 def _manifest_roots(root):
     if (root / 'manifest.json').is_file():
         return {root}
-    try:
-        return {child for child in root.iterdir()
-                if child.is_dir() and (child / 'manifest.json').is_file()}
-    except OSError:
-        return set()
+    roots = set()
+    for search_dir in (root, root / 'runs'):
+        try:
+            if search_dir.is_dir():
+                for child in search_dir.iterdir():
+                    if child.is_dir() and (child / 'manifest.json').is_file():
+                        roots.add(child)
+        except OSError:
+            pass
+    return roots
 
 
 def _broker(root, private, launch_id):
@@ -757,18 +780,34 @@ def _broker(root, private, launch_id):
             publish('stopped' if state['status'] != 'failed' else 'failed', state.get('error'))
 
 
-def stop_viewer(root, *, launch_id=None, timeout=8):
-    """Stop only the registered incarnation; never signal a PID from a file."""
-    from .run_state import atomic_json
-    runs_root = find_runs_root(root)
+def _select_registry(root):
+    p = Path(root).resolve()
+    runs_root = find_runs_root(p)
     private = _registry(runs_root)
-    if runs_root != Path(root).resolve():
-        candidate = _registry(root)
+    if runs_root != p:
+        candidate = _registry(p)
         if (candidate / 'state.json').is_file():
             c_state = _read_state(candidate)
             r_state = _read_state(private) if (private / 'state.json').is_file() else None
             if c_state and (_running(candidate, c_state) or not r_state or not _running(private, r_state)):
-                private = candidate
+                return candidate
+    if not (private / 'state.json').is_file():
+        extras = []
+        if (p / 'runs').is_dir():
+            extras.append((p / 'runs').resolve())
+        if p.name == 'runs' and p.parent != p:
+            extras.append(p.parent.resolve())
+        for extra in extras:
+            cand = _registry(extra)
+            if (cand / 'state.json').is_file():
+                return cand
+    return private
+
+
+def stop_viewer(root, *, launch_id=None, timeout=8):
+    """Stop only the registered incarnation; never signal a PID from a file."""
+    from .run_state import atomic_json
+    private = _select_registry(root)
     with _launch_lock(private):
         state = _read_state(private, locked=True)
         if not state or (launch_id is not None and state['launch_id'] != launch_id):
@@ -793,15 +832,7 @@ def stop_viewer(root, *, launch_id=None, timeout=8):
 
 def viewer_status(root):
     """Read launch/connection information without starting a viewer or training."""
-    runs_root = find_runs_root(root)
-    private = _registry(runs_root)
-    if runs_root != Path(root).resolve():
-        candidate = _registry(root)
-        if (candidate / 'state.json').is_file():
-            c_state = _read_state(candidate)
-            r_state = _read_state(private) if (private / 'state.json').is_file() else None
-            if c_state and (_running(candidate, c_state) or not r_state or not _running(private, r_state)):
-                private = candidate
+    private = _select_registry(root)
     state = _read_state(private)
     if state is None:
         return {'status': 'not_running'}
@@ -902,8 +933,11 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
         ensure_run_projected(runs_root)
         run_id = runs_root.name
         runs_root = runs_root.parent
-    elif run_id is not None and (runs_root / str(run_id)).is_dir():
-        ensure_run_projected(runs_root / str(run_id))
+    elif run_id is not None:
+        if (runs_root / str(run_id)).is_dir():
+            ensure_run_projected(runs_root / str(run_id))
+        elif (runs_root / 'runs' / str(run_id)).is_dir():
+            ensure_run_projected(runs_root / 'runs' / str(run_id))
 
     probed = probe_dashboard("127.0.0.1", port)
     if probed is None:
@@ -1050,19 +1084,20 @@ def stop_all_servers(force: bool = False) -> list[int]:
             pass
 
     # 2. Inspect host process table via /proc for hypergan processes owned by current user
-    if os.path.exists('/proc'):
+    proc_root = getattr(os, 'environ', {}).get('HYPERGAN_PROC_ROOT', '/proc')
+    if os.path.exists(proc_root):
         try:
-            for entry in os.listdir('/proc'):
+            for entry in os.listdir(proc_root):
                 if not entry.isdigit():
                     continue
                 pid = int(entry)
                 if pid == current_pid:
                     continue
                 try:
-                    stat_info = os.stat(f'/proc/{pid}')
+                    stat_info = os.stat(f'{proc_root}/{pid}')
                     if current_uid is not None and stat_info.st_uid != current_uid:
                         continue
-                    cmdline_bytes = Path(f'/proc/{pid}/cmdline').read_bytes()
+                    cmdline_bytes = Path(f'{proc_root}/{pid}/cmdline').read_bytes()
                     tokens = [t.decode('utf-8', errors='ignore') for t in cmdline_bytes.split(b'\0') if t]
                     if not tokens:
                         continue
@@ -1071,11 +1106,11 @@ def stop_all_servers(force: bool = False) -> list[int]:
                         is_web_server = True
                     elif len(tokens) >= 2:
                         exe = Path(tokens[0]).name
-                        if exe == 'hypergan' or (exe.startswith('python') and len(tokens) >= 3 and tokens[1] in ('-m', 'hypergan')):
+                        if exe == 'hypergan' or (exe.startswith('python') and len(tokens) >= 3 and tokens[1] == '-m' and tokens[2] in ('hypergan', 'hypergan.cli')):
                             subcmd = None
                             for tok in tokens[1:]:
                                 if not tok.startswith('-'):
-                                    if tok == 'hypergan':
+                                    if tok in ('hypergan', 'hypergan.cli'):
                                         continue
                                     subcmd = tok
                                     break
@@ -1255,7 +1290,7 @@ def training_viewer(root, *, required=False, port=None, host=None, auth=None, op
         return
     if not required:
         from importlib.util import find_spec
-        if any(find_spec(name) is None for name in ('starlette', 'uvicorn', 'wasmtime')):
+        if any(find_spec(name) is None for name in ('starlette', 'uvicorn')):
             yield None
             return
     viewer = None

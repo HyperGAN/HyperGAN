@@ -11,7 +11,7 @@ L2 = mean((Xhat - X)^2), updating E through frozen G and detached centers
 ```
 
 There are 4,096 particles, 128 latent dimensions and 256×256 images. E/G,
-encoder-only L2, no optimized KL, particle regularization, lazy b-cap, optimizer,
+encoder-only L2, no optimized KL, particle regularization, lazy critic regularization, optimizer,
 backend and held-out metric settings retain their previous definitions. D is
 unconditional and has one feature path, with no grayscale input or pixel critic.
 Real/fake evaluations and the configured gradient penalty still occur.
@@ -23,7 +23,7 @@ spatial mixing, then trainable SAGAN attention and a scalar head (6,145 trainabl
 parameters at width 64). This minimal single-map adaptation does not reproduce
 Projected GAN's multiscale fusion/discriminator ensemble. Projection tensors are
 saved with the model. Frozen modules retain image derivatives; math SDPA supports
-b-cap double backward.
+critic regularization double backward.
 
 The original discriminator class remains unchanged for prior configurations.
 This architecture uses a fresh config and run, rather than converting checkpoint
@@ -41,7 +41,7 @@ Actual DINO weights on physical GPU 1 passed image first/second derivatives,
 attention/head gradients and frozen-weight preservation across an optimizer step.
 Batch eight output shape was `[8,1]`, with peak allocated memory 1,515,375,104
 bytes. The actual full-manifest launcher completed eight updates, including lazy
-b-cap at step eight, then resumed to ten. Complete-state restoration matched
+critic regularization at step eight, then resumed to ten. Complete-state restoration matched
 948 tensors and 407,302 other values exactly, including optimizer, EMA, prior,
 sampler and RNG state. All three configured held-out metrics completed their
 512-output protocols; values are execution checks, not trained quality scores.

@@ -4,19 +4,19 @@ Constructor paths are trusted Python code, imported only by train/sample.
 """
 from collections.abc import Mapping
 from copy import deepcopy
-import dataclasses
-import functools
 import hashlib
-import importlib.util
 import json
 import math
 import re
-import sys
 from pathlib import Path
+
+from .particlegan_integration import (PARTICLEGAN_DEFAULT_FIELDS, particlegan_defaults,
+                                     particlegan_recipe_fields)
 
 from .network_config import packaged_source, read_source, validate_network_args, materialize_networks
 
 from .metrics import DEFAULT_METRICS, evaluation_warnings, objective_id, validate_metrics
+from .model_file import ModelFileError
 
 try:
     import tomllib
@@ -176,110 +176,24 @@ seed = 10000
 '''
 
 
-# `defaults = "particlegan"` fills these omitted fields from the installed
-# ParticleGAN's current public preset instead of DEFAULT. Resolved configurations
-# record the concrete values, so a later ParticleGAN release cannot silently
-# change an existing run; its resume then fails the configuration check.
-PARTICLEGAN_DEFAULT_FIELDS = {
-    ("gradient_penalty", "coeff"): "reg_coeff",
-    ("gradient_penalty", "kappa"): "reg_kappa",
-    ("gradient_penalty", "lazy_k"): "reg_every",
-    ("gradient_penalty", "anchor_weight"): "reg_anchor_weight",
-    ("prior_regularizer", "weight"): "prior_reg",
-    ("prior_regularizer", "target_std"): "prior_reg_target_std",
-    ("prior_regularizer", "eps"): "prior_reg_eps",
-    ("optimizer", "lr"): "lr",
-    ("optimizer", "d_lr_mult"): "d_lr_mult",
-    ("optimizer", "prior_lr_mult"): "prior_lr_mult",
-    ("optimizer", "betas"): "betas",
-    ("optimizer", "prior_betas"): "prior_betas",
-    ("optimizer", "d_guard_ratio"): "d_guard_ratio",
-    ("optimizer", "d_guard_min_steps"): "d_guard_min_steps",
-    ("optimizer", "latent_damping_max_rate"): "latent_damping_max_rate",
-    ("training", "ema"): "ema_decay",
-    ("training", "lr_anneal_start"): "lr_anneal_start",
-    ("training", "lr_floor"): "lr_floor",
-    ("training", "network_lr_floor"): "network_lr_floor",
-    ("training", "network_lr_horizon_cap"): "network_lr_horizon_cap",
-    ("training", "input_noise_std"): "input_noise_std",
-    ("training", "input_noise_anneal_end"): "input_noise_anneal_end",
-    ("training", "output_noise_std"): "output_noise_std",
-    ("training", "output_noise_warmup"): "output_noise_warmup",
-}
-
-# Fields ParticleGAN 0.8 removed. Its only formulation is RpGAN logistic with
-# the K3P critic penalty, so a loss that names exactly that is dropped; any
-# other value, and every penalty technique field, is refused.
+# Compatibility with obsolete configuration syntax. Formulation selection now
+# belongs to the dependency; keep accepting only the old redundant defaults.
 _REMOVED_ADVERSARIAL = {"loss_type": "logistic", "mode": "rp"}
 _REMOVED_PENALTY = ("arm", "norm", "target_anneal", "total_steps", "method", "fd_eps")
 
 
 def _drop_removed_fields(table, location):
-    """Drop removed loss fields that name the only formulation; refuse the rest."""
+    """Accept redundant historical selectors; refuse formulation selection."""
     if not isinstance(table, dict):
         return table
     table = dict(table)
     for key, only in _REMOVED_ADVERSARIAL.items():
         if key in table:
             if table[key] != only:
-                raise ValueError(f"{location}.{key} = {table[key]!r} is no longer supported: ParticleGAN 0.8 "
-                                 f"trains only the RpGAN logistic loss; remove {location}.{key}")
+                raise ValueError(f"{location}.{key} = {table[key]!r} is no longer supported: ParticleGAN "
+                                 f"owns the loss formulation; remove {location}.{key}")
             del table[key]
     return table
-
-
-def _ast_recipe_fields(recipe_path):
-    import ast
-    source = Path(recipe_path).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    fields = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "Recipe":
-            for item in node.body:
-                if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-                    if item.value is not None:
-                        try:
-                            fields[item.target.id] = ast.literal_eval(item.value)
-                        except (ValueError, TypeError, SyntaxError, MemoryError):
-                            pass
-    return fields
-
-
-@functools.cache
-def particlegan_recipe_fields():
-    """Read the installed public preset without importing Torch or ParticleGAN.
-
-    Reads the dataclass from recipes.py without importing the package, whose
-    __init__ imports Torch; configuration loading stays Torch-free.
-    """
-    package = importlib.util.find_spec("particlegan")
-    if package is None or not package.submodule_search_locations:
-        raise ValueError('defaults = "particlegan" requires ParticleGAN (the train extra)')
-    name = "_hypergan_particlegan_recipes"
-    recipe_path = Path(package.submodule_search_locations[0]) / "recipes.py"
-    spec = importlib.util.spec_from_file_location(name, recipe_path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-        if hasattr(module, "get_recipe_fields"):
-            recipe = module.get_recipe_fields()
-        else:
-            recipe = _ast_recipe_fields(recipe_path)
-    except (ImportError, AttributeError, RuntimeError, TypeError, ValueError):
-        recipe = _ast_recipe_fields(recipe_path)
-    finally:
-        del sys.modules[name]
-    return recipe
-
-
-def particlegan_defaults():
-    recipe = dict(particlegan_recipe_fields())
-    if recipe["prior_betas"] is None:
-        recipe["prior_betas"] = recipe["betas"]
-    return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]
-            for key, field in PARTICLEGAN_DEFAULT_FIELDS.items() if field in recipe}
-
 
 def _keys(value, allowed, location):
     if not isinstance(value, dict):
@@ -440,8 +354,8 @@ def resolve_config(raw):
                                     for index, term in enumerate(raw["adversarial_terms"])]
     removed = sorted(set(raw.get("gradient_penalty") or ()) & set(_REMOVED_PENALTY))
     if removed:
-        raise ValueError(f"gradient_penalty.{removed[0]} is no longer supported: ParticleGAN 0.8 has one critic "
-                         "penalty (K3P); remove " + ", ".join(f"gradient_penalty.{key}" for key in removed))
+        raise ValueError(f"gradient_penalty.{removed[0]} is no longer supported: ParticleGAN owns critic "
+                         "regularization; remove " + ", ".join(f"gradient_penalty.{key}" for key in removed))
     source = raw.pop("defaults", "hypergan")
     result = deepcopy(DEFAULT)
     if source == "particlegan":
@@ -463,7 +377,12 @@ def resolve_config(raw):
         elif key in ("adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
-            allowed = set(result[key]) | ({'particle_ids', 'generated', 'views', 'comparison'} if key == 'sampling' else set())
+            extra = (
+                {'particle_ids', 'generated', 'views', 'comparison'}
+                if key == 'sampling'
+                else ({'id', 'real', 'fake', 'inputs'} if key == 'adversarial' else set())
+            )
+            allowed = set(result[key]) | extra
             _keys(value, allowed, key)
             result[key].update(deepcopy(value))
         else:
@@ -557,7 +476,7 @@ def resolve_config(raw):
             prior["args"]["z_dim"] = latent_dim
             prior_z_dim = latent_dim
         elif latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
-            raise ValueError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
+            raise ModelFileError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
 
     _positive(result["adversarial"]["weight"], "adversarial.weight", zero=True)
     penalty = result["gradient_penalty"]
@@ -680,6 +599,12 @@ def resolve_config(raw):
     _resolve_adversarial_terms(result)
     _resolve_samplers(result)
     paths = [p for c in components.values() for p in c["inputs"].values()] + [p for t in result["objectives"] for p in t["inputs"].values()]
+    adv_cfg = result.get("adversarial", {})
+    for k in ("real", "fake"):
+        if k in adv_cfg:
+            paths.append(adv_cfg[k])
+    if isinstance(adv_cfg.get("inputs"), dict):
+        paths.extend(adv_cfg["inputs"].values())
     for term in result.get("adversarial_terms", ()):
         paths.extend((term["real"], term["fake"], *term["inputs"].values()))
     # Particle IDs have their own validation below, including their field name
@@ -728,6 +653,10 @@ def resolve_config(raw):
         for path in term["inputs"].values():
             if path.startswith("components."):
                 visit(path.split(".")[1], set())
+    for k in ("real", "fake"):
+        path = adv_cfg.get(k)
+        if isinstance(path, str) and path.startswith("components."):
+            visit(path.split(".")[1], set())
     for term in result.get("adversarial_terms", ()):
         for path in (term["real"], term["fake"]):
             if path.startswith("components."):
@@ -798,6 +727,8 @@ def numerical_values(config):
         values.pop('recipe', None)
     if values.get('training', {}).get('initialization') == 'constructor':
         values['training'].pop('initialization', None)
+    if isinstance(values.get('adversarial'), dict):
+        values['adversarial'].pop('id', None)
     return values
 
 
@@ -842,15 +773,17 @@ def _diff_keys(current, saved, prefix=""):
         all_keys = sorted(set(current) | set(saved))
         for k in all_keys:
             p = f"{prefix}.{k}" if prefix else k
+            norm_p = "prior." + p[len("prior.args."):] if p.startswith("prior.args.") else p
             if k not in current or k not in saved:
-                diffs.append(p)
+                diffs.append(norm_p)
             elif not _json_same(current[k], saved[k]):
                 if isinstance(current[k], dict) and isinstance(saved[k], dict):
                     diffs.extend(_diff_keys(current[k], saved[k], p))
                 else:
-                    diffs.append(p)
+                    diffs.append(norm_p)
     elif not _json_same(current, saved):
-        diffs.append(prefix or "config")
+        norm_p = "prior." + prefix[len("prior.args."):] if prefix.startswith("prior.args.") else (prefix or "config")
+        diffs.append(norm_p)
     return diffs
 
 
@@ -973,12 +906,16 @@ def _normalize_model_hndl_paths(raw: dict, base: Path | None = None) -> dict:
         return raw
     updated = None
     for name, spec in networks.items():
-        if isinstance(spec, dict) and isinstance(spec.get("hndl"), str):
-            resolved = _resolve_hndl_target(spec["hndl"], base)
-            if resolved != (Path(spec["hndl"]) if Path(spec["hndl"]).is_absolute() else ((base / spec["hndl"]) if base is not None else Path(spec["hndl"]))):
-                if updated is None:
-                    updated = deepcopy(raw)
-                updated["networks"][name]["hndl"] = str(resolved)
+        if isinstance(spec, dict):
+            for hndl_key in ("hndl", "file"):
+                if isinstance(spec.get(hndl_key), str):
+                    raw_path = spec[hndl_key]
+                    resolved = _resolve_hndl_target(raw_path, base)
+                    expected = Path(raw_path) if Path(raw_path).is_absolute() else ((base / raw_path) if base is not None else Path(raw_path))
+                    if resolved != expected:
+                        if updated is None:
+                            updated = deepcopy(raw)
+                        updated["networks"][name][hndl_key] = str(resolved)
     return updated if updated is not None else raw
 
 

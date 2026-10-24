@@ -97,7 +97,7 @@ build-generated egg-info shadowing installed distribution metadata; the isolated
 installed-wheel run passes the complete fast selection. Logs retain both failures.
 No prerelease heavy suite was run.
 
-Actual pinned DINOv3/GPU 1 train completed eight updates including lazy b-cap,
+Actual pinned DINOv3/GPU 1 train completed eight updates including lazy critic regularization,
 then resumed to ten. The worker rendered and published conditional g, real x,
 grayscale gray, random, and comparison PNGs. The comparison is 768×2072 and was
 visually inspected for row alignment. The observation service indexes all five

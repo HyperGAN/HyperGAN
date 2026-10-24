@@ -51,7 +51,7 @@ and loads the local SHA256-pinned checkpoint. Configuration selects:
   Native HNDL `split` nodes expose its four maps through named output ports.
 
 The readouts select the math SDPA backend so input gradients support the second
-backward required by b-cap. ImageNet normalization, token reshaping, joins,
+backward required by critic regularization. ImageNet normalization, token reshaping, joins,
 projections, attention, and discriminator heads remain in `.hndl` files. No
 custom HNDL operators or runtime patches are needed.
 
@@ -88,7 +88,7 @@ Before the 0.2.1 upgrade, `tests/cuda/test_hndl_images.py` passed all three test
 
 - Divisible and ragged native pooling agree with the PyTorch forward within
   float32 tolerance; first and second derivatives repeat bit for bit.
-- An actual ParticleGAN b-cap penalty differentiates through the native pixel
+- An actual ParticleGAN critic regularization penalty differentiates through the native pixel
   critic, including SAGAN matmul, constant conditioning, and broadcast bias.
   Every trainable parameter receives a finite gradient.
 
@@ -196,7 +196,7 @@ zero-image context share one pretrained forward, with native feature maps of
 
 The graph has 805,540 trainable parameters, matching the Python adapter. Tests
 compare matched-weight scores, first/second input derivatives and parameter
-gradients, exercise an actual b-cap optimizer step, and check frozen backbone
+gradients, exercise an actual critic regularization optimizer step, and check frozen backbone
 state, generator gradients and strict state reload. Native initialization and
 parameter names differ from the adapter (including its attention seed override),
 so the new configuration starts a fresh run. The existing configuration identity

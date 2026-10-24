@@ -150,9 +150,10 @@ def evaluation_warnings(config):
             'No automatic evaluation is scheduled: snapshot '
             + ('metrics ' if len(manual) > 1 else 'metric ') + ', '.join(manual)
             + ' set trigger = "manual", so this run records an empty evaluation schedule and '
-            'publishes no result until `hypergan evaluate` is run explicitly. Omit trigger '
-            '(or set trigger = "interval") and name an evaluation device to evaluate every '
-            f'{DEFAULT_EVALUATION_EVERY_STEPS} steps by default.')
+            'publishes no result until `hypergan evaluate` is run explicitly. Set `every = '
+            f'{DEFAULT_EVALUATION_EVERY_STEPS}` in [evaluations.<id>] (or omit trigger / set '
+            'trigger = "interval" in legacy [metrics.custom.<id>]) and name an evaluation device '
+            f'to evaluate every {DEFAULT_EVALUATION_EVERY_STEPS} steps by default.')
     custom = config['metrics']['custom']
     shared = [name for name in interval
               if same_gpu(custom[name]['evaluation']['device'], config['training']['device'])]
@@ -178,7 +179,8 @@ def manual_evaluation_hint(config, run='RUN', config_path='CONFIG'):
     if not manual:
         return None
     rest = f' (and {", ".join(manual[1:])} the same way)' if len(manual) > 1 else ''
-    return (f'remove \'trigger = "manual"\' from [metrics.custom.{manual[0]}] to evaluate it every '
+    return (f'set \'every = {DEFAULT_EVALUATION_EVERY_STEPS}\' in [evaluations.{manual[0]}] '
+            f'(or remove \'trigger = "manual"\' from [metrics.custom.{manual[0]}]) to evaluate it every '
             f'{DEFAULT_EVALUATION_EVERY_STEPS} steps{rest}, then apply it with '
             f'`hypergan resume {run} --config {config_path}`')
 
@@ -403,4 +405,3 @@ class _MetricsModule(types.ModuleType):
 _self = sys.modules[__name__]
 _self.__class__ = _MetricsModule
 sys.modules[__name__] = _self
-

@@ -1,0 +1,186 @@
+# 128px logos with the two-block tiny transformer generator and DINOv3 projected critic.
+# Uses ParticleGAN defaults (bispf_optimized, dualnorm, deterministic_orthogonal).
+format = "hypergan-model/1"
+name = "images/logos-tiny-transformer-dinov3-projected-128"
+defaults = "particlegan"
+
+[data]
+factory = "hypergan.colorization_data:ColorizationData"
+
+[data.args]
+root = "./data/logos256"
+manifest = "./dataset-manifest-128.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+split = "train"
+shuffle = true
+bad_image_policy = "skip"
+max_bad_images = 100
+max_consecutive_bad_images = 8
+cache_dir = "./cache/logos-128"
+
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+hndl = "networks/tiny-transformer-generator-128.hndl"
+input_shape = ["B", 128]
+output_shape = ["B", 3, 128, 128]
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+hndl = "networks/dinov3-projected-discriminator-128.hndl"
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 1]
+
+[networks.discriminator.args.parameters]
+weights_path = "/path/to/dinov3_vits16_pretrain_lvd1689m-08c60483.pth"
+weights_sha256 = "08c60483bc63c04f533611e34bf70b120eedb7240f469bc16e9e20bf344b941d"
+
+[networks.discriminator.args.pretrained_providers.dinov3_vits16]
+source_path = "/path/to/dinov3"
+source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
+
+[prior]
+kind = "particles"
+initialization_device = "cpu"
+initialization_seed = 2
+num_particles = 4096
+z_dim = 128
+
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+initialization = "deterministic_orthogonal"
+device = "cuda:0"
+phase_draws = "independent"
+data_rng_device = "cpu"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+[train.backend]
+deterministic_algorithms = true
+cudnn_deterministic = true
+cudnn_benchmark = false
+matmul_allow_tf32 = false
+cudnn_allow_tf32 = false
+cublas_workspace_config = ":4096:8"
+
+[sampling]
+count = 16
+seed = 10000
+
+[metrics]
+preset = "standard"
+every_steps = 10
+
+[evaluations.random_spread]
+factory = "hypergan.colorization_metrics:SampleDiversityRatio"
+args = { pool_size = 32 }
+inputs = { generated = "generated", reference = "reference" }
+every = 500
+timeout = 600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda:0"
+samples = 256
+batch_size = 32
+seed = 10000
+
+[evaluations.random_spread.data]
+factory = "hypergan.colorization_data:ColorizationData"
+
+[evaluations.random_spread.data.args]
+root = "./data/logos256"
+manifest = "./dataset-manifest-128.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+cache_dir = "./cache/logos-128"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+[evaluations.chroma]
+factory = "hypergan.colorization_metrics:ChromaDistributionDistance"
+args = { bins = 64, projections = 8 }
+inputs = { generated = "generated", reference = "reference" }
+every = 1000
+timeout = 600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda:0"
+samples = 512
+batch_size = 32
+seed = 10000
+
+[evaluations.chroma.data]
+factory = "hypergan.colorization_data:ColorizationData"
+
+[evaluations.chroma.data.args]
+root = "./data/logos256"
+manifest = "./dataset-manifest-128.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+cache_dir = "./cache/logos-128"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+[evaluations.structure]
+factory = "hypergan.colorization_metrics:GrayscaleStructureDistance"
+inputs = { generated = "generated", reference = "reference" }
+every = 1000
+timeout = 600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda:0"
+samples = 512
+batch_size = 32
+seed = 10000
+
+[evaluations.structure.data]
+factory = "hypergan.colorization_data:ColorizationData"
+
+[evaluations.structure.data.args]
+root = "./data/logos256"
+manifest = "./dataset-manifest-128.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+cache_dir = "./cache/logos-128"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+[evaluations.fid10k_heldout]
+factory = "hypergan.image_metrics:InceptionFID"
+inputs = { generated = "generated", reference = "reference" }
+every = 5000
+timeout = 3600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda:0"
+samples = 10000
+batch_size = 128
+seed = 10000
+
+[evaluations.fid10k_heldout.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+
+[evaluations.fid10k_heldout.data]
+factory = "hypergan.colorization_data:ColorizationData"
+
+[evaluations.fid10k_heldout.data.args]
+root = "./data/logos256"
+manifest = "./dataset-manifest-128.json"
+manifest_sha256 = "REPLACE_WITH_MANIFEST_SHA256"
+cache_dir = "./cache/logos-128"
+split = "heldout"
+shuffle = false
+repeats = 1
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+
+[[losses]]
+type = "prior"
+rows = "sampled_unique"

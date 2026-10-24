@@ -31,30 +31,6 @@ MAX_NODES = 512                  # per subgraph; the largest seen is 226
 MAX_ARG_CHARS = 200              # per displayed argument value
 MAX_SUBGRAPHS = 64
 
-# ParticleGAN 0.8 has exactly one formulation (config.py refuses anything else);
-# the text follows ParticleGAN docs/k3p.md.
-K3P_EQUATIONS = {
-    'd_adversarial': 'softplus(−(D(x_real) − D(x_fake)))',
-    'g_adversarial': 'softplus(−(D(x_fake) − D(x_real)))',
-    'A': 'mean(‖∇D(real)‖²/d) + mean(relu(‖∇D(fake)‖/√d − κ)²)',
-    'B': 'mean(relu(‖∇D(real)‖ − κ)²) + mean(relu(‖∇D(fake)‖ − κ)²)',
-    'P': 'mean(‖∇D(real) − ∇D̄(real)‖²/d),  D̄ = EMA critic (anchor_decay)',
-    's': 'max(0, min(1, 2r) − 2f)/(1 − 2f),  r = critic LR / max critic LR, '
-         'f = network LR floor if it is below 0.5, else 0',
-    'penalty': 'c/2 · (s·A + (1 − s)·(B + w·P)),  w = anchor_weight; '
-               'applied every lazy_k steps with coefficient lazy_k·c',
-    'd_total': 'Σ terms weight·d_adversarial + Σ penalized critics penalty',
-    'g_total': 'Σ terms weight·g_adversarial + prior regularizer + Σ objectives weight·objective',
-}
-LEGACY_PENALTY_KEYS = ('arm', 'norm', 'target_anneal', 'total_steps', 'method', 'fd_eps')
-# ParticleGAN 0.8 Recipe defaults (docs/k3p.md): infer `defaults = "particlegan"` on
-# manifests that do not record it. A tuned run reports "unknown".
-PG08_DEFAULTS = {('optimizer', 'lr'): 0.00425, ('optimizer', 'd_lr_mult'): 1.0,
-                 ('optimizer', 'prior_lr_mult'): 2.0, ('training', 'network_lr_horizon_cap'): 1600,
-                 ('training', 'network_lr_floor'): 0.01, ('training', 'input_noise_std'): 0.5,
-                 ('training', 'output_noise_std'): 0.029}
-
-
 # ---------------------------------------------------------------- redaction
 
 def _is_local_path(text):
@@ -237,70 +213,16 @@ def _particlegan_version(manifest):
             or (manifest.get('runtime') or {}).get('particlegan'))
 
 
-def _blend_floor(training):
-    """K3P blend floor f as ParticleGAN 0.8 resolves it (Recipe._penalty_options).
-
-    The floor is network_lr_floor, else lr_floor; f = floor below 0.5 and 0 otherwise.
-    Returns (f, floor); f is None when the floor is not a number.
-    """
-    floor = training.get('network_lr_floor')
-    if floor is None:
-        floor = training.get('lr_floor')
-    if not _number(floor):
-        return None, floor
-    return (float(floor) if floor < 0.5 else 0.0), floor
-
-
 def _formulation(config, manifest):
-    """K3P for ParticleGAN 0.8 configurations; recorded fields shown verbatim otherwise."""
-    penalty, adversarial = _section(config, 'gradient_penalty'), _section(config, 'adversarial')
-    training = _section(config, 'training')
-    version = _particlegan_version(manifest)
-    legacy = any(k in penalty for k in LEGACY_PENALTY_KEYS) or any(k in adversarial for k in ('loss_type', 'mode'))
-    raw = {'adversarial': redact(adversarial), 'gradient_penalty': redact(penalty)}
-    recipe = _section(config, 'recipe')
-    if recipe.get('critic_formulation') == 'bispf':
-        loss = recipe.get('loss', 'relativistic')
-        return {'family': 'bispf', 'name': 'BISPF', 'loss': loss,
-                'particlegan': version or '≥0.9 (resolved recipe)',
-                'equations': {'d_total': K3P_EQUATIONS['d_total'], 'g_total': K3P_EQUATIONS['g_total'],
-                              'penalty': 'Elastic Born–Infeld gradient caps and zero-mean logit gauge'},
-                'parameters': {key: penalty.get(key) for key in ('coeff', 'kappa', 'lazy_k', 'anchor_weight')},
-                'raw': {**raw, 'recipe': redact(recipe)},
-                'note': 'Resolved ParticleGAN preset ' + str(recipe.get('name', 'custom')) +
-                        '; image quality is evaluated separately from numerical integration.'}
-    if not legacy:
-        equations, notes = dict(K3P_EQUATIONS), []
-        f, floor = _blend_floor(training)
-        if _number(floor) and f == 0.0 and floor >= 0.5:
-            equations['s'] = f's = 1 (A form only): the network LR floor {floor:g} keeps the LR above half its peak'
-            notes.append(f'The network LR floor is {floor:g} (≥ 0.5), so ParticleGAN uses blend floor f = 0 '
-                         'and s stays 1: the penalty is always the A form.')
-        anchor = penalty.get('anchor_weight')
-        if _number(anchor) and anchor == 0:
-            equations['P'] = 'off: anchor_weight = 0 (no EMA critic)'
-            equations['penalty'] = 'c/2 · (s·A + (1 − s)·B), applied every lazy_k steps with coefficient lazy_k·c'
-        result = {'family': 'k3p', 'name': 'K3P', 'loss': 'RpGAN logistic (relativistic paired)',
-                  'particlegan': version or '≥0.8 (configuration schema)', 'equations': equations,
-                  'parameters': {'coeff': penalty.get('coeff'), 'kappa': penalty.get('kappa'),
-                                 'lazy_k': penalty.get('lazy_k'), 'anchor_weight': anchor,
-                                 'anchor_decay': penalty.get('anchor_decay'), 'blend_floor_f': f,
-                                 'adversarial_weight': adversarial.get('weight')},
-                  'raw': raw}
-        if notes:
-            result['note'] = ' '.join(notes)
-        return result
-    loss, mode = adversarial.get('loss_type', 'logistic'), adversarial.get('mode', 'rp')
-    equations = ({k: K3P_EQUATIONS[k] for k in ('d_adversarial', 'g_adversarial', 'd_total', 'g_total')}
-                 if (loss, mode) == ('logistic', 'rp') else {})
-    return {'family': 'legacy', 'name': f"pre-K3P penalty (arm={penalty.get('arm')}, norm={penalty.get('norm')})",
-            'loss': f'RpGAN {loss} ({mode})', 'particlegan': version or '<0.8 (configuration schema)',
-            'equations': equations,
-            'parameters': {**{k: penalty.get(k) for k in ('coeff', 'kappa', 'lazy_k', *LEGACY_PENALTY_KEYS) if k in penalty},
-                           'adversarial_weight': adversarial.get('weight')},
-            'note': 'Recorded by a ParticleGAN release before 0.8. The penalty is shown by its recorded fields, '
-                    'not re-derived; current HyperGAN refuses these fields, so this run cannot resume as-is.',
-            'raw': raw}
+    """Describe the dependency boundary without interpreting its saved recipe."""
+    return {'family': 'particlegan', 'name': 'ParticleGAN',
+            'loss': 'ParticleGAN recipe', 'particlegan': _particlegan_version(manifest),
+            'equations': {},
+            'parameters': {'adversarial_weight': _section(config, 'adversarial').get('weight'),
+                           'coeff': _section(config, 'gradient_penalty').get('coeff')},
+            'note': 'ParticleGAN owns the GAN loss, regularization, normalization, optimizers and '
+                    'training defaults. HyperGAN supplies networks, data and execution.',
+            'snapshot_recorded': bool(_section(config, 'recipe'))}
 
 
 def _adversarial_terms(config):
@@ -334,29 +256,11 @@ def _prior_table(config):
     return True, None
 
 
-def _latent_damping(config):
-    """Latent damping as ReferenceTrainer applies it: only on a plain, learnable particle table."""
-    rate = _section(config, 'optimizer').get('latent_damping_max_rate')
-    kind = _section(config, 'prior').get('kind')
-    trainable, reason = _prior_table(config)
-    if kind != 'particles':
-        reason = f'applies only to a plain particle prior (kind = "particles"), not "{kind}"'
-    elif trainable and _number(rate) and rate == 0:
-        reason = 'max rate is 0'
-    if reason is None:
-        return {'status': 'applied', 'max_rate': rate}
-    return {'status': 'not applied', 'max_rate': rate, 'reason': reason}
 
-
-def _losses(config, family):
+def _losses(config):
     terms = _adversarial_terms(config)
     several = len(terms) > 1
     penalty = _section(config, 'gradient_penalty')
-    penalty_kind = (family + '_penalty' if family in ('k3p', 'bispf')
-                    else 'penalty_' + str(penalty.get('arm', 'legacy')))
-    penalty_fields = (('kappa', 'lazy_k', 'anchor_weight', 'anchor_decay') if family == 'k3p'
-                      else ('kappa', 'lazy_k', 'arm', 'norm'))
-
     def series(metric):
         if several:
             return {'metric': None, 'metric_note': f'every term is summed in {metric}; no per-term series'}
@@ -364,23 +268,22 @@ def _losses(config, family):
 
     discriminator, generator = [], []
     for term in terms:
-        loss = _section(config, 'recipe').get('loss', 'relativistic')
-        discriminator.append({'id': term['id'], 'kind': ('non_saturating_d' if loss == 'non_saturating' else 'rpgan_d'), 'critic': term['critic'], 'weight': term['weight'],
+        discriminator.append({'id': term['id'], 'kind': 'adversarial_d', 'critic': term['critic'], 'weight': term['weight'],
                               'real': term['real'], 'fake': term['fake'], 'detach': ['fake sample'],
                               **series('loss/d_adversarial')})
         if term['penalty_coeff'] is not None:
-            discriminator.append({'id': f"{term['id']}:penalty", 'kind': penalty_kind, 'critic': term['critic'],
-                                  'coeff': term['penalty_coeff'], **{k: penalty.get(k) for k in penalty_fields},
+            discriminator.append({'id': f"{term['id']}:penalty", 'kind': 'critic_regularizer', 'critic': term['critic'],
+                                  'coeff': term['penalty_coeff'],
                                   **series('loss/gradient_penalty')})
-        generator.append({'id': term['id'], 'kind': ('non_saturating_g' if loss == 'non_saturating' else 'rpgan_g'), 'critic': term['critic'], 'weight': term['weight'],
+        generator.append({'id': term['id'], 'kind': 'adversarial_g', 'critic': term['critic'], 'weight': term['weight'],
                           'real': term['real'], 'fake': term['fake'], 'detach': ['real score'],
                           **series('loss/g_adversarial')})
     spread = _section(config, 'prior_regularizer')
     if spread and _section(config, 'prior').get('kind') != 'gaussian':
         trainable, reason = _prior_table(config)
         weighted = _number(spread.get('weight')) and spread['weight'] > 0
-        entry = {'id': 'prior_regularizer', 'kind': _section(config, 'recipe').get('prior_regularizer', 'particle_spread'), 'weight': spread.get('weight'),
-                 'target_std': spread.get('target_std'), 'eps': spread.get('eps'), 'rows': spread.get('rows'),
+        entry = {'id': 'prior_regularizer', 'kind': 'prior_regularizer', 'weight': spread.get('weight'),
+                 'rows': spread.get('rows'),
                  'active': bool(weighted and trainable), 'metric': 'loss/prior_regularizer', 'metric_note': None}
         if weighted and not trainable:
             entry['inactive_reason'] = f'{reason}: no gradient reaches it'
@@ -415,26 +318,29 @@ def _prior(config):
     return result
 
 
-def _optimizers(config, family):
+def _optimizers(config):
     optimizer, training = _section(config, 'optimizer'), _section(config, 'training')
+    recipe_sec = _section(config, 'recipe')
+    lr = optimizer.get('lr') if optimizer.get('lr') is not None else recipe_sec.get('lr')
+    d_lr_mult = optimizer.get('d_lr_mult') if optimizer.get('d_lr_mult') is not None else recipe_sec.get('d_lr_mult')
+    betas = optimizer.get('betas') if optimizer.get('betas') is not None else recipe_sec.get('betas')
+    prior_lr_mult = optimizer.get('prior_lr_mult') if optimizer.get('prior_lr_mult') is not None else recipe_sec.get('prior_lr_mult')
+    prior_betas = optimizer.get('prior_betas') if optimizer.get('prior_betas') is not None else recipe_sec.get('prior_betas')
     critics = list(dict.fromkeys(['discriminator'] + [t.get('component') for t in config.get('adversarial_terms') or ()]))
     generator_groups = [name for name, role in roles(config).items() if role not in ('critic', 'alias')]
-    k3p = family == 'k3p'
     trainable, reason = _prior_table(config)
-    prior_group = ({'lr': _product(optimizer.get('lr'), optimizer.get('prior_lr_mult')),
-                    'lr_mult': optimizer.get('prior_lr_mult'), 'betas': optimizer.get('prior_betas')}
+    prior_group = ({'lr': _product(lr, prior_lr_mult),
+                    'lr_mult': prior_lr_mult, 'betas': prior_betas}
                    if trainable else unavailable(reason))
     result = {
-        'generator': {'type': 'K3PGeneratorAdam' if k3p else 'Adam', 'implementation': optimizer.get('implementation'),
-                      'lr': optimizer.get('lr'), 'betas': optimizer.get('betas'), 'components': generator_groups,
-                      'latent_damping_max_rate': optimizer.get('latent_damping_max_rate'),
-                      'latent_damping': _latent_damping(config)},
+        'generator': {'type': 'ParticleGAN', 'implementation': 'particlegan',
+                      'lr': lr, 'betas': betas, 'components': generator_groups,
+                      'owner': 'particlegan'},
         'prior': prior_group,
-        'critic': {'type': 'K3PCriticAdam' if k3p else 'Adam', 'implementation': optimizer.get('implementation'),
-                   'lr': _product(optimizer.get('lr'), optimizer.get('d_lr_mult')), 'lr_mult': optimizer.get('d_lr_mult'),
-                   'betas': optimizer.get('betas'), 'components': critics,
-                   'ema_critic': bool(_section(config, 'gradient_penalty').get('anchor_weight')),
-                   'guard': {'ratio': optimizer.get('d_guard_ratio'), 'min_steps': optimizer.get('d_guard_min_steps')}},
+        'critic': {'type': 'ParticleGAN', 'implementation': 'particlegan',
+                   'lr': _product(lr, d_lr_mult), 'lr_mult': d_lr_mult,
+                   'betas': betas, 'components': critics,
+                   'owner': 'particlegan'},
         'schedule': {'lr_anneal_start': training.get('lr_anneal_start'), 'lr_floor': training.get('lr_floor'),
                      'network_lr_floor': training.get('network_lr_floor'),
                      'network_lr_horizon_cap': training.get('network_lr_horizon_cap'), 'metric': 'optimizer/lr_scale'},
@@ -443,37 +349,22 @@ def _optimizers(config, family):
                   'critic_input_anneal_end': training.get('input_noise_anneal_end'),
                   'generator_output_std': training.get('output_noise_std'),
                   'generator_output_warmup': training.get('output_noise_warmup')},
-        'raw': redact(optimizer),
     }
-    recipe = _section(config, 'recipe')
-    if recipe.get('optimizer_family') == 'dualnorm':
-        for name in ('generator', 'critic'):
-            result[name].update(type='DualNorm', implementation='particlegan',
-                                momentum=recipe.get('optimizer_momentum'),
-                                smoothing=recipe.get('optimizer_smoothing'),
-                                convolution=recipe.get('optimizer_convolution'),
-                                convolution_rule=recipe.get('optimizer_convolution_rule'))
-        result['generator']['constraint_geometry'] = recipe.get('constraint_geometry_mode')
-        if trainable:
-            result['prior']['type'] = 'sampled-row normalization'
     return result
 
 
 def _defaults_source(config, manifest):
-    if _section(config, 'recipe').get('name'):
-        return 'particlegan (' + str(config['recipe']['name']) + ')'
+    if _section(config, 'recipe'):
+        return 'particlegan (recorded recipe)'
     recorded = manifest.get('defaults')
-    if recorded in ('hypergan', 'particlegan'):
-        return recorded
-    if all(_section(config, s).get(k) == v for (s, k), v in PG08_DEFAULTS.items()):
-        return 'particlegan (inferred)'
-    return 'unknown'
+    return recorded if recorded in ('hypergan', 'particlegan') else 'unknown'
 
 
-def _network(name, spec, role):
+def _network(name, spec, role, display_name=None):
     group = ('critic' if role == 'critic' else 'shared with ' + str(spec['reuse']) if 'reuse' in spec
              else 'generator')
-    entry = {'name': name, 'role': role, 'optimizer_group': group, 'factory': spec.get('factory', 'reuse'),
+    entry = {'name': name, 'display_name': display_name or name, 'role': role, 'optimizer_group': group,
+             'factory': spec.get('factory', 'reuse'),
              'inputs': spec.get('inputs') or {}, 'trainable': spec.get('trainable', True),
              'freeze_parameters': spec.get('freeze_parameters', False)}
     args = spec.get('args') if isinstance(spec.get('args'), dict) else {}
@@ -509,8 +400,10 @@ def describe_config(config, manifest=None):
     runtime = manifest.get('runtime') or {}
     formulation = _formulation(config, manifest)
     component_roles = roles(config)
+    raw_name_map = config.get('name_map') if isinstance(config.get('name_map'), dict) else {}
+    inv_name_map = {v: k for k, v in raw_name_map.items()}
     data, metrics = _section(config, 'data'), _section(config, 'metrics')
-    return {
+    res = {
         'schema_version': SCHEMA_VERSION,
         'run_id': manifest.get('run_id'),
         'name': config.get('name'),
@@ -521,9 +414,9 @@ def describe_config(config, manifest=None):
                        'torch': runtime.get('torch'), 'defaults_source': _defaults_source(config, manifest)},
         'formulation': formulation,
         'prior': _prior(config),
-        'losses': _losses(config, formulation['family']),
-        'optimizers': _optimizers(config, formulation['family']),
-        'networks': [_network(n, s, component_roles[n]) for n, s in config['components'].items()],
+        'losses': _losses(config),
+        'optimizers': _optimizers(config),
+        'networks': [_network(n, s, component_roles[n], display_name=inv_name_map.get(n, n)) for n, s in config['components'].items()],
         'edges': _edges(config),
         'data': {'factory': data.get('factory'), 'args': _bounded(data.get('args') or {}, 4096)},
         'training': redact(_section(config, 'training')),
@@ -533,6 +426,9 @@ def describe_config(config, manifest=None):
                 'attempt_index': manifest.get('attempt_index'), 'total_steps': manifest.get('total_steps')},
         'warnings': [redact_text(w)[:500] for w in (manifest.get('warnings') or [])[:32]],
     }
+    if raw_name_map:
+        res['name_map'] = dict(raw_name_map)
+    return res
 
 
 def _merge_recorded(result, recorded, config_sha256):

@@ -2,28 +2,30 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_NAME="cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.toml"
 if [[ -f "$SCRIPT_DIR/$CONFIG_NAME" ]]; then
   RUNS_DIR="${RUNS_DIR:-$SCRIPT_DIR}"
   CONFIG="${CONFIG:-$SCRIPT_DIR/$CONFIG_NAME}"
 else
-  RUNS_DIR="${RUNS_DIR:-$SCRIPT_DIR/../../training-runs}"
-  CONFIG="${CONFIG:-$SCRIPT_DIR/../examples/$CONFIG_NAME}"
+  RUNS_DIR="${RUNS_DIR:-$REPO_ROOT}"
+  CONFIG="${CONFIG:-$REPO_ROOT/examples/$CONFIG_NAME}"
 fi
 RUNS_DIR="$(cd -- "$RUNS_DIR" && pwd)"
-WORKTREE="${WORKTREE:-$RUNS_DIR/../worktrees/develop-pg07-lazy16}"
-PYTHON="$RUNS_DIR/particlegan07-env/bin/python"
-RUN_DIR="${RUN_DIR:-/mnt/ml7tb/hypergan-training-runs/train-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo}"
+WORKTREE="${WORKTREE:-$REPO_ROOT}"
+PYTHON_BIN="${PYTHON_BIN:-python}"
+PYTHON="${PYTHON:-$PYTHON_BIN}"
+RUN_DIR="${RUN_DIR:-$RUNS_DIR/runs/train-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo}"
 
-# develop uses ParticleGAN 0.8. This worktree retains the pg07 training loop
+# develop uses ParticleGAN 0.8. A pg07-compatible worktree retains the pg07 training loop
 # alongside the current viewer, including sample history and the Model tab.
-if [[ ! -x "$PYTHON" || ! -f "$WORKTREE/src/hypergan/training.py" ]]; then
-  printf 'Demo requires particlegan07-env in %s and the pg07-compatible worktree at %s.\n' "$RUNS_DIR" "$WORKTREE" >&2
+if ! command -v "$PYTHON" >/dev/null 2>&1 || [[ ! -f "$WORKTREE/src/hypergan/training.py" ]]; then
+  printf 'Demo requires a valid Python interpreter (%s) and HyperGAN checkout at %s.\n' "$PYTHON" "$WORKTREE" >&2
   exit 1
 fi
 WORKTREE="$(cd -- "$WORKTREE" && pwd)"
 export PYTHONPATH="$WORKTREE/src${PYTHONPATH:+:$PYTHONPATH}"
-export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-GPU-ed080e41-3193-3755-6756-f3d46c433331}"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
@@ -32,7 +34,7 @@ from importlib.metadata import version
 
 installed = version("particlegan")
 if installed != "0.7.0":
-    raise SystemExit(f"This demo requires ParticleGAN 0.7.0; found {installed} in particlegan07-env")
+    raise SystemExit(f"This demo requires ParticleGAN 0.7.0; found {installed}")
 PY
 
 cd "$RUNS_DIR"

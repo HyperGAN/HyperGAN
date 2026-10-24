@@ -52,8 +52,94 @@ def format_duration(seconds: Optional[Union[int, float]]) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def inspect_run_host(run_dir: Union[Path, str]) -> Dict[str, Any]:
+    """Extract recorded hostname, PID, and whether the run belongs to a remote/cluster host."""
+    import socket
+
+    run_dir = Path(run_dir).resolve()
+    local_hostname = socket.gethostname()
+    hostname: Optional[str] = None
+    pid: Optional[int] = None
+
+    lock_file = run_dir / ".run.lock"
+    if lock_file.is_file():
+        try:
+            raw_lock = lock_file.read_bytes()[:4096].decode("utf-8", errors="ignore").strip()
+            if raw_lock.startswith("{"):
+                lock_data = json.loads(raw_lock)
+                if isinstance(lock_data, dict):
+                    h = lock_data.get("hostname") or lock_data.get("host") or lock_data.get("node")
+                    if isinstance(h, str) and h.strip():
+                        hostname = h.strip()
+                    p = lock_data.get("pid")
+                    if isinstance(p, int):
+                        pid = p
+        except Exception:
+            pass
+
+    launch_dir = run_dir / "launch"
+    if launch_dir.is_dir():
+        attempts = sorted(launch_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
+        for att_file in attempts:
+            try:
+                data = json.loads(att_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    if hostname is None:
+                        h = data.get("hostname") or data.get("host") or data.get("node")
+                        if isinstance(h, str) and h.strip():
+                            hostname = h.strip()
+                    if pid is None:
+                        p = data.get("pid") or data.get("supervisor_pid")
+                        if isinstance(p, int):
+                            pid = p
+                    if hostname is not None or pid is not None:
+                        break
+            except Exception:
+                pass
+
+    manifest = _read_manifest_safe(run_dir)
+    if hostname is None and manifest:
+        runtime_dict = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
+        cluster_dict = manifest.get("cluster") if isinstance(manifest.get("cluster"), dict) else {}
+        h = (
+            manifest.get("hostname")
+            or manifest.get("host")
+            or runtime_dict.get("hostname")
+            or cluster_dict.get("hostname")
+        )
+        if isinstance(h, str) and h.strip():
+            hostname = h.strip()
+    if pid is None and isinstance(manifest.get("pid"), int):
+        pid = manifest["pid"]
+
+    remote = bool(hostname and hostname != local_hostname)
+    return {
+        "hostname": hostname,
+        "pid": pid,
+        "remote": remote,
+        "local_hostname": local_hostname,
+    }
+
+
+def _is_stale_unlocked_remote_run(run_dir: Path, lock_file: Path, max_idle_seconds: float = 3600.0) -> bool:
+    """Return True if a run with an unlocked .run.lock file has had no file activity within max_idle_seconds."""
+    if not lock_file.exists():
+        return False
+    import time
+    latest_mtime = 0.0
+    for candidate in (lock_file, run_dir / "summary.json", run_dir / "manifest.json", run_dir / "events.jsonl"):
+        try:
+            if candidate.exists():
+                latest_mtime = max(latest_mtime, candidate.stat().st_mtime)
+        except OSError:
+            pass
+    if latest_mtime <= 0.0:
+        return False
+    return (time.time() - latest_mtime) > max_idle_seconds
+
+
 def check_run_active(run_dir: Union[Path, str]) -> Tuple[bool, Optional[int]]:
-    """Test non-blocking flock on .run.lock to check if training process is active."""
+    """Test non-blocking flock on .run.lock (or remote cluster run state) to check if training is active."""
     run_dir = Path(run_dir).resolve()
     lock_file = run_dir / ".run.lock"
     is_active = False
@@ -77,6 +163,16 @@ def check_run_active(run_dir: Union[Path, str]) -> Tuple[bool, Optional[int]]:
             pass
 
     if not is_active:
+        host_info = inspect_run_host(run_dir)
+        if host_info["remote"] and not _is_stale_unlocked_remote_run(run_dir, lock_file):
+            manifest = _read_manifest_safe(run_dir)
+            m_status = str(manifest.get("status") or "").strip().lower() if manifest else ""
+            summary = read_summary_json(run_dir) if not m_status else None
+            s_status = str(summary.get("status") or "").strip().lower() if isinstance(summary, dict) else ""
+            terminal = {"complete", "completed", "stopped", "failed", "interrupted", "cancelled", "canceled"}
+            if m_status in ("running", "initializing") or (not m_status and s_status in ("running", "initializing")):
+                if m_status not in terminal and s_status not in terminal:
+                    return True, host_info["pid"]
         return False, None
 
     pid = None
@@ -457,6 +553,8 @@ def run_status(
         if corrupt_warn not in warnings:
             warnings.append(corrupt_warn)
 
+    host_info = inspect_run_host(resolved_dir)
+
     return {
         "run_id": run_id,
         "short_id": str(run_id)[:8],
@@ -466,6 +564,8 @@ def run_status(
         "status": status_str,
         "active": is_active,
         "pid": pid if is_active else None,
+        "hostname": host_info["hostname"],
+        "remote": host_info["remote"],
         "devices": devices_str,
         "step": step,
         "total_steps": total_steps,
@@ -1466,12 +1566,12 @@ def ps_runs(*, all_runs: bool = False, cwd: Optional[Union[Path, str]] = None) -
     all_items = list_runs(root=None, sort="updated", status_filter=None, cwd=cwd)
     items = all_items if all_runs else [r for r in all_items if r.get("active")]
 
-    # Enrich active runs with GPU VRAM and device info via nvidia-smi (if available)
+    # Enrich active runs with GPU VRAM and device info via GPU inventory provider (if available)
     gpu_procs: List[Dict[str, Any]] = []
     gpu_hw: Dict[str, Dict[str, Any]] = {}
     if any(r.get("active") for r in items):
         try:
-            from .queue import inspect_gpu_hardware, inspect_gpu_processes
+            from .gpu_inventory import inspect_gpu_hardware, inspect_gpu_processes
             for g in inspect_gpu_hardware():
                 if g.get("uuid"):
                     gpu_hw[str(g["uuid"])] = g
@@ -1608,12 +1708,15 @@ def stop_run(
     stop_all: bool = False,
     force: bool = False,
     timeout: float = 15.0,
+    request_id: Optional[str] = None,
+    attempt_id: Optional[str] = None,
     cwd: Optional[Union[Path, str]] = None,
 ) -> Dict[str, Any]:
-    """Gracefully stop an active training run (or all active runs) via SIGINT so it checkpoints and halts."""
+    """Gracefully stop an active training run (or all active runs) via file request and/or SIGINT."""
     import signal
     import time
     from .registry import find_live_pid_for_run, resolve_run_target, sync_registry
+    from .run_requests import request_status as _req_status, submit_stop_request
 
     if stop_all:
         entries = sync_registry(cwd=cwd)
@@ -1634,17 +1737,56 @@ def stop_run(
     if not run_dir.exists():
         raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
-    is_active, pid = check_run_active(run_dir)
-    if not is_active and not force:
-        raise ValueError(f"Run '{run_dir.name}' is not currently running.")
-
-    if pid is None:
-        pid = find_live_pid_for_run(run_dir)
-    if pid is None and not force:
-        raise RuntimeError(f"Run '{run_dir.name}' holds .run.lock, but its live process PID could not be resolved.")
-
     summary = read_summary_json(run_dir)
     manifest = _read_manifest_safe(run_dir)
+    host_info = inspect_run_host(run_dir)
+    is_active, pid = check_run_active(run_dir)
+
+    if not is_active and not force:
+        if request_id is not None:
+            try:
+                existing_receipt = _req_status(run_dir, request_id)
+                target_attempt = attempt_id or existing_receipt["request"]["attempt_id"]
+                if (
+                    existing_receipt["request"].get("action") == "stop"
+                    and existing_receipt["request"].get("attempt_id") == target_attempt
+                ):
+                    run_id_val = manifest.get("run_id") or run_dir.name
+                    return {
+                        "status": "stopped",
+                        "run_id": str(run_id_val),
+                        "short_id": str(run_id_val)[:8],
+                        "slug": str(manifest.get("slug") or ""),
+                        "name": str(manifest.get("name") or run_dir.name),
+                        "run_dir": str(run_dir),
+                        "pid": pid,
+                        "hostname": host_info["hostname"],
+                        "remote": host_info["remote"],
+                        "request_id": existing_receipt["request"]["request_id"],
+                        "receipt": existing_receipt,
+                        "message": f"Run {str(run_id_val)[:8]} is already stopped.",
+                    }
+            except FileNotFoundError:
+                pass
+        raise ValueError(f"Run '{run_dir.name}' is not currently running.")
+
+    receipt = None
+    if manifest.get("run_id") and (attempt_id or manifest.get("attempt_id")):
+        try:
+            receipt = submit_stop_request(
+                run_dir,
+                run_id=str(manifest["run_id"]),
+                attempt_id=str(attempt_id or manifest["attempt_id"]),
+                request_id=request_id,
+            )
+        except RuntimeError:
+            pass
+
+    if pid is None and not host_info["remote"]:
+        pid = find_live_pid_for_run(run_dir)
+    if pid is None and not force and receipt is None and not host_info["remote"]:
+        raise RuntimeError(f"Run '{run_dir.name}' holds .run.lock, but its live process PID could not be resolved.")
+
     run_id = (summary.get("run_id") if summary else None) or manifest.get("run_id") or run_dir.name
     slug = (summary.get("slug") if summary else None) or manifest.get("slug") or ""
     name = (
@@ -1655,7 +1797,8 @@ def stop_run(
     )
 
     stopped_cleanly = not is_active
-    if pid is not None and int(pid) != os.getpid():
+    signaled = False
+    if not host_info["remote"] and pid is not None and int(pid) != os.getpid():
         can_signal = True
         proc_cmd = Path(f"/proc/{int(pid)}/cmdline")
         if Path("/proc").is_dir():
@@ -1671,6 +1814,7 @@ def stop_run(
         if can_signal:
             try:
                 os.kill(int(pid), signal.SIGINT)
+                signaled = True
             except (ProcessLookupError, PermissionError):
                 pass
 
@@ -1686,23 +1830,25 @@ def stop_run(
             if force and not stopped_cleanly:
                 try:
                     os.kill(int(pid), getattr(signal, "SIGKILL", signal.SIGTERM))
+                    signaled = True
                 except (ProcessLookupError, PermissionError):
                     pass
                 stopped_cleanly = True
         elif force:
             stopped_cleanly = True
-    elif force:
+    elif force and not host_info["remote"]:
         stopped_cleanly = True
 
     # Refresh summary and registry state
     sync_registry(cwd=cwd or run_dir)
     state_str = "stopped" if stopped_cleanly else "stopping"
-    msg = (
-        f"Stopped {str(run_id)[:8]} ({slug or name}) [PID {pid}] cleanly."
-        if stopped_cleanly
-        else f"Sent graceful stop signal (SIGINT) to {str(run_id)[:8]} ({slug or name}) [PID {pid}]; waiting for checkpoint to finish."
-    )
-    return {
+    if stopped_cleanly:
+        msg = f"Stopped {str(run_id)[:8]} ({slug or name}) [PID {pid}] cleanly."
+    elif host_info["remote"]:
+        msg = f"Submitted durable stop request for remote run {str(run_id)[:8]} on {host_info['hostname']}."
+    else:
+        msg = f"Sent graceful stop signal (SIGINT) to {str(run_id)[:8]} ({slug or name}) [PID {pid}]; waiting for checkpoint to finish."
+    result: Dict[str, Any] = {
         "status": state_str,
         "run_id": str(run_id),
         "short_id": str(run_id)[:8],
@@ -1710,8 +1856,15 @@ def stop_run(
         "name": str(name),
         "run_dir": str(run_dir),
         "pid": int(pid) if pid is not None else None,
+        "hostname": host_info["hostname"],
+        "remote": host_info["remote"],
+        "signaled": signaled,
         "message": msg,
     }
+    if receipt is not None:
+        result["request_id"] = receipt["request"]["request_id"]
+        result["receipt"] = receipt
+    return result
 
 
 def tag_run(
@@ -1954,4 +2107,3 @@ def read_run_logs(
         print("\nDetached from logs (training continues in background).", file=sys.stderr, flush=True)
 
     return formatted_lines
-

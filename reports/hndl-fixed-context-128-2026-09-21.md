@@ -48,7 +48,7 @@ been started; validation used a separate temporary directory.
   second-derivative error `6.65e-12`.
 - Actual CUDA training with the pinned pretrained checkpoint and logos dataset:
   batch64, eight updates, then checkpoint resume for eight more. All losses
-  finite; lazy b-cap execution at steps8 and16 completed. All four score heads
+  finite; lazy critic regularization execution at steps8 and16 completed. All four score heads
   changed; all122 backbone state tensors remained bitwise identical. Frozen
   parameters were excluded from D's optimizer and remained frozen after G.
 - Peak CUDA allocated memory17.69GiB; reserved20.05GiB on RTX A6000.

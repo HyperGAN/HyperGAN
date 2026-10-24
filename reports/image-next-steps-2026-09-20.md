@@ -75,7 +75,7 @@ flow and failure behavior, not just isolated component tests.
 
 The generic distributed runtime already has evidence, but this recipe currently
 rejects replicated execution. Implement and validate its independent D/G draws,
-frozen features, encoder routing, optimizer policy and b-cap across ranks.
+frozen features, encoder routing, optimizer policy and critic regularization across ranks.
 Compare complete updates at fixed global batch and declared tolerances, then
 exercise rank failure and full recovery before measuring image learning,
 throughput and memory.

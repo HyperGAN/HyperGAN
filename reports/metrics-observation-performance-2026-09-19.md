@@ -31,7 +31,7 @@ This run used source revision `460caef743618990d6c8c657a710444fac10abeb`, instal
 into `/tmp/hypergan-observation-perf-verify`; Python 3.12.13, torch 2.14.0+cu130,
 CUDA 13.0, NumPy 2.5.2, and one RTX A6000 (`cuda:1`). The fixture uses the default
 particle recipe with two 512-unit hidden layers, batch size 256, 4,096 particles,
-the ordinary b-cap/VIC objectives, and 1,088 updates. It has no periodic previews
+the ordinary critic regularization/VIC objectives, and 1,088 updates. It has no periodic previews
 or intermediate checkpoints. The last 1,024 updates are measured after 64 warmup
 updates, using existing completed-update event times; no benchmark callback or
 per-step profiler was added to the training loop. Initialization and final export

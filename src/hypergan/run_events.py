@@ -92,12 +92,9 @@ def _event_identity(row):
 
 
 def _event(line, previous):
-    def reject_constant(value):
-        raise ValueError(f"nonfinite JSON constant {value}")
+    from foldlitedb.projection import load_json
     try:
-        row = json.loads(line, parse_constant=reject_constant)
-        # allow_nan also rejects a finite-looking exponent parsed as infinity.
-        json.dumps(row, allow_nan=False)
+        row = load_json(line)
         if not isinstance(row, dict) or type(row.get('schema_version')) is not int or row['schema_version'] not in (1, 2):
             raise ValueError('unsupported event schema')
         if row['schema_version'] == 2:
@@ -166,70 +163,23 @@ def read_event_page(run_dir, cursor=None, *, limit=100, max_bytes=1048576, inclu
         'version': 1, 'location': location, 'file': None, 'offset': 0,
         'anchor': _hash(b''), 'last': None,
     })
-    path = root / 'events.jsonl'
-    try:
-        handle = _open_file(path) if _open_file else path.open('rb')
-    except FileNotFoundError:
-        if state['file'] is not None or state['offset']:
-            raise ValueError('Stale event cursor: the log was removed; restart without a cursor')
-        result = {'events': [], 'cursor': encode(state), 'has_more': False, 'partial_tail': False}
-        if include_cursors:
-            result['event_cursors'] = []
-        return result
-    with handle as handle:
-        stat = os.fstat(handle.fileno())
-        identity = _identity(stat)
-        if state['file'] is not None and state['file'] != identity:
-            raise ValueError('Stale event cursor: the log was replaced; restart without a cursor')
-        if _stream_identity is not None and stat.st_size:
-            first = handle.readline(max_bytes + 1)
-            if len(first) > max_bytes:
-                raise ValueError('Public stream first document exceeds max_bytes')
-            if first.endswith(b'\n'):
-                first_event = _event(first, None)
-                if any(first_event.get(key) != value for key, value in _stream_identity.items()):
-                    raise ValueError('Source document run/stream/generation differs from its registration')
-        offset = state['offset']
-        if offset > stat.st_size:
-            raise ValueError('Stale event cursor: the log was truncated; restart without a cursor')
-        handle.seek(max(0, offset - _ANCHOR_BYTES))
-        anchor = handle.read(min(offset, _ANCHOR_BYTES))
-        if _hash(anchor) != state['anchor'] or (offset and not anchor.endswith(b'\n')):
-            raise ValueError('Stale event cursor: its consumed boundary changed; restart without a cursor')
-        handle.seek(offset)
-        data = handle.read(max_bytes)
-        read_end = offset + len(data)
-        rows, consumed, last, event_cursors = [], 0, state['last'], []
-        for _ in range(limit):
-            end = data.find(b'\n', consumed)
-            if end == -1:
-                break
-            row = _event(data[consumed:end], last)
-            if _stream_identity is not None and any(row.get(key) != value for key, value in _stream_identity.items()):
-                raise ValueError('Source document run/stream/generation differs from its registration')
-            rows.append(row)
-            last = {key: row[key] for key in ('run_id', 'attempt_id', 'sequence')}
-            consumed = end + 1
-            if include_cursors:
-                boundary = (anchor + data[:consumed])[-256:] if consumed < 256 else data[consumed - 256:consumed]
-                event_cursors.append(encode(dict(state, file=identity,
-                    offset=offset + consumed, anchor=_hash(boundary), last=last)))
-        if not rows and len(data) == max_bytes and read_end < stat.st_size:
-            raise ValueError('Next event exceeds max_bytes; increase the byte limit (maximum 16777216)')
-        next_offset = offset + consumed
-        # Reuse at most 256 bytes from the already-read old anchor and this page.
-        next_anchor = (anchor + data[:consumed])[-min(next_offset, _ANCHOR_BYTES):] if next_offset else b''
-        updated = dict(state, file=identity, offset=next_offset, anchor=_hash(next_anchor), last=last)
-        remaining = data[consumed:]
-        has_more = read_end < stat.st_size or b'\n' in remaining
-        partial_tail = read_end == stat.st_size and bool(data) and not data.endswith(b'\n')
-        try:
-            current_identity = _identity(path.stat())
-        except FileNotFoundError as exc:
-            raise ValueError('Stale event cursor: the log was removed while reading; retry without a cursor') from exc
-        if current_identity != identity:
-            raise ValueError('Stale event cursor: the log was replaced while reading; retry without a cursor')
-        result = {'events': rows, 'cursor': encode(updated), 'has_more': has_more, 'partial_tail': partial_tail}
-        if include_cursors:
-            result['event_cursors'] = event_cursors
-        return result
+    from foldlitedb.streams import read_jsonl_page
+
+    def validate_stream(row):
+        if _stream_identity is not None and any(row.get(key) != value for key, value in _stream_identity.items()):
+            raise ValueError('Source document run/stream/generation differs from its registration')
+        return row
+
+    def consume(raw, saved):
+        row = validate_stream(_event(raw, saved['last']))
+        return row, {'last': {key: row[key] for key in ('run_id', 'attempt_id', 'sequence')}}
+
+    page = read_jsonl_page(root / 'events.jsonl', state, consume=consume, encode=encode,
+        limit=limit, max_bytes=max_bytes, include_cursors=include_cursors,
+        open_file=_open_file, label='event',
+        first_document=(lambda raw: validate_stream(_event(raw, None))) if _stream_identity else None)
+    result = {key: page[key] for key in ('cursor', 'has_more', 'partial_tail')}
+    result['events'] = page['documents']
+    if include_cursors:
+        result['event_cursors'] = page['document_cursors']
+    return result

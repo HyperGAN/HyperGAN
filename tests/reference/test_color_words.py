@@ -34,8 +34,9 @@ def cpu_threads():
 
 
 def _recipe_raw():
+    from hypergan.model_file import lower
     with RECIPE.open('rb') as source:
-        return tomllib.load(source)
+        return lower(tomllib.load(source), base=RECIPE.parent)
 
 
 def _short_config():
@@ -175,11 +176,11 @@ def test_recipe_declares_shared_generator_and_three_terms():
     assert raw['optimizer']['implementation'] == 'device_adam'
     assert [term['id'] for term in raw['objectives']] == ['rgb-image', 'rgb-text', 'latent-text']
     assert raw['adversarial_terms'] == [
-        {'id': 'image-from-text', 'component': 'discriminator', 'real': 'batch.real',
+        {'id': 'image-from-text', 'component': 'discriminator', 'weight': 1.0, 'real': 'batch.real',
          'fake': 'components.text_image', 'penalty': False},
-        {'id': 'text-marginal', 'component': 'text_critic', 'real': 'components.text_encoder.embedding',
+        {'id': 'text-marginal', 'component': 'text_critic', 'weight': 1.0, 'real': 'components.text_encoder.embedding',
          'fake': 'components.z_embedding', 'penalty': True, 'penalty_coeff': 0.1},
-        {'id': 'joint', 'component': 'joint_critic', 'real': 'batch.real',
+        {'id': 'joint', 'component': 'joint_critic', 'weight': 1.0, 'real': 'batch.real',
          'fake': 'components.text_image', 'penalty': True, 'penalty_coeff': 0.1},
     ]
     factories = ' '.join(spec.get('factory', '') for spec in raw['components'].values())

@@ -190,7 +190,17 @@ def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout,
             if initialize_process_group:
                 if backend == 'nccl' and torch.cuda.current_device() != local_rank:
                     raise ValueError('NCCL handler changed the rank-owned current CUDA device')
-                digest = hashlib.sha256(_json(row)).hexdigest()
+                shared_payload = row.get('payload')
+                if isinstance(shared_payload, dict):
+                    shared_payload = {k: v for k, v in shared_payload.items()
+                                      if k not in ('controller_id', 'metadata', 'identity', 'bundle_dir')}
+                shared_command = {
+                    'sequence': row.get('sequence'),
+                    'operation': row.get('operation'),
+                    'kind': row.get('kind'),
+                    'payload': shared_payload,
+                }
+                digest = hashlib.sha256(_json(shared_command)).hexdigest()
                 agreed = [None] * world_size
                 dist.all_gather_object(agreed, digest)
                 if any(item != digest for item in agreed):

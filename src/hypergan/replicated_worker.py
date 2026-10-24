@@ -124,7 +124,8 @@ def handle_command(state, operation, payload):
         peers = trainer._exchange('execution identity digest', digest)
         if any(peer != digest for peer in peers):
             raise ValueError('Ranks disagree on execution runtime/source/data identity')
-        return {**_ready(state), 'identity_sha256': digest, **({'information': info} if state['rank'] == 0 else {})}
+        ranks_per_node = getattr(trainer, 'ranks_per_node', trainer.world_size)
+        return {**_ready(state), 'identity_sha256': digest, **({'information': info} if trainer.rank % ranks_per_node == 0 else {})}
     if operation == 'update':
         metrics, state['batch'] = trainer.update()
         return {**_ready(state), 'metrics': metrics}

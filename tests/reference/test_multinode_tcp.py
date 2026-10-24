@@ -559,3 +559,219 @@ finally:
 
     assert p0.returncode == 7
     assert p1.returncode == 44
+
+
+# ---------------------------------------------------------------------------
+# Runner-Level Multi-Node Integration Tests
+# ---------------------------------------------------------------------------
+
+RUNNER_WORKER_CODE = r'''
+import sys
+import json
+from pathlib import Path
+
+if __name__ == '__main__':
+    from hypergan.replicated_execution import run_train, run_follower, run_resume
+
+    mode = sys.argv[1]
+    node_rank = int(sys.argv[2])
+    cfg_file = sys.argv[3]
+    run_dir = Path(sys.argv[4])
+    profile = json.loads(sys.argv[5])
+    steps = int(sys.argv[6]) if sys.argv[6] != 'None' else None
+    checkpoint_every = int(sys.argv[7]) if sys.argv[7] != 'None' else 1000
+    checkpoint_path = sys.argv[8] if len(sys.argv) > 8 and sys.argv[8] != 'None' else None
+
+    raw_cfg = json.loads(Path(cfg_file).read_text())
+
+    if mode == 'train':
+        if node_rank == 0:
+            run_train(raw_cfg, run_dir, steps=steps, profile=profile, checkpoint_every=checkpoint_every)
+        else:
+            run_follower(raw_cfg, run_dir, steps=steps, profile=profile, checkpoint_every=checkpoint_every)
+    elif mode == 'resume':
+        if node_rank == 0:
+            run_resume(run_dir, checkpoint=checkpoint_path, config_path=raw_cfg, profile=profile, steps=steps, checkpoint_every=checkpoint_every)
+        else:
+            run_follower(raw_cfg, run_dir, steps=steps, profile=profile, checkpoint=checkpoint_path, checkpoint_every=checkpoint_every)
+'''
+
+
+def test_multinode_runners_cpu_gloo(tmp_path):
+    """Test: 2-node high-level runner execution (run_train on Node 0, run_follower on Node 1) over CPU Gloo."""
+    port = get_free_tcp_port()
+    tcp_url = f"tcp://127.0.0.1:{port}"
+    run_dir = tmp_path / "run_cpu"
+
+    cfg = {
+        'components': {
+            'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]}, 'inputs': {'x': 'latent'}},
+            'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}},
+        },
+        'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
+        'gradient_penalty': {'lazy_k': 2, 'kappa': 0.01},
+        'training': {'steps': 4, 'batch_size': 8, 'device': 'cpu', 'seed': 42},
+        'sampling': {'count': 4},
+    }
+    cfg_file = tmp_path / "config_cpu.json"
+    cfg_file.write_text(json.dumps(cfg))
+
+    script = tmp_path / "runner_worker.py"
+    script.write_text(RUNNER_WORKER_CODE)
+
+    p0_prof = {
+        'schema_version': 1,
+        'execution': {
+            'name': 'cpu-replicated-gloo',
+            'world_size': 2,
+            'nodes': 2,
+            'node_rank': 0,
+            'rendezvous': tcp_url,
+            'accumulation_steps': 1,
+        }
+    }
+    p1_prof = json.loads(json.dumps(p0_prof))
+    p1_prof['execution']['node_rank'] = 1
+
+    env = make_multinode_env()
+    p0 = subprocess.Popen([sys.executable, str(script), 'train', '0', str(cfg_file), str(run_dir), json.dumps(p0_prof), '4', '2'], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p1 = subprocess.Popen([sys.executable, str(script), 'train', '1', str(cfg_file), str(run_dir), json.dumps(p1_prof), '4', '2'], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    _out0, err0 = p0.communicate(timeout=30)
+    _out1, err1 = p1.communicate(timeout=30)
+
+    assert p0.returncode == 0, f"P0 failed: {err0.decode()}"
+    assert p1.returncode == 0, f"P1 failed: {err1.decode()}"
+
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest['steps'] == 4
+    assert manifest['checkpoint_path']
+    assert Path(manifest['checkpoint_path']).exists()
+    assert Path(manifest['bundle_path']).is_file()
+
+
+@pytest.mark.skipif(not is_2gpu_available(), reason="Requires 2 CUDA GPUs with NCCL")
+def test_multinode_runners_gpu_nccl(tmp_path):
+    """Test: 2-node high-level runner execution (run_train on Node 0, run_follower on Node 1) over GPU NCCL on 2x RTX A6000."""
+    port = get_free_tcp_port()
+    tcp_url = f"tcp://127.0.0.1:{port}"
+    run_dir = tmp_path / "run_gpu"
+
+    cfg = {
+        'components': {
+            'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]}, 'inputs': {'x': 'latent'}},
+            'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}},
+        },
+        'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
+        'gradient_penalty': {'lazy_k': 2, 'kappa': 0.01},
+        'training': {'steps': 4, 'batch_size': 8, 'device': 'cuda', 'seed': 42},
+        'sampling': {'count': 4},
+    }
+    cfg_file = tmp_path / "config_gpu.json"
+    cfg_file.write_text(json.dumps(cfg))
+
+    script = tmp_path / "runner_worker.py"
+    script.write_text(RUNNER_WORKER_CODE)
+
+    p0_prof = {
+        'schema_version': 1,
+        'execution': {
+            'name': 'cuda-replicated-nccl',
+            'world_size': 2,
+            'nodes': 2,
+            'node_rank': 0,
+            'rendezvous': tcp_url,
+            'accumulation_steps': 1,
+        }
+    }
+    p1_prof = json.loads(json.dumps(p0_prof))
+    p1_prof['execution']['node_rank'] = 1
+
+    env0 = make_multinode_env(gpu_index=0)
+    env1 = make_multinode_env(gpu_index=1)
+
+    p0 = subprocess.Popen([sys.executable, str(script), 'train', '0', str(cfg_file), str(run_dir), json.dumps(p0_prof), '4', '2'], env=env0, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p1 = subprocess.Popen([sys.executable, str(script), 'train', '1', str(cfg_file), str(run_dir), json.dumps(p1_prof), '4', '2'], env=env1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    _out0, err0 = p0.communicate(timeout=40)
+    _out1, err1 = p1.communicate(timeout=40)
+
+    assert p0.returncode == 0, f"P0 GPU failed: {err0.decode()}"
+    assert p1.returncode == 0, f"P1 GPU failed: {err1.decode()}"
+
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest['steps'] == 4
+    assert manifest['checkpoint_path']
+    assert Path(manifest['checkpoint_path']).exists()
+    assert Path(manifest['bundle_path']).is_file()
+
+
+def test_multinode_runners_checkpoint_resume(tmp_path):
+    """Test: 2-node runner checkpoint save and resume across separate processes."""
+    port = get_free_tcp_port()
+    tcp_url = f"tcp://127.0.0.1:{port}"
+    run_dir = tmp_path / "run_resume"
+
+    cfg = {
+        'components': {
+            'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]}, 'inputs': {'x': 'latent'}},
+            'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}},
+        },
+        'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
+        'gradient_penalty': {'lazy_k': 2, 'kappa': 0.01},
+        'training': {'steps': 2, 'batch_size': 8, 'device': 'cpu', 'seed': 42, 'lr_floor': 1.0},
+        'sampling': {'count': 4},
+    }
+    cfg_file = tmp_path / "config_resume.json"
+    cfg_file.write_text(json.dumps(cfg))
+
+    script = tmp_path / "runner_worker.py"
+    script.write_text(RUNNER_WORKER_CODE)
+
+    p0_prof = {
+        'schema_version': 1,
+        'execution': {
+            'name': 'cpu-replicated-gloo',
+            'world_size': 2,
+            'nodes': 2,
+            'node_rank': 0,
+            'rendezvous': tcp_url,
+            'accumulation_steps': 1,
+        }
+    }
+    p1_prof = json.loads(json.dumps(p0_prof))
+    p1_prof['execution']['node_rank'] = 1
+
+    env = make_multinode_env()
+
+    # Phase 1: Train to step 2 with checkpoint_every=2
+    p0 = subprocess.Popen([sys.executable, str(script), 'train', '0', str(cfg_file), str(run_dir), json.dumps(p0_prof), '2', '2'], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p1 = subprocess.Popen([sys.executable, str(script), 'train', '1', str(cfg_file), str(run_dir), json.dumps(p1_prof), '2', '2'], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    _out0, err0 = p0.communicate(timeout=30)
+    _out1, err1 = p1.communicate(timeout=30)
+
+    assert p0.returncode == 0, f"Phase 1 P0 failed: {err0.decode()}"
+    assert p1.returncode == 0, f"Phase 1 P1 failed: {err1.decode()}"
+
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    ckpt2 = manifest['checkpoint_path']
+    assert manifest['steps'] == 2
+    assert Path(ckpt2).exists()
+
+    time.sleep(0.5)
+
+    # Phase 2: Resume to step 4
+    p0 = subprocess.Popen([sys.executable, str(script), 'resume', '0', str(cfg_file), str(run_dir), json.dumps(p0_prof), '4', '2', str(ckpt2)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p1 = subprocess.Popen([sys.executable, str(script), 'resume', '1', str(cfg_file), str(run_dir), json.dumps(p1_prof), '4', '2', str(ckpt2)], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    _out0, err0 = p0.communicate(timeout=30)
+    _out1, err1 = p1.communicate(timeout=30)
+
+    assert p0.returncode == 0, f"Phase 2 P0 failed: {err0.decode()}"
+    assert p1.returncode == 0, f"Phase 2 P1 failed: {err1.decode()}"
+
+    manifest_resumed = json.loads((run_dir / "manifest.json").read_text())
+    assert manifest_resumed['steps'] == 4
+    assert manifest_resumed['last_durable_step'] == 4
+    assert Path(manifest_resumed['bundle_path']).is_file()

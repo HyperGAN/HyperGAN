@@ -4,6 +4,7 @@ Use from a Python main guard. These wrappers are not public train/resume CLI
 profiles. The shared controller owns the run lock and every visible lifecycle
 record. Workers prepare snapshots; only this parent publishes checkpoints.
 """
+from collections.abc import Mapping
 from dataclasses import asdict
 import hashlib
 import json
@@ -23,6 +24,19 @@ from .execution_profiles import load_execution_profile
 from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, PreviewResult, Restored
 
 MAX_SAMPLE_COUNT = 1024
+
+
+def _normalize_runner_config(config):
+    """Normalize raw config paths, raw config dicts, and already-resolved configs."""
+    if isinstance(config, (str, Path)):
+        return load_config(config)
+    if isinstance(config, Mapping):
+        if ({'components', 'training', 'optimizer'} <= set(config.keys())
+                and isinstance(config.get('training'), Mapping)
+                and 'initialization' in config.get('training', {})):
+            return dict(config)
+        return load_config(config)
+    return load_config(config)
 
 
 def _encoded(value):
@@ -240,9 +254,8 @@ class ReplicatedExecution:
             node_rank = self.profile['execution'].get('node_rank', 0)
             if node_rank > 0:
                 sequence = self.service.next_sequence
-                controller_id = hashlib.sha256(f"{self.context['run_id']}:{self.context['attempt_id']}".encode()).hexdigest()[:32]
-                response = self._command('prepare', {'metadata': metadata,
-                    'command_sequence': sequence, 'controller_id': controller_id})
+                response = self._command('prepare', {'metadata': None,
+                    'command_sequence': sequence, 'controller_id': None})
                 if type(response.get('sequence')) is not int or response['sequence'] != sequence:
                     raise ValueError('Checkpoint command acknowledgement has the wrong sequence')
                 self._results(response, expected_step=self.step)
@@ -274,6 +287,8 @@ class ReplicatedExecution:
         results = self._results(self._command('inference', {'bundle_dir': str(bundle_dir), 'identity': identity}), expected_step=self.step)
         try:
             self.service.assert_healthy()
+            if self.profile['execution'].get('node_rank', 0) > 0:
+                return None
             result = results[0]
             directory = Path(bundle_dir).resolve()
             bundle, sample = Path(result['bundle_path']), Path(result['sample_path'])
@@ -478,7 +493,7 @@ def run_train(config_path, run_dir, steps=None, *, profile, service_policy=None,
               on_event=None, preview_every=0, preview_keep=None, preview_keep_source=None,
               preview_name=None):
     """Internal shared-controller training; numerical imports remain in workers."""
-    config = load_config(config_path) if isinstance(config_path, (str, Path)) else config_path
+    config = _normalize_runner_config(config_path)
     resolved_profile = _resolve_profile(profile, config)
     if resolved_profile['execution'].get('node_rank', 0) > 0:
         return run_follower(config, run_dir, steps, profile=resolved_profile, service_policy=service_policy,
@@ -497,7 +512,11 @@ def run_follower(config, run_dir, steps=None, *, profile, service_policy=None,
                  checkpoint=None, checkpoint_every=1000, max_seconds=None, stop_after_steps=None):
     """Headless follower node execution loop without acquiring run_lock or writing metadata."""
     from .run_controller import AttemptContext
-    config = resolve_config(config)
+    config = _normalize_runner_config(config)
+    if steps is not None and config['training']['steps'] != steps:
+        raw = config_values(config)
+        raw['training']['steps'] = steps
+        config = resolve_config(raw)
     execution = ReplicatedExecution(config, profile, service_policy=service_policy)
     run_dir = Path(run_dir).resolve()
     manifest_path = run_dir / 'manifest.json'
@@ -517,6 +536,8 @@ def run_follower(config, run_dir, steps=None, *, profile, service_policy=None,
         execution.restore(run_dir, checkpoint, run_id, fingerprint(config))
     else:
         execution.start()
+    if checkpoint_every and not execution.information['recovery_reasons']:
+        execution.checkpoint(run_dir, None)
     target_steps = steps or config['training']['steps']
     current_step = execution.step
     try:
@@ -524,10 +545,16 @@ def run_follower(config, run_dir, steps=None, *, profile, service_policy=None,
             update_result = execution.update()
             current_step = update_result.step
             if checkpoint_every and current_step % checkpoint_every == 0:
-                meta = {'run_id': run_id, 'attempt_id': attempt_id, 'step': current_step}
-                execution.checkpoint(run_dir, meta)
+                execution.checkpoint(run_dir, None)
             if stop_after_steps and current_step >= stop_after_steps:
                 break
+        if checkpoint_every and current_step % checkpoint_every != 0 and not execution.information['recovery_reasons']:
+            execution.checkpoint(run_dir, None)
+        if execution.inference_available and not stop_after_steps:
+            bundle_dir = run_dir / '.follower' / 'inference'
+            bundle_dir.mkdir(exist_ok=True, parents=True)
+            identity = {'run_id': run_id, 'attempt_id': attempt_id, 'step': current_step}
+            execution.inference(bundle_dir, identity)
     finally:
         execution.shutdown()
     return {'status': 'completed', 'step': current_step, 'node_rank': profile['execution']['node_rank']}

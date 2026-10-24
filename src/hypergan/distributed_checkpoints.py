@@ -62,7 +62,7 @@ def distributed_runtime_info(trainer):
     backend = dist.get_backend()
     device = getattr(trainer, 'device', torch.device('cpu'))
     if backend == 'nccl':
-        ranks_per_node = getattr(trainer, 'ranks_per_node', trainer.world_size)
+        ranks_per_node = getattr(trainer, 'ranks_per_node', getattr(trainer, 'strategy_info', {}).get('ranks_per_node', trainer.world_size))
         local_rank = trainer.rank % ranks_per_node
         if (device != torch.device('cuda', local_rank)
                 or torch.cuda.current_device() != local_rank
@@ -75,13 +75,17 @@ def distributed_runtime_info(trainer):
         pop_keys = ('name', 'capability', 'uuid', 'gcnArchName') if is_rocm else ('name', 'capability', 'uuid')
         for key in pop_keys:
             cuda.pop(key, None)
+        nodes = getattr(trainer, 'nodes', getattr(trainer, 'strategy_info', {}).get('nodes', 1))
+        is_multinode = nodes > 1
+        if is_multinode:
+            cuda.pop('visible_devices', None)
         nccl_ver = getattr(getattr(torch, 'cuda', None), 'nccl', None)
         cuda['nccl'] = list(nccl_ver.version()) if nccl_ver and hasattr(nccl_ver, 'version') else []
         rank_devices = []
         for rank in range(ranks_per_node):
             prop = torch.cuda.get_device_properties(rank)
             uuid_str = str(getattr(prop, 'uuid', 'unavailable'))
-            if is_rocm and uuid_str in ('None', ''):
+            if is_multinode or (is_rocm and uuid_str in ('None', '')):
                 uuid_str = 'unavailable'
             entry = {
                 'rank': rank,
@@ -108,7 +112,7 @@ def _rank_state(trainer, last_batch):
     # Keep wire payloads device-independent; CUDA tensors never travel through
     # pickle with a rank-local device ordinal. Host copies complete pending work.
     if trainer.device.type == 'cuda':
-        ranks_per_node = getattr(trainer, 'ranks_per_node', trainer.world_size)
+        ranks_per_node = getattr(trainer, 'ranks_per_node', getattr(trainer, 'strategy_info', {}).get('ranks_per_node', trainer.world_size))
         local_rank = trainer.rank % ranks_per_node
         if torch.cuda.current_device() != local_rank:
             raise ValueError('CUDA checkpoint requires the rank-owned current device')
@@ -123,7 +127,9 @@ def _rank_state(trainer, last_batch):
 def _validate_rank_rng(trainer, state):
     if trainer.device.type == 'cuda':
         rng = state.get('rng')
-        if not isinstance(rng, dict) or type(rng.get('cuda_device')) is not int or rng['cuda_device'] != trainer.rank:
+        ranks_per_node = getattr(trainer, 'ranks_per_node', getattr(trainer, 'strategy_info', {}).get('ranks_per_node', trainer.world_size))
+        local_rank = trainer.rank % ranks_per_node
+        if not isinstance(rng, dict) or type(rng.get('cuda_device')) is not int or rng['cuda_device'] != local_rank:
             raise ValueError('Checkpoint CUDA RNG current device differs from the owning rank')
 
 
@@ -440,9 +446,9 @@ def _validate_restore_identity(saved, current):
     saved_cmp = {key: value for key, value in saved.items() if key not in excluded}
     current_cmp = {key: value for key, value in current.items() if key not in excluded}
     if isinstance(saved_cmp.get('topology'), dict):
-        saved_cmp['topology'] = {k: v for k, v in saved_cmp['topology'].items() if k != 'rendezvous'}
+        saved_cmp['topology'] = {k: v for k, v in saved_cmp['topology'].items() if k not in ('node_rank', 'rendezvous')}
     if isinstance(current_cmp.get('topology'), dict):
-        current_cmp['topology'] = {k: v for k, v in current_cmp['topology'].items() if k != 'rendezvous'}
+        current_cmp['topology'] = {k: v for k, v in current_cmp['topology'].items() if k not in ('node_rank', 'rendezvous')}
     if not _same_json(saved_cmp, current_cmp):
         raise ValueError('Distributed checkpoint config/data/topology identity differs')
 

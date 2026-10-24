@@ -238,7 +238,7 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_im
     rng = torch.Generator().manual_seed(seed)
     with torch.inference_mode():
         z, ids = prior.sample(count, generator=rng)
-        context = graph.generate(z, normalized, prior=prior)
+        context = graph.generate(z, normalized, prior=prior, lazy=config['sampling'].get('generated', 'generated') != 'generated')
         values = generation_output(graph, context, config['sampling'])
         ids = generation_particle_ids(graph, context, ids, config['sampling'])
     if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
@@ -247,16 +247,19 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_im
         raise ValueError("Inference produced nonfinite values")
     if output is not None:
         output = Path(output)
+        is_image_grid = False
     else:
-        from .image_grids import MAX_COUNT
-        is_image_tensor = (
-            default_image_png
-            and values.ndim == 4
+        from .image_grids import MAX_COUNT, MAX_ELEMENTS as MAX_IMAGE_ELEMENTS
+        is_image_grid = (
+            values.ndim == 4
             and values.shape[1] in (1, 3)
             and values.shape[2] >= 4
             and values.shape[3] >= 4
             and count <= MAX_COUNT
+            and values.numel() <= MAX_IMAGE_ELEMENTS
+            and values.is_floating_point()
         )
+        is_image_tensor = default_image_png and is_image_grid
         ext = "png" if is_image_tensor else "json"
         sub = (run_dir.parent / "samples") if is_direct_bundle else ((run_dir / "samples") if is_image_tensor else run_dir)
         output = sub / f"samples-step{state.get('step', 0):08d}-seed{seed}-n{count}-{uuid.uuid4().hex}.{ext}"
@@ -285,6 +288,30 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_im
                 os.unlink(temporary)
             except OSError:
                 pass
+    if is_image_grid and output.suffix.lower() == '.json':
+        try:
+            from .image_grids import tensor_grid
+            grid_meta = {key: value for key, value in payload.items() if key not in ("samples", "inputs")}
+            grid_meta["input_shapes"] = {key: list(value.shape) for key, value in normalized.items()}
+            png_bytes, _ = tensor_grid(values, grid_meta)
+            png_output = output.with_suffix(".png")
+            png_fd, png_tmp = tempfile.mkstemp(prefix=".sample-grid-", suffix=".tmp", dir=output.parent)
+            try:
+                with os.fdopen(png_fd, "wb") as stream:
+                    stream.write(png_bytes)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.chmod(png_tmp, 0o644)
+                os.replace(png_tmp, png_output)
+                sync_directory(output.parent)
+            finally:
+                if os.path.exists(png_tmp):
+                    try:
+                        os.unlink(png_tmp)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
     return output
 
 

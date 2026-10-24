@@ -288,7 +288,7 @@ const isFinalSample = (artifact) => artifact.provenance?.final === true;
 function foldRawTensors(groups) {
   // The JSON tensor published with an image grid is the same sample as numbers.
   // It belongs on that image's card as a download, not in a second group; a
-  // tensor with no picture (numerical recipes) and the final sample keep theirs.
+  // tensor with no picture (numerical recipes) keeps its own card.
   for (const [key, group] of [...groups]) {
     if (group.modality !== "tensor") continue;
     const images = groups.get(`${group.name}\u0000image`);
@@ -298,11 +298,12 @@ function foldRawTensors(groups) {
     );
     const remaining = [];
     for (const version of group.versions) {
-      const image = isFinalSample(version.artifact)
-        ? undefined
-        : byStep.get(provenanceStep(version.artifact));
-      if (image && !image.tensor) image.tensor = version;
-      else remaining.push(version);
+      const image = byStep.get(provenanceStep(version.artifact));
+      if (image) {
+        if (!image.tensor) image.tensor = version;
+      } else {
+        remaining.push(version);
+      }
     }
     if (remaining.length) group.versions = remaining;
     else groups.delete(key);

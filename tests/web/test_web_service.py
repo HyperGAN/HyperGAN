@@ -950,6 +950,31 @@ def test_model_route_is_in_the_openapi_contract(tmp_path, auth):
     assert {'Model', 'Network', 'NetworkGraph', 'LossTerm'} <= set(schema['components']['schemas'])
     assert bool(operation.get('security')) == (auth == 'token')
 
+def test_final_sample_companion_png_indexed_when_no_step_preview_exists(tmp_path):
+    from hypergan.image_grids import encode_png
+    fixture_run(tmp_path, 1)
+    final_json = tmp_path / 'samples-step00000010.json'
+    final_json.write_text(json.dumps({
+        'shape': [4, 3, 8, 8],
+        'step': 10,
+        'identity': {'attempt_id': 'a'},
+    }))
+    final_png = tmp_path / 'samples-step00000010.png'
+    final_png.write_bytes(encode_png(bytes([128, 64, 32] * 64), 8, 8, 3, {'step': 10}))
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            service.manifest['sample_path'] = str(final_json)
+            await service.refresh_artifacts()
+            assert len(service.artifacts) == 2
+            grid = next(v for k, v in service.artifacts.items() if k.endswith('-grid'))
+            assert grid['modality'] == 'image' and grid['media_type'] == 'image/png'
+            assert grid['provenance']['final'] is True and grid['provenance']['step'] == 10
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
 def test_foldlite_history_reopens_from_persisted_cursor_and_regenerates(tmp_path, monkeypatch):
     """Reopening reduces only a new suffix; deleting derived state is equivalent."""
     import shutil

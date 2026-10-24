@@ -129,7 +129,7 @@ def render_preview(trainer, batch, identity):
     import numpy as np
     import torch
     from .checkpoints import capture_rng, restore_rng
-    from .recipes import generation_output, generation_particle_ids
+    from .recipes import ComponentGraph, generation_output, generation_particle_ids
     rng = capture_rng()
     try:
         seed = trainer.config['sampling']['seed']
@@ -147,7 +147,10 @@ def render_preview(trainer, batch, identity):
         recorded_inputs = {key: value.cpu() for key, value in recorded_inputs.items()}
         with torch.inference_mode():
             latent, ids = prior.sample(count, generator=torch.Generator().manual_seed(seed))
-            context = graph.generate(latent, normalized, prior=prior)
+            if trainer.config['sampling'].get('generated', 'generated') != 'generated' and isinstance(graph, ComponentGraph):
+                context = graph.generate(latent, normalized, prior=prior, lazy=True)
+            else:
+                context = graph.generate(latent, normalized, prior=prior)
             values = generation_output(graph, context, trainer.config['sampling'])
             ids = generation_particle_ids(graph, context, ids, trainer.config['sampling'])
             views = {name: graph.resolve(binding, context) for name, binding
@@ -156,6 +159,23 @@ def render_preview(trainer, batch, identity):
                           for column in trainer.config['sampling'].get('comparison', [])]
         if not isinstance(values, torch.Tensor) or values.ndim < 1 or len(values) != count:
             raise ValueError('Preview generator must return a tensor with the requested batch size')
+        if (not image_only and _image(values)
+                and values.numel() + sum(value.numel() for value in recorded_inputs.values()) > MAX_ELEMENTS):
+            if sum(value.numel() for value in recorded_inputs.values() if not _image(value)) > MAX_ELEMENTS:
+                raise ValueError('Nonimage preview inputs exceed the tensor element budget')
+            image_only = True
+            budget = MAX_IMAGE_ELEMENTS
+            if not _image(real) and values.numel() + sum(value.numel() for value in recorded_inputs.values()) > budget:
+                per_out = values[0].numel() + sum(value[0].numel() for value in recorded_inputs.values())
+                capped = max(1, budget // max(1, per_out))
+                if capped < count:
+                    count = capped
+                    values = values[:count]
+                    if ids is not None:
+                        ids = ids[:count]
+                    recorded_inputs = {k: v[:count] for k, v in recorded_inputs.items()}
+                    views = {k: v[:count] for k, v in views.items()}
+                    comparison = [(lbl, val[:count]) for lbl, val in comparison]
         if values.numel() + sum(value.numel() for value in recorded_inputs.values()) > budget:
             raise ValueError(f'Preview exceeds the {budget}-element output/input budget')
         if image_only and not _image(values):

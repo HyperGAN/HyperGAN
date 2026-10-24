@@ -1,0 +1,279 @@
+# HyperGAN model written by hypergan.api (hg.save). Train it with `hypergan train` or hg.train.
+# Networks and data are referenced by import path; edit those modules, not copies.
+# hg.save replaces this file only while it is unedited; after editing it here, load it with hg.load.
+# body-sha256: 6ead960be022dcb83c89d10aacc925a8ab5c5d98f9d46c450d12455c739e86bd
+
+format = "hypergan-model/1"
+name = "constraints/imajev-apples-multiquery-dcgan-64-bispf"
+defaults = "particlegan"
+
+[networks.image_generator]
+role = "auxiliary"
+inputs = { x = "latent" }
+hndl = "networks/simple-apple-generator-64.hndl"
+input_shape = ["B", 128]
+output_shape = ["B", 3, 64, 64]
+
+[networks.generator]
+role = "generator"
+inputs = { x = "components.image_generator" }
+hndl = "networks/imajev-multiquery-head.hndl"
+input_shape = ["B", 3, 64, 64]
+output_shape = ["B", 21]
+
+[networks.generator.args.parameters]
+readout_path = "/path/to/imajev/artifacts/imajev-4b/decision_readout.pt"
+readout_sha256 = "7a98c7aac7c0f648ac2fdfd563dc6ccce4cdf4e81b47c6a6a0dae1725b409326"
+
+[networks.generator.args.pretrained_providers.imajev_4b]
+base_model_path = "/path/to/Qwen3.5-4B"
+adapter_path = "/path/to/imajev/artifacts/imajev-4b"
+image_size = 128
+compile = true
+target_layer = -1
+state_embed_dim = 16
+
+[[networks.generator.args.pretrained_providers.imajev_4b.queries]]
+weight = 2.5
+state = { task = "apple_generation", aspect = "subject" }
+question = "What is the main subject shown in this image?"
+options = ["a recognizable apple fruit", "an orange or lemon citrus fruit", "a banana or pear", "random noise, static, checkerboard pattern, or solid color"]
+
+[[networks.generator.args.pretrained_providers.imajev_4b.queries]]
+weight = 1.5
+state = { task = "apple_generation", aspect = "color" }
+question = "What color is the apple shown in this image?"
+options = ["a bright red apple", "a crisp green apple", "a golden yellow or two-tone Honeycrisp apple", "monochrome gray, purple, blue, or static noise"]
+
+[[networks.generator.args.pretrained_providers.imajev_4b.queries]]
+weight = 1.2
+state = { task = "apple_generation", aspect = "bites" }
+question = "How many bites are taken out of the apple?"
+options = ["zero bites — a complete, intact whole apple", "one bite taken out showing pale apple flesh", "multiple bites taken out or an eaten apple core", "no apple visible, only noise or abstract shapes"]
+
+[[networks.generator.args.pretrained_providers.imajev_4b.queries]]
+weight = 1.0
+state = { task = "apple_generation", aspect = "sitting_on" }
+question = "What surface or background is the apple sitting on?"
+options = ["a warm wooden table or rustic surface", "a clean white or light studio surface", "a dark moody background or dark slate surface", "harsh digital static, grid lines, or corrupted pixels"]
+
+[[networks.generator.args.pretrained_providers.imajev_4b.queries]]
+weight = 1.0
+state = { task = "apple_generation", aspect = "style" }
+question = "What is the visual style and lighting of this apple image?"
+options = ["a glossy photorealistic close-up with specular highlight", "a soft painterly still-life illustration", "a vibrant crisp product photo with natural shadow", "flat unshaded blotches, noise, or checkerboard artifacts"]
+
+[[networks.generator.args.pretrained_providers.imajev_4b.queries]]
+weight = 1.0
+state = { task = "apple_generation", aspect = "stem_leaf" }
+question = "Does the apple have a visible stem or green leaf at the top?"
+options = ["a stem with a fresh green leaf attached", "a simple brown stem without a leaf", "a natural top indentation without a stem", "distorted noise or unrecognizable blob"]
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+source = """
+linear(128)
+leaky_relu(0.2)
+linear(128)
+leaky_relu(0.2)
+linear(64)
+leaky_relu(0.2)
+linear(1)
+"""
+input_shape = ["B", 21]
+output_shape = ["B", 1]
+
+[data]
+factory = "hypergan.constraint_data:MultiQueryConstraintData"
+
+[data.args]
+state_embed_dim = 16
+jitter_std = 0.05
+base_model_path = "/path/to/Qwen3.5-4B"
+adapter_path = "/path/to/imajev/artifacts/imajev-4b"
+
+[[data.args.queries]]
+weight = 2.5
+state = { task = "apple_generation", aspect = "subject" }
+question = "What is the main subject shown in this image?"
+options = ["a recognizable apple fruit", "an orange or lemon citrus fruit", "a banana or pear", "random noise, static, checkerboard pattern, or solid color"]
+target_probs = [0.992, 0.002, 0.002, 0.002, 0.002]
+
+[[data.args.queries]]
+weight = 1.5
+state = { task = "apple_generation", aspect = "color" }
+question = "What color is the apple shown in this image?"
+options = ["a bright red apple", "a crisp green apple", "a golden yellow or two-tone Honeycrisp apple", "monochrome gray, purple, blue, or static noise"]
+target_probs = [[0.992, 0.002, 0.002, 0.002, 0.002], [0.002, 0.992, 0.002, 0.002, 0.002], [0.002, 0.002, 0.992, 0.002, 0.002]]
+
+[[data.args.queries]]
+weight = 1.2
+state = { task = "apple_generation", aspect = "bites" }
+question = "How many bites are taken out of the apple?"
+options = ["zero bites — a complete, intact whole apple", "one bite taken out showing pale apple flesh", "multiple bites taken out or an eaten apple core", "no apple visible, only noise or abstract shapes"]
+target_probs = [[0.992, 0.002, 0.002, 0.002, 0.002], [0.992, 0.002, 0.002, 0.002, 0.002], [0.002, 0.992, 0.002, 0.002, 0.002], [0.002, 0.002, 0.992, 0.002, 0.002]]
+
+[[data.args.queries]]
+weight = 1.0
+state = { task = "apple_generation", aspect = "sitting_on" }
+question = "What surface or background is the apple sitting on?"
+options = ["a warm wooden table or rustic surface", "a clean white or light studio surface", "a dark moody background or dark slate surface", "harsh digital static, grid lines, or corrupted pixels"]
+target_probs = [[0.992, 0.002, 0.002, 0.002, 0.002], [0.002, 0.992, 0.002, 0.002, 0.002], [0.002, 0.002, 0.992, 0.002, 0.002]]
+
+[[data.args.queries]]
+weight = 1.0
+state = { task = "apple_generation", aspect = "style" }
+question = "What is the visual style and lighting of this apple image?"
+options = ["a glossy photorealistic close-up with specular highlight", "a soft painterly still-life illustration", "a vibrant crisp product photo with natural shadow", "flat unshaded blotches, noise, or checkerboard artifacts"]
+target_probs = [[0.992, 0.002, 0.002, 0.002, 0.002], [0.002, 0.992, 0.002, 0.002, 0.002], [0.002, 0.002, 0.992, 0.002, 0.002]]
+
+[[data.args.queries]]
+weight = 1.0
+state = { task = "apple_generation", aspect = "stem_leaf" }
+question = "Does the apple have a visible stem or green leaf at the top?"
+options = ["a stem with a fresh green leaf attached", "a simple brown stem without a leaf", "a natural top indentation without a stem", "distorted noise or unrecognizable blob"]
+target_probs = [[0.992, 0.002, 0.002, 0.002, 0.002], [0.002, 0.992, 0.002, 0.002, 0.002], [0.002, 0.002, 0.992, 0.002, 0.002]]
+
+[prior]
+kind = "particles"
+initialization_device = "cpu"
+initialization_seed = 26003
+num_particles = 512
+z_dim = 128
+
+[train]
+steps = 2000
+batch_size = 16
+seed = 26002
+device = "cuda:1"
+ema = 0.95
+phase_draws = "shared"
+lr = 0.025
+d_lr_mult = 0.5
+prior_lr_mult = 2.0
+
+[train.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[penalty]
+kappa = 1.0
+lazy_k = 1
+
+[sampling]
+count = 16
+seed = 36002
+output = "components.image_generator"
+
+[metrics]
+preset = "standard"
+every_steps = 5
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 25.0
+
+[[losses]]
+type = "objective"
+id = "tv_smoothness"
+fn = "hypergan.constraint_data:TotalVariationSmoothness"
+weight = 0.05
+
+[losses.inputs]
+image = "components.image_generator"
+
+[[losses]]
+type = "objective"
+id = "apple_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = [0, 1, 2]
+input_mode = "state_conditioned_log_odds"
+num_classes = 5
+
+[[losses]]
+type = "objective"
+id = "mode0_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 0
+input_mode = "state_conditioned_log_odds"
+num_classes = 5
+
+[[losses]]
+type = "objective"
+id = "mode1_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 1
+input_mode = "state_conditioned_log_odds"
+num_classes = 5
+
+[[losses]]
+type = "objective"
+id = "mode2_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 2
+input_mode = "state_conditioned_log_odds"
+num_classes = 5
+
+[[losses]]
+type = "objective"
+id = "noise_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 3
+input_mode = "state_conditioned_log_odds"
+num_classes = 5
+
+[[losses]]
+type = "objective"
+id = "unknown_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 4
+input_mode = "state_conditioned_log_odds"
+num_classes = 5

@@ -1,0 +1,42 @@
+# Simple 64x64 RGB generator with coarse-to-fine toRGB residual branches,
+# bilinear upsampling + 3x3 convolutions, and group_norm.
+z = reshape(128, 1, 1)
+h4 = deconv(z, 256, kernel_size=4, stride=1, padding=0, bias=False)
+h4 = group_norm(h4, 16)
+h4 = silu(h4)
+
+# 8x8 stage
+u8 = upsample(h4, scale_factor=2, mode="bilinear")
+h8 = conv(u8, 128, kernel_size=3, stride=1, padding=1, bias=False)
+h8 = group_norm(h8, 16)
+h8 = silu(h8)
+rgb8 = conv(h8, 3, kernel_size=1, stride=1, padding=0)
+
+# 16x16 stage
+u16 = upsample(h8, scale_factor=2, mode="bilinear")
+h16 = conv(u16, 64, kernel_size=3, stride=1, padding=1, bias=False)
+h16 = group_norm(h16, 8)
+h16 = silu(h16)
+rgb8_up = upsample(rgb8, scale_factor=2, mode="bilinear")
+rgb16_res = conv(h16, 3, kernel_size=1, stride=1, padding=0)
+rgb16 = add(rgb8_up, rgb16_res)
+
+# 32x32 stage
+u32 = upsample(h16, scale_factor=2, mode="bilinear")
+h32 = conv(u32, 32, kernel_size=3, stride=1, padding=1, bias=False)
+h32 = group_norm(h32, 8)
+h32 = silu(h32)
+rgb16_up = upsample(rgb16, scale_factor=2, mode="bilinear")
+rgb32_res = conv(h32, 3, kernel_size=1, stride=1, padding=0)
+rgb32 = add(rgb16_up, rgb32_res)
+
+# 64x64 stage
+u64 = upsample(h32, scale_factor=2, mode="bilinear")
+h64 = conv(u64, 16, kernel_size=3, stride=1, padding=1, bias=False)
+h64 = group_norm(h64, 4)
+h64 = silu(h64)
+rgb32_up = upsample(rgb32, scale_factor=2, mode="bilinear")
+rgb64_res = conv(h64, 3, kernel_size=3, stride=1, padding=1)
+rgb64 = add(rgb32_up, rgb64_res)
+
+out = tanh(rgb64)

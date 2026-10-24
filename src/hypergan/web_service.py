@@ -296,6 +296,30 @@ class ObservationService:
                             # name it rather than showing another anonymous tensor.
                             provenance=dict(saved, step=payload.get('step'), name=name, final=True),
                             shape=payload.get('shape'))
+                        has_step_image = any(
+                            r.get('modality') == 'image'
+                            and r.get('name') == name
+                            and isinstance(r.get('provenance'), dict)
+                            and r['provenance'].get('step') == payload.get('step')
+                            for r in records.values()
+                        )
+                        if not has_step_image and path.endswith('.json'):
+                            grid_path = path[:-5] + '.png'
+                            if (self.root / grid_path).is_file():
+                                try:
+                                    from .image_grids import inspect_png
+                                    grid_data = read_bytes(self.root, grid_path, max_bytes=8 * 1048576)
+                                    header = inspect_png(grid_data)
+                                    records[key + '-grid'] = dict(
+                                        path=grid_path, bytes=len(grid_data),
+                                        sha256=hashlib.sha256(grid_data).hexdigest(),
+                                        role='sample', modality='image', media_type='image/png',
+                                        name=name,
+                                        provenance=dict(saved, step=payload.get('step'), name=name, final=True),
+                                        width=header['width'], height=header['height'],
+                                        shape=payload.get('shape'))
+                                except (ValueError, OSError):
+                                    pass
                     except (ValueError, OSError) as exc:
                         records[key] = dict(status='unavailable', role='sample', reason=str(exc), name='final')
                 return signature, records

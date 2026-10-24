@@ -1,6 +1,7 @@
 """Torch-free loading of the architecture text recorded in run configurations."""
 from pathlib import Path
 from string import Template
+import json
 import math
 
 NETWORK_DIRECTORY = Path(__file__).with_name('networks')
@@ -50,20 +51,125 @@ def render_source(source, parameters=None):
         raise ValueError(f'Invalid HNDL template parameter: {exc}') from exc
 
 
+def _validate_imajev_query_fields(entry, prefix='imajev_4b'):
+    if not isinstance(entry.get('question'), str) or not entry['question'].strip():
+        raise ValueError(f'{prefix} question must be nonempty text')
+    choices = entry.get('options')
+    if (not isinstance(choices, (list, tuple)) or not 2 <= len(choices) <= 63
+            or any(not isinstance(item, str) or not item.strip() for item in choices)):
+        raise ValueError(f'{prefix} options must be 2 to 63 nonempty strings')
+    if any(item == '__unknown__' or item.strip() == '__unknown__' for item in choices):
+        raise ValueError(f'{prefix} options cannot contain __unknown__')
+    if len(set(choices)) != len(choices):
+        raise ValueError(f'{prefix} options must be unique')
+    if 'state' in entry:
+        state = entry['state']
+        if not isinstance(state, (str, dict)):
+            raise ValueError(f'{prefix} state must be a string or table')
+        try:
+            json.dumps(state, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'{prefix} state must be JSON-serializable without NaN/Inf') from exc
+
+
+def _validate_imajev_provider(options):
+    if not isinstance(options, dict):
+        raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
+    common_required = {'base_model_path', 'adapter_path'}
+    common_optional = {
+        'temperature',
+        'image_size',
+        'compile',
+        'target_layer',
+        'state_embed_dim',
+        'tau',
+        'mode',
+        'sobolev_precondition',
+    }
+    if 'queries' in options:
+        if {'question', 'options', 'state'} & set(options):
+            raise ValueError('imajev_4b cannot specify both queries and top-level question/options/state')
+        required = common_required | {'queries'}
+        allowed = required | common_optional
+        if not required.issubset(options) or set(options) - allowed:
+            raise ValueError('imajev_4b multi-query config requires base_model_path, adapter_path and queries')
+    else:
+        required = common_required | {'question', 'options'}
+        allowed = required | common_optional | {'state'}
+        if not required.issubset(options) or set(options) - allowed:
+            raise ValueError('imajev_4b requires base_model_path, adapter_path, question and options')
+    for key in ('base_model_path', 'adapter_path'):
+        if not isinstance(options[key], str) or not options[key].strip():
+            raise ValueError(f'imajev_4b {key} must be nonempty text')
+    if 'queries' in options:
+        queries = options['queries']
+        if not isinstance(queries, (list, tuple)) or not 2 <= len(queries) <= 64:
+            raise ValueError('imajev_4b queries must be a list of 2 to 64 query tables')
+        option_counts = set()
+        for idx, query in enumerate(queries):
+            if (not isinstance(query, dict)
+                    or not {'question', 'options'}.issubset(query)
+                    or set(query) - {'question', 'options', 'state', 'weight'}):
+                raise ValueError(f'imajev_4b queries[{idx}] requires question and options')
+            _validate_imajev_query_fields(query, prefix='imajev_4b')
+            if 'weight' in query:
+                weight = query['weight']
+                if type(weight) not in (int, float) or not math.isfinite(weight) or weight <= 0:
+                    raise ValueError('imajev_4b query weight must be a finite positive number')
+            option_counts.add(len(query['options']))
+        if len(option_counts) != 1:
+            raise ValueError('imajev_4b queries must all have the same number of options')
+    else:
+        _validate_imajev_query_fields(options, prefix='imajev_4b')
+    if 'temperature' in options:
+        temperature = options['temperature']
+        if type(temperature) not in (int, float) or not math.isfinite(temperature) or temperature <= 0:
+            raise ValueError('imajev_4b temperature must be a finite positive number')
+    if 'image_size' in options:
+        image_size = options['image_size']
+        if type(image_size) is not int or not 32 <= image_size <= 1024 or image_size % 32 != 0:
+            raise ValueError('imajev_4b image_size must be an integer multiple of 32 between 32 and 1024')
+    if 'compile' in options:
+        if type(options['compile']) is not bool:
+            raise ValueError('imajev_4b compile must be a boolean')
+    if 'target_layer' in options:
+        target_layer = options['target_layer']
+        if type(target_layer) is not int or not -32 <= target_layer <= 31:
+            raise ValueError('imajev_4b target_layer must be an integer in [-32, 31]')
+    if 'state_embed_dim' in options:
+        state_embed_dim = options['state_embed_dim']
+        if type(state_embed_dim) is not int or not 4 <= state_embed_dim <= 256:
+            raise ValueError('imajev_4b state_embed_dim must be an integer in [4, 256]')
+    if 'tau' in options:
+        tau = options['tau']
+        if type(tau) not in (int, float) or not math.isfinite(tau) or tau <= 0:
+            raise ValueError('imajev_4b tau must be a finite positive number')
+    if 'mode' in options:
+        mode = options['mode']
+        if mode not in ('joint_log_odds', 'pooled_features', 'pooled_vision', 'decision_logits', 'decision_probs'):
+            raise ValueError('imajev_4b mode must be "joint_log_odds", "pooled_features", "pooled_vision", "decision_logits", or "decision_probs"')
+    if 'sobolev_precondition' in options:
+        if type(options['sobolev_precondition']) is not bool:
+            raise ValueError('imajev_4b sobolev_precondition must be a boolean')
+
+
 def validate_pretrained_providers(providers):
     """Validate trusted provider options without importing model libraries."""
     if not isinstance(providers, dict):
         raise ValueError('pretrained_providers must be a table')
     for name, options in providers.items():
-        if name != 'dinov3_vits16':
+        if name == 'dinov3_vits16':
+            if not isinstance(options, dict) or set(options) != {'source_path', 'source_commit'}:
+                raise ValueError('dinov3_vits16 requires source_path and source_commit')
+            if not isinstance(options['source_path'], str) or not options['source_path'].strip():
+                raise ValueError('DINOv3 source_path must be nonempty text')
+            commit = options['source_commit']
+            if not isinstance(commit, str) or len(commit) != 40 or any(c not in '0123456789abcdef' for c in commit):
+                raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
+        elif name == 'imajev_4b':
+            _validate_imajev_provider(options)
+        else:
             raise ValueError(f'Unknown configurable pretrained provider: {name}')
-        if not isinstance(options, dict) or set(options) != {'source_path', 'source_commit'}:
-            raise ValueError('dinov3_vits16 requires source_path and source_commit')
-        if not isinstance(options['source_path'], str) or not options['source_path'].strip():
-            raise ValueError('DINOv3 source_path must be nonempty text')
-        commit = options['source_commit']
-        if not isinstance(commit, str) or len(commit) != 40 or any(c not in '0123456789abcdef' for c in commit):
-            raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
 
 
 def validate_network_args(args, location):

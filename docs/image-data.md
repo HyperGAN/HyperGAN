@@ -2,6 +2,16 @@
 
 `image_folder` loads local images into CPU batches with an explicit shape and preprocessing policy. It supports flat folders, recursive folders and named class directories. It does not download data or qualify image quality.
 
+For the qualified CIFAR-10 dataset (`hypergan.datasets:CIFAR10Data`), HyperGAN provides an explicit opt-in acquisition and verification command (`hypergan download-data`). Training itself never performs implicit network downloads:
+
+```sh
+hypergan download-data --list
+hypergan download-data cifar10 --info
+hypergan download-data cifar10 --output ./data
+```
+
+`hypergan download-data cifar10 --output ./data` verifies the archive size (`170,498,071` bytes) and SHA256 (`6d958be074577803d12ecdefd02955f39262c83c16fe9348329d7fe0b5c001ce`), safely extracts `cifar-10-batches-py/`, verifies each batch file's SHA256 digest, and writes `./data/dataset-manifest.json` with a ready-to-use `[data]` configuration snippet. Unqualified datasets (such as MNIST, CelebA, ImageNet, and COCO) are not advertised by `download-data`; prepare local image directories with `image_folder` instead.
+
 Install the optional decoder in your active Python environment:
 
 ```sh

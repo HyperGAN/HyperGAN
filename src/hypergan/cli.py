@@ -168,6 +168,20 @@ def _parser():
     data_check = commands.add_parser("data-check")
     data_check.add_argument("config", type=Path)
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
+    download_data = commands.add_parser(
+        "download-data",
+        help="Opt-in acquisition, checksum verification, and manifest preparation for qualified datasets",
+    )
+    download_data.add_argument("dataset", nargs="?", default="cifar10", help="qualified dataset identifier (default: cifar10)")
+    download_data.add_argument("-o", "--output", type=Path, default=None, help="destination directory for extracted dataset and dataset-manifest.json")
+    download_data.add_argument("--cache-dir", type=Path, default=None, help="archive download cache directory (default: <output>/.cache)")
+    download_data.add_argument("--info", action="store_true", help="show source URL, version, expected bytes, checksums, and usage notice without downloading")
+    download_data.add_argument("--list", dest="list_datasets", action="store_true", help="list qualified datasets available for download")
+    download_data.add_argument("--verify-only", action="store_true", help="verify existing archive/extracted files without downloading")
+    download_data.add_argument("--source-archive", type=Path, default=None, help="verify and extract an already-downloaded local archive file")
+    download_data.add_argument("--url", default=None, help="override download URL (archive must still pass pinned size and SHA256 verification)")
+    download_data.add_argument("--timeout", type=float, default=60.0, help="network timeout in seconds (default: 60)")
+    download_data.add_argument("--json", action="store_true", help="output result as JSON")
     inspect = commands.add_parser("inspect", help="Inspect raw run manifest JSON")
     inspect.add_argument("path", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or manifest path")
     inspect.add_argument("--json", action="store_true", help="output manifest JSON")
@@ -1431,6 +1445,55 @@ def _dispatch(args, *, output=None):
                 print(out)
         elif args.command == "data-check":
             _print_json(hg.data_check(args.config, output=args.output))
+        elif args.command == "download-data":
+            if getattr(args, "list_datasets", False):
+                datasets = hg.list_datasets()
+                if getattr(args, "json", False):
+                    _print_json({"datasets": datasets})
+                else:
+                    for ds in datasets:
+                        mib = ds["expected_bytes"] / (1024 * 1024)
+                        print(f"{ds['name']} ({ds['version']}) - {ds['expected_bytes']} bytes ({mib:.2f} MiB) - {ds['url']}")
+                        print(f"  {ds['usage_notice']}")
+            elif getattr(args, "info", False):
+                info = hg.dataset_info(args.dataset)
+                if getattr(args, "json", False):
+                    _print_json(info)
+                else:
+                    mib = info["expected_bytes"] / (1024 * 1024)
+                    print(f"Dataset:         {info['name']} ({info['title']})")
+                    print(f"Version:         {info['version']}")
+                    print(f"Source URL:      {info['url']}")
+                    print(f"Archive:         {info['archive_filename']} ({info['expected_bytes']} bytes, {mib:.2f} MiB)")
+                    print(f"Archive SHA256:  {info['archive_sha256']}")
+                    print(f"Extracted dir:   {info['extracted_dir']}")
+                    print(f"Data factory:    {info['factory']}")
+                    print("Pinned files:")
+                    for fname, fsha in info["files_sha256"].items():
+                        print(f"  {fname}: {fsha}")
+                    print(f"Citation:        {info['citation']}")
+                    print(f"Usage notice:    {info['usage_notice']}")
+            else:
+                hg.dataset_info(args.dataset)
+                if args.output is None:
+                    raise ValueError("hypergan download-data requires --output DIR (or pass --info / --list)")
+                res = hg.download_dataset(
+                    args.dataset,
+                    args.output,
+                    cache_dir=args.cache_dir,
+                    url=args.url,
+                    source_archive=args.source_archive,
+                    verify_only=args.verify_only,
+                    timeout=args.timeout,
+                )
+                if getattr(args, "json", False):
+                    _print_json(res)
+                else:
+                    print(f"Prepared dataset: {res['dataset']} ({res['version']})")
+                    print(f"Root directory:   {res['root']}")
+                    print(f"Manifest:         {res['manifest_path']}")
+                    print(f"Usage notice:     {res['usage_notice']}")
+                    print("\nConfiguration snippet:\n" + res["config_snippet"].rstrip())
         elif args.command == "preflight":
             cfg = hg.load(args.config)
             _warnings(hg.resolve(cfg))

@@ -56,7 +56,15 @@ Copy `examples/cifar-pretrained-sagan.toml` to `cifar.toml`, keeping its relativ
 HNDL file references valid (copy the referenced files and adjust their paths if
 moving the recipe). Put the already
 obtained official Python-format CIFAR batches under `./data/cifar-10-batches-py/`,
-or edit all three `root` entries to their existing location. Paths are relative
+or acquire and verify them explicitly with the opt-in downloader before training
+(training itself never downloads data implicitly):
+
+```sh
+hypergan download-data cifar10 --info
+hypergan download-data cifar10 --output ./data
+```
+
+Alternatively, edit all three `root` entries to an existing local directory. Paths are relative
 to the command's working directory; use absolute paths if you run commands from
 multiple locations. The example uses the conventional torch checkpoint cache for
 both ResNet18 and Inception; change both Inception entries if your cache differs.

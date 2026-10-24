@@ -139,17 +139,13 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
     return target
 
 
-def _apply_devices(devices, config, profile, context_path):
-    if devices is None:
-        if isinstance(config, dict):
-            devices = config.get("run", {}).get("devices")
-
-    from .workspace import find_workspace, load_workspace, resolve_device_aliases
+def _load_workspace_data(config, *context_paths):
+    from .workspace import find_workspace, load_workspace
     env_ws = os.environ.get("HYPERGAN_WORKSPACE")
     source_p = config.get("_source_path") if isinstance(config, dict) else None
     ws_path = None
-    for cand in (env_ws, source_p, context_path, Path.cwd()):
-        if cand is not None:
+    for cand in (env_ws, source_p, *context_paths, Path.cwd()):
+        if cand is not None and not isinstance(cand, dict):
             try:
                 p = Path(cand)
                 if p.is_file() and p.name == "hypergan.toml":
@@ -160,7 +156,16 @@ def _apply_devices(devices, config, profile, context_path):
                     break
             except Exception:
                 pass
-    ws_data = load_workspace(ws_path) if ws_path else {}
+    return load_workspace(ws_path) if ws_path else {}
+
+
+def _apply_devices(devices, config, profile, context_path):
+    if devices is None:
+        if isinstance(config, dict):
+            devices = config.get("run", {}).get("devices")
+
+    from .workspace import resolve_device_aliases
+    ws_data = _load_workspace_data(config, context_path)
 
     if devices is None and ws_data:
         devices = ws_data.get("run", {}).get("devices")
@@ -258,12 +263,21 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
             stop_after_steps=stop_after_steps, preview_every=preview_every,
             preview_keep=preview_keep, preview_keep_source=preview_keep_source,
             preview_name=preview_name)
-    checkpoint_every = 1000 if checkpoint_every is None else checkpoint_every
-    preview_every = 0 if preview_every is None else preview_every
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     preview_name = sample_name(preview_name)
-    _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
+    _controls(1000 if checkpoint_every is None else checkpoint_every,
+              max_seconds, stop_after_steps,
+              0 if preview_every is None else preview_every,
+              preview_keep, preview_name)
     config = _training_config(config_path, steps)
+    ws_data = _load_workspace_data(config, config_path, run_dir)
+    run_cfg = config.get("run") if isinstance(config, dict) and isinstance(config.get("run"), dict) else {}
+    ws_run_cfg = ws_data.get("run") if isinstance(ws_data, dict) and isinstance(ws_data.get("run"), dict) else {}
+    if checkpoint_every is None:
+        checkpoint_every = run_cfg.get("checkpoint_every", ws_run_cfg.get("checkpoint_every", 1000))
+    if preview_every is None:
+        preview_every = run_cfg.get("preview_every", ws_run_cfg.get("preview_every", 0))
+    _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     profile, devices = _apply_devices(devices, config, profile, run_dir if run_dir else config_path)
     profile = _profile(profile, config)
     policy = _policy(profile, service_policy)

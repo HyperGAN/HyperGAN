@@ -475,3 +475,21 @@ def test_checkpoint_compatibility_accepts_supported_version(tmp_path, explicit, 
         metadata_path.write_text(json.dumps(metadata))
     assert prepare_resume(run).checkpoint == checkpoint
     assert prepare_train(path, run).checkpoint == checkpoint
+
+
+def test_prepare_train_reads_run_intervals_from_config_and_workspace(tmp_path):
+    ws = tmp_path / 'hypergan.toml'
+    ws.write_text('format = "hypergan-workspace/1"\n\n[run]\ncheckpoint_every = 250\npreview_every = 50\n')
+    path = project(tmp_path)
+    prepared_ws = prepare_train(path, tmp_path / 'run-ws')
+    assert prepared_ws.controls['checkpoint_every'] == 250
+    assert prepared_ws.controls['preview_every'] == 50
+
+    path.write_text(path.read_text() + '\n[run]\ncheckpoint_every = 150\npreview_every = 25\n')
+    prepared_cfg = prepare_train(path, tmp_path / 'run-cfg')
+    assert prepared_cfg.controls['checkpoint_every'] == 150
+    assert prepared_cfg.controls['preview_every'] == 25
+
+    prepared_explicit = prepare_train(path, tmp_path / 'run-explicit', checkpoint_every=500, preview_every=0)
+    assert prepared_explicit.controls['checkpoint_every'] == 500
+    assert prepared_explicit.controls['preview_every'] == 0

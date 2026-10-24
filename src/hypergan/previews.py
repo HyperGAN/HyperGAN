@@ -165,6 +165,17 @@ def render_preview(trainer, batch, identity):
                 raise ValueError('Nonimage preview inputs exceed the tensor element budget')
             image_only = True
             budget = MAX_IMAGE_ELEMENTS
+            if not _image(real) and values.numel() + sum(value.numel() for value in recorded_inputs.values()) > budget:
+                per_out = values[0].numel() + sum(value[0].numel() for value in recorded_inputs.values())
+                capped = max(1, budget // max(1, per_out))
+                if capped < count:
+                    count = capped
+                    values = values[:count]
+                    if ids is not None:
+                        ids = ids[:count]
+                    recorded_inputs = {k: v[:count] for k, v in recorded_inputs.items()}
+                    views = {k: v[:count] for k, v in views.items()}
+                    comparison = [(lbl, val[:count]) for lbl, val in comparison]
         if values.numel() + sum(value.numel() for value in recorded_inputs.values()) > budget:
             raise ValueError(f'Preview exceeds the {budget}-element output/input budget')
         if image_only and not _image(values):

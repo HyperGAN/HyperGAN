@@ -48,6 +48,7 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'download_dataset', 'dataset_info', 'list_datasets',
            'preflight', 'preflight_check', 'serve', 'viewer_status',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
+           'request_status', 'request_sample', 'request_stop',
            'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
@@ -2006,44 +2007,73 @@ def project(run_dir=None, map_spec=None, follow=False, limit=100, on_progress=No
     return last_progress
 
 
-def checkpoint_status(run_dir=None, request_id=None):
-    """Check the status of an asynchronous checkpoint request."""
-    from .run_requests import checkpoint_request_status
-    return checkpoint_request_status(_run_path(run_dir), request_id)
+def request_status(run_dir=None, request_id=None):
+    """Check the status of an asynchronous control request (checkpoint, stop, or sample)."""
+    from .run_requests import request_status as _req_status
+    return _req_status(_run_path(run_dir), request_id)
 
 
-def request_checkpoint(run_dir=None, attempt_id=None, request_id=None):
-    """Submit an asynchronous request for the training process to save a checkpoint."""
-    from .run_requests import submit_checkpoint_request
+checkpoint_status = request_status
+
+
+def _submit_control_request(run_dir=None, *, action="checkpoint", attempt_id=None, request_id=None):
+    from .run_requests import submit_request
     run_dir = _run_path(run_dir)
     manifest_path = run_dir / "manifest.json"
     if not manifest_path.is_file():
         from .inspection import check_run_active
         if check_run_active(run_dir)[0]:
-            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
+            raise ValueError(f"Run is still initializing step 0; {action} will be available once step 1 starts")
         raise FileNotFoundError(f"Run manifest not found: {manifest_path}")
     with manifest_path.open(encoding="utf-8") as stream:
         manifest = json.load(stream)
     if not isinstance(manifest, dict) or not manifest.get("run_id") or not manifest.get("attempt_id"):
         from .inspection import check_run_active
         if check_run_active(run_dir)[0] or (isinstance(manifest, dict) and manifest.get("status") == "initializing"):
-            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
-        raise ValueError("Run manifest has no run/attempt identity for a checkpoint request")
+            raise ValueError(f"Run is still initializing step 0; {action} will be available once step 1 starts")
+        raise ValueError(f"Run manifest has no run/attempt identity for a {action} request")
     if manifest.get("status") == "initializing":
-        raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
+        raise ValueError(f"Run is still initializing step 0; {action} will be available once step 1 starts")
     if manifest.get("status") != "running":
         from .inspection import check_run_active
         if check_run_active(run_dir)[0] and int(manifest.get("steps", 0) or 0) == 0:
-            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
+            raise ValueError(f"Run is still initializing step 0; {action} will be available once step 1 starts")
         if request_id is None:
             raise ValueError("Run is not running; use resume to continue a stopped run")
         try:
-            return checkpoint_status(run_dir, request_id)
+            existing = request_status(run_dir, request_id)
         except FileNotFoundError as exc:
             raise ValueError("Run is not running; use resume to continue a stopped run") from exc
-    return submit_checkpoint_request(run_dir, run_id=manifest["run_id"],
-                                     attempt_id=attempt_id or manifest["attempt_id"],
-                                     request_id=request_id)
+        target_attempt = attempt_id or existing["request"]["attempt_id"]
+        if (
+            existing["request"]["run_id"] != manifest["run_id"]
+            or existing["request"]["attempt_id"] != target_attempt
+            or existing["request"]["action"] != action
+        ):
+            raise ValueError("Conflicting checkpoint request ID: reuse requires the same run, attempt and action")
+        return existing
+    return submit_request(
+        run_dir,
+        action=action,
+        run_id=manifest["run_id"],
+        attempt_id=attempt_id or manifest["attempt_id"],
+        request_id=request_id,
+    )
+
+
+def request_checkpoint(run_dir=None, attempt_id=None, request_id=None):
+    """Submit an asynchronous request for the training process to save a checkpoint."""
+    return _submit_control_request(run_dir, action="checkpoint", attempt_id=attempt_id, request_id=request_id)
+
+
+def request_sample(run_dir=None, attempt_id=None, request_id=None):
+    """Submit an asynchronous request for the training process to emit a preview/sample."""
+    return _submit_control_request(run_dir, action="sample", attempt_id=attempt_id, request_id=request_id)
+
+
+def request_stop(run_dir=None, attempt_id=None, request_id=None):
+    """Submit an asynchronous request for the training process to stop cleanly at a boundary."""
+    return _submit_control_request(run_dir, action="stop", attempt_id=attempt_id, request_id=request_id)
 
 
 def ensure_dashboard_running(runs_root=None, check_version=True, run_id=None):

@@ -422,3 +422,181 @@ def test_control_directory_rejects_an_existing_non_directory(tmp_path):
     with pytest.raises(ValueError, match='ordinary directory'):
         submit(tmp_path)
     assert (tmp_path / 'checkpoint_requests').read_text() == 'unrelated local file'
+
+
+def test_stop_and_sample_request_receipt_idempotency_and_status(tmp_path):
+    from hypergan.run_requests import (
+        acknowledge_request,
+        pending_requests,
+        request_status,
+        submit_sample_request,
+        submit_stop_request,
+    )
+    sample_req = submit_sample_request(tmp_path, run_id='run-one', attempt_id='0001-first', request_id='sample-one')
+    assert sample_req['status'] == 'pending'
+    assert sample_req['request']['action'] == 'sample'
+    assert submit_sample_request(tmp_path, run_id='run-one', attempt_id='0001-first', request_id='sample-one') == sample_req
+
+    stop_req = submit_stop_request(tmp_path, run_id='run-one', attempt_id='0001-first', request_id='stop-one')
+    assert stop_req['status'] == 'pending'
+    assert stop_req['request']['action'] == 'stop'
+    assert submit_stop_request(tmp_path, run_id='run-one', attempt_id='0001-first', request_id='stop-one') == stop_req
+
+    with pytest.raises(ValueError, match='Conflicting checkpoint request ID'):
+        submit_stop_request(tmp_path, run_id='run-one', attempt_id='0001-first', request_id='sample-one')
+
+    assert [r['request_id'] for r in pending_requests(tmp_path)] == ['sample-one', 'stop-one']
+
+    sample_receipt = acknowledge_request(
+        tmp_path, 'sample-one', status='succeeded', attempt_id='0001-first', step=4,
+        artifact_path='previews/0001/sample.json', preview_path='previews/0001/sample.json',
+    )
+    assert sample_receipt['status'] == 'succeeded'
+    assert sample_receipt['artifact_path'] == 'previews/0001/sample.json'
+    assert request_status(tmp_path, 'sample-one') == sample_receipt
+    assert submit_sample_request(tmp_path, run_id='run-one', attempt_id='0001-first', request_id='sample-one') == sample_receipt
+
+    stop_receipt = acknowledge_request(
+        tmp_path, 'stop-one', status='succeeded', attempt_id='0001-first', step=5,
+        checkpoint_path=str(tmp_path / 'checkpoints' / 'step-5'),
+    )
+    assert stop_receipt['status'] == 'succeeded'
+    assert stop_receipt['step'] == 5
+    assert request_status(tmp_path, 'stop-one') == stop_receipt
+    assert pending_requests(tmp_path) == []
+
+
+def test_run_controller_services_sample_and_stop_requests_at_update_boundary(tmp_path):
+    from hypergan.api import request_sample, request_status, request_stop
+    from hypergan.previews import publish_preview_payload
+    from hypergan.run_controller import (
+        ArtifactResult,
+        CompletedUpdate,
+        ExecutionInfo,
+        PreviewResult,
+        run_train,
+    )
+
+    run_dir = tmp_path / 'controlled_run'
+
+    class FakeExecution:
+        inference_available = True
+
+        def __init__(self, config):
+            self.step = 0
+
+        def environment(self):
+            return {'runtime': {'python': '3.12'}, 'source': {'hypergan_commit': 'deadbeef'}}
+
+        def start(self):
+            return ExecutionInfo(
+                step=0,
+                data_identity={'dataset': 'synthetic'},
+                recovery_reasons=[],
+                checkpoint_metadata={'resume_supported': True},
+            )
+
+        def update(self):
+            self.step += 1
+            if self.step == 1:
+                request_sample(run_dir, request_id='sample-req-1')
+            elif self.step == 2:
+                request_stop(run_dir, request_id='stop-req-1')
+            return CompletedUpdate(step=self.step, metrics={'g_loss': 1.0, 'd_loss': 0.5})
+
+        def checkpoint(self, target_dir, metadata):
+            ckpt = target_dir / 'checkpoints' / f'step-{self.step}'
+            ckpt.mkdir(parents=True, exist_ok=True)
+            (ckpt / 'manifest.json').write_text(json.dumps(metadata), encoding='utf-8')
+            return ckpt
+
+        def preview(self, target_dir, identity, *, keep):
+            payload = {
+                'schema_version': 1,
+                'kind': 'ema-preview',
+                'identity': identity,
+                'name': identity.get('name', 'g'),
+                'step': self.step,
+                'count': 1,
+                'shape': [1, 1],
+                'samples': [[0.5]],
+            }
+            record, index, errors = publish_preview_payload(target_dir, payload, identity, self.step, keep=keep)
+            return PreviewResult(record=record, index=index, errors=errors)
+
+        def inference(self, bundle_dir, identity):
+            bundle_dir.mkdir(parents=True, exist_ok=True)
+            sample_path = bundle_dir / 'sample.json'
+            sample_path.write_text('{"samples": [[0.5]]}', encoding='utf-8')
+            return ArtifactResult(bundle_path=bundle_dir, sample_path=sample_path)
+
+        def observe(self, callback, event):
+            callback(event)
+
+        def shutdown(self):
+            pass
+
+    result = run_train(
+        {'training': {'steps': 10}},
+        run_dir,
+        checkpoint_every=1,
+        preview_every=0,
+        execution_factory=FakeExecution,
+    )
+    assert result['status'] == 'stopped'
+    assert result['stop_reason'] == 'stop_request'
+    assert result['steps'] == 2
+
+    sample_rec = request_status(run_dir, 'sample-req-1')
+    assert sample_rec['status'] == 'succeeded'
+    assert sample_rec['step'] == 1
+    assert sample_rec['artifact_path']
+
+    stop_rec = request_status(run_dir, 'stop-req-1')
+    assert stop_rec['status'] == 'succeeded'
+    assert stop_rec['step'] == 2
+    assert stop_rec['checkpoint_path']
+
+
+def test_remote_cluster_run_attachment_and_file_backed_stop(tmp_path, monkeypatch):
+    import os
+    from hypergan.inspection import check_run_active, inspect_run_host, run_status, stop_run
+    from hypergan.run_requests import request_status
+
+    run_dir = tmp_path / 'cluster_run'
+    run_dir.mkdir()
+    manifest = {
+        'schema_version': 1,
+        'run_id': 'cluster-run-01',
+        'attempt_id': '0001-attempt',
+        'status': 'running',
+        'steps': 250,
+        'hostname': 'gpu-worker-07.cluster.internal',
+    }
+    (run_dir / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    launch_dir = run_dir / 'launch'
+    launch_dir.mkdir()
+    (launch_dir / '0001.json').write_text(
+        json.dumps({'pid': 999999, 'hostname': 'gpu-worker-07.cluster.internal'}),
+        encoding='utf-8',
+    )
+
+    host_info = inspect_run_host(run_dir)
+    assert host_info['remote'] is True
+    assert host_info['hostname'] == 'gpu-worker-07.cluster.internal'
+    assert check_run_active(run_dir) == (True, 999999)
+
+    status = run_status(run_dir)
+    assert status['active'] is True
+    assert status['remote'] is True
+    assert status['hostname'] == 'gpu-worker-07.cluster.internal'
+    assert status['status'] == 'running'
+
+    killed = []
+    monkeypatch.setattr(os, 'kill', lambda pid, sig: killed.append((pid, sig)))
+    res = stop_run(run_dir, request_id='remote-stop-1')
+    assert killed == [], 'Remote cluster run must not signal local PIDs'
+    assert res['signaled'] is False
+    assert res['remote'] is True
+    assert res['request_id'] == 'remote-stop-1'
+    assert request_status(run_dir, 'remote-stop-1')['status'] == 'pending'

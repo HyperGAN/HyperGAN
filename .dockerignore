@@ -1,0 +1,45 @@
+# Git and worktrees
+.git
+.gitignore
+.gitattributes
+.github
+.agents
+.claude
+worktrees
+
+# Virtual environments and caches
+.venv
+venv
+pyvenv
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build and distribution artifacts
+build/
+dist/
+rebuilt/
+*.egg-info/
+.eggs/
+
+# Runtime, data, and experiment outputs
+runs/
+samples/
+saves/
+data/
+*.pt
+*.pth
+*.ckpt
+
+# Non-package repository trees
+docs/
+reports/
+tests/
+scripts/
+examples/
+frontend/node_modules/
+uv.lock

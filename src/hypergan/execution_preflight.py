@@ -69,11 +69,13 @@ def _resolve_profile(profile, config):
             raise ValueError('Resolved native profile differs from configuration: ' + ', '.join(differences))
         return resolved
     if isinstance(profile, dict) and isinstance(profile.get('execution'), dict):
-        derived = {'global_batch_size', 'local_batch_size', 'microbatch_size', 'accumulation_algorithm'}
+        derived = {'global_batch_size', 'local_batch_size', 'microbatch_size', 'accumulation_algorithm', 'ranks_per_node'}
         if derived & profile['execution'].keys():
             projected = {'schema_version': profile.get('schema_version'),
-                         'execution': {key: profile['execution'][key] for key in ('name', 'world_size', 'accumulation_steps') if key in profile['execution']},
+                         'execution': {key: profile['execution'][key] for key in ('name', 'world_size', 'accumulation_steps', 'nodes', 'node_rank', 'rendezvous', 'aggregation') if key in profile['execution']},
                          'preflight': profile.get('preflight', {})}
+            if 'aggregation' in profile:
+                projected['aggregation'] = profile['aggregation']
             resolved = resolve_execution_profile(projected, config)
             differences = _differences(resolved, profile, 'profile')
             if differences:

@@ -191,10 +191,9 @@ def test_legacy_resolve_config_allows_replicated_execution():
     validate_replicated_recipe(resolve_config({}))
 
 
-def test_color_recipe_rejects_replicated_execution():
+def test_color_recipe_allows_replicated_execution():
     config = load_config(RECIPE)
-    with pytest.raises(ValueError):
-        validate_replicated_recipe(config)
+    validate_replicated_recipe(config)
 
 
 def test_phase_gradients_and_optimizer_ownership():

@@ -891,13 +891,28 @@ def load_checkpoint_and_generate(
                 generator = list(graph.models.values())[0]
         elif "ema_graph" in raw_state or "graph" in raw_state:
             raw_weights = raw_state.get("ema_graph", raw_state.get("graph", {}))
+            from hypergan.recipes import construct
+            comp_dict = None
             if recipe_path and Path(recipe_path).exists():
                 import hypergan.api as hg
-                from hypergan.recipes import construct
                 from hypergan.config import resolve_config_at
-                cfg = resolve_config_at(hg.load_recipe(recipe_path), Path(recipe_path).parent)
-                target_name = "image_generator" if "image_generator" in cfg["components"] else "generator"
-                model = construct(cfg["components"][target_name]).to(dev).eval().requires_grad_(False)
+                raw_rec = hg.load_recipe(recipe_path)
+                lowered_rec = hg.lower(recipe_path) if isinstance(raw_rec, dict) and "networks" in raw_rec else raw_rec
+                cfg = resolve_config_at(lowered_rec, Path(recipe_path).parent)
+                comp_dict = cfg.get("components", {})
+            else:
+                for cand_manifest in (ckpt_file.parent / "manifest.json", ckpt_file.parent.parent.parent / "manifest.json"):
+                    if cand_manifest.is_file():
+                        try:
+                            m_data = json.loads(cand_manifest.read_text(encoding="utf-8"))
+                            comp_dict = m_data.get("config", {}).get("components") or m_data.get("components")
+                            if comp_dict:
+                                break
+                        except Exception:
+                            pass
+            if comp_dict:
+                target_name = "image_generator" if "image_generator" in comp_dict else "generator"
+                model = construct(comp_dict[target_name]).to(dev).eval().requires_grad_(False)
                 prefix = f"models.{target_name}."
                 matching = {k[len(prefix):]: v for k, v in raw_weights.items() if k.startswith(prefix)}
                 if matching:

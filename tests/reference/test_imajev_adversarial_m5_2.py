@@ -316,6 +316,7 @@ def test_joint_multi_query_resume_identity_contract():
 
 def test_optical_wavefront_psd_alpha_spectral_falloff():
     """Verify radial spectral density prior across alpha in [0.5, 4.0] and margin gating."""
+    torch.manual_seed(123)
     for alpha in [0.5, 1.0, 2.0, 3.0, 4.0]:
         prior = OpticalWavefrontPrior(
             weight_seam=0.0,
@@ -725,7 +726,7 @@ def test_vision_repulsion_separation_dynamics_closed_loop():
 def test_imajev_apple_recipe_dag_structure_and_components():
     """Verify recipe DAG structure, components, and shapes in imajev-apples-joint-bispf.toml."""
     assert RECIPE_PATH.is_file(), f"Recipe file missing at {RECIPE_PATH}"
-    recipe = hg.load_recipe(RECIPE_PATH)
+    recipe = hg.lower(RECIPE_PATH)
 
     assert recipe.get("schema_version") == 1
     assert recipe.get("name") == "constraints/imajev-apples-joint-64-bispf"
@@ -762,7 +763,7 @@ def test_imajev_apple_recipe_dag_structure_and_components():
 
 def test_imajev_apple_recipe_dag_objectives_and_monitors():
     """Verify all 6 objectives including detached monitors in imajev-apples-joint-bispf.toml."""
-    recipe = hg.load_recipe(RECIPE_PATH)
+    recipe = hg.lower(RECIPE_PATH)
     objectives = recipe.get("objectives", [])
     assert len(objectives) == 6
 
@@ -791,8 +792,7 @@ def test_imajev_apple_recipe_dag_objectives_and_monitors():
 
 def test_imajev_apple_recipe_lift_and_model_validation():
     """Verify recipe lifts cleanly to hypergan-model/1 and passes model validation."""
-    recipe = hg.load_recipe(RECIPE_PATH)
-    model = hg.lift(recipe, base=RECIPE_PATH.parent)
+    model = hg.load(RECIPE_PATH)
 
     assert model.spec.get("format") == "hypergan-model/1"
     assert "networks" in model.spec
@@ -806,7 +806,7 @@ def test_imajev_apple_recipe_lift_and_model_validation():
 
 def test_imajev_apple_recipe_resolve_config_at():
     """Verify resolve_config_at resolves full engine configuration with all components and objectives."""
-    recipe = hg.load_recipe(RECIPE_PATH)
+    recipe = hg.lower(RECIPE_PATH)
     resolved = resolve_config_at(recipe, RECIPE_PATH.parent)
 
     assert "components" in resolved
@@ -824,7 +824,7 @@ def test_imajev_apple_recipe_resolve_config_at():
 
 def test_imajev_apple_recipe_adversarial_mutations():
     """Verify DAG validation rejects cyclic dependencies and dangling inputs."""
-    recipe = hg.load_recipe(RECIPE_PATH)
+    recipe = hg.lower(RECIPE_PATH)
 
     # 1. Cyclic component binding: image_generator depends on generator
     bad_cycle = copy.deepcopy(recipe)
@@ -843,3 +843,29 @@ def test_imajev_apple_recipe_adversarial_mutations():
     bad_obj["objectives"][0]["factory"] = "invalid_factory_syntax"
     with pytest.raises(ValueError, match="module:object"):
         resolve_config_at(bad_obj, RECIPE_PATH.parent)
+
+
+def test_fourier_contour_splat_pyramid_generator_differentiable_and_seam_free():
+    """Verify domain-agnostic FourierContourSplatPyramidGenerator forward/backward and seam coherence."""
+    from hypergan.constraint_data import FourierContourSplatPyramidGenerator
+    from scripts.verify_imajev_acceptance import compute_patch_seam_gradient_ratio
+
+    torch.manual_seed(42)
+    gen = FourierContourSplatPyramidGenerator(z_dim=128, num_splats=8, num_harmonics=6, img_size=64)
+    assert not hasattr(gen, "_get_optical_basis")
+
+    z = torch.randn(4, 128, requires_grad=True)
+    imgs = gen(x=z)
+    assert imgs.shape == (4, 3, 64, 64)
+    assert imgs.min().item() >= -1.0 and imgs.max().item() <= 1.0
+
+    loss = imgs.pow(2).mean()
+    loss.backward()
+    assert z.grad is not None and torch.isfinite(z.grad).all()
+    assert z.grad.abs().sum().item() > 0.0
+    assert gen.splat_head.weight.grad is not None and gen.splat_head.weight.grad.abs().sum().item() > 0.0
+    assert gen.bg_head.weight.grad is not None and gen.bg_head.weight.grad.abs().sum().item() > 0.0
+
+    seam_metrics = compute_patch_seam_gradient_ratio(imgs.detach(), patch_size=16)
+    assert seam_metrics["patch_seam_ratio"] <= 1.15
+

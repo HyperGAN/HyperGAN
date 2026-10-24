@@ -1,51 +1,39 @@
-# Data-less constraint GAN recipe using frozen ImaJev-4B decision logits
-# and ParticleGAN BISPF to synthesize 64x64 RGB apple images without image data.
-schema_version = 1
+# HyperGAN model written by hypergan.api (hg.save). Train it with `hypergan train` or hg.train.
+# Networks and data are referenced by import path; edit those modules, not copies.
+# hg.save replaces this file only while it is unedited; after editing it here, load it with hg.load.
+# body-sha256: 9113559694cc2c31472c599cd8a5d22bfff6a877855fd7e66a97ff3d9d982108
+
+format = "hypergan-model/1"
 name = "constraints/imajev-apples-64-bispf"
 defaults = "particlegan"
 
-[data]
-factory = "hypergan.constraint_data:ConstraintTargetData"
-[data.args]
-target_probs = [0.992, 0.002, 0.002, 0.002, 0.002]
-mode = "logits"
-jitter_std = 0.15
-
-[components.image_generator]
-factory = "hndl"
+[networks.image_generator]
+role = "auxiliary"
 inputs = { x = "latent" }
-[components.image_generator.args]
+hndl = "networks/simple-apple-generator-64.hndl"
 input_shape = ["B", 128]
 output_shape = ["B", 3, 64, 64]
-file = "networks/simple-apple-generator-64.hndl"
 
-[components.generator]
-factory = "hndl"
+[networks.generator]
+role = "generator"
 inputs = { x = "components.image_generator" }
-[components.generator.args]
+hndl = "networks/imajev-constraint-head.hndl"
 input_shape = ["B", 3, 64, 64]
 output_shape = ["B", 5]
-file = "networks/imajev-constraint-head.hndl"
-[components.generator.args.parameters]
-readout_path = "/nvme/dev/imajev/artifacts/imajev-4b/decision_readout.pt"
-readout_sha256 = "7a98c7aac7c0f648ac2fdfd563dc6ccce4cdf4e81b47c6a6a0dae1725b409326"
-[components.generator.args.pretrained_providers.imajev_4b]
-base_model_path = "/nvme/dev/imajev/.cache/huggingface/hub/models--Qwen--Qwen3.5-4B/snapshots/851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
-adapter_path = "/nvme/dev/imajev/artifacts/imajev-4b"
-question = "What is the main subject shown in this image?"
-options = [
-  "a single red apple",
-  "an orange citrus fruit",
-  "a yellow banana",
-  "random noise, static, checkerboard pattern, or solid color",
-]
 
-[components.discriminator]
-factory = "hndl"
+[networks.generator.args.parameters]
+readout_path = "/path/to/imajev/artifacts/imajev-4b/decision_readout.pt"
+readout_sha256 = "7a98c7aac7c0f648ac2fdfd563dc6ccce4cdf4e81b47c6a6a0dae1725b409326"
+
+[networks.generator.args.pretrained_providers.imajev_4b]
+base_model_path = "/path/to/Qwen3.5-4B"
+adapter_path = "/path/to/imajev/artifacts/imajev-4b"
+question = "What is the main subject shown in this image?"
+options = ["a single red apple", "an orange citrus fruit", "a yellow banana", "random noise, static, checkerboard pattern, or solid color"]
+
+[networks.discriminator]
+role = "critic"
 inputs = { x = "candidate" }
-[components.discriminator.args]
-input_shape = ["B", 5]
-output_shape = ["B", 1]
 source = """
 contrastive_log_odds(target_index=0)
 linear(64)
@@ -54,83 +42,118 @@ linear(64)
 leaky_relu(0.2)
 linear(1)
 """
+input_shape = ["B", 5]
+output_shape = ["B", 1]
 
-[[objectives]]
-id = "tv_smoothness"
-factory = "hypergan.constraint_data:TotalVariationSmoothness"
-inputs = { image = "components.image_generator" }
-weight = 0.05
+[data]
+factory = "hypergan.constraint_data:ConstraintTargetData"
 
-[[objectives]]
-id = "apple_prob"
-factory = "hypergan.constraint_data:OptionProbability"
-inputs = { logits = "generated" }
-detach = ["logits"]
-weight = 1.0
-args = { index = 0 }
-
-[[objectives]]
-id = "orange_prob"
-factory = "hypergan.constraint_data:OptionProbability"
-inputs = { logits = "generated" }
-detach = ["logits"]
-weight = 1.0
-args = { index = 1 }
-
-[[objectives]]
-id = "noise_prob"
-factory = "hypergan.constraint_data:OptionProbability"
-inputs = { logits = "generated" }
-detach = ["logits"]
-weight = 1.0
-args = { index = 3 }
-
-[[objectives]]
-id = "unknown_prob"
-factory = "hypergan.constraint_data:OptionProbability"
-inputs = { logits = "generated" }
-detach = ["logits"]
-weight = 1.0
-args = { index = 4 }
+[data.args]
+target_probs = [0.992, 0.002, 0.002, 0.002, 0.002]
+mode = "logits"
+jitter_std = 0.15
 
 [prior]
 kind = "particles"
 initialization_device = "cpu"
 initialization_seed = 25003
-[prior.args]
 num_particles = 512
 z_dim = 128
 
-[training]
+[train]
 steps = 2000
 batch_size = 16
 seed = 25002
 device = "cuda:0"
 ema = 0.95
 phase_draws = "shared"
+lr = 0.025
+d_lr_mult = 0.5
+prior_lr_mult = 2.0
 
-[training.backend]
+[train.backend]
 deterministic_algorithms = false
 cudnn_deterministic = false
 cudnn_benchmark = true
 matmul_allow_tf32 = true
 cudnn_allow_tf32 = true
 
-[optimizer]
-lr = 0.025
-d_lr_mult = 0.5
-prior_lr_mult = 2.0
-
-[gradient_penalty]
-coeff = 25.0
+[penalty]
 kappa = 1.0
 lazy_k = 1
 
 [sampling]
-generated = "components.image_generator"
 count = 16
 seed = 35002
+output = "components.image_generator"
 
 [metrics]
 preset = "standard"
 every_steps = 5
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 25.0
+
+[[losses]]
+type = "objective"
+id = "tv_smoothness"
+fn = "hypergan.constraint_data:TotalVariationSmoothness"
+weight = 0.05
+
+[losses.inputs]
+image = "components.image_generator"
+
+[[losses]]
+type = "objective"
+id = "apple_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 0
+
+[[losses]]
+type = "objective"
+id = "orange_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 1
+
+[[losses]]
+type = "objective"
+id = "noise_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 3
+
+[[losses]]
+type = "objective"
+id = "unknown_prob"
+fn = "hypergan.constraint_data:OptionProbability"
+weight = 1.0
+detach = ["logits"]
+
+[losses.inputs]
+logits = "generated"
+
+[losses.args]
+index = 4

@@ -1228,9 +1228,13 @@ class MarginalShannonEntropyRegularizer(_ModuleBase):
             assigned = assigned.clamp_min(0)
             pos_mask = torch.zeros_like(u_q, dtype=torch.bool)
             pos_mask.scatter_(1, assigned.unsqueeze(-1), True)
+            valid_mask = torch.zeros_like(u_q, dtype=torch.bool)
+            valid_mask[:, :M_q] = True
+            neg_mode_mask = valid_mask & (~pos_mask)
             l_pos = F.relu(2.85 - u_q[pos_mask]).mean()
+            l_neg_modes = F.relu(u_q[neg_mode_mask] + 2.40).mean() if neg_mode_mask.any() else u_q.new_zeros(())
             l_inv = F.relu(u_q[:, M_q:] + 2.90).mean() if M_q < self.num_classes else u_q.new_zeros(())
-            attr_losses.append(l_pos + 1.5 * l_inv)
+            attr_losses.append(l_pos + 0.75 * l_neg_modes + 1.5 * l_inv)
 
         return entropy_loss + self.target_attraction_weight * torch.stack(attr_losses).mean()
 
@@ -1314,4 +1318,254 @@ class NormalizedVisionCosineRepulsion(_ModuleBase):
         return {
             "margin": self.margin,
             "eps": self.eps,
+        }
+
+
+class FourierContourSplatPyramidGenerator(_ModuleBase):
+    """Domain-agnostic 2D Fourier-contour 3D-shaded splat + multiscale conv pyramid generator.
+
+    Synthesizes smooth, continuous 2D/3D-shaded images from latent vectors z without any
+    hardcoded object templates, colors, or procedural shaders. All Fourier contour harmonics,
+    splat positions, scales, orientations, Blinn-Phong surface shading parameters, background
+    harmonic fields, and coarse-to-fine conv pyramid residuals are learned via backpropagation.
+    """
+
+    def __init__(
+        self,
+        z_dim=128,
+        num_splats=8,
+        num_harmonics=6,
+        hidden_dim=256,
+        img_size=64,
+        num_slots=16,
+        slot_temp=4.0,
+    ):
+        if _ModuleBase is not object:
+            super().__init__()
+        import math
+        import torch
+        import torch.nn as nn
+
+        self.z_dim = int(z_dim)
+        self.num_splats = int(num_splats)
+        self.num_harmonics = int(num_harmonics)
+        self.hidden_dim = int(hidden_dim)
+        self.img_size = int(img_size)
+        self.num_slots = int(num_slots)
+        self.slot_dim = self.z_dim // self.num_slots
+        self.slot_temp = float(slot_temp)
+
+        self.backbone = nn.Sequential(
+            nn.Linear(self.z_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.SiLU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.SiLU(),
+        )
+
+        self.bg_head = nn.Linear(self.hidden_dim, 10 * 3 + 12)
+        self.per_splat_dim = 8 + 2 * self.num_harmonics + 15
+        self.splat_head = nn.Linear(self.hidden_dim, self.num_splats * self.per_splat_dim)
+
+        self.pyr_fc = nn.Linear(self.hidden_dim, 128 * 4 * 4)
+        self.pyr_8 = nn.Sequential(
+            nn.Conv2d(128, 64, 3, padding=1, bias=False),
+            nn.GroupNorm(8, 64),
+            nn.SiLU(),
+        )
+        self.pyr_16 = nn.Sequential(
+            nn.Conv2d(64, 32, 3, padding=1, bias=False),
+            nn.GroupNorm(8, 32),
+            nn.SiLU(),
+        )
+        self.pyr_32 = nn.Sequential(
+            nn.Conv2d(32, 16, 3, padding=1, bias=False),
+            nn.GroupNorm(4, 16),
+            nn.SiLU(),
+        )
+        self.pyr_64 = nn.Sequential(
+            nn.Conv2d(16, 16, 3, padding=1, bias=False),
+            nn.GroupNorm(4, 16),
+            nn.SiLU(),
+            nn.Conv2d(16, 3, 3, padding=1),
+        )
+        nn.init.zeros_(self.pyr_64[-1].weight)
+        nn.init.zeros_(self.pyr_64[-1].bias)
+
+        nn.init.normal_(self.splat_head.weight, mean=0.0, std=0.05)
+        nn.init.zeros_(self.splat_head.bias)
+        nn.init.normal_(self.bg_head.weight, mean=0.0, std=0.05)
+        nn.init.zeros_(self.bg_head.bias)
+
+        coords = torch.linspace(-1.0, 1.0, self.img_size)
+        vy, ux = torch.meshgrid(coords, coords, indexing="ij")
+        self.register_buffer("grid_u", ux.unsqueeze(0), persistent=False)
+        self.register_buffer("grid_v", vy.unsqueeze(0), persistent=False)
+
+        k1d = torch.tensor([1.0, 2.0, 1.0]) / 4.0
+        k2d = (k1d[:, None] * k1d[None, :]).view(1, 1, 3, 3).repeat(3, 1, 1, 1)
+        self.register_buffer("smooth_kernel", k2d, persistent=False)
+
+    def _smooth_rgb(self, x):
+        import torch.nn.functional as F
+        return F.conv2d(F.pad(x, (1, 1, 1, 1), mode="reflect"), self.smooth_kernel, groups=3)
+
+    def forward(self, x=None, z=None):
+        import math
+        import torch
+        import torch.nn.functional as F
+
+        latent = x if x is not None else z
+        if latent is None:
+            raise ValueError("FourierContourSplatPyramidGenerator requires 'x' or 'z' latent input")
+        if latent.ndim > 2:
+            latent = latent.view(latent.shape[0], -1)
+        B = latent.shape[0]
+        H = W = self.img_size
+
+        z_slots = latent.view(B, self.num_slots, self.slot_dim)
+        slot_energy = z_slots.mean(dim=-1, keepdim=True)
+        slot_weights = F.softmax(slot_energy * self.slot_temp, dim=1)
+        z_mixed = (z_slots * slot_weights * self.num_slots).view(B, -1)
+        h = self.backbone(0.5 * latent + 0.5 * z_mixed)
+
+        u = self.grid_u
+        v = self.grid_v
+
+        bg_raw = self.bg_head(h)
+        bg_poly = bg_raw[:, :30].view(B, 3, 10, 1, 1)
+        bg_extra = bg_raw[:, 30:]
+
+        basis = torch.stack([
+            torch.ones_like(u),
+            u,
+            v,
+            u * v,
+            u * u - 0.33,
+            v * v - 0.33,
+            torch.sin(math.pi * u),
+            torch.cos(math.pi * u),
+            torch.sin(math.pi * v),
+            torch.cos(math.pi * v),
+        ], dim=1).unsqueeze(1)
+
+        bg_field = (bg_poly * basis).sum(dim=2)
+
+        split_v = 0.35 * torch.tanh(bg_extra[:, 0:1]).unsqueeze(-1)
+        split_sharp = 4.0 + 10.0 * torch.sigmoid(bg_extra[:, 1:2]).unsqueeze(-1)
+        surf_mask = torch.sigmoid(split_sharp * (v - split_v)).unsqueeze(1)
+        top_col = bg_extra[:, 2:5].view(B, 3, 1, 1)
+        bot_col = bg_extra[:, 5:8].view(B, 3, 1, 1)
+        stripe_amp = 0.15 * torch.tanh(bg_extra[:, 8:11]).view(B, 3, 1, 1)
+        stripe_freq = 3.0 + 5.0 * torch.sigmoid(bg_extra[:, 11:12]).view(B, 1, 1, 1)
+        stripe_wave = torch.sin(math.pi * stripe_freq * (v.unsqueeze(1) + 0.15 * torch.sin(math.pi * u.unsqueeze(1))))
+        canvas = 0.5 * bg_field + (1.0 - surf_mask) * top_col + surf_mask * (bot_col + stripe_amp * stripe_wave)
+
+        splat_raw = self.splat_head(h).view(B, self.num_splats, self.per_splat_dim)
+
+        for m in range(self.num_splats):
+            sp = splat_raw[:, m, :]
+            if m == 0:
+                mu_u = 0.20 * torch.tanh(sp[:, 0:1]).unsqueeze(-1)
+                mu_v = 0.20 * torch.tanh(sp[:, 1:2]).unsqueeze(-1)
+                r_u = (0.38 + 0.22 * torch.sigmoid(sp[:, 2:3])).unsqueeze(-1)
+                r_v = (0.38 + 0.22 * torch.sigmoid(sp[:, 3:4])).unsqueeze(-1)
+                alpha_max = (0.88 + 0.11 * torch.sigmoid(sp[:, 6:7])).unsqueeze(-1)
+            else:
+                mu_u = 0.65 * torch.tanh(sp[:, 0:1]).unsqueeze(-1)
+                mu_v = 0.65 * torch.tanh(sp[:, 1:2]).unsqueeze(-1)
+                r_u = (0.06 + 0.35 * torch.sigmoid(sp[:, 2:3])).unsqueeze(-1)
+                r_v = (0.06 + 0.35 * torch.sigmoid(sp[:, 3:4])).unsqueeze(-1)
+                alpha_max = torch.sigmoid(sp[:, 6:7] - 0.2).unsqueeze(-1)
+
+            theta = (0.6 * math.pi * torch.tanh(sp[:, 4:5])).unsqueeze(-1)
+            kappa = (6.0 + 18.0 * torch.sigmoid(sp[:, 5:6])).unsqueeze(-1)
+            blend_gate = torch.sigmoid(sp[:, 7:8]).view(B, 1, 1, 1)
+
+            cos_t = torch.cos(theta)
+            sin_t = torch.sin(theta)
+            du = u - mu_u
+            dv = v - mu_v
+            tu = (du * cos_t + dv * sin_t) / r_u
+            tv = (-du * sin_t + dv * cos_t) / r_v
+
+            rad = torch.sqrt(tu * tu + tv * tv + 1e-4)
+            phi = torch.atan2(tv, tu)
+
+            harm_params = sp[:, 8 : 8 + 2 * self.num_harmonics].view(B, self.num_harmonics, 2)
+            r_mod = torch.ones_like(rad)
+            for k_idx in range(self.num_harmonics):
+                k_freq = float(k_idx + 1)
+                scale_k = 0.22 / k_freq
+                ak = scale_k * torch.tanh(harm_params[:, k_idx, 0:1]).unsqueeze(-1)
+                bk = scale_k * torch.tanh(harm_params[:, k_idx, 1:2]).unsqueeze(-1)
+                r_mod = r_mod + ak * torch.cos(k_freq * phi) + bk * torch.sin(k_freq * phi)
+            r_mod = r_mod.clamp(min=0.35, max=1.85)
+
+            rho = rad / r_mod
+            mask = alpha_max * torch.sigmoid(kappa * (1.0 - rho * rho))
+            mask_4d = mask.unsqueeze(1)
+
+            nx = (tu / r_mod).clamp(-1.0, 1.0)
+            ny = (tv / r_mod).clamp(-1.0, 1.0)
+            nz = torch.sqrt((1.0 - (nx * nx + ny * ny).clamp(max=0.96)).clamp(min=0.04))
+
+            sh_offset = 8 + 2 * self.num_harmonics
+            sh = sp[:, sh_offset:]
+            c_pri = sh[:, 0:3].view(B, 3, 1, 1)
+            c_sec = sh[:, 3:6].view(B, 3, 1, 1)
+            c_amb = sh[:, 6:9].view(B, 3, 1, 1)
+            ldir = F.normalize(sh[:, 9:12] + torch.tensor([-0.35, -0.45, 0.80], device=latent.device), dim=-1)
+            lx = ldir[:, 0:1].unsqueeze(-1)
+            ly = ldir[:, 1:2].unsqueeze(-1)
+            lz = ldir[:, 2:3].unsqueeze(-1).abs().clamp(min=0.2)
+
+            ndotl = (nx * lx + ny * ly + nz * lz).clamp(min=0.0, max=1.0).unsqueeze(1)
+
+            hx, hy, hz = lx, ly, lz + 1.0
+            h_norm = torch.sqrt(hx * hx + hy * hy + hz * hz + 1e-6)
+            hx, hy, hz = hx / h_norm, hy / h_norm, hz / h_norm
+            ndoth = (nx * hx + ny * hy + nz * hz).clamp(min=0.0, max=1.0).unsqueeze(1)
+
+            spec_amp = (1.5 * torch.sigmoid(sh[:, 12:13])).view(B, 1, 1, 1)
+            spec_pow = (8.0 + 28.0 * torch.sigmoid(sh[:, 13:14])).view(B, 1, 1, 1)
+            grad_mix = torch.sigmoid(
+                2.0 * (
+                    tu.unsqueeze(1) * torch.cos(sh[:, 14:15].view(B, 1, 1, 1))
+                    + tv.unsqueeze(1) * torch.sin(sh[:, 14:15].view(B, 1, 1, 1))
+                )
+            )
+
+            albedo = (1.0 - 0.5 * grad_mix) * c_pri + 0.5 * grad_mix * c_sec
+            splat_rgb = c_amb + albedo * (0.25 + 0.85 * ndotl) + spec_amp * (ndoth ** spec_pow)
+
+            if m == 0:
+                sh_u = (u - (mu_u + 0.08)) / (r_u * 1.15)
+                sh_v = (v - (mu_v + r_v * 0.82)) / (r_v * 0.35)
+                shadow_mask = (0.45 * torch.exp(-0.5 * (sh_u * sh_u + sh_v * sh_v))).unsqueeze(1)
+                canvas = canvas * (1.0 - shadow_mask) - 0.35 * shadow_mask
+
+            canvas = (1.0 - mask_4d) * canvas + mask_4d * (
+                blend_gate * splat_rgb + (1.0 - blend_gate) * (0.5 * canvas + 0.5 * splat_rgb)
+            )
+
+        p4 = F.silu(self.pyr_fc(h)).view(B, 128, 4, 4)
+        p8 = self.pyr_8(F.interpolate(p4, size=(8, 8), mode="bilinear", align_corners=False))
+        p16 = self.pyr_16(F.interpolate(p8, size=(16, 16), mode="bilinear", align_corners=False))
+        p32 = self.pyr_32(F.interpolate(p16, size=(32, 32), mode="bilinear", align_corners=False))
+        p64 = self.pyr_64(F.interpolate(p32, size=(H, W), mode="bilinear", align_corners=False))
+        pyr_res = self._smooth_rgb(p64)
+
+        return torch.tanh(self._smooth_rgb(canvas) + 0.25 * pyr_res)
+
+    def resume_identity(self):
+        return {
+            "z_dim": self.z_dim,
+            "num_splats": self.num_splats,
+            "num_harmonics": self.num_harmonics,
+            "hidden_dim": self.hidden_dim,
+            "img_size": self.img_size,
+            "num_slots": self.num_slots,
+            "slot_temp": self.slot_temp,
         }

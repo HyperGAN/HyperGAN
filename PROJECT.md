@@ -51,8 +51,8 @@
 | M0 | E2E Testing Track | Independent requirement-driven test suite (Tiers 1-4), test runner, and `TEST_READY.md` | None | DONE |
 | M1 | Replicated Recipe Parity & Profile Schema | R1 parity (prior inputs, reuse, adversarial terms, presets), canonical glossary alignment, device index mapping | None | DONE |
 | M2 | Pluggable Learning Aggregation & Recovery | `src/hypergan/aggregation.py`, 3 strategies, trainer hooks, checkpoint manifest persistence & resume | M1 | DONE |
-| M3 | Multi-Node Execution & TCP Rendezvous | Multi-node topology (`nodes`, `node_rank`, `ranks_per_node`, `rendezvous`), broker TCP support, 2-node TCP tests | M1 | PLANNED |
-| M4 | Qualification Harness & Ephemeral RunPod | `hypergan qualify` CLI, JSON receipt, RunPod runner with cost guardrails & `--dry-run` | M2, M3 | PLANNED |
+| M3 | Multi-Node Execution & TCP Rendezvous | Multi-node topology (`nodes`, `node_rank`, `ranks_per_node`, `rendezvous`), broker TCP support, 2-node TCP tests | M1 | DONE |
+| M4 | Qualification Harness & Ephemeral RunPod | `hypergan qualify` CLI, JSON receipt, RunPod runner with cost guardrails & `--dry-run` | M2, M3 | DONE |
 | M5 | Final E2E Verification & Local 2x A6000 Qualification | 100% E2E test suite pass (Tiers 1-4), Tier 5 adversarial hardening, local 2x A6000 qualification receipt | M0, M4 | PLANNED |
 | M6 | PR Delivery & Issue Closure | PR to `develop`, CI verification, merge, and close Issue #186 | M5 | PLANNED |
 

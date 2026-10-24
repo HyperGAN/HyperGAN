@@ -128,7 +128,7 @@ def _parser():
     commands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,explain,validate,recipes,tag,rm,gc,prune,checkpoint,inspect,compare,diff,doctor,report}",
+        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,explain,validate,recipes,tag,rm,gc,prune,checkpoint,inspect,compare,diff,doctor,report,qualify}",
     )
     commands.add_parser("version")
     recipes_cmd = commands.add_parser("recipes", help="List available recipes and qualification status")
@@ -437,6 +437,52 @@ def _parser():
     q_svc.add_argument("-d", "--devices", default=None, help="bind service runner to specific device(s)")
     q_svc.add_argument("--name", default=None, help="custom service name")
     q_svc.add_argument("--dry-run", action="store_true", help="print generated unit file without writing to disk")
+
+    def _validate_qualify_timeout(val: str) -> float:
+        try:
+            t = float(val)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"Invalid timeout value: {val}")
+        if t <= 0.0 or t > 180.0:
+            raise argparse.ArgumentTypeError(f"Qualification timeout must be between 1 and 180s, got {t}")
+        return t
+
+    qualify_cmd = commands.add_parser(
+        "qualify",
+        help="Run hardware and distributed qualification smoke suite and emit JSON verification receipt",
+    )
+    qualify_cmd.add_argument(
+        "-o", "--output",
+        type=Path,
+        default=Path("qualification-receipt.json"),
+        help="destination path for JSON verification receipt (default: qualification-receipt.json)",
+    )
+    qualify_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="simulate qualification checks and emit receipt without spawning worker jobs",
+    )
+    qualify_cmd.add_argument(
+        "--suite",
+        default=None,
+        help="filter to a specific qualification suite (e.g. single_device, cpu_replicated_gloo, cuda_replicated_nccl, aggregation, multinode, checkpoint_compatibility)",
+    )
+    qualify_cmd.add_argument(
+        "--timeout",
+        type=_validate_qualify_timeout,
+        default=180.0,
+        help="hard wall-clock execution timeout in seconds (maximum 180s; default: 180.0)",
+    )
+    qualify_cmd.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="show real-time test progress and intermediate diagnostics",
+    )
+    qualify_cmd.add_argument(
+        "--json",
+        action="store_true",
+        help="print receipt JSON to stdout in addition to saving to disk",
+    )
 
     return parser
 
@@ -1338,6 +1384,9 @@ def _dispatch(args, *, output=None):
             return _run_doctor(is_json=getattr(args, "json", False))
         elif args.command == "report":
             return _run_report(run_targets=args.runs, is_json=getattr(args, "json", False))
+        elif args.command == "qualify":
+            from .qualify import run_qualification_cli
+            return run_qualification_cli(args)
         elif args.command in {"gc", "prune"}:
             if args.all:
                 res = hg.gc_all(root=args.run_dir, dry_run=args.dry_run, stride=args.stride)

@@ -128,6 +128,49 @@ class GradientAllreduceStrategy:
         }
 
 
+def _resolve_comm_device(trainer: Any = None, optimizers: Any = None) -> torch.device:
+    """Resolve communication device for collective operations."""
+    comm_device = getattr(trainer, "device", None)
+    if comm_device is not None:
+        comm_device = torch.device(comm_device)
+        if comm_device.type == "cuda" and comm_device.index is None:
+            current = torch.cuda.current_device() if torch.cuda.is_available() else 0
+            comm_device = torch.device("cuda", current)
+        return comm_device
+    if optimizers:
+        opts = optimizers if isinstance(optimizers, (list, tuple)) else [optimizers]
+        for opt in opts:
+            for group in getattr(opt, "param_groups", []):
+                for p in group.get("params", []):
+                    if hasattr(p, "device"):
+                        return p.device
+    try:
+        backend = dist.get_backend()
+        return torch.device(
+            f"cuda:{torch.cuda.current_device()}" if backend == "nccl" else "cpu"
+        )
+    except Exception:
+        return torch.device("cpu")
+
+
+def _synchronize_optimizer_moments(
+    opts: Any, world_size: int, comm_device: torch.device
+) -> None:
+    """Synchronize optimizer floating moment buffers across ranks."""
+    for opt in opts:
+        for param_state in getattr(opt, "state", {}).values():
+            for key, val in param_state.items():
+                if (
+                    key != "step"
+                    and isinstance(val, torch.Tensor)
+                    and val.is_floating_point()
+                    and val.device == comm_device
+                ):
+                    data = val.data.contiguous()
+                    dist.all_reduce(data, op=dist.ReduceOp.SUM)
+                    val.data.copy_(data / world_size)
+
+
 def _synchronize_optimizer_regularizers(
     trainer: Any = None, optimizers: Any = None
 ) -> None:
@@ -155,21 +198,18 @@ def _synchronize_optimizer_regularizers(
             if opt is not None:
                 opts.append(opt)
 
-    comm_device = getattr(trainer, "device", None)
-    if comm_device is None:
-        try:
-            backend = dist.get_backend()
-            comm_device = torch.device(
-                f"cuda:{torch.cuda.current_device()}" if backend == "nccl" else "cpu"
-            )
-        except Exception:
-            comm_device = torch.device("cpu")
+    comm_device = _resolve_comm_device(trainer, opts)
 
     for opt in opts:
         # 1. Synchronize latent and direct history tensor buffers (opt_g)
         for hist_attr in ("latent_history", "direct_history"):
             hist = getattr(opt, hist_attr, None)
-            if hist is not None and isinstance(hist, torch.Tensor) and hist.is_floating_point():
+            if (
+                hist is not None
+                and isinstance(hist, torch.Tensor)
+                and hist.is_floating_point()
+                and hist.device == comm_device
+            ):
                 data = hist.data.contiguous()
                 dist.all_reduce(data, op=dist.ReduceOp.SUM)
                 hist.data.copy_(data)
@@ -299,13 +339,8 @@ class ParameterAverageStrategy:
                 if opt is not None and hasattr(opt, "state"):
                     opts.append(opt)
 
-        for opt in opts:
-            for param_state in getattr(opt, "state", {}).values():
-                for key, val in param_state.items():
-                    if isinstance(val, torch.Tensor) and val.is_floating_point():
-                        data = val.data.contiguous()
-                        dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                        val.data.copy_(data / world_size)
+        comm_device = _resolve_comm_device(self.trainer, opts)
+        _synchronize_optimizer_moments(opts, world_size, comm_device)
 
         _synchronize_optimizer_regularizers(self.trainer, opts)
 
@@ -487,13 +522,8 @@ class PseudoGradientStrategy:
                     if opt is not None and hasattr(opt, "state"):
                         opts.append(opt)
 
-            for opt in opts:
-                for param_state in getattr(opt, "state", {}).values():
-                    for key, val in param_state.items():
-                        if isinstance(val, torch.Tensor) and val.is_floating_point():
-                            data = val.data.contiguous()
-                            dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                            val.data.copy_(data / world_size)
+            comm_device = _resolve_comm_device(self.trainer, opts)
+            _synchronize_optimizer_moments(opts, world_size, comm_device)
 
             _synchronize_optimizer_regularizers(self.trainer, opts)
 

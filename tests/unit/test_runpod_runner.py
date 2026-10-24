@@ -25,6 +25,8 @@ import pytest
 
 from hypergan.runpod_runner import (
     RunPodRunner,
+    _build_parser,
+    main as runpod_main,
     select_cheapest_gpu,
     validate_timeout_guardrail,
 )
@@ -100,6 +102,15 @@ class TestRunPodRunnerInit:
         assert runner.timeout == 180
         assert runner.max_cost is None
         assert runner.gpu_type is None
+        assert runner.verbose is False
+
+    def test_init_verbose_option(self):
+        """Verbose option defaults to False and can be explicitly configured."""
+        runner_default = RunPodRunner(dry_run=True)
+        assert runner_default.verbose is False
+
+        runner_verbose = RunPodRunner(dry_run=True, verbose=True)
+        assert runner_verbose.verbose is True
 
     def test_init_custom_parameters(self):
         """Custom parameters are stored in runner instance."""
@@ -331,6 +342,43 @@ class TestRunPodDryRunLifecycle:
         saved = json.loads(receipt_file.read_text())
         assert saved["receipt_sha256"] == receipt["receipt_sha256"]
 
+    def test_dry_run_receipt_dynamically_populates_torch_version(self, tmp_path):
+        """Mock receipt environment['torch'] matches runtime torch.__version__."""
+        import torch
+        runner = RunPodRunner(dry_run=True)
+        receipt = runner.run_qualification_suite(output_dir=tmp_path)
+        assert receipt["status"] == "passed"
+        assert receipt["environment"]["torch"] == torch.__version__
+
+    def test_dry_run_receipt_dynamic_torch_version_mocked(self, tmp_path):
+        """Receipt torch version dynamically reflects mocked torch.__version__ or inspect_environment."""
+        runner = RunPodRunner(dry_run=True)
+        with patch("hypergan.runpod_runner.inspect_environment", return_value={"torch": "2.9.9+dynamic.test", "platform": sys.platform, "python": "3.14", "device_count": 1}):
+            receipt = runner.run_qualification_suite(output_dir=tmp_path)
+            assert receipt["environment"]["torch"] == "2.9.9+dynamic.test"
+
+    def test_run_qualification_suite_delegates_to_client_execute_qualification(self, tmp_path):
+        """When client implements execute_qualification, run_qualification_suite delegates to it."""
+        client = MockCloudClient()
+        runner = RunPodRunner(dry_run=True, client=client)
+        receipt = runner.run_qualification_suite(output_dir=tmp_path)
+
+        assert receipt["status"] == "passed"
+        assert len(client.created_pods) == 1
+        pod_id = client.created_pods[0]
+        assert receipt["qualification_id"] == f"qual-{pod_id}"
+        assert client.all_pods_cleaned_up
+        assert pod_id in client.terminated_pods
+
+    def test_run_qualification_suite_fallback_without_execute_qualification(self, tmp_path):
+        """When client lacks execute_qualification, _build_mock_receipt is used as fallback."""
+        runner = RunPodRunner(dry_run=True)
+        assert not hasattr(runner.client, "execute_qualification")
+        receipt = runner.run_qualification_suite(output_dir=tmp_path)
+        assert receipt["status"] == "passed"
+        assert len(receipt["suites"]) >= 4
+        assert any(s["name"] == "cpu_replicated_gloo" for s in receipt["suites"])
+
 
 # ==============================================================================
 # 7. RunPod CLI Interface
@@ -373,3 +421,127 @@ class TestRunPodCLI:
         )
         assert proc.returncode == 0, f"runpod_runner failed:\n{proc.stderr}"
         assert out_file.exists()
+
+    def test_parser_accepts_verbose_short_and_long_flag(self):
+        """Parser accepts both -v and --verbose flags, defaulting to False."""
+        parser = _build_parser()
+
+        args_default = parser.parse_args([])
+        assert args_default.verbose is False
+
+        args_short = parser.parse_args(["-v"])
+        assert args_short.verbose is True
+
+        args_long = parser.parse_args(["--verbose"])
+        assert args_long.verbose is True
+
+    def test_parser_accepts_json_flag(self):
+        """Parser accepts --json flag, defaulting to False."""
+        parser = _build_parser()
+
+        args_default = parser.parse_args([])
+        assert args_default.json is False
+
+        args_json = parser.parse_args(["--json"])
+        assert args_json.json is True
+
+    def test_runpod_runner_cli_dry_run_with_verbose_short_flag(self, tmp_path):
+        """CLI command python3 -m hypergan.runpod_runner --dry-run --output <path> -v exits with code 0."""
+        out_file = tmp_path / "runpod_receipt_verbose_short.json"
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "hypergan.runpod_runner",
+                "--dry-run",
+                "--output",
+                str(out_file),
+                "-v",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert proc.returncode == 0, f"runpod_runner -v failed:\n{proc.stderr}"
+        assert out_file.exists()
+        data = json.loads(out_file.read_text())
+        assert data["status"] == "passed"
+
+    def test_runpod_runner_cli_dry_run_with_verbose_long_flag(self, tmp_path):
+        """CLI command with --verbose flag exits with code 0 and emits receipt."""
+        out_file = tmp_path / "runpod_receipt_verbose_long.json"
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "hypergan.runpod_runner",
+                "--dry-run",
+                "--output",
+                str(out_file),
+                "--verbose",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert proc.returncode == 0, f"runpod_runner --verbose failed:\n{proc.stderr}"
+        assert out_file.exists()
+
+    def test_runpod_runner_cli_dry_run_with_json_flag(self, tmp_path):
+        """CLI command with --json flag emits valid receipt JSON to stdout."""
+        out_file = tmp_path / "runpod_receipt_json.json"
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "hypergan.runpod_runner",
+                "--dry-run",
+                "--output",
+                str(out_file),
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert proc.returncode == 0, f"runpod_runner --json failed:\n{proc.stderr}"
+        assert out_file.exists()
+        stdout_receipt = json.loads(proc.stdout)
+        assert stdout_receipt["schema_version"] == 1
+        assert stdout_receipt["status"] == "passed"
+        assert "receipt_sha256" in stdout_receipt
+        assert "environment" in stdout_receipt
+
+    def test_runpod_runner_cli_dry_run_with_json_and_verbose_flag(self, tmp_path):
+        """CLI command with both --json and -v flags keeps stdout valid JSON and logs to stderr."""
+        out_file = tmp_path / "runpod_receipt_json_v.json"
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "hypergan.runpod_runner",
+                "--dry-run",
+                "--output",
+                str(out_file),
+                "--json",
+                "-v",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert proc.returncode == 0, f"runpod_runner --json -v failed:\n{proc.stderr}"
+        assert out_file.exists()
+        stdout_receipt = json.loads(proc.stdout)
+        assert stdout_receipt["status"] == "passed"
+        assert "[runpod]" in proc.stderr
+
+    def test_main_direct_invocation_processes_flags(self, tmp_path, capsys):
+        """Direct call to main() processes -v and --json correctly."""
+        out_file = tmp_path / "main_direct.json"
+        rc = runpod_main(["--dry-run", "-v", "--json", "--output", str(out_file)])
+        assert rc == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["status"] == "passed"
+        assert data["schema_version"] == 1

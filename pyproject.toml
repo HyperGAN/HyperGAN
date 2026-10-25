@@ -58,4 +58,6 @@ markers = [
     # file next to one that is. Heavy tests are deselected by default and never
     # skipped: a default run reports them as deselected, not as passing.
     "heavy: starts real subprocesses or multi-rank jobs; a second or more each",
+    # tests/cuda only; scripts/rocm_preflight_helper.py defers these on one GPU.
+    "multi_gpu: needs two or more visible GPUs",
 ]

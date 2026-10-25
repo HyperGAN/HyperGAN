@@ -9,6 +9,27 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
 ## Open
 
+### 30. Fix every issue in the 2026-10-25 code review (raised 2026-10-25)
+
+Owner: "ok cool, lets plan a dynamic workflow once thats done which fixes all these
+issues! you can pr and merge into develop as necessary"
+
+The review is [hypergan-2-review-2026-10-25.md](hypergan-2-review-2026-10-25.md). The fixes
+run through a workflow, with PRs merged into develop as needed:
+- [~] CI green: the two stale tests, the ROCm partitioner keyed on a `multi_gpu` marker,
+  the torch and ParticleGAN imports in `tests/foundation`, and the order-dependent
+  colorization 128 test (`fix/ci-green-after-410`).
+- [ ] Data-loss fixes: strict resolver for destructive commands (`rm`, `gc`/`prune`,
+  `stop`, `tag`), queue claim and stop, with negative tests.
+- [ ] Wrong-results fixes: K3P history, evaluation starvation, "best" and "latest",
+  retention by branch, the `--devices` override, `pseudo_gradient` buffers.
+- [ ] First-run fixes: `-t dcgan` and the README `hg.new` example, the torch-fidelity
+  pin, main-guard detection, docs that disagree with the validator.
+- [ ] Viewer access control.
+- [ ] Multi-device marked experimental and its bugs fixed.
+- [ ] Structural cleanup.
+- [ ] Fix-status report.
+
 ### 22. Viewer "Model" tab: networks, GAN formulation, losses and hyperparameters (raised 2026-09-25)
 
 Owner: "in the web viewer ... i want to have a way to see what networks are involved

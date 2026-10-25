@@ -403,7 +403,7 @@ def _parser():
     q_add.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_ls = queue_subs.add_parser("ls", help="List jobs from the queue")
-    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled"), default=None, help="filter by status")
+    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled", "interrupted"), default=None, help="filter by status")
     q_ls.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
     q_ls.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 

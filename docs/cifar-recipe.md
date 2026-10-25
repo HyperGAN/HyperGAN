@@ -108,7 +108,7 @@ For a viewer that persists across stopped segments, run `hypergan serve runs/cif
 and `hypergan project runs/cifar --follow` in separate terminals. Training prints
 per-update D/G losses to stderr; redirect stderr to a log for `tail -F`.
 
-The [execution report](../reports/image-training-execution-2026-09-20.md) records
+The [execution report](../reports/archive/image-training-execution-2026-09-20.md) records
 the exact installed CUDA smoke/recovery proofs and the first 40k measurements.
 Keep the installed environment used by a run for supported recovery; source and
 package identity are intentionally checked strictly. The public example retains the measured numerical settings, changes artifact

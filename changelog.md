@@ -1,5 +1,17 @@
 # Changelog
 
+This is the project's only changelog. Entries under **Unreleased** are on `develop` and not yet on PyPI; the package version (`hypergan.__version__`) changes only when a release is cut.
+
+## Unreleased
+
+- **Multi-device and multi-node execution (experimental)** (#410): execution profiles gain `nodes`, `node_rank`, `ranks_per_node` and `tcp://` rendezvous, and a pluggable `[aggregation]` table with `gradient_allreduce`, `parameter_average` and `pseudo_gradient` strategies and a registry for custom ones. `hypergan qualify` runs a bounded qualification smoke suite and writes a JSON receipt; a RunPod runner provisions cloud GPUs for it. The 2026-10-25 review found correctness bugs in these paths; treat them as experimental until those fixes land.
+- **Viewer**: cluster attachment and idempotent control requests (#406); runs under `<root>/runs` are discovered and stale unlocked runs show their real status (#407).
+- **Data**: opt-in CIFAR-10 downloader and manifest preparation (#405).
+- **Docker**: pinned multi-stage container profile (#404); `--build-arg HYPERGAN_COMMIT` records the source commit in image provenance.
+- **Dependencies**: `hndl>=0.10.0,<1` (#408).
+- **Docs and repository**: `GLOSSARY.md` (#409, rewritten in model-file terms), a docs index (`docs/README.md`), a test guide (`tests/README.md`), private vulnerability reporting in `SECURITY.md`, and dated reports moved to `reports/archive/`. `docs/changelog.md` is gone; this file is the changelog.
+- **Tests and CI**: `tests/e2e` runs in CI; the lightweight matrix adds Python 3.14.
+
 ## 2.0.0a1 — 2026-10-23
 
 HyperGAN 2.0.0a1 is a ground-up architectural rebuild centered on configurable ParticleGAN (`>=0.9.2,<0.10`) primitives, declarative `hypergan-model/1` TOML model files, HNDL (`>=0.10.0`) networks, reproducible training lifecycles, a functional Python API (`import hypergan as hg`), and real-time web observation (`hypergan view`) backed by Foldlite DB (`>=0.1.2,<0.2`).

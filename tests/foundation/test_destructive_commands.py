@@ -5,7 +5,6 @@ findings: every destructive command resolves its target strictly and only acts
 on a real run directory, and the registry never re-derives which run a slug names.
 """
 
-from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 import json
@@ -211,6 +210,14 @@ def test_reserve_run_slug_is_unique_and_persisted_once(tmp_path):
     data = json.loads((get_registry_dir(tmp_path) / "runs.json").read_text(encoding="utf-8"))
     assert data["runs"][str(new_dir.resolve())]["slug"] == slug
     assert reserve_run_slug(new_dir, "8" * 32) == slug
+
+    # A trainer that died before its first manifest releases the claim after a day.
+    reg_file = get_registry_dir(tmp_path) / "runs.json"
+    data = json.loads(reg_file.read_text(encoding="utf-8"))
+    data["runs"][str(new_dir.resolve())]["updated_at"] = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    reg_file.write_text(json.dumps(data), encoding="utf-8")
+    list_registered_runs(cwd=tmp_path)
+    assert str(new_dir.resolve()) not in json.loads(reg_file.read_text(encoding="utf-8"))["runs"]
 
 
 def test_generate_run_slug_avoids_registered_slugs(tmp_path, monkeypatch):

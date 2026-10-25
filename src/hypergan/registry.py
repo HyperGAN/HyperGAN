@@ -26,6 +26,8 @@ _FID_RE = re.compile(r'(?:^|[^a-z0-9])fid(?:$|[^a-z]|50k)', re.IGNORECASE)
 # A persisted root that is missing (unmounted drive, offline share) is kept this
 # long before it is forgotten, so one `ps` while a disk is unplugged loses nothing.
 MISSING_ROOT_RETENTION = timedelta(days=30)
+# A slug reservation whose trainer never wrote a manifest is released after this.
+RESERVATION_RETENTION = timedelta(days=1)
 
 # Written by `hypergan tag`; the trainer never rewrites it, unlike manifest.json.
 TAG_FILE = "tag.json"
@@ -450,7 +452,8 @@ def reserve_run_slug(run_dir: Union[Path, str], run_id: str) -> str:
             key = str(run_path)
             entry = dict(data["runs"].get(key) or {})
             entry.update(run_id=str(run_id), short_id=str(run_id)[:8], slug=slug, run_dir=key,
-                         runs_root=str(run_path.parent), status="initializing")
+                         runs_root=str(run_path.parent), status="initializing",
+                         updated_at=datetime.now(timezone.utc).isoformat())
             entry.setdefault("name", run_path.name)
             data["runs"][key] = entry
             _write_registry_unlocked(reg_dir, data)
@@ -1369,7 +1372,11 @@ def list_registered_runs(
                 changed = True
             direct_run_dirs.append(resolved_ep)
             continue
-        if isinstance(entry_obj, dict) and entry_obj.get("status") == "initializing" and ep.is_dir():
+        reserved_at = _parse_utc(entry_obj.get("updated_at")) if isinstance(entry_obj, dict) else None
+        if (
+            isinstance(entry_obj, dict) and entry_obj.get("status") == "initializing" and ep.is_dir()
+            and reserved_at is not None and now - reserved_at < RESERVATION_RETENTION
+        ):
             # A slug reservation for a trainer that has not written its manifest yet.
             continue
         if any(ep == root or root in ep.parents for root in unavailable_roots):

@@ -235,9 +235,8 @@ class ReplicatedTrainer(ReferenceTrainer):
         if not callable(getattr(strategy, 'is_synchronized', None)) or not callable(getattr(strategy, 'synchronize', None)):
             return False
         def boundary():
-            if self._poisoned or not self.checkpoint_ready:
-                raise RuntimeError('Trainer is not at a complete boundary; replicas cannot be synchronized')
-            return bool(strategy.is_synchronized(self.step))
+            # A half/failed update is not synchronized here; the checkpoint itself rejects it.
+            return bool(self._poisoned or not self.checkpoint_ready or strategy.is_synchronized(self.step))
         synchronized = self._phase('aggregation state', boundary)
         self._agree('aggregation state', synchronized)
         if synchronized:

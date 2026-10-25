@@ -4,8 +4,8 @@ Empirically challenges Milestone 4 & 5 deliverables:
 1. Qualification CLI:
    - Nested output directory creation vs. directory path handling
    - Invalid suite names rejection, casing normalization, and partial substring matches
-   - Duration accounting, clamping at 180s hard limit, and timeout boundaries
-   - Receipt schema validation adhering to PROJECT.md § Interface Contracts 5 and SHA-256 tamper defense
+   - Duration accounting (never clamped; over the limit is a failure) and timeout boundaries
+   - Receipt schema validation adhering to PROJECT.md § Interface Contracts 5 and the unkeyed SHA-256 checksum
 2. Ephemeral RunPod Runner:
    - Timeout guardrail: 180s hard limit exact boundary testing (1, 180, 0, 181, -1)
    - Lowest-cost GPU selector: handling missing cost_per_hr, None pricing, zero cost, and max-cost ceiling
@@ -40,6 +40,7 @@ from hypergan.config import resolve_config
 from hypergan.execution_profiles import resolve_execution_profile
 from hypergan.qualify import (
     QualificationRunner,
+    ReceiptValidationError,
     compute_receipt_sha256,
     run_qualification,
     run_qualification_cli,
@@ -47,13 +48,13 @@ from hypergan.qualify import (
 )
 from hypergan.runpod_runner import (
     DEFAULT_GPU_CATALOG,
-    MockRunPodClient,
     RunPodRunner,
     _ActivePodRegistry,
     provision_ephemeral_pod,
     select_cheapest_gpu,
     validate_timeout_guardrail,
 )
+from tests.runpod_fakes import FakeRunPodClient
 
 
 def get_free_tcp_port() -> int:
@@ -119,48 +120,38 @@ class TestQualificationCLIAdversarial:
         assert runner.suite_filter is not None
         assert runner.should_run_suite(expected_contained)
 
-    def test_duration_accounting_clamping_at_180s(self, tmp_path):
-        """Duration is recorded accurately and clamped to 180s if it exceeds budget."""
-        runner = QualificationRunner(output_path=tmp_path / "receipt.json", dry_run=True)
-        # Mock time.monotonic to simulate 250s elapsed over the run
-        call_count = 0
-        def fake_monotonic():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return 1000.0
-            elif call_count >= 14:
-                return 1250.0
-            return 1000.0 + call_count * 1.0
+    def test_duration_over_budget_is_recorded_unclamped_and_fails(self, tmp_path):
+        """A 250s run records 250s (never clamped to 180s) and its receipt status is failed."""
+        now = [1000.0]
+        runner = QualificationRunner(output_path=tmp_path / "receipt.json", dry_run=True, clock=lambda: now[0])
+        real_single = runner._run_suite_single_device
 
-        with patch("time.monotonic", side_effect=fake_monotonic):
+        def slow_suite(env_info=None):
+            now[0] += 250.0
+            return real_single(env_info)
+
+        with patch.object(runner, "_run_suite_single_device", side_effect=slow_suite):
             receipt = runner.run()
-            assert receipt["duration_seconds"] == 180.0
-            validate_qualification_receipt(receipt)
+        assert receipt["duration_seconds"] == 250.0
+        assert receipt["status"] == "failed"
+        assert "timeout" in receipt["error"]
+        validate_qualification_receipt(receipt)
 
-    def test_qualification_cli_stream_isolation_json_verbose(self):
-        """Empirically test stream output when running qualify with both --json and -v.
-        
-        Documents finding: QualificationRunner prints progress to stdout, so --json + -v
-        mixes text with JSON on stdout.
-        """
+    def test_qualification_cli_stream_isolation_json_verbose(self, tmp_path):
+        """With both --json and -v, progress goes to stderr and stdout stays parseable JSON."""
         proc = subprocess.run(
             [sys.executable, "-m", "hypergan.cli", "qualify", "--dry-run", "--json", "-v"],
             capture_output=True,
             text=True,
             timeout=30,
+            cwd=tmp_path,
+            env={**os.environ, "HYPERGAN_STATE_DIR": str(tmp_path / "state")},
         )
-        assert proc.returncode == 0
-        # If stdout has progress lines, json.loads fails unless isolated to stderr
-        lines = [line.strip() for line in proc.stdout.strip().splitlines() if line.strip()]
-        has_verbose_lines = any(l.startswith("Running qualification suite") or l.startswith("[") for l in lines)
-        if has_verbose_lines:
-            with pytest.raises(json.JSONDecodeError):
-                json.loads(proc.stdout)
-        else:
-            # If streams were fully isolated, stdout is pure JSON
-            parsed = json.loads(proc.stdout)
-            assert parsed["status"] == "passed"
+        assert proc.returncode == 0, proc.stderr
+        # Progress goes to stderr, so stdout is pure JSON
+        parsed = json.loads(proc.stdout)
+        assert parsed["status"] == "dry_run"
+        assert "Running qualification suite" in proc.stderr
 
 
 class TestReceiptSchemaAdversarialValidation:
@@ -189,16 +180,16 @@ class TestReceiptSchemaAdversarialValidation:
         """Dropping any required key triggers an assertion error."""
         tampered = copy.deepcopy(valid_receipt)
         del tampered[missing_key]
-        with pytest.raises(AssertionError):
+        with pytest.raises(ReceiptValidationError):
             validate_qualification_receipt(tampered)
 
-    @pytest.mark.parametrize("invalid_status", ["pending", "skipped", "error", "unknown", 1, None])
+    @pytest.mark.parametrize("invalid_status", ["pending", "error", "unknown", 1, None])
     def test_invalid_status_rejected(self, valid_receipt, invalid_status):
-        """Status must strictly be 'passed' or 'failed'."""
+        """Status must be one of passed, failed, skipped or dry_run."""
         tampered = copy.deepcopy(valid_receipt)
         tampered["status"] = invalid_status
         tampered["receipt_sha256"] = compute_receipt_sha256(tampered)
-        with pytest.raises(AssertionError):
+        with pytest.raises(ReceiptValidationError):
             validate_qualification_receipt(tampered)
 
     def test_negative_duration_rejected(self, valid_receipt):
@@ -206,7 +197,7 @@ class TestReceiptSchemaAdversarialValidation:
         tampered = copy.deepcopy(valid_receipt)
         tampered["duration_seconds"] = -1.5
         tampered["receipt_sha256"] = compute_receipt_sha256(tampered)
-        with pytest.raises(AssertionError):
+        with pytest.raises(ReceiptValidationError):
             validate_qualification_receipt(tampered)
 
     def test_duration_exceeding_180s_rejected(self, valid_receipt):
@@ -214,7 +205,7 @@ class TestReceiptSchemaAdversarialValidation:
         tampered = copy.deepcopy(valid_receipt)
         tampered["duration_seconds"] = 180.1
         tampered["receipt_sha256"] = compute_receipt_sha256(tampered)
-        with pytest.raises(AssertionError, match=r"Qualification exceeded 3-minute hard limit"):
+        with pytest.raises(ReceiptValidationError, match=r"Qualification exceeded 3-minute hard limit"):
             validate_qualification_receipt(tampered)
 
     def test_empty_suites_list_rejected(self, valid_receipt):
@@ -222,7 +213,7 @@ class TestReceiptSchemaAdversarialValidation:
         tampered = copy.deepcopy(valid_receipt)
         tampered["suites"] = []
         tampered["receipt_sha256"] = compute_receipt_sha256(tampered)
-        with pytest.raises(AssertionError):
+        with pytest.raises(ReceiptValidationError):
             validate_qualification_receipt(tampered)
 
     def test_tampered_payload_sha256_mismatch(self, valid_receipt):
@@ -230,7 +221,16 @@ class TestReceiptSchemaAdversarialValidation:
         tampered = copy.deepcopy(valid_receipt)
         # Invert status without recomputing SHA-256
         tampered["status"] = "failed"
-        with pytest.raises(AssertionError, match=r"Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match=r"Receipt SHA-256 mismatch"):
+            validate_qualification_receipt(tampered)
+
+    @pytest.mark.parametrize("claimed", ["passed", "skipped"])
+    def test_status_contradicting_suites_rejected(self, valid_receipt, claimed):
+        """A dry-run receipt cannot be relabelled passed or skipped, even with a recomputed checksum."""
+        tampered = copy.deepcopy(valid_receipt)
+        tampered["status"] = claimed
+        tampered["receipt_sha256"] = compute_receipt_sha256(tampered)
+        with pytest.raises(ReceiptValidationError, match=r"contradicts its suites"):
             validate_qualification_receipt(tampered)
 
 
@@ -323,7 +323,7 @@ class TestRunPodCleanupTrapsAdversarial:
 
     def test_provision_ephemeral_pod_terminates_on_unhandled_exception(self):
         """Context manager calls client.terminate_pod even if an exception occurs."""
-        client = MockRunPodClient()
+        client = FakeRunPodClient()
         with pytest.raises(ZeroDivisionError):
             with provision_ephemeral_pod(client, "NVIDIA RTX A4000") as pod_id:
                 assert pod_id in client.created_pods
@@ -332,7 +332,7 @@ class TestRunPodCleanupTrapsAdversarial:
 
     def test_runner_ephemeral_pod_cleans_up_on_qualification_crash(self):
         """RunPodRunner terminates created pod when remote qualification execution fails."""
-        client = MockRunPodClient()
+        client = FakeRunPodClient()
         runner = RunPodRunner(dry_run=True, client=client)
         with pytest.raises(RuntimeError, match=r"Simulated failure"):
             with runner.ephemeral_pod("NVIDIA RTX A4000") as pod_id:
@@ -365,29 +365,38 @@ class TestRunPodCleanupTrapsAdversarial:
         registry.register("pod-good-2", client_good2)
 
         # cleanup_all must not raise, and good clients must have terminated their pods
-        registry.cleanup_all()
-        assert "pod-good-1" in client_good1.terminated
-        assert "pod-good-2" in client_good2.terminated
+        try:
+            assert registry.cleanup_all() == ["pod-bad"]
+            assert "pod-good-1" in client_good1.terminated
+            assert "pod-good-2" in client_good2.terminated
+            # The pod whose termination failed is still tracked, not forgotten.
+            assert registry.is_registered("pod-bad")
+            assert not registry.is_registered("pod-good-1")
+        finally:
+            registry.unregister("pod-bad")
 
 
 class TestRunPodStreamIsolationAdversarial:
     """Verify stdout/stderr stream isolation with --json and -v."""
 
-    def test_runpod_runner_cli_json_and_verbose_stream_isolation(self):
+    def test_runpod_runner_cli_json_and_verbose_stream_isolation(self, tmp_path):
         """RunPod runner with --dry-run --json -v produces 100% valid parseable JSON on stdout."""
         proc = subprocess.run(
             [sys.executable, "-m", "hypergan.runpod_runner", "--dry-run", "--json", "-v"],
             capture_output=True,
             text=True,
             timeout=30,
+            cwd=tmp_path,
+            env={**os.environ, "HYPERGAN_STATE_DIR": str(tmp_path / "state")},
         )
-        assert proc.returncode == 0
+        assert proc.returncode == 0, proc.stderr
+        assert not (tmp_path / "qualification-receipt.json").exists()
         # stderr must receive the [runpod] logs
         assert "[runpod]" in proc.stderr
         # stdout must be clean JSON
         data = json.loads(proc.stdout)
         validate_qualification_receipt(data)
-        assert data["status"] == "passed"
+        assert data["status"] == "dry_run"
 
 
 # ==============================================================================

@@ -5,7 +5,8 @@ import numpy as np
 import pytest
 import torch
 
-from hypergan import image_data
+from hypergan import dataset_download, image_data
+from hypergan.data import EvaluationDataExhausted
 
 
 @pytest.fixture
@@ -55,8 +56,13 @@ def test_evaluation_no_replacement_augmentation_or_rng_draws(dataset):
     assert torch.equal(torch.cat([first['real'], rest['real']]), images.float() / 127.5 - 1)
     assert torch.equal(torch.cat([first['labels'], rest['labels']]), torch.arange(12))
     assert torch.equal(state, rng.get_state())
-    with pytest.raises(StopIteration, match='never wraps'):
+    with pytest.raises(EvaluationDataExhausted, match='12 of 12 images used, 1 requested; it never wraps'):
         data(1, generator=rng)
+
+    def batches():  # How the evaluation worker consumes data (PEP 479).
+        yield data(1, generator=rng)
+    with pytest.raises(EvaluationDataExhausted):
+        next(batches())
     data.load_state_dict(saved)
     assert torch.equal(data(7, generator=rng)['real'], rest['real'])
 
@@ -76,3 +82,9 @@ def test_invalid_sequential_recovery_state(dataset, state):
     data = image_data.CIFAR10Data(dataset[0], split='test', sampling='sequential', horizontal_flip=False)
     with pytest.raises(ValueError, match='recovery cursor'):
         data.load_state_dict(state)
+
+
+def test_loader_and_downloader_share_one_set_of_cifar_pins():
+    # Two copies could drift, and a verified download would then fail to load.
+    assert image_data.CIFAR10_SHA256 is dataset_download.CIFAR10_SHA256
+    assert dataset_download.QUALIFIED_DATASETS['cifar10']['files_sha256'] == image_data.CIFAR10_SHA256

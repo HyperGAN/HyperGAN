@@ -403,7 +403,7 @@ def _parser():
     q_add.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_ls = queue_subs.add_parser("ls", help="List jobs from the queue")
-    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled"), default=None, help="filter by status")
+    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled", "interrupted"), default=None, help="filter by status")
     q_ls.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
     q_ls.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
@@ -454,13 +454,13 @@ def _parser():
     qualify_cmd.add_argument(
         "-o", "--output",
         type=Path,
-        default=Path("qualification-receipt.json"),
-        help="destination path for JSON verification receipt (default: qualification-receipt.json)",
+        default=None,
+        help="destination path for JSON verification receipt (default: a per-run file under the HyperGAN state directory, qualification/)",
     )
     qualify_cmd.add_argument(
         "--dry-run",
         action="store_true",
-        help="simulate qualification checks and emit receipt without spawning worker jobs",
+        help="emit a receipt whose suites report dry_run without running any of them",
     )
     qualify_cmd.add_argument(
         "--suite",

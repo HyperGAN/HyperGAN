@@ -5,7 +5,8 @@ Focuses specifically on:
 2. Pipe behavior to jq and stream isolation (stdout pure JSON, diagnostic logs on stderr).
 3. CLI unknown argument rejection and help flag output.
 4. Receipt dynamic environment detection under simulated / monkeypatched runtime versions.
-5. Receipt SHA-256 cryptographic integrity and tamper detection across all fields.
+5. Receipt SHA-256 checksum: any edit that does not recompute it is detected. The checksum is
+   unkeyed, so an edit that does recompute it is not; it is not a signature.
 6. Validation of receipts generated through dry-run and live runner client delegation paths.
 """
 from __future__ import annotations
@@ -28,9 +29,11 @@ from hypergan.runpod_runner import (
     main as runpod_main,
 )
 from hypergan.qualify import (
+    ReceiptValidationError,
     compute_receipt_sha256,
     validate_qualification_receipt,
 )
+from tests.runpod_fakes import build_fake_receipt
 
 
 # ==============================================================================
@@ -61,7 +64,7 @@ class TestRunPodCLIOptionsAdversarial:
         assert receipt_file.exists()
         # Non-JSON verbose output is written to stdout
         assert "[runpod]" in proc.stdout
-        assert "Qualification status: passed" in proc.stdout
+        assert "Qualification status: dry_run" in proc.stdout
         assert "single_device" in proc.stdout
 
     def test_cli_long_flag_verbose(self, tmp_path):
@@ -107,7 +110,7 @@ class TestRunPodCLIOptionsAdversarial:
         # Direct parse of stdout must succeed without stripping or filtering
         parsed = json.loads(proc.stdout)
         assert isinstance(parsed, dict)
-        assert parsed["status"] == "passed"
+        assert parsed["status"] == "dry_run"
         assert parsed["schema_version"] == 1
         assert "receipt_sha256" in parsed
         validate_qualification_receipt(parsed)
@@ -149,7 +152,7 @@ class TestRunPodCLIOptionsAdversarial:
 
         assert p1.returncode == 0, f"p1 failed: {p1_err}"
         assert p2.returncode == 0, f"jq failed: {jq_err}"
-        assert jq_out.strip() == '"passed"'
+        assert jq_out.strip() == '"dry_run"'
 
         # Diagnostic logs MUST be present in stderr, NEVER in stdout
         assert "[runpod]" in p1_err
@@ -199,7 +202,7 @@ class TestReceiptDynamicEnvironmentSimulation:
     def test_receipt_populates_simulated_torch_version(self, mock_torch_version, tmp_path):
         """Mock receipt environment['torch'] strictly reflects mocked torch version."""
         runner = RunPodRunner(dry_run=True)
-        with patch("hypergan.runpod_runner.inspect_environment", return_value={
+        with patch("hypergan.qualify.inspect_environment", return_value={
             "torch": mock_torch_version,
             "platform": sys.platform,
             "python": platform.python_version(),
@@ -208,19 +211,19 @@ class TestReceiptDynamicEnvironmentSimulation:
             "cuda": {"available": True, "nccl": True, "version": "13.0"},
         }):
             receipt = runner.run_qualification_suite(output_dir=tmp_path)
-            assert receipt["status"] == "passed"
+            assert receipt["status"] == "dry_run"
             assert receipt["environment"]["torch"] == mock_torch_version
             validate_qualification_receipt(receipt)
 
-    def test_receipt_torch_fallback_when_inspect_returns_none(self, tmp_path):
-        """When inspect_environment returns 'none', runner falls back to torch.__version__."""
+    def test_receipt_records_inspected_environment_without_substitution(self, tmp_path):
+        """The dry-run receipt records what inspect_environment saw; it substitutes nothing."""
         runner = RunPodRunner(dry_run=True)
-        fake_torch = MagicMock(__version__="2.9.9+fallback")
-        with patch("hypergan.runpod_runner.inspect_environment", return_value={"torch": "none"}), \
-             patch.dict("sys.modules", {"torch": fake_torch}):
+        seen = {"torch": "none", "platform": sys.platform, "python": platform.python_version(), "device_count": 0}
+        with patch("hypergan.qualify.inspect_environment", return_value=seen):
             receipt = runner.run_qualification_suite(output_dir=tmp_path)
-            assert receipt["environment"]["torch"] == "2.9.9+fallback"
-            validate_qualification_receipt(receipt)
+        assert receipt["environment"]["torch"] == "none"
+        assert receipt["environment"]["device_count"] == 0
+        validate_qualification_receipt(receipt)
 
     def test_live_runner_delegation_with_custom_client(self, tmp_path):
         """Live runner path with mock client delegating execute_qualification verifies envelope."""
@@ -239,15 +242,13 @@ class TestReceiptDynamicEnvironmentSimulation:
                 return pod_id
 
             def execute_qualification(self, pod_id):
-                # Return partial custom receipt
-                return {
-                    "qualification_id": f"qual-{pod_id}",
-                    "status": "passed",
-                    "suites": [
+                return build_fake_receipt(
+                    qualification_id=f"qual-{pod_id}",
+                    suites=[
                         {"name": "single_device", "status": "passed", "duration_seconds": 0.05},
                         {"name": "custom_remote_suite", "status": "passed", "duration_seconds": 0.12},
                     ],
-                }
+                )
 
             def terminate_pod(self, pod_id):
                 self.terminated_pods.append(pod_id)
@@ -288,7 +289,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["environment"]["platform"] = "freebsd_injected"
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_environment_python(self, base_receipt):
@@ -296,7 +297,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["environment"]["python"] = "3.99.9"
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_environment_torch(self, base_receipt):
@@ -304,7 +305,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["environment"]["torch"] = "1.0.0.tampered"
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_environment_device_count(self, base_receipt):
@@ -312,7 +313,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["environment"]["device_count"] = 8
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_environment_devices_list(self, base_receipt):
@@ -320,7 +321,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["environment"]["devices"] = ["NVIDIA H100 80GB"]
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_environment_cuda_metadata(self, base_receipt):
@@ -328,7 +329,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["environment"]["cuda"]["version"] = "99.0"
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_environment_runpod_metadata(self, base_receipt):
@@ -336,15 +337,15 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["environment"]["runpod"]["dry_run"] = False
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_status(self, base_receipt):
-        """Flipping status 'passed' -> 'failed' invalidates SHA-256."""
+        """Flipping status 'dry_run' -> 'failed' invalidates SHA-256."""
         mutated = copy.deepcopy(base_receipt)
         mutated["status"] = "failed"
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_invalid_status_value(self, base_receipt):
@@ -352,7 +353,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["status"] = "in_progress"
         mutated["receipt_sha256"] = compute_receipt_sha256(mutated)
-        with pytest.raises(AssertionError, match="Invalid status: in_progress"):
+        with pytest.raises(ReceiptValidationError, match="Invalid status: in_progress"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_duration_seconds(self, base_receipt):
@@ -360,7 +361,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["duration_seconds"] = round(base_receipt["duration_seconds"] + 0.01, 3)
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_duration_exceeding_hard_limit(self, base_receipt):
@@ -368,7 +369,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["duration_seconds"] = 180.1
         mutated["receipt_sha256"] = compute_receipt_sha256(mutated)
-        with pytest.raises(AssertionError, match="Qualification exceeded 3-minute hard limit"):
+        with pytest.raises(ReceiptValidationError, match="Qualification exceeded 3-minute hard limit"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_suite_durations(self, base_receipt):
@@ -377,7 +378,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
             mutated = copy.deepcopy(base_receipt)
             mutated["suites"][idx]["duration_seconds"] += 0.05
             assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-            with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+            with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
                 validate_qualification_receipt(mutated)
 
     def test_tamper_suite_name_or_status(self, base_receipt):
@@ -385,7 +386,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["suites"][0]["status"] = "failed"
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_suite_ordering(self, base_receipt):
@@ -393,7 +394,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         mutated = copy.deepcopy(base_receipt)
         mutated["suites"] = list(reversed(mutated["suites"]))
         assert compute_receipt_sha256(mutated) != base_receipt["receipt_sha256"]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     def test_tamper_sha_digest_corruption(self, base_receipt):
@@ -403,7 +404,7 @@ class TestReceiptCryptographicIntegrityAdversarial:
         # Flip first character (e.g. 0 -> 1 or a -> b)
         corrupted_char = "0" if original_hash[0] != "0" else "1"
         mutated["receipt_sha256"] = corrupted_char + original_hash[1:]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(mutated)
 
     @pytest.mark.parametrize("missing_key", [
@@ -420,5 +421,5 @@ class TestReceiptCryptographicIntegrityAdversarial:
         """Omitting any required top-level key causes validation failure."""
         mutated = copy.deepcopy(base_receipt)
         del mutated[missing_key]
-        with pytest.raises(AssertionError, match="Qualification receipt missing required keys"):
+        with pytest.raises(ReceiptValidationError, match="Qualification receipt missing required keys"):
             validate_qualification_receipt(mutated)

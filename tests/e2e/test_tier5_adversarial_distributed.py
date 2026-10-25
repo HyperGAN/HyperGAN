@@ -348,6 +348,7 @@ class TestTier5AggregationChallenges:
 class TestTier5DistributedCheckpointChallenges:
     """Empirical challenge suite for distributed checkpoint continuity."""
 
+    @pytest.mark.heavy
     def test_step_0_checkpoint_save_and_restore(self, tmp_path: Path):
         """Challenge: Step 0 checkpoint save and recovery continuity.
         Verify that right after initialization (step 0), before any update steps:
@@ -453,6 +454,7 @@ finally:
         assert manifest["run_id"] == "test-step0-run"
         assert len(manifest["ranks"]) == 2
 
+    @pytest.mark.heavy
     def test_middle_step_checkpoint_and_recovery_trajectory(self, tmp_path: Path):
         """Challenge: Middle-step checkpoint save and recovery trajectory continuity under DiLoCo (pseudo_gradient).
         Compare:
@@ -608,6 +610,7 @@ finally:
 class TestTier5RendezvousChallenges:
     """Empirical challenge suite for bare file:// fallback and TCP rendezvous timeouts."""
 
+    @pytest.mark.heavy
     def test_bare_file_rendezvous_fallback_and_cleanup(self, tmp_path: Path):
         """Challenge: When rendezvous is bare 'file://' or None, CPUWorkerService creates
         an ephemeral directory under /tmp and cleans it up completely upon shutdown.
@@ -660,6 +663,7 @@ if __name__ == "__main__":
         assert proc.returncode == 0, f"Bare file:// rendezvous driver failed:\nSTDOUT: {proc.stdout}\nSTDERR: {proc.stderr}"
         assert "PASSED_BARE_FILE_RENDEZVOUS" in proc.stdout
 
+    @pytest.mark.heavy
     def test_tcp_rendezvous_timeout_and_abort(self, tmp_path: Path):
         """Challenge: When TCP rendezvous points to an unreachable port/host,
         CPUWorkerService times out cleanly, raises RuntimeError/TimeoutError, and reaps
@@ -752,6 +756,7 @@ if __name__ == "__main__":
 # 4. Workstation Dual GPU NCCL Empirical Challenges (when 2 GPUs available)
 # ==============================================================================
 
+@pytest.mark.heavy
 @pytest.mark.skipif(not HAVE_2_GPUS, reason="Dual NVIDIA GPUs required for NCCL challenges")
 class TestTier5DualGPUNCCLChallenges:
     """Empirical challenge suite executing directly on the host's 2x NVIDIA RTX A6000 GPUs."""

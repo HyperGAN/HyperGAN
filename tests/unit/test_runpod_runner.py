@@ -11,25 +11,26 @@ Covers:
 """
 from __future__ import annotations
 
-import copy
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock, patch
+from typing import Any, Dict, List
+from unittest.mock import patch
 
 import pytest
 
 from hypergan.runpod_runner import (
+    LiveModeUnavailable,
     RunPodRunner,
+    _GLOBAL_POD_REGISTRY,
     _build_parser,
     main as runpod_main,
     select_cheapest_gpu,
     validate_timeout_guardrail,
 )
+from tests.runpod_fakes import CreateOnlyClient, build_fake_receipt
 
 
 # ---------------------------------------------------------------------------
@@ -69,13 +70,8 @@ class MockCloudClient:
     def execute_qualification(self, pod_id: str) -> Dict[str, Any]:
         if self.fail_on_execute:
             raise RuntimeError("Simulated remote qualification crash")
-        return {
-            "status": "passed",
-            "qualification_id": f"qual-{pod_id}",
-            "duration_seconds": 25.0,
-            "environment": {"platform": "linux", "python": "3.14", "torch": "2.5", "device_count": 1},
-            "suites": [{"name": "smoke", "status": "passed", "duration_seconds": 25.0}],
-        }
+        return build_fake_receipt(qualification_id=f"qual-{pod_id}", duration_seconds=25.0,
+                                  suites=[{"name": "smoke", "status": "passed", "duration_seconds": 25.0}])
 
     def terminate_pod(self, pod_id: str) -> bool:
         if pod_id in self.created_pods:
@@ -115,28 +111,38 @@ class TestRunPodRunnerInit:
     def test_init_custom_parameters(self):
         """Custom parameters are stored in runner instance."""
         runner = RunPodRunner(
-            api_key="rpa_test_secret",
             timeout=120,
             max_cost=0.50,
             gpu_type="NVIDIA RTX A5000",
-            dry_run=False,
+            dry_run=True,
         )
-        assert runner.api_key == "rpa_test_secret"
         assert runner.timeout == 120
         assert runner.max_cost == pytest.approx(0.50)
         assert runner.gpu_type == "NVIDIA RTX A5000"
-        assert runner.dry_run is False
+        assert runner.dry_run is True
+        assert runner.client is None
 
-    def test_init_live_without_api_key_raises(self, monkeypatch):
-        """Live runner without API key raises ValueError."""
-        monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
-        with pytest.raises(ValueError, match="RUNPOD_API_KEY is required"):
-            RunPodRunner(dry_run=False, api_key=None)
+    @pytest.mark.parametrize("api_key", [None, "rpa_test_secret"])
+    def test_init_live_mode_refused(self, monkeypatch, api_key):
+        """Live mode is refused, with or without a key, because nothing can run on the pod."""
+        if api_key:
+            monkeypatch.setenv("RUNPOD_API_KEY", api_key)
+        else:
+            monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+        with pytest.raises(LiveModeUnavailable, match="refuses to create a paid pod"):
+            RunPodRunner(dry_run=False)
+
+    def test_init_leaves_signal_handlers_untouched(self):
+        """Constructing a runner must not replace the process's SIGINT/SIGTERM handlers."""
+        before = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+        RunPodRunner(dry_run=True)
+        RunPodRunner(dry_run=True, client=MockCloudClient())
+        assert {sig: signal.getsignal(sig) for sig in before} == before
 
     def test_init_dry_run_without_api_key_succeeds(self, monkeypatch):
         """Dry-run runner does not require RUNPOD_API_KEY."""
         monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
-        runner = RunPodRunner(dry_run=True, api_key=None)
+        runner = RunPodRunner(dry_run=True)
         assert runner.dry_run is True
 
 
@@ -274,45 +280,51 @@ class TestGuaranteedCleanupTraps:
                 runner.execute_with_lifecycle(client, "NVIDIA RTX A4000")
         assert client.all_pods_cleaned_up
 
-    def test_cleanup_on_sigint_trap(self):
-        """Simulating SIGINT invokes termination handler before exiting."""
+    def test_cleanup_on_real_sigint_during_qualification(self):
+        """A SIGINT while the pod runs terminates it exactly once and still raises KeyboardInterrupt."""
         client = MockCloudClient()
         runner = RunPodRunner(dry_run=True)
-        runner.client = client
-        pod_id = client.create_pod("RTX A4000", "hypergan:latest", 180)
-        runner._active_pod_id = pod_id
 
-        # Trigger simulated SIGINT handler
-        with pytest.raises(KeyboardInterrupt):
-            runner._signal_handler(signal.SIGINT, None)
+        def interrupted(pod_id):
+            os.kill(os.getpid(), signal.SIGINT)
+            raise AssertionError("SIGINT handler did not run")
 
-        assert client.all_pods_cleaned_up
-        assert pod_id in client.terminated_pods
+        with patch.object(client, "execute_qualification", side_effect=interrupted):
+            with pytest.raises(KeyboardInterrupt):
+                runner.execute_with_lifecycle(client, "NVIDIA RTX A4000")
+        assert client.terminated_pods == client.created_pods
+        assert len(client.terminated_pods) == 1
 
-    def test_cleanup_on_sigterm_trap(self):
-        """Simulating SIGTERM invokes termination handler."""
+    def test_signal_handlers_chain_to_and_restore_previous_handler(self):
+        """During a lifecycle SIGTERM cleans up then calls the previous handler, which is restored after."""
         client = MockCloudClient()
-        runner = RunPodRunner(dry_run=True)
-        runner.client = client
-        pod_id = client.create_pod("RTX A4000", "hypergan:latest", 180)
-        runner._active_pod_id = pod_id
+        runner = RunPodRunner(dry_run=True, client=client)
+        received = []
 
-        # Trigger simulated SIGTERM handler
-        with pytest.raises(SystemExit):
-            runner._signal_handler(signal.SIGTERM, None)
+        def previous_handler(signum, frame):
+            received.append(signum)
 
-        assert client.all_pods_cleaned_up
+        original = signal.signal(signal.SIGTERM, previous_handler)
+        try:
+            with runner.ephemeral_pod("NVIDIA RTX A4000") as pod_id:
+                assert signal.getsignal(signal.SIGTERM) is not previous_handler
+                os.kill(os.getpid(), signal.SIGTERM)
+                assert pod_id in client.terminated_pods
+            assert received == [signal.SIGTERM]
+            assert signal.getsignal(signal.SIGTERM) is previous_handler
+            assert client.terminated_pods == [pod_id]
+        finally:
+            signal.signal(signal.SIGTERM, original)
 
     def test_cleanup_idempotent(self):
-        """Calling pod termination multiple times does not error."""
+        """Releasing a pod twice terminates it once and does not error."""
         client = MockCloudClient()
-        runner = RunPodRunner(dry_run=True)
-        runner.client = client
         pod_id = client.create_pod("RTX A4000", "hypergan:latest", 180)
-        runner._active_pod_id = pod_id
-        runner._cleanup_pod()
-        runner._cleanup_pod()  # Idempotent second call
-        assert client.all_pods_cleaned_up
+        _GLOBAL_POD_REGISTRY.register(pod_id, client)
+        _GLOBAL_POD_REGISTRY.release(pod_id)
+        _GLOBAL_POD_REGISTRY.release(pod_id)  # Idempotent second call
+        assert client.terminated_pods == [pod_id]
+        assert not _GLOBAL_POD_REGISTRY.is_registered(pod_id)
 
 
 # ==============================================================================
@@ -324,16 +336,12 @@ class TestRunPodDryRunLifecycle:
 
     def test_dry_run_executes_full_lifecycle(self, tmp_path):
         """Dry-run executes mock cloud qualification without network."""
-        try:
-            from e2e.harness import validate_qualification_receipt
-        except ImportError:
-            try:
-                from tests.e2e.harness import validate_qualification_receipt
-            except ImportError:
-                from hypergan.qualify import validate_qualification_receipt
+        from hypergan.qualify import validate_qualification_receipt
         runner = RunPodRunner(dry_run=True)
         receipt = runner.run_qualification_suite(output_dir=tmp_path)
-        assert receipt["status"] == "passed"
+        assert receipt["status"] == "dry_run"
+        assert {s["status"] for s in receipt["suites"]} == {"dry_run"}
+        assert receipt["environment"]["runpod"]["pod_created"] is False
         assert receipt["duration_seconds"] <= 180.0
         validate_qualification_receipt(receipt)
 
@@ -347,13 +355,13 @@ class TestRunPodDryRunLifecycle:
         import torch
         runner = RunPodRunner(dry_run=True)
         receipt = runner.run_qualification_suite(output_dir=tmp_path)
-        assert receipt["status"] == "passed"
+        assert receipt["status"] == "dry_run"
         assert receipt["environment"]["torch"] == torch.__version__
 
     def test_dry_run_receipt_dynamic_torch_version_mocked(self, tmp_path):
         """Receipt torch version dynamically reflects mocked torch.__version__ or inspect_environment."""
         runner = RunPodRunner(dry_run=True)
-        with patch("hypergan.runpod_runner.inspect_environment", return_value={"torch": "2.9.9+dynamic.test", "platform": sys.platform, "python": "3.14", "device_count": 1}):
+        with patch("hypergan.qualify.inspect_environment", return_value={"torch": "2.9.9+dynamic.test", "platform": sys.platform, "python": "3.14", "device_count": 1}):
             receipt = runner.run_qualification_suite(output_dir=tmp_path)
             assert receipt["environment"]["torch"] == "2.9.9+dynamic.test"
 
@@ -370,14 +378,20 @@ class TestRunPodDryRunLifecycle:
         assert client.all_pods_cleaned_up
         assert pod_id in client.terminated_pods
 
-    def test_run_qualification_suite_fallback_without_execute_qualification(self, tmp_path):
-        """When client lacks execute_qualification, _build_mock_receipt is used as fallback."""
-        runner = RunPodRunner(dry_run=True)
-        assert not hasattr(runner.client, "execute_qualification")
-        receipt = runner.run_qualification_suite(output_dir=tmp_path)
-        assert receipt["status"] == "passed"
-        assert len(receipt["suites"]) >= 4
-        assert any(s["name"] == "cpu_replicated_gloo" for s in receipt["suites"])
+    def test_client_without_execute_qualification_is_refused_before_pod_creation(self, tmp_path):
+        """A client that cannot run qualification never gets to create a pod or a receipt."""
+        client = CreateOnlyClient()
+        runner = RunPodRunner(dry_run=False, client=client)
+        with pytest.raises(LiveModeUnavailable, match="refusing to create one"):
+            runner.run_qualification_suite(output_dir=tmp_path)
+        assert client.created_pods == []
+        assert not (tmp_path / "qualification-receipt.json").exists()
+
+    def test_dry_run_never_reports_a_suite_passed(self, tmp_path):
+        """The dry-run receipt claims nothing about hardware it did not touch."""
+        receipt = RunPodRunner(dry_run=True).run_qualification_suite(output_dir=tmp_path)
+        assert all(s["status"] == "dry_run" for s in receipt["suites"])
+        assert receipt["environment"]["runpod"]["dry_run"] is True
 
 
 # ==============================================================================
@@ -465,7 +479,7 @@ class TestRunPodCLI:
         assert proc.returncode == 0, f"runpod_runner -v failed:\n{proc.stderr}"
         assert out_file.exists()
         data = json.loads(out_file.read_text())
-        assert data["status"] == "passed"
+        assert data["status"] == "dry_run"
 
     def test_runpod_runner_cli_dry_run_with_verbose_long_flag(self, tmp_path):
         """CLI command with --verbose flag exits with code 0 and emits receipt."""
@@ -508,7 +522,7 @@ class TestRunPodCLI:
         assert out_file.exists()
         stdout_receipt = json.loads(proc.stdout)
         assert stdout_receipt["schema_version"] == 1
-        assert stdout_receipt["status"] == "passed"
+        assert stdout_receipt["status"] == "dry_run"
         assert "receipt_sha256" in stdout_receipt
         assert "environment" in stdout_receipt
 
@@ -533,7 +547,7 @@ class TestRunPodCLI:
         assert proc.returncode == 0, f"runpod_runner --json -v failed:\n{proc.stderr}"
         assert out_file.exists()
         stdout_receipt = json.loads(proc.stdout)
-        assert stdout_receipt["status"] == "passed"
+        assert stdout_receipt["status"] == "dry_run"
         assert "[runpod]" in proc.stderr
 
     def test_main_direct_invocation_processes_flags(self, tmp_path, capsys):
@@ -543,5 +557,32 @@ class TestRunPodCLI:
         assert rc == 0
         captured = capsys.readouterr()
         data = json.loads(captured.out)
-        assert data["status"] == "passed"
+        assert data["status"] == "dry_run"
         assert data["schema_version"] == 1
+
+    def test_cli_default_output_goes_to_state_dir_not_cwd(self, tmp_path, monkeypatch, capsys):
+        """Without --output the receipt lands under the state directory, never the cwd."""
+        work = tmp_path / "work"
+        work.mkdir()
+        monkeypatch.chdir(work)
+        monkeypatch.setenv("HYPERGAN_STATE_DIR", str(tmp_path / "state"))
+        assert runpod_main(["--dry-run"]) == 0
+        assert list(work.iterdir()) == []
+        receipts = list((tmp_path / "state" / "qualification").glob("qualification-receipt-*.json"))
+        assert len(receipts) == 1
+        assert str(receipts[0]) in capsys.readouterr().out
+
+    def test_cli_live_mode_refused_with_exit_code_2(self, tmp_path, capsys, monkeypatch):
+        """Without --dry-run the CLI refuses (exit 2) and writes nothing."""
+        monkeypatch.setenv("RUNPOD_API_KEY", "rpa_test_secret")
+        out_file = tmp_path / "live.json"
+        rc = runpod_main(["--output", str(out_file)])
+        assert rc == 2
+        assert "not implemented" in capsys.readouterr().err
+        assert not out_file.exists()
+
+    def test_cli_rejects_api_key_in_argv(self, capsys):
+        """The key comes from RUNPOD_API_KEY only; --api-key would leak it into ps."""
+        with pytest.raises(SystemExit) as exc:
+            _build_parser().parse_args(["--dry-run", "--api-key", "rpa_secret"])
+        assert exc.value.code == 2

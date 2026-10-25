@@ -1151,6 +1151,7 @@ def _tensor(value):
 def samples(run, *, name=None):
     """Periodic EMA previews, oldest first (enable with ``train(..., previews=N)``)."""
     import base64
+    from .previews import index_path
     run = _run(run)
     index = run.path / 'previews' / 'index.json'
     if not index.is_file():
@@ -1159,7 +1160,7 @@ def samples(run, *, name=None):
     for entry in json.loads(index.read_text())['previews']:
         if name is not None and entry.get('name') != name:
             continue
-        path = Path(entry['path'])
+        path = index_path(run.path, entry['path'])
         payload = json.loads(path.read_text())
         grid = payload.get('image_grid')
         result.append(Sample(step=payload['step'], name=payload['name'], data=_tensor(payload.get('samples')),
@@ -2050,7 +2051,7 @@ def _submit_control_request(run_dir=None, *, action="checkpoint", attempt_id=Non
             or existing["request"]["attempt_id"] != target_attempt
             or existing["request"]["action"] != action
         ):
-            raise ValueError("Conflicting checkpoint request ID: reuse requires the same run, attempt and action")
+            raise ValueError("Conflicting control request ID: reuse requires the same run, attempt and action")
         return existing
     return submit_request(
         run_dir,

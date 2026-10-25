@@ -145,6 +145,10 @@ def test_gpu_model_change_warns_with_hypergan_hardware_warning_and_resumes():
     assert captured[0].category is HyperGANHardwareWarning
     assert 'cuda.name' in messages[0]
     assert 'NVIDIA GeForce RTX 4090' in messages[0]
+    # Decision D9 resumes on another GPU model, but must not promise an
+    # exact continuation: different hardware can select different kernels.
+    assert 'not guaranteed to match an uninterrupted run bit for bit' in messages[0]
+    assert 'numerical runtime settings are unchanged' not in messages[0]
 
 
 def test_gpu_capability_change_warns_and_resumes():

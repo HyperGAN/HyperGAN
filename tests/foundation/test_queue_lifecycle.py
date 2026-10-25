@@ -57,6 +57,13 @@ class _RecordingPopen:
     def send_signal(self, sig):
         self.signals.append(sig)
 
+    def terminate(self):
+        self.signals.append("terminate")
+
+
+# How the runner stops its own trainer: Windows has no SIGINT for a child process.
+_RUNNER_STOP = "terminate" if os.name == "nt" else signal.SIGINT
+
 
 @pytest.fixture
 def recording_popen(monkeypatch):
@@ -152,7 +159,7 @@ def test_job_cancelled_between_claim_and_launch_is_signalled_once(temp_queue, mo
     monkeypatch.setattr(subprocess, "Popen", _CancelOnLaunch)
     assert queue_run(once=True, queue_file=temp_queue) == 0
 
-    assert [p.signals for p in instances] == [[signal.SIGINT]]
+    assert [p.signals for p in instances] == [[_RUNNER_STOP]]
     assert queue_ls(queue_file=temp_queue)[0]["status"] == "cancelled"
 
 
@@ -190,6 +197,7 @@ _SIGINT_COUNTER = textwrap.dedent("""
 """)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows cannot deliver SIGINT to another process; queue stop terminates the trainer there")
 def test_stop_all_sends_a_single_sigint_to_a_running_trainer(temp_queue, model_file, tmp_path, monkeypatch):
     script = tmp_path / "sigint_counter.py"
     script.write_text(_SIGINT_COUNTER, encoding="utf-8")
@@ -275,7 +283,12 @@ def test_jobs_of_a_dead_runner_are_marked_interrupted(temp_queue, model_file):
     outlived = queue_add(model_file, queue_file=temp_queue)
     dead = _dead_identity()
     me = _process_identity(os.getpid())
-    before_reboot = dict(me, boot_id="boot-before-reboot")
+    # Linux start times count from boot, so a reboot shows as a new boot id; macOS and
+    # Windows record absolute creation times, which a PID recycled after a reboot never matches.
+    if me["boot_id"]:
+        before_reboot = dict(me, boot_id="boot-before-reboot")
+    else:
+        before_reboot = dict(me, start_time=me["start_time"] - 1)
     _edit_job(temp_queue, crashed["id"], status="running", runner=dead, pid=dead["pid"], process=dead)
     _edit_job(temp_queue, rebooted["id"], status="running", runner=before_reboot, pid=os.getpid(), process=before_reboot)
     _edit_job(temp_queue, alive["id"], status="running", runner=me, pid=None)
@@ -306,14 +319,15 @@ def test_stop_never_signals_a_reused_pid(temp_queue, model_file, monkeypatch):
     job = queue_add(model_file, queue_file=temp_queue)
     me = _process_identity(os.getpid())
     # PID 1 now, but recorded with a different start time: a recycled PID, not our trainer.
-    recycled = dict(me, pid=1, start_ticks=(queue_module._process_start_ticks(1) or 0) + 1)
+    recycled = dict(me, pid=1, start_time=(queue_module._process_start_time(1) or 0) + 1)
     _edit_job(temp_queue, job["id"], status="running", runner=me, pid=1, process=recycled)
     kills = []
     monkeypatch.setattr(queue_module.os, "kill", lambda pid, sig: kills.append((pid, sig)))
 
     res = queue_stop(job_id=job["id"], queue_file=temp_queue)
 
-    assert kills == []
+    # Signal 0 is only the liveness probe used where no start time is available.
+    assert [k for k in kills if k[1] != 0] == []
     assert res["signalled"] is False
     assert queue_ls(queue_file=temp_queue)[0]["status"] == "cancelled"
 
@@ -331,6 +345,85 @@ def test_stop_survives_a_pid_owned_by_another_user(temp_queue, model_file, stop_
 
     assert res.get("signalled", False) is False
     assert res.get("signalled_count", 0) == 0
+
+
+@pytest.mark.skipif(not (sys.platform.startswith("linux") or sys.platform == "darwin" or os.name == "nt"),
+                    reason="process start times are read on Linux, macOS and Windows only")
+def test_process_identity_is_checkable_on_every_supported_os():
+    me = _process_identity(os.getpid())
+    assert me["start_time"] is not None
+    assert _identity_alive(me) is True
+    dead = _dead_identity()
+    assert dead["start_time"] is not None
+    assert _identity_alive(dead) is False
+
+
+_SLEEPING_TRAINER = textwrap.dedent("""
+    import pathlib, signal, sys, time
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    pathlib.Path(sys.argv[1]).write_text("ready")
+    time.sleep(60)
+    sys.exit(3)
+""")
+
+
+@pytest.mark.parametrize("stop_all", [False, True])
+def test_stop_ends_a_real_trainer(temp_queue, model_file, tmp_path, stop_all):
+    ready = tmp_path / "ready"
+    trainer = subprocess.Popen([sys.executable, "-c", _SLEEPING_TRAINER, str(ready)])
+    try:
+        deadline = time.monotonic() + 20
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        job = queue_add(model_file, queue_file=temp_queue)
+        _edit_job(temp_queue, job["id"], status="running", runner=_process_identity(os.getpid()),
+                  pid=trainer.pid, process=_process_identity(trainer.pid))
+
+        res = queue_stop(job_id=None if stop_all else job["id"], stop_all=stop_all, queue_file=temp_queue)
+
+        assert (res["signalled_count"] == 1) if stop_all else (res["signalled"] is True)
+        # SIGINT on POSIX, TerminateProcess on Windows: either way the trainer exits early.
+        assert trainer.wait(timeout=15) != 3
+        assert queue_ls(queue_file=temp_queue)[0]["stop_signalled"] is True
+    finally:
+        if trainer.poll() is None:
+            trainer.kill()
+            trainer.wait()
+
+
+@pytest.mark.parametrize("stop_all", [False, True])
+def test_stop_leaves_an_unreachable_trainer_to_its_runner(temp_queue, model_file, stop_all):
+    job = queue_add(model_file, queue_file=temp_queue)
+    remote = dict(_dead_identity(), host="some-other-host")
+    _edit_job(temp_queue, job["id"], status="running", runner=remote, pid=remote["pid"], process=remote)
+
+    res = queue_stop(job_id=None if stop_all else job["id"], stop_all=stop_all, queue_file=temp_queue)
+
+    if stop_all:
+        assert res["signalled_count"] == 0
+    else:
+        assert res["signalled"] is False
+        assert "another host" in res["message"]
+    # Unflagged, so that host's runner still sends its trainer the one SIGINT.
+    assert not queue_ls(queue_file=temp_queue)[0].get("stop_signalled")
+
+
+def test_signal_errors_never_escape(monkeypatch):
+    class _NoSignals:
+        def send_signal(self, sig):
+            raise ValueError("Unsupported signal")
+
+        def terminate(self):
+            raise ValueError("Unsupported signal")
+
+    queue_module._interrupt_child(_NoSignals())
+
+    def _kill(pid, sig):
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(queue_module.os, "kill", _kill)
+    # A legacy record without an identity is signalled by PID; any OS error means "not signalled".
+    assert queue_module._signal_job_process({"pid": 12345}, signal.SIGINT) is False
 
 
 # Wait jobs
@@ -380,6 +473,19 @@ def test_queue_file_from_another_schema_is_not_replaced(temp_queue, model_file):
     with pytest.raises(ValueError, match="schema_version"):
         queue_add(model_file, queue_file=temp_queue)
     assert temp_queue.read_text(encoding="utf-8") == original
+
+
+def test_unlocked_reader_never_moves_the_queue_file(temp_queue):
+    # `hypergan ps` reads the queue without the lock; it must not race a locked writer
+    # that has already moved the corrupt file aside and saved a fresh queue.
+    temp_queue.write_text("{", encoding="utf-8")
+    assert load_queue(temp_queue)["jobs"] == []
+    assert temp_queue.read_text(encoding="utf-8") == "{"
+    assert list(temp_queue.parent.glob("queue.json.corrupt-*")) == []
+
+    with queue_lock(temp_queue):
+        load_queue(temp_queue)
+    assert len(list(temp_queue.parent.glob("queue.json.corrupt-*"))) == 1
 
 
 # Devices and status display

@@ -14,6 +14,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from typing import Optional
 
@@ -56,14 +57,28 @@ def queue_lock(queue_path: Path):
     lock_path = queue_path.with_name(queue_path.name + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    held = _held_queue_locks()
+    key = os.path.abspath(queue_path)
     try:
         _lock_file(fd, blocking=True)
+        held.add(key)
         try:
             yield
         finally:
+            held.discard(key)
             _unlock_file(fd)
     finally:
         os.close(fd)
+
+
+_lock_state = threading.local()
+
+
+def _held_queue_locks() -> set:
+    """Queue files whose lock this thread holds."""
+    if not hasattr(_lock_state, "held"):
+        _lock_state.held = set()
+    return _lock_state.held
 
 
 def _now() -> str:
@@ -96,7 +111,9 @@ def load_queue(queue_path: Path) -> dict:
     """Load queue state from disk or initialize empty state.
 
     An unreadable queue file is moved aside to ``queue.json.corrupt-<timestamp>``
-    (never overwritten) and job numbering resumes after the newest job log.
+    (never overwritten) and job numbering resumes after the newest job log. Only a
+    caller holding ``queue_lock`` moves it; an unlocked reader just sees an empty
+    queue, so it can never move aside a fresh queue a locked writer has just saved.
     """
     if not queue_path.is_file():
         return _empty_queue()
@@ -114,6 +131,8 @@ def load_queue(queue_path: Path) -> dict:
                 "it was written by a different HyperGAN version"
             )
         reason = "not a queue document"
+    if os.path.abspath(queue_path) not in _held_queue_locks():
+        return _empty_queue(_next_free_job_number(queue_path.parent / "logs"))
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     aside = queue_path.with_name(f"{queue_path.name}.corrupt-{stamp}")
     os.replace(queue_path, aside)
@@ -135,8 +154,10 @@ def _find_job(q: dict, job_id: str) -> Optional[dict]:
 
 
 # Process identity: a bare PID is reused after the process exits or the host reboots,
-# so jobs record (pid, host, boot id, kernel start time) and are only trusted or
-# signalled while all of them still match.
+# so jobs record (pid, host, boot id, start time) and are only trusted or signalled
+# while all of them still match. The start time is platform specific: clock ticks
+# since boot on Linux (hence the boot id), and an absolute creation time on macOS
+# and Windows, so a PID recycled after a reboot never matches there either.
 
 def _boot_id() -> Optional[str]:
     try:
@@ -145,14 +166,76 @@ def _boot_id() -> Optional[str]:
         return None
 
 
-def _process_start_ticks(pid: int) -> Optional[int]:
-    """Kernel start time of a process (clock ticks since boot), or None when unavailable."""
+def _linux_start_time(pid: int) -> Optional[int]:
+    """Field 22 of /proc/<pid>/stat: clock ticks since boot."""
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
-        # Field 22 (starttime); the command name in field 2 may contain spaces and ')'.
-        return int(stat.rsplit(")", 1)[1].split()[19])
-    except (OSError, IndexError, ValueError):
+    except OSError:
         return None
+    # The command name in field 2 may contain spaces and ')'.
+    return int(stat.rsplit(")", 1)[1].split()[19])
+
+
+def _macos_start_time(pid: int) -> Optional[int]:
+    """kinfo_proc.kp_proc.p_starttime (a struct timeval at offset 0), in microseconds."""
+    import ctypes
+    import ctypes.util
+    import struct
+
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    libc.sysctl.argtypes = [
+        ctypes.POINTER(ctypes.c_int), ctypes.c_uint, ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_size_t), ctypes.c_void_p, ctypes.c_size_t,
+    ]
+    mib = (ctypes.c_int * 4)(1, 14, 1, pid)  # CTL_KERN, KERN_PROC, KERN_PROC_PID
+    size = ctypes.c_size_t(1024)  # sizeof(struct kinfo_proc) is 648 on 64-bit macOS
+    buf = ctypes.create_string_buffer(size.value)
+    if libc.sysctl(mib, 4, buf, ctypes.byref(size), None, 0) != 0 or size.value < 16:
+        # A PID without a process succeeds with an empty result.
+        return None
+    sec, usec = struct.unpack_from("=qi", buf.raw, 0)
+    return sec * 1_000_000 + usec
+
+
+def _windows_start_time(pid: int) -> Optional[int]:
+    """GetProcessTimes creation time (100 ns FILETIME units) of a still-running process."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return None
+    try:
+        # An exited process can still be opened while anyone (e.g. its Popen) holds a handle.
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:  # STILL_ACTIVE
+            return None
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return None
+        return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _process_start_time(pid: int) -> Optional[int]:
+    """Start time of a running process, or None when it is gone or this OS cannot tell."""
+    try:
+        if sys.platform.startswith("linux"):
+            return _linux_start_time(pid)
+        if sys.platform == "darwin":
+            return _macos_start_time(pid)
+        if os.name == "nt":
+            return _windows_start_time(pid)
+    except (OSError, AttributeError, IndexError, ValueError, OverflowError, TypeError):
+        pass
+    return None
 
 
 def _process_identity(pid: int) -> dict:
@@ -160,24 +243,26 @@ def _process_identity(pid: int) -> dict:
         "pid": pid,
         "host": socket.gethostname(),
         "boot_id": _boot_id(),
-        "start_ticks": _process_start_ticks(pid),
+        "start_time": _process_start_time(pid),
     }
+
+
+def _same_host(identity) -> bool:
+    return isinstance(identity, dict) and identity.get("host") == socket.gethostname()
 
 
 def _identity_alive(identity) -> Optional[bool]:
     """Whether the recorded process still runs: True/False, or None when this host cannot tell."""
-    if not isinstance(identity, dict) or not isinstance(identity.get("pid"), int):
-        return None
-    if identity.get("host") != socket.gethostname():
+    if not _same_host(identity) or not isinstance(identity.get("pid"), int):
         return None
     pid = identity["pid"]
     boot_id = _boot_id()
     if identity.get("boot_id") and boot_id and identity["boot_id"] != boot_id:
         return False
-    if identity.get("start_ticks") is not None:
-        return _process_start_ticks(pid) == identity["start_ticks"]
+    if identity.get("start_time") is not None:
+        return _process_start_time(pid) == identity["start_time"]
     if os.name == "nt":
-        # os.kill(pid, 0) terminates the process on Windows.
+        # No start time was recorded, and os.kill(pid, 0) terminates the process on Windows.
         return None
     try:
         os.kill(pid, 0)
@@ -186,22 +271,42 @@ def _identity_alive(identity) -> Optional[bool]:
     except PermissionError:
         # Owned by another user, so not a process this queue started.
         return False
+    except (OSError, OverflowError):
+        return None
     return True
 
 
 def _signal_job_process(job: dict, sig: int) -> bool:
-    """Signal a job's trainer only while it is still the process the runner started."""
+    """Signal a job's trainer only while it is still the process the runner started.
+
+    A trainer on this host whose identity cannot be checked (or a legacy job without
+    one) is signalled by PID as before; one on another host never is. On Windows,
+    os.kill(pid, SIGINT) terminates the process.
+    """
     pid = job.get("pid")
     if not isinstance(pid, int):
         return False
     identity = job.get("process")
-    if identity is not None and _identity_alive(identity) is not True:
-        return False
+    if identity is not None:
+        alive = _identity_alive(identity)
+        if alive is False or (alive is None and not _same_host(identity)):
+            return False
     try:
         os.kill(pid, sig)
-    except (ProcessLookupError, PermissionError):
+    except (OSError, OverflowError):
         return False
     return True
+
+
+def _interrupt_child(proc) -> None:
+    """Stop the runner's own trainer: one SIGINT, or TerminateProcess on Windows, which has no SIGINT for it."""
+    try:
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            proc.send_signal(signal.SIGINT)
+    except (OSError, AttributeError, ValueError):
+        pass
 
 
 def _reconcile_orphans(q: dict) -> bool:
@@ -491,7 +596,7 @@ def queue_stop(
         with queue_lock(qpath):
             q = _load_reconciled(qpath)
             count = 0
-            to_signal = []
+            signalled = 0
             for j in q.get("jobs", []):
                 if j.get("status") == "queued":
                     j["status"] = "cancelled"
@@ -499,12 +604,14 @@ def queue_stop(
                     j["error"] = "Cancelled by queue stop --all"
                     count += 1
                 elif j.get("status") == "running" and j.get("pid") and not j.get("stop_signalled"):
-                    j["stop_signalled"] = True
-                    to_signal.append(j)
+                    # Flag only delivered signals, so the runner of a trainer this
+                    # host could not reach (another host) still signals it itself.
+                    if _signal_job_process(j, signal.SIGINT):
+                        j["stop_signalled"] = True
+                        signalled += 1
             q["stop_generation"] = int(q.get("stop_generation", 0)) + 1
             q["stop_requested_at"] = _now()
             save_queue(qpath, q)
-            signalled = sum(1 for j in to_signal if _signal_job_process(j, signal.SIGINT))
 
         return {
             "stopped_all": True,
@@ -541,11 +648,14 @@ def queue_stop(
             job["error"] = "Stopped by user"
             # Without a pid the runner has claimed but not launched the job; it
             # signals the trainer itself once it records the pid and sees this.
-            job["stop_signalled"] = True
-            save_queue(qpath, q)
             signalled = False if already else _signal_job_process(job, signal.SIGINT)
             if signalled:
+                job["stop_signalled"] = True
+            save_queue(qpath, q)
+            if signalled:
                 message = f"Signaled running job {job_id} (PID {pid})"
+            elif pid and not already and job.get("process") is not None and not _same_host(job["process"]):
+                message = f"Marked job {job_id} cancelled; its process (PID {pid}) runs on another host and was not signaled"
             elif pid and not already:
                 message = f"Marked job {job_id} cancelled; its process (PID {pid}) is no longer running"
             else:
@@ -831,19 +941,13 @@ def queue_run(
                         j["stop_signalled"] = True
                         save_queue(qpath, q)
                 if not already:
-                    try:
-                        proc.send_signal(signal.SIGINT)
-                    except (ProcessLookupError, OSError, AttributeError):
-                        pass
+                    _interrupt_child(proc)
 
             saved = _update_job(qpath, job_id, pid=proc.pid, process=_process_identity(proc.pid))
             signalled = saved is not None and saved.get("status") != "running"
             if signalled:
                 # Cancelled between claim and launch: `queue stop` had no pid to signal.
-                try:
-                    proc.send_signal(signal.SIGINT)
-                except (ProcessLookupError, OSError, AttributeError):
-                    pass
+                _interrupt_child(proc)
 
             halting = False
             detected_run_dir = target_job.get("run_dir")

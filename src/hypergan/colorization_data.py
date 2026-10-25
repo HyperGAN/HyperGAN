@@ -12,7 +12,8 @@ import os
 from pathlib import Path, PurePosixPath
 import tempfile
 
-from .data import ImageDataError, ImageFolder, _EXTENSIONS, _FORMATS, _digest, _positive_int
+from .colorspace import LUMA_FORMULA, luma
+from .data import EvaluationDataExhausted, ImageDataError, ImageFolder, _EXTENSIONS, _FORMATS, _digest, _positive_int
 
 
 def _heldout(sha256):
@@ -80,8 +81,12 @@ def prepare_manifest(root, output, *, height=256, width=256, workers=8):
     if height * width > 16_777_216:
         raise ValueError('Colorization output exceeds max_pixels=16777216')
     output = Path(output).expanduser().resolve()
-    if output.exists():
-        raise ValueError(f'Manifest already exists: {output}; choose a new path')
+    # A rejected run leaves its candidate and report behind for review; a rerun
+    # must say so instead of failing later with a raw FileExistsError.
+    for existing in (output, output.with_suffix('.candidate.json'), output.with_suffix('.rejections.json')):
+        if existing.exists():
+            raise ValueError(f'Manifest output already exists: {existing}; choose a new manifest path '
+                             'or remove the previous attempt')
     decoder = _decoder(root, height, width)
     paths, ignored = [], []
     for path in sorted(decoder.root.rglob('*')):
@@ -118,7 +123,7 @@ def prepare_manifest(root, output, *, height=256, width=256, workers=8):
                     'exif_orientation': 'transpose', 'alpha': 'composite_white',
                     'resize': 'aspect_fit_pad_white', 'interpolation': 'lanczos',
                     'frames': 'single', 'rgb_range': [-1, 1],
-                    'gray': '0.299*R + 0.587*G + 0.114*B',
+                    'gray': LUMA_FORMULA,
                     'pillow_version': __version__}}
     content = (json.dumps(manifest, sort_keys=True, separators=(',', ':')) + '\n').encode()
     train = sum(e['split'] == 'train' for e in entries)
@@ -181,9 +186,11 @@ class ColorizationData(ImageFolder):
                     'exif_orientation': 'transpose', 'alpha': 'composite_white',
                     'resize': 'aspect_fit_pad_white', 'interpolation': 'lanczos',
                     'frames': 'single', 'rgb_range': [-1, 1],
-                    'gray': '0.299*R + 0.587*G + 0.114*B', 'pillow_version': __version__}
+                    'gray': LUMA_FORMULA, 'pillow_version': __version__}
         if policy != expected or height * width > 16_777_216:
-            raise ValueError('Colorization preprocessing/Pillow version differs from the pinned manifest')
+            raise ValueError('Colorization preprocessing/Pillow version differs from the pinned manifest '
+                             f"(manifest Pillow {policy.get('pillow_version')!r}, installed {__version__!r}); "
+                             'install the pinned Pillow or rebuild the manifest with prepare_manifest')
         self.__dict__.update(_decoder(root, height, width).__dict__)
         seen = set()
         for entry in inventory['entries']:
@@ -246,11 +253,13 @@ class ColorizationData(ImageFolder):
             suffix = '; no images were skipped' if getattr(self, 'bad_image_policy', 'error') == 'error' else ''
             raise ImageDataError(f"Cannot decode colorization image '{name}': {exc}{suffix}") from exc
 
-    def __call__(self, batch_size, *, generator):
+    def __call__(self, batch_size, *, generator, rank=0, world_size=1):
         _positive_int(batch_size, 'batch_size')
         if not self.shuffle and self._cursor + batch_size > len(self.entries):
-            raise StopIteration('Colorization evaluation exhausted; it never wraps or repeats')
-        batch = super().__call__(batch_size, generator=generator)
-        rgb = batch['real']
-        batch['gray'] = rgb[:, 0:1] * .299 + rgb[:, 1:2] * .587 + rgb[:, 2:3] * .114
+            raise EvaluationDataExhausted(
+                f'Colorization {self._identity["split"]} evaluation exhausted: {self._cursor} of '
+                f'{len(self.entries)} samples used, {batch_size} requested; it never wraps or repeats, '
+                'so lower the evaluation sample_count or add images')
+        batch = super().__call__(batch_size, generator=generator, rank=rank, world_size=world_size)
+        batch['gray'] = luma(batch['real'])
         return batch

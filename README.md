@@ -221,31 +221,41 @@ Everything available in the CLI is exposed as a clean, functional Python API at 
 ```python
 import hypergan as hg
 
-# 1. Scaffold or load a model configuration
-info = hg.new(project="my_gan", template="dcgan", dataset="./images", device="cpu")
-model = hg.load(info["recipe_path"])
-model = hg.override(model, {"train.steps": 100, "train.batch_size": 16})
-warnings = hg.validate(model)
 
-# 2. Train and inspect runs by slug, short ID, custom tag, or path
-run = hg.train(model, "my_gan/runs/exp1", steps=100)
-active_and_all = hg.ps(all_runs=True)
-all_runs = hg.list_runs()
+def main():
+    # 1. Scaffold or load a model configuration
+    info = hg.new(project="my_gan", template="dcgan", data_dir="./images", device="cpu")
+    model = hg.load(info["recipe_path"])
+    model = hg.override(model, {"train.steps": 100, "train.batch_size": 16})
+    warnings = hg.validate(model)
 
-st = hg.status("exp1")                  # dict with step, status, latest_metrics, best_fid, etc.
-log_lines = hg.logs("exp1", tail=20)    # list[str] of formatted log lines (silent on stdout)
-manifest = hg.inspect("exp1")           # dict of the run's manifest.json
-hg.tag("exp1", "my-best-gan")
+    # 2. Train and inspect runs by slug, short ID, custom tag, or path
+    run = hg.train(model, "my_gan/runs/exp1", steps=100)
+    active_and_all = hg.ps(all_runs=True)
+    all_runs = hg.list_runs()
 
-# 3. Sample, export, and reload inference bundles
-sample = hg.sample("my-best-gan", count=8, seed=42)
-bundle_path = hg.export("my-best-gan", checkpoint="latest")
-bundle = hg.load_bundle(bundle_path)    # or hg.load(bundle_path)
+    st = hg.status("exp1")                  # dict with step, status, latest_metrics, best_fid, etc.
+    log_lines = hg.logs("exp1", tail=20)    # list[str] of formatted log lines (silent on stdout)
+    manifest = hg.inspect("exp1")           # dict of the run's manifest.json
+    hg.tag("exp1", "my-best-gan")
 
-# 4. Clean up
-hg.prune("my-best-gan", dry_run=True)
-hg.rm("my-best-gan")
+    # 3. Sample, export, and reload inference bundles
+    sample = hg.sample("my-best-gan", count=8, seed=42)
+    bundle_path = hg.export("my-best-gan", checkpoint="latest")
+    bundle = hg.load_bundle(bundle_path)    # or hg.load(bundle_path)
+
+    # 4. Clean up
+    hg.prune("my-best-gan", dry_run=True)
+    hg.rm("my-best-gan")
+
+
+# Training starts worker processes that re-import this script, so keep the
+# work under the main guard.
+if __name__ == "__main__":
+    main()
 ```
+
+`hg.train(model)` without a run directory starts a fresh `<runs_root>/<stem>-<adj>-<noun>` run on every call, as `hypergan train` does; pass `name=` for a fixed directory.
 
 ### Environment Variables
 
@@ -254,6 +264,7 @@ hg.rm("my-best-gan")
 | `HYPERGAN_HOME` / `HYPERGAN_STATE_DIR` | Override the directory used for the global run registry (`runs.json` and `registry.lock`). Defaults to `~/.local/share/hypergan` (or `$XDG_DATA_HOME/hypergan`). Setting either variable isolates run discovery to that state directory. |
 | `HYPERGAN_WORKSPACE` | Explicitly point to a workspace `hypergan.toml` file (or its parent directory) when running outside the workspace directory tree. |
 | `HYPERGAN_QUEUE_FILE` | Override the path to the multi-GPU job queue state file (defaults to `<workspace>/.hypergan/queue.json` or `./.hypergan/queue.json`). |
+| `HYPERGAN_DEBUG` | Set to `1` (`true`/`yes`/`on`) to print the full traceback when a CLI command fails (same as `hypergan --debug`). |
 | `HYPERGAN_VIEWER_DEV` | Set to `1` (`true`/`yes`/`on`) to serve Web Observatory frontend assets fresh from disk on every request with auto-reload. |
 
 ---

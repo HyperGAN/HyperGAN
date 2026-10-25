@@ -1,6 +1,6 @@
 # Fixed-topology CPU recovery
 
-The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](../reports/resurrection-status.md) for the current combined scope.
+The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](../reports/archive/resurrection-status.md) for the current combined scope.
 
 `hypergan.distributed_checkpoints` saves and restores the internal replicated CPU trainer. Every rank calls the same API in the same order on a default Gloo group with a finite timeout. The [local worker supervisor](cpu-workers.md) can start a fresh group and clean up failed workers. These APIs do not enable distributed `hypergan train` or `resume`; integration with the shared run/event/preview/request service remains a separate gate.
 
@@ -84,4 +84,4 @@ Payloads are limited to 256 MiB per rank, metadata to 16 MiB and receipts to 64 
 
 This module supplies complete snapshots and fixed-topology recovery. The internal [replicated run service](replicated-run-service.md) connects its parent publication path to persisted job status, attempt/sample counters, periodic saves and control requests through the shared controller. Standalone callers remain responsible for those policies. Optional lineage fields record `next_sample_sequence` and checkpoint request IDs. Remote artifact transport, elastic workers and cloud retries remain separate work.
 
-Tests compare uninterrupted and fresh-group resumed state exactly, including a shuffled image-folder fixture with labels and stochastic components. Deliberate failures exercise missing workers, half-updates, rank snapshot and disk errors, divergent optimizer state, corrupt/incomplete files, incompatible identities, and custom load hooks. The [checkpoint report](../reports/core-distributed-2026-09-18.md) records installed-package and CI evidence. GPU/NCCL and real multi-node recovery remain unqualified.
+Tests compare uninterrupted and fresh-group resumed state exactly, including a shuffled image-folder fixture with labels and stochastic components. Deliberate failures exercise missing workers, half-updates, rank snapshot and disk errors, divergent optimizer state, corrupt/incomplete files, incompatible identities, and custom load hooks. The [checkpoint report](../reports/archive/core-distributed-2026-09-18.md) records installed-package and CI evidence. GPU/NCCL and real multi-node recovery remain unqualified.

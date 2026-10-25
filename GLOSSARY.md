@@ -1,58 +1,77 @@
 # HyperGAN Glossary
 
-This glossary defines the canonical terminology used across HyperGAN documentation, code, CLI flags, and TOML configuration files.
+This glossary defines the terms used across HyperGAN documentation, CLI flags and TOML files. Each term is named the way you write it.
 
-**Design Rule:** Every concept has **one canonical term**, and that term is mirrored verbatim as the TOML table, key, or enum value in `config.toml` (recipe configuration) or `execution.toml` (execution profile). When options are omitted, HyperGAN defaults to single-device (`world_size = 1`, `nodes = 1`, `accumulation_steps = 1`) and standard synchronous training (`strategy = "gradient_allreduce"`, `sync_every_steps = 1`).
+You write three kinds of TOML file:
+
+- a **model file** (`format = "hypergan-model/1"`), which `hypergan new` generates and `hypergan train` reads;
+- an optional workspace file, **`hypergan.toml`**, with project defaults;
+- an optional **execution profile**, which says how a run is spread over devices and hosts.
+
+HyperGAN lowers a model file into an internal resolved recipe before it trains. Runs record that recipe in `manifest.json`, and some older docs and tests use its names. The model-file tables below list the resolved name in their last column so you can map one to the other. Do not write the resolved tables (`[training]`, `[components.*]`, `[objective]`, `[optimizer]`, `[ema]`) in a model file; they are not part of the model-file format. [Configuration](docs/configuration.md) is the full reference for every field.
 
 ---
 
-## 1. Recipe Configuration (`config.toml`)
+## 1. Model File (`format = "hypergan-model/1"`)
 
-| Canonical Term | TOML Key / Table | Default | Definition |
+| Term | Model file | Default | Definition | Resolved recipe |
+| :--- | :--- | :--- | :--- | :--- |
+| **model file** | `format = "hypergan-model/1"` | *(required)* | The editable description of a model: data, prior, networks, losses and training schedule. | the whole recipe |
+| **`name`** | `name` | file stem | Model identifier used in run names and the registry. | `name` |
+| **`extends`** | `extends = "base.toml"` | *(none)* | Parent model file (or packaged model name) whose tables this file deep-merges over. Arrays such as `[[losses]]` are replaced, not merged. | merged before lowering |
+| **`defaults`** | `defaults = "particlegan"` | `"particlegan"` | Numerical preset that supplies ParticleGAN's released loss, learning-rate and optimizer defaults. | `defaults` |
+| **`data`** | `[data]` | *(needed to train)* | Training data source: one of `builtin` (`"gaussian_grid"`, `"image_folder"`, ...), `dataset` (item-level preset or `module:Class`) or `factory` (batch-level `module:callable`). | `data` |
+| **`prior`** | `[prior]` | `kind = "particles"` | Latent source fed to the generator: `"particles"` (learned particle table), `"mog"` or `"gaussian"`, with `z_dim` and `num_particles`. | `prior` |
+| **network** | `[networks.<name>]` | *(a generator and a critic)* | A named neural network. Declared in HNDL (`hndl = "file.hndl"` or `source = "..."`) or as Python (`module = "pkg.mod:Class"`). | `components.<name>` |
+| **`role`** | `networks.<name>.role` | *(required per network)* | What the network does: `"generator"`, `"critic"`, `"encoder"` or `"auxiliary"`. | position in `components` |
+| **`inputs`** | `networks.<name>.inputs` | *(required per network)* | Bindings from the network's input ports to values (see *binding*). | `components.<name>.inputs` |
+| **`reuse`** | `networks.<name>.reuse` | *(none)* | Name of another network whose parameters this graph position shares. | `components.<name>.reuse` |
+| **`freeze_parameters`** / **`trainable`** | `networks.<name>.freeze_parameters`, `.trainable` | trainable | Exclude a network's parameters (or a subset) from optimization. | same keys |
+| **binding** | `"latent"`, `"batch.<field>"`, `"generated"`, `"candidate"`, `"prior.means"`, `"<network>"`, `"<network>.<output>"` | — | A named value a network input, loss or sampler reads. `candidate` is whatever a critic is currently scoring (real or generated). | `components.<name>` paths |
+| **loss** | `[[losses]]` | *(an adversarial loss)* | Every training objective, listed together. `type` is `"adversarial"`, `"prior"`, `"reconstruction"` or `"objective"`. | see the next rows |
+| **adversarial loss** | `[[losses]] type = "adversarial"`, `critic = "<network>"` | `weight = 1.0`, `penalty = 1.0` | The GAN loss between real and generated samples through one critic. `penalty` is the critic gradient-penalty coefficient; `0` disables it. The first adversarial loss is the primary one; later ones add terms. | `adversarial`, `gradient_penalty.coeff`; later ones `adversarial_terms` |
+| **prior loss** | `[[losses]] type = "prior"` | `weight = 1.0` | Regularizer that keeps a learned particle table spread out. | `prior_regularizer` |
+| **reconstruction / objective loss** | `[[losses]] type = "reconstruction"` or `"objective"`, `id`, `fn`, `input`, `target` | `fn = "mse"` | An extra loss on bound values, published as `loss/objectives/<id>`. | `objectives` |
+| **`penalty`** | `[penalty]` | `lazy_k = 1`, `kappa = 1.0` | Shared critic-regularization schedule: lazy interval and scale. | `gradient_penalty` |
+| **`train`** | `[train]` | *(optional)* | Training schedule and optimizer settings in one table: `steps`, `batch_size`, `seed`, `device`, `lr`, `d_lr_mult`, `betas`, `ema`, `lr_anneal_start`, `lr_floor`, and the `checkpoint_every`/`preview_every`/`progress_every` cadences. | split into `training`, `optimizer` and `run` |
+| **`batch_size`** | `train.batch_size` | `16` | Global number of samples in one training step, across all ranks. | `training.batch_size` |
+| **`steps`** | `train.steps` | `5` | Total number of global training steps in a run. | `training.steps` |
+| **`device`** | `train.device` | `"cpu"`; `hypergan new` writes `"cuda"` unless `--device cpu` | Device for single-device runs (`"cuda"`, `"cuda:1"`, `"cpu"`). Replicated runs take devices from the execution profile instead. | `training.device` |
+| **`seed`** | `train.seed` | `42` | Master seed; data, prior, penalty and noise streams derive from it. | `training.seed` |
+| **`ema`** | `train.ema` | `0.995` | Decay of the exponential moving average of generator weights used for previews, sampling and evaluation. | `training.ema` |
+| **`metrics`** | `[metrics]` | `preset = "standard"` | Scalar training metrics written to `events.jsonl`, plus custom `[metrics.<name>]` functions. | `metrics` |
+| **evaluation** | `[evaluations.<id>]` | *(none)* | A snapshot metric such as FID, computed on an EMA snapshot with its own `[evaluations.<id>.data]`, either every N steps or on demand with `hypergan eval`. | `evaluations` |
+| **`sampling`** | `[sampling]`, `[samplers.<name>]` | `count = 256`, `seed = 123` | Preview grids during training and the inputs used by `hypergan sample`. | `sampling`, `samplers` |
+| **`checkpoints`** | `[checkpoints]` | `keep_last = 3` | Checkpoint retention (`keep_last`, `keep_every`, `keep_best`) and bundle export policy. | `checkpoints` |
+| **`run`** | `[run]` | *(optional)* | Operational settings that do not change the numerical recipe: `devices`, `viewer`, `cpu_threads`, cadences, `[run.env]`. Also allowed in `hypergan.toml`. | `run` |
+
+---
+
+## 2. Execution Profile
+
+An execution profile separates *how* a run is distributed from *what* is trained. Without one, `hypergan train` runs on a single device. Profiles are TOML files with `schema_version = 1`, passed with `--profile` (see [examples/execution/](examples/execution/) and [execution profiles](docs/execution-profiles.md)).
+
+| Term | Profile key / value | Default | Definition |
 | :--- | :--- | :--- | :--- |
-| **`recipe`** | `[recipe]` | *(none)* | Optional preset model and objective declaration (e.g., ParticleGAN BISPF / DualNorm presets) resolved into concrete components before training. |
-| **`training`** | `[training]` | *(required)* | Core training schedule, batch sizing, device selection, and deterministic seeding table. |
-| **`batch_size`** | `training.batch_size` | `8` | Global number of samples processed across all ranks in one complete training step. |
-| **`steps`** | `training.steps` | `10` | Total number of complete global training steps to execute in a run. |
-| **`device`** | `training.device` | `"cuda"` (CLI) / `"cpu"` | Target compute device family (`"cuda"` or `"cpu"`). In replicated profiles, each rank binds to its own visible device index. |
-| **`seed`** | `training.seed` | `0` | Master deterministic random seed from which data, prior, penalty, and noise streams are derived. |
-| **`prior`** | `[prior]` | `type = "gaussian"` | Latent input source or learnable particle table (`"gaussian"`, `"mog"`, etc.) sampled to feed the generator. |
-| **`components`** | `[components.<name>]` | *(recipe-defined)* | Named neural network modules (such as `generator`, `discriminator`, or auxiliary encoders) and their graph input bindings (`inputs`, `reuse`). |
-| **`reuse`** | `components.<name>.reuse` | *(none)* | Reference to another declared component whose parameters and buffers are shared across multiple graph positions. |
-| **`objective`** | `[objective]` | *(recipe-defined)* | Primary adversarial loss formulation (`type = "particlegan"`, `"ral"`, `"wgan"`, etc.) and critic gradient penalty settings. |
-| **`adversarial_terms`** | `[[adversarial_terms]]` | `[]` | Additional critic/generator adversarial loss pairs evaluated alongside the primary `objective`. |
-| **`optimizer`** | `[optimizer]` | `type = "adam"` | Parameter update rule, learning rates (`lr`, `d_lr`, `g_lr`), and numerical implementation (`"device_adam"`, `"torch_fused_adam"`). |
-| **`ema`** | `[ema]` | `enabled = true` | Exponential moving average shadow parameters maintained over generator weights for evaluation and sampling. |
-| **`data`** | `[data]` | *(optional)* | Dataset source (`type = "image_folder"`, `"synthetic"`, etc.), resolution, and preprocessing contract. |
-| **`metrics`** | `[metrics]` | *(optional)* | Periodic evaluation schedule (`every_steps`) and metric definitions (such as `fid` or custom metrics). |
+| **`execution`** | `[execution]` | *(required in a profile)* | The backend, rank topology and batch partitioning. |
+| **`name`** | `execution.name` | `"cpu-single"` | Profile identifier: `"cpu-single"`, `"cpu-replicated-gloo"` or `"cuda-replicated-nccl"`. |
+| **`world_size`** | `execution.world_size` | `1` (single) / `2` (replicated) | Total number of worker ranks across all nodes (`1..64`). |
+| **`rank`** | *(runtime identity)* | `0` | Zero-based global worker index (`0 .. world_size - 1`). |
+| **`nodes`** | `execution.nodes` | `1` | Number of host machines (node brokers) in the run. |
+| **`node_rank`** | `execution.node_rank` | `0` | Zero-based index (`0 .. nodes - 1`) of this host. |
+| **`ranks_per_node`** | `execution.ranks_per_node` | `world_size // nodes` | Derived number of ranks started on each node. |
+| **`rendezvous`** | `execution.rendezvous` | local `file://` URI | Process-group meeting point: `file:///...` on one host, `tcp://<host>:<port>` across hosts. |
+| **`global_batch_size`** | `execution.global_batch_size` | `train.batch_size` | The model file's `train.batch_size`, recorded in the profile identity. |
+| **`local_batch_size`** | `execution.local_batch_size` | `batch_size // world_size` | Derived samples per rank per global step. |
+| **`accumulation_steps`** | `execution.accumulation_steps` | `1` | Number of microbatches each rank splits its local batch into before one optimizer step. |
+| **`microbatch_size`** | `execution.microbatch_size` | `local_batch_size // accumulation_steps` | Derived samples in one forward/backward pass on one rank. |
+| **`accumulation_algorithm`** | `execution.accumulation_algorithm` | `"retained-local-graph-v1"` | Resolved accumulation mechanism: `"retained-local-graph-v1"` (`accumulation_steps = 1`) or `"detached-logit-vjp-replay-v1"` (`accumulation_steps > 1`). |
 
 ---
 
-## 2. Execution Profile & Topology (`execution.toml`)
+## 3. Learning Aggregation (`[aggregation]` in an execution profile)
 
-An execution profile separates *how* a run is distributed and scheduled from *what* model and objective (`config.toml`) are being trained. By default, `hypergan train` runs on a single device without requiring an explicit `execution.toml`.
-
-| Canonical Term | TOML Key / Value | Default | Definition |
-| :--- | :--- | :--- | :--- |
-| **`execution`** | `[execution]` | *(required in profile)* | Table defining the execution backend, rank topology, and batch partitioning. |
-| **`name`** | `execution.name` | `"cpu-single"` | Execution profile identifier: `"cpu-single"`, `"cpu-replicated-gloo"`, or `"cuda-replicated-nccl"`. |
-| **`world_size`** | `execution.world_size` | `1` (single) / `2` (replicated) | Total number of worker ranks participating in the run across all nodes (`1..64`). |
-| **`rank`** | *(runtime identity)* | `0` | Zero-based global worker index (`0 .. world_size - 1`) within the distributed process group. |
-| **`nodes`** | `execution.nodes` | `1` | Total number of independent host machines (or node brokers) participating in the run. |
-| **`node_rank`** | `execution.node_rank` | `0` | Zero-based index (`0 .. nodes - 1`) of the current host node. |
-| **`ranks_per_node`** | `execution.ranks_per_node` | `world_size // nodes` | Derived number of worker ranks spawned on each participating node. |
-| **`rendezvous`** | `execution.rendezvous` | Local `file://` URI | Process-group coordination endpoint (`file:///...` for single-node local runs or `tcp://<host>:<port>` for multi-node runs). |
-| **`global_batch_size`** | `execution.global_batch_size` | `training.batch_size` | Resolved alias of `training.batch_size` recorded in the execution profile identity. |
-| **`local_batch_size`** | `execution.local_batch_size` | `batch_size // world_size` | Derived number of samples assigned to each rank per global step. |
-| **`accumulation_steps`** | `execution.accumulation_steps` | `1` | Number of sequential microbatches into which each rank's `local_batch_size` is partitioned before stepping the optimizer. |
-| **`microbatch_size`** | `execution.microbatch_size` | `local_batch_size // accumulation_steps` | Derived number of samples processed in a single forward/backward pass on one rank. |
-| **`accumulation_algorithm`** | `execution.accumulation_algorithm` | `"retained-local-graph-v1"` | Resolved gradient accumulation mechanism: `"retained-local-graph-v1"` (`accumulation_steps = 1`) or `"detached-logit-vjp-replay-v1"` (`accumulation_steps > 1`). |
-
----
-
-## 3. Learning Aggregation (`[aggregation]` in `execution.toml`)
-
-Learning aggregation defines how parameter updates or gradients are combined across distributed ranks. When `[aggregation]` is omitted, replicated profiles default to standard synchronous per-step gradient averaging (`strategy = "gradient_allreduce"`, `sync_every_steps = 1`).
+Aggregation defines how ranks combine what they learn. Without `[aggregation]`, replicated profiles average gradients every step (`strategy = "gradient_allreduce"`, `sync_every_steps = 1`).
 
 ```toml
 [aggregation]
@@ -62,28 +81,30 @@ outer_lr = 1.0
 outer_momentum = 0.0
 ```
 
-| Canonical Term | TOML Key / Value | Default | Definition |
+| Term | Profile key / value | Default | Definition |
 | :--- | :--- | :--- | :--- |
-| **`aggregation`** | `[aggregation]` | *(optional)* | Execution profile section configuring how distributed ranks combine learned updates. |
-| **`strategy`** | `aggregation.strategy` | `"gradient_allreduce"` | Active learning aggregation algorithm (`"gradient_allreduce"`, `"parameter_average"`, `"pseudo_gradient"`, or a registered custom strategy name). |
-| **`gradient_allreduce`** | `strategy = "gradient_allreduce"` | *(default strategy)* | Synchronous data-parallel training: after backward on every step, parameter gradients are averaged across all ranks before each optimizer step. |
-| **`parameter_average`** | `strategy = "parameter_average"` | — | Periodic parameter averaging (FedAvg / Local SGD): ranks take `sync_every_steps` independent local optimizer steps on their local shards and then replace model parameters with the cross-rank parameter mean. |
-| **`pseudo_gradient`** | `strategy = "pseudo_gradient"` | — | Federated outer-optimizer aggregation (DiLoCo / FedOpt): ranks take `sync_every_steps` local inner steps from a shared anchor state, average the resulting weight deltas ($\Delta\theta = \theta_{\text{anchor}} - \theta_{\text{local}}$) across ranks as a pseudo-gradient, and apply an outer update (`outer_lr`, `outer_momentum`) to the anchor weights. |
-| **`sync_every_steps`** | `aggregation.sync_every_steps` | `1` | Number of local training steps executed between cross-rank synchronization rounds (`1` for `"gradient_allreduce"`, `>= 1` for periodic strategies). |
-| **`outer_lr`** | `aggregation.outer_lr` | `1.0` | Outer step size applied to the averaged pseudo-gradient during `"pseudo_gradient"` synchronization rounds. |
-| **`outer_momentum`** | `aggregation.outer_momentum` | `0.0` | Outer Nesterov/heavy-ball momentum factor (`0.0 .. <1.0`) maintained across `"pseudo_gradient"` synchronization rounds. |
+| **`aggregation`** | `[aggregation]` | *(optional)* | How distributed ranks combine learned updates. |
+| **`strategy`** | `aggregation.strategy` | `"gradient_allreduce"` | `"gradient_allreduce"`, `"parameter_average"`, `"pseudo_gradient"`, or a registered custom strategy name. |
+| **`gradient_allreduce`** | `strategy = "gradient_allreduce"` | *(default)* | Synchronous data parallelism: gradients are averaged across ranks after every backward pass, before each optimizer step. |
+| **`parameter_average`** | `strategy = "parameter_average"` | — | Periodic parameter averaging (FedAvg / local SGD): ranks take `sync_every_steps` independent optimizer steps on their shards, then replace their parameters with the cross-rank mean. |
+| **`pseudo_gradient`** | `strategy = "pseudo_gradient"` | — | Outer-optimizer aggregation (DiLoCo / FedOpt): ranks take `sync_every_steps` inner steps from a shared anchor, the mean weight delta ($\Delta\theta = \theta_{\text{anchor}} - \theta_{\text{local}}$) becomes a pseudo-gradient, and an outer update (`outer_lr`, `outer_momentum`) moves the anchor. |
+| **`sync_every_steps`** | `aggregation.sync_every_steps` | `1` | Local steps between synchronization rounds (exactly `1` for `"gradient_allreduce"`, `>= 1` for the periodic strategies). |
+| **`outer_lr`** | `aggregation.outer_lr` | `1.0` | Outer step size applied to the averaged pseudo-gradient. |
+| **`outer_momentum`** | `aggregation.outer_momentum` | `0.0` | Heavy-ball outer momentum factor (`0.0 .. <1.0`): $v \leftarrow \mu v + \Delta\theta$, then $\theta_{\text{anchor}} \leftarrow \theta_{\text{anchor}} - \eta v$. There is no Nesterov variant. |
 
 ---
 
-## 4. Preflight, Lifecycle & Qualification
+## 4. Runs, Checkpoints & Qualification
 
-| Canonical Term | TOML Key / CLI / Artifact | Default | Definition |
+| Term | Where | Default | Definition |
 | :--- | :--- | :--- | :--- |
-| **`preflight`** | `[preflight]` / `hypergan preflight` | *(optional)* | Structural or bounded-worker construction check run prior to training. |
-| **`timeout`** | `preflight.timeout` | `60` | Maximum wall-clock seconds allowed for worker startup and preflight construction before forced cleanup. |
-| **`collective_timeout`** | `preflight.collective_timeout` | `15` | Maximum seconds allowed for any single distributed collective operation before aborting the process group. |
-| **`checkpoint`** | `checkpoints/step-NNNNNN/` | — | Immutable, hash-verified snapshot of model parameters, optimizer states, RNG streams, aggregation state, and run metadata at a completed step boundary. |
-| **`manifest`** | `manifest.json` | — | JSON descriptor inside a run or checkpoint directory recording schema version, config fingerprint, execution profile, runtime identity, and recovery lineage. |
-| **`qualification`** | `hypergan qualify` / receipt JSON | — | Bounded, fast smoke-test verification suite that executes multi-device, multi-node, and aggregation parity checks and emits a machine-readable JSON verification receipt. |
-| **`runpod`** | CLI / environment | `RUNPOD_API_KEY` (env) / `--dry-run` | Ephemeral GPU cloud provider integration used to provision and qualify remote hardware instances with hard cost guardrails and guaranteed cleanup. |
-| **`receipt`** | `qualification-receipt.json` | — | Standardized machine-readable JSON verification artifact produced by `hypergan qualify` documenting environment metadata, suite outcomes, execution timings, and numerical parity metrics. |
+| **run** | a run directory | — | One training job: its directory holds `manifest.json`, `events.jsonl`, checkpoints and previews. |
+| **run id** / **slug** / **tag** | `hypergan ps` | — | Ways to name a run: a unique id (and its short form, e.g. `0608d849`), a generated `<adjective>-<noun>` slug, and an optional name you set with `hypergan tag`. |
+| **`manifest`** | `manifest.json` | — | JSON record in a run or checkpoint directory: schema version, recipe fingerprint, execution profile, runtime identity and recovery lineage. |
+| **checkpoint** | `checkpoints/<attempt>-step-NNNNNNNN-<nonce>/` (single device), `distributed-checkpoints/<attempt>-step-NNNNNNNN-<nonce>/` (replicated) | — | Hash-verified snapshot of parameters, optimizer state, RNG streams, aggregation state and run metadata at a completed step. |
+| **preflight** | `[preflight]` in a profile; `hypergan validate --runtime` | *(optional)* | A structural check, or a bounded worker-construction check, run before training. |
+| **`timeout`** | `preflight.timeout` | `60` | Seconds allowed for worker startup and preflight construction before forced cleanup. |
+| **`collective_timeout`** | `preflight.collective_timeout` | `15` | Seconds allowed for one distributed collective before the process group is aborted. |
+| **qualification** | `hypergan qualify` | — | A bounded smoke suite of single-device, replicated, aggregation and multi-node checks that writes a receipt. |
+| **receipt** | `--output` (default `qualification-receipt.json`) | — | Machine-readable JSON result of `hypergan qualify`: environment, suite outcomes, timings and parity numbers, plus `receipt_sha256`. That hash is an unkeyed self-hash: it catches accidental edits, not deliberate ones, and the receipt is not signed. |
+| **`runpod`** | `hypergan qualify` RunPod options, `RUNPOD_API_KEY` | `--dry-run` | Integration for qualifying remote cloud GPUs with cost guardrails and pod cleanup. Experimental. |

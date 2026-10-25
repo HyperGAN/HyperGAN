@@ -2,8 +2,8 @@
 
 Requirements covered:
 - R4: Ephemeral RunPod & Local Hardware Qualification (ORIGINAL_REQUEST.md §R4)
-- Features 14, 15: hypergan qualify CLI & JSON Receipt, Ephemeral RunPod Runner & Cost Guardrails (PROJECT.md §Feature Inventory)
-- Interface Contract 5: Qualification CLI Receipt (PROJECT.md §Interface Contracts)
+- Features 14, 15: hypergan qualify CLI & JSON Receipt, Ephemeral RunPod Runner & Cost Guardrails (reports/issue-186/PROJECT.md §Feature Inventory)
+- Interface Contract 5: Qualification CLI Receipt (reports/issue-186/PROJECT.md §Interface Contracts)
 
 Test coverage target: >=5 test cases per feature:
 1. Qualification CLI (CLI flags, local execution, receipt schema, SHA-256 verification, suite filtering) (>=5 cases)
@@ -27,22 +27,16 @@ import pytest
 
 try:
     from e2e.harness import (
-        HAVE_QUALIFY,
-        HAVE_RUNPOD,
-        requires_qualify,
-        requires_runpod,
         validate_qualification_receipt,
         compute_receipt_sha256,
+        ReceiptValidationError,
         MockRunPodClient,
     )
 except ImportError:
     from tests.e2e.harness import (
-        HAVE_QUALIFY,
-        HAVE_RUNPOD,
-        requires_qualify,
-        requires_runpod,
         validate_qualification_receipt,
         compute_receipt_sha256,
+        ReceiptValidationError,
         MockRunPodClient,
     )
 
@@ -54,7 +48,6 @@ except ImportError:
 class TestQualificationCLIAndReceipt:
     """Feature 12: hypergan qualify CLI, execution speed, and JSON receipt schema."""
 
-    @requires_qualify
     def test_tier1_qualify_cli_help_flags(self):
         """Case 12.1: hypergan qualify --help exhibits --output, --dry-run, --suite, and --timeout."""
         proc = subprocess.run(
@@ -70,7 +63,7 @@ class TestQualificationCLIAndReceipt:
         assert "--suite" in stdout
         assert "--timeout" in stdout
 
-    @requires_qualify
+    @pytest.mark.heavy
     def test_tier1_qualify_local_dry_run_generates_receipt(self, tmp_path):
         """Case 12.2: Running qualify --dry-run writes a machine-readable JSON receipt."""
         receipt_path = tmp_path / "test-receipt.json"
@@ -87,7 +80,7 @@ class TestQualificationCLIAndReceipt:
         validate_qualification_receipt(data)
 
     def test_tier1_qualification_receipt_schema_contract(self):
-        """Case 12.3: Qualification receipt strictly adheres to PROJECT.md § Interface Contracts."""
+        """Case 12.3: Qualification receipt strictly adheres to reports/issue-186/PROJECT.md § Interface Contracts."""
         sample_receipt = {
             "schema_version": 1,
             "qualification_id": "qual-20261024-test-001",
@@ -133,7 +126,7 @@ class TestQualificationCLIAndReceipt:
         # Tamper with status
         tampered = copy.deepcopy(receipt)
         tampered["status"] = "failed"
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(tampered)
 
     def test_tier1_qualification_duration_hard_boundary(self):
@@ -153,7 +146,7 @@ class TestQualificationCLIAndReceipt:
         slow_receipt = copy.deepcopy(fast_receipt)
         slow_receipt["duration_seconds"] = 180.1  # Exceeds 3 minutes
         slow_receipt["receipt_sha256"] = compute_receipt_sha256(slow_receipt)
-        with pytest.raises(AssertionError, match="exceeded 3-minute hard limit"):
+        with pytest.raises(ReceiptValidationError, match="exceeded 3-minute hard limit"):
             validate_qualification_receipt(slow_receipt)
 
 
@@ -164,11 +157,10 @@ class TestQualificationCLIAndReceipt:
 class TestRunPodDryRunAndGuardrails:
     """Feature 13: Ephemeral RunPod runner, lowest-cost GPU selector, and cleanup guardrails."""
 
-    @requires_runpod
     def test_tier1_runpod_dry_run_without_credentials(self, tmp_path):
         """Case 13.1: RunPod dry-run executes cleanly without RUNPOD_API_KEY environment variable."""
         from hypergan.runpod_runner import RunPodRunner
-        runner = RunPodRunner(dry_run=True, api_key=None)
+        runner = RunPodRunner(dry_run=True)
         receipt = runner.run_qualification_suite(output_dir=tmp_path)
         validate_qualification_receipt(receipt)
 

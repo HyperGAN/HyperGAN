@@ -7,10 +7,16 @@ Provides:
   3. Multi-device CPU Gloo replicated execution
   4. Multi-device CUDA NCCL replicated execution (when >= 2 CUDA GPUs available)
   5. Pluggable learning aggregation strategies (gradient_allreduce, parameter_average, pseudo_gradient)
-  6. Multi-node topology & TCP rendezvous smoke test
+  6. Multi-node topology over a TCP rendezvous, simulated on one host (both node ranks
+     run as local processes; separate hosts and the multi-node launcher are not exercised)
   7. Checkpoint compatibility smoke test
-- Standardized machine-readable JSON verification receipt emitter adhering strictly
-  to PROJECT.md § Interface Contracts (schema_version 1, SHA-256 tamper verification)
+- Standardized machine-readable JSON receipt emitter following PROJECT.md § Interface
+  Contracts (schema_version 1). ``receipt_sha256`` is an unkeyed SHA-256 checksum of the
+  receipt's own content: it detects accidental corruption or truncation, but anyone who
+  edits a receipt can recompute it, so it is not a signature or tamper proof.
+- Receipt and suite statuses: ``passed``, ``failed``, ``skipped`` (nothing could run,
+  e.g. no GPUs) and ``dry_run`` (``--dry-run``: nothing ran). Only suites that actually
+  ran and checked their result report ``passed``.
 - Worker subprocess logic for isolated distributed execution
 - CLI driver `run_qualification_cli` for `hypergan qualify`
 """
@@ -29,23 +35,66 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 import uuid
 
+MAX_QUALIFICATION_SECONDS: float = 180.0
+# Ceiling for one multi-rank worker job; the remaining qualification budget lowers it.
+RANK_TIMEOUT_SECONDS: float = 35.0
+RECEIPT_STATUSES: Tuple[str, ...] = ("passed", "failed", "skipped", "dry_run")
+
+
+class ReceiptValidationError(ValueError):
+    """A qualification receipt does not satisfy the receipt contract."""
+
+
+class QualificationCheckFailed(RuntimeError):
+    """A qualification suite ran and its result check failed."""
+
+
+def _require(condition: Any, message: str) -> None:
+    # Explicit raise rather than ``assert``: checks must survive ``python -O``.
+    if not condition:
+        raise QualificationCheckFailed(message)
+
+
 # ---------------------------------------------------------------------------
-# Receipt Schema & SHA-256 Integrity
+# Receipt Schema & SHA-256 Checksum
 # ---------------------------------------------------------------------------
 
 def compute_receipt_sha256(receipt_dict: Dict[str, Any]) -> str:
-    """Compute canonical SHA-256 over receipt dict excluding receipt_sha256 key."""
+    """Compute canonical SHA-256 over receipt dict excluding receipt_sha256 key.
+
+    This is an unkeyed checksum: it catches accidental edits and corruption, not a
+    deliberate edit, because whoever edits the receipt can recompute it.
+    """
     canonical = {k: v for k, v in receipt_dict.items() if k != "receipt_sha256"}
     encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
 
+def summarize_suite_status(suites: List[Dict[str, Any]]) -> str:
+    """Overall status implied by suite results: any failure fails; a pass needs a suite that ran."""
+    statuses = {s.get("status") for s in suites}
+    if "failed" in statuses:
+        return "failed"
+    if "passed" in statuses:
+        return "passed"
+    if "dry_run" in statuses:
+        return "dry_run"
+    return "skipped"
+
+
 def validate_qualification_receipt(receipt: Dict[str, Any]) -> None:
-    """Verify that a qualification receipt satisfies PROJECT.md § Interface Contracts."""
-    assert isinstance(receipt, dict), "Receipt must be a JSON object"
+    """Verify that a qualification receipt satisfies PROJECT.md § Interface Contracts.
+
+    Raises ReceiptValidationError on the first violation.
+    """
+    def check(condition: Any, message: str) -> None:
+        if not condition:
+            raise ReceiptValidationError(message)
+
+    check(isinstance(receipt, dict), "Receipt must be a JSON object")
     required_keys = {
         "schema_version",
         "qualification_id",
@@ -57,26 +106,55 @@ def validate_qualification_receipt(receipt: Dict[str, Any]) -> None:
         "receipt_sha256",
     }
     missing = required_keys - set(receipt.keys())
-    assert not missing, f"Qualification receipt missing required keys: {missing}"
-    assert receipt["schema_version"] == 1, f"Expected schema_version 1, got {receipt['schema_version']}"
-    assert isinstance(receipt["qualification_id"], str) and len(receipt["qualification_id"]) > 0
-    assert isinstance(receipt["timestamp"], str) and len(receipt["timestamp"]) > 0
-    assert receipt["status"] in ("passed", "failed"), f"Invalid status: {receipt['status']}"
-    assert isinstance(receipt["duration_seconds"], (int, float)) and receipt["duration_seconds"] >= 0.0
-    assert receipt["duration_seconds"] <= 180.0, f"Qualification exceeded 3-minute hard limit: {receipt['duration_seconds']}s"
+    check(not missing, f"Qualification receipt missing required keys: {missing}")
+    check(receipt["schema_version"] == 1, f"Expected schema_version 1, got {receipt['schema_version']}")
+    check(isinstance(receipt["qualification_id"], str) and len(receipt["qualification_id"]) > 0,
+          "Receipt qualification_id must be a non-empty string")
+    check(isinstance(receipt["timestamp"], str) and len(receipt["timestamp"]) > 0,
+          "Receipt timestamp must be a non-empty string")
+    check(receipt["status"] in RECEIPT_STATUSES, f"Invalid status: {receipt['status']}")
+    duration = receipt["duration_seconds"]
+    check(isinstance(duration, (int, float)) and not isinstance(duration, bool) and duration >= 0.0,
+          f"Receipt duration_seconds must be a non-negative number, got {duration!r}")
 
     env = receipt["environment"]
-    assert isinstance(env, dict), "Receipt environment must be a dictionary"
+    check(isinstance(env, dict), "Receipt environment must be a dictionary")
     for env_key in ("platform", "python", "torch", "device_count"):
-        assert env_key in env, f"Receipt environment missing '{env_key}'"
+        check(env_key in env, f"Receipt environment missing '{env_key}'")
 
-    assert isinstance(receipt["suites"], list), "Receipt suites must be a list"
-    assert len(receipt["suites"]) > 0, "Receipt suites list cannot be empty"
+    suites = receipt["suites"]
+    check(isinstance(suites, list), "Receipt suites must be a list")
+    check(len(suites) > 0, "Receipt suites list cannot be empty")
+    for suite in suites:
+        check(isinstance(suite, dict) and isinstance(suite.get("name"), str),
+              f"Receipt suite entries need a string name: {suite!r}")
+        check(suite.get("status") in RECEIPT_STATUSES,
+              f"Invalid status for suite {suite.get('name')!r}: {suite.get('status')!r}")
 
     expected_sha = compute_receipt_sha256(receipt)
-    assert receipt["receipt_sha256"] == expected_sha, (
-        f"Receipt SHA-256 mismatch: recorded {receipt['receipt_sha256']} != calculated {expected_sha}"
-    )
+    check(receipt["receipt_sha256"] == expected_sha,
+          f"Receipt SHA-256 mismatch: recorded {receipt['receipt_sha256']} != calculated {expected_sha}")
+
+    # A receipt over the limit is only valid as a failure; the duration is never clamped.
+    check(receipt["status"] == "failed" or duration <= MAX_QUALIFICATION_SECONDS,
+          f"Qualification exceeded 3-minute hard limit: {duration}s")
+    if receipt["status"] != "failed":
+        implied = summarize_suite_status(suites)
+        check(receipt["status"] == implied,
+              f"Receipt status {receipt['status']!r} contradicts its suites, which imply {implied!r}")
+
+
+def default_receipt_path(qualification_id: str) -> Path:
+    """Per-run receipt path under the HyperGAN state directory, never the working directory."""
+    from .registry import get_registry_dir
+    return get_registry_dir() / "qualification" / f"qualification-receipt-{qualification_id}.json"
+
+
+def write_receipt(receipt: Dict[str, Any], path: Path | str) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -188,8 +266,8 @@ extra = json.loads(extra_json)
 steps = extra.get("steps", 2)
 agg_cfg = extra.get("aggregation", {"strategy": "gradient_allreduce", "sync_every_steps": 1})
 nodes = extra.get("nodes", 1)
-node_rank = extra.get("node_rank", 0)
 ranks_per_node = extra.get("ranks_per_node", world_size // nodes)
+node_rank = rank // ranks_per_node
 run_dir_str = extra.get("run_dir")
 
 if backend == "nccl":
@@ -261,6 +339,7 @@ try:
 
     out_data = {
         "rank": rank,
+        "node_rank": node_rank,
         "passed": True,
         "losses": losses,
         "final_weights": weight_history[-1] if weight_history else {},
@@ -281,7 +360,8 @@ try:
         restored_path, info, _ = restore_distributed_checkpoint(
             run_dir, fresh_trainer, {"run_id": "qual-ckpt"}
         )
-        assert fresh_trainer.step == steps
+        if fresh_trainer.step != steps:
+            raise RuntimeError(f"Restored trainer is at step {fresh_trainer.step}, expected {steps}")
         out_data["checkpoint_verified"] = True
 
     out_file.write_text(json.dumps(out_data))
@@ -290,7 +370,7 @@ finally:
 '''
 
 
-# Known qualification test suites
+# Known qualification test suites (filter names; matching is by substring)
 VALID_SUITES = {
     "single_device",
     "cpu_replicated_gloo",
@@ -299,8 +379,21 @@ VALID_SUITES = {
     "aggregation_strategies",
     "multinode",
     "multinode_tcp",
+    "multinode_tcp_single_host",
     "checkpoint_compatibility",
 }
+
+
+def _stop_processes(procs: List[subprocess.Popen]) -> None:
+    """Kill and reap every rank process that is still running."""
+    for p in procs:
+        if p.poll() is None:
+            p.kill()
+    for p in procs:
+        try:
+            p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -312,18 +405,24 @@ class QualificationRunner:
 
     def __init__(
         self,
-        output_path: Path | str = "qualification-receipt.json",
+        output_path: Optional[Path | str] = None,
         dry_run: bool = False,
         suite_filter: Optional[str] = None,
-        timeout: float = 180.0,
+        timeout: float = MAX_QUALIFICATION_SECONDS,
         verbose: bool = False,
+        progress_stream: Optional[TextIO] = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
-        self.output_path = Path(output_path)
+        self.output_path = Path(output_path) if output_path is not None else None
+        self.last_output_path: Optional[Path] = None
         self.dry_run = dry_run
-        if timeout <= 0 or timeout > 180.0:
+        if timeout <= 0 or timeout > MAX_QUALIFICATION_SECONDS:
             raise ValueError(f"Timeout must be between 1 and 180 seconds, got {timeout}")
         self.timeout = timeout
         self.verbose = verbose
+        self.progress_stream = progress_stream
+        self._clock = clock
+        self._deadline: Optional[float] = None
 
         if suite_filter and suite_filter.lower() not in ("all", "*"):
             norm = suite_filter.strip().lower()
@@ -341,18 +440,35 @@ class QualificationRunner:
             return True
         return self.suite_filter in name.lower() or name.lower() in self.suite_filter
 
+    def _progress(self, message: str) -> None:
+        if self.verbose:
+            print(message, file=self.progress_stream or sys.stdout)
+
+    def _remaining(self) -> float:
+        if self._deadline is None:
+            return self.timeout
+        return self._deadline - self._clock()
+
+    @staticmethod
+    def _dry_run_result(name: str) -> Dict[str, Any]:
+        return {"name": name, "status": "dry_run", "duration_seconds": 0.0,
+                "details": {"dry_run": True, "reason": "dry run: suite not executed"}}
+
     def _run_subprocess_ranks(
         self,
         backend: str,
         world_size: int,
         nodes: int = 1,
-        node_rank: int = 0,
         agg_cfg: Optional[Dict[str, Any]] = None,
         steps: int = 2,
         cuda_devices: Optional[List[int]] = None,
         mode: str = "step",
         run_dir: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
+        """Run one worker process per rank; every rank is killed on timeout or failure."""
+        rank_timeout = min(RANK_TIMEOUT_SECONDS, self._remaining())
+        if rank_timeout <= 0:
+            raise TimeoutError(f"Qualification timeout of {self.timeout}s exhausted before ranks could start")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             script = tmp / "worker.py"
@@ -365,7 +481,6 @@ class QualificationRunner:
                 "steps": steps,
                 "aggregation": agg_cfg or {"strategy": "gradient_allreduce", "sync_every_steps": 1},
                 "nodes": nodes,
-                "node_rank": node_rank,
                 "ranks_per_node": world_size // nodes,
                 "run_dir": run_dir,
             }
@@ -373,39 +488,53 @@ class QualificationRunner:
 
             out_files = [tmp / f"out_{r}.json" for r in range(world_size)]
             env_base = os.environ.copy()
-            repo_root = str(Path(__file__).resolve().parents[2])
-            env_base["PYTHONPATH"] = f"{repo_root}/src:{repo_root}/tests:{repo_root}/tests/reference:" + env_base.get("PYTHONPATH", "")
+            # The directory that holds the hypergan package: src/ in a checkout, site-packages when installed.
+            package_root = str(Path(__file__).resolve().parents[1])
+            env_base["PYTHONPATH"] = package_root + os.pathsep + env_base.get("PYTHONPATH", "")
             if backend == "nccl":
                 env_base["NCCL_P2P_DISABLE"] = "1"
                 env_base["NCCL_IB_DISABLE"] = "1"
                 env_base["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
-            procs = []
-            for r in range(world_size):
-                env = env_base.copy()
-                if backend == "nccl" and cuda_devices:
-                    env["CUDA_VISIBLE_DEVICES"] = str(cuda_devices[r % len(cuda_devices)])
-                cmd = [
-                    sys.executable, str(script),
-                    mode, str(r), str(world_size), init_method, backend, str(out_files[r]), extra_str
-                ]
-                p = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                procs.append(p)
+            procs: List[subprocess.Popen] = []
+            logs = []
+            try:
+                for r in range(world_size):
+                    env = env_base.copy()
+                    if backend == "nccl" and cuda_devices:
+                        env["CUDA_VISIBLE_DEVICES"] = str(cuda_devices[r % len(cuda_devices)])
+                    cmd = [
+                        sys.executable, str(script),
+                        mode, str(r), str(world_size), init_method, backend, str(out_files[r]), extra_str
+                    ]
+                    # Files, not pipes: a rank blocked on a full pipe would stall its peers.
+                    log = (tmp / f"rank_{r}.log").open("w+")
+                    logs.append(log)
+                    procs.append(subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, text=True))
 
-            results = []
-            for r, p in enumerate(procs):
-                stdout, stderr = p.communicate(timeout=35)
-                if p.returncode != 0:
-                    raise RuntimeError(f"Rank {r} failed with code {p.returncode}:\n{stderr}\n{stdout}")
-                assert out_files[r].exists(), f"Rank {r} did not write output file"
-                results.append(json.loads(out_files[r].read_text()))
-            return results
+                deadline = self._clock() + rank_timeout
+                results = []
+                for r, p in enumerate(procs):
+                    try:
+                        p.wait(timeout=max(deadline - self._clock(), 0.001))
+                    except subprocess.TimeoutExpired:
+                        raise TimeoutError(f"Rank {r} did not finish within {rank_timeout:.1f}s") from None
+                    if p.returncode != 0:
+                        logs[r].seek(0)
+                        raise QualificationCheckFailed(f"Rank {r} failed with code {p.returncode}:\n{logs[r].read()}")
+                    _require(out_files[r].exists(), f"Rank {r} did not write output file")
+                    results.append(json.loads(out_files[r].read_text()))
+                return results
+            finally:
+                _stop_processes(procs)
+                for log in logs:
+                    log.close()
 
     def _run_suite_single_device(self, env_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Suite 1: Single device execution smoke test."""
         t0 = time.monotonic()
         if self.dry_run:
-            return {"name": "single_device", "status": "passed", "duration_seconds": 0.01, "details": {"dry_run": True}}
+            return self._dry_run_result("single_device")
         from hypergan.config import resolve_config
         from hypergan.training import ReferenceTrainer
         cuda_avail = bool(env_info and env_info.get("cuda", {}).get("available"))
@@ -420,7 +549,8 @@ class QualificationRunner:
         })
         trainer = ReferenceTrainer(cfg)
         m, _ = trainer.update()
-        assert math.isfinite(float(m['d_loss'])) and math.isfinite(float(m['g_loss']))
+        _require(math.isfinite(float(m['d_loss'])) and math.isfinite(float(m['g_loss'])),
+                 f"Non-finite single-device losses: d_loss={m['d_loss']}, g_loss={m['g_loss']}")
         return {
             "name": "single_device",
             "status": "passed",
@@ -432,11 +562,11 @@ class QualificationRunner:
         """Suite 2: Multi-device CPU Gloo replicated execution."""
         t0 = time.monotonic()
         if self.dry_run:
-            return {"name": "cpu_replicated_gloo", "status": "passed", "duration_seconds": 0.01, "details": {"dry_run": True}}
+            return self._dry_run_result("cpu_replicated_gloo")
         results = self._run_subprocess_ranks(backend="gloo", world_size=2, steps=2)
-        assert len(results) == 2 and all(r.get("passed") for r in results)
+        _require(len(results) == 2 and all(r.get("passed") for r in results), "CPU Gloo ranks did not all report success")
         w0, w1 = results[0]["final_weights"], results[1]["final_weights"]
-        assert w0 == w1, "CPU Gloo replica weights diverged"
+        _require(w0 == w1, "CPU Gloo replica weights diverged")
         return {
             "name": "cpu_replicated_gloo",
             "status": "passed",
@@ -448,7 +578,7 @@ class QualificationRunner:
         """Suite 3: Multi-device CUDA NCCL replicated execution."""
         t0 = time.monotonic()
         if self.dry_run:
-            return {"name": "cuda_replicated_nccl", "status": "passed", "duration_seconds": 0.01, "details": {"dry_run": True}}
+            return self._dry_run_result("cuda_replicated_nccl")
         cuda = (env_info or {}).get("cuda", {})
         dev_count = env_info.get("device_count", 0) if env_info else 0
         if not (cuda.get("available") and dev_count >= 2 and cuda.get("nccl")):
@@ -461,9 +591,9 @@ class QualificationRunner:
         results = self._run_subprocess_ranks(
             backend="nccl", world_size=2, steps=2, cuda_devices=[0, 1]
         )
-        assert len(results) == 2 and all(r.get("passed") for r in results)
+        _require(len(results) == 2 and all(r.get("passed") for r in results), "CUDA NCCL ranks did not all report success")
         w0, w1 = results[0]["final_weights"], results[1]["final_weights"]
-        assert w0 == w1, "CUDA NCCL replica weights diverged"
+        _require(w0 == w1, "CUDA NCCL replica weights diverged")
         return {
             "name": "cuda_replicated_nccl",
             "status": "passed",
@@ -475,7 +605,7 @@ class QualificationRunner:
         """Suite 4: Learning aggregation strategies (gradient_allreduce, parameter_average, pseudo_gradient)."""
         t0 = time.monotonic()
         if self.dry_run:
-            return {"name": "aggregation_strategies", "status": "passed", "duration_seconds": 0.01, "details": {"dry_run": True}}
+            return self._dry_run_result("aggregation_strategies")
         backend = "gloo"
         strat_details = {}
 
@@ -484,7 +614,8 @@ class QualificationRunner:
             backend=backend, world_size=2, steps=2,
             agg_cfg={"strategy": "gradient_allreduce", "sync_every_steps": 1}
         )
-        assert res_allreduce[0]["final_weights"] == res_allreduce[1]["final_weights"]
+        _require(res_allreduce[0]["final_weights"] == res_allreduce[1]["final_weights"],
+                 "gradient_allreduce replica weights diverged")
         strat_details["gradient_allreduce"] = "passed"
 
         # 2. parameter_average
@@ -494,19 +625,27 @@ class QualificationRunner:
         )
         w_h0 = res_avg[0]["weight_history"]
         w_h1 = res_avg[1]["weight_history"]
-        assert w_h0[0] != w_h1[0], "Independent local steps did not diverge at step 1"
-        assert w_h0[1] == w_h1[1], "FedAvg parameter averaging did not achieve consensus at step 2"
+        _require(w_h0[0] != w_h1[0], "Independent local steps did not diverge at step 1")
+        _require(w_h0[1] == w_h1[1], "FedAvg parameter averaging did not achieve consensus at step 2")
         strat_details["parameter_average"] = "passed"
 
-        # 3. pseudo_gradient
+        # 3. pseudo_gradient: four steps so the second outer step carries momentum.
+        pseudo_cfg = {"strategy": "pseudo_gradient", "sync_every_steps": 2, "outer_lr": 1.0}
         res_pseudo = self._run_subprocess_ranks(
-            backend=backend, world_size=2, steps=2,
-            agg_cfg={"strategy": "pseudo_gradient", "sync_every_steps": 2, "outer_lr": 1.0, "outer_momentum": 0.9}
+            backend=backend, world_size=2, steps=4, agg_cfg={**pseudo_cfg, "outer_momentum": 0.9}
         )
         w_p0 = res_pseudo[0]["weight_history"]
         w_p1 = res_pseudo[1]["weight_history"]
-        assert w_p0[0] != w_p1[0], "DiLoCo inner steps did not diverge at step 1"
-        assert w_p0[1] == w_p1[1], "DiLoCo outer update did not achieve consensus at step 2"
+        _require(w_p0[0] != w_p1[0], "DiLoCo inner steps did not diverge at step 1")
+        _require(w_p0[1] == w_p1[1], "DiLoCo outer update did not achieve consensus at step 2")
+        _require(w_p0[3] == w_p1[3], "DiLoCo outer update did not achieve consensus at step 4")
+        res_plain = self._run_subprocess_ranks(
+            backend=backend, world_size=2, steps=4, agg_cfg={**pseudo_cfg, "outer_momentum": 0.0}
+        )
+        plain = res_plain[0]["weight_history"]
+        # The first outer step is v = delta either way; momentum can only show at step 4.
+        _require(plain[1] == w_p0[1], "DiLoCo first outer step depended on outer_momentum")
+        _require(plain[3] != w_p0[3], "DiLoCo outer_momentum had no effect on the second outer step")
         strat_details["pseudo_gradient"] = "passed"
 
         return {
@@ -517,40 +656,59 @@ class QualificationRunner:
         }
 
     def _run_suite_multinode_tcp(self, env_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Suite 5: Multi-node topology & TCP rendezvous."""
+        """Suite 5: two-node topology over TCP rendezvous, simulated on this host.
+
+        Both node ranks are local processes here; this does not exercise separate hosts,
+        CPUWorkerService, run_follower or the multi-node launcher.
+        """
         t0 = time.monotonic()
+        name = "multinode_tcp_single_host"
         if self.dry_run:
-            return {"name": "multinode_tcp", "status": "passed", "duration_seconds": 0.01, "details": {"dry_run": True}}
+            return self._dry_run_result(name)
         cuda = (env_info or {}).get("cuda", {})
         dev_count = env_info.get("device_count", 0) if env_info else 0
         backend = "nccl" if (cuda.get("available") and dev_count >= 2 and cuda.get("nccl")) else "gloo"
         cuda_devs = [0, 1] if backend == "nccl" else None
         results = self._run_subprocess_ranks(
-            backend=backend, world_size=2, nodes=2, node_rank=0, steps=2, cuda_devices=cuda_devs
+            backend=backend, world_size=2, nodes=2, steps=2, cuda_devices=cuda_devs
         )
-        assert len(results) == 2 and all(r.get("passed") for r in results)
+        _require(len(results) == 2 and all(r.get("passed") for r in results), "Multi-node ranks did not all report success")
+        node_ranks = [r.get("node_rank") for r in results]
+        _require(node_ranks == [0, 1], f"Ranks did not run as distinct node ranks: {node_ranks}")
+        _require(results[0]["final_weights"] == results[1]["final_weights"], "Multi-node replica weights diverged")
         return {
-            "name": "multinode_tcp",
+            "name": name,
             "status": "passed",
             "duration_seconds": round(time.monotonic() - t0, 4),
-            "details": {"nodes": 2, "ranks_per_node": 1, "backend": backend, "consensus": True},
+            "details": {
+                "simulated": True,
+                "hosts": 1,
+                "nodes": 2,
+                "ranks_per_node": 1,
+                "node_ranks": node_ranks,
+                "backend": backend,
+                "consensus": True,
+                "scope": "both node ranks run as local processes over a loopback TCP rendezvous; "
+                         "separate hosts, CPUWorkerService, run_follower and the multi-node launcher are not exercised",
+            },
         }
 
     def _run_suite_checkpoint_compatibility(self, env_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Suite 6: Distributed checkpoint manifest persistence & compatibility."""
         t0 = time.monotonic()
         if self.dry_run:
-            return {"name": "checkpoint_compatibility", "status": "passed", "duration_seconds": 0.01, "details": {"dry_run": True}}
+            return self._dry_run_result("checkpoint_compatibility")
         with tempfile.TemporaryDirectory() as td:
             results = self._run_subprocess_ranks(
                 backend="gloo", world_size=2, steps=2, mode="checkpoint", run_dir=td
             )
-            assert len(results) == 2 and all(r.get("passed") for r in results)
-            assert all(r.get("checkpoint_verified") for r in results)
+            _require(len(results) == 2 and all(r.get("passed") for r in results), "Checkpoint ranks did not all report success")
+            _require(all(r.get("checkpoint_verified") for r in results), "Checkpoint restore was not verified on every rank")
             manifests = list(Path(td).rglob("manifest.json"))
-            assert len(manifests) > 0, "Manifest file missing"
+            _require(len(manifests) > 0, "Manifest file missing")
             manifest_data = json.loads(manifests[0].read_text())
-            assert manifest_data.get("run_id") == "qual-ckpt"
+            _require(manifest_data.get("run_id") == "qual-ckpt",
+                     f"Checkpoint manifest has run_id {manifest_data.get('run_id')!r}, expected 'qual-ckpt'")
         return {
             "name": "checkpoint_compatibility",
             "status": "passed",
@@ -566,70 +724,90 @@ class QualificationRunner:
     run_multinode_tcp = _run_suite_multinode_tcp
     run_checkpoint_compatibility = _run_suite_checkpoint_compatibility
 
-    def run(self, output: Optional[Path | str] = None) -> Dict[str, Any]:
-        """Run qualification suites and generate machine-readable JSON receipt."""
-        target_output = Path(output) if output else self.output_path
-        start_time = time.monotonic()
+    def execute(self) -> Dict[str, Any]:
+        """Run the selected suites within the timeout and return the receipt without writing it."""
+        start_time = self._clock()
+        self._deadline = start_time + self.timeout
         env_info = inspect_environment()
 
+        # (receipt name, runner); the filter matches receipt names.
         suite_definitions = [
             ("single_device", self._run_suite_single_device),
             ("cpu_replicated_gloo", self._run_suite_cpu_replicated_gloo),
             ("cuda_replicated_nccl", self._run_suite_cuda_replicated_nccl),
-            ("aggregation", self._run_suite_aggregation),
-            ("multinode_tcp", self._run_suite_multinode_tcp),
+            ("aggregation_strategies", self._run_suite_aggregation),
+            ("multinode_tcp_single_host", self._run_suite_multinode_tcp),
             ("checkpoint_compatibility", self._run_suite_checkpoint_compatibility),
         ]
 
         suite_results: List[Dict[str, Any]] = []
+        timed_out = False
 
         for name, runner_fn in suite_definitions:
             if not self.should_run_suite(name):
                 continue
-            if self.verbose:
-                print(f"  Running qualification suite: {name}...")
-            t0 = time.monotonic()
+            if self._remaining() <= 0:
+                timed_out = True
+                suite_results.append({
+                    "name": name,
+                    "status": "skipped",
+                    "duration_seconds": 0.0,
+                    "details": {"reason": f"not started: qualification timeout of {self.timeout}s exhausted"},
+                })
+                continue
+            self._progress(f"  Running qualification suite: {name}...")
+            t0 = self._clock()
             try:
                 res = runner_fn(env_info)
                 suite_results.append(res)
-                if self.verbose:
-                    print(f"  [{res['status']}] {res['name']} ({res['duration_seconds']}s)")
+                self._progress(f"  [{res['status']}] {res['name']} ({res['duration_seconds']}s)")
             except Exception as e:
                 suite_results.append({
-                    "name": name if "aggregation" not in name else "aggregation_strategies",
+                    "name": name,
                     "status": "failed",
-                    "duration_seconds": round(time.monotonic() - t0, 4),
+                    "duration_seconds": round(self._clock() - t0, 4),
                     "error": str(e),
                 })
-                if self.verbose:
-                    print(f"  [failed] {name}: {e}")
+                self._progress(f"  [failed] {name}: {e}")
 
-        total_duration = round(time.monotonic() - start_time, 4)
-        has_failures = any(s["status"] == "failed" for s in suite_results)
-        overall_status = "failed" if has_failures else "passed"
+        total_duration = round(self._clock() - start_time, 4)
+        overall_status = summarize_suite_status(suite_results)
+        error = None
+        if timed_out or total_duration > self.timeout:
+            overall_status = "failed"
+            error = f"qualification exceeded its {self.timeout}s timeout ({total_duration}s)"
 
         receipt: Dict[str, Any] = {
             "schema_version": 1,
             "qualification_id": f"qual-{int(time.time())}-{uuid.uuid4().hex[:8]}",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "status": overall_status,
-            "duration_seconds": min(total_duration, 180.0),
+            "duration_seconds": total_duration,
             "environment": env_info,
             "suites": suite_results,
         }
+        if error:
+            receipt["error"] = error
         receipt["receipt_sha256"] = compute_receipt_sha256(receipt)
+        return receipt
 
-        # Save receipt to target output path
-        target_output.parent.mkdir(parents=True, exist_ok=True)
-        target_output.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+    def run(self, output: Optional[Path | str] = None) -> Dict[str, Any]:
+        """Run qualification suites and write the machine-readable JSON receipt.
+
+        The receipt goes to ``output``, else the runner's output_path, else a per-run file
+        under the HyperGAN state directory (see default_receipt_path).
+        """
+        receipt = self.execute()
+        target = output or self.output_path or default_receipt_path(receipt["qualification_id"])
+        self.last_output_path = write_receipt(receipt, target)
         return receipt
 
 
 def run_qualification(
-    output: Path | str = "qualification-receipt.json",
+    output: Optional[Path | str] = None,
     dry_run: bool = False,
     suite: Optional[str] = None,
-    timeout: float = 180.0,
+    timeout: float = MAX_QUALIFICATION_SECONDS,
     verbose: bool = False,
 ) -> Dict[str, Any]:
     """Functional entrypoint for qualification harness."""
@@ -639,10 +817,10 @@ def run_qualification(
 
 def run_qualification_cli(args: argparse.Namespace) -> int:
     """CLI handler for `hypergan qualify`."""
-    output_path = getattr(args, "output", Path("qualification-receipt.json"))
+    output_path = getattr(args, "output", None)
     dry_run = getattr(args, "dry_run", False)
     suite = getattr(args, "suite", None)
-    timeout = getattr(args, "timeout", 180.0)
+    timeout = getattr(args, "timeout", MAX_QUALIFICATION_SECONDS)
     verbose = getattr(args, "verbose", False)
     is_json = getattr(args, "json", False)
 
@@ -653,6 +831,8 @@ def run_qualification_cli(args: argparse.Namespace) -> int:
             suite_filter=suite,
             timeout=timeout,
             verbose=verbose,
+            # Keep stdout pure JSON under --json.
+            progress_stream=sys.stderr if is_json else None,
         )
     except ValueError as e:
         sys.stderr.write(f"error: {e}\n")
@@ -660,8 +840,8 @@ def run_qualification_cli(args: argparse.Namespace) -> int:
 
     if not is_json:
         print(f"HyperGAN Hardware Qualification Harness")
-        print(f"  Target receipt: {output_path}")
-        print(f"  Mode:           {'dry-run' if dry_run else 'live hardware'}")
+        print(f"  Target receipt: {output_path or 'HyperGAN state directory (qualification/)'}")
+        print(f"  Mode:           {'dry-run (no suites execute)' if dry_run else 'live hardware'}")
         print(f"  Suite filter:   {suite or 'all'}")
         print(f"  Timeout ceiling: {timeout}s")
         print("Starting qualification checks...")
@@ -676,9 +856,12 @@ def run_qualification_cli(args: argparse.Namespace) -> int:
         print(json.dumps(receipt, indent=2))
     else:
         print(f"\nQualification Finished: {receipt['status'].upper()} in {receipt['duration_seconds']}s")
+        if receipt.get("error"):
+            print(f"  error: {receipt['error']}")
+        symbols = {"passed": "✓", "skipped": "⊘", "dry_run": "-"}
         for s in receipt["suites"]:
-            status_symbol = "✓" if s["status"] == "passed" else ("⊘" if s["status"] == "skipped" else "✗")
-            print(f"  [{status_symbol}] {s['name']}: {s['status']} ({s['duration_seconds']}s)")
-        print(f"Receipt written to {output_path} (SHA-256: {receipt['receipt_sha256'][:16]}...)")
+            print(f"  [{symbols.get(s['status'], '✗')}] {s['name']}: {s['status']} ({s['duration_seconds']}s)")
+        print(f"Receipt written to {runner.last_output_path} (unkeyed SHA-256 checksum: {receipt['receipt_sha256'][:16]}...)")
 
-    return 0 if receipt["status"] == "passed" else 1
+    # A dry run succeeds when it completes; "skipped" means nothing was qualified.
+    return 0 if receipt["status"] in ("passed", "dry_run") else 1

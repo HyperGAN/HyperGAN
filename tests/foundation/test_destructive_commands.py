@@ -504,6 +504,19 @@ def test_roots_on_a_missing_mount_are_kept_until_they_expire(tmp_path):
     assert root not in json.loads(reg_file.read_text(encoding="utf-8"))["roots"]
 
 
+def test_status_ps_and_registry_agree_on_an_unrecorded_stop(tmp_path):
+    """Review L7: a run recorded 'running', inactive, copied without its .run.lock, is 'stopped' everywhere."""
+    run = _make_run(tmp_path / "runs" / "copied", run_id="da" * 16)
+    for name in ("manifest.json", "summary.json"):
+        doc = json.loads((run / name).read_text(encoding="utf-8"))
+        doc["status"] = "running"
+        (run / name).write_text(json.dumps(doc), encoding="utf-8")
+    assert not (run / ".run.lock").exists()
+    assert inspection.run_status(str(run), cwd=tmp_path)["status"] == "stopped"
+    assert [r["status"] for r in list_runs(cwd=tmp_path)] == ["stopped"]
+    assert [e["status"] for e in list_registered_runs(cwd=tmp_path)] == ["stopped"]
+
+
 def test_path_containment_is_by_component():
     assert registry._is_within(Path("/data/runs"), Path("/data"))
     assert not registry._is_within(Path("/data2/runs"), Path("/data"))

@@ -319,7 +319,9 @@ def _resolve_valid_status(
 
     if raw is None:
         return "incomplete"
-    if raw in ("running", "initializing") and (run_dir / ".run.lock").exists():
+    if raw in ("running", "initializing"):
+        # Not active (check_run_active covers local locks and remote hosts), so it
+        # stopped without recording it; the registry reports the same.
         return "stopped"
     if raw == "complete":
         return "completed"

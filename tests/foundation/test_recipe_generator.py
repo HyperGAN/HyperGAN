@@ -1,8 +1,10 @@
 """Starter recipes keep the requested template and need no path into the installed package."""
 from pathlib import Path
+import tomllib
 
 import pytest
 
+import hypergan
 import hypergan.api as hg
 from hypergan.recipe_generator import init_project
 
@@ -46,6 +48,14 @@ def test_gaussian_grid_starters_inline_the_reference_network(tmp_path):
     _assert_self_contained(info['recipe_path'])
     assert not (tmp_path / 'proj' / 'networks').exists()
     assert hg.fingerprint(hg.load(saved)) == hg.fingerprint(hg.packaged('gaussian-grid'))
+
+
+def test_packaged_gaussian_grid_inlines_reference_hndl_byte_for_byte():
+    package = Path(hypergan.__file__).parent
+    reference = (package / 'networks' / 'reference.hndl').read_text(encoding='utf-8')
+    networks = tomllib.loads((package / 'models' / 'gaussian-grid.toml').read_text(encoding='utf-8'))['networks']
+    assert {name: spec['source'] for name, spec in networks.items()} == {
+        'generator': reference, 'discriminator': reference}
 
 
 def test_gaussian_grid_starter_is_the_qualified_reference_when_prepared(tmp_path):

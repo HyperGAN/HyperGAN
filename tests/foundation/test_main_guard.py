@@ -51,6 +51,25 @@ def test_guarded_call_is_allowed(monkeypatch, tmp_path):
     assert found is None
 
 
+def test_guard_combined_with_and_is_allowed(monkeypatch, tmp_path):
+    _, found = _run_as_main(monkeypatch, tmp_path, '''
+        enabled = True
+        found = 'unset'
+        if __name__ == "__main__" and enabled:
+            found = check()
+    ''')
+    assert found is None
+
+
+def test_guard_combined_with_or_is_not_a_guard(monkeypatch, tmp_path):
+    script, found = _run_as_main(monkeypatch, tmp_path, '''
+        enabled = True
+        if __name__ == "__main__" or enabled:
+            found = check()
+    ''')
+    assert found == (str(script), 4)
+
+
 def test_package_main_is_not_re_run_by_spawn(monkeypatch, tmp_path):
     spec = types.SimpleNamespace(name='hypergan.__main__')
     _, found = _run_as_main(monkeypatch, tmp_path, 'found = check()\n', spec=spec)

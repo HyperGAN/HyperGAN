@@ -16,18 +16,22 @@ from .training import ReferenceTrainer, _implementation, _recovery_contract, app
 from .recipes import execution_device
 
 
+def _is_main_check(test):
+    """``__name__ == "__main__"``, alone or as one operand of an ``and``."""
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+        return any(_is_main_check(value) for value in test.values)
+    if not (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq)):
+        return False
+    sides = [test.left, *test.comparators]
+    return (any(isinstance(side, ast.Name) and side.id == '__name__' for side in sides)
+            and any(isinstance(side, ast.Constant) and side.value == '__main__' for side in sides))
+
+
 def _main_guard_lines(path):
     """Line ranges of every ``if __name__ == "__main__":`` body in a script."""
     tree = ast.parse(Path(path).read_text(encoding='utf-8'), filename=str(path))
-    ranges = []
-    for node in ast.walk(tree):
-        if (isinstance(node, ast.If) and isinstance(node.test, ast.Compare) and len(node.test.ops) == 1
-                and isinstance(node.test.ops[0], ast.Eq)):
-            sides = [node.test.left, *node.test.comparators]
-            if (any(isinstance(side, ast.Name) and side.id == '__name__' for side in sides)
-                    and any(isinstance(side, ast.Constant) and side.value == '__main__' for side in sides)):
-                ranges.append((node.body[0].lineno, node.body[-1].end_lineno))
-    return ranges
+    return [(node.body[0].lineno, node.body[-1].end_lineno) for node in ast.walk(tree)
+            if isinstance(node, ast.If) and _is_main_check(node.test)]
 
 
 def unguarded_main_call():

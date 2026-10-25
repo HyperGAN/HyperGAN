@@ -111,12 +111,14 @@ def load_queue(queue_path: Path) -> dict:
     """Load queue state from disk or initialize empty state.
 
     An unreadable queue file is moved aside to ``queue.json.corrupt-<timestamp>``
-    (never overwritten) and job numbering resumes after the newest job log. Only a
-    caller holding ``queue_lock`` moves it; an unlocked reader just sees an empty
-    queue, so it can never move aside a fresh queue a locked writer has just saved.
+    (never overwritten) and a fresh queue is saved in its place, so job numbering
+    resumes after the newest job log even when the caller only reads. Only a caller
+    holding ``queue_lock`` moves it; an unlocked reader just sees an empty queue, so
+    it can never move aside a fresh queue a locked writer has just saved. A missing
+    queue file also resumes numbering after the newest job log.
     """
     if not queue_path.is_file():
-        return _empty_queue()
+        return _empty_queue(_next_free_job_number(queue_path.parent / "logs"))
     try:
         with queue_path.open("r", encoding="utf-8") as f:
             data = json.load(f)
@@ -136,11 +138,13 @@ def load_queue(queue_path: Path) -> dict:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     aside = queue_path.with_name(f"{queue_path.name}.corrupt-{stamp}")
     os.replace(queue_path, aside)
+    fresh = _empty_queue(_next_free_job_number(queue_path.parent / "logs"))
+    save_queue(queue_path, fresh)
     print(
         f"[queue] warning: {queue_path} is unreadable ({reason}); moved it to {aside.name} and started an empty queue.",
         file=sys.stderr,
     )
-    return _empty_queue(_next_free_job_number(queue_path.parent / "logs"))
+    return fresh
 
 
 def save_queue(queue_path: Path, data: dict) -> None:

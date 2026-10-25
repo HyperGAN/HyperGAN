@@ -467,6 +467,32 @@ def test_corrupt_queue_file_is_moved_aside_and_numbering_continues(temp_queue, m
     assert "unreadable" in capsys.readouterr().err
 
 
+def test_corrupt_queue_first_seen_by_a_reader_keeps_numbering(temp_queue, model_file):
+    # queue ls, queue status, doctor and the runner's poll loop take the lock but do
+    # not save; the resumed numbering must still survive until the next queue add.
+    logs = temp_queue.parent / "logs"
+    logs.mkdir()
+    (logs / "job-0001.log").write_text("old job 1\n", encoding="utf-8")
+    (logs / "job-0007.log").write_text("old job 7\n", encoding="utf-8")
+    temp_queue.write_text('{"schema_version": 1, "jobs": [', encoding="utf-8")
+
+    assert queue_ls(queue_file=temp_queue) == []
+    assert json.loads(temp_queue.read_text(encoding="utf-8"))["next_job_id"] == 8
+
+    job = queue_add(model_file, queue_file=temp_queue)
+    assert job["id"] == "job-0008"
+    assert (logs / "job-0001.log").read_text(encoding="utf-8") == "old job 1\n"
+
+
+def test_missing_queue_file_resumes_numbering_after_newest_log(temp_queue, model_file):
+    logs = temp_queue.parent / "logs"
+    logs.mkdir(parents=True)
+    (logs / "job-0003.log").write_text("old job 3\n", encoding="utf-8")
+    assert not temp_queue.exists()
+
+    assert queue_add(model_file, queue_file=temp_queue)["id"] == "job-0004"
+
+
 def test_queue_file_from_another_schema_is_not_replaced(temp_queue, model_file):
     original = json.dumps({"schema_version": 2, "jobs": [], "next_job_id": 40})
     temp_queue.write_text(original, encoding="utf-8")

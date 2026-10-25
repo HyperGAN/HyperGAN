@@ -1340,11 +1340,16 @@ def test_retired_service_tells_its_subscribers_to_reconnect(tmp_path):
     async def scenario():
         service = await ObservationService(tmp_path, poll_seconds=.01).start()
         subscriber, _ = service.subscribe('*')
+        # Frames still queued for a slow page must not hide the reason: a closed
+        # subscriber delivers only its first queued frame.
+        subscriber.offer('frame', {'n': 1})
+        subscriber.offer('frame', {'n': 2})
         service.retire('released')
         events = []
         while not subscriber.queue.empty():
             events.append(await subscriber.get())
-        assert any(event.startswith(b'event: reset_required') and b'released' in event for event in events)
+        assert len(events) == 1, events
+        assert events[0].startswith(b'event: reset_required') and b'released' in events[0]
         assert subscriber.closed
         await service.close()
     asyncio.run(scenario())
@@ -1426,6 +1431,8 @@ def test_view_caches_are_bounded(tmp_path, monkeypatch, private_viewer_cache):
     monkeypatch.setattr(module, 'MAX_VIEW_CACHE_RUNS', 2)
     for name in ('a', 'b', 'c'):
         fixture_run(tmp_path / name, 4)
+    records = private_viewer_cache / '.projection-failures'
+    records.mkdir()
 
     async def scenario():
         for name in ('a', 'b', 'c'):
@@ -1436,8 +1443,9 @@ def test_view_caches_are_bounded(tmp_path, monkeypatch, private_viewer_cache):
                 assert len(list(service.view_cache_dir(MapSpec().revision).glob('*.fold'))) == 2
             finally:
                 await service.close()
-        # Only the two most recently used runs keep a cache.
-        assert len([path for path in private_viewer_cache.iterdir()]) == 2
+        # Only the two most recently used runs keep a cache; other viewer state stays.
+        assert records.is_dir()
+        assert len([path for path in private_viewer_cache.iterdir() if path != records]) == 2
         assert service.view_cache_dir(MapSpec().revision).is_dir()
     asyncio.run(scenario())
 

@@ -190,7 +190,9 @@ recently viewed runs, so a read-only run that was projected beforehand still cha
 Projection is the viewer's own background work: a request never projects, and history
 for a run that is still being projected answers 202 until the projection is announced.
 When the viewer's projector fails on a run (for example a read-only run that was never
-projected), history answers 404 with the projector's error; the projector retries when
+projected), history answers 404 with the projector's error, also when the projector runs
+in its own process beside the server (the dashboard `hypergan train` starts keeps the
+error in `.projection-failures/` under the viewer cache); the projector retries when
 the event log grows or after 30 seconds.
 
 SSE sends unchanged `frame` envelopes and control events: `stream_added`,

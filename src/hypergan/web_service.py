@@ -386,6 +386,11 @@ class ObservationService:
         the page would show a frozen run as "Live stream".
         """
         for subscriber in list(self.subscribers):
+            # A closed subscriber delivers one queued frame, so drop pending
+            # frames and leave only the reason the page must reconnect.
+            while not subscriber.queue.empty():
+                subscriber.queue.get_nowait()
+            subscriber.size = 0
             subscriber.offer('reset_required', {'reason': reason})
             subscriber.closed = True
         self._closed = True
@@ -837,7 +842,9 @@ def _prune_view_caches(directory, keep):
             except OSError:
                 pass
     try:
-        runs = [path for path in owner.parent.iterdir() if path.is_dir() and not path.is_symlink()]
+        # Dot directories hold other viewer state (projection failure records).
+        runs = [path for path in owner.parent.iterdir()
+                if path.is_dir() and not path.is_symlink() and not path.name.startswith('.')]
     except OSError:
         return
     for stale in newest_first(runs)[MAX_VIEW_CACHE_RUNS:]:

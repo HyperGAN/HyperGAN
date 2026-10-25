@@ -519,9 +519,29 @@ def test_ensure_dashboard_running_reuses_a_current_token_dashboard(tmp_path, mon
     def probe(host, port, auth_token=None, **kwargs):
         if auth_token != "tok":
             return {"status": "auth_required", "auth_required": True}
-        return {"version": __version__, "runs_root": str(root.resolve()), "server_instance_id": "i"}
+        return {"version": __version__, "runs_root": str(root.resolve()), "server_instance_id": "i",
+                "auth_mode": "token"}
     monkeypatch.setattr(startup, "probe_dashboard", probe)
     assert ensure_dashboard_running(root, host="127.0.0.1", auth="token") == "http://localhost:8765"
+
+
+def test_ensure_dashboard_running_refuses_to_reuse_a_dashboard_without_requested_auth(tmp_path, monkeypatch):
+    """train --auth token must not silently reuse this root's auth-none dashboard."""
+    from hypergan import __version__
+    import hypergan.web_autostart as startup
+    from hypergan.web_autostart import ensure_dashboard_running
+    root = tmp_path / "runs"
+    root.mkdir()
+    monkeypatch.setattr(startup, "_registered_dashboard", lambda r: ({"launch_id": "L", "server_instance_id": "i"}, None))
+    monkeypatch.setattr(startup, "_stop_registered_dashboard", lambda *a: pytest.fail("restarted"))
+    monkeypatch.setattr(startup, "launch_dashboard_daemon", lambda *a, **k: pytest.fail("relaunched"))
+    monkeypatch.setattr(startup, "_dashboard_mismatch", lambda probed: [])
+    monkeypatch.setattr(startup, "probe_dashboard", lambda *a, **k: {
+        "version": __version__, "runs_root": str(root.resolve()), "server_instance_id": "i", "auth_mode": "none"})
+    with pytest.raises(OSError, match="--auth none"):
+        ensure_dashboard_running(root, auth="token")
+    # Asking for no auth still reuses it, as before.
+    assert ensure_dashboard_running(root, host="127.0.0.1") == "http://localhost:8765"
 
 
 def test_dashboard_url_names_an_address_the_bind_accepts():

@@ -61,7 +61,7 @@ def _make_run(
         "run_id": run_id,
         "attempt_id": "att-1",
         "stream_id": "training",
-        "stream_generation": "run",
+        "stream_generation": run_id,
         "sequence": 1,
         "step": 0,
         "event": "start",
@@ -74,7 +74,7 @@ def _make_run(
         "run_id": run_id,
         "attempt_id": "att-1",
         "stream_id": "training",
-        "stream_generation": "run",
+        "stream_generation": run_id,
         "sequence": 2,
         "step": step,
         "event": "train",
@@ -236,6 +236,71 @@ def test_requests_never_project_and_contributions_are_paged(tmp_path, monkeypatc
         assert client.get("/api/runs/run_lazy/contributions", params={"limit": 5000}).status_code == 400
 
 
+def _bootstrap_until_done(client, run_id, map_rev, *, attempts=500):
+    url = f"/api/v1/runs/{run_id}/views/{map_rev}/bootstrap?series=loss/g_total"
+    for _ in range(attempts):
+        response = client.get(url)
+        if response.status_code != 202:
+            return response
+        time.sleep(.01)
+    return response
+
+
+def test_nested_registered_run_is_projected_by_the_viewers_projector(tmp_path):
+    """Every run the dashboard serves has a projector, since requests never project."""
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    direct = _make_run(runs_root, "direct", project=False)
+    nested = _make_run(runs_root / "group" / "inner", "run_nested", project=False)
+    registry.register_run(nested, status="stopped")
+
+    projector = Projector(runs_root)
+    assert nested.resolve() in projector._candidate_runs()
+    map_rev = MapSpec().revision
+    session = LocalSession(8765)
+    with TestClient(create_app(runs_root, session=session), base_url=session.origin) as client:
+        assert set(projector.poll_once()) == {direct.resolve(), nested.resolve()}
+        for run_id in ("direct", "run_nested"):
+            response = _bootstrap_until_done(client, run_id, map_rev)
+            assert response.status_code == 200, (run_id, response.text)
+
+
+def test_projection_failure_in_another_process_reaches_the_server(tmp_path):
+    """The broker's projector and server are separate processes; the failure still shows."""
+    import subprocess
+    import sys
+    import hypergan.web_autostart as autostart
+    if os.geteuid() == 0:
+        pytest.skip("root ignores the read-only run directory")
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    read_only = _make_run(runs_root, "read_only", project=False)
+    read_only.chmod(0o555)
+
+    # The projector runs in its own interpreter, as in the train-launched broker.
+    code = "import sys; from hypergan.web_autostart import Projector; print(Projector(sys.argv[1]).poll_once())"
+    try:
+        done = subprocess.run([sys.executable, "-c", code, str(runs_root)],
+                              capture_output=True, text=True, timeout=120)
+        assert done.returncode == 0, done.stderr
+        assert read_only.resolve() not in autostart._PROJECTION_FAILURES
+        assert "PermissionError" in (autostart.projection_failure(read_only) or "")
+
+        map_rev = MapSpec().revision
+        session = LocalSession(8765)
+        with TestClient(create_app(runs_root, session=session), base_url=session.origin) as client:
+            response = _bootstrap_until_done(client, "read_only", map_rev)
+            assert response.status_code == 404, response.text
+            assert "could not be built: PermissionError" in response.text
+    finally:
+        read_only.chmod(0o755)
+
+    # Once a projection succeeds, the projector clears the record for every process.
+    done = subprocess.run([sys.executable, "-c", code, str(runs_root)], capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    assert autostart.projection_failure(read_only) is None
+
+
 def _append_train_event(run_dir, sequence, step):
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     row = {
@@ -243,7 +308,7 @@ def _append_train_event(run_dir, sequence, step):
         "run_id": run_dir.name,
         "attempt_id": "att-1",
         "stream_id": "training",
-        "stream_generation": "run",
+        "stream_generation": run_dir.name,
         "sequence": sequence,
         "step": step,
         "event": "train",

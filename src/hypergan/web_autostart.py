@@ -368,16 +368,86 @@ def ensure_run_projected(run_dir: Path | str) -> bool:
         return False
 
 
-# Last projection failure per resolved run directory in this process, so the
-# viewer can answer with the reason instead of waiting for a projection the
-# background projector cannot build (a read-only run, a failing projection).
+# Last projection failure per resolved run directory, so the viewer can answer
+# with the reason instead of waiting for a projection the background projector
+# cannot build (a read-only run, a failing projection). The broker runs the
+# projector and the server in separate processes, so the failure is also kept
+# as a small record in the private viewer cache, never in the run.
 _PROJECTION_FAILURES: dict[Path, str] = {}
 PROJECTION_RETRY_SECONDS = 30.0
+_FAILURE_RECORDS = '.projection-failures'
+
+
+def _failure_record(run_dir: Path) -> Path:
+    from .web_service import view_cache_root
+    name = hashlib.sha256(str(run_dir).encode()).hexdigest()[:32]
+    return view_cache_root() / _FAILURE_RECORDS / (name + '.json')
+
+
+def _record_projection_failure(run_dir: Path, error: str | None) -> None:
+    """Remember (or with None, forget) why projecting `run_dir` failed, for any process."""
+    if error is None:
+        _PROJECTION_FAILURES.pop(run_dir, None)
+    else:
+        _PROJECTION_FAILURES[run_dir] = error
+    try:
+        record = _failure_record(run_dir)
+        if error is None:
+            record.unlink(missing_ok=True)
+            return
+        if record.parent.is_symlink() or record.parent.parent.is_symlink():
+            return
+        record.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        tmp = record.with_name(f'{record.name}.{os.getpid()}.tmp')
+        tmp.write_text(json.dumps({'run_dir': str(run_dir), 'error': error}), encoding='utf-8')
+        os.replace(tmp, record)
+    except OSError:
+        pass
 
 
 def projection_failure(run_dir: Path | str) -> str | None:
-    """Why this process's background projector last failed on `run_dir`, if it did."""
-    return _PROJECTION_FAILURES.get(Path(run_dir).resolve())
+    """Why the viewer's background projector last failed on `run_dir`, if it did."""
+    run_dir = Path(run_dir).resolve()
+    failure = _PROJECTION_FAILURES.get(run_dir)
+    if failure is not None:
+        return failure
+    try:
+        record = _failure_record(run_dir)
+        if record.is_symlink():
+            return None
+        data = json.loads(record.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get('run_dir') != str(run_dir):
+        return None
+    error = data.get('error')
+    return error[:500] if isinstance(error, str) and error else None
+
+
+def registered_run_dirs(root: Path | str) -> list[Path]:
+    """Registered runs nested anywhere under `root` (never `root` itself or another root's)."""
+    from . import registry as _reg_mod
+    root = Path(root).resolve()
+    try:
+        data = _reg_mod._read_registry_unlocked(_reg_mod.get_registry_dir(root))
+        entries = list(data.get('runs', {}).values())
+    except (OSError, ValueError, AttributeError):
+        return []
+    dirs: list[Path] = []
+    seen: set[Path] = set()
+    for item in entries:
+        rdir_val = item.get('run_dir') if isinstance(item, dict) else None
+        if not rdir_val:
+            continue
+        try:
+            p = Path(rdir_val).resolve()
+            if (p not in seen and p != root and p.is_relative_to(root) and p.is_dir()
+                    and ((p / 'manifest.json').is_file() or (p / 'summary.json').is_file())):
+                seen.add(p)
+                dirs.append(p)
+        except (OSError, ValueError):
+            continue
+    return dirs
 
 
 class Projector:
@@ -394,6 +464,8 @@ class Projector:
         self.poll_interval = poll_interval
         self._last_projected_watermark: dict[Path, tuple[int, int]] = {}
         self._last_failure: dict[Path, tuple[tuple[int, int] | None, float]] = {}
+        # Runs whose failure record (possibly left by an earlier viewer) is known gone.
+        self._cleared: set[Path] = set()
 
     def _candidate_runs(self) -> list[Path]:
         if (self.root / 'manifest.json').is_file() or (self.root / 'events.jsonl').is_file():
@@ -415,6 +487,13 @@ class Projector:
                                 candidates.append(resolved)
             except OSError:
                 pass
+        # The same registered runs the dashboard serves, at any depth under the
+        # root: a served run must have a projector, since requests never project.
+        if not (self.root / 'summary.json').is_file():
+            for d in registered_run_dirs(self.root):
+                if d not in seen and (d / 'events.jsonl').is_file():
+                    seen.add(d)
+                    candidates.append(d)
         return sorted(candidates)
 
     def _should_project(self, run_dir: Path) -> tuple[bool, tuple[int, int] | None]:
@@ -444,6 +523,9 @@ class Projector:
         proj_mtime = _projection_state_mtime_ns(run_dir)
         if last_wm is None and proj_mtime is not None and proj_mtime >= watermark[0]:
             self._last_projected_watermark[run_dir] = watermark
+            if run_dir not in self._cleared:
+                _record_projection_failure(run_dir, None)
+                self._cleared.add(run_dir)
             return False, watermark
 
         return True, watermark
@@ -463,12 +545,14 @@ class Projector:
                     pass
                 if watermark is not None:
                     self._last_projected_watermark[run_dir] = watermark
-                self._last_failure.pop(run_dir, None)
-                _PROJECTION_FAILURES.pop(run_dir, None)
+                if self._last_failure.pop(run_dir, None) is not None or run_dir not in self._cleared:
+                    _record_projection_failure(run_dir, None)
+                    self._cleared.add(run_dir)
                 projected.append(run_dir)
             except Exception as exc:
                 self._last_failure[run_dir] = (watermark, time.monotonic())
-                _PROJECTION_FAILURES[run_dir] = f'{type(exc).__name__}: {exc}'[:500]
+                self._cleared.discard(run_dir)
+                _record_projection_failure(run_dir, f'{type(exc).__name__}: {exc}'[:500])
         return projected
 
     def _loop(self, stop=None, *, max_iterations: int | None = None) -> None:
@@ -488,6 +572,9 @@ class Projector:
 
 
 def _has_sub_runs(root: Path) -> bool:
+    if not (root / 'manifest.json').is_file() and any(
+            (d / 'events.jsonl').is_file() for d in registered_run_dirs(root)):
+        return True
     for search_dir in (root, root / 'runs'):
         try:
             if search_dir.is_dir() and any(
@@ -1016,6 +1103,11 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
         if remote_root and Path(remote_root).resolve() != runs_root:
             raise OSError(f"Port {port} is already running a dashboard for root '{remote_root}'; "
                           f"stop it with 'hypergan view {remote_root} --stop' or specify a different root.")
+        if auth != 'none' and probed.get('auth_mode') != auth:
+            # Reusing it would silently serve this run without the requested auth.
+            raise OSError(f"Port {port} already serves this root's dashboard with --auth "
+                          f"{probed.get('auth_mode')}; stop it with 'hypergan view {runs_root} --stop' "
+                          f"to start it with --auth {auth}")
         reasons = _dashboard_mismatch(probed) if check_version else []
         if reasons:
             own = state is not None and probed.get('server_instance_id') == state.get('server_instance_id')

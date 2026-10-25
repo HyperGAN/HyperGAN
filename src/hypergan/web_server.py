@@ -459,26 +459,8 @@ class ServiceRegistry:
         """Registered runs nested under this root; a dashboard never serves another root's runs."""
         if self.is_single():
             return []
-        try:
-            data = _reg_mod._read_registry_unlocked(_reg_mod.get_registry_dir(self.root))
-            entries = list(data.get("runs", {}).values())
-        except (OSError, ValueError, AttributeError):
-            entries = []
-        dirs: list[Path] = []
-        seen: set[Path] = set()
-        for item in entries:
-            rdir_val = item.get("run_dir") if isinstance(item, dict) else None
-            if not rdir_val:
-                continue
-            try:
-                p = Path(rdir_val).resolve()
-                if (p not in seen and p != self.root and p.is_relative_to(self.root) and p.is_dir()
-                        and ((p / "manifest.json").is_file() or (p / "summary.json").is_file())):
-                    seen.add(p)
-                    dirs.append(p)
-            except (OSError, ValueError):
-                continue
-        return dirs
+        from .web_autostart import registered_run_dirs
+        return registered_run_dirs(self.root)
 
     def _read_cached_summary(self, run_dir: Path) -> dict:
         run_dir = Path(run_dir).resolve()
@@ -790,6 +772,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         Only the ASGI contract is used: Starlette ends the response when
         `receive` yields `http.disconnect`, and this wrapper yields one as well
         on shutdown or after a missed send deadline, then completes the response.
+        Starlette only listens on `receive` while the server advertises ASGI
+        spec_version < 2.4 (uvicorn 0.54 reports 2.3); a server advertising 2.4
+        would skip this shutdown wakeup and rely on send failing instead.
         """
         async def __call__(self, scope, receive, send):
             stop = asyncio.Event()

@@ -10,6 +10,7 @@ import torch
 from tests.hndl_fixtures import fixture_network
 from torch import nn
 
+from hypergan.previews import index_path
 from hypergan.checkpoints import read_checkpoint, trainer_state
 from hypergan.config import load_config, write_default
 from hypergan.previews import MAX_BYTES, MAX_COUNT, render_preview
@@ -87,12 +88,12 @@ def test_preview_schedule_retention_and_resume_preserve_complete_state(tmp_path)
     index = json.loads((tmp_path / 'observed/previews/index.json').read_text())
     steps = [record['step'] for record in index['previews']]
     assert steps == sorted(steps) and 4 <= steps[-1] <= 6
-    retained = {record['path'] for record in index['previews']}
+    retained = {str(index_path(tmp_path / 'observed', record['path'])) for record in index['previews']}
     assert all(Path(path).exists() == (path in retained) for path in initial_paths)
     directories = [path for path in (tmp_path / 'observed/previews').iterdir() if path.is_dir()]
     assert len(directories) == len(index['previews']) <= 2
     for record in index['previews']:
-        path = Path(record['path'])
+        path = index_path(tmp_path / 'observed', record['path'])
         payload = json.loads(path.read_text())
         assert path.stat().st_size == record['bytes'] <= MAX_BYTES
         assert payload['count'] == MAX_COUNT and payload['identity']['sample_sequence'] < done['next_sample_sequence']

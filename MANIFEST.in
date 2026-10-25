@@ -12,6 +12,7 @@ prune tests
 include tests/hndl_fixtures.py
 include tests/dinov3_fixtures.py
 include tests/distributed_fixtures.py
+include tests/config_fixtures.py
 recursive-include tests/fixtures *.toml
 recursive-include tests/foundation *.py
 recursive-include tests/reference *.py

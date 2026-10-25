@@ -67,3 +67,19 @@ def test_unregistered_completed_receipt_corruption_is_not_silently_repaired(tmp_
     with pytest.raises(ValueError,match='integrity'):
         _recover_abandoned(tmp_path,'run')
     assert not (directory/'stream.json').exists()
+
+
+def test_live_manual_evaluation_is_not_recovered_as_abandoned(tmp_path):
+    # Review 2026-10-25 slice 5 M1: training start/close used to fail an
+    # in-flight manual evaluation and delete its pinned snapshot.
+    from foldlitedb.fileio import file_lock
+    from hypergan.metric_evaluation import OWNER_LOCK
+    directory,receipt=pending(tmp_path)
+    with file_lock(directory,name=OWNER_LOCK):
+        _recover_abandoned(tmp_path,'run')
+        assert json.loads((directory/'receipt.json').read_text())==receipt
+        assert (directory/'snapshot.pt').is_file()
+        assert not (directory/'events.jsonl').exists() and not (directory/'stream.json').exists()
+    # A dead owner releases the lock, and the directory is then recoverable.
+    _recover_abandoned(tmp_path,'run')
+    assert json.loads((directory/'receipt.json').read_text())['status']=='failed'

@@ -4,21 +4,33 @@ Operates strictly on lightweight JSON metadata and OS advisory locks (.run.lock)
 Never imports torch, particlegan, or heavy training dependencies.
 """
 
+import copy
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import sys
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union
+import warnings
 
 from ._file_lock import lock_file, unlock_file
 from .summary import atomic_write_json, read_summary_json
 from .workspace import find_workspace, load_workspace
 
 _FID_RE = re.compile(r'(?:^|[^a-z0-9])fid(?:$|[^a-z]|50k)', re.IGNORECASE)
+
+# A persisted root that is missing (unmounted drive, offline share) is kept this
+# long before it is forgotten, so one `ps` while a disk is unplugged loses nothing.
+MISSING_ROOT_RETENTION = timedelta(days=30)
+# A slug reservation whose trainer never wrote a manifest is released after this.
+RESERVATION_RETENTION = timedelta(days=1)
+
+# Written by `hypergan tag`; the trainer never rewrites it, unlike manifest.json.
+TAG_FILE = "tag.json"
 
 
 def _is_fid_metric(metric_name: Any) -> bool:
@@ -29,11 +41,23 @@ def _is_fid_metric(metric_name: Any) -> bool:
 
 
 @contextmanager
-def file_lock(lock_path: Path):
+def file_lock(lock_path: Path, timeout: Optional[float] = None):
+    """Hold the exclusive registry lock; with ``timeout``, raise TimeoutError instead of waiting forever."""
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        lock_file(fd, blocking=True)
+        if timeout is None:
+            lock_file(fd, blocking=True)
+        else:
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    lock_file(fd, blocking=False)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(f"Timed out waiting for registry lock {lock_path}") from None
+                    time.sleep(0.01)
         try:
             yield
         finally:
@@ -123,6 +147,8 @@ def generate_run_slug(stem: str, parent_dir: Optional[Union[Path, str]] = None) 
     if clean_stem.startswith("train-"):
         clean_stem = clean_stem[len("train-"):]
     parent = Path(parent_dir).resolve() if parent_dir else None
+    # Best effort: the trainer's reserve_run_slug is the authoritative uniqueness check.
+    used = _registered_slugs(get_registry_dir(parent)) if parent is not None else set()
 
     for _ in range(128):
         rand_bytes = os.urandom(2)
@@ -130,6 +156,8 @@ def generate_run_slug(stem: str, parent_dir: Optional[Union[Path, str]] = None) 
         noun = NOUNS[rand_bytes[1] % len(NOUNS)]
         short_slug = f"{adj}-{noun}"
         full_name = f"{clean_stem}-{short_slug}"
+        if short_slug in used:
+            continue
         if parent is None or not (parent / full_name).exists():
             return full_name, short_slug
 
@@ -154,6 +182,65 @@ def is_run_dir(path: Union[Path, str]) -> bool:
         )
     except OSError:
         return False
+
+
+def _read_json_dict(path: Path) -> Dict[str, Any]:
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def run_identity(path: Union[Path, str]) -> Optional[str]:
+    """Return the run_id recorded in path/manifest.json (or summary.json), else None.
+
+    is_run_dir() accepts any directory with run-like children; destructive
+    commands require this positive identity marker instead.
+    """
+    p = Path(path)
+    for name in ("manifest.json", "summary.json"):
+        rid = _read_json_dict(p / name).get("run_id")
+        if isinstance(rid, str) and rid.strip():
+            return rid.strip()
+    return None
+
+
+def read_run_tag(run_dir: Union[Path, str]) -> Optional[str]:
+    """Return the name set by `hypergan tag`, which takes precedence over manifest/config names."""
+    name = _read_json_dict(Path(run_dir) / TAG_FILE).get("name")
+    return name.strip() if isinstance(name, str) and name.strip() else None
+
+
+def write_run_tag(run_dir: Union[Path, str], name: str) -> None:
+    atomic_write_json(Path(run_dir) / TAG_FILE, {"schema_version": 1, "name": str(name)})
+
+
+def canonical_slug(
+    run_dir: Path,
+    run_id: str,
+    *,
+    name: str = "",
+    manifest: Optional[Dict[str, Any]] = None,
+    summary: Optional[Dict[str, Any]] = None,
+    existing: Optional[Dict[str, Any]] = None,
+) -> str:
+    """The one slug every reader reports for a run.
+
+    The slug is assigned once (reserve_run_slug, at creation) and stored in the
+    manifest. Older runs fall back to the slug the registry already recorded for
+    the same run_id, then summary.json, then the derived slug. Nothing here
+    depends on which other runs are listed, so `ps` and `rm` always agree.
+    """
+    m_slug = (manifest or {}).get("slug")
+    if isinstance(m_slug, str) and m_slug:
+        return m_slug
+    if existing and str(existing.get("run_id") or "") == str(run_id) and existing.get("slug"):
+        return str(existing["slug"])
+    s_slug = (summary or {}).get("slug")
+    if isinstance(s_slug, str) and s_slug:
+        return s_slug
+    return extract_or_derive_slug(str(run_id), name=name, run_dir_name=run_dir.name)
 
 
 def find_workspace_runs_root(start_path: Optional[Union[Path, str]] = None) -> Optional[Path]:
@@ -253,31 +340,126 @@ def get_registry_dir(cwd: Optional[Union[Path, str]] = None) -> Path:
 _get_state_dir = get_registry_dir
 
 
-def _read_registry_unlocked(reg_dir: Path) -> Dict[str, Any]:
-    reg_file = reg_dir / "runs.json"
-    if reg_file.is_file():
-        try:
-            data = json.loads(reg_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("runs"), dict):
-                data.setdefault("roots", [])
-                seen_entries: List[Dict[str, Any]] = []
-                for k, entry in data["runs"].items():
-                    if isinstance(entry, dict):
-                        rid = str(entry.get("run_id") or k)
-                        raw_slug = str(entry.get("slug") or "") or extract_or_derive_slug(
-                            rid,
-                            name=str(entry.get("name") or ""),
-                            run_dir_name=Path(str(entry.get("run_dir") or k)).name,
-                        )
-                        entry["slug"] = _ensure_unique_slug(raw_slug, rid, seen_entries)
-                        seen_entries.append(entry)
-                return data
-        except Exception:
-            pass
+def _empty_registry() -> Dict[str, Any]:
     return {"schema_version": 1, "runs": {}, "roots": []}
 
 
+def _parse_registry(reg_file: Path) -> Optional[Dict[str, Any]]:
+    """Return the parsed registry, an empty one if absent, or None if the file is corrupt."""
+    try:
+        raw = reg_file.read_bytes()
+    except FileNotFoundError:
+        return _empty_registry()
+    except OSError as exc:
+        # Never treat an unreadable registry as empty: the next write would replace it.
+        raise RuntimeError(f"Cannot read run registry {reg_file}: {exc}") from exc
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("runs"), dict):
+        return None
+    if not isinstance(data.get("roots"), list):
+        data["roots"] = []
+    return data
+
+
+def _quarantine_registry(reg_file: Path) -> None:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup = reg_file.with_name(f"{reg_file.name}.corrupt-{stamp}")
+    try:
+        os.replace(reg_file, backup)
+    except FileNotFoundError:
+        return
+    warnings.warn(
+        f"Run registry {reg_file} was corrupt; moved it to {backup} and started an empty registry. "
+        "Runs on disk are rediscovered by `hypergan ps -a`.",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
+def _load_registry(reg_dir: Path, *, locked: bool) -> Dict[str, Any]:
+    """Read runs.json. Writes are atomic replaces, so unlocked reads never see a torn file.
+
+    Reading never rewrites entries. A corrupt file is moved aside with a warning
+    (under the registry lock, so a concurrent valid write is never discarded).
+    """
+    reg_file = reg_dir / "runs.json"
+    data = _parse_registry(reg_file)
+    if data is not None:
+        return data
+    if locked:
+        _quarantine_registry(reg_file)
+        return _empty_registry()
+    try:
+        with file_lock(reg_dir / "registry.lock", timeout=5.0):
+            data = _parse_registry(reg_file)
+            if data is None:
+                _quarantine_registry(reg_file)
+                return _empty_registry()
+            return data
+    except TimeoutError:
+        warnings.warn(f"Run registry {reg_file} is corrupt and locked by another process.", RuntimeWarning, stacklevel=2)
+        return _empty_registry()
+
+
+def _read_registry_unlocked(reg_dir: Path) -> Dict[str, Any]:
+    return _load_registry(reg_dir, locked=False)
+
+
 _load_registry_unlocked = _read_registry_unlocked
+
+
+def _registered_slugs(reg_dir: Path, *, exclude_run_id: str = "") -> set:
+    """Slugs already claimed in the registry (read without the lock; best effort)."""
+    try:
+        data = _parse_registry(reg_dir / "runs.json") or _empty_registry()
+    except RuntimeError:
+        return set()
+    return _slugs_in(data, exclude_run_id=exclude_run_id)
+
+
+def _slugs_in(data: Dict[str, Any], *, exclude_run_id: str = "") -> set:
+    used = set()
+    for key, entry in data.get("runs", {}).items():
+        if not isinstance(entry, dict) or str(entry.get("run_id") or "") == exclude_run_id:
+            continue
+        slug = entry.get("slug") or extract_or_derive_slug(
+            str(entry.get("run_id") or key),
+            name=str(entry.get("name") or ""),
+            run_dir_name=Path(str(entry.get("run_dir") or key)).name,
+        )
+        used.add(str(slug))
+    return used
+
+
+def reserve_run_slug(run_dir: Union[Path, str], run_id: str) -> str:
+    """Assign a new run's permanent slug, unique in the registry, and record the claim.
+
+    Called once by the trainer before it writes the first manifest; the slug is
+    stored there and never re-derived. Best effort: if the registry cannot be
+    locked or written, the derived slug is returned so training still starts.
+    """
+    run_path = Path(run_dir).resolve()
+    preferred = extract_or_derive_slug(str(run_id), run_dir_name=run_path.name)
+    reg_dir = get_registry_dir(run_path)
+    try:
+        with file_lock(reg_dir / "registry.lock", timeout=5.0):
+            data = _load_registry(reg_dir, locked=True)
+            used = _slugs_in(data, exclude_run_id=str(run_id))
+            slug = _ensure_unique_slug(preferred, str(run_id), [{"slug": s} for s in used])
+            key = str(run_path)
+            entry = dict(data["runs"].get(key) or {})
+            entry.update(run_id=str(run_id), short_id=str(run_id)[:8], slug=slug, run_dir=key,
+                         runs_root=str(run_path.parent), status="initializing",
+                         updated_at=datetime.now(timezone.utc).isoformat())
+            entry.setdefault("name", run_path.name)
+            data["runs"][key] = entry
+            _write_registry_unlocked(reg_dir, data)
+            return slug
+    except (OSError, RuntimeError, TimeoutError):
+        return preferred
 
 
 def _write_registry_unlocked(reg_dir: Path, data: Dict[str, Any]) -> None:
@@ -290,17 +472,77 @@ def _write_registry_unlocked(reg_dir: Path, data: Dict[str, Any]) -> None:
     atomic_write_json(reg_dir / "runs.json", data)
 
 
+def pid_has_file_open(pid: int, path: Union[Path, str]) -> Optional[bool]:
+    """Return whether process pid has path open (Linux /proc/<pid>/fd), or None if unknowable."""
+    try:
+        target = os.stat(path)
+    except OSError:
+        return None
+    fd_dir = Path(f"/proc/{int(pid)}/fd")
+    try:
+        fds = os.listdir(fd_dir)
+    except FileNotFoundError:
+        return False if Path("/proc").is_dir() else None
+    except OSError:
+        return None
+    for fd in fds:
+        try:
+            st = os.stat(fd_dir / fd)
+        except OSError:
+            continue
+        if (st.st_dev, st.st_ino) == (target.st_dev, target.st_ino):
+            return True
+    return False
+
+
+def _cmdline_names_run(pid: str, parts: List[str], run_path: Path) -> bool:
+    """True if a train/resume argument resolves (from the process's cwd) to exactly run_path."""
+    try:
+        proc_cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
+    except OSError:
+        proc_cwd = None
+    for token in parts:
+        value = token.split("=", 1)[1] if token.startswith("-") and "=" in token else token
+        if not value or value.startswith("-"):
+            continue
+        cand = Path(value)
+        if not cand.is_absolute():
+            if proc_cwd is None:
+                continue
+            cand = proc_cwd / cand
+        try:
+            cand = cand.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if cand == run_path or (cand.name == "manifest.json" and cand.parent == run_path):
+            return True
+    return False
+
+
 def find_live_pid_for_run(run_dir: Path) -> Optional[int]:
-    """Scan /proc on Linux to find a live training process operating on run_dir."""
+    """Scan /proc on Linux for the training process of exactly run_dir.
+
+    A process that has run_dir/.run.lock open wins. Liveness probes from other
+    ps/queue/viewer processes and forked children (DataLoader workers) can hold
+    it open too, so a hypergan train/resume holder is preferred, then the lowest
+    PID. Otherwise a hypergan train/resume process whose argument resolves to
+    run_dir itself is accepted. Substring and basename matches are never used:
+    they matched other runs' trainers (runs/cifar vs runs/cifar-v2), and this
+    PID is what stop signals.
+    """
     proc_root = Path("/proc")
     if not proc_root.is_dir():
         return None
-    run_dir_str = str(run_dir.resolve())
-    run_name = run_dir.name
+    run_path = Path(run_dir).resolve()
+    lock_path = run_path / ".run.lock"
+    has_lock_file = lock_path.exists()
     uid = os.getuid() if hasattr(os, "getuid") else None
+    own_pid = os.getpid()
+    cmdline_match: Optional[int] = None
+    lock_holders: List[Tuple[bool, int]] = []
 
     for entry in proc_root.iterdir():
-        if not entry.name.isdigit():
+        if not entry.name.isdigit() or int(entry.name) == own_pid:
             continue
         try:
             if uid is not None and entry.stat().st_uid != uid:
@@ -312,18 +554,22 @@ def find_live_pid_for_run(run_dir: Path) -> Optional[int]:
             if not parts:
                 continue
             joined = " ".join(parts)
-            if "hypergan" not in joined:
+            if "hypergan" not in joined and "python" not in joined:
                 continue
             # Exclude helper subprocesses
             if "hypergan.bounded_cli_output" in joined or "hypergan.web_autostart" in joined:
                 continue
-            if not any(tok in ("train", "resume") for tok in parts):
+            is_train = "hypergan" in joined and any(tok in ("train", "resume") for tok in parts)
+            if has_lock_file and pid_has_file_open(int(entry.name), lock_path):
+                lock_holders.append((not is_train, int(entry.name)))
                 continue
-            if run_dir_str in parts or any(run_dir_str in p for p in parts) or any(p.endswith("/" + run_name) or p == run_name for p in parts):
-                return int(entry.name)
+            if cmdline_match is None and is_train and _cmdline_names_run(entry.name, parts, run_path):
+                cmdline_match = int(entry.name)
         except OSError:
             continue
-    return None
+    if lock_holders:
+        return min(lock_holders)[1]
+    return cmdline_match
 
 
 def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
@@ -548,7 +794,7 @@ def relocate_missing_run(
         reg_dir = get_registry_dir(cwd or found)
         if (reg_dir / "runs.json").is_file():
             with file_lock(reg_dir / "registry.lock"):
-                data = _read_registry_unlocked(reg_dir)
+                data = _load_registry(reg_dir, locked=True)
                 if old_key and old_key in data["runs"] and old_key != str(found):
                     del data["runs"][old_key]
                 data["runs"][str(found)] = entry
@@ -556,7 +802,12 @@ def relocate_missing_run(
     return found
 
 
-def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+def _extract_run_entry(
+    run_dir: Path,
+    existing: Optional[Dict[str, Any]] = None,
+    *,
+    use_cache: bool = True,
+) -> Optional[Dict[str, Any]]:
     """Build or refresh a registry metadata entry from run_dir on disk with Tier 1 summary_mtime_ns caching."""
     from .inspection import _read_events_tail_fallback, check_run_active
 
@@ -587,7 +838,8 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
 
     # Tier 1 O(1) cache hit: inactive run with unchanged summary.json st_mtime_ns
     if (
-        existing is not None
+        use_cache
+        and existing is not None
         and not is_active
         and existing.get("status") not in ("running", "initializing")
         and existing.get("run_dir") == str(run_dir)
@@ -609,7 +861,8 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
             pass
 
     if (
-        existing is not None
+        use_cache
+        and existing is not None
         and not is_active
         and existing.get("status") not in ("running", "initializing")
         and summary_mtime_ns is None
@@ -647,15 +900,17 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
         or (existing.get("run_id") if existing else None)
         or run_dir.name
     )
+    tag = read_run_tag(run_dir)
     raw_name = (
-        (summary.get("name") if summary else None)
+        tag
+        or (summary.get("name") if summary else None)
         or manifest.get("name")
         or config.get("name")
         or (existing.get("name") if existing else None)
         or run_dir.name
     )
     # If the user renamed the folder on disk and raw_name matched the previous folder name, reflect the new folder name
-    if existing:
+    if existing and not tag:
         old_dir_names = set()
         if existing.get("run_dir") and Path(existing["run_dir"]).name != run_dir.name:
             old_dir_names.add(Path(existing["run_dir"]).name)
@@ -665,12 +920,7 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
             raw_name = run_dir.name
 
     name = str(raw_name)
-    slug = (
-        (summary.get("slug") if summary else None)
-        or manifest.get("slug")
-        or (existing.get("slug") if existing else None)
-        or extract_or_derive_slug(str(run_id), name=name, run_dir_name=run_dir.name)
-    )
+    slug = canonical_slug(run_dir, str(run_id), name=name, manifest=manifest, summary=summary, existing=existing)
 
     raw_status = (
         (summary.get("status") if (summary and summary.get("status") not in (None, "", "unknown")) else None)
@@ -762,6 +1012,7 @@ def _extract_run_entry(run_dir: Path, existing: Optional[Dict[str, Any]] = None)
         "short_id": str(run_id)[:8],
         "slug": str(slug),
         "name": name,
+        "tag": tag,
         "run_dir": str(run_dir),
         "runs_root": str(run_dir.parent),
         "status": status,
@@ -800,17 +1051,28 @@ def register_run(
     workspace: Optional[Union[Path, str]] = None,
     workspace_root: Optional[Union[Path, str]] = None,
 ) -> Dict[str, Any]:
-    """Register or update a run in the global/scoped registry with Tier 1 summary header cache."""
+    """Register or update a run in the global/scoped registry with Tier 1 summary header cache.
+
+    The run's files are read before the registry lock is taken; the lock covers
+    only the read-merge-write of runs.json, so a trainer calling this at a
+    checkpoint never waits behind a `ps` scan.
+    """
     run_path = Path(run_dir).resolve()
     reg_dir = get_registry_dir(run_path)
     reg_dir.mkdir(parents=True, exist_ok=True)
     lock_path = reg_dir / "registry.lock"
+    key = str(run_path)
+
+    snapshot_prev = _read_registry_unlocked(reg_dir)["runs"].get(key)
+    extracted = _extract_run_entry(
+        run_path, existing=snapshot_prev if isinstance(snapshot_prev, dict) else None, use_cache=False,
+    )
+    tag = read_run_tag(run_path)
 
     with file_lock(lock_path):
-        data = _read_registry_unlocked(reg_dir)
-        key = str(run_path)
+        data = _load_registry(reg_dir, locked=True)
         prev = data["runs"].get(key)
-        entry = _extract_run_entry(run_path, existing=None) or {}
+        entry = dict(extracted or {})
         if prev:
             for k in ("workspace", "workspace_root", "_old_dir_name", "_old_run_dir"):
                 if k in prev and k not in entry:
@@ -821,23 +1083,20 @@ def register_run(
         elif not entry.get("run_id"):
             entry["run_id"] = run_path.name
             entry["short_id"] = run_path.name[:8]
-        if name:
+        if tag:
+            entry["name"] = tag
+        elif name:
             entry["name"] = str(name)
         elif not entry.get("name"):
             entry["name"] = run_path.name
-        if slug:
-            entry["slug"] = str(slug)
-        elif not entry.get("slug"):
-            entry["slug"] = extract_or_derive_slug(
+        # The slug is never re-deduplicated here: it was assigned at creation
+        # (reserve_run_slug) and every reader derives it with canonical_slug.
+        if not entry.get("slug"):
+            entry["slug"] = str(slug) if slug else extract_or_derive_slug(
                 entry.get("run_id", run_path.name),
                 name=entry.get("name", ""),
                 run_dir_name=run_path.name,
             )
-        entry["slug"] = _ensure_unique_slug(
-            str(entry["slug"]),
-            str(entry["run_id"]),
-            {k: v for k, v in data["runs"].items() if k != key},
-        )
         if status is not None:
             entry["status"] = "completed" if status == "complete" else status.lower()
             entry["active"] = entry["status"] == "running"
@@ -896,7 +1155,11 @@ def unregister_run(
     *,
     cwd: Optional[Union[Path, str]] = None,
 ) -> bool:
-    """Cleanly remove a run from runs.json by directory path, run_id, short_id, slug, or name."""
+    """Remove a run from runs.json by its exact directory path or full run_id.
+
+    Slugs, names and id prefixes are not accepted: callers resolve those with
+    resolve_destructive_target first, so one call never drops unrelated runs.
+    """
     target_str = str(run_dir_or_id).strip()
     if not target_str:
         return False
@@ -919,7 +1182,7 @@ def unregister_run(
 
     removed = False
     with file_lock(reg_dir / "registry.lock"):
-        data = _read_registry_unlocked(reg_dir)
+        data = _load_registry(reg_dir, locked=True)
         keys_to_delete = []
         for k, entry in list(data["runs"].items()):
             if k in (resolved_str, target_str):
@@ -929,18 +1192,7 @@ def unregister_run(
                 continue
             rdir = str(entry.get("run_dir") or "")
             rid = str(entry.get("run_id") or "")
-            sid = str(entry.get("short_id") or rid[:8])
-            slug = str(entry.get("slug") or "")
-            name = str(entry.get("name") or "")
-            if (
-                rdir in (resolved_str, target_str)
-                or rid == target_str
-                or (len(target_str) >= 4 and rid.startswith(target_str))
-                or sid == target_str
-                or slug == target_str
-                or name == target_str
-                or (rdir and Path(rdir).name == target_str)
-            ):
+            if rdir in (resolved_str, target_str) or (rid and rid == target_str):
                 keys_to_delete.append(k)
 
         for k in keys_to_delete:
@@ -954,11 +1206,73 @@ def unregister_run(
     return removed
 
 
+def _is_within(path: Path, root: Path) -> bool:
+    """Path containment by components (unlike str.startswith, /data2 is not inside /data)."""
+    try:
+        return path.resolve().is_relative_to(root.resolve())
+    except (OSError, RuntimeError):
+        return False
+
+
+def _parse_utc(value: Any) -> Optional[datetime]:
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def _merge_registry_scan(
+    reg_dir: Path,
+    original: Dict[str, Any],
+    runs_updates: Dict[str, Optional[Dict[str, Any]]],
+    roots: List[str],
+    missing_roots: Dict[str, str],
+) -> None:
+    """Apply one scan's changes to the current runs.json under the registry lock.
+
+    An entry that another process rewrote since this scan's snapshot (for
+    example a trainer's register_run) is left as that process wrote it.
+    """
+    orig_runs = original.get("runs", {})
+    orig_roots = list(original.get("roots", []))
+    orig_missing = dict(original.get("missing_roots") or {})
+    with file_lock(reg_dir / "registry.lock"):
+        data = _load_registry(reg_dir, locked=True)
+        for key, entry in runs_updates.items():
+            if data["runs"].get(key) != orig_runs.get(key):
+                continue
+            if entry is None:
+                data["runs"].pop(key, None)
+            else:
+                data["runs"][key] = entry
+        dropped = set(orig_roots) - set(roots)
+        merged_roots = [r for r in data.get("roots", []) if r not in dropped]
+        merged_roots.extend(r for r in roots if r not in merged_roots and r not in orig_roots)
+        data["roots"] = merged_roots
+        merged_missing = {
+            r: ts for r, ts in dict(data.get("missing_roots") or {}).items()
+            if not (r in orig_missing and r not in missing_roots)
+        }
+        merged_missing.update(missing_roots)
+        merged_missing = {r: ts for r, ts in merged_missing.items() if r in merged_roots}
+        if merged_missing:
+            data["missing_roots"] = merged_missing
+        else:
+            data.pop("missing_roots", None)
+        _write_registry_unlocked(reg_dir, data)
+
+
 def list_registered_runs(
     cwd: Optional[Union[Path, str]] = None,
     extra_roots: Optional[List[Union[Path, str]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Synchronize and return registered runs, auto-healing moved folders and using Tier 1 mtime cache."""
+    """Synchronize and return registered runs, auto-healing moved folders and using Tier 1 mtime cache.
+
+    The scan (roots, liveness probes, metadata) runs without the registry lock;
+    only the final merge-and-write takes it. Roots and runs on a missing mount
+    are kept (for MISSING_ROOT_RETENTION) instead of being forgotten.
+    """
     cwd_path = Path(cwd).resolve() if cwd is not None else (_is_isolated_test_env() or Path.cwd().resolve())
     reg_dir = get_registry_dir(cwd_path)
     reg_dir.mkdir(parents=True, exist_ok=True)
@@ -970,148 +1284,169 @@ def list_registered_runs(
         or bool(os.environ.get("HYPERGAN_STATE_DIR"))
     )
 
-    with file_lock(reg_dir / "registry.lock"):
-        data = _read_registry_unlocked(reg_dir)
-        changed = False
-        roots_to_scan: List[Path] = []
-        direct_run_dirs: List[Path] = []
+    original = _read_registry_unlocked(reg_dir)
+    data = copy.deepcopy(original)
+    runs_updates: Dict[str, Optional[Dict[str, Any]]] = {}
+    changed = False
+    roots_to_scan: List[Path] = []
+    direct_run_dirs: List[Path] = []
 
-        if extra_roots:
-            for r in extra_roots:
-                try:
-                    rp = Path(r).resolve()
-                    if is_run_dir(rp):
-                        direct_run_dirs.append(rp)
-                    elif rp.is_dir():
-                        roots_to_scan.append(rp)
-                except OSError:
-                    continue
-
-        # Workspace runs_root from cwd
-        has_ws = find_workspace(cwd_path) is not None
-        ws_runs_root = find_workspace_runs_root(cwd_path)
-        if ws_runs_root and ws_runs_root.is_dir() and str(ws_runs_root) != "/tmp":
-            roots_to_scan.append(ws_runs_root)
-
-        # CWD itself
-        if is_run_dir(cwd_path):
-            direct_run_dirs.append(cwd_path)
-        elif has_ws:
-            if cwd_path.is_dir() and str(cwd_path) != "/tmp":
-                roots_to_scan.append(cwd_path)
-        else:
-            # Outside a workspace (no hypergan.toml):
-            # Only scan <cwd>/runs if present; NEVER scan raw cwd (e.g. /tmp)
-            cwd_runs = cwd_path / "runs"
-            if cwd_runs.is_dir() and str(cwd_runs) != "/tmp":
-                roots_to_scan.append(cwd_runs)
-
-        # Persisted roots in registry (prune deleted roots gracefully)
-        valid_persisted_roots: List[str] = []
-        for r_str in list(data.get("roots", [])):
+    if extra_roots:
+        for r in extra_roots:
             try:
-                rp = Path(r_str)
-                is_tmp = str(rp.resolve()) == "/tmp" or str(r_str).strip() == "/tmp"
-            except Exception:
-                is_tmp = str(r_str).strip() == "/tmp"
-            if is_tmp:
-                changed = True
-                continue
-            if rp.is_dir():
-                valid_persisted_roots.append(r_str)
-                if not is_test or str(rp).startswith(str(reg_dir.parent)):
+                rp = Path(r).resolve()
+                if is_run_dir(rp):
+                    direct_run_dirs.append(rp)
+                elif rp.is_dir():
                     roots_to_scan.append(rp)
-            else:
+            except OSError:
+                continue
+
+    # Workspace runs_root from cwd
+    has_ws = find_workspace(cwd_path) is not None
+    ws_runs_root = find_workspace_runs_root(cwd_path)
+    if ws_runs_root and ws_runs_root.is_dir() and str(ws_runs_root) != "/tmp":
+        roots_to_scan.append(ws_runs_root)
+
+    # CWD itself
+    if is_run_dir(cwd_path):
+        direct_run_dirs.append(cwd_path)
+    elif has_ws:
+        if cwd_path.is_dir() and str(cwd_path) != "/tmp":
+            roots_to_scan.append(cwd_path)
+    else:
+        # Outside a workspace (no hypergan.toml):
+        # Only scan <cwd>/runs if present; NEVER scan raw cwd (e.g. /tmp)
+        cwd_runs = cwd_path / "runs"
+        if cwd_runs.is_dir() and str(cwd_runs) != "/tmp":
+            roots_to_scan.append(cwd_runs)
+
+    # Persisted roots. A root that is missing right now (unmounted drive,
+    # offline share) is kept until it has been missing for MISSING_ROOT_RETENTION.
+    now = datetime.now(timezone.utc)
+    missing_roots: Dict[str, str] = dict(data.get("missing_roots") or {})
+    kept_roots: List[str] = []
+    for r_str in list(data.get("roots", [])):
+        try:
+            rp = Path(r_str)
+            is_tmp = str(rp.resolve()) == "/tmp" or str(r_str).strip() == "/tmp"
+        except Exception:
+            is_tmp = str(r_str).strip() == "/tmp"
+        if is_tmp:
+            continue
+        if rp.is_dir():
+            kept_roots.append(r_str)
+            missing_roots.pop(r_str, None)
+            if not is_test or _is_within(rp, reg_dir.parent):
+                roots_to_scan.append(rp)
+            continue
+        first_missing = _parse_utc(missing_roots.get(r_str))
+        if first_missing is None:
+            missing_roots[r_str] = now.isoformat()
+            kept_roots.append(r_str)
+        elif now - first_missing <= MISSING_ROOT_RETENTION:
+            kept_roots.append(r_str)
+    missing_roots = {r: ts for r, ts in missing_roots.items() if r in kept_roots}
+    if kept_roots != data.get("roots", []) or missing_roots != dict(data.get("missing_roots") or {}):
+        changed = True
+    data["roots"] = kept_roots
+    unavailable_roots = [Path(r) for r in missing_roots]
+
+    # Host system auto-discovery (only outside isolated tests)
+    if not is_test:
+        sys_roots, sys_runs = _discover_system_roots_and_runs()
+        roots_to_scan.extend(sys_roots)
+        direct_run_dirs.extend(sys_runs)
+
+    # Verify existing registered runs BEFORE scanning roots; attempt relocate_missing_run before pruning
+    for existing_key in list(data["runs"].keys()):
+        entry_obj = data["runs"].get(existing_key)
+        rdir_str = (entry_obj.get("run_dir") if isinstance(entry_obj, dict) else None) or existing_key
+        ep = Path(rdir_str)
+        if ep.is_dir() and is_run_dir(ep):
+            resolved_ep = ep.resolve()
+            if existing_key != str(resolved_ep):
+                data["runs"].pop(existing_key, None)
+                runs_updates[existing_key] = None
+                if isinstance(entry_obj, dict):
+                    entry_obj["run_dir"] = str(resolved_ep)
+                    data["runs"][str(resolved_ep)] = entry_obj
+                    runs_updates[str(resolved_ep)] = entry_obj
                 changed = True
-        if valid_persisted_roots != data.get("roots", []):
-            data["roots"] = valid_persisted_roots
+            direct_run_dirs.append(resolved_ep)
+            continue
+        reserved_at = _parse_utc(entry_obj.get("updated_at")) if isinstance(entry_obj, dict) else None
+        if (
+            isinstance(entry_obj, dict) and entry_obj.get("status") == "initializing" and ep.is_dir()
+            and reserved_at is not None and now - reserved_at < RESERVATION_RETENTION
+        ):
+            # A slug reservation for a trainer that has not written its manifest yet.
+            continue
+        if any(ep == root or root in ep.parents for root in unavailable_roots):
+            # Its root is offline; keep the entry so the run reappears with the mount.
+            continue
+        old_entry = data["runs"].pop(existing_key, None)
+        runs_updates[existing_key] = None
+        changed = True
+        if isinstance(old_entry, dict):
+            old_entry_snapshot = dict(old_entry)
+            found_dir = _relocate_missing_run_unlocked(
+                old_entry,
+                cwd=cwd_path,
+                extra_roots=roots_to_scan,
+            )
+            if found_dir is not None:
+                healed_key = str(found_dir.resolve())
+                data["runs"][healed_key] = old_entry
+                runs_updates[healed_key] = old_entry
+                direct_run_dirs.append(found_dir.resolve())
+            else:
+                rid_key = str(old_entry_snapshot.get("run_id") or existing_key)
+                _RECENTLY_PRUNED[rid_key] = old_entry_snapshot
+
+    seen_roots = set()
+    for root in roots_to_scan:
+        try:
+            r_str = str(root.resolve())
+        except OSError:
+            continue
+        if r_str in seen_roots:
+            continue
+        seen_roots.add(r_str)
+        if r_str not in data["roots"] and root != cwd_path and r_str != "/tmp":
+            data["roots"].append(r_str)
             changed = True
+        try:
+            for child in root.iterdir():
+                if child.name.startswith(".") or not child.is_dir():
+                    continue
+                if is_run_dir(child):
+                    direct_run_dirs.append(child.resolve())
+        except OSError:
+            continue
 
-        # Host system auto-discovery (only outside isolated tests)
-        if not is_test:
-            sys_roots, sys_runs = _discover_system_roots_and_runs()
-            roots_to_scan.extend(sys_roots)
-            direct_run_dirs.extend(sys_runs)
-
-        # Verify existing registered runs BEFORE scanning roots; attempt relocate_missing_run before pruning
-        for existing_key in list(data["runs"].keys()):
-            entry_obj = data["runs"].get(existing_key)
-            rdir_str = (entry_obj.get("run_dir") if isinstance(entry_obj, dict) else None) or existing_key
-            ep = Path(rdir_str)
-            if ep.is_dir() and is_run_dir(ep):
-                resolved_ep = ep.resolve()
-                if existing_key != str(resolved_ep):
-                    data["runs"].pop(existing_key, None)
-                    if isinstance(entry_obj, dict):
-                        entry_obj["run_dir"] = str(resolved_ep)
-                        data["runs"][str(resolved_ep)] = entry_obj
-                    changed = True
-                direct_run_dirs.append(resolved_ep)
-            else:
-                old_entry = data["runs"].pop(existing_key, None)
+    seen_runs = set()
+    results: List[Dict[str, Any]] = []
+    for rdir in direct_run_dirs:
+        try:
+            key = str(rdir.resolve())
+        except OSError:
+            continue
+        if key in seen_runs:
+            continue
+        seen_runs.add(key)
+        prev = data["runs"].get(key)
+        entry = _extract_run_entry(rdir, existing=prev)
+        if entry is not None:
+            if data["runs"].get(key) != entry:
+                data["runs"][key] = entry
+                runs_updates[key] = entry
                 changed = True
-                if isinstance(old_entry, dict):
-                    old_entry_snapshot = dict(old_entry)
-                    found_dir = _relocate_missing_run_unlocked(
-                        old_entry,
-                        cwd=cwd_path,
-                        extra_roots=roots_to_scan,
-                    )
-                    if found_dir is not None:
-                        healed_key = str(found_dir.resolve())
-                        data["runs"][healed_key] = old_entry
-                        direct_run_dirs.append(found_dir.resolve())
-                    else:
-                        rid_key = str(old_entry_snapshot.get("run_id") or existing_key)
-                        _RECENTLY_PRUNED[rid_key] = old_entry_snapshot
+            _RECENTLY_PRUNED.pop(str(entry.get("run_id", "")), None)
+            results.append(entry)
 
-        seen_roots = set()
-        for root in roots_to_scan:
-            try:
-                r_str = str(root.resolve())
-            except OSError:
-                continue
-            if r_str in seen_roots:
-                continue
-            seen_roots.add(r_str)
-            if r_str not in data["roots"] and root != cwd_path and r_str != "/tmp":
-                data["roots"].append(r_str)
-                changed = True
-            try:
-                for child in root.iterdir():
-                    if child.name.startswith(".") or not child.is_dir():
-                        continue
-                    if is_run_dir(child):
-                        direct_run_dirs.append(child.resolve())
-            except OSError:
-                continue
-
-        seen_runs = set()
-        results: List[Dict[str, Any]] = []
-        for rdir in direct_run_dirs:
-            try:
-                key = str(rdir.resolve())
-            except OSError:
-                continue
-            if key in seen_runs:
-                continue
-            seen_runs.add(key)
-            prev = data["runs"].get(key)
-            entry = _extract_run_entry(rdir, existing=prev)
-            if entry is not None:
-                entry["slug"] = _ensure_unique_slug(
-                    str(entry.get("slug") or ""),
-                    str(entry.get("run_id") or key),
-                    results,
-                )
-                if data["runs"].get(key) != entry:
-                    data["runs"][key] = entry
-                    changed = True
-                _RECENTLY_PRUNED.pop(str(entry.get("run_id", "")), None)
-                results.append(entry)
-
-        if changed:
-            _write_registry_unlocked(reg_dir, data)
+    if changed:
+        _merge_registry_scan(reg_dir, original, runs_updates, data["roots"], missing_roots)
 
     results.sort(key=lambda r: (bool(r.get("active")), str(r.get("updated_at", "") or "")), reverse=True)
     return results
@@ -1199,13 +1534,13 @@ def resolve_run_target(
         reg_dir = get_registry_dir(cwd_path)
         raw_before_sync: List[Dict[str, Any]] = []
         if (reg_dir / "runs.json").is_file():
-            with file_lock(reg_dir / "registry.lock"):
-                raw_data = _read_registry_unlocked(reg_dir)
-                for k, v in raw_data.get("runs", {}).items():
-                    if isinstance(v, dict):
-                        snap = dict(v)
-                        snap.setdefault("run_dir", k)
-                        raw_before_sync.append(snap)
+            # Writes are atomic replaces, so this snapshot needs no lock.
+            raw_data = _read_registry_unlocked(reg_dir)
+            for k, v in raw_data.get("runs", {}).items():
+                if isinstance(v, dict):
+                    snap = dict(v)
+                    snap.setdefault("run_dir", k)
+                    raw_before_sync.append(snap)
 
         # 3. Query synchronized registry (auto-heals relocated runs and prunes deleted ones)
         entries = list_registered_runs(cwd=cwd_path)
@@ -1335,3 +1670,157 @@ def resolve_run_target(
         return Path(entries[0]["run_dir"])
 
     raise ValueError("No runs found. Start a training run with `hypergan train <model.toml>`.")
+
+
+def _protected_dirs(cwd_path: Path) -> Dict[str, str]:
+    """Directories a destructive command must never act on, with a human description."""
+    protected: Dict[str, str] = {}
+
+    def add(path: Optional[Union[Path, str]], label: str) -> None:
+        if path is None:
+            return
+        try:
+            protected.setdefault(str(Path(path).resolve()), label)
+        except (OSError, RuntimeError):
+            pass
+
+    add(Path.home(), "your home directory")
+    add(Path(cwd_path.anchor or "/"), "the filesystem root")
+    ws_file = find_workspace(cwd_path)
+    if ws_file is not None:
+        add(ws_file.parent, "a workspace root")
+    add(find_workspace_runs_root(cwd_path), "a workspace runs root")
+    try:
+        roots = _read_registry_unlocked(get_registry_dir(cwd_path)).get("roots", [])
+    except RuntimeError:
+        roots = []
+    for root in roots:
+        add(root, "a registered runs root")
+    return protected
+
+
+def check_destructive_run_dir(run_dir: Union[Path, str], *, cwd: Optional[Union[Path, str]] = None) -> Path:
+    """Return run_dir resolved if a destructive command may act on it, else raise ValueError.
+
+    It must carry a positive identity marker (a run_id in manifest.json or
+    summary.json), must not be a workspace root, runs root, $HOME or /, and
+    must not itself contain runs.
+    """
+    cwd_path = Path(cwd).resolve() if cwd is not None else Path.cwd().resolve()
+    path = Path(run_dir).resolve()
+    label = _protected_dirs(cwd_path).get(str(path))
+    if label is not None:
+        raise ValueError(f"Refusing to act on {path}: it is {label}, not a run directory.")
+    if (path / "hypergan.toml").exists():
+        raise ValueError(f"Refusing to act on {path}: it is a workspace root (contains hypergan.toml), not a run directory.")
+    if not path.is_dir() or run_identity(path) is None:
+        raise ValueError(
+            f"Refusing to act on {path}: it is not a HyperGAN run directory "
+            "(no manifest.json or summary.json with a run_id)."
+        )
+    try:
+        nested = [c.name for c in path.iterdir() if c.is_dir() and not c.is_symlink() and run_identity(c)]
+    except OSError:
+        nested = []
+    if nested:
+        raise ValueError(
+            f"Refusing to act on {path}: it contains other runs ({', '.join(sorted(nested)[:3])}), "
+            "so it looks like a runs root."
+        )
+    return path
+
+
+def _exact_run_keys(row: Dict[str, Any]) -> set:
+    run_id = str(row.get("run_id") or "")
+    keys = {
+        run_id,
+        str(row.get("short_id") or run_id[:8]),
+        str(row.get("slug") or ""),
+        str(row.get("tag") or ""),
+        Path(str(row.get("run_dir") or "")).name,
+    }
+    return {k.lower() for k in keys if k}
+
+
+def resolve_destructive_target(
+    target: Optional[Union[Path, str]] = None,
+    *,
+    cwd: Optional[Union[Path, str]] = None,
+    require_active: bool = False,
+) -> Path:
+    """Strict resolver for rm, gc/prune, stop and tag.
+
+    Accepts only an exact run ID or 8-character short ID, an exact slug, an
+    exact tag (set by `hypergan tag`), an exact run directory name, or a path to
+    a run directory (or its manifest.json). There is no prefix, substring or
+    config-name matching and no raw-path fallback: anything ambiguous is an
+    error listing the candidates. With no target, the current directory must be
+    a run, or (``require_active``) exactly one run must be active.
+    """
+    cwd_path = Path(cwd).resolve() if cwd is not None else (_is_isolated_test_env() or Path.cwd().resolve())
+    if target is not None and not isinstance(target, (str, Path)) and isinstance(getattr(target, "path", None), Path):
+        target = target.path  # an api.Run
+
+    if target is None or str(target).strip() == "":
+        if run_identity(cwd_path) is not None:
+            return check_destructive_run_dir(cwd_path, cwd=cwd_path)
+        if not require_active:
+            raise ValueError("Name the run: a run ID, short ID, slug, tag, run directory name, or path.")
+        active = [e for e in list_registered_runs(cwd=cwd_path) if e.get("active")]
+        if not active:
+            raise ValueError("No active training runs found.")
+        if len(active) > 1:
+            raise ValueError(
+                "Multiple training runs are currently active. Specify a run ID or slug:\n"
+                + _format_disambiguation_list(active)
+            )
+        return check_destructive_run_dir(active[0]["run_dir"], cwd=cwd_path)
+
+    target_str = str(target).strip()
+    raw = Path(target_str).expanduser()
+    looks_like_path = (
+        raw.is_absolute()
+        or "/" in target_str
+        or os.sep in target_str
+        or target_str in (".", "..")
+        or target_str.startswith("~")
+    )
+    cand = raw if raw.is_absolute() else cwd_path / raw
+    path_hit: Optional[Path] = None
+    if cand.is_symlink():
+        raise ValueError(f"Refusing to follow the symbolic link {cand}; pass the run directory itself.")
+    if cand.exists():
+        if cand.is_file() and cand.name == "manifest.json":
+            cand = cand.parent
+        path_hit = check_destructive_run_dir(cand, cwd=cwd_path)
+    elif looks_like_path:
+        raise FileNotFoundError(f"No such run directory: {cand}")
+    if looks_like_path and path_hit is not None:
+        return path_hit
+
+    from .inspection import list_runs
+
+    rows = list_runs(root=None, sort="updated", cwd=cwd_path)
+    query = target_str.lower()
+    matches: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if query in _exact_run_keys(row):
+            matches.setdefault(str(Path(row["run_dir"]).resolve()), row)
+    if path_hit is not None:
+        matches.setdefault(str(path_hit), {"run_dir": str(path_hit), "run_id": run_identity(path_hit) or ""})
+
+    if len(matches) > 1:
+        raise ValueError(
+            f"Ambiguous run reference {target_str!r} matches {len(matches)} runs. Use a run ID instead:\n"
+            + _format_disambiguation_list(list(matches.values()))
+        )
+    if matches:
+        return check_destructive_run_dir(next(iter(matches)), cwd=cwd_path)
+
+    near = [
+        r for r in rows
+        if query in str(r.get("name") or "").lower()
+        or any(query in k for k in _exact_run_keys(r))
+    ]
+    hint = ("\nRuns with a similar name (use the run ID or slug):\n" + _format_disambiguation_list(near)) if near else ""
+    raise FileNotFoundError(f"No run has the ID, short ID, slug, tag or directory name {target_str!r}.{hint}")

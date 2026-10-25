@@ -302,8 +302,13 @@ def test_filesystem_chaos_self_healing(tmp_path, monkeypatch, capsys):
     assert [r["slug"] for r in ps_runs] == ["cobalt-comet"]
 
 
-def test_inactive_pid_is_none_and_slug_collisions_disambiguated(tmp_path, monkeypatch, capsys):
-    """Stopped/completed runs report `pid: None` in `ps -a --json` and colliding slugs are disambiguated."""
+def test_inactive_pid_is_none_and_slug_collisions_are_ambiguous_not_renamed(tmp_path, monkeypatch, capsys):
+    """Stopped/completed runs report `pid: None` in `ps -a --json`.
+
+    Two manifests that claim one slug (a copied or pre-2.0 run) keep it: slugs
+    are assigned once at creation and never re-deduplicated on read, so `ps`
+    shows both and `rm <slug>` refuses with both candidates instead of picking one.
+    """
     state_dir = tmp_path / "state"
     monkeypatch.setenv("HYPERGAN_HOME", str(state_dir))
     monkeypatch.setenv("HYPERGAN_STATE_DIR", str(state_dir))
@@ -328,17 +333,22 @@ def test_inactive_pid_is_none_and_slug_collisions_disambiguated(tmp_path, monkey
     )
     e1 = register_run(r1, slug="keen-breeze")
     e2 = register_run(r2, slug="keen-breeze")
-    assert e1["slug"] != e2["slug"]
+    assert e1["slug"] == e2["slug"] == "keen-breeze"
 
     rc_ps, out_ps, err_ps = _invoke_cli(capsys, "ps", "-a", "--json")
     assert rc_ps == 0, err_ps
     runs = json.loads(out_ps)["runs"]
     assert len(runs) == 2
-    slugs = {r["slug"] for r in runs}
-    assert len(slugs) == 2
+    assert {r["slug"] for r in runs} == {"keen-breeze"}
     for r in runs:
         assert r["active"] is False
         assert r["pid"] is None
+
+    rc_rm, _, err_rm = _invoke_cli(capsys, "rm", "keen-breeze")
+    assert rc_rm != 0
+    assert "Ambiguous run reference 'keen-breeze' matches 2 runs" in err_rm
+    assert "12345678" in err_rm and "fedcba09" in err_rm
+    assert r1.is_dir() and r2.is_dir()
 
 
 def test_top_level_cli_subcommands_and_grouped_help(tmp_path, monkeypatch, capsys):

@@ -9,11 +9,11 @@ Challenges:
    - Cleanup traps: verification that normal exit and exceptions invoke pod termination
      without leaks.
 2. Client qualification delegation in run_qualification_suite():
-   - Minimal dictionary normalization into a fully valid receipt envelope (all 6 suites, SHA256).
-   - Partial dictionary preservation of custom telemetry alongside normalization.
+   - Incomplete or partial receipts are rejected, never filled in with invented results.
+   - A complete remote receipt, custom telemetry included, is returned unchanged.
    - Exception handling during execute_qualification ensuring immediate pod termination.
-   - Fallback to _build_mock_receipt when execute_qualification is missing, None, non-callable,
-     or returns a non-dict.
+   - A client whose execute_qualification is missing, None or non-callable is refused before
+     any pod is created; a non-dict result is rejected after the pod is terminated.
 """
 from __future__ import annotations
 
@@ -31,11 +31,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hypergan.qualify import compute_receipt_sha256, validate_qualification_receipt
+from hypergan.qualify import ReceiptValidationError, compute_receipt_sha256, validate_qualification_receipt
+from tests.runpod_fakes import build_fake_receipt
 from hypergan.runpod_runner import (
     DEFAULT_GPU_CATALOG,
     DEFAULT_TIMEOUT,
     MAX_ALLOWED_TIMEOUT,
+    LiveModeUnavailable,
     RunPodHttpClient,
     RunPodRunner,
     _GLOBAL_POD_REGISTRY,
@@ -170,7 +172,7 @@ class TestRunPodGuardrailsM4It2:
             runner_zero.filter_and_select_gpu(catalog)
 
     def test_runpod_http_client_handles_corrupted_graphql_pricing(self):
-        """RunPodHttpClient drops null or missing prices from live GraphQL and falls back cleanly."""
+        """RunPodHttpClient drops null or missing prices, and refuses an empty catalog."""
         client = RunPodHttpClient(api_key="rpa_test_key")
 
         # Mock payload containing entries with null prices or missing lowestPrice
@@ -197,10 +199,10 @@ class TestRunPodGuardrailsM4It2:
             assert parsed[0]["id"] == "GPU-Valid"
             assert parsed[0]["cost_per_hr"] == pytest.approx(0.45)
 
-        # Mock payload completely empty -> falls back to DEFAULT_GPU_CATALOG
+        # Empty payload -> error; never select a GPU from invented prices
         with patch.object(client, "_execute", return_value={"gpuTypes": []}):
-            fallback_catalog = client.get_gpu_catalog()
-            assert fallback_catalog == DEFAULT_GPU_CATALOG
+            with pytest.raises(RuntimeError, match="no priced GPU types"):
+                client.get_gpu_catalog()
 
     @pytest.mark.parametrize("invalid_timeout", [181, 182, 250, 3600, 0, -1, -60])
     def test_timeout_guardrail_rejects_out_of_bounds(self, invalid_timeout):
@@ -221,7 +223,7 @@ class TestRunPodGuardrailsM4It2:
     def test_cleanup_traps_invoke_pod_termination_on_normal_exit_and_exceptions(self):
         """Normal exit and task exceptions invoke pod termination exactly once with zero leaks."""
         # 1. Normal exit
-        client_ok = DelegationMockClient()
+        client_ok = DelegationMockClient(qualification_result=build_fake_receipt())
         runner_ok = RunPodRunner(dry_run=True, client=client_ok)
         runner_ok.run_qualification_suite()
         assert len(client_ok.created_pods) == 1
@@ -247,73 +249,46 @@ class TestRunPodGuardrailsM4It2:
 class TestRunPodDelegationM4It2:
     """Empirical challenge suite for client qualification delegation and normalization."""
 
-    def test_client_execute_qualification_minimal_dict_envelope_normalization(self, tmp_path):
-        """When client returns an empty dict {}, runner normalizes all canonical envelope fields."""
-        client = DelegationMockClient(qualification_result={})
+    @pytest.mark.parametrize("partial", [
+        {},
+        {"status": "passed"},
+        {"status": "passed", "suites": [{"name": "custom_nccl_stress", "status": "passed", "duration_seconds": 1.2}]},
+    ])
+    def test_incomplete_remote_receipt_is_rejected_not_normalized(self, tmp_path, partial):
+        """An incomplete receipt is an error; the runner never invents suites, status or environment."""
+        client = DelegationMockClient(qualification_result=partial)
         runner = RunPodRunner(dry_run=True, client=client)
-        receipt = runner.run_qualification_suite(output_dir=tmp_path)
-
-        # Verify envelope structure
-        assert receipt["schema_version"] == 1
-        assert receipt["status"] == "passed"
-        assert receipt["duration_seconds"] >= 0.0
-        assert receipt["qualification_id"].startswith("qual-runpod-")
-        assert "timestamp" in receipt
-
-        # Verify all 6 canonical suites are injected
-        suite_names = [s["name"] for s in receipt["suites"]]
-        assert len(suite_names) == 6
-        expected_suites = [
-            "single_device",
-            "cpu_replicated_gloo",
-            "cuda_replicated_nccl",
-            "aggregation_strategies",
-            "multinode_tcp",
-            "checkpoint_compatibility",
-        ]
-        assert suite_names == expected_suites
-
-        # Verify environment normalization
-        env = receipt["environment"]
-        assert "platform" in env
-        assert "python" in env
-        assert "torch" in env
-        assert env["device_count"] == 1
-        assert len(env["devices"]) >= 1
-        assert env["cuda"]["available"] is True
-        assert env["runpod"]["dry_run"] is True
-
-        # Verify SHA-256 integrity and receipt validation
-        assert "receipt_sha256" in receipt
-        assert receipt["receipt_sha256"] == compute_receipt_sha256(receipt)
-        validate_qualification_receipt(receipt)
-
+        with pytest.raises(ReceiptValidationError, match="missing required keys"):
+            runner.run_qualification_suite(output_dir=tmp_path)
+        assert not (tmp_path / "qualification-receipt.json").exists()
         # Verify pod terminated
         assert client.all_pods_cleaned_up
         assert len(client.terminated_pods) == 1
 
-    def test_client_execute_qualification_preserves_custom_status_and_suites(self, tmp_path):
-        """When client returns partial telemetry, custom status and suites are preserved."""
-        custom_payload = {
-            "status": "passed",
-            "custom_telemetry": {"gpus_tested": 2, "link_type": "nvlink"},
-            "suites": [
-                {"name": "custom_nccl_stress", "status": "passed", "duration_seconds": 1.2},
-            ],
-        }
-        client = DelegationMockClient(qualification_result=custom_payload)
+    def test_complete_remote_receipt_is_returned_unchanged(self, tmp_path):
+        """A complete receipt, custom telemetry and suites included, passes through untouched."""
+        remote = build_fake_receipt(
+            suites=[{"name": "custom_nccl_stress", "status": "passed", "duration_seconds": 1.2}],
+            custom_telemetry={"gpus_tested": 2, "link_type": "nvlink"},
+        )
+        client = DelegationMockClient(qualification_result=remote)
         runner = RunPodRunner(dry_run=True, client=client)
         receipt = runner.run_qualification_suite(output_dir=tmp_path)
 
-        # Custom fields preserved
-        assert receipt["custom_telemetry"] == {"gpus_tested": 2, "link_type": "nvlink"}
-        assert len(receipt["suites"]) == 1
-        assert receipt["suites"][0]["name"] == "custom_nccl_stress"
-
-        # Envelope normalized
-        assert receipt["schema_version"] == 1
-        assert "environment" in receipt
+        assert receipt == remote
         assert receipt["receipt_sha256"] == compute_receipt_sha256(receipt)
+        assert client.all_pods_cleaned_up
+
+    def test_remote_receipt_contradicting_its_suites_is_rejected(self, tmp_path):
+        """A receipt claiming passed while a suite failed is rejected even with a matching checksum."""
+        remote = build_fake_receipt(
+            status="passed",
+            suites=[{"name": "cuda_replicated_nccl", "status": "failed", "duration_seconds": 1.0}],
+        )
+        client = DelegationMockClient(qualification_result=remote)
+        runner = RunPodRunner(dry_run=True, client=client)
+        with pytest.raises(ReceiptValidationError, match="contradicts its suites"):
+            runner.run_qualification_suite(output_dir=tmp_path)
         assert client.all_pods_cleaned_up
 
     @pytest.mark.parametrize(
@@ -335,44 +310,33 @@ class TestRunPodDelegationM4It2:
         assert client.created_pods[0] == client.terminated_pods[0]
         assert runner._active_pod_id is None
 
-    def test_client_without_execute_qualification_falls_back_to_mock_receipt(self, tmp_path):
-        """When client lacks execute_qualification, runner falls back to _build_mock_receipt."""
+    def test_client_without_execute_qualification_is_refused_before_pod_creation(self, tmp_path):
+        """When client lacks execute_qualification, no pod is created and no receipt is written."""
         client = FallbackMockClient()
         assert not hasattr(client, "execute_qualification")
 
         runner = RunPodRunner(dry_run=True, client=client)
-        receipt = runner.run_qualification_suite(output_dir=tmp_path)
+        with pytest.raises(LiveModeUnavailable, match="cannot run qualification on a pod"):
+            runner.run_qualification_suite(output_dir=tmp_path)
+        assert client.created_pods == []
+        assert not (tmp_path / "qualification-receipt.json").exists()
 
-        assert receipt["status"] == "passed"
-        assert len(receipt["suites"]) == 6
-        assert receipt["receipt_sha256"] == compute_receipt_sha256(receipt)
+    @pytest.mark.parametrize("execute", [None, "not_callable"])
+    def test_client_with_none_or_non_callable_execute_qualification_is_refused(self, tmp_path, execute):
+        """When execute_qualification is None or not callable, the runner refuses before creating a pod."""
+        client = FallbackMockClient()
+        client.execute_qualification = execute  # type: ignore[assignment]
+        runner = RunPodRunner(dry_run=True, client=client)
+        with pytest.raises(LiveModeUnavailable):
+            runner.run_qualification_suite(output_dir=tmp_path)
+        assert client.created_pods == []
+
+    @pytest.mark.parametrize("non_dict", [None, "completed", [1, 2, 3], True])
+    def test_client_returning_non_dict_is_rejected(self, tmp_path, non_dict):
+        """When execute_qualification returns a non-dict, the run fails after terminating the pod."""
+        client = DelegationMockClient(qualification_result=non_dict)
+        runner = RunPodRunner(dry_run=True, client=client)
+        with pytest.raises(ValueError, match="not a receipt object"):
+            runner.run_qualification_suite(output_dir=tmp_path)
+        assert len(client.created_pods) == 1
         assert client.all_pods_cleaned_up
-
-    def test_client_with_none_or_non_callable_execute_qualification_falls_back(self, tmp_path):
-        """When execute_qualification is None or not callable, runner falls back gracefully."""
-        # execute_qualification is None
-        client_none = FallbackMockClient()
-        client_none.execute_qualification = None  # type: ignore[assignment]
-        runner_none = RunPodRunner(dry_run=True, client=client_none)
-        r_none = runner_none.run_qualification_suite(output_dir=tmp_path)
-        assert r_none["status"] == "passed"
-        assert len(r_none["suites"]) == 6
-
-        # execute_qualification is a string (non-callable)
-        client_str = FallbackMockClient()
-        client_str.execute_qualification = "not_callable"  # type: ignore[assignment]
-        runner_str = RunPodRunner(dry_run=True, client=client_str)
-        r_str = runner_str.run_qualification_suite(output_dir=tmp_path)
-        assert r_str["status"] == "passed"
-        assert len(r_str["suites"]) == 6
-
-    def test_client_returning_non_dict_falls_back_to_mock_receipt(self, tmp_path):
-        """When execute_qualification returns non-dict (e.g. None or str), fallback is used."""
-        for non_dict in [None, "completed", [1, 2, 3], True]:
-            client = DelegationMockClient(qualification_result=non_dict)
-            runner = RunPodRunner(dry_run=True, client=client)
-            receipt = runner.run_qualification_suite(output_dir=tmp_path)
-            assert isinstance(receipt, dict)
-            assert receipt["status"] == "passed"
-            assert len(receipt["suites"]) == 6
-            assert client.all_pods_cleaned_up

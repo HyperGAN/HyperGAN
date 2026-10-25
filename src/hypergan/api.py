@@ -1134,6 +1134,7 @@ def _tensor(value):
 def samples(run, *, name=None):
     """Periodic EMA previews, oldest first (enable with ``train(..., previews=N)``)."""
     import base64
+    from .previews import index_path
     run = _run(run)
     index = run.path / 'previews' / 'index.json'
     if not index.is_file():
@@ -1142,7 +1143,7 @@ def samples(run, *, name=None):
     for entry in json.loads(index.read_text())['previews']:
         if name is not None and entry.get('name') != name:
             continue
-        path = Path(entry['path'])
+        path = index_path(run.path, entry['path'])
         payload = json.loads(path.read_text())
         grid = payload.get('image_grid')
         result.append(Sample(step=payload['step'], name=payload['name'], data=_tensor(payload.get('samples')),
@@ -1502,7 +1503,7 @@ def gc(run=None, dry_run=False, stride=10, *, all_runs=False, all=None):
     if all_runs:
         return gc_all(root=run, dry_run=dry_run, stride=stride)
     from .inspection import gc_run as _gc_run
-    return _gc_run(_run_path(run), dry_run=dry_run, stride=stride)
+    return _gc_run(run.path if isinstance(run, Run) else run, dry_run=dry_run, stride=stride)
 
 
 prune = gc
@@ -1517,7 +1518,7 @@ def gc_all(root=None, dry_run=False, stride=10):
 def compact_events(run, stride=10):
     """Compact redundant train events in events.jsonl, returning reclaimed bytes."""
     from .inspection import compact_events as _compact
-    return _compact(_run_path(run), stride=stride)
+    return _compact(run.path if isinstance(run, Run) else run, stride=stride)
 
 
 # --------------------------------------------------------------------------- viewables
@@ -2023,7 +2024,7 @@ def _submit_control_request(run_dir=None, *, action="checkpoint", attempt_id=Non
             or existing["request"]["attempt_id"] != target_attempt
             or existing["request"]["action"] != action
         ):
-            raise ValueError("Conflicting checkpoint request ID: reuse requires the same run, attempt and action")
+            raise ValueError("Conflicting control request ID: reuse requires the same run, attempt and action")
         return existing
     return submit_request(
         run_dir,

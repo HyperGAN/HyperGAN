@@ -10,6 +10,7 @@ import torch
 from tests.hndl_fixtures import fixture_network
 from torch import nn
 
+from hypergan.previews import index_path
 from hypergan.checkpoints import read_checkpoint, trainer_state
 from hypergan.config import load_config
 from tests.config_fixtures import write_default
@@ -88,12 +89,12 @@ def test_preview_schedule_retention_and_resume_preserve_complete_state(tmp_path)
     index = json.loads((tmp_path / 'observed/previews/index.json').read_text())
     steps = [record['step'] for record in index['previews']]
     assert steps == sorted(steps) and 4 <= steps[-1] <= 6
-    retained = {record['path'] for record in index['previews']}
+    retained = {str(index_path(tmp_path / 'observed', record['path'])) for record in index['previews']}
     assert all(Path(path).exists() == (path in retained) for path in initial_paths)
     directories = [path for path in (tmp_path / 'observed/previews').iterdir() if path.is_dir()]
     assert len(directories) == len(index['previews']) <= 2
     for record in index['previews']:
-        path = Path(record['path'])
+        path = index_path(tmp_path / 'observed', record['path'])
         payload = json.loads(path.read_text())
         assert path.stat().st_size == record['bytes'] <= MAX_BYTES
         assert payload['count'] == MAX_COUNT and payload['identity']['sample_sequence'] < done['next_sample_sequence']
@@ -212,10 +213,9 @@ def test_manual_request_is_never_serviced_after_partial_update(tmp_path, monkeyp
     from hypergan.run_requests import submit_checkpoint_request, checkpoint_request_status
     config = write_default(tmp_path / 'config', device="cpu", defaults='hypergan')
     requests = []
-    from hypergan.training import DeviceAdam
-    original = DeviceAdam.step
+    from torch.optim.optimizer import register_optimizer_step_pre_hook
     calls = 0
-    def fail_generator(self, *args, **kwargs):
+    def fail_generator(optimizer, args, kwargs):
         nonlocal calls
         calls += 1
         if calls == 2:
@@ -223,13 +223,14 @@ def test_manual_request_is_never_serviced_after_partial_update(tmp_path, monkeyp
             request = submit_checkpoint_request(tmp_path / 'run', run_id=manifest['run_id'], attempt_id=manifest['attempt_id'])
             requests.append(request['request']['request_id'])
             raise KeyboardInterrupt('half update')
-        return original(self, *args, **kwargs)
-    monkeypatch.setattr(DeviceAdam, 'step', fail_generator)
-    with pytest.raises(KeyboardInterrupt):
-        train(config, tmp_path / 'run')
+    hook = register_optimizer_step_pre_hook(fail_generator)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            train(config, tmp_path / 'run')
+    finally:
+        hook.remove()
     assert read_checkpoint(tmp_path / 'run')[2]['step'] == 0
     assert checkpoint_request_status(tmp_path / 'run', requests[0])['status'] == 'pending'
-    monkeypatch.setattr(DeviceAdam, 'step', original)
     resume(tmp_path / 'run')
     receipt = checkpoint_request_status(tmp_path / 'run', requests[0])
     assert receipt['status'] == 'rejected' and 'attempt' in receipt['error']

@@ -9,8 +9,12 @@ import hashlib
 import importlib.metadata
 from pathlib import Path
 
+from .diversity_metrics import merge_moments
+
 
 INCEPTION_SHA256 = '6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2'
+# The only torch-fidelity release this protocol accepts; the fid extra pins it.
+TORCH_FIDELITY_VERSION = '0.3.0'
 
 
 def _checked_weights(path, expected):
@@ -40,18 +44,12 @@ class _Moments:
         if value.ndim != 2 or not len(value) or not np.isfinite(value).all():
             raise ValueError('FID features must be a finite nonempty matrix')
         mean = value.mean(axis=0)
+        if self.count and mean.shape != self.mean.shape:
+            raise ValueError('FID feature dimensions changed')
         residual = value - mean
-        centered = residual.T @ residual
-        if self.count == 0:
-            self.mean, self.centered = mean, centered
-        else:
-            if mean.shape != self.mean.shape:
-                raise ValueError('FID feature dimensions changed')
-            delta = mean - self.mean
-            total = self.count + len(value)
-            self.centered += centered + np.outer(delta, delta) * (self.count * len(value) / total)
-            self.mean += delta * (len(value) / total)
-        self.count += len(value)
+        self.count, self.mean, self.centered = merge_moments(
+            self.count, self.mean, self.centered, len(value), mean, residual.T @ residual,
+            lambda delta: np.outer(delta, delta))
 
     def statistics(self):
         if self.count < 2:
@@ -76,8 +74,8 @@ class InceptionFID:
             version = importlib.metadata.version('torch-fidelity')
         except importlib.metadata.PackageNotFoundError as exc:
             raise ValueError("FID requires the 'hypergan[fid]' optional dependencies") from exc
-        if version != '0.3.0':
-            raise ValueError('This FID protocol requires torch-fidelity==0.3.0')
+        if version != TORCH_FIDELITY_VERSION:
+            raise ValueError(f'This FID protocol requires torch-fidelity=={TORCH_FIDELITY_VERSION}, found {version}')
 
     def describe(self):
         return {'kind': 'scalar', 'label': 'Inception FID', 'unit': 'FID', 'direction': 'minimize',

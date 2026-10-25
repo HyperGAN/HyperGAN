@@ -306,6 +306,27 @@ def test_malicious_tar_members_and_corrupt_batch_rejected(tmp_path, monkeypatch)
     assert not (dest_corrupt / "dataset-manifest.json").exists()
 
 
+def test_symlinked_destination_and_source_archive_rejected(tmp_path, monkeypatch):
+    archive = tmp_path / "real.tar.gz"
+    size, sha, files_sha = _build_synthetic_cifar_archive(archive)
+    patched = deepcopy(dataset_download.QUALIFIED_DATASETS["cifar10"])
+    patched.update(expected_bytes=size, archive_sha256=sha, files_sha256=files_sha)
+    monkeypatch.setitem(dataset_download.QUALIFIED_DATASETS, "cifar10", patched)
+    real_dest = tmp_path / "real_dest"
+    real_dest.mkdir()
+    linked_dest = tmp_path / "linked_dest"
+    linked_dest.symlink_to(real_dest, target_is_directory=True)
+    with pytest.raises(ValueError, match="not a file or symlink"):
+        hg.download_dataset("cifar10", linked_dest, source_archive=archive)
+    assert list(real_dest.iterdir()) == []
+    linked_archive = tmp_path / "linked.tar.gz"
+    linked_archive.symlink_to(archive)
+    with pytest.raises(FileNotFoundError, match="is a symlink"):
+        hg.download_dataset("cifar10", tmp_path / "dest", source_archive=linked_archive)
+    result = hg.download_dataset("cifar10", tmp_path / "dest", source_archive=archive)
+    assert result["verified"] is True
+
+
 def test_dataset_download_is_torch_free():
     import subprocess
     import sys

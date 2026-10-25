@@ -29,12 +29,14 @@ try:
     from e2e.harness import (
         validate_qualification_receipt,
         compute_receipt_sha256,
+        ReceiptValidationError,
         MockRunPodClient,
     )
 except ImportError:
     from tests.e2e.harness import (
         validate_qualification_receipt,
         compute_receipt_sha256,
+        ReceiptValidationError,
         MockRunPodClient,
     )
 
@@ -124,7 +126,7 @@ class TestQualificationCLIAndReceipt:
         # Tamper with status
         tampered = copy.deepcopy(receipt)
         tampered["status"] = "failed"
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(tampered)
 
     def test_tier1_qualification_duration_hard_boundary(self):
@@ -144,7 +146,7 @@ class TestQualificationCLIAndReceipt:
         slow_receipt = copy.deepcopy(fast_receipt)
         slow_receipt["duration_seconds"] = 180.1  # Exceeds 3 minutes
         slow_receipt["receipt_sha256"] = compute_receipt_sha256(slow_receipt)
-        with pytest.raises(AssertionError, match="exceeded 3-minute hard limit"):
+        with pytest.raises(ReceiptValidationError, match="exceeded 3-minute hard limit"):
             validate_qualification_receipt(slow_receipt)
 
 
@@ -158,7 +160,7 @@ class TestRunPodDryRunAndGuardrails:
     def test_tier1_runpod_dry_run_without_credentials(self, tmp_path):
         """Case 13.1: RunPod dry-run executes cleanly without RUNPOD_API_KEY environment variable."""
         from hypergan.runpod_runner import RunPodRunner
-        runner = RunPodRunner(dry_run=True, api_key=None)
+        runner = RunPodRunner(dry_run=True)
         receipt = runner.run_qualification_suite(output_dir=tmp_path)
         validate_qualification_receipt(receipt)
 

@@ -21,6 +21,13 @@ class RGBData:
 class PartialMetric:
     def describe(self): return {'kind':'scalar'}
     def evaluate(self,*,batches,context): next(iter(batches)); return 0.0
+class FiniteData(RGBData):
+    def __init__(self): self.left=4
+    def __call__(self,batch_size,*,generator):
+        if self.left<batch_size: raise StopIteration
+        self.left-=batch_size
+        return super().__call__(batch_size,generator=generator)
+    def resume_identity(self): return {'dataset':'finite-fixture','version':1,'split':'evaluation'}
 '''
 DRIVER = '''
 import hashlib
@@ -41,6 +48,27 @@ if __name__=='__main__':
         b=evaluate(root/'run','mean',bundle=stopped['bundle_path'])
         c=evaluate(root/'run','histogram')
         (root/'results.json').write_text(json.dumps([a,b,c]))
+    elif mode=='review':
+        from hypergan import metric_evaluation
+        results={}
+        try:
+            evaluate(root/'run','mean',bundle='attempts/typo/model.pt')
+        except ValueError as error:
+            results['typo']=str(error)
+        # Training starting or closing reconciles abandoned evaluations while
+        # this manual evaluation is still in flight.
+        pinned=metric_evaluation._evaluate_pinned
+        def recovered_meanwhile(root_dir,*args,**kwargs):
+            metric_evaluation._recover_abandoned(root_dir)
+            return pinned(root_dir,*args,**kwargs)
+        metric_evaluation._evaluate_pinned=recovered_meanwhile
+        results['concurrent']=evaluate(root/'run','mean')
+        metric_evaluation._evaluate_pinned=pinned
+        try:
+            evaluate(root/'run','finite',config_path=root/'finite.toml')
+        except RuntimeError as error:
+            results['finite']=str(error)
+        (root/'results.json').write_text(json.dumps(results))
     else:
         evaluate(root/'run','partial',config_path=root/'partial.toml')
 '''
@@ -64,10 +92,12 @@ def setup(tmp_path):
         text+=metric(name,factory)
     path.write_text(text)
     (tmp_path/'partial.toml').write_text(text+metric('partial','eval_fixture:PartialMetric'))
+    (tmp_path/'finite.toml').write_text(text+metric('finite','hypergan.metric_examples:ColorMomentDistance',
+                                                    data='eval_fixture:FiniteData'))
     return driver
 
 
-def metric(name,factory):
+def metric(name,factory,data='eval_fixture:RGBData'):
     return f'''
 [metrics.custom.{name}]
 factory = "{factory}"
@@ -81,7 +111,7 @@ sample_count = 7
 batch_size = 3
 seed = 88
 [metrics.custom.{name}.evaluation.data]
-factory = "eval_fixture:RGBData"
+factory = "{data}"
 args = {{}}
 '''
 
@@ -175,3 +205,24 @@ def test_partial_sample_consumption_fails_with_visible_receipt(tmp_path):
     event=json.loads((receipts[0].parent/'events.jsonl').read_text())
     assert event['metrics']=={} and event['measurement_status']['partial']['status']=='failed'
     assert (receipts[0].parent/'stream.json').exists()
+
+
+@pytest.mark.heavy
+def test_manual_evaluation_survives_recovery_and_reports_bad_inputs(tmp_path):
+    driver=setup(tmp_path)
+    result=run(driver,'train')
+    assert result.returncode==0,result.stderr
+    result=run(driver,'review')
+    assert result.returncode==0,result.stdout+result.stderr
+    results=json.loads((tmp_path/'results.json').read_text())
+    # A missing bundle is an error, never a silent evaluation of latest.
+    assert results['typo'].startswith('Bundle not found:') and 'typo' in results['typo']
+    # The owner lock keeps recovery from failing the in-flight evaluation.
+    concurrent=results['concurrent']
+    assert concurrent['status']=='complete'
+    directory=tmp_path/'run/metrics/evaluations'/concurrent['evaluation_id']
+    assert json.loads((directory/'receipt.json').read_text())['status']=='complete'
+    assert json.loads((directory/'events.jsonl').read_text())['status']=='complete'
+    # Exhausted evaluation data names the shortfall instead of PEP 479's RuntimeError.
+    assert 'Evaluation data ran out after 3 of 7 samples' in results['finite']
+    assert 'generator raised StopIteration' not in results['finite']

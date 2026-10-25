@@ -24,20 +24,16 @@ SCRIPT = '''
 import os, signal, sys, torch
 from pathlib import Path
 from hypergan.cli import main
-from hypergan.training import DeviceAdam
 import hypergan.checkpoints as checkpoints
-original_step = DeviceAdam.step
 original_atomic = checkpoints.atomic_json
 original_save = torch.save
 calls = 0
 mode = sys.argv[3]
-def update(self, *args, **kwargs):
+def update(optimizer, args, kwargs):
     global calls
-    result = original_step(self, *args, **kwargs)
     calls += 1
     if calls == 1 and mode in ('SIGTERM', 'SIGINT', 'SIGKILL'):
         os.kill(os.getpid(), getattr(signal, mode))
-    return result
 def publish(path, value):
     selected = Path(path).name == 'latest.json' and value.get('step') == 1
     if selected and mode in ('publication', 'kill-pointer'):
@@ -62,7 +58,8 @@ def append(journal, row):
     return original_append(journal, row)
 EventJournal.append = append
 torch.save = save
-DeviceAdam.step = update
+from torch.optim.optimizer import register_optimizer_step_post_hook
+register_optimizer_step_post_hook(update)
 checkpoints.atomic_json = publish
 raise SystemExit(main(['train', sys.argv[1], '--run-dir', sys.argv[2], '--no-server', '--checkpoint-every', '1']))
 '''

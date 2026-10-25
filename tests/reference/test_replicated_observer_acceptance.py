@@ -9,6 +9,8 @@ import sys
 
 import pytest
 
+from hypergan.previews import index_path
+
 
 # Heavy: every test here starts real subprocesses or multi-rank jobs and
 # measured at a second or more; see reports/test-durations-2026-09-20.txt.
@@ -167,7 +169,7 @@ def _index(run):
     value = json.loads((run / 'previews/index.json').read_text())
     assert value['keep'] == 2 and len(value['previews']) <= 2
     for record in value['previews']:
-        path = Path(record['path'])
+        path = index_path(run, record['path'])
         payload = json.loads(path.read_text())
         assert payload['identity'] == record['identity']
         assert payload['step'] == record['step']

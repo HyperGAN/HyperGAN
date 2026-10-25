@@ -160,6 +160,8 @@ With `labels=true`, every accepted image must sit beneath a named top-level clas
 
 Preflight reads, hashes, fully decodes and validates every accepted image. A zero-byte, unreadable, truncated or incompatible image stops preflight with its relative path and corrective guidance. Nothing is silently skipped or retried. An empty dataset reports supported extensions and discovered/ignored counts. There is no quarantine mode.
 
+Preflight results are cached per file, so later constructions (resume, every distributed rank, every evaluation worker) only list and `stat` the folder. A file is inspected again unless its size, mtime, ctime and inode all match the cached record, and records written within a few seconds of a file's last change are never trusted. The cache cannot change the identity or the pixels: every training read still checks the file against its inventory SHA-256. The cache lives in `$HYPERGAN_CACHE_DIR/image-folder` (default `$XDG_CACHE_HOME/hypergan`, else `~/.cache/hypergan`) and is safe to delete. `manifest_cache = "path"` in `[data.args]` moves it; `manifest_cache = false` inspects every file on every construction.
+
 ## Background loading
 
 `ImageFolder` and `ColorizationData` default to four persistent decoder threads

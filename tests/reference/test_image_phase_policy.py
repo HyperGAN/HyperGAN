@@ -183,11 +183,26 @@ def test_complete_recovery_before_and_after_lazy_penalty(boundary):
     assert torch.equal(restored.streams['data'].get_state(), stream.get_state())
 
 
-def test_native_only_recipe_rejected_by_replicated_profile_before_runtime():
+def test_reused_prior_bound_recipe_resolves_under_replicated_profile():
+    # #410 qualified reused and prior-bound components for replicated execution
+    # (tests/unit/test_replicated_recipe_parity.py), so this recipe now resolves.
     profile = {'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}}
-    with pytest.raises(ValueError, match='require native execution'):
-        resolve_execution_profile(profile, config())
+    resolved = resolve_execution_profile(profile, config())
+    assert resolved['execution']['world_size'] == 2
+    assert resolved['execution']['local_batch_size'] == 4
     assert resolve_execution_profile({'schema_version': 1, 'execution': {'name': 'cpu-single'}}, config())
+
+
+def test_unqualified_numerical_policy_rejected_by_replicated_profile_before_runtime():
+    # resolve_config refuses these values, so the gate guards hand-built configs.
+    for table, key, value in (('training', 'phase_draws', 'per_rank'),
+                              ('training', 'data_rng_device', 'cuda'),
+                              ('optimizer', 'implementation', 'sgd')):
+        unqualified = copy.deepcopy(config())
+        unqualified[table][key] = value
+        with pytest.raises(ValueError, match='require native execution'):
+            resolve_execution_profile({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}}, unqualified)
+        assert resolve_execution_profile({'schema_version': 1, 'execution': {'name': 'cpu-single'}}, unqualified)
 
 
 def test_alias_validation_and_resolved_roundtrip():

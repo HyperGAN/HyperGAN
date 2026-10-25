@@ -29,8 +29,17 @@ class HyperGANHardwareWarning(RuntimeWarning):
     pass
 
 
-# Keys identifying physical hardware topology or device enumeration.
-# Differences in these keys emit HyperGANHardwareWarning and permit resume (Decision D9).
+# Keys that say which hardware ran a checkpoint and how it was laid out. A
+# difference confined to these warns (HyperGANHardwareWarning) and resumes, by
+# owner Decision D9 (reports/human-feedback.md, extending the identical-GPU
+# resume of item 18): another physical card of the same model, a different GPU
+# model or compute capability, world size or rank device list, device string,
+# platform or machine, NCCL version or ROCm architecture. Only a swap between
+# identical cards is known to be numerically neutral; a different model,
+# capability or platform can select different kernels, so that run continues
+# from the saved state but is not guaranteed to match an uninterrupted run bit
+# for bit. The device type is still fixed, by `training.device` in the
+# configuration fingerprint.
 HARDWARE_TOLERANCE_KEYS = frozenset({
     'cuda.name',
     'cuda.capability',
@@ -47,17 +56,19 @@ HARDWARE_TOLERANCE_KEYS = frozenset({
 
 DEVICE_IDENTITY_KEYS = HARDWARE_TOLERANCE_KEYS
 
+# Differences confined to these keys are a swap between identical cards.
+_CARD_IDENTITY_KEYS = frozenset({'cuda.uuid', 'cuda.visible_devices'})
+
 
 def _is_hardware_tolerant(path: str) -> bool:
     return path in HARDWARE_TOLERANCE_KEYS or path.startswith('cuda.rank_devices.')
 
 
-# Other keys in `runtime` decide behavior and stay hard failures: device
-# type, dtype, world size, torch/cuda/cudnn versions, the deterministic, tf32 and
-# matmul settings, the GPU model and capability, python/numpy and the platform.
-# The explicit-sigma library migration below additionally requires audited
-# source hashes. An accepted identity change still proves the model,
-# capability and every numerical runtime setting match.
+# Every other key in `runtime` decides numerical behaviour and stays a hard
+# failure: python, numpy, torch, CUDA/cuDNN/HIP and ParticleGAN versions, dtype
+# and default dtype, thread count, and the deterministic, cuDNN, TF32 and
+# matmul-precision settings. The explicit-sigma library migration below
+# additionally requires audited source hashes.
 
 MAX_VALUE_CHARACTERS = 200
 
@@ -129,8 +140,8 @@ def validate_runtime(saved, current, *, warn=None, saved_implementation=None,
                      current_implementation=None):
     """Reject an incompatible runtime, naming every differing key path.
 
-    A difference confined to DEVICE_IDENTITY_KEYS says which card ran, not what
-    it computes, so it warns and resumes. Returns the warning messages; `warn`
+    A difference confined to HARDWARE_TOLERANCE_KEYS warns and resumes; any
+    other difference raises. Returns the warning messages; `warn`
     takes a sink that receives each message instead of `warnings.warn`, for a
     caller that also records them on the run. The ParticleGAN migration also
     requires both implementation inventories and their exact audited hashes.
@@ -161,13 +172,15 @@ def validate_runtime(saved, current, *, warn=None, saved_implementation=None,
     messages = []
     if hardware_diffs:
         card = saved.get('cuda') if isinstance(saved.get('cuda'), dict) else {}
-        is_only_uuid_visible = all(d[0] in {'cuda.uuid', 'cuda.visible_devices'} for d in hardware_diffs)
+        is_only_uuid_visible = all(d[0] in _CARD_IDENTITY_KEYS for d in hardware_diffs)
         if is_only_uuid_visible and card.get('name'):
             messages.append(_device_identity_warning(saved, hardware_diffs))
         else:
             messages.append(
                 f'Resuming on differing hardware/topology: {_describe(hardware_diffs)}. '
-                'The numerical runtime settings are unchanged, so the checkpoint restores as saved.'
+                'The versions and numerical settings match and the checkpoint restores as saved, '
+                'but different hardware can select different kernels, so the continuation is '
+                'not guaranteed to match an uninterrupted run bit for bit.'
             )
     if upgraded:
         messages.append('Resuming ParticleGAN 0.5.0 state with the audited 0.6.0 explicit-sigma '

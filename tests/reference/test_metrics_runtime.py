@@ -88,18 +88,19 @@ def test_named_loss_decomposition_and_half_update_never_publishes(tmp_path, monk
         assert m['loss/g_total'] == pytest.approx(m['loss/g_adversarial'] + m['loss/prior_regularizer'] + m['loss/objectives/reconstruction'])
         assert m['loss/d_adversarial'] == m['loss/d_adversarial_raw'] * .25
         assert row['measurement_status']['loss/gradient_penalty']['applied'] == (row['step'] % 2 == 0)
-    from hypergan.training import DeviceAdam
-    original = DeviceAdam.step
+    from torch.optim.optimizer import register_optimizer_step_pre_hook
     calls = 0
-    def fail(self, *args, **kwargs):
+    def fail(optimizer, args, kwargs):
         nonlocal calls
         calls += 1
         if calls == 2:
             raise RuntimeError('injected half update')
-        return original(self, *args, **kwargs)
-    monkeypatch.setattr(DeviceAdam, 'step', fail)
-    with pytest.raises(RuntimeError, match='half update'):
-        train(path, tmp_path / 'failed')
+    hook = register_optimizer_step_pre_hook(fail)
+    try:
+        with pytest.raises(RuntimeError, match='half update'):
+            train(path, tmp_path / 'failed')
+    finally:
+        hook.remove()
     assert not [row for row in events(tmp_path / 'failed') if row['event'] == 'train']
     assert read_checkpoint(tmp_path / 'failed')[2]['step'] == 0
 

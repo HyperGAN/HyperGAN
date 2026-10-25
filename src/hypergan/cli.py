@@ -1227,51 +1227,8 @@ def _dispatch(args, *, output=None):
             target = hg.resolve_run_target(args.run_dir) if args.run_dir is not None else hg.resolve_run_target(None)
             if not target.exists():
                 raise FileNotFoundError(f"Run directory does not exist: {target}")
-            if getattr(args, "json", False):
-                events_file = target / "events.jsonl"
-                offset = 0
-                if events_file.is_file():
-                    with events_file.open("rb") as f:
-                        raw_bytes = f.read()
-                        offset = len(raw_bytes)
-                    lines = [ln for ln in raw_bytes.decode("utf-8", errors="replace").splitlines() if ln.strip()]
-                    if args.tail and args.tail > 0:
-                        lines = lines[-args.tail:]
-                    for ln in lines:
-                        sys.stdout.write(ln + "\n")
-                    sys.stdout.flush()
-                if args.follow:
-                    import time
-                    try:
-                        while True:
-                            if events_file.is_file():
-                                try:
-                                    with events_file.open("rb") as f:
-                                        f.seek(offset)
-                                        chunk = f.read()
-                                        if chunk:
-                                            offset += len(chunk)
-                                            for ln in chunk.decode("utf-8", errors="replace").splitlines():
-                                                if ln.strip():
-                                                    sys.stdout.write(ln + "\n")
-                                                    sys.stdout.flush()
-                                                    try:
-                                                        ev = json.loads(ln)
-                                                        if ev.get("event") in ("complete", "completed", "stopped", "failed"):
-                                                            return 0
-                                                    except Exception:
-                                                        pass
-                                except OSError:
-                                    pass
-                            from .inspection import check_run_active
-                            is_active, _ = check_run_active(target)
-                            if not is_active:
-                                break
-                            time.sleep(0.25)
-                    except KeyboardInterrupt:
-                        pass
-            else:
-                hg.logs(target, tail=args.tail, follow=args.follow, stream=sys.stdout)
+            # One follow loop for both formats; it never splits a record that is still being written.
+            hg.logs(target, tail=args.tail, follow=args.follow, raw=bool(getattr(args, "json", False)), stream=sys.stdout)
         elif args.command == "stop":
             res = hg.stop(args.run_dir, stop_all=args.all, timeout=args.timeout)
             if args.json:
@@ -1410,8 +1367,8 @@ def _dispatch(args, *, output=None):
                     if skipped_count:
                         print(f"  Skipped:  {skipped_count} active runs")
             else:
-                target_run = hg.resolve_run_target(args.run_dir)
-                res = hg.gc(target_run, dry_run=args.dry_run, stride=args.stride)
+                # gc resolves strictly itself; the fuzzy read-only resolver must not pick its target.
+                res = hg.gc(args.run_dir, dry_run=args.dry_run, stride=args.stride)
                 if getattr(args, "json", False):
                     _print_json(res)
                 else:
@@ -1420,7 +1377,7 @@ def _dispatch(args, *, output=None):
                     events_str = format_bytes(res.get("events_reclaimed_bytes", 0))
                     total_str = format_bytes(res.get("reclaimed_bytes", 0))
                     prefix = "Would clean" if args.dry_run else "Cleaned"
-                    print(f"{prefix} run: {res.get('run_dir', target_run)}")
+                    print(f"{prefix} run: {res.get('run_dir', args.run_dir)}")
                     print(f"  Views removed:     {views_str}")
                     print(f"  Events compacted:  {events_str}")
                     print(f"  Total reclaimed:   {total_str}")

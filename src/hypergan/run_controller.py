@@ -18,6 +18,7 @@ from .config import config_values, fingerprint, load_config, resolve_config, obs
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics, select_preview_metrics, Throughput
 from .previews import DEFAULT_KEEP, DEFAULT_NAME, KEEP_ALL, sample_name
 from .metric_plugins import prepare_custom, ScalarMetrics
+from ._file_lock import retry_lock
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 from .observation_io import ObservationIO
 from .background_poll import BackgroundPoll
@@ -276,7 +277,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
         run_dir.mkdir(parents=True, exist_ok=True)
         sync_directory(run_dir.parent)
         node_rank = execution.profile['execution'].get('node_rank', 0) if hasattr(execution, 'profile') else 0
-        lock_ctx = run_lock(run_dir) if node_rank == 0 else nullcontext()
+        lock_ctx = retry_lock(lambda: run_lock(run_dir)) if node_rank == 0 else nullcontext()
         with lock_ctx:
             managed = True
             try:
@@ -318,7 +319,10 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
             if os.environ.get("_HYPERGAN_REEXEC") == "1":
                 os.environ.pop("_HYPERGAN_REEXEC", None)
             os.environ.pop("_HYPERGAN_REEXEC_ATTEMPT", None)
-            manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
+            from .registry import extract_or_derive_slug, reserve_run_slug
+            # Assigned once, unique in the registry; readers never re-derive it.
+            slug = reserve_run_slug(run_dir, run_id) if node_rank == 0 else extract_or_derive_slug(run_id, run_dir_name=run_dir.name)
+            manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id, 'slug': slug,
                     'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
                     'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
                     'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
@@ -351,7 +355,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
     if not run_dir.is_dir():
         raise ValueError(f'Run directory does not exist: {run_dir}')
     node_rank = execution_factory.profile['execution'].get('node_rank', 0) if hasattr(execution_factory, 'profile') else 0
-    lock_ctx = run_lock(run_dir) if node_rank == 0 else nullcontext()
+    lock_ctx = retry_lock(lambda: run_lock(run_dir)) if node_rank == 0 else nullcontext()
     with lock_ctx:
         manifest = json.loads((run_dir / 'manifest.json').read_text())
         required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}

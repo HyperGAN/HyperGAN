@@ -1519,7 +1519,7 @@ def gc(run=None, dry_run=False, stride=10, *, all_runs=False, all=None):
     if all_runs:
         return gc_all(root=run, dry_run=dry_run, stride=stride)
     from .inspection import gc_run as _gc_run
-    return _gc_run(_run_path(run), dry_run=dry_run, stride=stride)
+    return _gc_run(run.path if isinstance(run, Run) else run, dry_run=dry_run, stride=stride)
 
 
 prune = gc
@@ -1534,7 +1534,7 @@ def gc_all(root=None, dry_run=False, stride=10):
 def compact_events(run, stride=10):
     """Compact redundant train events in events.jsonl, returning reclaimed bytes."""
     from .inspection import compact_events as _compact
-    return _compact(_run_path(run), stride=stride)
+    return _compact(run.path if isinstance(run, Run) else run, stride=stride)
 
 
 # --------------------------------------------------------------------------- viewables

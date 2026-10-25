@@ -225,7 +225,10 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
 
     config = manifest.get("config", {}) if isinstance(manifest.get("config"), dict) else {}
     run_id = manifest.get("run_id") or existing_summary.get("run_id") or run_dir.name
-    name = manifest.get("name") or config.get("name") or existing_summary.get("name") or run_id
+    from .registry import read_run_tag
+
+    # `hypergan tag` writes tag.json because the trainer republishes its own manifest.
+    name = read_run_tag(run_dir) or manifest.get("name") or config.get("name") or existing_summary.get("name") or run_id
 
     resolved_status = status or manifest.get("status") or existing_summary.get("status") or "unknown"
     canonical_status = resolved_status

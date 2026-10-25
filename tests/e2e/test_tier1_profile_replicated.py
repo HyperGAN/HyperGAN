@@ -32,10 +32,6 @@ try:
     from e2e.harness import (
         HAVE_CUDA,
         HAVE_2_GPUS,
-        HAVE_M1_RECIPE_PARITY,
-        HAVE_M1_SCHEMA,
-        requires_m1_recipe_parity,
-        requires_m1_schema,
         requires_2_gpus,
         make_toy_config,
         make_prior_bound_config,
@@ -49,10 +45,6 @@ except ImportError:
     from tests.e2e.harness import (
         HAVE_CUDA,
         HAVE_2_GPUS,
-        HAVE_M1_RECIPE_PARITY,
-        HAVE_M1_SCHEMA,
-        requires_m1_recipe_parity,
-        requires_m1_schema,
         requires_2_gpus,
         make_toy_config,
         make_prior_bound_config,
@@ -116,7 +108,6 @@ class TestReplicatedProfileParsing:
         assert exec_tab['microbatch_size'] == 2
         assert exec_tab['accumulation_algorithm'] == 'detached-logit-vjp-replay-v1'
 
-    @requires_m1_schema
     def test_tier1_parse_profile_aggregation_defaults(self):
         """Case 1.4: Omitted [aggregation] defaults to strategy='gradient_allreduce', sync_every_steps=1."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -130,7 +121,6 @@ class TestReplicatedProfileParsing:
         assert agg.get('outer_lr', 1.0) == pytest.approx(1.0)
         assert agg.get('outer_momentum', 0.0) == pytest.approx(0.0)
 
-    @requires_m1_schema
     def test_tier1_parse_profile_multinode_defaults(self):
         """Case 1.5: Multi-node topology resolution computes ranks_per_node = world_size // nodes."""
         cfg = make_toy_config(device="cpu", batch_size=16)
@@ -152,7 +142,6 @@ class TestReplicatedProfileParsing:
         assert exec_tab['ranks_per_node'] == 2
         assert exec_tab['rendezvous'] == 'tcp://127.0.0.1:29500'
 
-    @requires_m1_schema
     def test_tier1_parse_profile_omitted_nodes_default(self):
         """Case 1.6: Omitted nodes and node_rank default to nodes=1, node_rank=0."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -171,6 +160,7 @@ class TestReplicatedProfileParsing:
 class TestReplicatedSmokeSteps:
     """Feature 2: Replicated smoke steps and numerical parity."""
 
+    @pytest.mark.heavy
     def test_tier1_replicated_cpu_smoke_steps(self):
         """Case 2.1: 2-rank CPU replicated trainer completes 2 steps cleanly."""
         cfg = make_toy_config(device="cpu", batch_size=8, steps=2)
@@ -184,6 +174,7 @@ class TestReplicatedSmokeSteps:
             assert math.isfinite(r_res['history'][0]['d_loss'])
             assert math.isfinite(r_res['history'][0]['g_loss'])
 
+    @pytest.mark.heavy
     def test_tier1_replicated_cpu_vs_reference_parity(self):
         """Case 2.2: 2-rank CPU replicated run matches reference trainer losses within tolerance."""
         from hypergan.training import ReferenceTrainer
@@ -204,6 +195,7 @@ class TestReplicatedSmokeSteps:
         assert rep_rank0[1]['d_loss'] == pytest.approx(ref_m2['d_loss'], rel=3e-5, abs=3e-6)
         assert rep_rank0[1]['g_loss'] == pytest.approx(ref_m2['g_loss'], rel=3e-5, abs=3e-6)
 
+    @pytest.mark.heavy
     @requires_2_gpus
     def test_tier1_replicated_gpu_smoke_steps(self, tmp_path):
         """Case 2.3: 2-GPU NCCL smoke step executes on local 2x A6000 hardware via CPUWorkerService."""
@@ -236,6 +228,7 @@ if __name__ == '__main__':
         proc = subprocess.run([sys.executable, str(driver)], capture_output=True, text=True, timeout=35, env=os.environ.copy())
         assert proc.returncode == 0, f"GPU NCCL failed: {proc.stdout}\n{proc.stderr}"
 
+    @pytest.mark.heavy
     def test_tier1_replicated_microbatch_accumulation_smoke(self):
         """Case 2.4: 2-rank replicated trainer with accumulation_steps=2 executes microbatches."""
         cfg = make_toy_config(device="cpu", batch_size=8, steps=1)
@@ -246,6 +239,7 @@ if __name__ == '__main__':
             assert r_res['history'][0]['step'] == 1
             assert math.isfinite(r_res['history'][0]['d_loss'])
 
+    @pytest.mark.heavy
     def test_tier1_replicated_state_bit_identical_across_replicas(self):
         """Case 2.5: All replicas maintain bit-identical parameter values after synchronous step."""
         cfg = make_toy_config(device="cpu", batch_size=8, steps=1)
@@ -264,21 +258,19 @@ if __name__ == '__main__':
 class TestPriorInputsReplicated:
     """Feature 3: Generator and component inputs bound to prior.* in replicated mode."""
 
-    @requires_m1_recipe_parity
     def test_tier1_prior_inputs_validation_acceptance(self):
         """Case 3.1: validate_replicated_recipe accepts config with inputs={'x': 'prior.z'}."""
         cfg = make_prior_bound_config(device="cpu", batch_size=8)
         # Must not raise ValueError
         validate_replicated_recipe(cfg)
 
-    @requires_m1_recipe_parity
     def test_tier1_prior_sample_input_binding_acceptance(self):
         """Case 3.2: validate_replicated_recipe accepts config with prior.sample inputs."""
         cfg = make_toy_config(device="cpu", batch_size=8)
         cfg['components']['generator']['inputs'] = {'x': 'prior.sample'}
         validate_replicated_recipe(cfg)
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_replicated_prior_input_forward_backward(self):
         """Case 3.3: 2-rank replicated trainer executes step with prior-bound generator inputs."""
         cfg = make_prior_bound_config(device="cpu", batch_size=8)
@@ -289,7 +281,7 @@ class TestPriorInputsReplicated:
             assert r_res['history'][0]['step'] == 1
             assert math.isfinite(r_res['history'][0]['g_loss'])
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_replicated_prior_gradient_allreduce(self):
         """Case 3.4: Gradients flowing through prior-bound generator are properly reduced."""
         cfg = make_prior_bound_config(device="cpu", batch_size=8)
@@ -299,7 +291,7 @@ class TestPriorInputsReplicated:
         for k in w0:
             assert w0[k] == w1[k], f"Weights differed across ranks for {k}"
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_prior_input_replicated_vs_reference_parity(self):
         """Case 3.5: Prior-bound replicated run matches reference single-device loss within tolerance."""
         from hypergan.training import ReferenceTrainer
@@ -323,13 +315,11 @@ class TestPriorInputsReplicated:
 class TestComponentReuseReplicated:
     """Feature 4: Shared component instances across graph positions in replicated mode."""
 
-    @requires_m1_recipe_parity
     def test_tier1_component_reuse_validation_acceptance(self):
         """Case 4.1: validate_replicated_recipe accepts config containing component reuse."""
         cfg = make_reuse_config(device="cpu", batch_size=8)
         validate_replicated_recipe(cfg)
 
-    @requires_m1_recipe_parity
     def test_tier1_component_reuse_graph_construction(self):
         """Case 4.2: Graph constructed with reused component shares parameter tensors."""
         from hypergan.recipes import ComponentGraph
@@ -340,7 +330,7 @@ class TestComponentReuseReplicated:
         assert graph.specs['encoder_b']['reuse'] == 'encoder_a'
         assert graph.models[graph.specs['encoder_b']['reuse']] is graph.models['encoder_a']
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_replicated_reuse_gradient_accumulation(self):
         """Case 4.3: Gradients accumulate correctly across multiple call sites of reused component."""
         cfg = make_reuse_config(device="cpu", batch_size=8)
@@ -351,7 +341,7 @@ class TestComponentReuseReplicated:
             assert r_res['history'][0]['step'] == 1
             assert math.isfinite(r_res['history'][0]['d_loss'])
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_replicated_reuse_allreduce_parity(self):
         """Case 4.4: Reused component parameters remain synchronized across all ranks."""
         cfg = make_reuse_config(device="cpu", batch_size=8)
@@ -361,7 +351,7 @@ class TestComponentReuseReplicated:
         for k in w0:
             assert w0[k] == w1[k], f"Weights differed across ranks for {k}"
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_reuse_replicated_vs_reference_loss_parity(self):
         """Case 4.5: Replicated reuse run matches reference single-device loss within tolerance."""
         from hypergan.training import ReferenceTrainer
@@ -384,13 +374,11 @@ class TestComponentReuseReplicated:
 class TestExtraAdversarialTermsReplicated:
     """Feature 5: Multiple critic/generator adversarial term pairs in replicated mode."""
 
-    @requires_m1_recipe_parity
     def test_tier1_adversarial_terms_validation_acceptance(self):
         """Case 5.1: validate_replicated_recipe accepts config with extra adversarial_terms."""
         cfg = make_adversarial_terms_config(device="cpu", batch_size=8)
         validate_replicated_recipe(cfg)
 
-    @requires_m1_recipe_parity
     def test_tier1_multiple_adversarial_terms_acceptance(self):
         """Case 5.2: validate_replicated_recipe accepts multiple extra adversarial terms."""
         cfg = make_adversarial_terms_config(device="cpu", batch_size=8)
@@ -402,7 +390,7 @@ class TestExtraAdversarialTermsReplicated:
         })
         validate_replicated_recipe(cfg)
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_replicated_adversarial_terms_execution(self):
         """Case 5.3: 2-rank replicated trainer executes all adversarial terms in program loop."""
         cfg = make_adversarial_terms_config(device="cpu", batch_size=8)
@@ -414,7 +402,7 @@ class TestExtraAdversarialTermsReplicated:
             assert math.isfinite(r_res['history'][0]['d_loss'])
             assert math.isfinite(r_res['history'][0]['g_loss'])
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_adversarial_terms_gradient_reduction(self):
         """Case 5.4: Gradients from extra adversarial terms are all-reduced before optimizer step."""
         cfg = make_adversarial_terms_config(device="cpu", batch_size=8)
@@ -424,7 +412,7 @@ class TestExtraAdversarialTermsReplicated:
         for k in w0:
             assert w0[k] == w1[k], f"Weights differed across ranks for {k}"
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_adversarial_terms_replicated_vs_reference_parity(self):
         """Case 5.5: Parity between replicated extra adversarial terms and reference trainer."""
         from hypergan.training import ReferenceTrainer
@@ -448,7 +436,6 @@ class TestExtraAdversarialTermsReplicated:
 class TestPresetsReplicated:
     """Feature 6: ParticleGAN and standard recipe presets in replicated mode."""
 
-    @requires_m1_recipe_parity
     def test_tier1_preset_bispf_validation_acceptance(self):
         """Case 6.1: validate_replicated_recipe accepts recipe='particlegan-bispf'."""
         cfg = resolve_config({
@@ -458,7 +445,6 @@ class TestPresetsReplicated:
         })
         validate_replicated_recipe(cfg)
 
-    @requires_m1_recipe_parity
     def test_tier1_preset_dualnorm_validation_acceptance(self):
         """Case 6.2: validate_replicated_recipe accepts recipe='particlegan-dualnorm'."""
         cfg = resolve_config({
@@ -468,7 +454,6 @@ class TestPresetsReplicated:
         })
         validate_replicated_recipe(cfg)
 
-    @requires_m1_recipe_parity
     def test_tier1_preset_resolution_to_components(self):
         """Case 6.3: Resolving preset recipe generates complete graph components table."""
         cfg = resolve_config({
@@ -479,7 +464,7 @@ class TestPresetsReplicated:
         assert 'generator' in cfg['components']
         assert 'discriminator' in cfg['components']
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_preset_replicated_smoke_step(self):
         """Case 6.4: 2-rank replicated trainer executes smoke step using resolved preset recipe."""
         cfg = resolve_config({
@@ -492,7 +477,7 @@ class TestPresetsReplicated:
             assert r_res['passed']
             assert r_res['history'][0]['step'] == 1
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     def test_tier1_preset_replicated_accumulation(self):
         """Case 6.5: Preset recipe with accumulation_steps=2 partitions microbatches cleanly."""
         cfg = resolve_config({

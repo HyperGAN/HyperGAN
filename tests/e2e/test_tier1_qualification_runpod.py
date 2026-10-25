@@ -27,20 +27,12 @@ import pytest
 
 try:
     from e2e.harness import (
-        HAVE_QUALIFY,
-        HAVE_RUNPOD,
-        requires_qualify,
-        requires_runpod,
         validate_qualification_receipt,
         compute_receipt_sha256,
         MockRunPodClient,
     )
 except ImportError:
     from tests.e2e.harness import (
-        HAVE_QUALIFY,
-        HAVE_RUNPOD,
-        requires_qualify,
-        requires_runpod,
         validate_qualification_receipt,
         compute_receipt_sha256,
         MockRunPodClient,
@@ -54,7 +46,6 @@ except ImportError:
 class TestQualificationCLIAndReceipt:
     """Feature 12: hypergan qualify CLI, execution speed, and JSON receipt schema."""
 
-    @requires_qualify
     def test_tier1_qualify_cli_help_flags(self):
         """Case 12.1: hypergan qualify --help exhibits --output, --dry-run, --suite, and --timeout."""
         proc = subprocess.run(
@@ -70,7 +61,7 @@ class TestQualificationCLIAndReceipt:
         assert "--suite" in stdout
         assert "--timeout" in stdout
 
-    @requires_qualify
+    @pytest.mark.heavy
     def test_tier1_qualify_local_dry_run_generates_receipt(self, tmp_path):
         """Case 12.2: Running qualify --dry-run writes a machine-readable JSON receipt."""
         receipt_path = tmp_path / "test-receipt.json"
@@ -164,7 +155,6 @@ class TestQualificationCLIAndReceipt:
 class TestRunPodDryRunAndGuardrails:
     """Feature 13: Ephemeral RunPod runner, lowest-cost GPU selector, and cleanup guardrails."""
 
-    @requires_runpod
     def test_tier1_runpod_dry_run_without_credentials(self, tmp_path):
         """Case 13.1: RunPod dry-run executes cleanly without RUNPOD_API_KEY environment variable."""
         from hypergan.runpod_runner import RunPodRunner

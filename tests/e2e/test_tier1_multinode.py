@@ -35,10 +35,6 @@ try:
         HAVE_2_GPUS,
         HAVE_GLOO,
         HAVE_NCCL,
-        HAVE_M1_SCHEMA,
-        HAVE_MULTINODE,
-        requires_m1_schema,
-        requires_multinode,
         requires_2_gpus,
         make_toy_config,
         make_profile_raw,
@@ -49,10 +45,6 @@ except ImportError:
         HAVE_2_GPUS,
         HAVE_GLOO,
         HAVE_NCCL,
-        HAVE_M1_SCHEMA,
-        HAVE_MULTINODE,
-        requires_m1_schema,
-        requires_multinode,
         requires_2_gpus,
         make_toy_config,
         make_profile_raw,
@@ -73,7 +65,6 @@ def get_free_tcp_port() -> int:
 class TestMultiNodeKeys:
     """Feature 10: Multi-node topology resolution (nodes, node_rank, ranks_per_node)."""
 
-    @requires_m1_schema
     def test_tier1_nodes_and_node_rank_resolution(self):
         """Case 10.1: Profile resolves nodes=2, node_rank=1, world_size=4, ranks_per_node=2."""
         cfg = make_toy_config(device="cpu", batch_size=16)
@@ -94,7 +85,6 @@ class TestMultiNodeKeys:
         assert exec_tab['world_size'] == 4
         assert exec_tab['ranks_per_node'] == 2
 
-    @requires_m1_schema
     def test_tier1_ranks_per_node_exact_division(self):
         """Case 10.2: Derived ranks_per_node = world_size // nodes divides evenly."""
         cfg = make_toy_config(device="cpu", batch_size=16)
@@ -112,7 +102,6 @@ class TestMultiNodeKeys:
             resolved = resolve_execution_profile(raw, cfg)
             assert resolved['execution']['ranks_per_node'] == expected_rpn
 
-    @requires_m1_schema
     def test_tier1_rejects_node_rank_gte_nodes(self):
         """Case 10.3: node_rank must be strictly less than nodes (0 <= node_rank < nodes)."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -129,7 +118,6 @@ class TestMultiNodeKeys:
         with pytest.raises(ValueError, match="node_rank"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier1_rejects_nodes_not_dividing_world_size(self):
         """Case 10.4: Rejects configuration where world_size does not divide evenly by nodes."""
         cfg = make_toy_config(device="cpu", batch_size=12)
@@ -146,7 +134,6 @@ class TestMultiNodeKeys:
         with pytest.raises(ValueError, match="divide evenly across execution.nodes"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier1_local_device_remapping_formula(self):
         """Case 10.5: Local device index formula local_rank = global_rank % ranks_per_node."""
         # For world_size=4 across 2 nodes (ranks_per_node=2):
@@ -166,7 +153,6 @@ class TestMultiNodeKeys:
 class TestTCPRendezvous:
     """Feature 11: TCP & File rendezvous, collectives initialization, and cleanup."""
 
-    @requires_m1_schema
     def test_tier1_tcp_rendezvous_uri_acceptance(self):
         """Case 11.1: Profile parser accepts valid tcp://host:port URI in rendezvous."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -183,7 +169,6 @@ class TestTCPRendezvous:
         resolved = resolve_execution_profile(raw, cfg)
         assert resolved['execution']['rendezvous'] == 'tcp://192.168.1.100:29500'
 
-    @requires_m1_schema
     def test_tier1_file_rendezvous_uri_acceptance(self):
         """Case 11.2: Profile parser accepts local file:// URI in rendezvous."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -198,7 +183,6 @@ class TestTCPRendezvous:
         resolved = resolve_execution_profile(raw, cfg)
         assert resolved['execution']['rendezvous'] == 'file:///tmp/hypergan-rendezvous-test'
 
-    @requires_m1_schema
     def test_tier1_rejects_unsupported_rendezvous_schemes(self):
         """Case 11.3: Rejects unsupported URI schemes (http://, udp://, ftp://)."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -214,6 +198,7 @@ class TestTCPRendezvous:
             with pytest.raises(ValueError, match="file:// or tcp://"):
                 resolve_execution_profile(raw, cfg)
 
+    @pytest.mark.heavy
     def test_tier1_tcp_rendezvous_handshake_cpu(self, tmp_path):
         """Case 11.4: 2 processes complete TCP rendezvous handshake over localhost."""
         port = get_free_tcp_port()
@@ -263,6 +248,7 @@ finally:
         assert results[0]['reduced'] == 3.0
         assert results[1]['reduced'] == 3.0
 
+    @pytest.mark.heavy
     def test_tier1_tcp_rendezvous_timeout_cleanup(self, tmp_path):
         """Case 11.5: Rank 0 aborts cleanly with timeout when peer never connects."""
         port = get_free_tcp_port()
@@ -287,6 +273,7 @@ sys.exit(0)
         # Process must fail with timeout (exit code 42), not hang forever
         assert p.returncode == 42, f"Expected timeout exit code 42, got {p.returncode}"
 
+    @pytest.mark.heavy
     @requires_2_gpus
     def test_tier1_local_2_node_gpu_tcp_smoke(self, tmp_path):
         """Case 11.6: 2-node GPU TCP smoke test (node 0 on GPU 0, node 1 on GPU 1)."""

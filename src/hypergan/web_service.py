@@ -753,9 +753,10 @@ class ObservationService:
         # This directory is disposable derived state. Keep all source-format and
         # lineage semantics in HyperGAN; Foldlite owns document replay and state.
         directory = self.view_cache_dir(query['map_revision'])
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        if directory.is_symlink() or directory.parent.is_symlink():
-            raise ValueError('View cache directory must not be a symlink')
+        for _ in range(2):  # before creating anything through a link, and after
+            if directory.is_symlink() or directory.parent.is_symlink():
+                raise ValueError('View cache directory must not be a symlink')
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         path = directory / (_digest(query) + '.fold')
         if any(Path(str(path) + suffix).is_symlink() for suffix in ('', '.cache', '.lock')):
             raise ValueError('View cache file must not be a symlink')

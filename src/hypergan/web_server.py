@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import html
 import json
-import os
 from pathlib import Path
 import time
 from urllib.parse import quote
@@ -14,8 +13,8 @@ from . import inspection as _insp_mod
 from . import registry as _reg_mod
 from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
 from .web_files import read_artifact, read_json, _open
-from .web_service import (MAX_GROUPS, MAX_QUEUE_BYTES, MAX_STREAMS, MAX_SUBSCRIBERS, ObservationService,
-                          RunObservationService, MapSpec, ViewSpec, cursor_offset)
+from .web_service import (MAX_GROUPS, MAX_QUEUE_BYTES, MAX_STREAMS, MAX_SUBSCRIBERS, ObservationService, MapSpec,
+                          ViewSpec, cursor_offset)
 from .web_session import LocalSession
 
 STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'runs.js', 'runs.css', 'logo.png'}
@@ -559,14 +558,30 @@ class ServiceRegistry:
         if not candidate.is_relative_to(root_resolved):
             raise FileNotFoundError(f"Unknown run identity: {run_id}")
 
-        if self.is_single():
+        single = self.is_single()
+        if single:
             if run_id == "run" or self._matches_run_entry(self.root, run_id):
                 return self.root
-            return None
+        else:
+            found = self._find_run_under_root(candidate, run_id)
+            if found is not None:
+                return found
 
+        # Tags and other registry aliases, still only for runs under this root.
+        try:
+            resolved = _reg_mod.resolve_run_target(run_id, cwd=self.root, allow_latest=False)
+        except (OSError, ValueError, LookupError):
+            return None
+        if resolved and resolved.is_dir() and ((resolved / "manifest.json").is_file() or (resolved / "summary.json").is_file()):
+            res_p = resolved.resolve()
+            if res_p == self.root if single else res_p.is_relative_to(root_resolved):
+                return res_p
+        return None
+
+    def _find_run_under_root(self, candidate: Path, run_id: str) -> Path | None:
         # Check direct subdirectory (and runs/ subdirectory if present)
         for direct in (candidate, (self.root / "runs" / run_id).resolve()):
-            if not direct.is_relative_to(root_resolved):
+            if not direct.is_relative_to(self.root):
                 continue
             if direct.is_dir() and not direct.is_symlink() and ((direct / "manifest.json").is_file() or (direct / "summary.json").is_file()):
                 return direct
@@ -593,16 +608,6 @@ class ServiceRegistry:
         for entry in search_dirs:
             if self._matches_run_entry(entry, run_id):
                 return entry
-
-        # Tags and other registry aliases, still only for runs under this root.
-        try:
-            resolved = _reg_mod.resolve_run_target(run_id, cwd=self.root, allow_latest=False)
-        except (OSError, ValueError, LookupError):
-            return None
-        if resolved and resolved.is_dir() and ((resolved / "manifest.json").is_file() or (resolved / "summary.json").is_file()):
-            res_p = resolved.resolve()
-            if res_p.is_relative_to(root_resolved):
-                return res_p
         return None
 
     def _retire_service(self, svc: ObservationService, reason: str) -> None:

@@ -368,6 +368,18 @@ def ensure_run_projected(run_dir: Path | str) -> bool:
         return False
 
 
+# Last projection failure per resolved run directory in this process, so the
+# viewer can answer with the reason instead of waiting for a projection the
+# background projector cannot build (a read-only run, a failing projection).
+_PROJECTION_FAILURES: dict[Path, str] = {}
+PROJECTION_RETRY_SECONDS = 30.0
+
+
+def projection_failure(run_dir: Path | str) -> str | None:
+    """Why this process's background projector last failed on `run_dir`, if it did."""
+    return _PROJECTION_FAILURES.get(Path(run_dir).resolve())
+
+
 class Projector:
     """Background projector for every run under a root whose events.jsonl changed.
 
@@ -381,6 +393,7 @@ class Projector:
         self.runs_root = self.root
         self.poll_interval = poll_interval
         self._last_projected_watermark: dict[Path, tuple[int, int]] = {}
+        self._last_failure: dict[Path, tuple[tuple[int, int] | None, float]] = {}
 
     def _candidate_runs(self) -> list[Path]:
         if (self.root / 'manifest.json').is_file() or (self.root / 'events.jsonl').is_file():
@@ -422,6 +435,12 @@ class Projector:
         if last_wm is not None and last_wm == watermark:
             return False, watermark
 
+        # A failed log is retried when it grows or after a pause, not every poll.
+        failed = self._last_failure.get(run_dir)
+        if (failed is not None and failed[0] == watermark
+                and time.monotonic() - failed[1] < PROJECTION_RETRY_SECONDS):
+            return False, watermark
+
         proj_mtime = _projection_state_mtime_ns(run_dir)
         if last_wm is None and proj_mtime is not None and proj_mtime >= watermark[0]:
             self._last_projected_watermark[run_dir] = watermark
@@ -444,9 +463,12 @@ class Projector:
                     pass
                 if watermark is not None:
                     self._last_projected_watermark[run_dir] = watermark
+                self._last_failure.pop(run_dir, None)
+                _PROJECTION_FAILURES.pop(run_dir, None)
                 projected.append(run_dir)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._last_failure[run_dir] = (watermark, time.monotonic())
+                _PROJECTION_FAILURES[run_dir] = f'{type(exc).__name__}: {exc}'[:500]
         return projected
 
     def _loop(self, stop=None, *, max_iterations: int | None = None) -> None:

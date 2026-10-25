@@ -35,7 +35,10 @@ def _machine_names():
     except OSError:
         name = ""
     if name:
-        names.update({name, name.split(".")[0]})
+        short = name.split(".")[0]
+        # `<host>.local` is this machine's mDNS name; the .local zone cannot be
+        # registered publicly, so a rebinding site cannot own it.
+        names.update({name, short, short + ".local"})
     for extra in os.environ.get(ALLOWED_HOSTS_ENV, "").split(","):
         if extra.strip():
             names.add(extra.strip().lower().rstrip("."))

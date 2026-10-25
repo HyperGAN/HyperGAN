@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import html
 import json
+import logging
 from pathlib import Path
 import time
 from urllib.parse import quote
@@ -18,6 +19,37 @@ from .web_service import (MAX_GROUPS, MAX_QUEUE_BYTES, MAX_STREAMS, MAX_SUBSCRIB
 from .web_session import LocalSession
 
 STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'runs.js', 'runs.css', 'logo.png'}
+
+
+# Seconds an event stream waits for its client to accept one frame.
+STREAM_SEND_DEADLINE = 5.0
+
+
+class StreamSendDeadline(OSError):
+    """An event-stream client stopped reading; its connection is dropped."""
+
+
+def _is_send_deadline(error, depth=0):
+    if error is None or depth > 8:
+        return False
+    if isinstance(error, StreamSendDeadline):
+        return True
+    if isinstance(error, BaseExceptionGroup):
+        return any(_is_send_deadline(item, depth + 1) for item in error.exceptions)
+    return _is_send_deadline(error.__cause__ or error.__context__, depth + 1)
+
+
+def _quiet_send_deadline(record):
+    """Logging filter: a stalled browser tab is routine, not a server error.
+
+    Raising out of the ASGI app is the only way to make the server close a
+    connection whose client no longer drains it, and uvicorn logs that as
+    'Exception in ASGI application'. Record it at debug level instead.
+    """
+    if record.exc_info and _is_send_deadline(record.exc_info[1]):
+        logging.getLogger(__name__).debug('Closed an event stream whose client stopped reading')
+        return False
+    return True
 
 _disk_cache: dict[Path, tuple[float, int]] = {}
 
@@ -759,8 +791,6 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         `receive` yields `http.disconnect`, and this wrapper yields one as well
         on shutdown or after a missed send deadline, then completes the response.
         """
-        send_deadline = 5.0
-
         async def __call__(self, scope, receive, send):
             stop = asyncio.Event()
             progress = {'started': False, 'complete': False}
@@ -782,10 +812,10 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                     return await send(message)
                 progress['complete'] = not message.get('more_body', False)
                 try:
-                    await asyncio.wait_for(send(message), timeout=self.send_deadline)
+                    await asyncio.wait_for(send(message), timeout=STREAM_SEND_DEADLINE)
                 except asyncio.TimeoutError as exc:
                     stop.set()
-                    raise OSError('Stream client exceeded the send deadline') from exc
+                    raise StreamSendDeadline('Stream client exceeded the send deadline') from exc
                 # Yield once per frame so a lost connection is observed before
                 # a replay burst writes the next one.
                 await asyncio.sleep(0)
@@ -1110,7 +1140,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         run_id = request.path_params.get('run_id')
         if run_id:
             svc = await registry.get(run_id)
-        elif single_service is not None:
+        elif single_service is not None and await asyncio.to_thread(registry.is_single):
+            # A root that was empty at startup becomes a dashboard once runs appear.
             svc = single_service
         else:
             async def root_events():
@@ -1245,7 +1276,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                                             forwarded_proto=request.headers.get('x-forwarded-proto'),
                                             forwarded_host=request.headers.get('x-forwarded-host'))
             if channel is None:
-                return await JSONResponse({'error': 'Invalid local Host or Origin'}, status_code=403)(scope, receive, send)
+                return await JSONResponse({'error': 'Invalid local Host or Origin; list another name for this machine '
+                                                     'in HYPERGAN_VIEWER_HOSTS or name a proxy with --public-origin'},
+                                           status_code=403)(scope, receive, send)
             signed_in = session.authenticated(authorization=request.headers.get('authorization'),
                                               cookie=request.cookies.get(session.cookie_name))
             state = scope.setdefault('state', {})
@@ -1338,6 +1371,7 @@ def run_socket(run_dir, bound_socket, session, *, history_seconds=180):
     app = create_app(run_dir, session, history_timeout=history_seconds)
     config = uvicorn.Config(app, host=session.bind_host, port=bound_socket.getsockname()[1],
                             access_log=False, log_level='warning', timeout_graceful_shutdown=1)
+    logging.getLogger('uvicorn.error').addFilter(_quiet_send_deadline)
 
     class _Server(uvicorn.Server):
         def handle_exit(self, sig, frame):

@@ -28,12 +28,15 @@ working across restarts. A port that is already in use is an error naming the pr
 that holds it, never a silent move to another port; when that process is the dashboard
 `hypergan train` started for the same root, `hypergan view` prints and opens its URL
 instead. Select another address with `--host 127.0.0.1`, a fixed port with
-`--port 8123`, or an OS-assigned port with `--port 0`. The printed browser URL uses
-`127.0.0.1` for a wildcard bind; `localhost`, `127.0.0.1` and `[::1]` are the same
+`--port 8123`, or an OS-assigned port with `--port 0`. For a wildcard bind, a viewer
+that `hypergan view` or `hypergan serve` starts prints a `127.0.0.1` URL, while
+`hypergan train`, `hypergan resume` and a `hypergan view` that reuses a running
+dashboard print `localhost`; `localhost`, `127.0.0.1` and `[::1]` are the same
 loopback authority. Browser requests remain same-origin.
 
 A wildcard bind accepts a `Host` that is an IP address, a loopback name, or this
-machine's own host name. Any other DNS name is refused, so a website that rebinds
+machine's own host name (with or without its domain, and its mDNS name
+`<host>.local`). Any other DNS name is refused, so a website that rebinds
 its own name to this machine (DNS rebinding) cannot read runs or post controls. To
 reach the viewer directly under another name, such as a MagicDNS name, list it in
 `HYPERGAN_VIEWER_HOSTS` (comma separated); a TLS proxy uses `--public-origin`.
@@ -183,9 +186,12 @@ range or recovery lineage requests a separate bounded job. `step_from` and
 `step_to` are inclusive optional query limits. Historical caches are derived state
 kept outside the run, under `$HYPERGAN_VIEWER_CACHE` (default
 `~/.cache/hypergan/viewer`), bounded to the 16 most recent per run and the 64 most
-recently viewed runs; a read-only run still charts. Projection is the viewer's own
-background work: a request never projects, and history for a run that is still being
-projected answers 202 until the projection is announced.
+recently viewed runs, so a read-only run that was projected beforehand still charts.
+Projection is the viewer's own background work: a request never projects, and history
+for a run that is still being projected answers 202 until the projection is announced.
+When the viewer's projector fails on a run (for example a read-only run that was never
+projected), history answers 404 with the projector's error; the projector retries when
+the event log grows or after 30 seconds.
 
 SSE sends unchanged `frame` envelopes and control events: `stream_added`,
 `metadata`, `heartbeat`, `bootstrap_ready`, `artifacts`, `gap` and

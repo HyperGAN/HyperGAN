@@ -193,7 +193,7 @@ hypergan rm exp-lr2e4
 
 ## Web Observatory (`hypergan view`)
 
-With `.[web]` installed, `hypergan train` and `hypergan resume` automatically launch a background Web Observatory on `0.0.0.0:8765` (or the next free port; disable with `--no-server`). You can also start, inspect, or stop the Web Observatory for any runs root or individual run (`<slug>`, `<short_id>`, `<tag>`, or path):
+With `.[web]` installed, `hypergan train` and `hypergan resume` automatically launch a background Web Observatory on `0.0.0.0:8765` (pick another port with `--port`; a busy port is an error that names the process holding it, never a search; disable with `--no-server`). You can also start, inspect, or stop the Web Observatory for any runs root or individual run (`<slug>`, `<short_id>`, `<tag>`, or path):
 
 ```sh
 # Start the global runs dashboard and per-run observatory

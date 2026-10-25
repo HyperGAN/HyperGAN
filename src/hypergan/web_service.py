@@ -291,6 +291,15 @@ class ObservationService:
             def collect(signature):
                 records = {}
                 relative_path = self._relocator()
+
+                def placed(record, value):
+                    # A file the index names but this run no longer holds is
+                    # unavailable on its own; the rest of the index still serves.
+                    try:
+                        record['path'] = relative_path(value)
+                    except ValueError as exc:
+                        record.update(path=None, status='unavailable', reason=str(exc))
+                    return record
                 if signature[1] is not None:
                     index = read_json(self.root, 'previews/index.json',
                                       max_bytes=PREVIEW_INDEX_BYTES)
@@ -305,11 +314,11 @@ class ObservationService:
                         key = 'preview-' + _digest(identity)[:32]
                         name = _sample_name(preview.get('name'), identity.get('name'))
                         if preview.get('representation') != 'png':
-                            records[key] = dict(path=relative_path(preview['path']), bytes=preview['bytes'],
+                            records[key] = placed(dict(bytes=preview['bytes'],
                                 sha256=preview.get('sha256'), role='sample', modality='tensor', name=name,
                                 media_type='application/json', provenance=dict(identity, step=preview['step'], name=name),
-                                shape=preview['shape'])
-                            if not isinstance(records[key]['sha256'], str):
+                                shape=preview['shape']), preview['path'])
+                            if not isinstance(records[key]['sha256'], str) and 'status' not in records[key]:
                                 records[key].update(status='unavailable', reason='Preview predates indexed content digests')
                         from .previews import MAX_INPUT_GRIDS, MAX_EXTRA_GRIDS
                         grid_fields = (('image_grid', '-grid'), ('real_image_grid', '-real-grid')) + tuple(
@@ -321,14 +330,14 @@ class ObservationService:
                             if grid is None:
                                 continue
                             grid_name = _sample_name(grid.get('name'), name if field == 'image_grid' else 'x')
-                            record = dict(path=relative_path(grid['path']), bytes=grid['bytes'],
+                            record = dict(bytes=grid['bytes'],
                                 sha256=grid['sha256'], role='sample', modality='image', media_type='image/png',
                                 name=grid_name,
                                 provenance=dict(identity, step=preview['step'], name=grid_name),
                                 width=grid['width'], height=grid['height'])
                             if field == 'image_grid':
                                 record['shape'] = preview['shape']
-                            records[key + suffix] = record
+                            records[key + suffix] = placed(record, grid['path'])
                 if signature[2] is not None:
                     index = read_json(self.root, 'artifacts/index.json')
                     indexed = index.get('artifacts')
@@ -339,8 +348,8 @@ class ObservationService:
                             raise ValueError('Invalid/duplicate artifact ID')
                         # Explicit indexes may name their source; otherwise the stable
                         # artifact ID is its own group name.
-                        records[key] = dict(record, path=relative_path(record['path']),
-                                            name=_sample_name(record.get('name'), key))
+                        records[key] = placed(dict(record, name=_sample_name(record.get('name'), key)),
+                                              record['path'])
                 if signature[0]:
                     try:
                         path = relative_path(signature[0])
@@ -689,6 +698,10 @@ class ObservationService:
         stream = self.streams.get('projection:' + map_revision)
         if stream is None:
             if map_revision == MapSpec().revision and (self.root / self.source_paths['training']).is_file():
+                from .web_autostart import projection_failure
+                failure = projection_failure(self.root)
+                if failure is not None:
+                    raise FileNotFoundError(f'Projection could not be built: {failure}')
                 # The viewer's projector builds it; discovery then announces it.
                 raise LookupError('Projection is being built')
             raise FileNotFoundError('Projection missing; run the explicit projection service')

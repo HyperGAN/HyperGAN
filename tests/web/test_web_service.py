@@ -1254,6 +1254,12 @@ def test_single_run_viewer_ignores_the_global_registry(tmp_path):
     with TestClient(create_app(run, session), base_url=session.origin) as client:
         assert '<title>HyperGAN Runs' not in client.get('/').text
     assert ServiceRegistry(run)._iter_registered_run_dirs() == []
+    # Even a registered run nested inside the served run is not listed: the
+    # root filter alone would admit it, so this is the single-run rule.
+    nested = run / 'nested'
+    fixture_run(nested)
+    registry.register_run(nested, status='stopped')
+    assert ServiceRegistry(run)._iter_registered_run_dirs() == []
 
 
 def test_moved_run_with_absolute_preview_index_still_opens(tmp_path):
@@ -1293,7 +1299,10 @@ def test_unusable_preview_index_is_reported_once_and_never_resets_the_page(tmp_p
         subscriber, _ = service.subscribe('*')
         try:
             assert service.run_id == 'run' and 'training' in service.streams
-            assert 'not inside this run' in service.artifact_error
+            # Only the record naming a missing file is unavailable, not the index.
+            assert service.artifact_error is None
+            (record,) = service.artifacts.values()
+            assert record['status'] == 'unavailable' and 'not inside this run' in record['reason']
             await asyncio.sleep(.2)
             events = []
             while not subscriber.queue.empty():
@@ -1477,6 +1486,14 @@ def test_inactive_run_refuses_new_requests_and_replays_only_acknowledged_ones(tm
             assert response.status_code == 400 and response.json()['action'] == action
         assert not (tmp_path / 'requests').exists() or not any((tmp_path / 'requests').rglob('*fresh*'))
         assert client.post('/api/v1/runs/run/stop', content=b'{"x":1}').status_code == 400
+        # A request the run queued before it stopped keeps its receipt on retry,
+        # but only for the action it was submitted as.
+        from hypergan.run_requests import submit_checkpoint_request
+        submit_checkpoint_request(tmp_path, run_id='run', attempt_id='a', request_id='queued-1')
+        replay = client.post('/api/v1/runs/run/checkpoint', json={'request_id': 'queued-1'})
+        assert replay.status_code == 200, replay.text
+        assert replay.json()['request_id'] == 'queued-1' and replay.json()['status'] == 'pending'
+        assert client.post('/api/v1/runs/run/sample', json={'request_id': 'queued-1'}).status_code == 400
 
 
 def test_running_dashboard_is_reused_by_view_for_its_root(tmp_path, monkeypatch):
@@ -1499,3 +1516,170 @@ def test_running_dashboard_is_reused_by_view_for_its_root(tmp_path, monkeypatch)
     with pytest.raises(OSError, match='--auth none'):
         running_dashboard(root, 8765, 'token')
     assert running_dashboard(root, 0, 'none') is None
+
+
+def test_moved_run_marks_only_the_missing_preview_unavailable(tmp_path):
+    from hypergan.previews import publish_preview_payload
+    original = tmp_path / 'workspace' / 'runs' / 'x'
+    original.parent.mkdir(parents=True)
+    fixture_run(original, 2)
+    for sequence in (1, 2):
+        identity = {'run_id': 'run', 'attempt_id': '0001-' + 'a' * 32, 'attempt_index': 1,
+                    'sample_sequence': sequence}
+        payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity, 'step': sequence,
+                   'count': 1, 'shape': [1, 2], 'samples': [[.2, .3]]}
+        publish_preview_payload(original, payload, identity, sequence)
+    index = json.loads((original / 'previews' / 'index.json').read_text())
+    lost, kept = index['previews'][0], index['previews'][1]
+    Path(lost['path']).unlink()
+    moved = tmp_path / 'home' / 'renamed'
+    moved.parent.mkdir(parents=True)
+    original.rename(moved)
+    session = LocalSession(8123)
+    with TestClient(create_app(moved, session, poll_seconds=.01), base_url=session.origin) as client:
+        artifacts = client.get('/api/v1/runs/run/artifacts').json()
+        assert 'error' not in artifacts
+        by_step = {record['provenance']['step']: (key, record) for key, record in artifacts['artifacts'].items()}
+        assert by_step[lost['step']][1]['status'] == 'unavailable'
+        key, record = by_step[kept['step']]
+        assert 'status' not in record
+        data = client.get(f'/api/v1/runs/run/artifacts/{key}')
+        assert data.status_code == 200 and hashlib.sha256(data.content).hexdigest() == record['sha256']
+        assert client.get(f'/api/v1/runs/run/artifacts/{by_step[lost["step"]][0]}').status_code == 400
+
+
+def test_wildcard_bind_accepts_the_mdns_name_and_refusals_name_the_setting(tmp_path):
+    fixture_run(tmp_path)
+    session = LocalSession(8123, host='0.0.0.0', auth='none')
+    short = socket.gethostname().lower().split('.')[0]
+    assert session.permits_request(f'{short}.local:8123', f'http://{short}.local:8123')
+    assert not session.permits_request('evil.local:8123')
+    with TestClient(create_app(tmp_path, session, poll_seconds=.01), base_url=session.origin) as client:
+        refused = client.get('/api/runs', headers={'host': 'evil.example:8123'})
+        assert refused.status_code == 403
+        assert 'HYPERGAN_VIEWER_HOSTS' in refused.json()['error']
+
+
+def test_failed_background_projection_is_reported_instead_of_indexing_forever(tmp_path, monkeypatch):
+    import shutil
+    import hypergan.web_autostart as startup
+    fixture_run(tmp_path, 2)
+    shutil.rmtree(tmp_path / 'views')
+    monkeypatch.setattr(startup, '_PROJECTION_FAILURES', {})
+    calls = []
+
+    def unwritable(run_dir):
+        calls.append(run_dir)
+        raise PermissionError(13, 'Permission denied', str(run_dir / 'views'))
+    monkeypatch.setattr(startup, 'project_run', unwritable)
+
+    async def scenario():
+        service = await ObservationService(tmp_path, poll_seconds=.01).start()
+        try:
+            series = dict(series=['loss/g_total'], bucket_steps=1)
+            # Nothing has failed yet: the projection is still expected.
+            reason = None
+            for _ in range(500):
+                try:
+                    service.bootstrap(MapSpec().revision, **series)
+                except LookupError as exc:
+                    reason = str(exc)
+                    if 'being built' in reason:
+                        break
+                await asyncio.sleep(.01)
+            assert reason == 'Projection is being built'
+            projector = startup.Projector(tmp_path)
+            assert projector.poll_once() == []
+            assert projector.poll_once() == []
+            assert len(calls) == 1, 'An unchanged failing log is not retried on every poll'
+            with pytest.raises(FileNotFoundError, match='could not be built: PermissionError'):
+                service.bootstrap(MapSpec().revision, **series)
+            monkeypatch.setattr(startup, 'project_run', lambda run_dir: {'documents': 0})
+            append_event(tmp_path, 4, 3)
+            projector.poll_once()
+            assert startup.projection_failure(tmp_path) is None
+        finally:
+            await service.close()
+    asyncio.run(scenario())
+
+
+def test_stream_client_that_stops_reading_is_dropped_without_an_error_log(tmp_path, monkeypatch):
+    import logging
+    import uvicorn
+    import hypergan.web_server as web_server
+    fixture_run(tmp_path)
+    monkeypatch.setattr(web_server, 'STREAM_SEND_DEADLINE', .2)
+    session = LocalSession(8123)
+    app = create_app(tmp_path, session, poll_seconds=.01)
+    with TestClient(app, base_url=session.origin) as client:
+        async def stalled():
+            sent = []
+
+            async def receive():
+                await asyncio.Event().wait()
+
+            async def send(message):
+                sent.append(message['type'])
+                if message['type'] == 'http.response.body':
+                    await asyncio.sleep(3600)  # a client that never drains
+            scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.3'}, 'http_version': '1.1',
+                     'method': 'GET', 'scheme': 'http', 'path': '/api/v1/runs/run/stream',
+                     'raw_path': b'/api/v1/runs/run/stream', 'query_string': b'', 'root_path': '',
+                     'headers': [(b'host', session.host.encode())], 'client': ('127.0.0.1', 1),
+                     'server': ('127.0.0.1', 8123)}
+            try:
+                await asyncio.wait_for(app(scope, receive, send), 10)
+            except Exception as exc:
+                return sent, exc
+            return sent, None
+        sent, error = client.portal.call(stalled)
+    assert sent[0] == 'http.response.start' and error is not None
+    assert web_server._is_send_deadline(error), repr(error)
+
+    # The server logs the dropped connection through uvicorn.error; that record is
+    # filtered out, while any other application error still reaches the log.
+    def record(exc):
+        return logging.LogRecord('uvicorn.error', logging.ERROR, __file__, 1, 'Exception in ASGI application\n',
+                                 None, (type(exc), exc, exc.__traceback__))
+    assert web_server._quiet_send_deadline(record(error)) is False
+    assert web_server._quiet_send_deadline(record(RuntimeError('boom'))) is True
+    monkeypatch.setattr(uvicorn.Server, 'run', lambda self, sockets=None: None)
+    listener = socket.socket()
+    try:
+        listener.bind(('127.0.0.1', 0))
+        web_server.run_socket(tmp_path, listener, session)
+    finally:
+        listener.close()
+    assert web_server._quiet_send_deadline in logging.getLogger('uvicorn.error').filters
+
+
+def test_root_empty_at_startup_streams_as_a_dashboard_once_runs_appear(tmp_path):
+    root = tmp_path / 'runs'
+    root.mkdir()
+
+    async def scenario():
+        session = LocalSession(8123)
+        app = create_app(root, session, poll_seconds=.01)
+        # Empty, the root looked like one pending run; now it holds runs.
+        assert app.state.observations is not None
+        fixture_run(root / 'r1', 1)
+        scope = {'type': 'http', 'asgi': {'version': '3.0', 'spec_version': '2.3'},
+                 'http_version': '1.1', 'method': 'GET', 'scheme': 'http',
+                 'path': '/api/v1/stream', 'raw_path': b'/api/v1/stream', 'query_string': b'stream_id=bogus',
+                 'headers': [(b'host', session.host.encode())],
+                 'server': ('127.0.0.1', 8123), 'client': ('127.0.0.1', 9999), 'root_path': ''}
+        sent = []
+
+        async def receive():
+            await asyncio.Event().wait()
+
+        async def send(message):
+            sent.append(message)
+            if message['type'] == 'http.response.body' and message.get('more_body'):
+                app.state.shutdown_event.set()
+        await asyncio.wait_for(app(scope, receive, send), 5)
+        # The dashboard stream ignores run selectors; the single-run stream it
+        # replaced would have refused the unknown selector with 400.
+        assert sent[0]['status'] == 200
+        assert sent[1]['body'].startswith(b'event: ready')
+    asyncio.run(scenario())

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 from itertools import islice
 import re
@@ -19,6 +20,8 @@ from .run_events import read_event_page
 from .web_files import read_json, read_bytes, _open
 
 MAX_QUEUE_BYTES = 1048576
+MAX_SUBSCRIBERS = 32
+MAX_BOOTSTRAP_BYTES = 1048576
 MAX_GROUPS = 2048
 MAX_STREAMS = 4096
 MAX_ATTEMPTS = 4096
@@ -29,6 +32,11 @@ MAX_BOOTSTRAPS = 8
 # and validated, with room for several times that.
 MAX_PREVIEWS = 4096
 PREVIEW_INDEX_BYTES = 16 * 1048576
+# Historical bootstrap caches kept per run and map revision, and runs kept in
+# the cache root; the least recently used beyond either bound are deleted.
+MAX_VIEW_CACHES = 16
+MAX_VIEW_CACHE_RUNS = 64
+VIEW_CACHE_ENV = 'HYPERGAN_VIEWER_CACHE'
 _HEX = re.compile('[0-9a-f]{64}\\Z')
 _EVAL_DIR_RE = re.compile(r'^(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})\Z')
 
@@ -42,6 +50,18 @@ def _digest(value):
 
 
 _SAMPLE_NAME = re.compile('[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}')
+
+
+def view_cache_root():
+    """Private per-user directory for derived viewer state, never a run directory.
+
+    Viewing must not write into runs: a shared or read-only run still charts,
+    and reloading a page does not leave files behind in the experiment.
+    """
+    configured = os.environ.get(VIEW_CACHE_ENV)
+    if configured:
+        return Path(configured)
+    return Path(os.environ.get('XDG_CACHE_HOME') or Path.home() / '.cache') / 'hypergan' / 'viewer'
 
 
 def _sample_name(*candidates):
@@ -68,8 +88,9 @@ class BootstrapJob:
 
 
 class ObservationService:
-    def __init__(self, run_dir, *, poll_seconds=.25, history_timeout=180):
+    def __init__(self, run_dir, *, poll_seconds=.25, history_timeout=180, cache_dir=None):
         self.root = Path(run_dir).resolve()
+        self.cache_dir = None if cache_dir is None else Path(cache_dir)
         if type(history_timeout) not in (int, float) or not math.isfinite(history_timeout) or not 1 <= history_timeout <= 3600:
             raise ValueError('history timeout must be finite seconds in 1..3600')
         if type(poll_seconds) not in (int, float) or not math.isfinite(poll_seconds) or not .005 <= poll_seconds <= 60:
@@ -77,12 +98,14 @@ class ObservationService:
         self.poll_seconds = poll_seconds
         self.history_timeout = history_timeout
         self.streams = {}
+        self._failed = {}
         self.source_paths = {'training': 'events.jsonl'}
         self.subscribers = set()
         self.jobs = OrderedDict()
         self.attempts = {}
         self.artifacts = {}
         self._artifact_signature = None
+        self.artifact_error = None
         self._model_cache = None
         self._artifact_lock = asyncio.Lock()
         self.run_id = None
@@ -209,9 +232,41 @@ class ObservationService:
         return result
 
     def artifact_index(self):
-        return {'schema_version': 1, 'artifacts': {
+        result = {'schema_version': 1, 'artifacts': {
             key: {name: value for name, value in record.items() if name != 'path'}
             for key, record in self.artifacts.items()}}
+        if self.artifact_error:
+            result['error'] = self.artifact_error
+        return result
+
+    def _relocator(self):
+        """Map an indexed path to one relative to this run directory.
+
+        Producers record absolute paths, which name the old location once a run
+        is moved, renamed or copied. The old run directory is the longest prefix
+        whose remainder exists here; it is found once and reused for the index.
+        """
+        stale_prefixes = []
+
+        def relative_path(value):
+            path = Path(value)
+            if not path.is_absolute():
+                return path.as_posix()
+            try:
+                return path.relative_to(self.root).as_posix()
+            except ValueError:
+                pass
+            parts = path.parts
+            for prefix in stale_prefixes:
+                if parts[:len(prefix)] == prefix:
+                    return Path(*parts[len(prefix):]).as_posix()
+            for split in range(1, len(parts)):
+                remainder = Path(*parts[split:])
+                if (self.root / remainder).exists():
+                    stale_prefixes.append(parts[:split])
+                    return remainder.as_posix()
+            raise ValueError(f'Indexed file {path.name!r} is not inside this run')
+        return relative_path
 
     async def refresh_artifacts(self):
         async with self._artifact_lock:
@@ -226,12 +281,16 @@ class ObservationService:
                         signature.append(None)
                 if signature == self._artifact_signature:
                     return None
+                try:
+                    return signature, collect(signature), None
+                except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+                    # An optional bad index must not fail the run: keep what was
+                    # served, report it once, and retry only when the files change.
+                    return signature, self.artifacts, f'Artifact index unavailable: {exc}'
+
+            def collect(signature):
                 records = {}
-                def relative_path(value):
-                    path = Path(value)
-                    if path.is_absolute():
-                        path = path.relative_to(self.root)
-                    return path.as_posix()
+                relative_path = self._relocator()
                 if signature[1] is not None:
                     index = read_json(self.root, 'previews/index.json',
                                       max_bytes=PREVIEW_INDEX_BYTES)
@@ -283,7 +342,10 @@ class ObservationService:
                         records[key] = dict(record, path=relative_path(record['path']),
                                             name=_sample_name(record.get('name'), key))
                 if signature[0]:
-                    path = relative_path(signature[0])
+                    try:
+                        path = relative_path(signature[0])
+                    except ValueError:
+                        path = Path(signature[0]).name
                     key = 'final-sample-' + _digest(path)[:32]
                     try:
                         data = read_bytes(self.root, path, max_bytes=16 * 1048576)
@@ -298,11 +360,32 @@ class ObservationService:
                             shape=payload.get('shape'))
                     except (ValueError, OSError) as exc:
                         records[key] = dict(status='unavailable', role='sample', reason=str(exc), name='final')
-                return signature, records
+                return records
             result = await asyncio.to_thread(inventory)
             if result is not None:
-                self._artifact_signature, self.artifacts = result
+                previous = self.artifact_error
+                self._artifact_signature, self.artifacts, self.artifact_error = result
+                if self.artifact_error != previous:
+                    self.notify('discovery_error', {'reason': self.artifact_error or '',
+                                                    'status': 'error' if self.artifact_error else 'available'})
                 self.notify('artifacts', {'revision': _digest(self.artifact_index())})
+
+    def retire(self, reason):
+        """Stop serving this run: every subscriber is told to reconnect.
+
+        A live view must never keep its heartbeat while its tails are gone, or
+        the page would show a frozen run as "Live stream".
+        """
+        for subscriber in list(self.subscribers):
+            subscriber.offer('reset_required', {'reason': reason})
+            subscriber.closed = True
+        self._closed = True
+        tasks = [s.task for s in self.streams.values()] + [job.task for job in self.jobs.values()]
+        if self._discovery:
+            tasks.append(self._discovery)
+        for task in tasks:
+            if task:
+                task.cancel()
 
     async def close(self):
         self._closed = True
@@ -328,9 +411,50 @@ class ObservationService:
         self.notify('stream_added', {'stream_id': stream_id})
         stream.task = asyncio.create_task(self._tail(stream))
 
+    def view_cache_dir(self, map_revision):
+        """Where this run's bootstrap caches for one map revision live."""
+        owner = _digest({'root': str(self.root), 'run_id': self.run_id})[:32]
+        return (self.cache_dir or view_cache_root()) / owner / map_revision
+
+    def _source_file(self, stream_id):
+        if stream_id in self.source_paths:
+            return self.root / self.source_paths[stream_id]
+        return self.root / 'views' / stream_id[11:] / 'contributions.jsonl'
+
+    def _file_identity(self, stream_id):
+        try:
+            stat = self._source_file(stream_id).stat()
+        except OSError:
+            return None
+        return stat.st_dev, stat.st_ino, stat.st_size
+
+    def _recover_failed_streams(self):
+        """Re-register a failed stream once its file was replaced or truncated.
+
+        A stream whose history became unreadable stays failed (and visible) while
+        its file is unchanged; a rebuilt projection or a cleaned run gets a new
+        tail from its start, and connected viewers are told to reload.
+        """
+        for stream_id, failed in list(self._failed.items()):
+            current = self._file_identity(stream_id)
+            if current is None or (current[:2] == failed[:2] and current[2] >= failed[2]):
+                continue
+            del self._failed[stream_id]
+            self.streams.pop(stream_id, None)
+            if stream_id == 'training':
+                self.attempts.clear()
+            else:
+                for job in self.jobs.values():
+                    if job.task:
+                        job.task.cancel()
+                self.jobs.clear()
+            self._register(stream_id)
+            self.notify('reset_required', {'stream_id': stream_id, 'reason': 'Observation stream was rebuilt'})
+
     async def discover(self):
         # Bad/over-budget optional inventories must not freeze run metadata or
         # trigger endless bootstrap resets for already registered consumers.
+        self._recover_failed_streams()
         previous = self.discovery_error
         try:
             await self._discover()
@@ -483,20 +607,27 @@ class ObservationService:
                 await asyncio.sleep(self.poll_seconds)
             except (OSError, ValueError, KeyError) as exc:
                 stream.error = str(exc)
+                # Corrupt/replaced complete history must not be silently skipped:
+                # this tail ends, and discovery starts a new one only when the
+                # file itself is replaced.
+                self._failed[stream.stream_id] = self._file_identity(stream.stream_id) or (None, None, 0)
                 if stream.stream_id == 'projection:' + MapSpec().revision:
                     self.notify('heartbeat', {'run': self.public_manifest()})
                 self.notify('reset_required', {'stream_id': stream.stream_id, 'reason': str(exc)})
-                # Corrupt/replaced complete history must not be silently skipped.
                 return
 
-    def subscribe(self, stream_id):
-        if len(self.subscribers) >= 32:
-            raise ValueError('Viewer has reached its 32-consumer limit')
+    def check_subscription(self, stream_id):
+        """Raise ValueError unless `subscribe(stream_id)` would succeed now."""
+        if len(self.subscribers) >= MAX_SUBSCRIBERS:
+            raise ValueError(f'Viewer has reached its {MAX_SUBSCRIBERS}-consumer limit')
         if stream_id != '*' and stream_id != 'training' and not (
                 (stream_id.startswith('projection:') and _HEX.fullmatch(stream_id[11:])) or
                 (stream_id.startswith('evaluation:') and _EVAL_DIR_RE.fullmatch(stream_id[11:]))):
             raise ValueError('Invalid stream selector')
-        subscriber = Subscriber(stream_id)
+
+    def subscribe(self, stream_id):
+        self.check_subscription(stream_id)
+        subscriber = Subscriber(stream_id, max_bytes=MAX_QUEUE_BYTES)
         self.subscribers.add(subscriber)
         # No await between registration and snapshot: queued live suffix starts
         # after these watermarks. Historical replay through them cannot lose events.
@@ -557,6 +688,9 @@ class ObservationService:
         key = _digest(query)
         stream = self.streams.get('projection:' + map_revision)
         if stream is None:
+            if map_revision == MapSpec().revision and (self.root / self.source_paths['training']).is_file():
+                # The viewer's projector builds it; discovery then announces it.
+                raise LookupError('Projection is being built')
             raise FileNotFoundError('Projection missing; run the explicit projection service')
         if stream.error:
             raise ValueError(stream.error)
@@ -618,11 +752,10 @@ class ObservationService:
 
         # This directory is disposable derived state. Keep all source-format and
         # lineage semantics in HyperGAN; Foldlite owns document replay and state.
-        directory = self.root / 'views' / query['map_revision'] / 'foldlite'
-        for parent in (directory.parent.parent, directory.parent, directory):
-            if parent.is_symlink():
-                raise ValueError('View cache directory must not be a symlink')
-        directory.mkdir(exist_ok=True)
+        directory = self.view_cache_dir(query['map_revision'])
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if directory.is_symlink() or directory.parent.is_symlink():
+            raise ValueError('View cache directory must not be a symlink')
         path = directory / (_digest(query) + '.fold')
         if any(Path(str(path) + suffix).is_symlink() for suffix in ('', '.cache', '.lock')):
             raise ValueError('View cache file must not be a symlink')
@@ -645,6 +778,7 @@ class ObservationService:
             if isinstance(exc, (DatabaseError, RuntimeError)) or 'Native log' in str(exc):
                 raise RuntimeError(f"Cannot read or update derived view cache; verify cache access or remove {path} while observers are stopped, then retry") from exc
             raise
+        await asyncio.to_thread(_prune_view_caches, directory, path)
         view = ViewSpec(query['map_revision'], bucket_steps=query['bucket_steps'])
         result = dict(schema_version=1, run_id=self.run_id, map_revision=query['map_revision'],
                       view_revision=view.revision, module_sha256=reducer.module_sha256,
@@ -653,9 +787,48 @@ class ObservationService:
                                                     key=lambda group: group['key']),
                       cursor=cursor, projection_sequence=sequence, coverage={'complete': True},
                       step_from=query['step_from'], step_to=query['step_to'])
-        if len(_json(result).encode()) > 1048576:
+        if len(_json(result).encode()) > MAX_BOOTSTRAP_BYTES:
             raise ValueError('Bootstrap response exceeds 1 MiB; narrow the view')
         return result
+
+
+def _prune_view_caches(directory, keep):
+    """Bound the derived cache: `keep` (in `directory`) was just used.
+
+    Within the run, the most recently used MAX_VIEW_CACHES caches remain; in the
+    cache root, the MAX_VIEW_CACHE_RUNS most recently used runs remain.
+    """
+    import shutil
+
+    def newest_first(paths):
+        stamped = []
+        for path in paths:
+            try:
+                stamped.append((path.stat().st_mtime_ns, path))
+            except OSError:
+                pass
+        return [path for _, path in sorted(stamped, reverse=True)]
+    owner = directory.parent
+    try:
+        os.utime(keep)
+        os.utime(owner)
+    except OSError:
+        return
+    for stale in newest_first(directory.glob('*.fold'))[MAX_VIEW_CACHES:]:
+        if stale == keep:
+            continue
+        for suffix in ('', '.cache', '.lock'):
+            try:
+                Path(str(stale) + suffix).unlink(missing_ok=True)
+            except OSError:
+                pass
+    try:
+        runs = [path for path in owner.parent.iterdir() if path.is_dir() and not path.is_symlink()]
+    except OSError:
+        return
+    for stale in newest_first(runs)[MAX_VIEW_CACHE_RUNS:]:
+        if stale != owner:
+            shutil.rmtree(stale, ignore_errors=True)
 
 
 RunObservationService = ObservationService

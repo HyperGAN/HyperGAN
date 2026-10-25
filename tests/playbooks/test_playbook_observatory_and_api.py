@@ -189,6 +189,10 @@ def test_observatory_routes_tag_resolution_and_api_parity(
     # Tag the run with a custom tag so we can test both slug and custom tag resolution
     hg.tag(slug, "custom-tag")
 
+    # A served viewer's projector owns projection; requests never project.
+    from hypergan.web_autostart import project_run
+    project_run(run_dir)
+
     port = _free_port()
     session = LocalSession(port, host="127.0.0.1", auth="none")
     app = create_app(runs_root, session)

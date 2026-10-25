@@ -438,6 +438,8 @@ def test_bind_available_raises_actionable_error_on_conflict():
 
 
 def test_ensure_dashboard_running_auto_restart_on_version_mismatch(tmp_path, monkeypatch):
+    """Only this root's own registered dashboard is restarted, and its credential is used to probe."""
+    import hypergan.web_autostart as startup
     from hypergan.web_autostart import ensure_dashboard_running
     runs_root = tmp_path / "runs"
     runs_root.mkdir()
@@ -446,30 +448,87 @@ def test_ensure_dashboard_running_auto_restart_on_version_mismatch(tmp_path, mon
         "version": "0.1.0-outdated",
         "asset_hash": "old_hash",
         "runs_root": str(runs_root.resolve()),
+        "server_instance_id": "old-instance",
         "status": "ready",
     }
-    stop_called = []
-    launch_called = []
+    registered = {"launch_id": "L1", "server_instance_id": "old-instance", "port": 8765}
+    stopped = []
+    launched = []
+    tokens = []
+    monkeypatch.setattr(startup, "_registered_dashboard",
+                        lambda root: (registered, "secret") if not launched else (dict(registered, server_instance_id="new"), "fresh"))
+    monkeypatch.setattr(startup, "_stop_registered_dashboard", lambda root, state: stopped.append((root, state["launch_id"])))
+    monkeypatch.setattr(startup, "launch_dashboard_daemon", lambda *args, **kwargs: launched.append(args))
 
-    monkeypatch.setattr("hypergan.web_autostart.probe_dashboard", lambda *args, **kwargs: probed_state)
-    monkeypatch.setattr("hypergan.web_autostart.stop_dashboard", lambda root: stop_called.append(root))
-    monkeypatch.setattr("hypergan.web_autostart.launch_dashboard_daemon", lambda *args, **kwargs: launch_called.append(args))
+    def mock_probe(host, port, auth_token=None, **kwargs):
+        tokens.append(auth_token)
+        if launched:
+            return {"version": "2.0.0a1", "status": "ready", "runs_root": str(runs_root.resolve())}
+        return None if stopped else probed_state
 
-    # The probe after launch should return the new version so loop terminates
-    probe_count = 0
-    def mock_probe(*args, **kwargs):
-        nonlocal probe_count
-        probe_count += 1
-        if probe_count > 1:
-            return {"version": "2.0.0a1", "status": "ready"}
-        return probed_state
-
-    monkeypatch.setattr("hypergan.web_autostart.probe_dashboard", mock_probe)
+    monkeypatch.setattr(startup, "probe_dashboard", mock_probe)
 
     url = ensure_dashboard_running(runs_root, check_version=True, run_id="my_run")
-    assert stop_called == [runs_root.resolve()]
-    assert len(launch_called) == 1
-    assert "8765/runs/my_run" in url
+    assert stopped == [(runs_root.resolve(), "L1")]
+    assert len(launched) == 1
+    assert tokens[0] == "secret" and tokens[-1] == "fresh"
+    assert url == "http://localhost:8765/runs/my_run"
+
+
+def test_ensure_dashboard_running_never_stops_another_roots_or_unregistered_dashboard(tmp_path, monkeypatch):
+    import hypergan.web_autostart as startup
+    from hypergan.web_autostart import ensure_dashboard_running
+    root_a, root_b = tmp_path / "a", tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
+    monkeypatch.setattr(startup, "_stop_registered_dashboard", lambda *a: pytest.fail("stopped a dashboard"))
+    monkeypatch.setattr(startup, "launch_dashboard_daemon", lambda *a, **k: pytest.fail("launched a daemon"))
+
+    # An outdated dashboard for another root holds the port: report it, stop nothing.
+    monkeypatch.setattr(startup, "_registered_dashboard", lambda root: ({"launch_id": "B", "server_instance_id": "b"}, None))
+    monkeypatch.setattr(startup, "probe_dashboard", lambda *a, **k: {
+        "version": "0.0.1", "runs_root": str(root_a.resolve()), "server_instance_id": "a"})
+    with pytest.raises(OSError, match="dashboard for root"):
+        ensure_dashboard_running(root_b)
+
+    # An outdated dashboard for this root that this root's registry did not start.
+    monkeypatch.setattr(startup, "probe_dashboard", lambda *a, **k: {
+        "version": "0.0.1", "runs_root": str(root_b.resolve()), "server_instance_id": "someone-else"})
+    with pytest.raises(OSError, match="cannot restart"):
+        ensure_dashboard_running(root_b)
+
+    # A token-mode dashboard this root holds no credential for.
+    monkeypatch.setattr(startup, "_registered_dashboard", lambda root: (None, None))
+    monkeypatch.setattr(startup, "probe_dashboard", lambda *a, **k: {"status": "auth_required", "auth_required": True})
+    with pytest.raises(OSError, match="token-protected"):
+        ensure_dashboard_running(root_b)
+
+
+def test_ensure_dashboard_running_reuses_a_current_token_dashboard(tmp_path, monkeypatch):
+    """A token-mode dashboard answers the registered bearer, so a train does not restart it."""
+    from hypergan import __version__
+    import hypergan.web_autostart as startup
+    from hypergan.web_autostart import ensure_dashboard_running
+    root = tmp_path / "runs"
+    root.mkdir()
+    monkeypatch.setattr(startup, "_registered_dashboard", lambda r: ({"launch_id": "L", "server_instance_id": "i"}, "tok"))
+    monkeypatch.setattr(startup, "_stop_registered_dashboard", lambda *a: pytest.fail("restarted"))
+    monkeypatch.setattr(startup, "launch_dashboard_daemon", lambda *a, **k: pytest.fail("relaunched"))
+    monkeypatch.setattr(startup, "_dashboard_mismatch", lambda probed: [])
+
+    def probe(host, port, auth_token=None, **kwargs):
+        if auth_token != "tok":
+            return {"status": "auth_required", "auth_required": True}
+        return {"version": __version__, "runs_root": str(root.resolve()), "server_instance_id": "i"}
+    monkeypatch.setattr(startup, "probe_dashboard", probe)
+    assert ensure_dashboard_running(root, host="127.0.0.1", auth="token") == "http://localhost:8765"
+
+
+def test_dashboard_url_names_an_address_the_bind_accepts():
+    from hypergan.web_autostart import dashboard_url
+    assert dashboard_url("0.0.0.0", 8765) == "http://localhost:8765"
+    assert dashboard_url("127.0.0.1", 8765, "r") == "http://localhost:8765/runs/r"
+    assert dashboard_url("100.64.0.7", 9000) == "http://100.64.0.7:9000"
 
 
 def test_projector_clean_shutdown_on_terminal_manifest(tmp_path):
@@ -624,9 +683,10 @@ def test_windows_port_owner_preserves_pid_if_process_name_query_is_unavailable(m
 def test_stop_all_servers_handles_windows_process_termination(tmp_path, monkeypatch, stale):
     from types import SimpleNamespace
     import hypergan.web_autostart as startup
+    from hypergan.run_state import run_lock
     registry = tmp_path / 'hypergan-viewers-test' / 'root'
-    registry.mkdir(parents=True)
-    atomic_json(registry / 'state.json', {'supervisor_pid': 44})
+    (registry / 'service').mkdir(parents=True)
+    atomic_json(registry / 'state.json', {'launch_id': 'L', 'status': 'ready', 'supervisor_pid': 44})
     signals = []
     def kill(pid, signum):
         signals.append((pid, signum))
@@ -635,9 +695,49 @@ def test_stop_all_servers_handles_windows_process_termination(tmp_path, monkeypa
     monkeypatch.setattr(startup.tempfile, 'gettempdir', lambda: str(tmp_path))
     monkeypatch.setattr(startup, 'os', SimpleNamespace(
         name='nt', getpid=lambda: 1, kill=kill, path=SimpleNamespace(exists=lambda path: False)))
-    assert startup.stop_all_servers() == ([] if stale else [44])
+    # The supervisor's lifetime lock is what makes its recorded PID trustworthy.
+    with run_lock(registry / 'service'):
+        assert startup.stop_all_servers() == ([] if stale else [44])
     assert signals == [(44, signal.SIGTERM)]
     assert not (registry / 'state.json').exists()
+
+
+def test_stop_all_servers_never_signals_pids_from_stopped_or_stale_states(tmp_path, monkeypatch):
+    """A PID in a stopped viewer's state file can belong to a training job after reuse."""
+    import hypergan.web_autostart as startup
+    from hypergan.run_state import run_lock
+    victim = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+    proc = tmp_path / 'proc'
+    proc.mkdir()
+    try:
+        viewers = tmp_path / 'hypergan-viewers-test'
+        for name, status in (('stopped', 'stopped'), ('stale', 'ready')):
+            (viewers / name / 'service').mkdir(parents=True)
+            atomic_json(viewers / name / 'state.json', {
+                'launch_id': name, 'status': status, 'supervisor_pid': victim.pid,
+                'processes': {'server': victim.pid, 'projector': victim.pid}})
+        monkeypatch.setattr(startup.tempfile, 'gettempdir', lambda: str(tmp_path))
+        monkeypatch.setenv('HYPERGAN_PROC_ROOT', str(proc))
+        assert startup.stop_all_servers() == []
+        assert victim.poll() is None
+
+        # A live supervisor (its lock is held) is stopped, but its recorded
+        # children only when the process table names it as their parent.
+        (proc / str(victim.pid)).mkdir()
+        (proc / str(victim.pid) / 'stat').write_text(f'{victim.pid} (python) S 1 0 0')
+        signalled = []
+        monkeypatch.setattr(startup.os, 'kill', lambda pid, sig: signalled.append((pid, sig)))
+        (viewers / 'live' / 'service').mkdir(parents=True)
+        atomic_json(viewers / 'live' / 'state.json', {
+            'launch_id': 'live', 'status': 'ready', 'supervisor_pid': 999999,
+            'processes': {'server': victim.pid}})
+        with run_lock(viewers / 'live' / 'service'):
+            assert startup.stop_all_servers() == [999999]
+        assert all(pid == 999999 for pid, _ in signalled)
+    finally:
+        monkeypatch.undo()  # restores os.kill
+        victim.kill()
+        victim.wait()
 
 
 def test_ready_dashboard_receipts_new_runs_without_rewriting_existing_receipts(tmp_path):

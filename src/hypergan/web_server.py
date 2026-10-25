@@ -4,7 +4,6 @@ from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import html
-import inspect
 import json
 import os
 from pathlib import Path
@@ -13,18 +12,15 @@ from urllib.parse import quote
 
 from . import inspection as _insp_mod
 from . import registry as _reg_mod
-from .web_autostart import ensure_run_projected, is_projection_stale_or_missing, project_run
 from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
 from .web_files import read_artifact, read_json, _open
-from .web_service import MAX_STREAMS, ObservationService, RunObservationService, MapSpec, ViewSpec
+from .web_service import (MAX_GROUPS, MAX_QUEUE_BYTES, MAX_STREAMS, MAX_SUBSCRIBERS, ObservationService,
+                          RunObservationService, MapSpec, ViewSpec, cursor_offset)
 from .web_session import LocalSession
 
-STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css', 'runs.js', 'runs.css', 'logo.png'}
+STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'runs.js', 'runs.css', 'logo.png'}
 
 _disk_cache: dict[Path, tuple[float, int]] = {}
-_ORIG_LIST_REGISTERED_RUNS = getattr(_reg_mod, "list_registered_runs", None)
-_ORIG_CHECK_RUN_ACTIVE = getattr(_insp_mod, "check_run_active", None)
-_ORIG_STOP_RUN = getattr(_insp_mod, "stop_run", None)
 
 
 def get_run_disk_bytes(run_dir: Path, ttl_seconds: float = 20.0) -> int:
@@ -158,20 +154,12 @@ def read_run_summary(run_dir: Path) -> dict:
         except (OSError, json.JSONDecodeError, UnicodeError):
             manifest = {}
 
-    is_active = False
-    pid = None
     host_info = _insp_mod.inspect_run_host(run_dir)
-    if (
-        (run_dir / ".run.lock").exists()
-        or (run_dir / "launch").is_dir()
-        or host_info.get("remote")
-        or getattr(_insp_mod, "check_run_active", None) is not _ORIG_CHECK_RUN_ACTIVE
-    ):
-        try:
-            is_active, pid = _insp_mod.check_run_active(run_dir)
-        except Exception:
-            is_active, pid = False, None
-    else:
+    try:
+        is_active, pid = _insp_mod.check_run_active(run_dir)
+    except OSError:
+        is_active, pid = False, None
+    if pid is None and not is_active:
         if summary and isinstance(summary.get("pid"), int):
             pid = summary["pid"]
         elif isinstance(manifest.get("pid"), int):
@@ -201,7 +189,6 @@ def read_run_summary(run_dir: Path) -> dict:
     elif (
         str(raw_status).strip().lower() in ("running", "initializing")
         and ((run_dir / ".run.lock").exists() or _is_stale_unmodified_run(run_dir))
-        and getattr(_insp_mod, "check_run_active", None) is _ORIG_CHECK_RUN_ACTIVE
     ):
         status = "stopped"
     else:
@@ -323,10 +310,11 @@ def _render_run_row(r: dict) -> str:
     </tr>'''
 
 
-def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
-    runs = sorted(runs, key=lambda r: (_created_at(r.get('created_at')) or '', str(r.get('run_id', ''))), reverse=True)
+def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = False) -> str:
+    """Dashboard page; with `login` it carries no run data, only the sign-in form."""
+    runs = [] if login else sorted(runs, key=lambda r: (_created_at(r.get('created_at')) or '', str(r.get('run_id', ''))), reverse=True)
     rows = "\n".join(_render_run_row(r) for r in runs)
-    root = html.escape(str(runs_root))
+    root = '' if login else html.escape(str(runs_root))
     return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -366,6 +354,14 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
       </select></div>
       <button id="clear-filters" type="button" class="btn" hidden>Clear filters</button>
     </div>
+    <form id="login" class="login-panel"{'' if login else ' hidden'}>
+      <h2>Sign in to this dashboard</h2>
+      <p>Paste the session token printed in your terminal or saved in the viewer's private session file.</p>
+      <label for="token">Session token</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false" required>
+      <button type="submit" class="btn">Sign in</button>
+      <p id="login-error" role="alert"></p>
+    </form>
     <p id="run-count" role="status">{len(runs)} run{'s' if len(runs) != 1 else ''}</p>
     <p id="action-status" role="status" hidden></p>
     <noscript><p>Enable JavaScript to search, filter, and receive live updates.</p></noscript>
@@ -429,51 +425,27 @@ class ServiceRegistry:
         return False
 
     def _iter_registered_run_dirs(self) -> list[Path]:
-        entries = []
-        list_fn = getattr(_reg_mod, "list_registered_runs", None)
-        is_patched = list_fn is not None and list_fn is not _ORIG_LIST_REGISTERED_RUNS
-        has_backfill_kw = False
-        if list_fn is not None and not is_patched:
-            try:
-                has_backfill_kw = "backfill_cwd" in inspect.signature(list_fn).parameters
-            except Exception:
-                has_backfill_kw = False
-
-        if list_fn is not None and (is_patched or has_backfill_kw):
-            try:
-                entries = list_fn(backfill_cwd=False)
-            except TypeError:
-                try:
-                    entries = list_fn()
-                except Exception:
-                    entries = []
-            except Exception:
-                entries = []
-        else:
-            try:
-                reg_dir = _reg_mod.get_registry_dir(self.root)
-                data = _reg_mod._read_registry_unlocked(reg_dir)
-                entries = list(data.get("runs", {}).values())
-            except Exception:
-                try:
-                    data = _reg_mod._read_registry_unlocked()
-                    entries = list(data.get("runs", {}).values())
-                except Exception:
-                    entries = []
-
-
+        """Registered runs nested under this root; a dashboard never serves another root's runs."""
+        if self.is_single():
+            return []
+        try:
+            data = _reg_mod._read_registry_unlocked(_reg_mod.get_registry_dir(self.root))
+            entries = list(data.get("runs", {}).values())
+        except (OSError, ValueError, AttributeError):
+            entries = []
         dirs: list[Path] = []
         seen: set[Path] = set()
-        for item in entries or []:
-            rdir_val = item.get("run_dir") if isinstance(item, dict) else (str(item) if isinstance(item, (str, Path)) else None)
+        for item in entries:
+            rdir_val = item.get("run_dir") if isinstance(item, dict) else None
             if not rdir_val:
                 continue
             try:
                 p = Path(rdir_val).resolve()
-                if p not in seen and p.is_dir() and ((p / "manifest.json").is_file() or (p / "summary.json").is_file()):
+                if (p not in seen and p != self.root and p.is_relative_to(self.root) and p.is_dir()
+                        and ((p / "manifest.json").is_file() or (p / "summary.json").is_file())):
                     seen.add(p)
                     dirs.append(p)
-            except OSError:
+            except (OSError, ValueError):
                 continue
         return dirs
 
@@ -482,13 +454,10 @@ class ServiceRegistry:
         wm = _summary_watermark(run_dir)
         cached = self._summary_cache.get(run_dir)
         is_active = False
-        if (
-            (run_dir / ".run.lock").exists()
-            or getattr(_insp_mod, "check_run_active", None) is not _ORIG_CHECK_RUN_ACTIVE
-        ):
+        if (run_dir / ".run.lock").exists():
             try:
                 is_active, _ = _insp_mod.check_run_active(run_dir)
-            except Exception:
+            except OSError:
                 is_active = False
 
         if cached is not None:
@@ -582,31 +551,22 @@ class ServiceRegistry:
         return False
 
     def resolve_run_dir(self, run_id: str) -> Path | None:
+        """The run directory under this root that `run_id` names, or None."""
         if not run_id:
             return None
-        root_resolved = self.root.resolve()
+        root_resolved = self.root
         candidate = (self.root / run_id).resolve()
-        try:
-            if not candidate.is_relative_to(root_resolved):
-                raise FileNotFoundError(f"Unknown run identity: {run_id}")
-        except ValueError:
+        if not candidate.is_relative_to(root_resolved):
             raise FileNotFoundError(f"Unknown run identity: {run_id}")
 
-        if self.is_single() and not self._iter_registered_run_dirs():
+        if self.is_single():
             if run_id == "run" or self._matches_run_entry(self.root, run_id):
                 return self.root
             return None
-
-        if (self.root / "manifest.json").is_file():
-            if run_id == "run" or self._matches_run_entry(self.root, run_id):
-                return self.root
 
         # Check direct subdirectory (and runs/ subdirectory if present)
         for direct in (candidate, (self.root / "runs" / run_id).resolve()):
-            try:
-                if not direct.is_relative_to(root_resolved):
-                    continue
-            except ValueError:
+            if not direct.is_relative_to(root_resolved):
                 continue
             if direct.is_dir() and not direct.is_symlink() and ((direct / "manifest.json").is_file() or (direct / "summary.json").is_file()):
                 return direct
@@ -634,35 +594,20 @@ class ServiceRegistry:
             if self._matches_run_entry(entry, run_id):
                 return entry
 
-        if not self.is_single():
-            try:
-                resolved = _reg_mod.resolve_run_target(run_id, cwd=self.root, allow_latest=False)
-                if resolved and resolved.is_dir() and ((resolved / "manifest.json").is_file() or (resolved / "summary.json").is_file()):
-                    res_p = resolved.resolve()
-                    if res_p.is_relative_to(root_resolved) or bool(os.environ.get("HYPERGAN_REGISTRY_DIR")):
-                        return res_p
-            except Exception:
-                pass
+        # Tags and other registry aliases, still only for runs under this root.
+        try:
+            resolved = _reg_mod.resolve_run_target(run_id, cwd=self.root, allow_latest=False)
+        except (OSError, ValueError, LookupError):
+            return None
+        if resolved and resolved.is_dir() and ((resolved / "manifest.json").is_file() or (resolved / "summary.json").is_file()):
+            res_p = resolved.resolve()
+            if res_p.is_relative_to(root_resolved):
+                return res_p
         return None
 
-    def _retire_service(self, svc: ObservationService) -> None:
-        if svc in self._services.values():
-            return
-        svc._closed = True
-        tasks = [s.task for s in svc.streams.values()] + [job.task for job in svc.jobs.values()]
-        if svc._discovery:
-            tasks.append(svc._discovery)
-        for task in tasks:
-            if task:
-                try:
-                    task.cancel()
-                except Exception:
-                    pass
-        if hasattr(svc, "_executor"):
-            try:
-                svc._executor.shutdown(wait=False)
-            except Exception:
-                pass
+    def _retire_service(self, svc: ObservationService, reason: str) -> None:
+        if svc not in self._services.values():
+            svc.retire(reason)
 
     def _evict_stale_for_dir(self, run_dir: Path, disk_rid: str | None) -> None:
         has_files = run_dir.is_dir() and ((run_dir / "manifest.json").is_file() or (run_dir / "summary.json").is_file())
@@ -677,38 +622,48 @@ class ServiceRegistry:
             self._summary_cache.pop(run_dir, None)
             _disk_cache.pop(run_dir, None)
             for svc in evicted:
-                self._retire_service(svc)
+                self._retire_service(svc, "The run in this directory was replaced; reload the view")
 
     def _evict_lru_if_needed(self) -> list[ObservationService]:
+        """Retire least recently used services beyond `max_services`.
+
+        A service a browser is still watching is skipped while idle ones remain,
+        so open tabs do not evict each other in turn. A hard cap of four times the
+        limit still bounds memory; its subscribers are told to reconnect.
+        """
         evicted_services: list[ObservationService] = []
         if self.max_services <= 0:
             return evicted_services
         while len(self._services) > self.max_services:
-            _, evicted = self._services.popitem(last=False)
+            # The most recent entry is the service being requested right now.
+            older = list(self._services.items())[:-1]
+            idle = next((key for key, svc in older if not svc.subscribers), None)
+            if idle is None and len(self._services) <= 4 * self.max_services:
+                break
+            key = idle if idle is not None else older[0][0]
+            evicted = self._services.pop(key)
             if evicted not in self._services.values():
                 evicted_services.append(evicted)
-                self._retire_service(evicted)
+                self._retire_service(evicted, "The viewer released this run to serve others; reconnect to resume")
         return evicted_services
 
-    def get_service(self, run_id: str) -> ObservationService:
+    def get_service(self, run_id: str, run_dir: Path | None = None) -> ObservationService:
+        """Cached service for `run_id`; projection is owned by the viewer's projector, never a request."""
         if run_id in self._services:
             svc = self._services[run_id]
             disk_rid = _disk_run_id(svc.root)
             self._evict_stale_for_dir(svc.root, disk_rid)
             if run_id in self._services:
                 self._services.move_to_end(run_id)
-                svc = self._services[run_id]
-                ensure_run_projected(svc.root)
-                return svc
+                return self._services[run_id]
 
-        run_dir = self.resolve_run_dir(run_id)
+        if run_dir is None:
+            run_dir = self.resolve_run_dir(run_id)
         if run_dir is None:
             raise FileNotFoundError(f"Unknown run identity: {run_id}")
 
         disk_rid = _disk_run_id(run_dir)
         self._evict_stale_for_dir(run_dir, disk_rid)
-
-        ensure_run_projected(run_dir)
 
         svc = None
         for existing_key, existing_svc in list(self._services.items()):
@@ -730,7 +685,11 @@ class ServiceRegistry:
     async def get(self, run_id: str) -> ObservationService:
         async with self._lock:
             was_cached = run_id in self._services
-            svc = self.get_service(run_id)
+            # Resolution scans the root and reads summaries: keep it off the loop.
+            run_dir = None if was_cached else await asyncio.to_thread(self.resolve_run_dir, run_id)
+            if not was_cached and run_dir is None:
+                raise FileNotFoundError(f"Unknown run identity: {run_id}")
+            svc = self.get_service(run_id, run_dir)
             if svc._discovery is None:
                 await svc.start()
             elif svc.run_id is None and (svc.root / "manifest.json").is_file():
@@ -750,91 +709,94 @@ class ServiceRegistry:
                     pass
 
 
+CONTROL_ACTIONS = {'checkpoint': 'request_checkpoint', 'stop': 'request_stop', 'sample': 'request_sample'}
+
+# Every per-run route, mounted under both `/api/runs` and `/api/v1/runs`. The
+# auth layer reads the same table, so a route cannot be served without it.
+RUN_ROUTES = (
+    ('', 'run', None),
+    ('/summary', 'run_summary', None),
+    ('/status', 'run', None),
+    ('/stop', 'control:stop', ['POST']),
+    ('/checkpoint', 'control:checkpoint', ['POST']),
+    ('/sample', 'control:sample', ['POST']),
+    ('/requests/{request_id}', 'request_status', None),
+    ('/metrics', 'run_metrics', None),
+    ('/metrics/catalog', 'catalog', None),
+    ('/contributions', 'contributions', None),
+    ('/model', 'model', None),
+    ('/architecture', 'model', None),
+    ('/events', 'events', None),
+    ('/views', 'views', None),
+    ('/views/{map_revision}/bootstrap', 'bootstrap', None),
+    ('/stream', 'stream', None),
+    ('/artifacts', 'artifacts', None),
+    ('/artifacts/{artifact_id}', 'artifacts', None),
+)
+RUN_PREFIXES = ('/api/runs', '/api/v1/runs')
+
+
 def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=None):
     """Construct without importing torch, running maps or computing measurements."""
     try:
         from starlette.applications import Starlette
         from starlette.requests import Request
         from starlette.responses import JSONResponse, Response, StreamingResponse
-        from starlette.routing import Route
+        from starlette.routing import Match, Route
     except ImportError as exc:
         raise RuntimeError('Local serving requires hypergan[web]') from exc
     shutdown_event = asyncio.Event()
 
-    def _is_transport_closing(cycle):
-        if cycle is None:
-            return False
-        if getattr(cycle, 'disconnected', False):
-            return True
-        transport = getattr(cycle, 'transport', None)
-        if transport is None:
-            return False
-        if getattr(transport, '_conn_lost', 0) or getattr(transport, '_closing', False):
-            return True
-        is_closing = getattr(transport, 'is_closing', None)
-        return bool(is_closing and is_closing())
-
-    def _mark_cycle_disconnected(cycle, stream_stop=None):
-        if stream_stop is not None:
-            stream_stop.set()
-        if cycle is not None and not getattr(cycle, 'disconnected', False):
-            cycle.disconnected = True
-            msg_event = getattr(cycle, 'message_event', None)
-            if msg_event is not None:
-                msg_event.set()
-
     class ClosingStream(StreamingResponse):
-        async def __call__(self, scope, receive, send):
-            state = scope.setdefault('state', {})
-            cycle = state.get('_uvicorn_cycle')
-            stream_stop = state.setdefault('_stream_stop', asyncio.Event())
-            was_keep_alive = bool(getattr(cycle, 'keep_alive', False))
+        """SSE that also ends on viewer shutdown or a client that stops reading.
 
-            def _stopping():
-                if shutdown_event.is_set() or stream_stop.is_set():
-                    return True
-                if _is_transport_closing(cycle):
-                    return True
-                if was_keep_alive and not getattr(cycle, 'keep_alive', True):
-                    return True
-                return False
+        Only the ASGI contract is used: Starlette ends the response when
+        `receive` yields `http.disconnect`, and this wrapper yields one as well
+        on shutdown or after a missed send deadline, then completes the response.
+        """
+        send_deadline = 5.0
+
+        async def __call__(self, scope, receive, send):
+            stop = asyncio.Event()
+            progress = {'started': False, 'complete': False}
 
             async def stream_receive():
-                receive_task = asyncio.create_task(receive())
-                stop_task = asyncio.create_task(stream_stop.wait())
-                shutdown_task = asyncio.create_task(shutdown_event.wait())
+                waiters = [asyncio.ensure_future(receive()), asyncio.ensure_future(stop.wait()),
+                           asyncio.ensure_future(shutdown_event.wait())]
                 try:
-                    while not _stopping():
-                        done, _ = await asyncio.wait(
-                            {receive_task, stop_task, shutdown_task},
-                            timeout=0.05,
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-                        if receive_task in done:
-                            return receive_task.result()
-                    _mark_cycle_disconnected(cycle, stream_stop)
-                    transport = getattr(cycle, 'transport', None)
-                    if transport is not None and hasattr(transport, 'close'):
-                        transport.close()
-                    return {'type': 'http.disconnect'}
+                    done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+                    return waiters[0].result() if waiters[0] in done else {'type': 'http.disconnect'}
                 finally:
-                    for task in (receive_task, stop_task, shutdown_task):
-                        if not task.done():
-                            task.cancel()
-                            try:
-                                await task
-                            except asyncio.CancelledError:
-                                pass
+                    for waiter in waiters:
+                        waiter.cancel()
+                    await asyncio.gather(*waiters, return_exceptions=True)
+
+            async def deadline_send(message):
+                if message['type'] == 'http.response.start':
+                    progress['started'] = True
+                    return await send(message)
+                progress['complete'] = not message.get('more_body', False)
+                try:
+                    await asyncio.wait_for(send(message), timeout=self.send_deadline)
+                except asyncio.TimeoutError as exc:
+                    stop.set()
+                    raise OSError('Stream client exceeded the send deadline') from exc
+                # Yield once per frame so a lost connection is observed before
+                # a replay burst writes the next one.
+                await asyncio.sleep(0)
 
             try:
-                return await super().__call__(scope, stream_receive, send)
+                await super().__call__(scope, stream_receive, deadline_send)
+                if progress['started'] and not progress['complete']:
+                    await deadline_send({'type': 'http.response.body', 'body': b'', 'more_body': False})
             finally:
                 await self.body_iterator.aclose()
 
     root = Path(run_dir).resolve()
     registry = ServiceRegistry(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
-    single_service = ObservationService(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
+    single_service = None
     if registry.is_single():
+        single_service = ObservationService(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
         registry.services[root.name] = single_service
 
     dev = dev_assets() if dev is None else dev
@@ -854,6 +816,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             await registry.close_all()
             if single_service is not None:
                 await single_service.close()
+
+    def authenticated(request):
+        return request.scope.get('state', {}).get('authenticated', False)
 
     async def session_exchange(request):
         if request.headers.get('content-type', '').split(';')[0] != 'application/json':
@@ -876,34 +841,23 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                           secure=secure, max_age=86400, path='/')
         return result
 
-    async def capabilities(request):
+    def capabilities_payload():
         from . import __version__
         from .provenance import hypergan_source
         from .web_assets import compute_asset_hash
         from .metrics_reducer import descriptor
+        from .web_service import MAX_BOOTSTRAP_BYTES
 
         source = hypergan_source()
-        manifest_file = root / "manifest.json"
-        if manifest_file.is_file():
-            if single_service.run_id is None:
-                try:
-                    m = read_json(root, "manifest.json")
-                    if m.get("run_id"):
-                        single_service.run_id = m["run_id"]
-                        single_service.manifest = m
-                        registry.services[m["run_id"]] = single_service
-                except Exception:
-                    pass
-
         runs = registry._discover_runs()
-        if registry.is_single():
+        if registry.is_single() and single_service is not None:
+            # Read only: the service registers its own streams when it activates.
             run_id = single_service.run_id
             status = single_service.manifest.get('status', 'waiting')
         else:
             run_id = None
             status = 'ready' if runs else 'waiting'
-
-        return JSONResponse({
+        return {
             'schema_version': 1,
             'api_version': 'v1',
             'run_id': run_id,
@@ -918,46 +872,36 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             'auth_mode': session.auth_mode,
             'public_origin': session.public_origin,
             'transports': ['sse'],
-            'controls': ['checkpoint', 'stop', 'sample'],
+            'controls': list(CONTROL_ACTIONS),
             'reducer': descriptor(),
             'limits': {
-                'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
-                'bootstrap_bytes': 1048576, 'stream_count': MAX_STREAMS,
+                'subscribers': MAX_SUBSCRIBERS, 'queue_bytes': MAX_QUEUE_BYTES, 'groups': MAX_GROUPS,
+                'bootstrap_bytes': MAX_BOOTSTRAP_BYTES, 'stream_count': MAX_STREAMS,
                 'history_seconds': history_timeout
             }
-        })
+        }
+
+    async def capabilities(request):
+        return JSONResponse(await asyncio.to_thread(capabilities_payload))
 
     async def root_index(request):
-        if registry.is_single() and not registry._iter_registered_run_dirs():
-            ensure_run_projected(root)
+        if await asyncio.to_thread(registry.is_single):
             return await static(request)
-        runs = registry._discover_runs()
-        html_content = render_run_index_html(runs, root)
+        login = not authenticated(request)
+        runs = [] if login else await asyncio.to_thread(registry._discover_runs)
+        html_content = render_run_index_html(runs, root, login=login)
         return Response(html_content, media_type='text/html', headers={'Cache-Control': 'no-store'})
 
     async def run_detail_page(request):
-        run_id = request.path_params.get('run_id')
-        target_dir = registry.resolve_run_dir(run_id)
-        if target_dir is None:
-            raise FileNotFoundError(f'Unknown run identity: {run_id}')
-        ensure_run_projected(target_dir)
+        # The shell is public; only a signed-in viewer learns whether a run exists.
+        if authenticated(request):
+            run_id = request.path_params.get('run_id')
+            if await asyncio.to_thread(registry.resolve_run_dir, run_id) is None:
+                raise FileNotFoundError(f'Unknown run identity: {run_id}')
         return await static(request, asset_override='index.html')
 
     async def runs_list(request):
-        return JSONResponse(registry._discover_runs())
-
-    def _is_run_considered_active(target_dir: Path, *, allow_status_when_patched: bool = False) -> tuple[bool, int | None]:
-        try:
-            is_active, pid = _insp_mod.check_run_active(target_dir)
-        except Exception:
-            is_active, pid = False, None
-        if is_active:
-            return True, pid
-        if allow_status_when_patched and getattr(_insp_mod, "check_run_active", None) is _ORIG_CHECK_RUN_ACTIVE:
-            summary = read_run_summary(target_dir)
-            if summary.get("status") == "running" and (not (target_dir / ".run.lock").exists() or summary.get("remote")):
-                return True, summary.get("pid")
-        return False, pid
+        return JSONResponse(await asyncio.to_thread(registry._discover_runs))
 
     async def _read_control_body(request) -> dict:
         raw = bytearray()
@@ -975,214 +919,91 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             raise ValueError('Control body must be a JSON object with optional request_id and attempt_id')
         return body
 
-    async def stop_run_endpoint(request):
-        from . import api as _api_mod
-        run_id = request.path_params['run_id']
-        target_dir = registry.resolve_run_dir(run_id)
-        if target_dir is None:
-            raise FileNotFoundError(f'Unknown run identity: {run_id}')
+    def _run_active(target_dir: Path) -> bool:
         try:
-            body = await _read_control_body(request)
-        except ValueError as exc:
-            return JSONResponse({'ok': False, 'action': 'stop', 'run_id': run_id, 'error': str(exc)}, status_code=400)
-        request_id = body.get('request_id')
-        attempt_id = body.get('attempt_id')
-        stop_patched = getattr(_insp_mod, "stop_run", None) is not _ORIG_STOP_RUN
-        is_active, _ = _is_run_considered_active(target_dir, allow_status_when_patched=True)
-        if not is_active:
-            if request_id is not None:
-                try:
-                    existing = await asyncio.to_thread(
-                        _api_mod.request_stop, target_dir, attempt_id=attempt_id, request_id=request_id
-                    )
-                    return JSONResponse({
-                        'ok': True,
-                        'action': 'stop',
-                        'run_id': run_id,
-                        'run_dir': str(target_dir),
-                        'request_id': existing['request']['request_id'],
-                        'status': existing['status'],
-                        'receipt': existing,
-                        'result': existing,
-                    })
-                except Exception:
-                    pass
-            return JSONResponse({'ok': False, 'action': 'stop', 'run_id': run_id, 'error': f"Run '{run_id}' is not active"}, status_code=400)
-        receipt = None
-        if (target_dir / 'manifest.json').is_file():
+            return bool(_insp_mod.check_run_active(target_dir)[0])
+        except OSError:
+            return False
+
+    def control_endpoint(action):
+        """One handler for every durable control request; stop also signals the trainer."""
+        async def endpoint(request):
+            from . import api as _api_mod
+            from .run_requests import request_status
+            run_id = request.path_params['run_id']
+
+            def failure(message):
+                return JSONResponse({'ok': False, 'action': action, 'run_id': run_id, 'error': message}, status_code=400)
+
+            target_dir = await asyncio.to_thread(registry.resolve_run_dir, run_id)
+            if target_dir is None:
+                raise FileNotFoundError(f'Unknown run identity: {run_id}')
             try:
-                receipt = await asyncio.to_thread(
-                    _api_mod.request_stop, target_dir, attempt_id=attempt_id, request_id=request_id
-                )
+                body = await _read_control_body(request)
             except ValueError as exc:
-                if 'conflicting' in str(exc).lower() or 'ascii' in str(exc).lower():
-                    return JSONResponse({'ok': False, 'action': 'stop', 'run_id': run_id, 'error': str(exc)}, status_code=400)
-            except Exception:
-                pass
-        try:
-            if stop_patched:
-                res = await asyncio.to_thread(_insp_mod.stop_run, target_dir)
-            else:
-                req_kw = request_id or (receipt['request']['request_id'] if isinstance(receipt, dict) and 'request' in receipt else None)
-                res = await asyncio.to_thread(_insp_mod.stop_run, target_dir, request_id=req_kw, attempt_id=attempt_id)
-        except Exception as exc:
-            if receipt is None:
-                return JSONResponse({'ok': False, 'action': 'stop', 'run_id': run_id, 'error': str(exc)}, status_code=400)
-            res = {'status': 'stopping', 'run_id': run_id, 'run_dir': str(target_dir), 'receipt': receipt}
-        if receipt is None and isinstance(res, dict) and isinstance(res.get('receipt'), dict):
-            receipt = res['receipt']
-        req_id_out = (
-            (receipt.get('request', {}).get('request_id') if isinstance(receipt, dict) else None)
-            or (res.get('request_id') if isinstance(res, dict) else None)
-            or request_id
-        )
-        registry._summary_cache.pop(target_dir, None)
-        return JSONResponse({
-            'ok': True,
-            'action': 'stop',
-            'run_id': run_id,
-            'run_dir': str(target_dir),
-            'request_id': req_id_out,
-            'status': receipt.get('status') if isinstance(receipt, dict) else (res.get('status') if isinstance(res, dict) else 'stopping'),
-            'remote': bool(res.get('remote')) if isinstance(res, dict) else False,
-            'signaled': bool(res.get('signaled')) if isinstance(res, dict) else False,
-            'receipt': receipt,
-            'result': res,
-        })
+                return failure(str(exc))
+            request_id, attempt_id = body.get('request_id'), body.get('attempt_id')
 
-    async def checkpoint_run_endpoint(request):
-        from . import api as _api_mod
-        from . import checkpoints as _ckpt_mod
-        run_id = request.path_params['run_id']
-        target_dir = registry.resolve_run_dir(run_id)
-        if target_dir is None:
-            raise FileNotFoundError(f'Unknown run identity: {run_id}')
-        try:
-            body = await _read_control_body(request)
-        except ValueError as exc:
-            return JSONResponse({'ok': False, 'action': 'checkpoint', 'run_id': run_id, 'error': str(exc)}, status_code=400)
-        request_id = body.get('request_id')
-        attempt_id = body.get('attempt_id')
-        ckpt_fn = getattr(_ckpt_mod, 'request_checkpoint', None) or getattr(_api_mod, 'request_checkpoint', None)
-        is_active, _ = _is_run_considered_active(target_dir, allow_status_when_patched=True)
-        if not is_active:
-            if request_id is not None:
-                try:
-                    existing = await asyncio.to_thread(
-                        _api_mod.request_checkpoint, target_dir, attempt_id=attempt_id, request_id=request_id
-                    )
-                    return JSONResponse({
-                        'ok': True,
-                        'action': 'checkpoint',
-                        'run_id': run_id,
-                        'run_dir': str(target_dir),
-                        'request_id': existing['request']['request_id'],
-                        'status': existing['status'],
-                        'receipt': existing,
-                        'result': existing,
-                    })
-                except Exception:
-                    pass
-            return JSONResponse({'ok': False, 'action': 'checkpoint', 'run_id': run_id, 'error': f"Run '{run_id}' is not active"}, status_code=400)
-        try:
-            if request_id is None and attempt_id is None:
-                res = await asyncio.to_thread(ckpt_fn, target_dir)
-            else:
-                try:
-                    sig = inspect.signature(ckpt_fn)
-                    if 'request_id' in sig.parameters or any(
-                        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-                    ):
-                        res = await asyncio.to_thread(ckpt_fn, target_dir, attempt_id=attempt_id, request_id=request_id)
-                    else:
-                        res = await asyncio.to_thread(ckpt_fn, target_dir)
-                except (TypeError, ValueError):
-                    res = await asyncio.to_thread(ckpt_fn, target_dir, attempt_id=attempt_id, request_id=request_id)
-        except Exception as exc:
-            msg = str(exc)
-            if 'initializing' in msg.lower() or not (target_dir / 'manifest.json').is_file():
-                msg = 'Run is still initializing step 0; checkpoint will be available once step 1 starts'
-            return JSONResponse({'ok': False, 'action': 'checkpoint', 'run_id': run_id, 'error': msg}, status_code=400)
-        req_id_out = (
-            (res.get('request', {}).get('request_id') if isinstance(res, dict) and isinstance(res.get('request'), dict) else None)
-            or (res.get('request_id') if isinstance(res, dict) else None)
-            or request_id
-        )
-        registry._summary_cache.pop(target_dir, None)
-        return JSONResponse({
-            'ok': True,
-            'action': 'checkpoint',
-            'run_id': run_id,
-            'run_dir': str(target_dir),
-            'request_id': req_id_out,
-            'status': res.get('status') if isinstance(res, dict) else 'pending',
-            'receipt': res,
-            'result': res,
-        })
+            def reply(receipt, result):
+                receipt_request = receipt.get('request') if isinstance(receipt, dict) else None
+                payload = {
+                    'ok': True, 'action': action, 'run_id': run_id, 'run_dir': str(target_dir),
+                    'request_id': ((receipt_request or {}).get('request_id')
+                                   or (result.get('request_id') if isinstance(result, dict) else None)
+                                   or request_id),
+                    'status': (receipt if isinstance(receipt, dict) else result or {}).get('status', 'pending'),
+                    'receipt': receipt, 'result': result,
+                }
+                if action == 'stop':
+                    payload.update(remote=bool(result.get('remote')), signaled=bool(result.get('signaled')))
+                return JSONResponse(payload)
 
-    async def sample_run_endpoint(request):
-        from . import api as _api_mod
-        run_id = request.path_params['run_id']
-        target_dir = registry.resolve_run_dir(run_id)
-        if target_dir is None:
-            raise FileNotFoundError(f'Unknown run identity: {run_id}')
-        try:
-            body = await _read_control_body(request)
-        except ValueError as exc:
-            return JSONResponse({'ok': False, 'action': 'sample', 'run_id': run_id, 'error': str(exc)}, status_code=400)
-        request_id = body.get('request_id')
-        attempt_id = body.get('attempt_id')
-        is_active, _ = _is_run_considered_active(target_dir, allow_status_when_patched=True)
-        if not is_active:
-            if request_id is not None:
-                try:
-                    existing = await asyncio.to_thread(
-                        _api_mod.request_sample, target_dir, attempt_id=attempt_id, request_id=request_id
-                    )
-                    return JSONResponse({
-                        'ok': True,
-                        'action': 'sample',
-                        'run_id': run_id,
-                        'run_dir': str(target_dir),
-                        'request_id': existing['request']['request_id'],
-                        'status': existing['status'],
-                        'receipt': existing,
-                        'result': existing,
-                    })
-                except Exception:
-                    pass
-            return JSONResponse({'ok': False, 'action': 'sample', 'run_id': run_id, 'error': f"Run '{run_id}' is not active"}, status_code=400)
-        try:
-            res = await asyncio.to_thread(
-                _api_mod.request_sample, target_dir, attempt_id=attempt_id, request_id=request_id
-            )
-        except Exception as exc:
-            msg = str(exc)
-            if 'initializing' in msg.lower() or not (target_dir / 'manifest.json').is_file():
-                msg = 'Run is still initializing step 0; sample will be available once step 1 starts'
-            return JSONResponse({'ok': False, 'action': 'sample', 'run_id': run_id, 'error': msg}, status_code=400)
-        req_id_out = (
-            (res.get('request', {}).get('request_id') if isinstance(res, dict) and isinstance(res.get('request'), dict) else None)
-            or (res.get('request_id') if isinstance(res, dict) else None)
-            or request_id
-        )
-        registry._summary_cache.pop(target_dir, None)
-        return JSONResponse({
-            'ok': True,
-            'action': 'sample',
-            'run_id': run_id,
-            'run_dir': str(target_dir),
-            'request_id': req_id_out,
-            'status': res.get('status') if isinstance(res, dict) else 'pending',
-            'receipt': res,
-            'result': res,
-        })
+            if not await asyncio.to_thread(_run_active, target_dir):
+                # A retry of a request the run already acknowledged keeps its
+                # receipt; anything else is refused rather than queued for no one.
+                receipt = None
+                if request_id is not None:
+                    try:
+                        receipt = await asyncio.to_thread(request_status, target_dir, request_id)
+                    except (OSError, ValueError, KeyError):
+                        receipt = None
+                if not isinstance(receipt, dict) or receipt.get('request', {}).get('action') != action:
+                    return failure(f"Run '{run_id}' is not active")
+                return reply(receipt, receipt)
+
+            submit = getattr(_api_mod, CONTROL_ACTIONS[action])
+            receipt = None
+            try:
+                receipt = await asyncio.to_thread(submit, target_dir, attempt_id=attempt_id, request_id=request_id)
+            except (OSError, ValueError, RuntimeError) as exc:
+                message = str(exc)
+                initializing = 'initializing' in message.lower() or not (target_dir / 'manifest.json').is_file()
+                # A trainer still in step 0 has no request inbox yet, but stop can signal it.
+                if action != 'stop' or not initializing:
+                    if initializing:
+                        message = f'Run is still initializing step 0; {action} will be available once step 1 starts'
+                    return failure(message)
+            if action != 'stop':
+                registry._summary_cache.pop(target_dir, None)
+                return reply(receipt, receipt)
+            stop_id = request_id or (receipt['request']['request_id'] if isinstance(receipt, dict) else None)
+            try:
+                result = await asyncio.to_thread(_insp_mod.stop_run, target_dir, request_id=stop_id, attempt_id=attempt_id)
+            except (OSError, ValueError, RuntimeError) as exc:
+                if receipt is None:
+                    return failure(str(exc))
+                result = {'status': 'stopping', 'run_id': run_id, 'run_dir': str(target_dir), 'receipt': receipt}
+            if receipt is None and isinstance(result.get('receipt'), dict):
+                receipt = result['receipt']
+            registry._summary_cache.pop(target_dir, None)
+            return reply(receipt, result)
+        return endpoint
 
     async def request_status_endpoint(request):
         from . import api as _api_mod
         run_id = request.path_params['run_id']
         request_id = request.path_params['request_id']
-        target_dir = registry.resolve_run_dir(run_id)
+        target_dir = await asyncio.to_thread(registry.resolve_run_dir, run_id)
         if target_dir is None:
             raise FileNotFoundError(f'Unknown run identity: {run_id}')
         receipt = await asyncio.to_thread(_api_mod.request_status, target_dir, request_id)
@@ -1190,13 +1011,13 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
 
     async def run_summary_endpoint(request):
         svc = await registry.get(request.path_params['run_id'])
-        summary = registry._read_cached_summary(svc.root)
+        summary = await asyncio.to_thread(registry._read_cached_summary, svc.root)
         pub = svc.public_manifest()
         return JSONResponse({**pub, **summary})
 
     async def run_metrics_summary(request):
         svc = await registry.get(request.path_params['run_id'])
-        summary = registry._read_cached_summary(svc.root)
+        summary = await asyncio.to_thread(registry._read_cached_summary, svc.root)
         catalog_data = {}
         try:
             from .metrics import read_catalog
@@ -1215,20 +1036,15 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         })
 
     async def run_contributions(request):
+        """One bounded page of projected contributions; follow `cursor` while `has_more`."""
         svc = await registry.get(request.path_params['run_id'])
-        mapping = MapSpec()
-        contrib_path = svc.root / 'views' / mapping.revision / 'contributions.jsonl'
-        if not contrib_path.is_file():
-            contrib_path = svc.root / 'views' / 'default' / 'contributions.jsonl'
-        items = []
-        if contrib_path.is_file():
-            for line in contrib_path.read_text(encoding='utf-8').splitlines():
-                if line.strip():
-                    try:
-                        items.append(json.loads(line))
-                    except Exception:
-                        pass
-        return JSONResponse({'run_id': svc.run_id or request.path_params['run_id'], 'contributions': items})
+        cursor = request.query_params.get('cursor')
+        limit = int(request.query_params.get('limit', '100'))
+        if not 1 <= limit <= 1000:
+            raise ValueError('limit must be in 1..1000')
+        frames, _, page = await asyncio.to_thread(svc.page, 'projection:' + MapSpec().revision, cursor, limit=limit)
+        return JSONResponse({'run_id': svc.run_id or request.path_params['run_id'], 'contributions': frames,
+                             'cursor': page['cursor'], 'has_more': page['has_more']})
 
     async def run(request):
         svc = await registry.get(request.path_params['run_id'])
@@ -1289,10 +1105,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         run_id = request.path_params.get('run_id')
         if run_id:
             svc = await registry.get(run_id)
-        elif registry.is_single():
-            svc = registry.services.get(root.name) or next(iter(registry.services.values()), None)
-            if not svc:
-                svc = await registry.get(root.name)
+        elif single_service is not None:
+            svc = single_service
         else:
             async def root_events():
                 yield 'event: ready\ndata: {"status": "ready"}\n\n'.encode('utf-8')
@@ -1304,11 +1118,10 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
 
         stream_id = request.query_params.get('stream_id', '*')
         cursor = request.query_params.get('cursor')
-        temporary, _ = svc.subscribe(stream_id)
-        svc.subscribers.remove(temporary)
-        if cursor is not None:
-            from .web_service import cursor_offset
-            cursor_offset(cursor)
+        # Refuse a bad selector, a full viewer or a malformed cursor as HTTP 400,
+        # before the event stream starts.
+        svc.check_subscription(stream_id)
+        cursor_offset(cursor)
         return ClosingStream(svc.events(stream_id, cursor), media_type='text/event-stream',
                              headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
@@ -1376,57 +1189,40 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         code = 404 if isinstance(exc, FileNotFoundError) else 400
         return JSONResponse({'error': str(exc)}, status_code=code, headers={'Cache-Control': 'no-store'})
 
-    routes = [
-        Route('/', root_index),
-        Route('/runs/{run_id}', run_detail_page),
-        Route('/runs/{run_id}/{path:path}', run_detail_page),
-        Route('/assets/{asset}', static),
-        Route('/reducers/{asset}', reducer_asset),
-        Route('/api/runs', runs_list),
-        Route('/api/runs/{run_id}', run),
-        Route('/api/runs/{run_id}/summary', run_summary_endpoint),
-        Route('/api/runs/{run_id}/status', run),
-        Route('/api/runs/{run_id}/stop', stop_run_endpoint, methods=['POST']),
-        Route('/api/runs/{run_id}/checkpoint', checkpoint_run_endpoint, methods=['POST']),
-        Route('/api/runs/{run_id}/sample', sample_run_endpoint, methods=['POST']),
-        Route('/api/runs/{run_id}/requests/{request_id}', request_status_endpoint),
-        Route('/api/runs/{run_id}/metrics', run_metrics_summary),
-        Route('/api/runs/{run_id}/metrics/catalog', catalog),
-        Route('/api/runs/{run_id}/contributions', run_contributions),
-        Route('/api/runs/{run_id}/model', model),
-        Route('/api/runs/{run_id}/architecture', model),
-        Route('/api/runs/{run_id}/events', events),
-        Route('/api/runs/{run_id}/views', views),
-        Route('/api/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
-        Route('/api/runs/{run_id}/stream', stream),
-        Route('/api/runs/{run_id}/artifacts', artifacts),
-        Route('/api/runs/{run_id}/artifacts/{artifact_id}', artifacts),
-        Route('/api/v1/session', session_exchange, methods=['POST']),
-        Route('/api/v1/capabilities', capabilities),
-        Route('/api/v1/openapi.json', openapi),
-        Route('/api/v1/runs', runs_list),
-        Route('/api/v1/stream', stream),
-        Route('/api/v1/runs/{run_id}', run),
-        Route('/api/v1/runs/{run_id}/summary', run_summary_endpoint),
-        Route('/api/v1/runs/{run_id}/status', run),
-        Route('/api/v1/runs/{run_id}/stop', stop_run_endpoint, methods=['POST']),
-        Route('/api/v1/runs/{run_id}/checkpoint', checkpoint_run_endpoint, methods=['POST']),
-        Route('/api/v1/runs/{run_id}/sample', sample_run_endpoint, methods=['POST']),
-        Route('/api/v1/runs/{run_id}/requests/{request_id}', request_status_endpoint),
-        Route('/api/v1/runs/{run_id}/metrics', run_metrics_summary),
-        Route('/api/v1/runs/{run_id}/metrics/catalog', catalog),
-        Route('/api/v1/runs/{run_id}/contributions', run_contributions),
-        Route('/api/v1/runs/{run_id}/model', model),
-        Route('/api/v1/runs/{run_id}/architecture', model),
-        Route('/api/v1/runs/{run_id}/events', events),
-        Route('/api/v1/runs/{run_id}/views', views),
-        Route('/api/v1/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
-        Route('/api/v1/runs/{run_id}/stream', stream),
-        Route('/api/v1/runs/{run_id}/artifacts', artifacts),
-        Route('/api/v1/runs/{run_id}/artifacts/{artifact_id}', artifacts),
+    run_handlers = {'run': run, 'run_summary': run_summary_endpoint, 'request_status': request_status_endpoint,
+                    'run_metrics': run_metrics_summary, 'catalog': catalog, 'contributions': run_contributions,
+                    'model': model, 'events': events, 'views': views, 'bootstrap': bootstrap,
+                    'stream': stream, 'artifacts': artifacts,
+                    **{'control:' + action: control_endpoint(action) for action in CONTROL_ACTIONS}}
+    # (path, endpoint, methods, public). Public routes are the HTML shell, its
+    # static assets and the credential exchange; in token mode everything else
+    # under /api requires the bearer or the session cookie.
+    table = [
+        ('/', root_index, None, True),
+        ('/runs/{run_id}', run_detail_page, None, True),
+        ('/runs/{run_id}/{path:path}', run_detail_page, None, True),
+        ('/assets/{asset}', static, None, True),
+        ('/reducers/{asset}', reducer_asset, None, True),
+        ('/api/v1/session', session_exchange, ['POST'], True),
+        ('/api/v1/capabilities', capabilities, None, False),
+        ('/api/v1/openapi.json', openapi, None, False),
+        ('/api/v1/stream', stream, None, False),
     ]
+    for prefix in RUN_PREFIXES:
+        table.append((prefix, runs_list, None, False))
+        table.extend((prefix + '/{run_id}' + suffix, run_handlers[name], methods, False)
+                     for suffix, name, methods in RUN_ROUTES)
     if dev.active:
-        routes.extend([Route(VERSION_ROUTE, dev_version), Route(RELOAD_ASSET, dev_reload)])
+        table.extend([(VERSION_ROUTE, dev_version, None, True), (RELOAD_ASSET, dev_reload, None, True)])
+    routes = [Route(path, endpoint, methods=methods) for path, endpoint, methods, _ in table]
+    public_routes = {id(route) for route, entry in zip(routes, table) if entry[3]}
+
+    def is_public(scope):
+        for route in routes:
+            if route.matches(scope)[0] is Match.FULL:
+                return id(route) in public_routes
+        return False
+
     app = Starlette(routes=routes, lifespan=lifespan,
                     exception_handlers={ValueError: error_handler, FileNotFoundError: error_handler})
     app.state.observations = single_service
@@ -1445,21 +1241,14 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                                             forwarded_host=request.headers.get('x-forwarded-host'))
             if channel is None:
                 return await JSONResponse({'error': 'Invalid local Host or Origin'}, status_code=403)(scope, receive, send)
-            cycle = getattr(send, '__self__', None)
+            signed_in = session.authenticated(authorization=request.headers.get('authorization'),
+                                              cookie=request.cookies.get(session.cookie_name))
             state = scope.setdefault('state', {})
             state['viewer_channel'] = channel
-            state['_uvicorn_cycle'] = cycle
-            stream_stop = state.setdefault('_stream_stop', asyncio.Event())
-            path = scope['path']
-            method = scope.get('method', 'GET').upper()
-            public = (path == '/' or path.startswith('/assets/') or path.startswith('/reducers/')
-                      or path == '/api/v1/session' or path == '/api/v1/runs'
-                      or path == '/api/runs' or (path.startswith('/api/runs/') and method in ('GET', 'HEAD'))
-                      or path.startswith('/runs/')
-                      or (dev.active and path.startswith('/dev/')))
-            if not public and not session.authenticated(authorization=request.headers.get('authorization'),
-                                                       cookie=request.cookies.get(session.cookie_name)):
+            state['authenticated'] = signed_in
+            if not signed_in and not is_public(scope):
                 return await JSONResponse({'error': 'Viewer credential required'}, status_code=401)(scope, receive, send)
+
             async def secure_send(message):
                 if message['type'] == 'http.response.start':
                     headers = list(message.get('headers', []))
@@ -1470,23 +1259,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                     if b'cache-control' not in present:
                         headers.append((b'cache-control', b'no-store'))
                     message = dict(message, headers=headers)
-                if _is_transport_closing(cycle):
-                    _mark_cycle_disconnected(cycle, stream_stop)
-                    if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
-                        await asyncio.sleep(0)
-                    return
-                if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
-                    try:
-                        await asyncio.wait_for(send(message), timeout=5)
-                    except asyncio.TimeoutError as exc:
-                        raise OSError('Stream client exceeded the send deadline') from exc
-                    if _is_transport_closing(cycle):
-                        _mark_cycle_disconnected(cycle, stream_stop)
-                    await asyncio.sleep(0)
-                else:
-                    await send(message)
-                    if _is_transport_closing(cycle):
-                        _mark_cycle_disconnected(cycle, stream_stop)
+                await send(message)
             return await app(scope, receive, secure_send)
     return AuthenticatedApp()
 

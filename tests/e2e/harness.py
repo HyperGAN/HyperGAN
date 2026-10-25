@@ -458,49 +458,12 @@ def assert_states_close(
 # Receipt Schema Validator & SHA-256 Verifier
 # ---------------------------------------------------------------------------
 
-def compute_receipt_sha256(receipt_dict: Dict[str, Any]) -> str:
-    """Compute canonical SHA-256 over receipt dict excluding receipt_sha256 key."""
-    canonical = {k: v for k, v in receipt_dict.items() if k != "receipt_sha256"}
-    encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def validate_qualification_receipt(receipt: Dict[str, Any]) -> None:
-    """Verify that a qualification receipt satisfies PROJECT.md § Interface Contracts."""
-    assert isinstance(receipt, dict), "Receipt must be a JSON object"
-    required_keys = {
-        "schema_version",
-        "qualification_id",
-        "timestamp",
-        "status",
-        "duration_seconds",
-        "environment",
-        "suites",
-        "receipt_sha256",
-    }
-    missing = required_keys - set(receipt.keys())
-    assert not missing, f"Qualification receipt missing required keys: {missing}"
-
-    assert receipt["schema_version"] == 1, f"Expected schema_version 1, got {receipt['schema_version']}"
-    assert isinstance(receipt["qualification_id"], str) and len(receipt["qualification_id"]) > 0
-    assert isinstance(receipt["timestamp"], str) and len(receipt["timestamp"]) > 0
-    assert receipt["status"] in ("passed", "failed"), f"Invalid status: {receipt['status']}"
-    assert isinstance(receipt["duration_seconds"], (int, float)) and receipt["duration_seconds"] >= 0.0
-    assert receipt["duration_seconds"] <= 180.0, f"Qualification exceeded 3-minute hard limit: {receipt['duration_seconds']}s"
-
-    env = receipt["environment"]
-    assert isinstance(env, dict), "Receipt environment must be a dictionary"
-    for env_key in ("platform", "python", "torch", "device_count"):
-        assert env_key in env, f"Receipt environment missing '{env_key}'"
-
-    assert isinstance(receipt["suites"], list), "Receipt suites must be a list"
-    assert len(receipt["suites"]) > 0, "Receipt suites list cannot be empty"
-
-    # Verify SHA-256 integrity
-    expected_sha = compute_receipt_sha256(receipt)
-    assert receipt["receipt_sha256"] == expected_sha, (
-        f"Receipt SHA-256 mismatch: recorded {receipt['receipt_sha256']} != calculated {expected_sha}"
-    )
+# The product validator is the contract; a second copy here drifted from it.
+from hypergan.qualify import (  # noqa: E402
+    ReceiptValidationError,
+    compute_receipt_sha256,
+    validate_qualification_receipt,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -1,32 +1,43 @@
-"""Ephemeral RunPod cloud runner with cost guardrails and guaranteed cleanup.
+"""Ephemeral RunPod qualification runner: GPU selection, cost guardrails and pod cleanup.
 
-Features:
-- Lowest-cost GPU instance selection from live catalog or dry-run mock
-- Strict 180-second hard lifetime timeout guardrail
-- Guaranteed ephemeral cleanup via signal handlers, process exit traps, and try...finally
-- Zero-external-dependency HTTP client using standard library urllib
-- Dry-run simulation mode requiring no live credentials or external network access
-- Standardized qualification receipt generation satisfying PROJECT.md § Interface Contracts
+Experimental. The live mode is disabled: the runner cannot yet run ``hypergan qualify``
+on a pod and fetch the receipt it writes, so a live run would pay for a pod that does
+nothing. ``RunPodRunner`` therefore refuses live mode with ``LiveModeUnavailable``
+before it creates anything.
+
+What works today:
+- ``--dry-run`` plans a run without contacting RunPod: it selects the cheapest GPU that
+  meets the VRAM and cost limits from a built-in, illustrative price list, checks the
+  180-second lifetime limit, and writes a receipt whose status is ``dry_run``. It creates
+  no pod and reports no suite as passed.
+- With an injected client that implements ``execute_qualification(pod_id)``, the runner
+  drives the pod lifecycle and validates the receipt the client returns. It never fills
+  in missing results.
+- Cleanup: a pod is dropped from the exit/signal cleanup registry only once its
+  termination is confirmed. When termination cannot be confirmed the pod stays
+  registered and the run fails with ``PodCleanupError`` naming the pod. The SIGINT and
+  SIGTERM handlers are installed only while a pod is registered, chain to the previous
+  handlers, and are restored afterwards.
+- ``RunPodHttpClient`` speaks the RunPod GraphQL API with the standard library, sends the
+  API key only in the Authorization header, retries termination, and looks for an orphaned
+  pod by its unique name when a create request fails ambiguously (e.g. a timeout).
 """
 from __future__ import annotations
 
 import argparse
 import atexit
 from contextlib import contextmanager
-import copy
-from datetime import datetime, timezone
-import hashlib
 import json
 import os
 from pathlib import Path
-import platform
 import signal
 import sys
 import threading
 import time
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Union
+import uuid
 
-from .qualify import compute_receipt_sha256, inspect_environment, validate_qualification_receipt
+from .qualify import QualificationRunner, compute_receipt_sha256, default_receipt_path, validate_qualification_receipt, write_receipt
 
 # ---------------------------------------------------------------------------
 # Constants & Guardrails
@@ -37,7 +48,14 @@ DEFAULT_TIMEOUT: int = 180
 DEFAULT_MIN_VRAM_GB: int = 16
 DEFAULT_POD_IMAGE: str = "hypergan/hypergan:latest"
 RUNPOD_GRAPHQL_ENDPOINT: str = "https://api.runpod.io/graphql"
+RUNPOD_CONSOLE_URL: str = "https://www.runpod.io/console/pods"
 
+LIVE_MODE_UNAVAILABLE_MESSAGE: str = (
+    "Live RunPod qualification is not implemented: the runner cannot yet run `hypergan qualify` "
+    "on the pod and fetch its receipt, so it refuses to create a paid pod. Use --dry-run to plan a run."
+)
+
+# Illustrative prices for dry-run planning only; a live client must supply its own catalog.
 DEFAULT_GPU_CATALOG: List[Dict[str, Any]] = [
     {"id": "NVIDIA RTX A4000", "displayName": "RTX A4000", "vram_gb": 16, "cost_per_hr": 0.24, "available": True},
     {"id": "NVIDIA RTX A4500", "displayName": "RTX A4500", "vram_gb": 20, "cost_per_hr": 0.34, "available": True},
@@ -47,6 +65,29 @@ DEFAULT_GPU_CATALOG: List[Dict[str, Any]] = [
     {"id": "NVIDIA A100 80GB PCIe", "displayName": "A100 PCIe", "vram_gb": 80, "cost_per_hr": 1.89, "available": True},
     {"id": "NVIDIA H100 SXM", "displayName": "H100 SXM", "vram_gb": 80, "cost_per_hr": 3.89, "available": True},
 ]
+
+
+class LiveModeUnavailable(NotImplementedError):
+    """Live RunPod execution was requested but cannot run qualification on a pod."""
+
+
+class PodCleanupError(RuntimeError):
+    """A pod's termination could not be confirmed; it may still be running and billing."""
+
+    def __init__(self, pod_id: str, cause: Any):
+        self.pod_id = pod_id
+        super().__init__(
+            f"Could not confirm termination of RunPod pod {pod_id} ({cause}); it may still be running "
+            f"and billing. Terminate it manually at {RUNPOD_CONSOLE_URL}"
+        )
+
+
+class RunPodApiError(RuntimeError):
+    """A RunPod API request failed. ``definitive`` is True when RunPod rejected it outright."""
+
+    def __init__(self, message: str, definitive: bool):
+        super().__init__(message)
+        self.definitive = definitive
 
 
 # ---------------------------------------------------------------------------
@@ -126,58 +167,115 @@ def select_cheapest_gpu(
     return min(qualified, key=lambda g: g["cost_per_hr"])
 
 
+def terminate_pod_confirmed(client: Any, pod_id: str) -> None:
+    """Terminate a pod and require the client to confirm it; raise PodCleanupError otherwise."""
+    try:
+        confirmed = client.terminate_pod(pod_id)
+    except PodCleanupError:
+        raise
+    except Exception as exc:
+        raise PodCleanupError(pod_id, exc) from exc
+    if not confirmed:
+        raise PodCleanupError(pod_id, "the client did not confirm termination")
+
+
 # ---------------------------------------------------------------------------
 # Active Pod Cleanup Trap Registry
 # ---------------------------------------------------------------------------
 
 class _ActivePodRegistry:
-    """Thread-safe registry of active pods with guaranteed exit and signal cleanup."""
+    """Pods whose termination is not yet confirmed, cleaned up at exit and on SIGINT/SIGTERM.
+
+    Signal handlers are installed when the first pod registers, chain to the handlers
+    they replaced, and are restored once the last pod's termination is confirmed.
+    """
+
+    _SIGNALS = (signal.SIGINT, signal.SIGTERM)
 
     def __init__(self) -> None:
         self._active_pods: Dict[str, Any] = {}
-        self._lock = threading.Lock()
-        self._installed = False
+        # Re-entrant: a signal handler runs on the main thread, possibly inside a locked block.
+        self._lock = threading.RLock()
+        self._atexit_installed = False
+        self._previous_handlers: Dict[int, Any] = {}
 
     def register(self, pod_id: str, client: Any) -> None:
         with self._lock:
             self._active_pods[pod_id] = client
-            if not self._installed:
-                self._install_handlers()
+            if not self._atexit_installed:
+                atexit.register(self.cleanup_all)
+                self._atexit_installed = True
+            if not self._previous_handlers:
+                self._install_signal_handlers()
+
+    def is_registered(self, pod_id: str) -> bool:
+        with self._lock:
+            return pod_id in self._active_pods
 
     def unregister(self, pod_id: str) -> None:
         with self._lock:
             self._active_pods.pop(pod_id, None)
+            if not self._active_pods:
+                self._restore_signal_handlers()
 
-    def cleanup_all(self) -> None:
+    def release(self, pod_id: str) -> None:
+        """Terminate a registered pod and unregister it once termination is confirmed.
+
+        A pod that is not registered (already released) is left alone. If termination
+        cannot be confirmed the pod stays registered and PodCleanupError propagates.
+        """
         with self._lock:
-            pods_to_clean = list(self._active_pods.items())
-            self._active_pods.clear()
-        for pod_id, client in pods_to_clean:
+            client = self._active_pods.get(pod_id)
+        if client is None:
+            return
+        terminate_pod_confirmed(client, pod_id)
+        self.unregister(pod_id)
+
+    def cleanup_all(self) -> List[str]:
+        """Release every registered pod; return the ids whose termination failed."""
+        with self._lock:
+            pod_ids = list(self._active_pods)
+        failures = []
+        for pod_id in pod_ids:
             try:
-                client.terminate_pod(pod_id)
-            except Exception as exc:
-                sys.stderr.write(f"Warning: Failed to terminate pod {pod_id} during cleanup: {exc}\n")
+                self.release(pod_id)
+            except PodCleanupError as exc:
+                failures.append(pod_id)
+                sys.stderr.write(f"error: {exc}\n")
+        return failures
 
-    def _install_handlers(self) -> None:
-        atexit.register(self.cleanup_all)
-        if threading.current_thread() is threading.main_thread():
+    def _install_signal_handlers(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for sig in self._SIGNALS:
             try:
-                for sig in (signal.SIGINT, signal.SIGTERM):
-                    prev = signal.getsignal(sig)
-
-                    def make_handler(old_h):
-                        def handler(signum, frame):
-                            self.cleanup_all()
-                            if callable(old_h) and old_h not in (signal.SIG_IGN, signal.SIG_DFL):
-                                old_h(signum, frame)
-                            else:
-                                sys.exit(128 + signum)
-                        return handler
-
-                    signal.signal(sig, make_handler(prev))
-                self._installed = True
-            except (ValueError, AttributeError):
+                previous = signal.getsignal(sig)
+                if previous == signal.SIG_IGN:
+                    continue
+                signal.signal(sig, self._on_signal)
+                self._previous_handlers[sig] = previous
+            except (ValueError, OSError):
                 pass
+
+    def _restore_signal_handlers(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            return
+        for sig, previous in list(self._previous_handlers.items()):
+            try:
+                # Leave alone a handler someone else installed after ours.
+                if signal.getsignal(sig) == self._on_signal:
+                    signal.signal(sig, previous if previous is not None else signal.SIG_DFL)
+            except (ValueError, OSError):
+                pass
+        self._previous_handlers.clear()
+
+    def _on_signal(self, signum: int, frame: Any) -> None:
+        previous = self._previous_handlers.get(signum)
+        self.cleanup_all()
+        if callable(previous):
+            previous(signum, frame)
+        else:
+            sys.exit(128 + signum)
 
 
 _GLOBAL_POD_REGISTRY = _ActivePodRegistry()
@@ -194,7 +292,10 @@ def provision_ephemeral_pod(
     image: str = DEFAULT_POD_IMAGE,
     timeout_seconds: int = DEFAULT_TIMEOUT,
 ) -> Iterator[str]:
-    """Context manager guaranteeing pod termination on normal exit, exception, or signal.
+    """Create a pod and terminate it on normal exit, exception, or signal.
+
+    The pod stays in the cleanup registry until its termination is confirmed; when it
+    cannot be confirmed, PodCleanupError propagates from the context manager.
 
     Args:
         client: Client instance implementing create_pod and terminate_pod.
@@ -211,66 +312,51 @@ def provision_ephemeral_pod(
     try:
         yield pod_id
     finally:
-        try:
-            client.terminate_pod(pod_id)
-        finally:
-            _GLOBAL_POD_REGISTRY.unregister(pod_id)
+        _GLOBAL_POD_REGISTRY.release(pod_id)
 
 
 # ---------------------------------------------------------------------------
-# Clients: Mock & Live HTTP
+# Live HTTP Client
 # ---------------------------------------------------------------------------
-
-class MockRunPodClient:
-    """Mock RunPod client recording lifecycle transitions for guardrail verification."""
-
-    def __init__(self, catalog: Optional[List[Dict[str, Any]]] = None, fail_at: Optional[str] = None):
-        self.catalog = catalog or DEFAULT_GPU_CATALOG
-        self.fail_at = fail_at
-        self.created_pods: List[str] = []
-        self.terminated_pods: List[str] = []
-        self.lifecycle_history: List[str] = []
-        self._next_id = 1
-
-    def get_gpu_catalog(self) -> List[Dict[str, Any]]:
-        return copy.deepcopy(self.catalog)
-
-    def create_pod(self, gpu_type: str, image: str = DEFAULT_POD_IMAGE, timeout_seconds: int = DEFAULT_TIMEOUT) -> str:
-        if self.fail_at == "create_pod":
-            raise RuntimeError("Simulated cloud creation failure")
-        pod_id = f"mock-pod-{self._next_id}"
-        self._next_id += 1
-        self.created_pods.append(pod_id)
-        self.lifecycle_history.append("created")
-        self.lifecycle_history.append("running")
-        return pod_id
-
-    def terminate_pod(self, pod_id: str) -> bool:
-        if pod_id in self.created_pods:
-            self.terminated_pods.append(pod_id)
-            self.lifecycle_history.append("terminated")
-            return True
-        return False
-
-    @property
-    def all_pods_cleaned_up(self) -> bool:
-        return set(self.created_pods) == set(self.terminated_pods)
-
 
 class RunPodHttpClient:
-    """Zero-dependency RunPod GraphQL API client using standard library urllib."""
+    """Zero-dependency RunPod GraphQL API client using standard library urllib.
 
-    def __init__(self, api_key: str, endpoint: str = RUNPOD_GRAPHQL_ENDPOINT):
-        self.api_key = api_key
+    ``urlopen`` and ``sleep`` are injectable so tests can supply a fake transport.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        endpoint: str = RUNPOD_GRAPHQL_ENDPOINT,
+        urlopen: Optional[Callable[..., Any]] = None,
+        sleep: Callable[[float], None] = time.sleep,
+        request_timeout: float = 30.0,
+        terminate_attempts: int = 4,
+        retry_backoff_seconds: float = 2.0,
+    ):
+        resolved_key = api_key or os.environ.get("RUNPOD_API_KEY")
+        if not resolved_key:
+            raise ValueError("RUNPOD_API_KEY is required for the RunPod API")
+        self.api_key = resolved_key
         self.endpoint = endpoint
+        if urlopen is None:
+            import urllib.request
+            urlopen = urllib.request.urlopen
+        self._urlopen = urlopen
+        self._sleep = sleep
+        self.request_timeout = request_timeout
+        self.terminate_attempts = max(1, terminate_attempts)
+        self.retry_backoff_seconds = retry_backoff_seconds
 
     def _execute(self, query: str, variables: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
+        # The key travels only in the header: query strings end up in proxy and access logs.
         req = urllib.request.Request(
-            f"{self.endpoint}?api_key={self.api_key}",
+            self.endpoint,
             data=payload,
             headers={
                 "Content-Type": "application/json",
@@ -280,14 +366,17 @@ class RunPodHttpClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with self._urlopen(req, timeout=self.request_timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                if "errors" in data and data["errors"]:
-                    raise RuntimeError(f"RunPod API error: {data['errors']}")
-                return data.get("data", {})
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"RunPod HTTP {exc.code}: {err_body}") from exc
+            # A 4xx is a rejection; a 5xx may have been applied before the server failed.
+            raise RunPodApiError(f"RunPod HTTP {exc.code}: {err_body}", definitive=400 <= exc.code < 500) from exc
+        except (OSError, ValueError) as exc:
+            raise RunPodApiError(f"RunPod request failed: {exc}", definitive=False) from exc
+        if data.get("errors"):
+            raise RunPodApiError(f"RunPod API error: {data['errors']}", definitive=True)
+        return data.get("data") or {}
 
     def get_gpu_catalog(self) -> List[Dict[str, Any]]:
         query = """
@@ -316,7 +405,25 @@ class RunPodHttpClient:
                     "cost_per_hr": float(price),
                     "available": True,
                 })
-        return catalog or DEFAULT_GPU_CATALOG
+        if not catalog:
+            # Never choose a "cheapest" GPU from invented prices.
+            raise RuntimeError("RunPod returned no priced GPU types; refusing to select a GPU")
+        return catalog
+
+    def find_pods_named(self, name: str) -> List[str]:
+        query = """
+        query Pods {
+            myself {
+                pods {
+                    id
+                    name
+                }
+            }
+        }
+        """
+        data = self._execute(query)
+        pods = (data.get("myself") or {}).get("pods") or []
+        return [p["id"] for p in pods if p.get("name") == name and p.get("id")]
 
     def create_pod(self, gpu_type: str, image: str = DEFAULT_POD_IMAGE, timeout_seconds: int = DEFAULT_TIMEOUT) -> str:
         mutation = """
@@ -328,53 +435,96 @@ class RunPodHttpClient:
             }
         }
         """
+        # A unique name lets an ambiguous failure (e.g. a timeout) be traced to the pod it may have created.
+        name = f"hypergan-qualify-{uuid.uuid4().hex[:12]}"
         variables = {
             "input": {
                 "cloudType": "SECURE",
                 "gpuCount": 1,
-                "volumeInGb": 20,
+                # No persistent volume: a stopped pod then holds no billed storage.
+                "volumeInGb": 0,
                 "containerDiskInGb": 20,
                 "minVcpuCount": 4,
                 "minMemoryInGb": 16,
                 "gpuTypeId": gpu_type,
-                "name": f"hypergan-qualify-{int(time.time())}",
+                "name": name,
                 "imageName": image,
+                # Server-side backstop. Unverified against the live API, and it stops
+                # rather than terminates; the runner's own termination is the real guard.
                 "stopAfter": timeout_seconds,
             }
         }
-        data = self._execute(mutation, variables)
+        try:
+            data = self._execute(mutation, variables)
+        except RunPodApiError as exc:
+            if exc.definitive:
+                raise
+            self._reap_orphans(name, exc)
+            raise
         pod_info = data.get("podFindAndDeployOnDemand") or {}
         pod_id = pod_info.get("id")
         if not pod_id:
             raise RuntimeError(f"RunPod returned no pod ID on creation: {data}")
         return pod_id
 
+    def _reap_orphans(self, name: str, cause: Exception) -> None:
+        """After an ambiguous create failure, terminate any pod that was created anyway."""
+        try:
+            orphans = self.find_pods_named(name)
+        except Exception as exc:
+            raise PodCleanupError(f"named {name}", f"creation failed ambiguously ({cause}) and the pod list "
+                                  f"could not be read ({exc})") from exc
+        for pod_id in orphans:
+            sys.stderr.write(f"warning: terminating pod {pod_id} created by a failed request ({cause})\n")
+            self.terminate_pod(pod_id)
+
     def terminate_pod(self, pod_id: str) -> bool:
+        """Terminate a pod, retrying with backoff; raise PodCleanupError if it never succeeds."""
         mutation = """
         mutation TerminatePod($input: PodTerminateInput!) {
             podTerminate(input: $input)
         }
         """
         variables = {"input": {"podId": pod_id}}
-        try:
-            self._execute(mutation, variables)
-            return True
-        except Exception as exc:
-            sys.stderr.write(f"Warning: Failed to terminate pod {pod_id}: {exc}\n")
-            return False
+        last_exc: Optional[Exception] = None
+        for attempt in range(self.terminate_attempts):
+            try:
+                self._execute(mutation, variables)
+                return True
+            except Exception as exc:
+                last_exc = exc
+                if attempt + 1 < self.terminate_attempts:
+                    self._sleep(self.retry_backoff_seconds * (2 ** attempt))
+        raise PodCleanupError(pod_id, f"{self.terminate_attempts} attempts failed, last: {last_exc}") from last_exc
 
 
 # ---------------------------------------------------------------------------
 # Primary Runner: RunPodRunner
 # ---------------------------------------------------------------------------
 
+def _qualification_executor(client: Any) -> Callable[[str], Any]:
+    """The client's execute_qualification; refuse before anything is created when it has none."""
+    execute = getattr(client, "execute_qualification", None)
+    if not callable(execute):
+        # A pod that runs nothing only costs money.
+        raise LiveModeUnavailable(
+            f"{type(client).__name__} cannot run qualification on a pod (no execute_qualification); "
+            "refusing to create one"
+        )
+    return execute
+
+
 class RunPodRunner:
-    """Ephemeral RunPod runner with strict cost guardrails and guaranteed cleanup."""
+    """Ephemeral RunPod runner with strict cost guardrails and confirmed cleanup.
+
+    ``dry_run=True`` without a client plans a run and never contacts RunPod. A client that
+    implements ``execute_qualification(pod_id)`` drives a real pod lifecycle. Live mode
+    without such a client raises LiveModeUnavailable.
+    """
 
     def __init__(
         self,
         dry_run: bool = False,
-        api_key: Optional[str] = None,
         gpu_type: Optional[str] = None,
         max_cost: Optional[float] = None,
         timeout: int = DEFAULT_TIMEOUT,
@@ -385,44 +535,22 @@ class RunPodRunner:
         verbose: bool = False,
         log_to_stderr: bool = False,
     ):
+        self.timeout = validate_timeout_guardrail(timeout)
+        if client is None and not dry_run:
+            raise LiveModeUnavailable(LIVE_MODE_UNAVAILABLE_MESSAGE)
         self.dry_run = dry_run
-        resolved_key = api_key or os.environ.get("RUNPOD_API_KEY")
-        if not self.dry_run and not resolved_key and client is None:
-            raise ValueError("RUNPOD_API_KEY is required for live RunPod execution")
-
-        self.api_key = resolved_key
         self.gpu_type = gpu_type
         self.max_cost = max_cost
-        self.timeout = validate_timeout_guardrail(timeout)
         self.output = Path(output) if output else None
         self.min_vram_gb = min_vram_gb
         self.image = image
         self.verbose = verbose
         self.log_to_stderr = log_to_stderr
         self.lifecycle_history: List[str] = []
-
+        self.last_output_path: Optional[Path] = None
         self._active_pod_id: Optional[str] = None
-        self._active_client: Optional[Any] = None
-
-        if client is not None:
-            self.client = client
-        elif self.dry_run or not self.api_key:
-            self.client = MockRunPodClient()
-        else:
-            self.client = RunPodHttpClient(api_key=self.api_key)
-
-        # Register signal handlers for guaranteed cleanup
-        if threading.current_thread() is threading.main_thread():
-            try:
-                for sig in (signal.SIGINT, signal.SIGTERM):
-                    prev = signal.getsignal(sig)
-                    def make_sig_handler(old):
-                        def h(signum, frame):
-                            self._signal_handler(signum, frame)
-                        return h
-                    signal.signal(sig, make_sig_handler(prev))
-            except (ValueError, AttributeError):
-                pass
+        # None in a plain dry run: nothing that could create a pod exists.
+        self.client = client
 
     def _log(self, message: str) -> None:
         """Emit diagnostic message when verbose is enabled."""
@@ -431,29 +559,10 @@ class RunPodRunner:
             stream.write(f"[runpod] {message}\n")
             stream.flush()
 
-    def _cleanup_pod(self) -> None:
-        """Idempotently clean up the active pod."""
-        pod_id = self._active_pod_id
-        client = getattr(self, "_active_client", None) or self.client
-        if pod_id and client:
-            try:
-                client.terminate_pod(pod_id)
-            except Exception as exc:
-                sys.stderr.write(f"Warning: Failed to terminate pod {pod_id}: {exc}\n")
-            self._active_pod_id = None
-
-    def _signal_handler(self, signum: int, frame: Any) -> None:
-        """Handle interruption signals with guaranteed cleanup."""
-        self._cleanup_pod()
-        if signum == signal.SIGINT:
-            raise KeyboardInterrupt()
-        elif signum == signal.SIGTERM:
-            raise SystemExit(128 + signum)
-
     def filter_and_select_gpu(self, catalog: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """Select lowest cost GPU from catalog, enforcing max_cost guardrail."""
         if catalog is None:
-            if hasattr(self.client, "get_gpu_catalog"):
+            if self.client is not None and hasattr(self.client, "get_gpu_catalog"):
                 catalog = self.client.get_gpu_catalog()
             else:
                 catalog = DEFAULT_GPU_CATALOG
@@ -468,105 +577,68 @@ class RunPodRunner:
             raise ValueError(
                 f"Selected GPU {chosen['id']} (${chosen['cost_per_hr']}/hr) exceeds --max-cost ceiling (${self.max_cost}/hr)"
             )
-        if self.verbose:
-            self._log(
-                f"Selected GPU '{chosen['id']}' (${chosen.get('cost_per_hr', 0.0):.2f}/hr, "
-                f"{chosen.get('vram_gb', 0)}GB VRAM)"
-            )
+        self._log(
+            f"Selected GPU '{chosen['id']}' (${chosen.get('cost_per_hr', 0.0):.2f}/hr, "
+            f"{chosen.get('vram_gb', 0)}GB VRAM)"
+        )
         return chosen
 
     def select_gpu(self) -> Dict[str, Any]:
         """Convenience alias for filter_and_select_gpu."""
         return self.filter_and_select_gpu()
 
-    def execute_with_lifecycle(self, client: Any, gpu_type: str) -> Dict[str, Any]:
-        """Run qualification against a client within guaranteed cleanup lifecycle."""
-        pod_id = client.create_pod(gpu_type=gpu_type, image=self.image, timeout_seconds=self.timeout)
-        self._active_pod_id = pod_id
-        self._active_client = client
-        _GLOBAL_POD_REGISTRY.register(pod_id, client)
-        try:
-            if hasattr(client, "execute_qualification"):
-                return client.execute_qualification(pod_id)
-            return self._build_mock_receipt(gpu_type)
-        finally:
-            try:
-                self._cleanup_pod()
-            finally:
-                _GLOBAL_POD_REGISTRY.unregister(pod_id)
-
     @contextmanager
     def ephemeral_pod(self, gpu_type: str, timeout_seconds: Optional[int] = None) -> Iterator[str]:
+        if self.client is None:
+            raise LiveModeUnavailable("A dry run has no RunPod client and never creates a pod")
         timeout = validate_timeout_guardrail(timeout_seconds or self.timeout)
-        with provision_ephemeral_pod(
-            client=self.client,
-            gpu_type=gpu_type,
-            image=self.image,
-            timeout_seconds=timeout,
-        ) as pod_id:
-            self._active_pod_id = pod_id
-            self._active_client = self.client
-            self.lifecycle_history.extend(["created", "running"])
-            try:
+        try:
+            with provision_ephemeral_pod(
+                client=self.client,
+                gpu_type=gpu_type,
+                image=self.image,
+                timeout_seconds=timeout,
+            ) as pod_id:
+                self._active_pod_id = pod_id
+                self.lifecycle_history.extend(["created", "running"])
                 yield pod_id
-            finally:
+        finally:
+            # A pod whose termination was not confirmed stays registered and visible here.
+            if self._active_pod_id is not None and not _GLOBAL_POD_REGISTRY.is_registered(self._active_pod_id):
                 self._active_pod_id = None
                 self.lifecycle_history.append("terminated")
 
-    def _build_mock_receipt(self, gpu_id: str, elapsed: float = 0.5, suite: Optional[str] = None) -> Dict[str, Any]:
-        suites = [
-            {"name": "single_device", "status": "passed", "duration_seconds": 0.1},
-            {"name": "cpu_replicated_gloo", "status": "passed", "duration_seconds": 0.4},
-            {"name": "cuda_replicated_nccl", "status": "passed", "duration_seconds": 0.5},
-            {"name": "aggregation_strategies", "status": "passed", "duration_seconds": 0.3},
-            {"name": "multinode_tcp", "status": "passed", "duration_seconds": 0.3},
-            {"name": "checkpoint_compatibility", "status": "passed", "duration_seconds": 0.2},
-        ]
-        if suite and suite != "all":
-            norm = suite.strip().lower()
-            matched = [s for s in suites if norm in s["name"].lower() or s["name"].lower() in norm]
-            if matched:
-                suites = matched
-            else:
-                suites = [{"name": suite, "status": "passed", "duration_seconds": 0.1}]
-
-        host_env: Dict[str, Any] = {}
+    def execute_with_lifecycle(self, client: Any, gpu_type: str) -> Dict[str, Any]:
+        """Run qualification on a pod through ``client`` and return its validated receipt."""
+        execute = _qualification_executor(client)
+        previous_client, self.client = self.client, client
         try:
-            host_env = inspect_environment()
-        except Exception:
-            pass
+            start = time.monotonic()
+            with self.ephemeral_pod(gpu_type=gpu_type) as pod_id:
+                receipt = execute(pod_id)
+            elapsed = time.monotonic() - start
+        finally:
+            self.client = previous_client
+        if not isinstance(receipt, dict):
+            raise ValueError(f"Remote qualification returned {type(receipt).__name__}, not a receipt object")
+        # The remote receipt must stand on its own; nothing is filled in or defaulted.
+        validate_qualification_receipt(receipt)
+        if elapsed > self.timeout:
+            raise RuntimeError(f"Qualification duration ({elapsed:.2f}s) exceeded hard {self.timeout}s limit")
+        return receipt
 
-        torch_ver = host_env.get("torch")
-        if not torch_ver or torch_ver in ("none", "unknown"):
-            try:
-                import torch
-                torch_ver = getattr(torch, "__version__", "unknown")
-            except Exception:
-                torch_ver = "unknown"
-
-        cuda_meta: Dict[str, Any] = {"available": True, "nccl": True}
-        if host_env.get("cuda", {}).get("version"):
-            cuda_meta["version"] = host_env["cuda"]["version"]
-
-        receipt: Dict[str, Any] = {
-            "schema_version": 1,
-            "qualification_id": f"qual-runpod-{int(time.time())}",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "status": "passed",
-            "duration_seconds": elapsed,
-            "environment": {
-                "platform": host_env.get("platform", sys.platform),
-                "python": host_env.get("python", platform.python_version()),
-                "torch": str(torch_ver),
-                "device_count": 1,
-                "devices": [gpu_id] if gpu_id else (host_env.get("devices") or ["NVIDIA RTX A4000"]),
-                "cuda": cuda_meta,
-                "runpod": {
-                    "dry_run": self.dry_run,
-                    "gpu_type": gpu_id,
-                },
-            },
-            "suites": suites,
+    def _dry_run_receipt(self, gpu: Dict[str, Any], suite: Optional[str]) -> Dict[str, Any]:
+        """Receipt for a planned run: every suite reports dry_run and no pod is created."""
+        receipt = QualificationRunner(dry_run=True, suite_filter=suite, timeout=self.timeout).execute()
+        receipt["environment"]["runpod"] = {
+            "dry_run": True,
+            "pod_created": False,
+            "gpu_type": gpu["id"],
+            "cost_per_hr": gpu.get("cost_per_hr"),
+            "price_source": "built-in illustrative catalog" if self.client is None else "client catalog",
+            "image": self.image,
+            "timeout_seconds": self.timeout,
+            "note": "dry run: no pod was created and no suite ran; environment describes the local host",
         }
         receipt["receipt_sha256"] = compute_receipt_sha256(receipt)
         return receipt
@@ -580,89 +652,38 @@ class RunPodRunner:
         """Execute ephemeral qualification suite and emit receipt JSON.
 
         Args:
-            output_dir: Optional path or directory to write qualification-receipt.json.
+            output_dir: Optional receipt file path, or a directory to hold qualification-receipt.json.
             suite: Optional suite filter.
             catalog: Optional catalog override for GPU selection.
 
         Returns:
             The complete, validated qualification receipt dictionary.
         """
+        # Reject an unknown suite or an incapable client before any API call or pod creation.
+        QualificationRunner(dry_run=True, suite_filter=suite)
+        if self.client is not None:
+            _qualification_executor(self.client)
         chosen_gpu = self.filter_and_select_gpu(catalog)
         gpu_id = chosen_gpu["id"]
-        start_time = time.monotonic()
-
-        if self.verbose:
-            self._log(
-                f"Starting ephemeral qualification (dry_run={self.dry_run}, timeout={self.timeout}s, suite={suite or 'all'})"
-            )
-        with self.ephemeral_pod(gpu_type=gpu_id, timeout_seconds=self.timeout) as pod_id:
-            elapsed = round(time.monotonic() - start_time, 2)
-            if hasattr(self.client, "execute_qualification") and callable(getattr(self.client, "execute_qualification")):
-                delegated = self.client.execute_qualification(pod_id)
-                if isinstance(delegated, dict):
-                    receipt = delegated
-                    receipt.setdefault("schema_version", 1)
-                    receipt.setdefault("qualification_id", f"qual-runpod-{int(time.time())}")
-                    receipt.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
-                    receipt.setdefault("status", "passed")
-                    receipt.setdefault("duration_seconds", elapsed)
-                    receipt.setdefault("suites", [
-                        {"name": "single_device", "status": "passed", "duration_seconds": 0.1},
-                        {"name": "cpu_replicated_gloo", "status": "passed", "duration_seconds": 0.4},
-                        {"name": "cuda_replicated_nccl", "status": "passed", "duration_seconds": 0.5},
-                        {"name": "aggregation_strategies", "status": "passed", "duration_seconds": 0.3},
-                        {"name": "multinode_tcp", "status": "passed", "duration_seconds": 0.3},
-                        {"name": "checkpoint_compatibility", "status": "passed", "duration_seconds": 0.2},
-                    ])
-                    env = receipt.get("environment")
-                    if not isinstance(env, dict):
-                        env = {}
-                        receipt["environment"] = env
-                    host_env: Dict[str, Any] = {}
-                    try:
-                        host_env = inspect_environment()
-                    except Exception:
-                        pass
-                    env.setdefault("platform", host_env.get("platform", sys.platform))
-                    env.setdefault("python", host_env.get("python", platform.python_version()))
-                    torch_ver = host_env.get("torch")
-                    if not torch_ver or torch_ver in ("none", "unknown"):
-                        try:
-                            import torch
-                            torch_ver = getattr(torch, "__version__", "unknown")
-                        except Exception:
-                            torch_ver = "unknown"
-                    env.setdefault("torch", str(torch_ver))
-                    env.setdefault("device_count", 1)
-                    env.setdefault("devices", [gpu_id] if gpu_id else ["NVIDIA RTX A4000"])
-                    env.setdefault("cuda", {"available": True, "nccl": True})
-                    env.setdefault("runpod", {"dry_run": self.dry_run, "gpu_type": gpu_id})
-                    receipt["receipt_sha256"] = compute_receipt_sha256(receipt)
-                else:
-                    receipt = self._build_mock_receipt(gpu_id, elapsed=elapsed, suite=suite)
-            else:
-                receipt = self._build_mock_receipt(gpu_id, elapsed=elapsed, suite=suite)
-
-        if elapsed > MAX_ALLOWED_TIMEOUT:
-            raise RuntimeError(f"Qualification duration ({elapsed}s) exceeded hard {MAX_ALLOWED_TIMEOUT}s limit")
+        self._log(
+            f"Starting ephemeral qualification (dry_run={self.client is None}, timeout={self.timeout}s, suite={suite or 'all'})"
+        )
+        if self.client is None:
+            receipt = self._dry_run_receipt(chosen_gpu, suite)
+        else:
+            receipt = self.execute_with_lifecycle(self.client, gpu_id)
 
         validate_qualification_receipt(receipt)
-        if self.verbose:
-            self._log(
-                f"Qualification completed: status={receipt.get('status')} in {receipt.get('duration_seconds', elapsed)}s"
-            )
+        self._log(
+            f"Qualification completed: status={receipt.get('status')} in {receipt.get('duration_seconds')}s"
+        )
 
-        # Output resolution
         dest = output_dir or self.output
         if dest:
             dest_path = Path(dest)
             if dest_path.is_dir() or not dest_path.suffix:
-                dest_path.mkdir(parents=True, exist_ok=True)
-                target_file = dest_path / "qualification-receipt.json"
-            else:
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                target_file = dest_path
-            target_file.write_text(json.dumps(receipt, indent=2), encoding="utf-8")
+                dest_path = dest_path / "qualification-receipt.json"
+            self.last_output_path = write_receipt(receipt, dest_path)
 
         return receipt
 
@@ -674,12 +695,16 @@ class RunPodRunner:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hypergan.runpod_runner",
-        description="Run ephemeral hardware qualification on RunPod with strict cost and lifetime guardrails.",
+        description=(
+            "Plan an ephemeral RunPod hardware qualification with strict cost and lifetime guardrails. "
+            "Experimental: only --dry-run is available; live mode is refused until the runner can run "
+            "`hypergan qualify` on the pod."
+        ),
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="simulate full runner lifecycle without spending money or calling real external APIs",
+        help="plan the run (GPU choice, guardrails) and write a dry_run receipt without contacting RunPod",
     )
     parser.add_argument(
         "--gpu-type",
@@ -702,14 +727,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-o", "--output",
         type=Path,
-        default=Path("qualification-receipt.json"),
-        help="path to write emitted JSON receipt (default: qualification-receipt.json)",
-    )
-    parser.add_argument(
-        "--api-key",
-        type=str,
         default=None,
-        help="RunPod API key (or set RUNPOD_API_KEY environment variable)",
+        help="path to write emitted JSON receipt (default: a per-run file under the HyperGAN state directory)",
     )
     parser.add_argument(
         "--min-vram",
@@ -739,6 +758,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="output receipt JSON to stdout",
     )
+    parser.epilog = "The RunPod API key is read from the RUNPOD_API_KEY environment variable, never from argv."
     return parser
 
 
@@ -749,28 +769,30 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         runner = RunPodRunner(
             dry_run=args.dry_run,
-            api_key=args.api_key,
             gpu_type=args.gpu_type,
             max_cost=args.max_cost,
             timeout=args.timeout,
-            output=args.output,
             min_vram_gb=args.min_vram,
             image=args.image,
             verbose=args.verbose,
             log_to_stderr=args.json,
         )
         receipt = runner.run_qualification_suite(output_dir=args.output, suite=args.suite)
+        target = runner.last_output_path or write_receipt(receipt, default_receipt_path(receipt["qualification_id"]))
         if args.json:
             print(json.dumps(receipt, indent=2))
         else:
             print(f"Qualification status: {receipt['status']} (duration: {receipt['duration_seconds']}s)")
             if args.verbose and "suites" in receipt:
+                symbols = {"passed": "✓", "skipped": "⊘", "dry_run": "-"}
                 for s in receipt.get("suites", []):
-                    status_symbol = "✓" if s.get("status") == "passed" else ("⊘" if s.get("status") == "skipped" else "✗")
                     duration_str = f" ({s['duration_seconds']}s)" if "duration_seconds" in s else ""
-                    print(f"  [{status_symbol}] {s['name']}: {s.get('status')}{duration_str}")
-            print(f"Receipt written to: {args.output}")
-        return 0 if receipt["status"] == "passed" else 1
+                    print(f"  [{symbols.get(s.get('status'), '✗')}] {s['name']}: {s.get('status')}{duration_str}")
+            print(f"Receipt written to: {target}")
+        return 0 if receipt["status"] in ("passed", "dry_run") else 1
+    except LiveModeUnavailable as exc:
+        sys.stderr.write(f"error: {exc}\n")
+        return 2
     except KeyboardInterrupt:
         sys.stderr.write("Interrupted by user\n")
         return 130

@@ -31,7 +31,7 @@ from hypergan.runpod_runner import (
     DEFAULT_GPU_CATALOG,
     DEFAULT_TIMEOUT,
     MAX_ALLOWED_TIMEOUT,
-    MockRunPodClient,
+    PodCleanupError,
     RunPodRunner,
     _ActivePodRegistry,
     _GLOBAL_POD_REGISTRY,
@@ -41,6 +41,7 @@ from hypergan.runpod_runner import (
     validate_timeout_guardrail,
 )
 from hypergan.qualify import compute_receipt_sha256, validate_qualification_receipt
+from tests.runpod_fakes import build_fake_receipt
 
 
 # ==============================================================================
@@ -63,6 +64,7 @@ class TrackedMockClient:
         self.fail_on_create = fail_on_create
         self.fail_on_terminate = fail_on_terminate
         self.fail_on_execute = fail_on_execute
+        self.on_execute = None
 
         self.created_pods: List[Dict[str, Any]] = []
         self.terminated_pods: List[str] = []
@@ -89,16 +91,10 @@ class TrackedMockClient:
         if self.fail_on_execute:
             raise ConnectionResetError("Connection closed unexpectedly by remote host")
         self.executed_pods.append(pod_id)
-        return {
-            "schema_version": 1,
-            "qualification_id": f"qual-{pod_id}",
-            "timestamp": "2026-10-24T22:00:00Z",
-            "status": "passed",
-            "duration_seconds": 12.5,
-            "environment": {"platform": "linux", "device_count": 1},
-            "suites": [{"name": "smoke", "status": "passed", "duration_seconds": 12.5}],
-            "receipt_sha256": "dummy",
-        }
+        if self.on_execute is not None:
+            self.on_execute()
+        return build_fake_receipt(qualification_id=f"qual-{pod_id}",
+                                  suites=[{"name": "smoke", "status": "passed", "duration_seconds": 12.5}])
 
     def terminate_pod(self, pod_id: str) -> bool:
         if self.fail_on_terminate:
@@ -334,15 +330,15 @@ class TestTimeoutGuardrailsAdversarial:
         assert rc_low != 0
 
     def test_duration_exceeding_180s_raises_and_cleans_up_pod(self):
-        """If qualification duration somehow exceeds 180s, runner aborts and cleans up pod."""
+        """If remote qualification takes longer than the timeout, runner aborts and cleans up pod."""
         client = TrackedMockClient()
         runner = RunPodRunner(dry_run=True, client=client)
 
-        # Mock monotonic clock so elapsed appears to be 185s
-        start = 100.0
-        clock_values = [start, start + 185.0, start + 185.0]
+        # The clock advances by 185s while the remote qualification runs.
+        now = [100.0]
+        client.on_execute = lambda: now.__setitem__(0, now[0] + 185.0)
 
-        with patch("time.monotonic", side_effect=clock_values):
+        with patch("hypergan.runpod_runner.time.monotonic", side_effect=lambda: now[0]):
             with pytest.raises(RuntimeError, match="exceeded hard 180s limit"):
                 runner.run_qualification_suite()
 
@@ -400,33 +396,55 @@ class TestGuaranteedCleanupTrapsAdversarial:
         assert client.all_pods_cleaned_up
         assert len(client.terminated_pods) == 1
 
-    def test_cleanup_resilient_to_terminate_pod_failure(self):
-        """When client.terminate_pod throws, unregister still occurs in finally."""
+    def test_terminate_failure_keeps_pod_registered_and_fails_loudly(self):
+        """When terminate_pod throws, the pod stays registered for exit cleanup and the run fails."""
         client = TrackedMockClient(fail_on_terminate=True)
         runner = RunPodRunner(dry_run=True, client=client)
 
-        # Context manager propagates terminate exception from finally, but guarantees registry unregister
-        with pytest.raises(RuntimeError, match="Network failure while calling terminate_pod"):
-            with runner.ephemeral_pod(gpu_type="NVIDIA RTX A4000") as pod_id:
-                pass
+        pod_id = None
+        try:
+            with pytest.raises(PodCleanupError, match="Network failure while calling terminate_pod") as exc:
+                with runner.ephemeral_pod(gpu_type="NVIDIA RTX A4000") as pod_id:
+                    pass
+            assert exc.value.pod_id == pod_id
+            assert pod_id in str(exc.value)
+            # Nothing may forget a pod whose termination was not confirmed.
+            assert runner._active_pod_id == pod_id
+            assert _GLOBAL_POD_REGISTRY.is_registered(pod_id)
+            assert "terminated" not in runner.lifecycle_history
+        finally:
+            if pod_id:
+                _GLOBAL_POD_REGISTRY.unregister(pod_id)
 
-        # Active pod state should be cleared in registry and runner
-        assert runner._active_pod_id is None
-        assert pod_id not in _GLOBAL_POD_REGISTRY._active_pods
+    def test_unconfirmed_termination_is_a_failure(self):
+        """A client that returns False from terminate_pod has not confirmed termination."""
+        class Unconfirmed(TrackedMockClient):
+            def terminate_pod(self, pod_id):
+                return False
+
+        client = Unconfirmed()
+        pod_id = None
+        try:
+            with pytest.raises(PodCleanupError, match="did not confirm"):
+                with provision_ephemeral_pod(client, gpu_type="NVIDIA RTX A4000") as pod_id:
+                    pass
+            assert _GLOBAL_POD_REGISTRY.is_registered(pod_id)
+        finally:
+            if pod_id:
+                _GLOBAL_POD_REGISTRY.unregister(pod_id)
 
     def test_cleanup_idempotency(self):
-        """Repeated cleanup calls do not raise or corrupt state."""
+        """Repeated releases do not raise, corrupt state, or terminate twice."""
         client = TrackedMockClient()
-        runner = RunPodRunner(dry_run=True, client=client)
         pod_id = client.create_pod("NVIDIA RTX A4000")
-        runner._active_pod_id = pod_id
+        _GLOBAL_POD_REGISTRY.register(pod_id, client)
 
-        runner._cleanup_pod()
-        runner._cleanup_pod()
-        runner._cleanup_pod()
+        _GLOBAL_POD_REGISTRY.release(pod_id)
+        _GLOBAL_POD_REGISTRY.release(pod_id)
+        _GLOBAL_POD_REGISTRY.release(pod_id)
 
         assert client.all_pods_cleaned_up
-        assert runner._active_pod_id is None
+        assert client.terminated_pods == [pod_id]
 
     def test_registry_cleanup_all_multiple_active_pods(self):
         """_ActivePodRegistry.cleanup_all cleans up multiple active pods concurrently."""
@@ -442,7 +460,7 @@ class TestGuaranteedCleanupTrapsAdversarial:
 
         assert len(registry._active_pods) == 2
 
-        registry.cleanup_all()
+        assert registry.cleanup_all() == []
 
         assert len(registry._active_pods) == 0
         assert client1.all_pods_cleaned_up
@@ -462,6 +480,7 @@ class ChildMockClient:
     def terminate_pod(self, pod_id):
         with open("{proof_file}", "w") as f:
             f.write("TERMINATED:" + pod_id)
+        return True
 
 client = ChildMockClient()
 _GLOBAL_POD_REGISTRY.register("child-pod-sigterm", client)
@@ -507,6 +526,7 @@ class ChildMockClient:
     def terminate_pod(self, pod_id):
         with open("{proof_file}", "w") as f:
             f.write("TERMINATED:" + pod_id)
+        return True
 
 client = ChildMockClient()
 _GLOBAL_POD_REGISTRY.register("child-pod-sigint", client)
@@ -548,6 +568,7 @@ class ChildMockClient:
     def terminate_pod(self, pod_id):
         with open("{proof_file}", "w") as f:
             f.write("TERMINATED:" + pod_id)
+        return True
 
 client = ChildMockClient()
 _GLOBAL_POD_REGISTRY.register("child-pod-atexit", client)
@@ -573,7 +594,7 @@ class TestReceiptIntegrityAdversarial:
 
         validate_qualification_receipt(receipt)
         assert receipt["schema_version"] == 1
-        assert receipt["status"] in ("passed", "failed")
+        assert receipt["status"] == "dry_run"
         assert receipt["duration_seconds"] <= 180.0
         assert "runpod" in receipt["environment"]
         assert receipt["environment"]["runpod"]["dry_run"] is True

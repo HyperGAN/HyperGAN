@@ -69,6 +69,21 @@ def _symmetric_log_odds(logits):
     return torch.cat(u_cols, dim=-1)
 
 
+def _pool_vision_tokens(V):
+    v_f = V.float()
+    v_mean = v_f.mean(dim=1)
+    n_vis = v_f.shape[1]
+    grid_s = int(round(n_vis ** 0.5))
+    if n_vis >= 16 and grid_s * grid_s == n_vis:
+        v_grid = v_f.view(v_f.shape[0], grid_s, grid_s, -1)
+        pad = max(1, grid_s // 4)
+        v_inner = v_grid[:, pad : grid_s - pad, pad : grid_s - pad, :].mean(dim=(1, 2))
+        n_in = (grid_s - 2 * pad) ** 2
+        v_outer = (v_mean * n_vis - v_inner * n_in) / max(1, n_vis - n_in)
+        return v_mean + 2.5 * (v_inner - v_outer)
+    return v_mean
+
+
 def _imajev_query_signature(query_dict):
     import json
     state_obj = {} if query_dict.get('state') is None else query_dict.get('state')
@@ -746,7 +761,7 @@ def _imajev_builder(config):
                 m = runtime['model'].model
                 vision_out = m.get_image_features(patches, grid_thw_1.expand(B, -1), return_dict=True)
                 V = torch.stack(vision_out.pooler_output, dim=0)
-                pooled_v = V.float().mean(dim=1)
+                pooled_v = _pool_vision_tokens(V)
                 return V, pooled_v
 
             def _forward_joint_log_odds_impl(self, x, return_vision_features=False):

@@ -11,9 +11,11 @@ defaults = "particlegan"
 role = "auxiliary"
 inputs = { x = "latent" }
 trainable = true
-hndl = "networks/multiscale-pyramid-generator-64.hndl"
-input_shape = ["B", 128]
-output_shape = ["B", 3, 64, 64]
+module = "hypergan.constraint_data:FourierContourSplatPyramidGenerator"
+
+[networks.image_generator.args]
+z_dim = 128
+img_size = 64
 
 [networks.generator]
 role = "generator"

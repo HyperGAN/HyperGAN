@@ -1087,7 +1087,8 @@ def build_real_vlm_eval_fn(
         )
         vision_out = m.get_image_features(patches, bundle["grid_thw_1"].expand(B, -1), return_dict=True)
         V = torch.stack(vision_out.pooler_output, dim=0)
-        pooled_v = V.float().mean(dim=1)
+        from hypergan.pretrained_providers import _pool_vision_tokens
+        pooled_v = _pool_vision_tokens(V)
 
         Q = bundle["num_queries"]
         base_embeds = bundle["base_embeds"]
@@ -1268,7 +1269,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                 batch_size=args.batch_size,
             )
             real_eval_fn = (
-                build_real_vlm_eval_fn(device=device, batch_size=args.batch_size)
+                build_real_vlm_eval_fn(
+                    device=device,
+                    batch_size=args.batch_size,
+                    image_size=int(images.shape[-1]),
+                )
                 if getattr(generator, "_is_hypergan_checkpoint", False)
                 else None
             )

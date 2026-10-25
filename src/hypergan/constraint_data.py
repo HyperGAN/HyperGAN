@@ -1233,8 +1233,8 @@ class MarginalShannonEntropyRegularizer(_ModuleBase):
             neg_mode_mask = valid_mask & (~pos_mask)
             l_pos = F.relu(2.85 - u_q[pos_mask]).mean()
             l_neg_modes = F.relu(u_q[neg_mode_mask] + 2.40).mean() if neg_mode_mask.any() else u_q.new_zeros(())
-            l_inv = F.relu(u_q[:, M_q:] + 2.90).mean() if M_q < self.num_classes else u_q.new_zeros(())
-            attr_losses.append(l_pos + 0.75 * l_neg_modes + 1.5 * l_inv)
+            l_inv = F.relu(u_q[:, M_q:] + 2.95).mean() if M_q < self.num_classes else u_q.new_zeros(())
+            attr_losses.append(l_pos + 0.75 * l_neg_modes + 2.5 * l_inv)
 
         return entropy_loss + self.target_attraction_weight * torch.stack(attr_losses).mean()
 
@@ -1554,7 +1554,9 @@ class FourierContourSplatPyramidGenerator(_ModuleBase):
         p8 = self.pyr_8(F.interpolate(p4, size=(8, 8), mode="bilinear", align_corners=False))
         p16 = self.pyr_16(F.interpolate(p8, size=(16, 16), mode="bilinear", align_corners=False))
         p32 = self.pyr_32(F.interpolate(p16, size=(32, 32), mode="bilinear", align_corners=False))
-        p64 = self.pyr_64(F.interpolate(p32, size=(H, W), mode="bilinear", align_corners=False))
+        p64 = self.pyr_64(F.interpolate(p32, size=(64, 64), mode="bilinear", align_corners=False))
+        if (H, W) != (64, 64):
+            p64 = F.interpolate(p64, size=(H, W), mode="bilinear", align_corners=False)
         pyr_res = self._smooth_rgb(p64)
 
         return torch.tanh(self._smooth_rgb(canvas) + 0.25 * pyr_res)

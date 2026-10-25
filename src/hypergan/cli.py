@@ -454,13 +454,13 @@ def _parser():
     qualify_cmd.add_argument(
         "-o", "--output",
         type=Path,
-        default=Path("qualification-receipt.json"),
-        help="destination path for JSON verification receipt (default: qualification-receipt.json)",
+        default=None,
+        help="destination path for JSON verification receipt (default: a per-run file under the HyperGAN state directory, qualification/)",
     )
     qualify_cmd.add_argument(
         "--dry-run",
         action="store_true",
-        help="simulate qualification checks and emit receipt without spawning worker jobs",
+        help="emit a receipt whose suites report dry_run without running any of them",
     )
     qualify_cmd.add_argument(
         "--suite",

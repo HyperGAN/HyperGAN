@@ -324,13 +324,7 @@ class TestRunPodDryRunLifecycle:
 
     def test_dry_run_executes_full_lifecycle(self, tmp_path):
         """Dry-run executes mock cloud qualification without network."""
-        try:
-            from e2e.harness import validate_qualification_receipt
-        except ImportError:
-            try:
-                from tests.e2e.harness import validate_qualification_receipt
-            except ImportError:
-                from hypergan.qualify import validate_qualification_receipt
+        from hypergan.qualify import validate_qualification_receipt
         runner = RunPodRunner(dry_run=True)
         receipt = runner.run_qualification_suite(output_dir=tmp_path)
         assert receipt["status"] == "passed"

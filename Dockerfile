@@ -10,7 +10,17 @@ WORKDIR /build
 COPY pyproject.toml setup.py MANIFEST.in README.md LICENSE ./
 COPY src/ ./src/
 
-RUN python -m pip wheel --no-cache-dir --no-deps --wheel-dir /dist .
+# .dockerignore keeps .git out of the build context, so the wheel cannot read
+# its commit. Pass it in: --build-arg HYPERGAN_COMMIT="$(git rev-parse HEAD)".
+# Without it the image records the commit as unknown (null).
+ARG HYPERGAN_COMMIT=""
+
+RUN set -eu; \
+    if [ -n "${HYPERGAN_COMMIT}" ]; then \
+        printf '{"commit": "%s", "dirty": null, "schema_version": 1}\n' "${HYPERGAN_COMMIT}" \
+            > src/hypergan/_build_provenance.json; \
+    fi; \
+    python -m pip wheel --no-cache-dir --no-deps --wheel-dir /dist .
 
 
 FROM python:3.12-slim-bookworm AS runtime

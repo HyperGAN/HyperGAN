@@ -88,4 +88,4 @@ The broker independently monitors coordinator death and reaps the ranks. A fresh
 
 Controller and adapter source are part of strict recovery identity. Older-source checkpoints require their original installation. There is no implicit native/distributed conversion, source-check bypass or changed-world-size recovery.
 
-This service covers the tested fixed-topology CPU and [local CUDA fixtures](replicated-cuda.md). It does not qualify real multi-node execution, image quality or a release. See the [checkpoint report](../reports/core-replicated-service-2026-09-19.md) and [execution ledger](../reports/resurrection-status.md) for acceptance results and the next work.
+This service covers the tested fixed-topology CPU and [local CUDA fixtures](replicated-cuda.md). It does not qualify real multi-node execution, image quality or a release. See the [checkpoint report](../reports/archive/core-replicated-service-2026-09-19.md) and [execution ledger](../reports/archive/resurrection-status.md) for acceptance results and the next work.

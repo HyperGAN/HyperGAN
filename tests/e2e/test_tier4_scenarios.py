@@ -30,15 +30,6 @@ try:
     from e2e.harness import (
         HAVE_CUDA,
         HAVE_2_GPUS,
-        HAVE_M1_SCHEMA,
-        HAVE_AGGREGATION,
-        HAVE_QUALIFY,
-        HAVE_RUNPOD,
-        requires_m1_schema,
-        requires_replicated_worker_parity,
-        requires_aggregation,
-        requires_qualify,
-        requires_runpod,
         requires_2_gpus,
         make_toy_config,
         make_profile_raw,
@@ -51,15 +42,6 @@ except ImportError:
     from tests.e2e.harness import (
         HAVE_CUDA,
         HAVE_2_GPUS,
-        HAVE_M1_SCHEMA,
-        HAVE_AGGREGATION,
-        HAVE_QUALIFY,
-        HAVE_RUNPOD,
-        requires_m1_schema,
-        requires_replicated_worker_parity,
-        requires_aggregation,
-        requires_qualify,
-        requires_runpod,
         requires_2_gpus,
         make_toy_config,
         make_profile_raw,
@@ -73,7 +55,7 @@ except ImportError:
 class TestTier4RealWorldScenarios:
     """Tier 4: Real-world application scenarios, lifecycle workflows, and recovery."""
 
-    @requires_replicated_worker_parity
+    @pytest.mark.heavy
     def test_tier4_realistic_replicated_training_workflow(self, tmp_path):
         """Scenario 1: Realistic multi-step replicated training workflow with metrics progression."""
         from hypergan.replicated_execution import run_train
@@ -116,7 +98,7 @@ class TestTier4RealWorldScenarios:
         assert train_events[0]["step"] == 1
         assert train_events[1]["step"] == 2
 
-    @requires_replicated_worker_parity
+    @pytest.mark.heavy
     def test_tier4_checkpoint_crash_and_resume_continuity(self, tmp_path):
         """Scenario 2: Save checkpoint, simulate worker crash/interruption, and resume with exact continuity."""
         from hypergan.replicated_execution import run_train, run_resume
@@ -161,7 +143,6 @@ class TestTier4RealWorldScenarios:
         assert manifest2["steps"] == 4
         assert manifest2["last_durable_step"] == 4
 
-    @requires_aggregation
     def test_tier4_custom_aggregation_strategy_end_to_end(self):
         """Scenario 3: Register custom aggregation strategy and execute replicated training."""
         from hypergan.aggregation import (
@@ -200,7 +181,7 @@ class TestTier4RealWorldScenarios:
         assert strat.should_assert_replicas(4) is False
         assert strat.manifest_metadata()["strategy"] == "moving_average"
 
-    @requires_qualify
+    @pytest.mark.heavy
     def test_tier4_qualification_smoke_suite_receipt(self, tmp_path):
         """Scenario 4: Run qualification smoke suite and verify standardized receipt JSON output."""
         receipt_path = tmp_path / "qualification-receipt.json"

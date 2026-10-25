@@ -30,7 +30,7 @@ losses, in the run manifest and on the `train` event:
 | `timing/training_seconds` | `training_seconds` | Cumulative wall clock spent inside training attempts. |
 | `progress/samples_seen` | `samples_seen` | Real examples drawn from the data stream. |
 
-Samples seen is `completed updates × training.batch_size`: one completed update
+Samples seen is `completed updates × train.batch_size`: one completed update
 consumes exactly one global batch, which gradient accumulation and a world size
 larger than one split into microbatches and shards but never change.
 

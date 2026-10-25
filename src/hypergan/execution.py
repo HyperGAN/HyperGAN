@@ -44,9 +44,8 @@ def _differences(current, original):
 def _training_config(config_path, steps=None):
     config = load_config(config_path)
     if steps is not None:
-        values = config_values(config)
-        values['training']['steps'] = steps
-        config = resolve_config(values)
+        # load_config re-resolves and keeps the retention, launch and source tables.
+        config = load_config({**config, 'training': {**config['training'], 'steps': steps}})
     return config
 
 
@@ -181,9 +180,10 @@ def _apply_devices(devices, config, profile, context_path):
     # NVIDIA behavior. PyTorch ROCm honors CUDA_VISIBLE_DEVICES as an alias.
     # The exact alignment between PyTorch device index, PCI bus ID, and amd-smi / rocm-smi
     # is verified empirically on AMD hardware via the preflight report (Section 4).
+    # "cuda:N" names physical GPU N here; the masked process then sees it as "cuda".
+    dev_list = [d[5:] if d.lower().startswith("cuda:") else d for d in dev_list]
     if len(dev_list) > 1:
-        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(dev_list)
+        _set_visible_devices(",".join(dev_list))
         if profile is None:
             profile = {
                 "schema_version": 1,
@@ -197,15 +197,28 @@ def _apply_devices(devices, config, profile, context_path):
             config["training"]["device"] = "cuda"
     elif len(dev_list) == 1:
         if dev_list[0].lower() == "cpu":
-            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            _set_visible_devices("", order=False)
             if isinstance(config, dict) and "training" in config:
                 config["training"]["device"] = "cpu"
         else:
-            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-            os.environ["CUDA_VISIBLE_DEVICES"] = dev_list[0]
+            _set_visible_devices(dev_list[0])
             if isinstance(config, dict) and "training" in config:
                 config["training"]["device"] = "cuda"
     return profile, devices
+
+
+def _set_visible_devices(value, *, order=True):
+    """Mask GPUs for this process; refuse once CUDA has read the old mask."""
+    if value and os.environ.get("CUDA_VISIBLE_DEVICES") != value:
+        import sys
+        torch = sys.modules.get("torch")
+        if torch is not None and torch.cuda.is_initialized():
+            raise ValueError(f"Cannot select devices {value!r}: CUDA is already initialized in this "
+                             "process, so CUDA_VISIBLE_DEVICES no longer applies. Pass devices before any "
+                             "CUDA use, or set CUDA_VISIBLE_DEVICES before starting Python.")
+    if order:
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = value
 
 
 @dataclass(frozen=True)
@@ -245,12 +258,52 @@ class PreparedExecution:
         else:
             from .replicated_execution import run_train, run_resume
             options = {'profile': self.profile, 'service_policy': self.service_policy}
+        if self.devices is None:
+            # The controller reloads config_path under the run lock and rejects late edits.
+            config, steps = self.config_path, self.steps
+        else:
+            # A device override exists only in the prepared configuration, so train
+            # exactly that (steps included); reloading config_path would drop it.
+            config, steps = _launch_config(current.config, self.config_path), None
         if self.operation == 'train':
-            return run_train(self.config_path, self.run_dir, self.steps,
+            return run_train(config, self.run_dir, steps,
                              on_event=on_event, **options, **self.controls)
-        return run_resume(self.run_dir, self.checkpoint, self.config_path,
-                          steps=self.steps, require_same_config=self.repeat_train,
+        return run_resume(self.run_dir, self.checkpoint, config,
+                          steps=steps, require_same_config=self.repeat_train,
                           on_event=on_event, **options, **self.controls)
+
+
+def _launch_config(config, config_path):
+    """The resolved configuration plus the source path its provenance snapshot reads."""
+    config = dict(config)
+    source = config_path.get('_source_path') if isinstance(config_path, dict) else config_path
+    if '_source_path' not in config and isinstance(source, (str, Path)):
+        config['_source_path'] = str(source)
+    return config
+
+
+# Written into a new run directory before its first manifest: the CLI's
+# re-exec launch record and recipe, and the run lock.
+_PRE_MANIFEST_ENTRIES = {'.run.lock', 'launch', 'config-source', 'recipe.toml'}
+
+
+def _is_run(run_dir):
+    """Whether an existing run_dir is a run to continue (True) or a new run's unstarted launch (False).
+
+    Anything else is refused: training never writes into a directory that
+    HyperGAN did not create.
+    """
+    if (run_dir / 'manifest.json').is_file():
+        return True
+    if not run_dir.is_dir():
+        raise ValueError(f'Run directory path exists and is not a directory: {run_dir}')
+    entries = sorted(p.name for p in run_dir.iterdir())
+    if entries and set(entries) <= _PRE_MANIFEST_ENTRIES:
+        return False  # A launch that stopped before its first manifest; start it again.
+    found = ('it is empty' if not entries else 'it contains '
+             + ', '.join(entries[:5]) + (', ...' if len(entries) > 5 else ''))
+    raise ValueError(f'{run_dir} exists but is not a HyperGAN run (no manifest.json; {found}); '
+                     'choose a new run directory or remove this one')
 
 
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
@@ -261,7 +314,7 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
     run_dir = Path(run_dir).resolve()
-    if run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1":
+    if run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=profile, service_policy=service_policy, devices=devices,
             checkpoint_every=checkpoint_every, max_seconds=max_seconds,
@@ -298,6 +351,9 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
         raise ValueError(f'Run directory does not exist or is not a directory: {run_dir}')
+    if not (run_dir / 'manifest.json').is_file():
+        raise ValueError(f'{run_dir} has no manifest.json, so it is not a resumable HyperGAN run '
+                         '(its first attempt never started); train into it again or choose another run directory')
     manifest = _read_metadata(run_dir / 'manifest.json')
     required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
     if not required.issubset(manifest) or type(manifest['schema_version']) is not int or manifest['schema_version'] != 1:
@@ -305,6 +361,14 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     config = _training_config(config_path, steps) if config_path is not None else resolve_config(manifest['config'])
     if config_path is None and steps is not None:
         raise ValueError('A training step override requires an explicit configuration')
+    saved = manifest.get('execution')
+    if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
+        raise ValueError('Run has no supported numerical execution identity')
+    if profile is None and saved is not None:
+        profile = {'schema_version': 1, 'execution': {
+            key: saved.get(key) for key in ('name', 'world_size', 'accumulation_steps')}}
+    # A device override is part of the configuration checked against the run below.
+    profile, devices = _apply_devices(devices, config, profile, run_dir)
     if _repeat_train:
         original = config_values(resolve_config(manifest['config']))
         changed = _differences(config_values(config), original)
@@ -325,13 +389,6 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             raise ConfigError(f'Resume configuration differs from the original run{diff_str}; only an increased '
                               'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
                               'pinned training-image skipping, or changing its pixel cache, is allowed')
-    saved = manifest.get('execution')
-    if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
-        raise ValueError('Run has no supported numerical execution identity')
-    if profile is None and saved is not None:
-        profile = {'schema_version': 1, 'execution': {
-            key: saved.get(key) for key in ('name', 'world_size', 'accumulation_steps')}}
-    profile, devices = _apply_devices(devices, config, profile, run_dir if run_dir else config_path)
     profile = _profile(profile, config)
     execution = _execution(profile)
     if not _same(execution, saved):

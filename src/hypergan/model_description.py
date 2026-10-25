@@ -173,13 +173,21 @@ def _producer(path):
 
 # ---------------------------------------------------------------- tier A
 
-def roles(config):
+def roles(config, *, aliases=True):
+    """Each engine component's model-file role; the one place roles are inferred.
+
+    Lowering records network names (``name_map``) but not roles, so they are read
+    back from the graph: ``generator`` by name, critics from the adversarial
+    terms, encoders by their prior inputs, and everything else ``auxiliary``. A
+    ``reuse`` network is ``alias`` unless ``aliases=False``, which gives it the
+    role a model file would declare for it.
+    """
     components = config['components']
     critics = {'discriminator'} | {t.get('component') for t in config.get('adversarial_terms') or ()}
     result = {}
     for name, spec in components.items():
         inputs = list((spec.get('inputs') or {}).values())
-        if 'reuse' in spec:
+        if aliases and 'reuse' in spec:
             result[name] = 'alias'
         elif name == 'generator':
             result[name] = 'generator'

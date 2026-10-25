@@ -5,10 +5,11 @@ loads one, lets a script change values, trains it and reads the run back::
 
     import hypergan.api as hg
 
-    model = hg.load("model.toml")
-    model = hg.override(model, {"train.steps": 200, "losses.reconstruction.weight": 0.5})
-    run = hg.train(model, "runs/demo", previews=50)
-    hg.metrics(run)["loss/d_total"]        # [(step, value), ...]
+    if __name__ == "__main__":   # previews/evaluations spawn workers that re-import this script
+        model = hg.load("model.toml")
+        model = hg.override(model, {"train.steps": 200, "losses.reconstruction.weight": 0.5})
+        run = hg.train(model, "runs/demo", previews=50)
+        hg.metrics(run)["loss/d_total"]    # [(step, value), ...]
 
 Everything here is a plain function over two data objects, ``Model`` (the
 model file as a dictionary plus the directory its relative paths use) and
@@ -32,8 +33,8 @@ try:
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
-from .workspace import find_workspace, load_workspace, interpolate_variables, resolve_device_aliases
-from .model_file import resolve_inheritance, collect_source_files
+from .workspace import find_workspace, load_workspace, interpolate_model_paths, interpolate_variables, resolve_device_aliases
+from .model_file import resolve_inheritance, collect_source_files, require_networks
 
 PACKAGED = Path(__file__).with_name('models')
 
@@ -126,7 +127,7 @@ def load(path):
             spec['name'] = path.stem
 
         if ws_dict is not None:
-            spec = interpolate_variables(spec, ws_dict)
+            spec = interpolate_model_paths(spec, ws_dict)
 
     return Model(spec, base=path.parent.resolve(), path=path.resolve())
 
@@ -368,6 +369,8 @@ def lower(model):
     model = _model(model)
     if is_model_file(model.spec):
         return _lower(model.spec, model.base)
+    if model.path is not None:
+        require_networks(model.spec)  # A file that declares no model never means the packaged default.
     if model.base is not None:
         from .config import inline_network_sources
         return inline_network_sources(model.spec, model.base)
@@ -391,7 +394,7 @@ def validate(model):
 validate_config = validate
 
 
-def init_project(project_dir, *, template="dcgan", resolution=None, data_dir=None, output_config=None, device="cuda", overwrite=False):
+def init_project(project_dir, *, template=None, resolution=None, data_dir=None, output_config=None, device="cuda", overwrite=False):
     """Initialize a HyperGAN project directory with hypergan.toml, runs/, and configs/<template>.toml."""
     from .recipe_generator import init_project as _init_project
     return _init_project(project_dir, template=template, resolution=resolution, data_dir=data_dir,
@@ -404,7 +407,7 @@ def new(data_dir=None, output_path=None, *, template=None, resolution=None, devi
     if project is not None:
         return init_project(
             project,
-            template=template or "dcgan",
+            template=template,
             resolution=resolution,
             data_dir=data_dir,
             output_config=output_path,
@@ -488,10 +491,8 @@ def explain(model):
             elif 'reuse' in net_spec or 'reuse' in spec:
                 reuse_target = net_spec.get('reuse') or spec.get('reuse')
                 group = f'parameters of {reuse_target}'
-            elif net_spec.get('trainable') is False or spec.get('trainable') is False or net_spec.get('freeze_parameters') or spec.get('freeze_parameters') or role == 'frozen':
+            elif net_spec.get('trainable') is False or spec.get('trainable') is False or net_spec.get('freeze_parameters') or spec.get('freeze_parameters'):
                 group = 'none (frozen)'
-            elif role == 'shared':
-                group = f'parameters of {spec.get("reuse")}'
             else:
                 group = f'generator-side Adam, lr = {g_lr_str}'
             lines.append(f'{orig_name} [{role}] {factory}')
@@ -502,10 +503,13 @@ def explain(model):
                 received = sorted(set(reach.get(comp_name, [])))
                 lines.append('  gradient from: ' + (', '.join(received) or '-'))
     else:
+        from .model_description import roles
+        inferred = roles({'components': components, 'adversarial_terms': recipe.get('adversarial_terms', [])},
+                         aliases=False)
         for name, spec in components.items():
             orig_name = inv_name_map.get(name, name)
             factory = spec.get('factory', 'reuse')
-            role = 'critic' if name == 'discriminator' or any(t.get('component') == name for t in recipe.get('adversarial_terms', [])) else 'generator'
+            role = inferred[name]
             if role == 'critic':
                 group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
             else:
@@ -796,32 +800,11 @@ def _run_path(value=None):
 
 
 def _default_run_dir(model_obj):
-    """Determine default run directory <runs_root>/<slug> for a Model or path."""
+    """A fresh slugged run directory for a Model, by the same rule as ``hypergan train``."""
+    from .workspace import default_run_dir
     cfg_path = getattr(model_obj, "path", None)
-    ws_path = find_workspace(cfg_path or Path.cwd())
-    if ws_path:
-        ws_data = load_workspace(ws_path)
-        ws_sec = ws_data.get("workspace", {})
-        runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else (ws_path.parent / "runs").resolve()
-        stem = cfg_path.stem if cfg_path else (model_obj.name.split("/")[-1] if model_obj.name else "run")
-        custom_name = model_obj.spec.get("name") if (model_obj.spec.get("name") and model_obj.spec.get("name") != "custom/model") else None
-        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else generate_run_slug(stem, parent_dir=runs_root)
-        if "run_dir" in ws_sec:
-            run_dir_str = interpolate_variables(
-                ws_sec["run_dir"],
-                ws_data,
-                {"stem": custom_name or stem, "name": slug_dir_name, "slug": short_slug},
-            )
-            return Path(run_dir_str).resolve()
-        return (runs_root / slug_dir_name).resolve()
-    from .web_autostart import find_runs_root as autostart_find
-    runs_root = autostart_find(Path.cwd())
-    if not runs_root.name == "runs" and (runs_root / "runs").is_dir():
-        runs_root = (runs_root / "runs").resolve()
     stem = cfg_path.stem if cfg_path else (model_obj.name.split("/")[-1] if model_obj.name else "run")
-    custom_name = model_obj.spec.get("name") if (model_obj.spec.get("name") and model_obj.spec.get("name") != "custom/model") else None
-    slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else generate_run_slug(stem, parent_dir=runs_root)
-    return (runs_root / slug_dir_name).resolve()
+    return default_run_dir(stem, start=cfg_path)
 
 
 def prepare(model, run_dir=None, steps=None, *, profile=None, service_policy=None,
@@ -1618,21 +1601,11 @@ def lift(raw, *, base=None):
     networks = {}
     losses = []
 
-    critics_in_terms = {term.get('component') for term in raw.get('adversarial_terms', [])}
-    if 'discriminator' in components:
-        critics_in_terms.add('discriminator')
+    from .model_description import roles
+    inferred = roles({'components': components, 'adversarial_terms': raw.get('adversarial_terms', [])}, aliases=False)
 
     for name, spec in components.items():
-        if name == 'discriminator' or name in critics_in_terms:
-            role = 'critic'
-        elif name == 'generator':
-            role = 'generator'
-        elif 'encoder' in name or spec.get('factory', '').endswith('Encoder'):
-            role = 'encoder'
-        else:
-            role = 'auxiliary'
-
-        net = {'role': role, 'inputs': dict(spec.get('inputs', {}))}
+        net = {'role': inferred[name], 'inputs': dict(spec.get('inputs', {}))}
         if 'trainable' in spec:
             net['trainable'] = spec['trainable']
         if 'freeze_parameters' in spec:

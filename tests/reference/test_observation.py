@@ -11,7 +11,8 @@ from tests.hndl_fixtures import fixture_network
 from torch import nn
 
 from hypergan.checkpoints import read_checkpoint, trainer_state
-from hypergan.config import load_config, write_default
+from hypergan.config import load_config
+from tests.config_fixtures import write_default
 from hypergan.previews import MAX_BYTES, MAX_COUNT, render_preview
 from hypergan.training import ReferenceTrainer, resume, train
 

@@ -3,7 +3,7 @@ import json
 import subprocess
 import sys
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 
 
 BLOCKED_CLI = '''

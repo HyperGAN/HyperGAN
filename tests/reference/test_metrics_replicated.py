@@ -8,7 +8,7 @@ import sys
 import pytest
 import torch
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 
 
 # Heavy: every test here starts real subprocesses or multi-rank jobs and

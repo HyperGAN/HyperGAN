@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.metric_examples import ColorMomentDistance, ColorHistogramDifference
 
 FIXTURE = '''

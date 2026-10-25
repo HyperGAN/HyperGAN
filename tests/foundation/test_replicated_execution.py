@@ -6,7 +6,8 @@ import sys
 
 import pytest
 
-from hypergan.config import config_values, fingerprint, resolve_config, write_default
+from hypergan.config import config_values, fingerprint, resolve_config
+from tests.config_fixtures import write_default
 from hypergan.replicated_execution import ReplicatedExecution, run_train
 from hypergan.run_controller import AttemptContext, FatalExecutionError
 

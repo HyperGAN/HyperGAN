@@ -1561,7 +1561,7 @@ def _dispatch(args, *, output=None):
                     dataset_arg = args.dataset if args.dataset is not None else args.path
                     info = hg.init_project(
                         proj_dir,
-                        template=tmpl or "dcgan",
+                        template=tmpl,
                         resolution=res_opt,
                         data_dir=dataset_arg,
                         output_config=out_opt,
@@ -1940,24 +1940,8 @@ def _dispatch(args, *, output=None):
                             )
                 custom_name = getattr(args, "name", None)
                 if args.run_dir is None:
-                    ws_path = hg.find_workspace(config_path)
-                    if ws_path:
-                        ws_data = hg.load_workspace(ws_path)
-                        ws_sec = ws_data.get("workspace", {})
-                        runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else Path.cwd().resolve()
-                        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else hg.generate_run_slug(config_path.stem, parent_dir=runs_root)
-                        if "run_dir" in ws_sec:
-                            run_dir_str = hg.interpolate_variables(
-                                ws_sec["run_dir"],
-                                ws_data,
-                                {"stem": custom_name or config_path.stem, "name": slug_dir_name, "slug": short_slug},
-                            )
-                            args.run_dir = Path(run_dir_str).resolve()
-                        else:
-                            args.run_dir = (runs_root / slug_dir_name).resolve()
-                    else:
-                        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else hg.generate_run_slug(config_path.stem, parent_dir=Path.cwd())
-                        args.run_dir = (Path.cwd() / slug_dir_name).resolve()
+                    from .workspace import default_run_dir
+                    args.run_dir = default_run_dir(config_path.stem, name=custom_name, start=config_path)
                 else:
                     args.run_dir = args.run_dir.resolve()
 

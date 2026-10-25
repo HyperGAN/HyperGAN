@@ -48,133 +48,6 @@ DEFAULT = {
     "sampling": {"count": 256, "seed": 123},
 }
 
-LEGACY_REFERENCE_TOML = '''# A five-step numerical reference, not a converged image model.
-schema_version = 1
-name = "reference/100gaussians"
-
-[data]
-factory = "gaussian_grid"
-[data.args]
-side = 10
-noise = 0.015
-
-[components.generator]
-factory = "hndl"
-inputs = { x = "latent" }
-[components.generator.args]
-input_shape = ["B", 4]
-output_shape = ["B", 2]
-source = """
-# Two-dimensional Gaussian-grid numerical reference.
-linear(64)
-leaky_relu(0.2)
-linear(64)
-leaky_relu(0.2)
-linear()
-"""
-
-[components.discriminator]
-factory = "hndl"
-inputs = { x = "candidate" }
-[components.discriminator.args]
-input_shape = ["B", 2]
-output_shape = ["B", 1]
-source = """
-# Two-dimensional Gaussian-grid numerical reference.
-linear(64)
-leaky_relu(0.2)
-linear(64)
-leaky_relu(0.2)
-linear()
-"""
-
-[prior]
-kind = "particles"
-[prior.args]
-num_particles = 20000
-z_dim = 4
-
-[adversarial]
-weight = 1.0
-
-[gradient_penalty]
-coeff = 1.0
-kappa = 1.0
-lazy_k = 1
-
-[prior_regularizer]
-rows = "sampled_unique"
-weight = 1.0
-
-[optimizer]
-lr = 0.0006
-d_lr_mult = 1.5
-prior_lr_mult = 10.0
-betas = [0.0, 0.999]
-prior_betas = [0.0, 0.999]
-
-[training]
-steps = 5
-batch_size = 16
-seed = 42
-device = "cpu"
-ema = 0.995
-lr_anneal_start = 0.6
-lr_floor = 0.05
-
-[sampling]
-count = 256
-seed = 123
-'''
-
-# Fresh projects inherit the released trainer while the concrete legacy
-# reference above remains available for migration/numerical audit fixtures.
-DEFAULT_TOML = '''# Five-step task smoke test; increase steps for a training run.
-schema_version = 1
-name = "reference/100gaussians"
-defaults = "particlegan"
-
-[data]
-factory = "gaussian_grid"
-[data.args]
-side = 10
-noise = 0.015
-
-[components.generator]
-factory = "hndl"
-inputs = { x = "latent" }
-[components.generator.args]
-input_shape = ["B", 4]
-output_shape = ["B", 2]
-source = "linear(64)\\nleaky_relu(0.2)\\nlinear(64)\\nleaky_relu(0.2)\\nlinear()"
-
-[components.discriminator]
-factory = "hndl"
-inputs = { x = "candidate" }
-[components.discriminator.args]
-input_shape = ["B", 2]
-output_shape = ["B", 1]
-source = "linear(64)\\nleaky_relu(0.2)\\nlinear(64)\\nleaky_relu(0.2)\\nlinear()"
-
-[prior]
-kind = "particles"
-initialization_seed = 2
-[prior.args]
-num_particles = 20000
-z_dim = 4
-
-[training]
-steps = 5
-batch_size = 16
-seed = 0
-device = "cpu"
-initialization = "deterministic_orthogonal"
-
-[sampling]
-count = 256
-seed = 10000
-'''
-
 
 # Compatibility with obsolete configuration syntax. Formulation selection now
 # belongs to the dependency; keep accepting only the old redundant defaults.
@@ -229,7 +102,7 @@ def _spec(value, location, objectives=False):
     if not objectives and value.get("factory") == "hndl":
         validate_network_args(value["args"], f"{location}.args")
         if "file" in value["args"]:
-            value["args"]["source"] = read_source(_resolve_hndl_target(value["args"].pop("file"), None))
+            value["args"]["source"] = _read_hndl_file(value["args"].pop("file"), Path(), f"{location}.args.file")
     if not isinstance(value.get("inputs"), dict) or not value["inputs"] or not all(isinstance(k, str) and isinstance(v, str) and v for k, v in value["inputs"].items()):
         raise ValueError(f"{location}.inputs must bind argument names to context paths")
     if objectives:
@@ -687,7 +560,8 @@ def resolve_config(raw):
     if result['metrics']['custom']:
         warnings.append("Custom metrics execute trusted Python in bounded workers; input/output and deadlines are bounded, arbitrary allocations or descendants are not sandboxed.")
     warnings.extend(evaluation_warnings(result))
-    ignored_for_match = {"metrics", "format", "name_map", "samplers"}
+    # Observation, retention and launch metadata never change the numerical recipe.
+    ignored_for_match = {"metrics", "format", "name_map", "samplers", "checkpoints", "run", "_source_path"}
     match = {k: v for k, v in result.items() if k not in ignored_for_match} == {k: v for k, v in DEFAULT.items() if k not in ignored_for_match}
     if not match:
         warnings.append("Custom resolved recipe: runnable combinations are unqualified until separately evaluated.")
@@ -884,39 +758,13 @@ def fingerprint(config):
     return hashlib.sha256(json.dumps(numerical_values(config), sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
-def _resolve_hndl_target(file: str | Path, base: Path | None = None) -> Path:
-    """Resolve an HNDL path relative to base, falling back to packaged reference.hndl if relocated."""
-    p = Path(file)
-    if p.is_absolute():
-        return p
-    target = (base / p) if base is not None else p
-    if target.is_file():
-        return target
-    if p.name == "reference.hndl":
-        fallback = Path(__file__).resolve().parent / "networks" / "reference.hndl"
-        if fallback.is_file():
-            return fallback
-    return target
-
-
-def _normalize_model_hndl_paths(raw: dict, base: Path | None = None) -> dict:
-    """Ensure relative reference.hndl paths in model files remain resolvable after config-source snapshotting."""
-    networks = raw.get("networks")
-    if not isinstance(networks, dict):
-        return raw
-    updated = None
-    for name, spec in networks.items():
-        if isinstance(spec, dict):
-            for hndl_key in ("hndl", "file"):
-                if isinstance(spec.get(hndl_key), str):
-                    raw_path = spec[hndl_key]
-                    resolved = _resolve_hndl_target(raw_path, base)
-                    expected = Path(raw_path) if Path(raw_path).is_absolute() else ((base / raw_path) if base is not None else Path(raw_path))
-                    if resolved != expected:
-                        if updated is None:
-                            updated = deepcopy(raw)
-                        updated["networks"][name][hndl_key] = str(resolved)
-    return updated if updated is not None else raw
+def _read_hndl_file(file, base, location):
+    """Read an HNDL file relative to base; a missing file is an error, never a substitute."""
+    target = Path(file) if Path(file).is_absolute() else Path(base) / file
+    try:
+        return read_source(target)
+    except OSError as exc:
+        raise ValueError(f'{location}: cannot read {file}: {exc}') from exc
 
 
 def load_config(path):
@@ -927,16 +775,21 @@ def load_config(path):
     a resolved configuration (fingerprints, resume, the viewer, replicated
     workers) sees the same recipe whichever form was written.
     """
-    from .model_file import is_model_file, lower, resolve_inheritance
-    from .workspace import find_workspace, load_workspace, interpolate_variables
+    from .model_file import FORMAT, is_model_file, lower, require_networks, resolve_inheritance
+    from .workspace import find_workspace, load_workspace, interpolate_model_paths
     if isinstance(path, Mapping):
         raw = deepcopy(dict(path))
         if {"warnings", "qualification"} & raw.keys():
+            # A resolved configuration: re-resolve its values, keeping the
+            # retention, launch and provenance tables that config_values omits.
+            kept = {key: raw[key] for key in ("checkpoints", "run", "_source_path") if key in raw}
             raw = config_values(raw)
+            raw.update(kept)
         if "extends" in raw:
             raw = resolve_inheritance(raw)
+        if raw.get("format") == FORMAT:
+            require_networks(raw)
         if is_model_file(raw):
-            raw = _normalize_model_hndl_paths(raw, None)
             return resolve_config(lower(raw))
         return resolve_config(raw)
     path = Path(path)
@@ -953,12 +806,13 @@ def load_config(path):
         raw = resolve_inheritance(raw, config_path=path, workspace_root=ws_root)
     elif isinstance(raw, dict) and is_model_file(raw) and "name" not in raw:
         raw["name"] = path.stem
+    if isinstance(raw, dict) and raw.get("format") == FORMAT:
+        require_networks(raw)  # A format-less engine recipe may set only [data], e.g. for data-check.
 
     if ws_dict is not None and isinstance(raw, dict):
-        raw = interpolate_variables(raw, ws_dict)
+        raw = interpolate_model_paths(raw, ws_dict)
 
     if is_model_file(raw):
-        raw = _normalize_model_hndl_paths(raw, path.parent)
         return resolve_config(lower(raw, base=path.parent))
     return resolve_config_at(raw, path.parent)
 
@@ -977,7 +831,7 @@ def inline_network_sources(raw, base):
     """Snapshot architecture file references without applying trainer defaults."""
     base = Path(base)
     raw = deepcopy(raw)
-    for spec in raw.get("components", {}).values():
+    for component, spec in raw.get("components", {}).items():
         args = spec.get("args", {})
         network_files = args.pop('network_files', {})
         if not isinstance(network_files, dict):
@@ -989,14 +843,11 @@ def inline_network_sources(raw, base):
             for name, file in network_files.items():
                 if not isinstance(file, str):
                     raise ValueError('args.network_files paths must be strings')
-                target_file = _resolve_hndl_target(file, base)
-                sources[name] = read_source(target_file)
+                sources[name] = _read_hndl_file(file, base, f'components.{component}.args.network_files.{name}')
         if spec.get("factory") == "hndl" and "file" in args:
             if "source" in args:
                 raise ValueError("HNDL component must specify exactly one of source or file")
-            file = args.pop("file")
-            target_file = _resolve_hndl_target(file, base)
-            args["source"] = read_source(target_file)
+            args["source"] = _read_hndl_file(args.pop("file"), base, f'components.{component}.args.file')
     return raw
 
 
@@ -1005,21 +856,6 @@ def validate_device(device):
     if not isinstance(device, str) or re.fullmatch(r"cpu|cuda(?::(?:0|[1-9][0-9]*))?", device) is None:
         raise ValueError("training.device must be cpu, cuda, or cuda:N (a nonnegative visible GPU index)")
     return device
-
-
-def write_default(path, *, device="cuda", defaults="particlegan"):
-    """Create a GPU-first project; CPU numerical fixtures opt in explicitly."""
-    validate_device(device)
-    if defaults not in ('particlegan', 'hypergan'):
-        raise ValueError('defaults must be particlegan or hypergan')
-    path = Path(path)
-    if path.suffix != ".toml":
-        path = path / "config.toml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x") as stream:
-        template = DEFAULT_TOML if defaults == 'particlegan' else LEGACY_REFERENCE_TOML
-        stream.write(template.replace('device = "cpu"', f'device = "{device}"'))
-    return path
 
 
 def list_recipes():

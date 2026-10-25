@@ -4,7 +4,7 @@ import json
 import pytest
 
 from hypergan.checkpoints import capture_rng, restore_rng
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.training import train
 
 

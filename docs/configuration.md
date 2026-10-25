@@ -47,6 +47,8 @@ shuffle = true
 workers = 4
 ```
 
+Inside a workspace, path fields may use the workspace's variables: `root = "${paths.data}/cats"` reads `[paths] data` from `hypergan.toml` (`${data}` is the same), and `${workspace.root}` / `${workspace.runs_root}` name the workspace directories. Only path fields are substituted (`root`, `manifest`, `cache_dir`, `hndl`, `file`, `network_files`, `weights_path`, `source_path`, `path`), only the `${...}` form is recognized, and an undefined variable is an error. Environment variables are not read. Other strings, such as HNDL sources with their own `${param}` template parameters or metric labels, are left as written.
+
 ### Supported Data Modes
 
 1. **Built-in Datasets (`builtin`)**:
@@ -161,19 +163,19 @@ flatten()
 | Field | Type | Description |
 | --- | --- | --- |
 | `role` | `string` | Required role: `"generator"`, `"critic"`, `"encoder"`, or `"auxiliary"`. |
-| `architecture` | `string` | Built-in architecture preset (`"dcgan"`, `"resnet"`, `"tiny-transformer"`, `"stylegan2"`, `"transgan"`, `"mlp"`). |
 | `source` | `string` | Inline HNDL declarative network source. |
 | `hndl` / `file` | `string` | Path to a standalone `.hndl` network file (resolved relative to the `.toml` file; contents are snapshotted into the run's resolved recipe for reproducibility). |
 | `module` | `string` | Importable Python `torch.nn.Module` class or factory (`"pkg.mod:Class"`). |
 | `inputs` | `table` | Mapping of forward keyword arguments to graph bindings (`"latent"`, `"candidate"`, `"generated"`, `"batch.real"`, `"batch.condition"`, `"prior.means"`, `"prior.sigma"`, or another network name `"encoder"` / `"encoder.<output>"`). |
-| `outputs` | `list` / `table` | Named output port declarations for multi-output networks. |
 | `input_shape` | `list` / `table` | Shape contract for HNDL networks, e.g., `["B", 128]` for a single input or `{ z = ["B", 128], cond = ["B", 16] }` for multiple inputs. |
 | `output_shape` | `list` / `table` | Expected output shape contract, e.g., `["B", 3, 64, 64]` or `["B", 1]`. |
 | `input_dtype` | `string` / `table` | Optional input tensor dtype (e.g., `"int64"` for token/embedding indices, or a per-port table). |
-| `trainable` / `frozen` | `bool` | Whether the network's parameters are updated during training (`trainable = true` / `frozen = false` by default). |
+| `trainable` | `bool` | Whether the network's parameters are updated during training (`true` by default; `false` freezes them). |
 | `reuse` | `string` | Name of another declared network whose weights should be shared for a second forward pass with different `inputs`. |
 | `freeze_parameters` | `bool` | When set to `true` on a `reuse` network, blocks parameter gradients for that forward pass while still propagating gradients with respect to its inputs. |
 | `args` | `table` | Additional constructor or HNDL template arguments (`parameters`, `pretrained_providers`, `networks`, `network_files`, etc.). |
+
+Any other field is rejected. There are no named architecture presets: each network is written as HNDL (`source`, `hndl` / `file`) or a Python `module`. `hypergan new --template dcgan|resnet|tiny-transformer` writes HNDL sources sized for your images that you can edit.
 
 ### Frozen Pretrained Feature Critics (ResNet-18 & DINOv3)
 

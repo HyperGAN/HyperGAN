@@ -269,3 +269,31 @@ def test_gpu_inventory_tools_have_a_timeout(monkeypatch):
         assert provider().get_hardware() == []
         assert provider().get_processes() == []
     assert calls and all(timeout == SMI_TIMEOUT_SECONDS for timeout in calls)
+
+
+def test_idle_follower_backs_off_polling_node_0_store(monkeypatch):
+    """PR #423 review: a fixed 5 ms poll hit node 0's store about 200 times/s per follower."""
+    import json
+    import time
+    from hypergan import cpu_worker_service
+
+    class Store:
+        def __init__(self):
+            self.checks, self.ready_at = 0, time.monotonic() + 0.5
+
+        def check(self, keys):
+            self.checks += 1
+            return time.monotonic() >= self.ready_at
+
+        def get(self, key):
+            return json.dumps({'sequence': 1, 'kind': 'command', 'operation': '__shutdown__', 'payload': None})
+
+    store = Store()
+    channel = SimpleNamespace(pump=lambda: None, closed=False)
+    monkeypatch.setattr(cpu_worker_service, '_store', lambda: store)
+    monkeypatch.setattr(cpu_worker_service, '_agree_command', lambda row, world_size: None)
+    monkeypatch.setattr(dist, 'barrier', lambda: None)
+    monkeypatch.setattr(dist, 'destroy_process_group', lambda: None)
+    assert cpu_worker_service._follow_leader(channel, None, None, 2, 'gloo', 0) == {'commands': 0}
+    # A fixed 5 ms poll makes about 100 checks in 0.5 s; backing off to 100 ms needs about a dozen.
+    assert store.checks < 25

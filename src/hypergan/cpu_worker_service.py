@@ -188,6 +188,9 @@ def _publish_leader_command(sequence, row):
         store.delete_key(_LEADER_COMMAND.format(sequence - 1))
 
 
+_FOLLOW_POLL_MAX = 0.1
+
+
 def _follow_leader(channel, state, handler, world_size, backend, local_rank):
     """Run node 0's commands on a follower rank until node 0 shuts the group down.
 
@@ -200,10 +203,13 @@ def _follow_leader(channel, state, handler, world_size, backend, local_rank):
     while True:
         sequence += 1
         key = _LEADER_COMMAND.format(sequence)
+        # Back off while idle so large worlds do not flood node 0's store with checks.
+        delay = 0.005
         while not store.check([key]):
             if channel.pump() or channel.closed:
                 raise EOFError('Follower broker closed while waiting for node 0')
-            time.sleep(0.005)
+            time.sleep(delay)
+            delay = min(delay * 2, _FOLLOW_POLL_MAX)
         row = json.loads(store.get(key))
         if (not isinstance(row, dict) or row.get('sequence') != sequence or row.get('kind') != 'command'
                 or not isinstance(row.get('operation'), str) or 'payload' not in row):

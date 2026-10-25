@@ -1,57 +1,101 @@
 {
   "schema_version": 1,
-  "qualification_id": "qual-runpod-1792962677",
-  "timestamp": "2026-10-25T21:11:17.327107+00:00",
+  "qualification_id": "qual-1792886752-fdb02eb7",
+  "timestamp": "2026-10-25T00:05:52.899243+00:00",
   "status": "passed",
-  "duration_seconds": 0.0,
+  "duration_seconds": 25.6074,
   "environment": {
     "platform": "linux",
     "python": "3.14.8",
     "torch": "2.14.1+cu130",
-    "device_count": 1,
+    "device_count": 2,
     "devices": [
-      "NVIDIA RTX A4000"
+      "NVIDIA RTX A6000",
+      "NVIDIA RTX A6000"
     ],
     "cuda": {
       "available": true,
-      "nccl": true
-    },
-    "runpod": {
-      "dry_run": true,
-      "gpu_type": "NVIDIA RTX A4000"
+      "version": "13.0",
+      "nccl": true,
+      "gloo": true,
+      "devices": [
+        {
+          "index": 0,
+          "name": "NVIDIA RTX A6000",
+          "total_memory_bytes": 50949390336,
+          "major": 8,
+          "minor": 6
+        },
+        {
+          "index": 1,
+          "name": "NVIDIA RTX A6000",
+          "total_memory_bytes": 50952536064,
+          "major": 8,
+          "minor": 6
+        }
+      ]
     }
   },
   "suites": [
     {
       "name": "single_device",
       "status": "passed",
-      "duration_seconds": 0.1
+      "duration_seconds": 1.3789,
+      "details": {
+        "device": "cuda",
+        "d_loss": 1.033691167831421,
+        "g_loss": 6.643125057220459
+      }
     },
     {
       "name": "cpu_replicated_gloo",
       "status": "passed",
-      "duration_seconds": 0.4
+      "duration_seconds": 2.4078,
+      "details": {
+        "world_size": 2,
+        "steps": 2,
+        "consensus": true
+      }
     },
     {
       "name": "cuda_replicated_nccl",
       "status": "passed",
-      "duration_seconds": 0.5
+      "duration_seconds": 5.3719,
+      "details": {
+        "world_size": 2,
+        "steps": 2,
+        "consensus": true
+      }
     },
     {
       "name": "aggregation_strategies",
       "status": "passed",
-      "duration_seconds": 0.3
+      "duration_seconds": 7.3119,
+      "details": {
+        "gradient_allreduce": "passed",
+        "parameter_average": "passed",
+        "pseudo_gradient": "passed"
+      }
     },
     {
       "name": "multinode_tcp",
       "status": "passed",
-      "duration_seconds": 0.3
+      "duration_seconds": 5.4418,
+      "details": {
+        "nodes": 2,
+        "ranks_per_node": 1,
+        "backend": "nccl",
+        "consensus": true
+      }
     },
     {
       "name": "checkpoint_compatibility",
       "status": "passed",
-      "duration_seconds": 0.2
+      "duration_seconds": 2.7717,
+      "details": {
+        "manifest_verified": true
+      }
     }
   ],
-  "receipt_sha256": "d1786f2314420605c5fab4d45b8d59c326da31cf3607c0c367a3cd08b2b8ebc8"
+  "receipt_sha256": "73305bf2967779d386aaa96b8fd9ae8a60e167e6d46839eacb1a8da2ca7d669e"
 }

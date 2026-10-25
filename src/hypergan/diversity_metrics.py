@@ -10,6 +10,22 @@ from collections.abc import Mapping
 _STATISTICS = ('generated_rms', 'reference_rms', 'ratio')
 
 
+def merge_moments(count, mean, m2, batch_count, batch_mean, batch_m2, spread):
+    """Chan merge of centered streaming moments; arrays may be numpy or torch.
+
+    ``m2`` is either the per-coordinate sum of squared deviations or the full
+    scatter matrix, and ``spread(delta)`` gives the matching mean-shift term
+    (``delta ** 2`` or ``outer(delta, delta)``). Returns the merged
+    ``(count, mean, m2)``; nothing is updated in place.
+    """
+    if count == 0:
+        return batch_count, batch_mean, batch_m2
+    total = count + batch_count
+    delta = batch_mean - mean
+    return (total, mean + delta * (batch_count / total),
+            m2 + (batch_m2 + spread(delta) * (count * batch_count / total)))
+
+
 def _pool_size(value):
     if value is not None and (type(value) is not int or value < 1):
         raise ValueError('Diversity pool_size must be None or a positive integer')
@@ -64,13 +80,9 @@ class DiversityMoments:
         values = values.reshape(len(values), -1)
         origin = values[0].clone() if self._origin is None else self._origin
         centered = values - origin
-        mean = centered.mean(0)
-        m2 = (centered - mean).square().sum(0)
-        count = self.count + len(values)
-        if self.count:
-            difference = mean - self._mean
-            m2 = self._m2 + m2 + difference.square() * (self.count * len(values) / count)
-            mean = self._mean + difference * (len(values) / count)
+        batch_mean = centered.mean(0)
+        count, mean, m2 = merge_moments(self.count, self._mean, self._m2, len(values), batch_mean,
+                                        (centered - batch_mean).square().sum(0), torch.square)
         if not bool(torch.isfinite(mean).all() and torch.isfinite(m2).all()):
             raise ValueError('Sample diversity moments overflowed float64; rescale sample coordinates')
         # Commit only after validation, so a rejected update leaves state intact.

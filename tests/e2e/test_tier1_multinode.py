@@ -3,8 +3,8 @@
 Requirements covered:
 - R3: Multi-Node Distributed Execution (nodes, node_rank, ranks_per_node, rendezvous) (ORIGINAL_REQUEST.md §R3)
 - Features 11, 12, 13: Multi-Node Topology Resolution, TCP & File Rendezvous,
-  Local 2-Node 2x RTX A6000 Verification (PROJECT.md §Feature Inventory)
-- Interface Contract 4: Broker ↔ Worker Multi-Node TCP (PROJECT.md §Interface Contracts)
+  Local 2-Node 2x RTX A6000 Verification (reports/issue-186/PROJECT.md §Feature Inventory)
+- Interface Contract 4: Broker ↔ Worker Multi-Node TCP (reports/issue-186/PROJECT.md §Interface Contracts)
 
 Test coverage target: >=5 test cases per feature:
 1. Multi-node keys (nodes, node_rank, ranks_per_node, local device mapping) (>=5 cases)

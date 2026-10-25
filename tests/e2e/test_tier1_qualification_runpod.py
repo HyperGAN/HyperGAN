@@ -2,8 +2,8 @@
 
 Requirements covered:
 - R4: Ephemeral RunPod & Local Hardware Qualification (ORIGINAL_REQUEST.md §R4)
-- Features 14, 15: hypergan qualify CLI & JSON Receipt, Ephemeral RunPod Runner & Cost Guardrails (PROJECT.md §Feature Inventory)
-- Interface Contract 5: Qualification CLI Receipt (PROJECT.md §Interface Contracts)
+- Features 14, 15: hypergan qualify CLI & JSON Receipt, Ephemeral RunPod Runner & Cost Guardrails (reports/issue-186/PROJECT.md §Feature Inventory)
+- Interface Contract 5: Qualification CLI Receipt (reports/issue-186/PROJECT.md §Interface Contracts)
 
 Test coverage target: >=5 test cases per feature:
 1. Qualification CLI (CLI flags, local execution, receipt schema, SHA-256 verification, suite filtering) (>=5 cases)
@@ -78,7 +78,7 @@ class TestQualificationCLIAndReceipt:
         validate_qualification_receipt(data)
 
     def test_tier1_qualification_receipt_schema_contract(self):
-        """Case 12.3: Qualification receipt strictly adheres to PROJECT.md § Interface Contracts."""
+        """Case 12.3: Qualification receipt strictly adheres to reports/issue-186/PROJECT.md § Interface Contracts."""
         sample_receipt = {
             "schema_version": 1,
             "qualification_id": "qual-20261024-test-001",

@@ -174,7 +174,7 @@ when changing architecture):
   spectral normalization. It has no pretrained backbone.
 
 The DINOv3 token and normalization audit, controlled comparisons, and their limits
-are recorded in [the collapse report](../reports/colorization-collapse-2026-09-21.md).
+are recorded in [the collapse report](../reports/archive/colorization-collapse-2026-09-21.md).
 The working CIFAR critic combines a learned pixel path with multiscale pretrained
 ResNet features, so it is not a pretrained-only counterpart to the original
 single-map DINO critic.

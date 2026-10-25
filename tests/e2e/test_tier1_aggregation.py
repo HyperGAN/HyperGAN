@@ -4,8 +4,8 @@ Requirements covered:
 - R2: Pluggable Learning Aggregation (ORIGINAL_REQUEST.md §R2)
 - Features 5, 6, 7, 8, 9, 10: [aggregation] Config Schema, gradient_allreduce,
   parameter_average, pseudo_gradient, Public Aggregation Protocol & Registry,
-  Aggregation Checkpoint State Recovery (PROJECT.md §Feature Inventory)
-- Interface Contract 2: Aggregation Strategy Protocol ↔ Trainer (PROJECT.md §Interface Contracts)
+  Aggregation Checkpoint State Recovery (reports/issue-186/PROJECT.md §Feature Inventory)
+- Interface Contract 2: Aggregation Strategy Protocol ↔ Trainer (reports/issue-186/PROJECT.md §Interface Contracts)
 
 Schema resolution, replica-assertion cadence, manifest metadata and state
 round trips per strategy, plus the public protocol and registry contracts. The

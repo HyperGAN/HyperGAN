@@ -2,8 +2,8 @@
 
 Requirements covered:
 - R1: Replicated Recipe Parity for Multi-Device Smoke Testing (ORIGINAL_REQUEST.md §R1)
-- Features 1, 2, 3: Canonical Profile Schema, Replicated Recipe Parity, Local Device Remapping (PROJECT.md §Feature Inventory)
-- Interface Contract 1: Execution Profile Parser (PROJECT.md §Interface Contracts)
+- Features 1, 2, 3: Canonical Profile Schema, Replicated Recipe Parity, Local Device Remapping (reports/issue-186/PROJECT.md §Feature Inventory)
+- Interface Contract 1: Execution Profile Parser (reports/issue-186/PROJECT.md §Interface Contracts)
 
 Test coverage target: >=5 test cases per major feature.
 """

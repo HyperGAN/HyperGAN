@@ -198,21 +198,49 @@ def restore_trainer(trainer, state):
         raise ValueError(f'Invalid training checkpoint state: {exc}') from exc
 
 
+class _HashingWriter:
+    """Digest bytes as torch.save streams them, so the payload is never re-read."""
+    def __init__(self, output):
+        self.output, self.digest = output, hashlib.sha256()
+
+    def write(self, data):
+        self.digest.update(data)
+        return self.output.write(data)
+
+    def flush(self):
+        self.output.flush()
+
+
+_PENDING_CHECKPOINT = re.compile(r'\.pending-.+-step-\d+-[0-9a-f]{12}')
+
+
+def _sweep_pending(root):
+    """Remove pending checkpoint writes that a killed writer never cleaned up.
+
+    The caller is the run-lock owner, so no other writer is mid-checkpoint.
+    """
+    for path in root.iterdir():
+        if _PENDING_CHECKPOINT.fullmatch(path.name) and path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+
+
 def write_checkpoint(run_dir, trainer, last_batch, metadata):
     import torch
     root = Path(run_dir) / 'checkpoints'
     root.mkdir(exist_ok=True)
     sync_directory(root.parent)
+    _sweep_pending(root)
     name = f"{metadata['attempt_id']}-step-{trainer.step:08d}-{uuid.uuid4().hex[:12]}"
     temporary, target = root / ('.pending-' + name), root / name
     temporary.mkdir()
     try:
         state = trainer_state(trainer, last_batch)
         with (temporary / 'state.pt').open('wb') as output:
-            torch.save(state, output)
+            writer = _HashingWriter(output)
+            torch.save(state, writer)
             output.flush()
             os.fsync(output.fileno())
-        digest = file_sha256(temporary / 'state.pt')
+        digest = writer.digest.hexdigest()
         info = dict(metadata, schema_version=SCHEMA, kind='hypergan-training-checkpoint', step=trainer.step, state_sha256=digest)
         atomic_json(temporary / 'manifest.json', info)
         sync_directory(temporary)
@@ -275,6 +303,93 @@ def read_checkpoint(run_dir, checkpoint=None):
 from .model_file import DEFAULT_CHECKPOINT_POLICY, normalize_checkpoint_policy
 
 
+def _read_json(path):
+    try:
+        value = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _durable_checkpoints(ckpt_root):
+    """Completed checkpoint directories with their step and owning attempt, oldest first."""
+    checkpoints = []
+    if not Path(ckpt_root).is_dir():
+        return checkpoints
+    for d in Path(ckpt_root).iterdir():
+        if not d.is_dir() or d.name.startswith('.'):
+            continue
+        info = _read_json(d / 'manifest.json') or {}
+        step = info.get('step')
+        if type(step) is not int:
+            m = re.search(r'-step-(\d+)-', d.name)
+            step = int(m.group(1)) if m else None
+        if step is None:
+            continue
+        attempt = info.get('attempt_id')
+        checkpoints.append({'name': d.name, 'path': d, 'step': step,
+                            'attempt_id': attempt if isinstance(attempt, str) else None})
+    checkpoints.sort(key=lambda c: (c['step'], c['name']))
+    return checkpoints
+
+
+def _run_policy(run_dir):
+    manifest = _read_json(Path(run_dir) / 'manifest.json') or {}
+    config = manifest.get('config')
+    return config.get('checkpoints') if isinstance(config, dict) else None
+
+
+def _rank_best(run_dir, evaluations, policy=None):
+    from .summary import rank_evaluations
+    return rank_evaluations(evaluations, _run_policy(run_dir) if policy is None else policy)
+
+
+def _checkpoints_for_records(checkpoints, records):
+    """Checkpoints holding each evaluated snapshot: same step and, when both are known, same attempt."""
+    matches = {}
+    for record in records:
+        attempt = record.get('attempt_id')
+        found = [c for c in checkpoints if c['step'] == record['step']
+                 and (attempt is None or c['attempt_id'] is None or c['attempt_id'] == attempt)]
+        matches[id(record)] = sorted(found, key=lambda c: c['name'])
+    return matches
+
+
+def _live_branch(run_dir, checkpoints, tip):
+    """Names of checkpoints on the lineage that ends at ``tip``, or None when unknown.
+
+    A resumed attempt continues from its ``recovery_parent``; checkpoints of an
+    ancestor attempt after the step it was resumed from belong to an abandoned
+    branch. Each attempt manifest records its own parent; a missing link makes
+    the lineage unknown rather than cutting the branch short.
+    """
+    if tip is None or tip['attempt_id'] is None:
+        return None
+    parents, known = {}, set()
+    manifests = [Path(run_dir) / 'manifest.json']
+    attempts = Path(run_dir) / 'attempts'
+    if attempts.is_dir():
+        manifests.extend(path / 'manifest.json' for path in attempts.iterdir() if path.is_dir())
+    for path in manifests:
+        info = _read_json(path) or {}
+        if isinstance(info.get('attempt_id'), str):
+            known.add(info['attempt_id'])
+        parent = info.get('recovery_parent')
+        if (isinstance(info.get('attempt_id'), str) and isinstance(parent, dict)
+                and isinstance(parent.get('attempt_id'), str) and type(parent.get('step')) is int):
+            parents[info['attempt_id']] = (parent['attempt_id'], parent['step'])
+    branch, seen = set(), set()
+    attempt, limit = tip['attempt_id'], tip['step']
+    while attempt is not None and attempt not in seen:
+        if attempt not in known:
+            return None
+        seen.add(attempt)
+        branch.update(c['name'] for c in checkpoints
+                      if c['attempt_id'] in (attempt, None) and c['step'] <= limit)
+        attempt, limit = parents.get(attempt, (None, None))
+    return branch
+
+
 def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest") -> Path:
     """Resolve a checkpoint target ('latest', 'best', integer step, or path) to a checkpoint directory."""
     run_dir = Path(run_dir).resolve()
@@ -321,91 +436,21 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
         candidates.sort(key=lambda item: (item[0], item[1].name), reverse=True)
         return candidates[0][1].resolve()
 
-    # 2. Target: "best"
+    # 2. Target: "best": the best-ranked primary-metric evaluation that has a checkpoint
     if target_str == "best":
-        summary_file = run_dir / "summary.json"
-        if summary_file.is_file():
-            try:
-                summary = json.loads(summary_file.read_text(encoding="utf-8"))
-                best = summary.get("best")
-                if isinstance(best, dict):
-                    if best.get("checkpoint"):
-                        cand = ckpt_root / best["checkpoint"]
-                        if cand.is_dir():
-                            return cand.resolve()
-                    if best.get("step") is not None:
-                        return resolve_checkpoint(run_dir, best["step"])
-            except Exception:
-                pass
-
-        eval_root = run_dir / "metrics" / "evaluations"
-        eval_records = []
-        if eval_root.is_dir():
-            for receipt_file in eval_root.glob("*/receipt.json"):
-                try:
-                    receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
-                    if receipt.get("status") == "complete" and "result" in receipt and "value" in receipt["result"]:
-                        val = receipt["result"]["value"]
-                        step = receipt.get("source_step")
-                        if step is None:
-                            step = receipt.get("result", {}).get("step")
-                        if step is None:
-                            step = receipt.get("step")
-                        if isinstance(val, (int, float)) and step is not None:
-                            metric_id = receipt.get("metric_id", "")
-                            eval_records.append({
-                                "metric_id": metric_id,
-                                "value": float(val),
-                                "step": int(step),
-                            })
-                except Exception:
-                    continue
-
-        if not eval_records:
+        from .summary import collect_evaluations
+        evaluations = collect_evaluations(run_dir)
+        if not evaluations:
             raise ValueError("No evaluation records available to determine best checkpoint; pass explicit step or latest")
-
-        # Check if manifest.json specifies keep_best config
-        target_metric = None
-        target_mode = None
-        manifest_path = run_dir / "manifest.json"
-        if manifest_path.is_file():
-            try:
-                m_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-                keep_best_cfg = m_data.get("config", {}).get("checkpoints", {}).get("keep_best")
-                if isinstance(keep_best_cfg, dict):
-                    target_metric = keep_best_cfg.get("metric")
-                    target_mode = keep_best_cfg.get("mode")
-            except Exception:
-                pass
-
-        if target_metric:
-            records = [r for r in eval_records if r["metric_id"] == target_metric or r["metric_id"].lower() == target_metric.lower()]
-            if not records:
-                if "fid" in target_metric.lower():
-                    records = [r for r in eval_records if "fid" in r["metric_id"].lower()]
-                if not records:
-                    records = eval_records
-        else:
-            fid_records = [r for r in eval_records if "fid" in r["metric_id"].lower()]
-            records = fid_records if fid_records else eval_records
-
-        if target_mode in ("min", "max"):
-            mode_min = (target_mode == "min")
-        else:
-            sample_metric = records[0]["metric_id"].lower()
-            mode_min = not (sample_metric in ('is', 'inception_score', 'score', 'acc', 'accuracy') or sample_metric.endswith(('_is', '_score', '_acc', '_accuracy')))
-
-        # Sort: best value first; deterministic tie-breaker: highest step
-        if mode_min:
-            records.sort(key=lambda r: (r["value"], -r["step"]))
-        else:
-            records.sort(key=lambda r: (-r["value"], -r["step"]))
-
-        best_step = records[0]["step"]
-        try:
-            return resolve_checkpoint(run_dir, best_step)
-        except ValueError:
-            raise ValueError(f"Best checkpoint for step {best_step} not found in {ckpt_root}")
+        metric, _, ranked = _rank_best(run_dir, evaluations)
+        if metric is None:
+            raise ValueError("No primary metric defines the best checkpoint: set checkpoints.keep_best.metric "
+                             "to an evaluated metric, or pass an explicit step or latest")
+        by_record = _checkpoints_for_records(_durable_checkpoints(ckpt_root), ranked)
+        for record in ranked:
+            if by_record.get(id(record)):
+                return by_record[id(record)][-1]['path'].resolve()
+        raise ValueError(f"No checkpoint exists at any evaluated step of {metric} in {ckpt_root}")
 
     # 3. Target: STEP (integer or numeric digits)
     if isinstance(target, int) or target_str.isdigit():
@@ -610,171 +655,102 @@ def export_checkpoint_bundle(checkpoint_dir: Path | str, output_dir: Path | str)
     return dest, checksum_path
 
 
+def _prune_report(run_dir, dry_run, retained=(), deleted=()):
+    retained, deleted = list(retained), list(deleted)
+    reclaimed = sum(item.get('size', 0) for item in deleted)
+    return {
+        'run_dir': str(run_dir),
+        'dry_run': dry_run,
+        'retained_count': len(retained),
+        'deleted_count': len(deleted),
+        'retained': retained,
+        'deleted': deleted,
+        'reclaimed_bytes': reclaimed,
+        # aliases:
+        'pruned': deleted,
+        'pruned_count': len(deleted),
+        'bytes_reclaimed': reclaimed,
+    }
+
+
 def prune_checkpoints(
     run_dir: Path | str,
     policy: dict | None = None,
     dry_run: bool = False,
 ) -> dict:
-    """Evaluate and apply checkpoint retention policy to a run directory adhering to Invariants S1-S5."""
+    """Evaluate and apply checkpoint retention policy to a run directory adhering to Invariants S1-S5.
+
+    ``keep_last`` counts checkpoints on the live branch, the lineage that ends
+    at ``latest.json``. After a resume from an older checkpoint, the abandoned
+    branch's later checkpoints keep only milestone, best, step-zero and
+    active-evaluation protection.
+    """
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
-        return {
-            'run_dir': str(run_dir),
-            'dry_run': dry_run,
-            'retained_count': 0,
-            'deleted_count': 0,
-            'retained': [],
-            'deleted': [],
-            'reclaimed_bytes': 0,
-            'pruned': [],
-            'pruned_count': 0,
-            'bytes_reclaimed': 0,
-        }
+        return _prune_report(run_dir, dry_run)
 
     ckpt_root = run_dir / 'checkpoints'
     if not ckpt_root.is_dir():
         child_runs = [d for d in run_dir.iterdir() if d.is_dir() and (d / 'checkpoints').is_dir()]
-        if child_runs:
-            total_retained = []
-            total_deleted = []
-            total_reclaimed = 0
-            for crun in sorted(child_runs, key=lambda p: p.name):
-                sub_res = prune_checkpoints(crun, policy=policy, dry_run=dry_run)
-                total_retained.extend(sub_res.get('retained', []))
-                total_deleted.extend(sub_res.get('deleted', []))
-                total_reclaimed += sub_res.get('reclaimed_bytes', 0)
-            return {
-                'run_dir': str(run_dir),
-                'dry_run': dry_run,
-                'retained_count': len(total_retained),
-                'deleted_count': len(total_deleted),
-                'retained': total_retained,
-                'deleted': total_deleted,
-                'reclaimed_bytes': total_reclaimed,
-                'pruned': total_deleted,
-                'pruned_count': len(total_deleted),
-                'bytes_reclaimed': total_reclaimed,
-            }
-        return {
-            'run_dir': str(run_dir),
-            'dry_run': dry_run,
-            'retained_count': 0,
-            'deleted_count': 0,
-            'retained': [],
-            'deleted': [],
-            'reclaimed_bytes': 0,
-            'pruned': [],
-            'pruned_count': 0,
-            'bytes_reclaimed': 0,
-        }
+        total_retained, total_deleted = [], []
+        for crun in sorted(child_runs, key=lambda p: p.name):
+            sub_res = prune_checkpoints(crun, policy=policy, dry_run=dry_run)
+            total_retained.extend(sub_res.get('retained', []))
+            total_deleted.extend(sub_res.get('deleted', []))
+        return _prune_report(run_dir, dry_run, total_retained, total_deleted)
 
     # 1. Resolve Policy
     if policy is None:
-        manifest_path = run_dir / 'manifest.json'
-        if manifest_path.is_file():
-            try:
-                m_data = json.loads(manifest_path.read_text(encoding='utf-8'))
-                policy = m_data.get('config', {}).get('checkpoints')
-            except Exception:
-                pass
+        policy = _run_policy(run_dir)
     policy = normalize_checkpoint_policy(policy)
 
     # 2. Discover durable checkpoints
-    checkpoints = []
-    for d in ckpt_root.iterdir():
-        if not d.is_dir() or d.name.startswith('.'):
-            continue
-        step = None
-        manifest_file = d / 'manifest.json'
-        if manifest_file.is_file():
-            try:
-                info = json.loads(manifest_file.read_text(encoding='utf-8'))
-                step = info.get('step')
-            except Exception:
-                pass
-        if step is None:
-            m = re.search(r'-step-(\d+)-', d.name)
-            if m:
-                step = int(m.group(1))
-        if step is None:
-            continue
-
+    checkpoints = _durable_checkpoints(ckpt_root)
+    for c in checkpoints:
         size = 0
         try:
-            for item in d.rglob('*'):
+            for item in c['path'].rglob('*'):
                 if item.is_file():
                     size += item.stat().st_size
         except OSError:
             pass
-
-        checkpoints.append({
-            'name': d.name,
-            'path': d,
-            'step': step,
-            'size': size,
-        })
-
-    # Sort ascending by step, tie-break by name
-    checkpoints.sort(key=lambda c: (c['step'], c['name']))
+        c['size'] = size
 
     if len(checkpoints) <= 1:
         retained = [{'step': c['step'], 'name': c['name'], 'reasons': ['single_checkpoint']} for c in checkpoints]
-        return {
-            'run_dir': str(run_dir),
-            'dry_run': dry_run,
-            'retained_count': len(retained),
-            'deleted_count': 0,
-            'retained': retained,
-            'deleted': [],
-            'reclaimed_bytes': 0,
-            'pruned': [],
-            'pruned_count': 0,
-            'bytes_reclaimed': 0,
-        }
+        return _prune_report(run_dir, dry_run, retained)
 
     # 3. Retain map: name -> set of reasons
     retained_reasons = defaultdict(set)
 
-    # S1: Never delete latest
-    latest_file = ckpt_root / 'latest.json'
-    latest_name = None
-    if latest_file.is_file():
-        try:
-            latest_data = json.loads(latest_file.read_text(encoding='utf-8'))
-            latest_name = latest_data.get('checkpoint')
-        except Exception:
-            pass
-
+    # S1: Never delete latest. Without a pointer, the highest step stands in
+    # and the branch is unknown, so every checkpoint counts as live.
+    latest_name = (_read_json(ckpt_root / 'latest.json') or {}).get('checkpoint')
+    tip = next((c for c in checkpoints if c['name'] == latest_name), None)
+    branch = _live_branch(run_dir, checkpoints, tip)
     max_step = max(c['step'] for c in checkpoints)
     for c in checkpoints:
-        if c['name'] == latest_name or c['step'] == max_step:
+        if c is tip or (tip is None and c['step'] == max_step):
             retained_reasons[c['name']].add('latest')
+    live = [c for c in checkpoints if branch is None or c['name'] in branch]
+    live_names = {c['name'] for c in live}
 
     # S2: Pin active interval evaluations
     pinned_steps = set()
-    manifest_path = run_dir / 'manifest.json'
-    if manifest_path.is_file():
-        try:
-            m_data = json.loads(manifest_path.read_text(encoding='utf-8'))
-            for item in m_data.get('evaluation_schedule', []):
-                if isinstance(item, dict) and item.get('status') == 'running':
-                    s = item.get('source_step') if item.get('source_step') is not None else item.get('step')
-                    if s is not None:
-                        pinned_steps.add(int(s))
-        except Exception:
-            pass
+    m_data = _read_json(run_dir / 'manifest.json') or {}
+    schedule = m_data.get('evaluation_schedule')
+    for item in (schedule.values() if isinstance(schedule, dict) else []):
+        if isinstance(item, dict) and item.get('status') == 'running' and type(item.get('source_step')) is int:
+            pinned_steps.add(item['source_step'])
 
     eval_root = run_dir / 'metrics' / 'evaluations'
     if eval_root.is_dir():
         for r_file in eval_root.glob('*/receipt.json'):
-            try:
-                receipt = json.loads(r_file.read_text(encoding='utf-8'))
-                if receipt.get('status') == 'running':
-                    s = receipt.get('source_step') if receipt.get('source_step') is not None else receipt.get('step')
-                    if s is not None:
-                        pinned_steps.add(int(s))
-            except Exception:
-                pass
+            receipt = _read_json(r_file) or {}
+            if receipt.get('status') == 'running':
+                s = receipt.get('source_step') if receipt.get('source_step') is not None else receipt.get('step')
+                if type(s) is int:
+                    pinned_steps.add(s)
 
     for c in checkpoints:
         if c['step'] in pinned_steps:
@@ -792,80 +768,40 @@ def prune_checkpoints(
             if c['step'] % keep_every == 0:
                 retained_reasons[c['name']].add(f'milestone(step={c["step"]})')
 
-    # S5: Keep best evaluations
+    # S5: Keep the best checkpoints of the run's one primary metric, ranked
+    # exactly as summary "best" and resolve_checkpoint('best') rank them.
     keep_best = policy.get('keep_best')
     if isinstance(keep_best, dict) and keep_best.get('count', 0) > 0:
-        target_metric = keep_best.get('metric', 'fid50k_train')
-        mode = keep_best.get('mode', 'min')
-        best_count = keep_best.get('count', 2)
+        from .summary import collect_evaluations
+        metric, _, ranked = _rank_best(run_dir, collect_evaluations(run_dir), policy)
+        matches = _checkpoints_for_records(checkpoints, ranked)
+        remaining = keep_best['count']
+        for record in ranked:
+            names = [c['name'] for c in matches[id(record)] if f'best({metric})' not in retained_reasons[c['name']]]
+            if not names:
+                continue
+            for name in names:
+                retained_reasons[name].add(f'best({metric})')
+            remaining -= 1
+            if remaining == 0:
+                break
 
-        eval_records = []
-        if eval_root.is_dir():
-            for r_file in eval_root.glob('*/receipt.json'):
-                try:
-                    receipt = json.loads(r_file.read_text(encoding='utf-8'))
-                    if receipt.get('status') == 'complete' and 'result' in receipt and 'value' in receipt['result']:
-                        val = receipt['result']['value']
-                        s = receipt.get('source_step')
-                        if s is None:
-                            s = receipt.get('result', {}).get('step')
-                        if s is None:
-                            s = receipt.get('step')
-                        if isinstance(val, (int, float)) and s is not None:
-                            eval_records.append({
-                                'metric_id': receipt.get('metric_id', ''),
-                                'value': float(val),
-                                'step': int(s),
-                            })
-                except Exception:
-                    pass
-
-        target_records = [r for r in eval_records if r['metric_id'] == target_metric]
-        if not target_records and 'fid' in target_metric.lower():
-            target_records = [r for r in eval_records if 'fid' in r['metric_id'].lower()]
-        if not target_records:
-            target_records = eval_records
-
-        if target_records:
-            step_values = {}
-            for r in target_records:
-                s = r['step']
-                v = r['value']
-                if s not in step_values:
-                    step_values[s] = v
-                else:
-                    step_values[s] = min(step_values[s], v) if mode == 'min' else max(step_values[s], v)
-
-            sorted_steps = sorted(
-                step_values.keys(),
-                key=lambda s: (step_values[s] if mode == 'min' else -step_values[s], -s),
-            )
-            top_best_steps = set(sorted_steps[:best_count])
-            for c in checkpoints:
-                if c['step'] in top_best_steps:
-                    retained_reasons[c['name']].add(f'best({target_metric})')
-
-    # Keep last N checkpoints
+    # Keep last N checkpoints of the live branch
     keep_last = policy.get('keep_last', 3)
     if keep_last > 0:
-        last_steps = set(sorted({c['step'] for c in checkpoints})[-keep_last:])
-        recovery_ckpt = None
-        if manifest_path.is_file():
-            try:
-                m_data = json.loads(manifest_path.read_text(encoding='utf-8'))
-                recovery_ckpt = (m_data.get('recovery_parent') or {}).get('checkpoint_id')
-            except Exception:
-                pass
+        last_steps = set(sorted({c['step'] for c in live})[-keep_last:])
+        recovery_ckpt = (m_data.get('recovery_parent') or {}).get('checkpoint_id')
         for c in checkpoints:
-            if c['step'] in last_steps or (recovery_ckpt and c['name'] == recovery_ckpt):
+            if (c['name'] in live_names and c['step'] in last_steps) or (recovery_ckpt and c['name'] == recovery_ckpt):
                 retained_reasons[c['name']].add('keep_last')
 
-    # S3: Require newer durable checkpoint before deleting older
+    # S3: Require a newer durable checkpoint before deleting older. Off the
+    # live branch, the retained live tip is that newer durable checkpoint.
     deleted_candidates = []
     for c in checkpoints:
         if c['name'] in retained_reasons:
             continue
-        has_newer = any(other['step'] > c['step'] for other in checkpoints)
+        has_newer = c['name'] not in live_names or any(other['step'] > c['step'] for other in live)
         if not has_newer:
             retained_reasons[c['name']].add('s3_no_newer_durable')
         else:
@@ -889,18 +825,4 @@ def prune_checkpoints(
         {'step': c['step'], 'name': c['name'], 'size': c['size']}
         for c in deleted_candidates
     ]
-    reclaimed = sum(c['size'] for c in deleted)
-
-    return {
-        'run_dir': str(run_dir),
-        'dry_run': dry_run,
-        'retained_count': len(retained),
-        'deleted_count': len(deleted),
-        'retained': retained,
-        'deleted': deleted,
-        'reclaimed_bytes': reclaimed,
-        # aliases:
-        'pruned': deleted,
-        'pruned_count': len(deleted),
-        'bytes_reclaimed': reclaimed,
-    }
+    return _prune_report(run_dir, dry_run, retained, deleted)

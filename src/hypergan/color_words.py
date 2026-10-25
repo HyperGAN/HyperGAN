@@ -254,7 +254,7 @@ def _labels(label):
 
 @torch.no_grad()
 def color_word_metrics(real, label, generator, image_encoder, text_encoder, joint_critic, means, sigma):
-    """Four measurements from one forward. Nothing is written as an image.
+    """Six measurements from one forward. Nothing is written as an image.
 
     Label recovery is nearest-canonical (squared RGB distance) of the spatial
     mean of ``G(E(text))``. Chance for eight labels is 0.125. Particle

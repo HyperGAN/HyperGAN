@@ -22,6 +22,10 @@ import traceback
 
 
 MAX_FRAME_BYTES = 65536
+# Experimental multi-node: follower nodes mirror node 0's command stream, which
+# global rank 0 publishes in the process group's TCP store before each command.
+FOLLOW_OPERATION = 'follow-node-0'
+_LEADER_COMMAND = 'hypergan/node-0-command/{}'
 
 
 class CPUServiceCancelled(RuntimeError):
@@ -152,12 +156,85 @@ def _flush(channel, timeout=2):
         time.sleep(0.01)
 
 
-def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout, bootstrap, initialize_process_group, backend='gloo', ranks_per_node=None):
+def _agree_command(row, world_size):
+    import torch.distributed as dist
+    shared_payload = row.get('payload')
+    if isinstance(shared_payload, dict):
+        shared_payload = {k: v for k, v in shared_payload.items()
+                          if k not in ('controller_id', 'metadata', 'identity', 'bundle_dir')}
+    shared_command = {
+        'sequence': row.get('sequence'),
+        'operation': row.get('operation'),
+        'kind': row.get('kind'),
+        'payload': shared_payload,
+    }
+    digest = hashlib.sha256(_json(shared_command)).hexdigest()
+    agreed = [None] * world_size
+    dist.all_gather_object(agreed, digest)
+    if any(item != digest for item in agreed):
+        raise ValueError('Ranks disagree on CPU command identity or payload')
+
+
+def _store():
+    from torch.distributed.distributed_c10d import _get_default_store
+    return _get_default_store()
+
+
+def _publish_leader_command(sequence, row):
+    # Every rank read command N-1 before agreeing on it, so it can be dropped.
+    store = _store()
+    store.set(_LEADER_COMMAND.format(sequence), _json(row))
+    if sequence > 1:
+        store.delete_key(_LEADER_COMMAND.format(sequence - 1))
+
+
+def _follow_leader(channel, state, handler, world_size, backend, local_rank):
+    """Run node 0's commands on a follower rank until node 0 shuts the group down.
+
+    Waiting is idle, like a node-0 rank between commands: no collective runs, so no
+    deadline applies. A dead node 0 takes its TCP store with it and ends the wait.
+    """
+    import torch
+    import torch.distributed as dist
+    store, sequence, count = _store(), 0, 0
+    while True:
+        sequence += 1
+        key = _LEADER_COMMAND.format(sequence)
+        while not store.check([key]):
+            if channel.pump() or channel.closed:
+                raise EOFError('Follower broker closed while waiting for node 0')
+            time.sleep(0.005)
+        row = json.loads(store.get(key))
+        if (not isinstance(row, dict) or row.get('sequence') != sequence or row.get('kind') != 'command'
+                or not isinstance(row.get('operation'), str) or 'payload' not in row):
+            raise ValueError('Invalid node 0 command in the process group store')
+        if backend == 'nccl' and torch.cuda.current_device() != local_rank:
+            raise ValueError('NCCL handler changed the rank-owned current CUDA device')
+        _agree_command(row, world_size)
+        operation = row['operation']
+        if operation == '__shutdown__':
+            dist.barrier()
+            dist.destroy_process_group()
+            return {'commands': count}
+        if not _OPERATIONS.fullmatch(operation):
+            raise ValueError('Invalid node 0 operation')
+        try:
+            handler(state, operation, row['payload'])
+        except Exception as exc:
+            raise RuntimeError(f'Following node 0 command {operation!r} failed: {type(exc).__name__}: {exc}') from exc
+        count += 1
+
+
+def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout, bootstrap, initialize_process_group, backend='gloo', ranks_per_node=None,
+               nodes=1):
     channel = _Channel(sock)
     sequence, operation = 0, '__start__'
     if ranks_per_node is None:
         ranks_per_node = world_size
     local_rank = rank % ranks_per_node
+    group_open = initialize_process_group
+    publish = initialize_process_group and nodes > 1 and rank == 0
+    follower = initialize_process_group and nodes > 1 and rank >= ranks_per_node
     try:
         sys.stdout.flush()
         os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
@@ -187,26 +264,21 @@ def _rank_main(sock, rank, world_size, identity, rendezvous, collective_timeout,
             _validate(row, identity, sequence)
             if set(row) != {'run_id', 'attempt_id', 'sequence', 'operation', 'kind', 'payload'} or row['kind'] != 'command':
                 raise ValueError('Invalid CPU service command fields')
-            if initialize_process_group:
+            if operation == FOLLOW_OPERATION:
+                if not follower or not group_open:
+                    raise ValueError('Only ranks on a follower node of an open multi-node group can follow node 0')
+                value = _follow_leader(channel, state, handler, world_size, backend, local_rank)
+                group_open = False
+                channel.send(_envelope(identity, sequence, operation, 'result', rank=rank, value=value))
+                continue
+            if group_open:
                 if backend == 'nccl' and torch.cuda.current_device() != local_rank:
                     raise ValueError('NCCL handler changed the rank-owned current CUDA device')
-                shared_payload = row.get('payload')
-                if isinstance(shared_payload, dict):
-                    shared_payload = {k: v for k, v in shared_payload.items()
-                                      if k not in ('controller_id', 'metadata', 'identity', 'bundle_dir')}
-                shared_command = {
-                    'sequence': row.get('sequence'),
-                    'operation': row.get('operation'),
-                    'kind': row.get('kind'),
-                    'payload': shared_payload,
-                }
-                digest = hashlib.sha256(_json(shared_command)).hexdigest()
-                agreed = [None] * world_size
-                dist.all_gather_object(agreed, digest)
-                if any(item != digest for item in agreed):
-                    raise ValueError('Ranks disagree on CPU command identity or payload')
+                if publish:
+                    _publish_leader_command(sequence, row)
+                _agree_command(row, world_size)
             if operation == '__shutdown__':
-                if initialize_process_group:
+                if group_open:
                     dist.barrier()
                     dist.destroy_process_group()
                 channel.send(_envelope(identity, sequence, operation, 'result', rank=rank, value=None))
@@ -283,7 +355,8 @@ def _broker_main(sock, identity, world_size, limits, bootstrap, started, initial
                     local, remote = socket.socketpair()
                     process = context.Process(target=_rank_main, name=f'hypergan-service-rank-{rank}',
                                               args=(remote, rank, world_size, identity, effective_rendezvous,
-                                                    limits['collective_timeout'], bootstrap, initialize_process_group, backend, ranks_per_node))
+                                                    limits['collective_timeout'], bootstrap, initialize_process_group, backend, ranks_per_node,
+                                                    nodes))
                     try:
                         process.start()
                     except BaseException:
@@ -361,7 +434,9 @@ def _broker_main(sock, identity, world_size, limits, bootstrap, started, initial
                             channel.send(row)
                         results = {}
                         phase = 'closing' if operation == '__shutdown__' else 'command'
-                        deadline = time.monotonic() + limits['command_timeout']
+                        # Following node 0 lasts the whole run; its ranks are idle between
+                        # node 0 commands and fail when node 0 or its store disappears.
+                        deadline = math.inf if operation == FOLLOW_OPERATION else time.monotonic() + limits['command_timeout']
                     if control.closed:
                         raise EOFError('CPU service coordinator channel closed')
                     time.sleep(0.01)
@@ -533,7 +608,7 @@ class CPUWorkerService:
             raise RuntimeError('Invalid CPU service command result schema or rank count')
         return result
 
-    def _request(self, operation, payload=None):
+    def _request(self, operation, payload=None, *, follow=False):
         if self._closed or self._channel is None:
             raise RuntimeError('CPU service is not running')
         row = _envelope(self._identity, self._sequence + 1, operation, 'command', payload=payload)
@@ -541,7 +616,7 @@ class CPUWorkerService:
         self._sequence += 1
         try:
             self._channel.send(row)
-            return self._reply(operation, self._limits['command_timeout'] + 5)
+            return self._reply(operation, None if follow else self._limits['command_timeout'] + 5)
         except BaseException as exc:
             self._abort_preserving(exc)
             raise
@@ -551,6 +626,17 @@ class CPUWorkerService:
             raise ValueError('Operation must start with a letter and contain at most 64 ASCII letters/digits, underscores or hyphens')
         result = self._request(operation, payload)
         return {key: result[key] for key in ('run_id', 'attempt_id', 'sequence', 'operation', 'results')}
+
+    def follow(self):
+        """Mirror node 0's command stream on this follower node until node 0 shuts down.
+
+        Experimental multi-node execution. Node 0's controller alone decides previews,
+        evaluations, checkpoints, stops and inference; follower ranks run the same
+        collectives without a schedule of their own. Returns one result per local rank.
+        """
+        if not self._initialize_process_group or self._node_rank == 0 or self._nodes < 2:
+            raise ValueError('Only a follower node (node_rank > 0) of a multi-node group can follow node 0')
+        return self._request(FOLLOW_OPERATION, follow=True)['results']
 
     def assert_healthy(self):
         if self._closed or self._channel is None:

@@ -152,7 +152,7 @@ class TestMultiRoundMomentumAccumulationMatrix:
             outer_lr=outer_lr,
             outer_momentum=outer_momentum,
         )
-        strat.pre_step(step=0, models=model)
+        strat.initialize(models=model)
 
         oracle_anchor = {'weight': init_weight.clone(), 'bias': init_bias.clone()}
         oracle_momentum = {'weight': torch.zeros_like(init_weight), 'bias': torch.zeros_like(init_bias)}
@@ -180,7 +180,7 @@ class TestMultiRoundMomentumAccumulationMatrix:
             )
 
             # Run strategy post_step synchronization hook
-            strat.post_step(step=step, models=model)
+            strat.on_step_complete(step=step, models=model)
 
             # 1. Verify anchor weights match oracle
             assert_states_close(strat.anchor['weight'], oracle_anchor['weight'])
@@ -220,11 +220,10 @@ class TestCadenceBoundaryTransitions:
             assert strat.should_assert_replicas(step) is expected, f"ParameterAverage failed at step {step} with cadence {sync_cadence}"
             assert diloco_strat.should_assert_replicas(step) is expected, f"PseudoGradient failed at step {step} with cadence {sync_cadence}"
 
-    def test_gradient_allreduce_always_asserts_replicas(self):
-        """gradient_allreduce must assert replicas on EVERY step."""
-        strat = GradientAllreduceStrategy(sync_every_steps=1)
-        for step in range(0, 25):
-            assert strat.should_assert_replicas(step) is True
+    def test_gradient_allreduce_asserts_replicas_on_its_interval(self):
+        """gradient_allreduce asserts replicas at steps 0, 1 and every replica_check_every steps."""
+        strat = GradientAllreduceStrategy(sync_every_steps=1, replica_check_every=5)
+        assert [step for step in range(0, 25) if strat.should_assert_replicas(step)] == [0, 1, 5, 10, 15, 20]
 
     def test_off_cadence_step_does_not_mutate_anchor_or_weights(self):
         """Off-cadence steps must leave anchor weights and model weights untouched."""
@@ -233,26 +232,26 @@ class TestCadenceBoundaryTransitions:
         model.weight.data.copy_(init_w)
 
         strat = PseudoGradientStrategy(sync_every_steps=4, outer_lr=1.0, outer_momentum=0.5)
-        strat.pre_step(step=0, models=model)
+        strat.initialize(models=model)
 
         # Off-cadence step 1
         model.weight.data.add_(torch.tensor([[0.5, 0.5], [0.5, 0.5]]))
-        strat.post_step(step=1, models=model)
+        strat.on_step_complete(step=1, models=model)
         # Anchor should remain initial
         assert_states_close(strat.anchor['weight'], init_w)
         # Model weights should NOT be overwritten on off-cadence step
         assert_states_close(model.weight.data, torch.tensor([[1.5, 2.5], [3.5, 4.5]]))
 
         # Off-cadence step 2
-        strat.post_step(step=2, models=model)
+        strat.on_step_complete(step=2, models=model)
         assert_states_close(strat.anchor['weight'], init_w)
 
         # Off-cadence step 3
-        strat.post_step(step=3, models=model)
+        strat.on_step_complete(step=3, models=model)
         assert_states_close(strat.anchor['weight'], init_w)
 
         # On-cadence step 4: synchronization occurs
-        strat.post_step(step=4, models=model)
+        strat.on_step_complete(step=4, models=model)
         # Delta = [1.0, 2.0; 3.0, 4.0] - [1.5, 2.5; 3.5, 4.5] = [-0.5, -0.5; -0.5, -0.5]
         # v1 = [-0.5, -0.5; -0.5, -0.5]
         # new_anchor = [1.0, 2.0; 3.0, 4.0] - 1.0 * [-0.5, -0.5; -0.5, -0.5] = [1.5, 2.5; 3.5, 4.5]
@@ -421,19 +420,19 @@ class TestCheckpointSerializationAndResumeContinuity:
         model_resumed.bias.data.copy_(init_b)
 
         strat_cont = PseudoGradientStrategy(sync_every_steps=2, outer_lr=0.8, outer_momentum=0.9)
-        strat_cont.pre_step(0, models=model_continuous)
+        strat_cont.initialize(models=model_continuous)
 
         # --- Round 1 (step 2) ---
         drift_1 = torch.tensor([[0.2, -0.1], [0.1, 0.3]])
         model_continuous.weight.data.add_(drift_1)
         model_resumed.weight.data.add_(drift_1)
-        strat_cont.post_step(step=2, models=model_continuous)
+        strat_cont.on_step_complete(step=2, models=model_continuous)
 
         # --- Round 2 (step 4) ---
         drift_2 = torch.tensor([[-0.1, 0.2], [-0.3, 0.1]])
         model_continuous.weight.data.add_(drift_2)
         model_resumed.weight.data.add_(drift_2)
-        strat_cont.post_step(step=4, models=model_continuous)
+        strat_cont.on_step_complete(step=4, models=model_continuous)
 
         # Checkpoint snapshot after round 2
         saved_state = strat_cont.state_dict()
@@ -458,8 +457,8 @@ class TestCheckpointSerializationAndResumeContinuity:
         model_continuous.weight.data.add_(drift_3)
         model_resumed.weight.data.add_(drift_3)
 
-        strat_cont.post_step(step=6, models=model_continuous)
-        strat_resumed.post_step(step=6, models=model_resumed)
+        strat_cont.on_step_complete(step=6, models=model_continuous)
+        strat_resumed.on_step_complete(step=6, models=model_resumed)
 
         # Continuous and resumed MUST match exactly
         assert_states_close(strat_resumed.anchor, strat_cont.anchor, atol=1e-7, rtol=0)

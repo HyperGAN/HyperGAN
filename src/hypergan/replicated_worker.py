@@ -3,6 +3,10 @@
 Only the supervised rank imports this module. No handler publishes a canonical
 training checkpoint; the parent owns that authority and the run lock.
 
+On follower nodes of an experimental multi-node group, ranks receive node 0's
+commands and payloads unchanged. They take part in every collective but never
+validate or write node 0's attempt-local preview, evaluation or inference paths.
+
 Inference has a command deadline and post-write file size checks, not a sandbox
 or an allocation bound for custom Python. Rank zero retains its numerical process group;
 collective-dependent inference fails the job rather than involving idle peers.
@@ -20,8 +24,6 @@ from .checkpoints import capture_rng, restore_rng
 from .config import resolve_config
 from .distributed_checkpoints import (distributed_checkpoint_identity, distributed_runtime_info,
     prepare_distributed_checkpoint, restore_distributed_checkpoint)
-from . import distributed_checkpoints as _dc
-_dc.MAX_RANK_BYTES = 1024 * 1024 * 1024
 from .distributed_training import ReplicatedTrainer
 from .training import _recovery_contract, source_info
 from .replicated_execution import MAX_SAMPLE_COUNT
@@ -50,13 +52,29 @@ def _ready(state):
     return {'step': trainer.step, 'ready': True, 'inference_available': state['batch'] is not None}
 
 
+def _node_0_context(trainer, context):
+    """Followers adopt node 0's run identity; checkpoints need one run_dir path."""
+    leader = trainer._exchange('multi-node run identity',
+                               {'run_id': context.get('run_id'), 'run_dir': context.get('run_dir')})[0]
+
+    def check():
+        if leader['run_dir'] != context.get('run_dir'):
+            raise ValueError('Multi-node execution is experimental and needs the same run directory path on every '
+                             f"node (a shared filesystem): node 0 uses {leader['run_dir']}, this node {context.get('run_dir')}")
+    trainer._phase('multi-node run directory', check)
+    return context if leader['run_id'] == context.get('run_id') else dict(context, run_id=leader['run_id'])
+
+
 def create_worker(rank, world_size, config, execution, context):
     trainer = ReplicatedTrainer(resolve_config(config), world_size=world_size,
                                     accumulation_steps=execution['accumulation_steps'],
                                     execution=execution)
     if any(trainer.strategy_info.get(key) != value for key, value in execution.items()):
         raise ValueError('Actual replicated strategy differs from resolved execution profile')
-    return {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context, 'execution': execution}
+    if execution.get('nodes', 1) > 1:
+        context = _node_0_context(trainer, context)
+    return {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context, 'execution': execution,
+            'follower': execution.get('node_rank', 0) > 0}
 
 
 def _information(state):
@@ -82,6 +100,8 @@ def _information(state):
 def _inference(state, payload):
     trainer = state['trainer']
     context = state['context']
+    if state.get('follower'):
+        return _ready(state)  # Only global rank zero renders, inside node 0's attempt.
     directory = Path(context['attempt_dir']) / 'inference'
     if payload['bundle_dir'] != str(directory) or payload['identity']['run_id'] != context['run_id'] or payload['identity']['attempt_id'] != context['attempt_id']:
         raise ValueError('Inference destination or identity differs from the current attempt')
@@ -135,8 +155,7 @@ def handle_command(state, operation, payload):
         return {**_ready(state), 'checkpoint_path': str(path), 'saved_step': info['step']}
     if operation == 'prepare':
         metadata = payload['metadata']
-        node_rank = state.get('execution', {}).get('node_rank', 0)
-        if node_rank == 0 and any(metadata[key] != context[key] for key in ('run_id', 'attempt_id')):
+        if not state.get('follower') and any(metadata[key] != context[key] for key in ('run_id', 'attempt_id')):
             raise ValueError('Checkpoint lineage differs from the immutable worker attempt')
         receipt = prepare_distributed_checkpoint(context['run_dir'], trainer, state['batch'], metadata,
             command_sequence=payload['command_sequence'], controller_id=payload['controller_id'])
@@ -146,6 +165,8 @@ def handle_command(state, operation, payload):
         return _inference(state, payload)
     if operation == 'evaluation-snapshot':
         def validate():
+            if state.get('follower'):
+                return  # Node 0 validates its own attempt paths.
             identity, path = payload['identity'], Path(payload['path'])
             if (not isinstance(identity, dict)
                     or any(type(identity.get(key)) is not type(context[key])
@@ -173,6 +194,8 @@ def handle_command(state, operation, payload):
             trainer.checkpoint_ready = False
             raise
     if operation == 'preview-snapshot':
+        if state.get('follower'):
+            return _ready(state)
         identity, path = payload['identity'], Path(payload['path'])
         if (any(identity[key] != context[key] for key in ('run_id', 'attempt_id', 'attempt_index'))
                 or path.name != 'snapshot.pt' or path.parent.parent != Path(context['attempt_dir'])

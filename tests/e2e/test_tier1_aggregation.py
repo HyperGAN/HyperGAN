@@ -103,16 +103,18 @@ class TestGradientAllreduceStrategy:
         assert strategy.name == "gradient_allreduce"
 
     @requires_aggregation
-    def test_tier1_gradient_allreduce_should_assert_replicas_always_true(self):
-        """Case 7.4: should_assert_replicas returns True on every step for gradient_allreduce."""
+    def test_tier1_gradient_allreduce_should_assert_replicas_on_interval(self):
+        """Case 7.4: gradient_allreduce digests replicas at step 1 and every replica_check_every steps."""
         from hypergan.aggregation import GradientAllreduceStrategy
 
         class DummyTrainer:
             world_size = 2
 
-        strategy = GradientAllreduceStrategy(DummyTrainer(), sync_every_steps=1)
+        strategy = GradientAllreduceStrategy(DummyTrainer(), sync_every_steps=1, replica_check_every=4)
+        assert [step for step in range(1, 13) if strategy.should_assert_replicas(step)] == [1, 4, 8, 12]
+        every = GradientAllreduceStrategy(DummyTrainer(), sync_every_steps=1, replica_check_every=1)
         for step in (1, 2, 3, 4, 10):
-            assert strategy.should_assert_replicas(step) is True
+            assert every.should_assert_replicas(step) is True
 
     @requires_aggregation
     def test_tier1_gradient_allreduce_manifest_metadata(self):

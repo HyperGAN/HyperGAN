@@ -64,7 +64,8 @@ class TestMultiNodeProfileResolution:
     def test_valid_topologies_parametrized(self, world_size, nodes, node_rank, expected_rpn):
         """Profile resolves valid topologies and derives ranks_per_node = world_size // nodes."""
         cfg = make_cfg(batch_size=world_size * 4)
-        raw = make_raw_profile('cpu-replicated-gloo', world_size=world_size, nodes=nodes, node_rank=node_rank)
+        raw = make_raw_profile('cpu-replicated-gloo', world_size=world_size, nodes=nodes, node_rank=node_rank,
+                               rendezvous='tcp://node0.internal:29500')
         resolved = resolve_execution_profile(raw, cfg)
         exec_tab = resolved['execution']
         assert exec_tab['world_size'] == world_size
@@ -75,9 +76,19 @@ class TestMultiNodeProfileResolution:
     def test_explicit_ranks_per_node_matching_derived(self):
         """Passing explicit ranks_per_node matching world_size // nodes is accepted."""
         cfg = make_cfg(batch_size=16)
-        raw = make_raw_profile('cpu-replicated-gloo', world_size=4, nodes=2, node_rank=0, ranks_per_node=2)
+        raw = make_raw_profile('cpu-replicated-gloo', world_size=4, nodes=2, node_rank=0, ranks_per_node=2,
+                               rendezvous='tcp://node0.internal:29500')
         resolved = resolve_execution_profile(raw, cfg)
         assert resolved['execution']['ranks_per_node'] == 2
+
+    def test_multi_node_requires_explicit_tcp_rendezvous(self):
+        """Review 2026-10-25 L1: a tcp://127.0.0.1 default hangs on real separate hosts."""
+        cfg = make_cfg(batch_size=16)
+        with pytest.raises(ValueError, match=r'experimental and requires an explicit execution\.rendezvous'):
+            resolve_execution_profile(make_raw_profile('cpu-replicated-gloo', world_size=4, nodes=2, node_rank=1), cfg)
+        with pytest.raises(ValueError, match=r'experimental and requires a tcp://'):
+            resolve_execution_profile(make_raw_profile('cpu-replicated-gloo', world_size=4, nodes=2, node_rank=1,
+                                                       rendezvous='file:///shared/rdzv'), cfg)
 
     def test_explicit_ranks_per_node_mismatch_rejected(self):
         """Passing explicit ranks_per_node differing from world_size // nodes is rejected."""
@@ -163,9 +174,10 @@ class TestRendezvousURIValidation:
         'file:///var/run/hypergan/rdzv-store',
     ])
     def test_valid_rendezvous_uris(self, uri):
-        """Valid tcp:// and file:// URIs are accepted verbatim."""
+        """Valid tcp:// and file:// URIs are accepted verbatim (multi-node requires tcp://)."""
         cfg = make_cfg(batch_size=8)
-        raw = make_raw_profile('cpu-replicated-gloo', world_size=2, nodes=2, node_rank=0, rendezvous=uri)
+        nodes = 2 if uri.startswith('tcp://') else 1
+        raw = make_raw_profile('cpu-replicated-gloo', world_size=2, nodes=nodes, node_rank=0, rendezvous=uri)
         resolved = resolve_execution_profile(raw, cfg)
         assert resolved['execution']['rendezvous'] == uri
 
@@ -247,6 +259,7 @@ class TestDeviceMappingAndBatchGeometry:
             nodes=2,
             node_rank=0,
             accumulation_steps=2,
+            rendezvous='tcp://node0.internal:29500',
         )
         resolved = resolve_execution_profile(raw, cfg)
         exec_tab = resolved['execution']

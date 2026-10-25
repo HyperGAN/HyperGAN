@@ -133,7 +133,7 @@ class TestTier5AggregationChallenges:
         init_b = model.bias.data.clone()
 
         strat_diloco = PseudoGradientStrategy(sync_every_steps=large_cadence, outer_lr=1.0, outer_momentum=0.5)
-        strat_diloco.pre_step(step=0, models=model)
+        strat_diloco.initialize(models=model)
         strat_fedavg = ParameterAverageStrategy(sync_every_steps=large_cadence)
 
         # Boundary checks
@@ -149,8 +149,8 @@ class TestTier5AggregationChallenges:
         for step in range(1, 11):
             model.weight.data.add_(0.1)
             model.bias.data.add_(0.1)
-            strat_diloco.post_step(step=step, models=model)
-            strat_fedavg.post_step(step=step, models=model)
+            strat_diloco.on_step_complete(step=step, models=model)
+            strat_fedavg.on_step_complete(step=step, models=model)
             # Anchor weights must remain identical to initial weights
             assert_states_close(strat_diloco.anchor["weight"], init_w)
             assert_states_close(strat_diloco.anchor["bias"], init_b)
@@ -201,7 +201,7 @@ class TestTier5AggregationChallenges:
         model_fedavg.bias.data.copy_(init_b)
 
         strat_diloco = PseudoGradientStrategy(sync_every_steps=2, outer_lr=1.0, outer_momentum=0.0)
-        strat_diloco.pre_step(step=0, models=model_diloco)
+        strat_diloco.initialize(models=model_diloco)
 
         # Simulate local updates on replica
         drift_w = torch.randn_like(init_w) * 0.5
@@ -212,7 +212,7 @@ class TestTier5AggregationChallenges:
         model_fedavg.bias.data.add_(drift_b)
 
         # Sync step 2
-        strat_diloco.post_step(step=2, models=model_diloco)
+        strat_diloco.on_step_complete(step=2, models=model_diloco)
         # Expected new anchor = anchor - 1.0 * (anchor - local) = local
         assert_states_close(model_diloco.weight.data, model_fedavg.weight.data, atol=1e-7, rtol=0)
         assert_states_close(model_diloco.bias.data, model_fedavg.bias.data, atol=1e-7, rtol=0)

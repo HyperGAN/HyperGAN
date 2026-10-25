@@ -72,7 +72,7 @@ def check_m1_schema() -> bool:
                 'world_size': 2,
                 'nodes': 2,
                 'node_rank': 0,
-                'rendezvous': 'file:///tmp/test',
+                'rendezvous': 'tcp://127.0.0.1:29500',
             },
             'aggregation': {
                 'strategy': 'gradient_allreduce',

@@ -775,3 +775,134 @@ def test_multinode_runners_checkpoint_resume(tmp_path):
     assert manifest_resumed['steps'] == 4
     assert manifest_resumed['last_durable_step'] == 4
     assert Path(manifest_resumed['bundle_path']).is_file()
+
+
+
+# ---------------------------------------------------------------------------
+# Follower Nodes Mirror Node 0 (review 2026-10-25 fix-first #7)
+# ---------------------------------------------------------------------------
+
+CONTROL_WORKER_CODE = r"""
+import json
+import sys
+from pathlib import Path
+
+if __name__ == '__main__':
+    from hypergan.replicated_execution import run_follower, run_resume, run_train
+
+    mode, node_rank, cfg_file, run_dir, profile, controls = sys.argv[1:7]
+    cfg = json.loads(Path(cfg_file).read_text())
+    profile, controls, run_dir = json.loads(profile), json.loads(controls), Path(run_dir)
+    policy = {'collective_timeout': 10.0, 'command_timeout': 20.0, 'startup_timeout': 30.0}
+    if node_rank != '0':
+        result = run_follower(cfg, run_dir, profile=profile, service_policy=policy, **controls)
+    elif mode == 'train':
+        result = run_train(cfg, run_dir, profile=profile, service_policy=policy, **controls)
+    else:
+        result = run_resume(run_dir, profile=profile, service_policy=policy, **controls)
+    print('RESULT ' + json.dumps({key: result.get(key) for key in ('status', 'steps', 'stop_reason', 'commands')}))
+"""
+
+TOY_CONFIG = {
+    'components': {
+        'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]}, 'inputs': {'x': 'latent'}},
+        'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}},
+    },
+    'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
+    'gradient_penalty': {'lazy_k': 2, 'kappa': 0.01},
+    'training': {'steps': 6, 'batch_size': 8, 'device': 'cpu', 'seed': 42, 'lr_floor': 1.0},
+    'sampling': {'count': 4},
+}
+
+
+def _two_nodes(tmp_path, mode, run_dir, profile, leader_controls, timeout=90):
+    script = tmp_path / 'control_worker.py'
+    script.write_text(CONTROL_WORKER_CODE)
+    cfg_file = tmp_path / 'config.json'
+    cfg_file.write_text(json.dumps(TOY_CONFIG))
+    follower = json.loads(json.dumps(profile))
+    follower['execution']['node_rank'] = 1
+    env = make_multinode_env()
+    # The follower deliberately gets none of node 0's controls.
+    processes = [subprocess.Popen([sys.executable, str(script), mode, str(rank), str(cfg_file), str(run_dir),
+                                   json.dumps(node_profile), json.dumps(controls)],
+                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for rank, node_profile, controls in ((0, profile, leader_controls), (1, follower, {}))]
+    results = []
+    for process in processes:
+        out, err = process.communicate(timeout=timeout)
+        assert process.returncode == 0, err[-4000:]
+        results.append(json.loads(next(line for line in out.splitlines() if line.startswith('RESULT '))[7:]))
+    return results
+
+
+def test_followers_mirror_previews_stops_and_forced_local_sgd_checkpoints(tmp_path):
+    """Node 0 alone issues previews, a stop, a checkpoint between syncs and a resume.
+
+    Before the fix, the follower replayed a fixed update/checkpoint script, so the
+    first preview (or the stop checkpoint) made the command digests disagree.
+    """
+    profile = {'schema_version': 1, 'execution': {
+        'name': 'cpu-replicated-gloo', 'world_size': 2, 'nodes': 2, 'node_rank': 0,
+        'rendezvous': f'tcp://127.0.0.1:{get_free_tcp_port()}', 'accumulation_steps': 1,
+        'aggregation': {'strategy': 'pseudo_gradient', 'sync_every_steps': 2, 'outer_lr': 0.7, 'outer_momentum': 0.5}}}
+    run_dir = tmp_path / 'run'
+    leader, follower = _two_nodes(tmp_path, 'train', run_dir, profile,
+                                  {'checkpoint_every': 2, 'preview_every': 2, 'stop_after_steps': 3})
+    assert leader == {'status': 'stopped', 'steps': 3, 'stop_reason': 'stop_after_steps', 'commands': None}
+    assert follower['status'] == 'completed' and follower['commands'] > 0
+    manifest = json.loads((run_dir / 'manifest.json').read_text())
+    assert manifest['last_durable_step'] == 3 and manifest.get('preview_path')
+    saved = json.loads((Path(manifest['checkpoint_path']) / 'manifest.json').read_text())
+    assert saved['step'] == 3  # between syncs: one forced synchronization made it consistent
+
+    # The rendezvous is part of the recorded execution identity, so resume reuses it.
+    leader, follower = _two_nodes(tmp_path, 'resume', run_dir, profile, {'checkpoint_every': 2})
+    assert leader['status'] == 'complete' and leader['steps'] == 6
+    assert follower['status'] == 'completed'
+    resumed = json.loads((run_dir / 'manifest.json').read_text())
+    assert resumed['last_durable_step'] == 6 and Path(resumed['bundle_path']).is_file()
+
+
+def test_follower_fails_promptly_when_node_0_dies(tmp_path):
+    """A follower waiting idle for node 0 must not hang once node 0 is gone."""
+    profile = {'schema_version': 1, 'execution': {
+        'name': 'cpu-replicated-gloo', 'world_size': 2, 'nodes': 2, 'node_rank': 0,
+        'rendezvous': f'tcp://127.0.0.1:{get_free_tcp_port()}', 'accumulation_steps': 1}}
+    follower_profile = json.loads(json.dumps(profile))
+    follower_profile['execution']['node_rank'] = 1
+    script = tmp_path / 'control_worker.py'
+    script.write_text(CONTROL_WORKER_CODE)
+    cfg = json.loads(json.dumps(TOY_CONFIG))
+    cfg['training']['steps'] = 100000
+    cfg_file = tmp_path / 'config.json'
+    cfg_file.write_text(json.dumps(cfg))
+    run_dir = tmp_path / 'run'
+    env = make_multinode_env()
+    leader = subprocess.Popen([sys.executable, str(script), 'train', '0', str(cfg_file), str(run_dir),
+                               json.dumps(profile), json.dumps({'checkpoint_every': 100000})],
+                              env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    follower = subprocess.Popen([sys.executable, str(script), 'train', '1', str(cfg_file), str(run_dir),
+                                 json.dumps(follower_profile), '{}'],
+                                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            try:
+                if json.loads((run_dir / 'manifest.json').read_text()).get('steps', 0) >= 2:
+                    break
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.2)
+        else:
+            pytest.fail('node 0 never trained')
+        leader.kill()
+        killed = time.monotonic()
+        _, err = follower.communicate(timeout=60)
+        assert follower.returncode != 0
+        assert time.monotonic() - killed < 45, 'follower outlived node 0 by too long'
+    finally:
+        for process in (leader, follower):
+            if process.poll() is None:
+                process.kill()
+                process.wait()

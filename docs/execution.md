@@ -11,8 +11,8 @@ hypergan resume runs/demo --no-server
 ```
 
 The named replicated profiles default to two workers and one microbatch per rank.
-`cuda-replicated-nccl` requires `training.device="cuda"`; each rank owns its visible
-GPU index. `cpu-replicated-gloo` requires `training.device="cpu"`. `cpu-single`
+`cuda-replicated-nccl` requires `train.device="cuda"`; each rank owns its visible
+GPU index. `cpu-replicated-gloo` requires `train.device="cpu"`. `cpu-single`
 selects the existing native CPU path explicitly. Incompatible devices fail;
 profiles never move a recipe silently to another device.
 
@@ -37,7 +37,7 @@ unqualified for arbitrary recipes; local numerical/recovery fixtures do not
 establish application quality or real multi-host execution. This command launches
 local supervised workers. It does not provision machines or launch cloud jobs.
 
-Repeating `train` and explicit `resume` infer the persisted numerical execution identity when `--profile` is omitted. Repeated `train` verifies the supplied resolved configuration, applying any `--steps` override before comparison. The total target may increase only when both saved and requested `training.lr_floor` are `1.0` (constant learning rate), with every other numerical setting unchanged. Decreases and target changes for annealed runs fail. This also applies to `resume --config CONFIG`. The manifest and new checkpoints record an accepted extension; existing checkpoint fingerprints remain unchanged, and `resume` without a configuration inherits the extended target. Checkpoint and preview controls inherit the saved values when omitted. An explicit profile must
+Repeating `train` and explicit `resume` infer the persisted numerical execution identity when `--profile` is omitted. Repeated `train` verifies the supplied resolved configuration, applying any `--steps` override before comparison. The total target may increase only when both saved and requested `train.lr_floor` are `1.0` (constant learning rate), with every other numerical setting unchanged. Decreases and target changes for annealed runs fail. This also applies to `resume --config CONFIG`. The manifest and new checkpoints record an accepted extension; existing checkpoint fingerprints remain unchanged, and `resume` without a configuration inherits the extended target. Checkpoint and preview controls inherit the saved values when omitted. An explicit profile must
 match the original world size, global/local/microbatch sizes and accumulation
 algorithm. `resume --checkpoint` accepts a complete earlier generation inside the
 same run; otherwise both commands pin the latest complete generation. Configuration changes

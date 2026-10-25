@@ -1,7 +1,7 @@
 """Adversarial stress-test suite for Milestone 4 qualification receipt and CLI.
 
 Empirically challenges commit ec043036:
-1. Receipt canonical SHA-256 calculation & comprehensive tamper detection across
+1. Receipt canonical SHA-256 checksum (unkeyed: catches edits that do not recompute it) across
    all top-level fields, nested environment properties, suite statuses, metrics,
    durations, timestamps, suite reordering, and unexpected injected fields.
 2. Failure modes and exit codes: suite execution failures, timeouts, invalid CLI
@@ -23,6 +23,7 @@ import pytest
 
 from hypergan.qualify import (
     QualificationRunner,
+    ReceiptValidationError,
     compute_receipt_sha256,
     run_qualification,
     validate_qualification_receipt,
@@ -56,7 +57,7 @@ class TestReceiptAdversarialTamperChallenges:
             elif isinstance(val, dict):
                 tampered[key]["tampered_sub"] = "bad"
 
-            with pytest.raises(AssertionError):
+            with pytest.raises(ReceiptValidationError):
                 validate_qualification_receipt(tampered)
 
     def test_environment_field_mutations_detected(self, base_receipt):
@@ -71,7 +72,7 @@ class TestReceiptAdversarialTamperChallenges:
         for key, val in mutations:
             tampered = copy.deepcopy(base_receipt)
             tampered["environment"][key] = val
-            with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+            with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
                 validate_qualification_receipt(tampered)
 
     def test_suite_field_mutations_detected(self, base_receipt):
@@ -85,7 +86,7 @@ class TestReceiptAdversarialTamperChallenges:
         for key, val in mutations:
             tampered = copy.deepcopy(base_receipt)
             tampered["suites"][0][key] = val
-            with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+            with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
                 validate_qualification_receipt(tampered)
 
     def test_suite_order_mutation_detected(self, base_receipt):
@@ -93,14 +94,14 @@ class TestReceiptAdversarialTamperChallenges:
         tampered = copy.deepcopy(base_receipt)
         assert len(tampered["suites"]) >= 2
         tampered["suites"][0], tampered["suites"][1] = tampered["suites"][1], tampered["suites"][0]
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(tampered)
 
     def test_unexpected_injected_top_level_key_detected(self, base_receipt):
         """Injecting extra keys into receipt must invalidate receipt_sha256."""
         tampered = copy.deepcopy(base_receipt)
         tampered["unauthorized_field"] = "injected_data"
-        with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+        with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
             validate_qualification_receipt(tampered)
 
     @pytest.mark.parametrize("missing_key", [
@@ -114,10 +115,10 @@ class TestReceiptAdversarialTamperChallenges:
         "receipt_sha256",
     ])
     def test_missing_required_key_detected(self, base_receipt, missing_key):
-        """Deleting any mandatory key must raise AssertionError."""
+        """Deleting any mandatory key must raise ReceiptValidationError."""
         tampered = copy.deepcopy(base_receipt)
         del tampered[missing_key]
-        with pytest.raises(AssertionError, match="missing required keys"):
+        with pytest.raises(ReceiptValidationError, match="missing required keys"):
             validate_qualification_receipt(tampered)
 
     def test_corrupted_sha256_variants_detected(self, base_receipt):
@@ -132,7 +133,7 @@ class TestReceiptAdversarialTamperChallenges:
         for bad_sha in corruptions:
             tampered = copy.deepcopy(base_receipt)
             tampered["receipt_sha256"] = bad_sha
-            with pytest.raises(AssertionError, match="Receipt SHA-256 mismatch"):
+            with pytest.raises(ReceiptValidationError, match="Receipt SHA-256 mismatch"):
                 validate_qualification_receipt(tampered)
 
     def test_empty_suites_list_rejected(self, base_receipt):
@@ -140,7 +141,7 @@ class TestReceiptAdversarialTamperChallenges:
         tampered = copy.deepcopy(base_receipt)
         tampered["suites"] = []
         tampered["receipt_sha256"] = compute_receipt_sha256(tampered)
-        with pytest.raises(AssertionError, match="Receipt suites list cannot be empty"):
+        with pytest.raises(ReceiptValidationError, match="Receipt suites list cannot be empty"):
             validate_qualification_receipt(tampered)
 
     def test_duration_exceeding_180s_boundary_rejected(self, base_receipt):
@@ -148,15 +149,15 @@ class TestReceiptAdversarialTamperChallenges:
         tampered = copy.deepcopy(base_receipt)
         tampered["duration_seconds"] = 180.001
         tampered["receipt_sha256"] = compute_receipt_sha256(tampered)
-        with pytest.raises(AssertionError, match="exceeded 3-minute hard limit"):
+        with pytest.raises(ReceiptValidationError, match="exceeded 3-minute hard limit"):
             validate_qualification_receipt(tampered)
 
     def test_invalid_status_value_rejected(self, base_receipt):
-        """Status other than passed or failed must be rejected even if hash is recomputed."""
+        """Status outside passed, failed, skipped and dry_run is rejected even if hash is recomputed."""
         tampered = copy.deepcopy(base_receipt)
         tampered["status"] = "partially_passed"
         tampered["receipt_sha256"] = compute_receipt_sha256(tampered)
-        with pytest.raises(AssertionError, match="Invalid status"):
+        with pytest.raises(ReceiptValidationError, match="Invalid status"):
             validate_qualification_receipt(tampered)
 
 
@@ -242,7 +243,7 @@ class TestSuiteFilteringAdversarialChallenges:
         ("cpu_replicated_gloo", "cpu_replicated_gloo"),
         ("cuda_replicated_nccl", "cuda_replicated_nccl"),
         ("aggregation", "aggregation_strategies"),
-        ("multinode_tcp", "multinode_tcp"),
+        ("multinode_tcp", "multinode_tcp_single_host"),
         ("checkpoint_compatibility", "checkpoint_compatibility"),
     ])
     def test_individual_suite_isolation(self, tmp_path, suite_key, expected_suite):

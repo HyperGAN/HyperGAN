@@ -1,4 +1,8 @@
-# Native HNDL 0.4.0 integration
+# Native HNDL integration
+
+HyperGAN now requires `hndl>=0.10.0,<1` (the `train` extra). This page records
+the native operators the image recipes rely on; they arrived in HNDL 0.4.0, and
+the version numbers below say when each one landed.
 
 HyperGAN's image architecture is defined in `src/hypergan/networks/*.hndl`
 and recorded in resolved run configurations. HNDL 0.4.0 supplies the native

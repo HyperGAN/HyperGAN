@@ -41,6 +41,16 @@ Pass `--build-arg EXTRAS=...` to install optional runtime extras (for example `t
 docker build --build-arg EXTRAS=train,image,web -t hypergan:train .
 ```
 
+### Recording the Source Commit
+
+`.dockerignore` keeps `.git` out of the build context, so the image cannot read its own commit. Pass it with `--build-arg HYPERGAN_COMMIT=...` and the wheel stamps it into `_build_provenance.json`, which every run then records as `hypergan_commit`:
+
+```sh
+docker build --build-arg HYPERGAN_COMMIT="$(git rev-parse HEAD)" --build-arg EXTRAS=train,image,web -t hypergan:train .
+```
+
+Without the argument the image records the commit as unknown (`null`). The image cannot tell whether the checkout had uncommitted changes, so `dirty` is always unknown (`null`).
+
 ## Data, Workspace, and Run Mounts
 
 Mount `/data` read-only and `/runs` read-write so training artifacts, checkpoints, and the run registry (`HYPERGAN_STATE_DIR=/runs/.hypergan`) persist on the host:
@@ -99,7 +109,7 @@ Because `Dockerfile` sets `STOPSIGNAL SIGINT` and uses the exec-form `ENTRYPOINT
 docker stop --time 30 <container_id>
 ```
 
-HyperGAN catches `SIGINT`, finishes the current update, writes an atomic checkpoint and updated `manifest.json` (`status = "stopped"`), and exits cleanly before Docker's grace period expires.
+HyperGAN catches `SIGINT`, finishes the current update, writes an atomic checkpoint and updated `manifest.json` (`status = "stopped"`), and exits. Docker sends `SIGKILL` when the grace period runs out: 10 seconds unless you pass `--time` (`-t`). Choose a time longer than one update plus one checkpoint write for your model. Otherwise the container is killed before the checkpoint is durable, and the run resumes from its previous checkpoint.
 
 ### GPU Pass-Through (`--gpus all`)
 

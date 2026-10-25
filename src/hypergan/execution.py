@@ -13,6 +13,8 @@ from .config import config_values, fingerprint, load_config, resolve_config, res
 from .model_file import ConfigError
 from .previews import sample_name
 from .execution_profiles import load_execution_profile, resolve_execution_profile
+from .main_guard import require_main_guard
+from .metric_plugins import enabled_custom
 
 PROFILE_NAMES = ('cpu-single', 'cpu-replicated-gloo', 'cuda-replicated-nccl')
 SERVICE_TIMEOUTS = ('startup_timeout', 'command_timeout', 'collective_timeout',
@@ -252,6 +254,9 @@ class PreparedExecution:
             raise ValueError('Prepared numerical configuration or execution identity changed')
         if self.repeat_train and not _same(config_values(current.config), config_values(self.config)):
             raise ValueError('Prepared training configuration changed')
+        if self.controls.get('preview_every') or enabled_custom(current.config):
+            # Fail before step 0 rather than at the first preview or metric job.
+            require_main_guard('Previews and custom metrics')
         if _execution(self.profile) is None:
             from .training import train as run_train, resume as run_resume
             options = {}

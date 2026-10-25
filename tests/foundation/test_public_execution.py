@@ -478,21 +478,17 @@ def test_checkpoint_compatibility_accepts_supported_version(tmp_path, explicit, 
     assert prepare_train(path, run).checkpoint == checkpoint
 
 
-def test_device_override_is_the_configuration_that_trains_and_resumes(tmp_path, monkeypatch):
-    # The recipe asks for CUDA, which this CPU-only run cannot use; the override must reach the trainer.
+def test_device_override_reaches_the_prepared_configuration(tmp_path, monkeypatch):
+    # Preparation only; tests/reference/test_execution_launch.py trains with the override.
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
     path, run = project(tmp_path, 'cuda'), tmp_path / 'run'
     prepared = prepare_train(path, run, devices='cpu', stop_after_steps=1)
     assert prepared.config['training']['device'] == 'cpu'
-    prepared.run()
-    manifest = json.loads((run / 'manifest.json').read_text())
-    assert manifest['config']['training']['device'] == 'cpu'
-    assert manifest['config_sha256'] == fingerprint(prepared.config)
-    assert (run / 'config-source').is_dir()  # provenance still snapshots the source file
-    again = prepare_train(path, run, devices='cpu')
-    assert again.operation == 'resume' and again.config['training']['device'] == 'cpu'
+    assert prepared.controls['stop_after_steps'] == 1
+    monkeypatch.delenv('CUDA_DEVICE_ORDER', raising=False)
+    _, stopped_run, _, _ = stopped(tmp_path / 'stopped', replicated=False)  # recorded on cpu
     with pytest.raises(ValueError, match='training.device'):
-        prepare_resume(run, devices='0')
+        prepare_resume(stopped_run, devices='0')
 
 
 def test_step_override_keeps_the_retention_policy(tmp_path, monkeypatch):
@@ -509,6 +505,7 @@ def test_step_override_keeps_the_retention_policy(tmp_path, monkeypatch):
 def test_cuda_device_selection_masks_physical_gpus(tmp_path, monkeypatch, device):
     import os
     monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    monkeypatch.delenv('CUDA_DEVICE_ORDER', raising=False)  # restored after the test
     prepared = prepare_train(project(tmp_path, 'cuda:1'), tmp_path / 'run', devices=device)
     assert os.environ['CUDA_VISIBLE_DEVICES'] == {'0': '0', 'cuda:1': '1', '0,1': '0,1'}[device]
     assert prepared.config['training']['device'] == 'cuda'

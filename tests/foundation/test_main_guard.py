@@ -1,13 +1,17 @@
-"""Spawned preview/evaluation workers must never re-run an unguarded training script."""
-import subprocess
+"""Spawned preview/evaluation workers must never re-run an unguarded training script.
+
+Lightweight: hypergan.main_guard and run preparation never import torch.
+"""
 import sys
 import textwrap
 import types
 
 import pytest
 
+from hypergan.execution import prepare_train
+from hypergan.main_guard import require_main_guard, unguarded_main_call
 from hypergan.run_controller import FatalExecutionError
-from hypergan.single_execution import require_main_guard, unguarded_main_call
+from tests.config_fixtures import write_default
 
 
 def _run_as_main(monkeypatch, tmp_path, source, *, spec=None):
@@ -93,19 +97,32 @@ def test_require_main_guard_raises_a_fatal_error_naming_the_line(monkeypatch, tm
     assert f'{script}:1' in message and 'if __name__ == "__main__":' in message
 
 
-@pytest.mark.heavy
-def test_unguarded_script_with_previews_fails_before_running_twice(tmp_path):
-    marker = tmp_path / 'top-level-runs.txt'
-    script = tmp_path / 'unguarded.py'
-    script.write_text(textwrap.dedent(f'''
-        import hypergan.api as hg
-        with open({str(marker)!r}, 'a') as stream:
-            stream.write('ran\\n')
-        model = hg.override(hg.packaged('gaussian-grid'), {{'train.device': 'cpu'}})
-        hg.train(model, {str(tmp_path / 'run')!r}, steps=2, previews=1, devices='cpu')
-    '''), encoding='utf-8')
-    result = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True,
-                            timeout=120)
-    assert result.returncode != 0
-    assert 'without a main guard' in result.stderr
-    assert marker.read_text() == 'ran\n'
+def _run_prepared_as_main(monkeypatch, tmp_path, prepared):
+    """Call ``prepared.run()`` from an unguarded script's top level; return the error text."""
+    def start():
+        try:
+            prepared.run()
+        except FatalExecutionError as error:
+            return str(error)
+    script = tmp_path / 'train_script.py'
+    script.write_text('found = start()\n', encoding='utf-8')
+    main = types.ModuleType('__main__')
+    main.__file__, main.__spec__ = str(script), None
+    main.__dict__['start'] = start
+    monkeypatch.setitem(sys.modules, '__main__', main)
+    exec(compile(script.read_text(), str(script), 'exec'), main.__dict__)
+    return script, main.__dict__['found']
+
+
+@pytest.mark.parametrize('workers', ['previews', 'custom metrics'])
+def test_unguarded_run_with_spawned_workers_fails_before_step_zero(monkeypatch, tmp_path, workers):
+    # A large preview interval must not let an unguarded script train until the first preview.
+    path, run = write_default(tmp_path / 'project', device='cpu', defaults='hypergan'), tmp_path / 'run'
+    if workers == 'previews':
+        prepared = prepare_train(path, run, preview_every=5000, stop_after_steps=1)
+    else:
+        monkeypatch.setattr('hypergan.execution.enabled_custom', lambda config: {'metric': {}})
+        prepared = prepare_train(path, run, stop_after_steps=1)
+    script, message = _run_prepared_as_main(monkeypatch, tmp_path, prepared)
+    assert message is not None and f'{script}:1' in message and 'without a main guard' in message
+    assert not run.exists()  # refused before the run directory or any worker existed

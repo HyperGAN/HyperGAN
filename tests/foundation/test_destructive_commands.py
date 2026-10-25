@@ -113,6 +113,8 @@ def test_rm_refuses_directories_that_are_not_runs(tmp_path, monkeypatch):
     home.mkdir()
     (home / "manifest.json").write_text(json.dumps({"run_id": "h" * 32}), encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Path.home() on Windows reads USERPROFILE, not HOME
+    assert Path.home() == home
 
     for target in ("notes", "runs", ".", str(tmp_path), str(victim), "victim", str(home)):
         with pytest.raises(ValueError, match="Refusing to act on"):
@@ -321,6 +323,29 @@ def test_find_live_pid_matches_exact_run_paths_only(tmp_path):
 
 
 @needs_proc
+def test_find_live_pid_prefers_the_trainer_over_other_lock_holders(tmp_path):
+    """A probe that has .run.lock open (ps, queue, viewer, a forked worker) is not the trainer."""
+    run = _make_run(tmp_path / "runs" / "probed", run_id="4d" * 16)
+    (run / ".run.lock").touch()
+    hold_open = "import sys, time\nf = open(sys.argv[1], 'rb')\nprint('open', flush=True)\ntime.sleep(60)\n"
+
+    def open_lock(*extra):
+        proc = subprocess.Popen([sys.executable, "-c", hold_open, str(run / ".run.lock"), *extra],
+                                stdout=subprocess.PIPE, text=True)
+        assert proc.stdout.readline().strip() == "open"
+        return proc
+
+    probes = [open_lock(), open_lock()]
+    trainer = None
+    try:
+        assert find_live_pid_for_run(run) == min(p.pid for p in probes)
+        trainer = open_lock("hypergan", "train", "cfg.toml")
+        assert find_live_pid_for_run(run) == trainer.pid
+    finally:
+        _reap(*probes, *([trainer] if trainer else []))
+
+
+@needs_proc
 def test_stop_signals_the_lock_holder_not_a_stale_recorded_pid(tmp_path):
     run = _make_run(tmp_path / "runs" / "stale-pid", run_id="3c" * 16)
     bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
@@ -444,6 +469,22 @@ def test_logs_follow_keeps_an_event_that_was_mid_write(tmp_path, monkeypatch):
         else:
             assert any("[      2/" in ln or "step       2" in ln for ln in lines), lines
             assert lines[-1].startswith("[complete]")
+
+
+def test_logs_follow_reads_once_more_after_the_run_goes_inactive(tmp_path, monkeypatch):
+    """The trainer's final event, appended between the last read and the liveness check, is shown."""
+    run = _make_run(tmp_path / "runs" / "finishing", run_id="8c" * 16)
+    events = run / "events.jsonl"
+    events.write_text(json.dumps({"event": "train", "step": 1}) + "\n", encoding="utf-8")
+
+    def finish_then_report_inactive(run_dir):
+        with events.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"event": "complete", "step": 1}) + "\n")
+        return False, None
+
+    monkeypatch.setattr(inspection, "check_run_active", finish_then_report_inactive)
+    lines = read_run_logs(str(run), follow=True, raw=True, stream=StringIO(), cwd=tmp_path)
+    assert [json.loads(ln)["event"] for ln in lines] == ["train", "complete"]
 
 
 # --------------------------------------------------------------------------- registry state (M9, L3, L4)

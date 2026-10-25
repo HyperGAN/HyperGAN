@@ -2241,27 +2241,39 @@ def read_run_logs(
     if not follow:
         return formatted_lines
 
+    def read_new_events() -> bool:
+        """Print events appended since the last read; True once a terminal event is seen."""
+        nonlocal offset, pending
+        if not events_file.is_file():
+            return False
+        try:
+            with events_file.open("rb") as f:
+                f.seek(offset)
+                chunk = f.read()
+        except OSError:
+            return False
+        if not chunk:
+            return False
+        offset += len(chunk)
+        lines, pending = _split_complete_lines(pending + chunk)
+        for raw_line in lines:
+            line, ev = render(raw_line)
+            if line:
+                formatted_lines.append(line)
+                print(line, file=out, flush=True)
+            if ev is not None and ev.get("event") in _TERMINAL_EVENTS:
+                return True
+        return False
+
     try:
         while True:
-            if events_file.is_file():
-                try:
-                    with events_file.open("rb") as f:
-                        f.seek(offset)
-                        chunk = f.read()
-                    if chunk:
-                        offset += len(chunk)
-                        lines, pending = _split_complete_lines(pending + chunk)
-                        for raw_line in lines:
-                            line, ev = render(raw_line)
-                            if line:
-                                formatted_lines.append(line)
-                                print(line, file=out, flush=True)
-                            if ev is not None and ev.get("event") in _TERMINAL_EVENTS:
-                                return formatted_lines
-                except OSError:
-                    pass
+            if read_new_events():
+                return formatted_lines
             is_active, _ = check_run_active(resolved_dir)
             if not is_active:
+                # The trainer writes its final event just before it releases the lock:
+                # read once more so an event appended since the last read is not dropped.
+                read_new_events()
                 break
             time.sleep(0.25)
     except KeyboardInterrupt:

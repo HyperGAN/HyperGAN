@@ -522,10 +522,13 @@ def _cmdline_names_run(pid: str, parts: List[str], run_path: Path) -> bool:
 def find_live_pid_for_run(run_dir: Path) -> Optional[int]:
     """Scan /proc on Linux for the training process of exactly run_dir.
 
-    The process that has run_dir/.run.lock open wins. Otherwise a hypergan
-    train/resume process whose argument resolves to run_dir itself is accepted.
-    Substring and basename matches are never used: they matched other runs'
-    trainers (runs/cifar vs runs/cifar-v2), and this PID is what stop signals.
+    A process that has run_dir/.run.lock open wins. Liveness probes from other
+    ps/queue/viewer processes and forked children (DataLoader workers) can hold
+    it open too, so a hypergan train/resume holder is preferred, then the lowest
+    PID. Otherwise a hypergan train/resume process whose argument resolves to
+    run_dir itself is accepted. Substring and basename matches are never used:
+    they matched other runs' trainers (runs/cifar vs runs/cifar-v2), and this
+    PID is what stop signals.
     """
     proc_root = Path("/proc")
     if not proc_root.is_dir():
@@ -536,6 +539,7 @@ def find_live_pid_for_run(run_dir: Path) -> Optional[int]:
     uid = os.getuid() if hasattr(os, "getuid") else None
     own_pid = os.getpid()
     cmdline_match: Optional[int] = None
+    lock_holders: List[Tuple[bool, int]] = []
 
     for entry in proc_root.iterdir():
         if not entry.name.isdigit() or int(entry.name) == own_pid:
@@ -555,17 +559,16 @@ def find_live_pid_for_run(run_dir: Path) -> Optional[int]:
             # Exclude helper subprocesses
             if "hypergan.bounded_cli_output" in joined or "hypergan.web_autostart" in joined:
                 continue
+            is_train = "hypergan" in joined and any(tok in ("train", "resume") for tok in parts)
             if has_lock_file and pid_has_file_open(int(entry.name), lock_path):
-                return int(entry.name)
-            if (
-                cmdline_match is None
-                and "hypergan" in joined
-                and any(tok in ("train", "resume") for tok in parts)
-                and _cmdline_names_run(entry.name, parts, run_path)
-            ):
+                lock_holders.append((not is_train, int(entry.name)))
+                continue
+            if cmdline_match is None and is_train and _cmdline_names_run(entry.name, parts, run_path):
                 cmdline_match = int(entry.name)
         except OSError:
             continue
+    if lock_holders:
+        return min(lock_holders)[1]
     return cmdline_match
 
 

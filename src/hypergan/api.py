@@ -800,6 +800,8 @@ def _default_run_dir(model_obj, name=None):
     stem = _run_stem(model_obj)
     if name:
         dir_name = short_slug = re.sub(r"[\\/]+", "-", str(name)).strip("-") or stem
+        if dir_name in (".", ".."):
+            raise ValueError(f"run name {name!r} is not a directory name")
     else:
         dir_name, short_slug = generate_run_slug(stem, parent_dir=runs_root)
     if "run_dir" in ws_sec:
@@ -1397,6 +1399,9 @@ def _raw_logs(run_dir, *, tail, follow, stream):
     lines, offset = [], 0
     if events_file.is_file():
         raw_bytes = events_file.read_bytes()
+        if follow:
+            # Hold back a partly written last line; the follow loop prints it whole.
+            raw_bytes = raw_bytes[:raw_bytes.rfind(b"\n") + 1]
         offset = len(raw_bytes)
         lines = [ln for ln in raw_bytes.decode("utf-8", errors="replace").splitlines() if ln.strip()]
         if tail and tail > 0:

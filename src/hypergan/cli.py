@@ -154,7 +154,7 @@ def _parser():
     validate.add_argument("--output", type=Path, default=None,
                           help="write the data manifest to a new file (when --data is passed)")
     validate.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                          help="override configuration value before validation (e.g. --set train.steps=500)")
+                          help="override configuration value before validation (e.g. --set train.steps=500; VALUE null removes the key)")
     validate.add_argument("--json", action="store_true", help="output validation result as JSON")
     preflight = commands.add_parser("preflight", help="Check a configuration against an execution profile before training")
     preflight.add_argument("config", type=Path)
@@ -236,13 +236,13 @@ def _parser():
     diff_cmd.add_argument("target_a", type=str, help="first recipe TOML, run directory/slug/tag, or checkpoint")
     diff_cmd.add_argument("target_b", nargs="?", default=None, type=str, help="second recipe TOML, run directory/slug/tag, or checkpoint (optional when -s/--set is passed)")
     diff_cmd.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                          help="override configuration value on the target before comparing")
+                          help="override configuration value on the target before comparing (VALUE null removes the key)")
     diff_cmd.add_argument("--json", action="store_true", help="output diff as JSON")
 
     explain_cmd = commands.add_parser("explain", help="Explain each network's role, inputs, optimizer group, and gradient sources")
     explain_cmd.add_argument("path", nargs="?", type=Path, default=None, help="model .toml, project directory, or run directory/slug/tag")
     explain_cmd.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                             help="override configuration value before explaining (e.g. --set train.lr=0.0005)")
+                             help="override configuration value before explaining (e.g. --set train.lr=0.0005; VALUE null removes the key)")
     explain_cmd.add_argument("--json", action="store_true", help="output explanation as JSON")
 
     doctor_cmd = commands.add_parser("doctor", help="Inspect Python, PyTorch, CUDA devices, workspace, and runner health")
@@ -499,12 +499,26 @@ def _parse_set_value(raw: str) -> object:
     if val.lower() == "null":
         return None
     try:
-        return json.loads(val)
+        parsed = json.loads(val)
     except (json.JSONDecodeError, ValueError):
         pass
+    else:
+        if not _all_finite(parsed):
+            raise ValueError(f"--set value {raw!r} is not finite")
+        return parsed
     if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
         return val[1:-1]
     return val
+
+
+def _all_finite(value) -> bool:
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, list):
+        return all(_all_finite(item) for item in value)
+    if isinstance(value, dict):
+        return all(_all_finite(item) for item in value.values())
+    return True
 
 
 def _normalize_set_key(key: str) -> str:
@@ -1937,7 +1951,9 @@ def _dispatch(args, *, output=None):
                     if not hasattr(view_obj, "save"):
                         raise TypeError(f"sampler {args.sampler!r} returned {type(view_obj).__name__}, "
                                         "which has no save(path) to write it with")
-                    view_path = view_obj.save(_sampler_output_path(s.path, args.sampler, view_obj))
+                    view_out = _sampler_output_path(s.path, args.sampler, view_obj)
+                    # A custom save() may return None; the file is still at view_out.
+                    view_path = view_obj.save(view_out) or view_out
                 if getattr(args, "json", False):
                     result = {"sample": str(s.path), "path": str(s.path)}
                     if view_path is not None:

@@ -38,17 +38,19 @@ def _run_dir(directory, config=None, events=()):
 # --------------------------------------------------------------------------- hg.new / README
 
 
-def test_new_project_accepts_documented_dataset_keyword(isolated):
-    from PIL import Image
-    images = isolated / "images"
-    images.mkdir()
-    for index in range(2):
-        Image.new("RGB", (32, 32), (index * 80, 10, 10)).save(images / f"{index}.png")
+def test_new_project_accepts_documented_dataset_keyword(isolated, monkeypatch):
+    seen = []
 
-    info = hg.new(project=isolated / "p", template="dcgan", dataset=images, device="cpu")
+    def fake_init_project(project_dir, **kwargs):
+        seen.append(kwargs)
+        return {"project_dir": str(project_dir), "template": kwargs["template"]}
+
+    monkeypatch.setattr(hg, "init_project", fake_init_project)
+    info = hg.new(project=isolated / "p", template="dcgan", dataset=isolated / "images", device="cpu")
 
     assert info["template"] == "dcgan"
-    assert Path(info["recipe_path"]).name == "dcgan.toml"
+    assert seen[0]["data_dir"] == isolated / "images"
+    assert seen[0]["template"] == "dcgan"
 
 
 def test_new_rejects_unknown_keywords(isolated):
@@ -108,6 +110,13 @@ def test_default_run_dir_explicit_name_and_workspace(isolated):
     model = hg.load(_model_file(workspace / "configs", "b"))
     assert hg._default_run_dir(model).parent == (workspace / "out").resolve()
     assert hg._default_run_dir(model, name="exp/one") == (workspace / "out" / "exp-one").resolve()
+
+
+@pytest.mark.parametrize("name", ["..", ".", "../", "/./"])
+def test_default_run_dir_rejects_dot_names(isolated, name):
+    model = hg.load(_model_file(isolated))
+    with pytest.raises(ValueError, match="not a directory name"):
+        hg._default_run_dir(model, name=name)
 
 
 def test_cli_and_api_share_the_default_run_dir(isolated, monkeypatch):
@@ -177,6 +186,25 @@ def test_logs_raw_follow_does_not_raise_and_stops_at_terminal_event(isolated, ca
     assert capsys.readouterr().out == ""
 
 
+def test_logs_raw_follow_holds_back_a_partly_written_first_read(isolated, monkeypatch):
+    import time
+    import hypergan.inspection as inspection
+    run = _run_dir(isolated / "run")
+    events_file = run / "events.jsonl"
+    events_file.write_text(json.dumps({"event": "train", "step": 1}) + '\n{"event": "tr')
+
+    def finish_writing(_seconds):
+        with events_file.open("a") as f:
+            f.write('ain", "step": 2}\n' + json.dumps({"event": "complete", "step": 3}) + "\n")
+
+    monkeypatch.setattr(time, "sleep", finish_writing)
+    monkeypatch.setattr(inspection, "check_run_active", lambda run_dir: (True, None))
+    stream = io.StringIO()
+    lines = hg.logs(run, raw=True, follow=True, stream=stream)
+    assert [json.loads(line)["step"] for line in lines] == [1, 2, 3]
+    assert stream.getvalue().splitlines() == lines
+
+
 # --------------------------------------------------------------------------- doctor / sample / queue / --set
 
 
@@ -213,6 +241,27 @@ def test_sample_sampler_writes_its_own_file(isolated, monkeypatch, capsys):
     assert view_path != grid and view_path.read_bytes() == b"view"
 
 
+def test_sample_sampler_reports_its_file_when_save_returns_none(isolated, monkeypatch, capsys):
+    run = _run_dir(isolated / "run")
+    grid = isolated / "grid.png"
+
+    def fake_sample(run_dir, *, output=None, **kwargs):
+        Path(output).write_bytes(b"grid")
+        return hg.Sample(step=1, name="sample", data=None, inputs={}, particle_ids=None,
+                         source="inference", path=Path(output))
+
+    class View:
+        def save(self, path):
+            Path(path).write_bytes(b"view")
+
+    monkeypatch.setattr(hg, "sample", fake_sample)
+    monkeypatch.setattr(hg, "view", lambda item, sampler, run=None: View())
+    assert cli.main(["sample", str(run), "--seed", "1", "--output", str(grid),
+                     "--sampler", "mod:fn", "--json"]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert Path(printed["view"]).read_bytes() == b"view"
+
+
 def test_queue_install_service_does_not_advertise_a_fixed_user_flag():
     parser = cli._parser()
     queue = parser._subparsers._group_actions[0].choices["queue"]
@@ -227,6 +276,14 @@ def test_set_value_none_is_a_string_and_null_unsets():
     assert cli._parse_set_value("none") == "none"
     assert cli._parse_set_value("None") == "None"
     assert cli._parse_set_value("null") is None
+
+
+@pytest.mark.parametrize("raw", ["NaN", "Infinity", "-Infinity", "1e999", "[1, NaN]", '{"a": Infinity}'])
+def test_set_value_rejects_non_finite_numbers(raw):
+    with pytest.raises(ValueError, match="not finite"):
+        cli._parse_set_value(raw)
+    with pytest.raises(ValueError, match="not finite"):
+        cli._parse_set_overrides([f"train.lr={raw}"])
 
 
 # --------------------------------------------------------------------------- help / errors

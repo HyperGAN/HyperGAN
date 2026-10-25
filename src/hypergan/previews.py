@@ -340,9 +340,11 @@ def index_path(run_dir, value):
     moved or copied still resolves. Indexes written before that hold absolute
     paths: one naming a file inside a `previews/<generation>/` directory is
     mapped onto `run_dir` the same way, and any other path is returned as is.
+    A rooted path without a drive (`/x` on Windows) counts as absolute, so it
+    never resolves against `run_dir`.
     """
     path, run_dir = Path(value), Path(run_dir)
-    if not path.is_absolute():
+    if not path.root:
         return run_dir / path
     parts = path.parts
     if len(parts) >= 3 and parts[-3] == 'previews' and _GENERATION.fullmatch(parts[-2]):

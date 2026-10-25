@@ -1,8 +1,9 @@
 """The published preview index is portable: its paths are relative to the run."""
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import shutil
 
+from hypergan import previews
 from hypergan.previews import drain_pruning, index_path, publish_preview_payload
 
 ATTEMPT = '0001-' + 'a' * 32
@@ -48,8 +49,20 @@ def test_older_absolute_index_entries_are_mapped_onto_the_run_directory(tmp_path
     record, _, _ = publish(run_dir, 1, 1)
     generation = Path(record['path']).parent.name
     # An index written before paths were relative, for a run since copied.
+    legacy = Path(tmp_path.anchor, 'somewhere', 'old', 'run', 'previews', generation, 'preview.json')
+    assert index_path(run_dir, str(legacy)) == run_dir / 'previews' / generation / 'preview.json'
+    assert index_path(run_dir, str(legacy)).is_file()
+    # A path outside any preview generation is left as recorded.
+    outside = Path(tmp_path.anchor, 'data', 'other', 'file.json')
+    assert index_path(run_dir, str(outside)) == outside
+
+
+def test_rooted_paths_without_a_drive_never_resolve_against_the_run(monkeypatch):
+    # On Windows `/x` has a root but no drive, so `is_absolute()` is False.
+    monkeypatch.setattr(previews, 'Path', PureWindowsPath)
+    generation = '000000000001-0001-' + 'a' * 32 + '-step00000001-' + 'b' * 32
+    run_dir = PureWindowsPath('C:/runs/run')
     legacy = f'/somewhere/old/run/previews/{generation}/preview.json'
     assert index_path(run_dir, legacy) == run_dir / 'previews' / generation / 'preview.json'
-    assert index_path(run_dir, legacy).is_file()
-    # A path outside any preview generation is left as recorded.
-    assert index_path(run_dir, '/data/other/file.json') == Path('/data/other/file.json')
+    assert index_path(run_dir, '/data/other/file.json') == PureWindowsPath('/data/other/file.json')
+    assert index_path(run_dir, 'previews/x/preview.json') == run_dir / 'previews' / 'x' / 'preview.json'

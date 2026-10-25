@@ -168,7 +168,7 @@ missing measurements are never fabricated or averaged. Checkpoint boundaries
 record any outstanding gap before committing the event prefix.
 
 Live manifests coalesce to the newest snapshot and are scheduled at most four
-times per second. Checkpoint request discovery uses a single background
+times per second. Control request discovery uses a single background
 read slot, at most four reads per second. Ordinary updates only consume
 cached results. Startup, periodic checkpoint and terminal control boundaries
 may perform fresh synchronous scans; terminal processing retries one lost

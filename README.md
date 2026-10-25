@@ -255,7 +255,7 @@ if __name__ == "__main__":
     main()
 ```
 
-`hg.train(model)` without a run directory starts a fresh `<runs_root>/<stem>-<adj>-<noun>` run on every call, as `hypergan train` does; pass `name=` for a fixed directory.
+`hg.train(model)` without a run directory starts a fresh `<runs_root>/<stem>-<adj>-<noun>` run on every call, as `hypergan train` does (an overridden model still uses its file's workspace and stem). Pass `name=` to name the directory instead; if that directory already holds a different configuration, the run starts in a sibling `<name>-<adj>-<noun>` directory, as the CLI does.
 
 ### Environment Variables
 

@@ -70,10 +70,16 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
 
 @dataclass(frozen=True)
 class Model:
-    """A model file's contents. ``base`` resolves relative ``hndl`` paths."""
+    """A model file's contents. ``base`` resolves relative ``hndl`` paths.
+
+    ``path`` is the file the spec was read from unchanged; ``origin`` is the
+    file it came from even after ``override``, so a fresh run is placed and
+    named as ``hypergan train <file>`` would.
+    """
     spec: dict
     base: Path | None = None
     path: Path | None = None
+    origin: Path | None = field(default=None, compare=False, repr=False)
 
     @property
     def name(self):
@@ -133,7 +139,7 @@ def load(path):
         if ws_dict is not None:
             spec = interpolate_variables(spec, ws_dict)
 
-    return Model(spec, base=path.parent.resolve(), path=path.resolve())
+    return Model(spec, base=path.parent.resolve(), path=path.resolve(), origin=path.resolve())
 
 
 
@@ -286,7 +292,7 @@ def override(model, changes=None, /, **sections):
             else:
                 into[key] = deepcopy(value)
     merge(spec, norm_sections)
-    return Model(spec, base=model.base, path=None)
+    return Model(spec, base=model.base, path=None, origin=model.path or model.origin)
 
 
 def _relocated(spec, base, destination):
@@ -774,9 +780,16 @@ def _config_differs(error):
     return any(text in str(error) for text in _CONFIG_DIFFERS)
 
 
+def _source_file(model_obj):
+    """The model file behind ``model_obj`` (a path, or a Model loaded and maybe overridden)."""
+    if isinstance(model_obj, (str, Path)):
+        return model_obj
+    return getattr(model_obj, "path", None) or getattr(model_obj, "origin", None)
+
+
 def _run_stem(model_obj):
     """The config file stem a fresh run is named after (the model name for in-memory models)."""
-    cfg_path = model_obj if isinstance(model_obj, (str, Path)) else getattr(model_obj, "path", None)
+    cfg_path = _source_file(model_obj)
     if cfg_path is not None:
         return Path(cfg_path).stem
     return (getattr(model_obj, "name", None) or "run").split("/")[-1] or "run"
@@ -786,12 +799,13 @@ def _default_run_dir(model_obj, name=None):
     """The fresh run directory ``hypergan train`` and ``hg.train`` use when none is given.
 
     ``model_obj`` is a Model or a model file path. The workspace is found from
-    the model file (from the working directory for packaged and in-memory
-    models); its ``runs_root`` (default: the working directory) holds
-    ``<name>`` when a name is passed, else a new ``<stem>-<adj>-<noun>`` slug,
-    and its ``run_dir`` template, when set, overrides both.
+    the model file, including the file an overridden Model came from (from the
+    working directory for packaged and in-memory models); its ``runs_root``
+    (default: the working directory) holds ``<name>`` when a name is passed,
+    else a new ``<stem>-<adj>-<noun>`` slug, and its ``run_dir`` template, when
+    set, overrides both.
     """
-    cfg_path = model_obj if isinstance(model_obj, (str, Path)) else getattr(model_obj, "path", None)
+    cfg_path = _source_file(model_obj)
     in_package = cfg_path is not None and PACKAGED.resolve() in Path(cfg_path).resolve().parents
     ws_path = find_workspace(Path.cwd() if cfg_path is None or in_package else cfg_path)
     ws_data = load_workspace(ws_path) if ws_path else {}

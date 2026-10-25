@@ -119,6 +119,56 @@ def test_default_run_dir_rejects_dot_names(isolated, name):
         hg._default_run_dir(model, name=name)
 
 
+@pytest.fixture
+def outside_workspace(isolated, monkeypatch):
+    """A workspace model file with the working directory outside the workspace."""
+    workspace = isolated / "proj"
+    (workspace / "configs").mkdir(parents=True)
+    (workspace / "hypergan.toml").write_text('[workspace]\nruns_root = "runs"\n')
+    config = _model_file(workspace / "configs", "a")
+    (isolated / "elsewhere").mkdir()
+    monkeypatch.chdir(isolated / "elsewhere")
+    return config, (workspace / "runs").resolve()
+
+
+def test_prepare_with_a_name_uses_the_model_workspace_like_the_cli(outside_workspace):
+    config, runs_root = outside_workspace
+    prepared = hg.prepare(hg.load(config), name="exp")
+    assert Path(prepared.run_dir) == runs_root / "exp"
+    assert Path(prepared.run_dir) == hg._default_run_dir(config, name="exp")
+
+
+def test_prepare_with_an_overridden_model_uses_the_file_workspace_and_stem(outside_workspace):
+    config, runs_root = outside_workspace
+    model = hg.override(hg.load(config), {"train.steps": 7})
+    assert model.path is None and model.name != "a"
+    run_dir = Path(hg.prepare(model).run_dir)
+    assert run_dir.parent == runs_root
+    assert run_dir.name.startswith("a-")
+    twice = hg.override(model, {"train.steps": 9})
+    assert hg._default_run_dir(twice).parent == runs_root
+
+
+def test_prepare_with_a_name_taken_by_another_config_starts_a_sibling(outside_workspace, monkeypatch):
+    from hypergan import execution
+    config, runs_root = outside_workspace
+    targets = []
+    real = execution.prepare_train
+
+    def prepare_train(config, run_dir, **kwargs):
+        targets.append(Path(run_dir))
+        if Path(run_dir).name == "exp":
+            raise ValueError("Configuration differs from the original run")
+        return real(config, run_dir, **kwargs)
+
+    monkeypatch.setattr(execution, "prepare_train", prepare_train)
+    run_dir = Path(hg.prepare(hg.load(config), name="exp").run_dir)
+    assert targets[0] == runs_root / "exp"
+    assert run_dir.parent == runs_root and run_dir.name.startswith("exp-")
+    with pytest.raises(ValueError, match="differs"):
+        hg.prepare(hg.load(config), runs_root / "exp")
+
+
 def test_cli_and_api_share_the_default_run_dir(isolated, monkeypatch):
     seen = []
     real = hg._default_run_dir

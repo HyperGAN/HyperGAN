@@ -102,6 +102,7 @@ def _worker_nonfinite_refusal(rank, rendezvous, out_path):
         Path(out_path).write_text(json.dumps(results), encoding="utf-8")
 
 
+@pytest.mark.multi_gpu
 def test_asymmetric_nonfinite_gradient_refusal(tmp_path):
     """Verify that _reduce_gradients raises ValueError synchronously on both ranks without hanging."""
     if not (torch.cuda.is_available() and torch.cuda.device_count() >= 2):
@@ -408,6 +409,7 @@ def _worker_controller_parity(rank, rendezvous, out_path):
         Path(out_path).write_text(json.dumps(results), encoding="utf-8")
 
 
+@pytest.mark.multi_gpu
 def test_particlegan_controller_state_parity(tmp_path):
     """Stress-test replicated multi-step training with controller state across 2 CUDA GPUs."""
     if not (torch.cuda.is_available() and torch.cuda.device_count() >= 2):

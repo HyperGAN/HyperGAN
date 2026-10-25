@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
 import torch
 
 
@@ -13,6 +14,7 @@ def fixture(name):
     return module
 
 
+@pytest.mark.multi_gpu
 def test_cuda_replicated_metrics_on_off_and_revision_resume(tmp_path):
     assert torch.cuda.device_count() >= 2, 'This acceptance requires two local GPUs'
     fixture('test_metrics_replicated.py').verify_replicated_metrics(tmp_path, 'cuda')

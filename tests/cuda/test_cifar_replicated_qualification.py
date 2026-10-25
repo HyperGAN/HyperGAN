@@ -23,7 +23,7 @@ import pytest
 import torch
 import torch.distributed as dist
 
-pytestmark = pytest.mark.heavy
+pytestmark = [pytest.mark.heavy, pytest.mark.multi_gpu]
 
 QUALIFICATION_RUN_DIR = Path("/mnt/ml7tb/hypergan-training-runs/qualify-cifar-reference-2gpu")
 

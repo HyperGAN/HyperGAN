@@ -27,6 +27,33 @@ def cpu_threads():
         torch.set_num_threads(previous)
 
 
+@pytest.fixture
+def isolated_backend_policy(monkeypatch):
+    """Let the recipe's process-wide backend policy apply in any test order.
+
+    Any earlier in-process ``optimizer.step()`` initialises CUDA on a GPU host,
+    after which ``apply_backend_policy`` refuses a CUBLAS workspace that the
+    environment does not already carry. Pin the recipe's value up front, as a
+    fresh process would, and restore every flag the policy sets afterwards.
+    """
+    def pin(config):
+        workspace = config["training"]["backend"].get("cublas_workspace_config")
+        if workspace is not None:
+            monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", workspace)
+
+    flags = [(torch.backends.cudnn, "deterministic"), (torch.backends.cudnn, "benchmark"),
+             (torch.backends.cuda.matmul, "allow_tf32"), (torch.backends.cudnn, "allow_tf32")]
+    saved = [getattr(owner, name) for owner, name in flags]
+    deterministic = torch.are_deterministic_algorithms_enabled()
+    warn_only = torch.is_deterministic_algorithms_warn_only_enabled()
+    try:
+        yield pin
+    finally:
+        for (owner, name), value in zip(flags, saved):
+            setattr(owner, name, value)
+        torch.use_deterministic_algorithms(deterministic, warn_only=warn_only)
+
+
 class _UpstreamDINOFixture(nn.Module):
     """Four native 8x8 patch maps."""
 
@@ -198,7 +225,20 @@ def test_multimodal_particle_diversity_and_full_gradient_flow():
         ), node_name
 
 
-def test_colorization_128_trainer_step_and_comparison_preview(monkeypatch, tmp_path):
+def test_colorization_128_backend_policy_applies_after_cuda_initialization(monkeypatch, isolated_backend_policy):
+    from hypergan.numerical_policy import apply_backend_policy
+
+    root = Path(__file__).parents[2]
+    config = load_config(root / "examples/logos-colorization-128.toml")
+    config["training"]["device"] = "cpu"
+    config["training"]["backend"]["deterministic_algorithms"] = False
+    isolated_backend_policy(config)
+    # The state an earlier in-process optimizer step leaves on a GPU host.
+    monkeypatch.setattr(torch.cuda, "is_initialized", lambda: True)
+    apply_backend_policy(config)
+
+
+def test_colorization_128_trainer_step_and_comparison_preview(monkeypatch, tmp_path, isolated_backend_policy):
     source, commit, weights, digest = dinov3_assets(
         monkeypatch, tmp_path, lambda: _UpstreamDINOFixture(128)
     )
@@ -238,6 +278,7 @@ def test_colorization_128_trainer_step_and_comparison_preview(monkeypatch, tmp_p
         "factory": "tests.reference.test_colorization_128:_SyntheticColorizationData",
         "args": {},
     }
+    isolated_backend_policy(config)
     trainer = ReferenceTrainer(config)
     before_z = trainer.prior.z.detach().clone()
     row, batch = trainer.update()

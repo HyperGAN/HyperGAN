@@ -69,11 +69,13 @@ def _resolve_profile(profile, config):
             raise ValueError('Resolved native profile differs from configuration: ' + ', '.join(differences))
         return resolved
     if isinstance(profile, dict) and isinstance(profile.get('execution'), dict):
-        derived = {'global_batch_size', 'local_batch_size', 'microbatch_size', 'accumulation_algorithm'}
+        derived = {'global_batch_size', 'local_batch_size', 'microbatch_size', 'accumulation_algorithm', 'ranks_per_node'}
         if derived & profile['execution'].keys():
             projected = {'schema_version': profile.get('schema_version'),
-                         'execution': {key: profile['execution'][key] for key in ('name', 'world_size', 'accumulation_steps') if key in profile['execution']},
+                         'execution': {key: profile['execution'][key] for key in ('name', 'world_size', 'accumulation_steps', 'nodes', 'node_rank', 'rendezvous', 'aggregation') if key in profile['execution']},
                          'preflight': profile.get('preflight', {})}
+            if 'aggregation' in profile:
+                projected['aggregation'] = profile['aggregation']
             resolved = resolve_execution_profile(projected, config)
             differences = _differences(resolved, profile, 'profile')
             if differences:
@@ -108,7 +110,8 @@ def _runtime_worker(rank, world_size, config, profile, directory):
         else:
             from .distributed_training import ReplicatedTrainer
             trainer = ReplicatedTrainer(config, world_size=world_size,
-                                           accumulation_steps=requested['accumulation_steps'])
+                                           accumulation_steps=requested['accumulation_steps'],
+                                           execution=requested)
         if trainer.step != 0:
             raise ValueError('Preflight constructed a trainer with a nonzero update counter')
         if torch.get_num_threads() != 1:
@@ -220,10 +223,21 @@ def preflight(config, profile=None, *, expected_identity=None):
     with tempfile.TemporaryDirectory(prefix='hypergan-preflight-') as directory:
         if profile['execution']['name'] == 'cuda-replicated-nccl':
             limits = profile['preflight']
+            exec_cfg = profile['execution']
+            nodes = exec_cfg.get('nodes', 1)
+            world_size = exec_cfg['world_size']
+            ranks_per_node = exec_cfg.get('ranks_per_node', world_size // nodes)
+            node_rank = exec_cfg.get('node_rank', 0)
+            rendezvous = exec_cfg.get('rendezvous')
             with CPUWorkerService(_preflight_factory, _preflight_command,
                     args=(config_values(config), profile, directory),
                     run_id='preflight', attempt_id='construction',
-                    world_size=profile['execution']['world_size'], backend='nccl',
+                    world_size=world_size,
+                    node_rank=node_rank,
+                    nodes=nodes,
+                    ranks_per_node=ranks_per_node,
+                    rendezvous=rendezvous,
+                    backend='nccl',
                     startup_timeout=limits['timeout'], command_timeout=limits['timeout'],
                     collective_timeout=limits['collective_timeout'], total_timeout=limits['timeout']) as service:
                 service.command('construct')
@@ -235,7 +249,13 @@ def preflight(config, profile=None, *, expected_identity=None):
                                stdout_to_stderr=True,
                                initialize_process_group=profile['execution']['name'] not in ('cpu-single', 'native-single'))
         workers = []
-        for rank in range(profile['execution']['world_size']):
+        exec_cfg = profile['execution']
+        nodes = exec_cfg.get('nodes', 1)
+        world_size = exec_cfg['world_size']
+        ranks_per_node = exec_cfg.get('ranks_per_node', world_size // nodes)
+        node_rank = exec_cfg.get('node_rank', 0)
+        rank_range = range(node_rank * ranks_per_node, (node_rank + 1) * ranks_per_node) if (exec_cfg['name'] == 'cuda-replicated-nccl' and nodes > 1) else range(world_size)
+        for rank in rank_range:
             path = Path(directory, f'rank-{rank}.json')
             if not path.is_file() or path.stat().st_size > MAX_REPORT_BYTES:
                 raise ValueError(f'Missing or oversized preflight result from rank {rank}')

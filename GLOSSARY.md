@@ -85,3 +85,5 @@ outer_momentum = 0.0
 | **`checkpoint`** | `checkpoints/step-NNNNNN/` | — | Immutable, hash-verified snapshot of model parameters, optimizer states, RNG streams, aggregation state, and run metadata at a completed step boundary. |
 | **`manifest`** | `manifest.json` | — | JSON descriptor inside a run or checkpoint directory recording schema version, config fingerprint, execution profile, runtime identity, and recovery lineage. |
 | **`qualification`** | `hypergan qualify` / receipt JSON | — | Bounded, fast smoke-test verification suite that executes multi-device, multi-node, and aggregation parity checks and emits a machine-readable JSON verification receipt. |
+| **`runpod`** | CLI / environment | `RUNPOD_API_KEY` (env) / `--dry-run` | Ephemeral GPU cloud provider integration used to provision and qualify remote hardware instances with hard cost guardrails and guaranteed cleanup. |
+| **`receipt`** | `qualification-receipt.json` | — | Standardized machine-readable JSON verification artifact produced by `hypergan qualify` documenting environment metadata, suite outcomes, execution timings, and numerical parity metrics. |

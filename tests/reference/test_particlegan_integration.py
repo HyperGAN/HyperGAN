@@ -98,8 +98,7 @@ def test_importing_replicated_backend_cannot_change_the_native_recipe():
     assert training.particlegan_recipe is original
     assert training.particlegan_recipe(config()).to_dict() == original(config()).to_dict()
     from hypergan.execution_profiles import validate_replicated_recipe
-    with pytest.raises(ValueError, match='require native execution'):
-        validate_replicated_recipe(config())
+    validate_replicated_recipe(config())
 
 
 def test_snapshot_supports_gaussian_prior_without_a_learned_table():

@@ -17,6 +17,7 @@ from .config import config_values, fingerprint, resolve_config
 from .distributed import Collectives
 from .recipes import detach, move_tensors
 from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, noise_levels, schedule_learning_rates, update_ema, with_noise
+from .objective_program import _bound_scores, _sum_tensors, score_candidate
 from . import distributed_checkpoints as _dc
 from . import distributed_commit as _dcommit
 
@@ -32,10 +33,35 @@ class ReplicatedTrainer(ReferenceTrainer):
     statistics require their own explicit collective implementation.
     """
 
-    def __init__(self, config, *, world_size=2, accumulation_steps=1):
+    def __init__(self, config, *, world_size=2, accumulation_steps=1,
+                 nodes=1, node_rank=0, ranks_per_node=None, rendezvous=None,
+                 aggregation=None, execution=None, **kwargs):
+        if execution is not None:
+            world_size = execution.get('world_size', world_size)
+            accumulation_steps = execution.get('accumulation_steps', accumulation_steps)
+            nodes = execution.get('nodes', nodes)
+            node_rank = execution.get('node_rank', node_rank)
+            ranks_per_node = execution.get('ranks_per_node', ranks_per_node)
+            rendezvous = execution.get('rendezvous', rendezvous)
+            if 'aggregation' in execution:
+                aggregation = execution['aggregation']
+        if ranks_per_node is None:
+            ranks_per_node = world_size // nodes
+        if rendezvous is None:
+            rendezvous = 'file://' if nodes == 1 else 'tcp://127.0.0.1:29500'
+        if aggregation is None:
+            aggregation = {'strategy': 'gradient_allreduce', 'sync_every_steps': 1,
+                           'outer_lr': 1.0, 'outer_momentum': 0.0}
+        else:
+            aggregation = dict(aggregation)
         self.collectives = Collectives(world_size)
         self.device = self.collectives.device
         self.world_size, self.rank = world_size, dist.get_rank()
+        self.nodes = nodes
+        self.node_rank = node_rank
+        self.ranks_per_node = ranks_per_node
+        self.rendezvous = rendezvous
+        self.aggregation = aggregation
         self.checkpoint_ready = False
         self._poisoned = False
         config = self._phase('configuration', lambda: resolve_config(config_values(config)))
@@ -61,12 +87,25 @@ class ReplicatedTrainer(ReferenceTrainer):
             raise ValueError('accumulation_steps must divide local_batch_size evenly')
         self.accumulation_steps = accumulation_steps
         self.microbatch_size = self.local_batch_size // accumulation_steps
-        self.strategy_info = {'name': 'cuda-replicated-nccl' if self.device.type == 'cuda' else 'cpu-replicated-gloo', 'world_size': world_size,
-                              'global_batch_size': self.global_batch_size, 'local_batch_size': self.local_batch_size,
-                              'accumulation_steps': accumulation_steps, 'microbatch_size': self.microbatch_size,
-                              'accumulation_algorithm': 'detached-logit-vjp-replay-v1' if accumulation_steps > 1 else 'retained-local-graph-v1',
-                              'gradient_reduction': 'post-backward-mean',
-                              'buffers': 'require-replica-equality', 'data': 'replicated-global-draw-rank-slice', 'qualification': 'unqualified'}
+        self.strategy_info = {
+            'name': 'cuda-replicated-nccl' if self.device.type == 'cuda' else 'cpu-replicated-gloo',
+            'world_size': world_size,
+            'nodes': nodes,
+            'node_rank': node_rank,
+            'ranks_per_node': ranks_per_node,
+            'rendezvous': rendezvous,
+            'accumulation_steps': accumulation_steps,
+            'global_batch_size': self.global_batch_size,
+            'local_batch_size': self.local_batch_size,
+            'microbatch_size': self.microbatch_size,
+            'accumulation_algorithm': ('detached-logit-vjp-replay-v1' if accumulation_steps > 1
+                                       else 'retained-local-graph-v1'),
+            'aggregation': aggregation,
+            'gradient_reduction': 'post-backward-mean',
+            'buffers': 'require-replica-equality',
+            'data': 'replicated-global-draw-rank-slice',
+            'qualification': 'unqualified',
+        }
         torch.set_num_threads(1)
         def initialize():
             # Keep the shared recipe identity unchanged across ranks. Only native
@@ -78,6 +117,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             super(ReplicatedTrainer, self).__init__(local_config)
             self.config = config
         self._phase('initialization', initialize)
+        from .aggregation import resolve_aggregation_strategy
+        self.aggregation_strategy = resolve_aggregation_strategy(self.strategy_info['aggregation'], trainer=self)
         self._phase('module compatibility', self._check_modules)
         if accumulation_steps > 1:
             self._phase('accumulation compatibility', self._check_accumulation)
@@ -252,6 +293,11 @@ class ReplicatedTrainer(ReferenceTrainer):
         return flags
 
     def _reduce_gradients(self, optimizer, name):
+        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
+            if hasattr(self.aggregation_strategy, 'on_backward'):
+                self.aggregation_strategy.on_backward(optimizer, name)
+            if getattr(self.aggregation_strategy, 'name', None) != 'gradient_allreduce':
+                return
         parameters = self._parameters(optimizer)
         present = [p.grad is not None for p in parameters]
         sparse = any(p.grad.layout != torch.strided for p in parameters if p.grad is not None)
@@ -335,7 +381,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 raise ValueError('Latent draw must contain finite local-batch values on the rank device')
             if ids is not None and (not isinstance(ids, torch.Tensor) or ids.dtype != torch.int64 or ids.ndim != 1 or len(ids) != self.local_batch_size):
                 raise ValueError('Prior IDs must be an int64 vector of local_batch_size')
-            context = self.graph.generate(z, local_batch)
+            context = self.graph.generate(z, local_batch, prior=self.prior)
             raw_fake, real = context['generated'], local_batch['real']
             if not isinstance(raw_fake, torch.Tensor) or raw_fake.shape != real.shape or not torch.isfinite(raw_fake).all():
                 raise ValueError('Generator output must be finite and match local real data shape')
@@ -358,24 +404,62 @@ class ReplicatedTrainer(ReferenceTrainer):
             gathered = [torch.empty_like(real) for _ in range(self.world_size)]
             dist.all_gather(gathered, real.contiguous())
             controller.begin_critic_step(torch.cat(gathered, dim=0), record)
-        critic = lambda value: self.graph.critic(value, context)
+
+        terms = self.program.adversarial_terms
+        noise = ((output_std, noise_stream), (input_std, noise_stream))
+
+        def penalty_fn(term, real_sample, fake_sample):
+            critic_fn = ScoredCritic(term.module, lambda module, value: score_candidate(
+                term, value, context, self.graph, "critic", module=module, noise=(input_std, noise_stream)))
+            return term.penalty_fn(critic_fn, real_sample, fake_sample)
+
+        def discriminator_forward():
+            unweighted = []
+            weighted = []
+            penalties = []
+            last_fake = None
+            for term in terms:
+                r_s, f_s, r_sc, f_sc = _bound_scores(
+                    term, context, self.graph, "critic", term.critic_phase, first="real", noise=noise)
+                r_sc, f_sc = self._logits(r_sc, f_sc)
+                loss = term.gan.d_loss(r_sc, f_sc)
+                unweighted.append(loss)
+                weighted.append(term.weight * loss)
+                last_fake = f_s
+                if term.penalty_fn is not None:
+                    penalties.append(penalty_fn(term, r_s, f_s))
+            d_adv = _sum_tensors(unweighted)
+            d_adv_weighted = _sum_tensors(weighted)
+            d_pen = _sum_tensors(penalties) if penalties else (last_fake.new_zeros(()) if last_fake is not None else real.new_zeros(()))
+            d_tot = d_adv_weighted + d_pen
+            return d_adv, d_adv_weighted, d_pen, d_tot
+
         self.opt_d.zero_grad(set_to_none=True)
-        dr, df, d_penalty = self._phase('discriminator forward and penalty', lambda: (
-            critic(with_noise(real, input_std, noise_stream)),
-            critic(with_noise(fake.detach(), input_std, noise_stream)),
-            self.penalty(self._scored_critic(context, input_noise=(input_std, noise_stream)), real, fake.detach())))
-        dr, df = self._logits(dr, df)
-        d_adversarial = self.gan.d_loss(dr, df)
-        d_adversarial_weighted = cfg['adversarial']['weight'] * d_adversarial
-        d_loss = d_adversarial_weighted + d_penalty
+        d_adversarial, d_adversarial_weighted, d_penalty, d_loss = self._phase(
+            'discriminator forward and penalty', discriminator_forward)
         self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
         self._phase('discriminator backward', d_loss.backward)
         self._reduce_gradients(self.opt_d, 'discriminator')
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
-        discriminator = self.graph.models['discriminator']
-        flags = [p.requires_grad for p in discriminator.parameters()]
-        discriminator.requires_grad_(False)
+        if getattr(self.opt_d, 'record', None) is not None:
+            rec = self.opt_d.record
+            if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
+                stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
+                dist.all_reduce(stats)
+                stats /= self.world_size
+                rec.ema_residual = float(stats[0].item())
+                rec.ema_data_scale = float(stats[1].item())
+
+        saved_flags = []
+        seen_modules = set()
+        for term in terms:
+            if id(term.module) in seen_modules:
+                continue
+            seen_modules.add(id(term.module))
+            flags = [p.requires_grad for p in term.module.parameters()]
+            term.module.requires_grad_(False)
+            saved_flags.append((term.module, flags))
         try:
             if independent:
                 gen_batch = self.batch()
@@ -383,42 +467,70 @@ class ReplicatedTrainer(ReferenceTrainer):
                     'generator batch and forward', lambda: prepare(gen_batch, None))
                 gen_selected = None if gen_ids is None else self.collectives.unique_indices(gen_ids, num_rows=len(self.prior.z))
             else:
-                gen_batch, gen_context, gen_fake, gen_real, gen_selected = batch, context, fake, real, selected
+                gen_batch, gen_context, gen_fake, gen_real, gen_selected, gen_ids = batch, context, fake, real, selected, ids
 
-            gen_critic = lambda value: self.graph.critic(value, gen_context)
             self.opt_g.zero_grad(set_to_none=True)
-            gf, gr = self._phase('generator critic forward', lambda: (
-                gen_critic(with_noise(gen_fake, input_std, noise_stream)),
-                gen_critic(with_noise(gen_real, input_std, noise_stream)).detach()))
-            gr, gf = self._logits(gr, gf)
-            g_adversarial = self.gan.g_loss(gf, gr)
+            def generator_adversarial_forward():
+                unweighted = []
+                weighted = []
+                for term in terms:
+                    r_s, f_s, r_sc, f_sc = _bound_scores(
+                        term, gen_context, self.graph, "generator", term.generator_phase, first="fake", noise=noise)
+                    r_sc, f_sc = self._logits(r_sc, f_sc)
+                    loss = term.gan.g_loss(f_sc, r_sc)
+                    unweighted.append(loss)
+                    weighted.append(term.weight * loss)
+                return _sum_tensors(unweighted), _sum_tensors(weighted)
+
+            g_adversarial, g_adversarial_weighted = self._phase(
+                'generator critic forward', generator_adversarial_forward)
+
             def remaining_losses():
                 rows = None if gen_selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[gen_selected]
-                prior_loss = self.spread(rows) if rows is not None else gen_fake.new_zeros(())
+                prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else gen_fake.new_zeros(())
                 objective_losses = []
-                for term, objective in zip(cfg['objectives'], self.objectives):
-                    inputs = {arg: self.graph.resolve(path, gen_context) for arg, path in term['inputs'].items()}
-                    for arg in term['detach']:
+                for term_spec, objective in zip(cfg['objectives'], self.objectives):
+                    inputs = {arg: self.graph.resolve(path, gen_context) for arg, path in term_spec['inputs'].items()}
+                    for arg in term_spec['detach']:
                         inputs[arg] = detach(inputs[arg])
                     value = objective(**inputs)
                     if not isinstance(value, torch.Tensor) or value.numel() != 1:
                         raise ValueError('Each objective must return one scalar tensor')
-                    objective_losses.append(term['weight'] * value)
+                    objective_losses.append(term_spec['weight'] * value)
                 return prior_loss, objective_losses
+
             prior_loss, objective_losses = self._phase('generator regularizers and objectives', remaining_losses)
-            g_adversarial_weighted = cfg['adversarial']['weight'] * g_adversarial
             g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+
+            from particlegan.optim.constraint_geometry import constraint_geometry_backward
+            set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
+            if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
+                set_rows(self.prior.z, gen_selected)
+
             self._phase('generator loss', lambda: self._finite_loss(g_loss))
-            self._phase('generator backward', g_loss.backward)
+            self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
+
+            if getattr(self.opt_g, '_protected', None) is not None:
+                if getattr(self.aggregation_strategy, 'name', None) == 'gradient_allreduce':
+                    dist.all_reduce(self.opt_g._protected)
+                    self.opt_g._protected /= self.world_size
+
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
             self._phase('generator optimizer', self.opt_g.step)
             self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
+            if hasattr(self, 'aggregation_strategy') and hasattr(self.aggregation_strategy, 'on_step_complete'):
+                self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
         finally:
-            for parameter, flag in zip(discriminator.parameters(), flags):
-                parameter.requires_grad_(flag)
+            for module, flags in saved_flags:
+                for parameter, flag in zip(module.parameters(), flags):
+                    parameter.requires_grad_(flag)
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
-        self._assert_replicas('complete replicated state')
+        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
+            if self.aggregation_strategy.should_assert_replicas(step):
+                self._assert_replicas('complete replicated state')
+        else:
+            self._assert_replicas('complete replicated state')
         values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
             d_penalty, d_adversarial, d_adversarial_weighted, g_adversarial_weighted,
             *objective_losses]), dtype=torch.float64, device=self.device)
@@ -561,22 +673,35 @@ class ReplicatedTrainer(ReferenceTrainer):
         calls_before = record.calls
 
         def generate(local_z, local_batch):
-            context = self.graph.generate(local_z, local_batch)
+            context = self.graph.generate(local_z, local_batch, prior=self.prior)
             fake = context['generated']
             if not isinstance(fake, torch.Tensor) or fake.shape != local_batch['real'].shape or not torch.isfinite(fake).all():
                 raise ValueError('Generator output must be finite and match local real data shape')
             return context
 
+        terms = self.program.adversarial_terms
+        acc_noise = ((0, None), (0, None))
+
+        def penalty_fn_acc(term, real_sample, fake_sample, micro_context):
+            critic_fn = ScoredCritic(term.module, lambda module, value: score_candidate(
+                term, value, micro_context, self.graph, "critic", module=module, noise=(0, None)))
+            return term.penalty_fn(critic_fn, real_sample, fake_sample)
+
         def discriminator_micro(index, start):
             local_batch = self._microbatch(batch, start)
             local_z = z.detach()[start:start + self.microbatch_size].requires_grad_(z.requires_grad)
             context = detach(generate(local_z, local_batch))
-            critic = lambda value: self.graph.critic(value, context)
-            real, fake = local_batch['real'], context['generated']
-            dr, df = critic(real), critic(fake)
-            self._micro_logits(dr, df)
-            penalty = self.penalty(self._scored_critic(context), real, fake)
-            return dr, df, penalty, self._digest(fake)
+            term_records = []
+            for term in terms:
+                r_s, f_s, r_sc, f_sc = _bound_scores(
+                    term, context, self.graph, "critic", term.critic_phase, first="real", noise=acc_noise)
+                self._micro_logits(r_sc, f_sc)
+                if term.penalty_fn is not None:
+                    pen = penalty_fn_acc(term, r_s, f_s, context)
+                else:
+                    pen = f_s.new_zeros(())
+                term_records.append((r_sc, f_sc, pen))
+            return term_records, self._digest(context['generated'])
 
         # Prepasses use ordinary grad mode and immediately discard each graph,
         # so custom grad-mode behavior is the same on the checked replay.
@@ -584,20 +709,32 @@ class ReplicatedTrainer(ReferenceTrainer):
             rng = self._accumulation_rng()
             generation_rng.append(rng)
             def prepass():
-                dr, df, penalty, fake_digest = self._immutable_forward(lambda: discriminator_micro(index, start))
-                self._finite_loss(penalty)
-                return dr.detach(), df.detach(), penalty.detach(), fake_digest
+                term_records, fake_digest = self._immutable_forward(lambda: discriminator_micro(index, start))
+                for _, _, pen in term_records:
+                    self._finite_loss(pen)
+                return [(r_sc.detach(), f_sc.detach(), pen.detach()) for r_sc, f_sc, pen in term_records], fake_digest
             d_records.append((rng, self._phase(f'D micro {index} discovery', prepass)))
             if logical_calls is None:
                 logical_calls = record.calls
-        dr = torch.cat([record[1][0] for record in d_records]).requires_grad_(True)
-        df = torch.cat([record[1][1] for record in d_records]).requires_grad_(True)
-        global_dr, global_df = self._logits(dr, df)
-        d_adversarial_raw = self.gan.d_loss(global_dr, global_df)
-        d_adversarial = cfg['adversarial']['weight'] * d_adversarial_raw
+        all_dr, all_df = [], []
+        unweighted, weighted = [], []
+        for t, term in enumerate(terms):
+            dr_t = torch.cat([rec[1][0][t][0] for rec in d_records]).requires_grad_(True)
+            df_t = torch.cat([rec[1][0][t][1] for rec in d_records]).requires_grad_(True)
+            global_dr_t, global_df_t = self._logits(dr_t, df_t)
+            loss_raw = term.gan.d_loss(global_dr_t, global_df_t)
+            unweighted.append(loss_raw)
+            weighted.append(term.weight * loss_raw)
+            all_dr.append(dr_t)
+            all_df.append(df_t)
+        d_adversarial_raw = _sum_tensors(unweighted)
+        d_adversarial = _sum_tensors(weighted)
         self._phase('accumulated D objective', lambda: self._finite_loss(d_adversarial))
-        d_cotangents = self._phase('accumulated D logit derivatives', lambda: torch.autograd.grad(d_adversarial, (dr, df)))
-        d_penalty = sum(record[1][2] / self.accumulation_steps for record in d_records)
+        all_targets = tuple(all_dr + all_df)
+        all_cotangents = self._phase('accumulated D logit derivatives', lambda: torch.autograd.grad(d_adversarial, all_targets))
+        dr_cotangents = all_cotangents[:len(terms)]
+        df_cotangents = all_cotangents[len(terms):]
+        d_penalty = sum(rec[1][0][t][2] / self.accumulation_steps for rec in d_records for t in range(len(terms)))
         d_loss = d_adversarial.detach() + d_penalty
         self._phase('accumulated D total loss', lambda: self._finite_loss(d_loss))
         self.opt_d.zero_grad(set_to_none=True)
@@ -605,20 +742,38 @@ class ReplicatedTrainer(ReferenceTrainer):
             rng, expected = d_records[index]
             def replay():
                 current = self._immutable_forward(lambda: discriminator_micro(index, start))
-                if self._digest(detach(current)) != self._digest(expected):
+                current_terms, current_digest = current
+                if current_digest != expected[1]:
                     raise ValueError('Discriminator microbatch replay differs from discovery outputs')
-                dr_micro, df_micro, penalty, _ = current
-                terms = (dr_micro * d_cotangents[0][start:start + self.microbatch_size]).sum()
-                terms = terms + (df_micro * d_cotangents[1][start:start + self.microbatch_size]).sum() + penalty / self.accumulation_steps
-                terms.backward()
+                step_loss = 0
+                for t, (dr_m, df_m, pen_m) in enumerate(current_terms):
+                    dr_slice = dr_cotangents[t][start:start + self.microbatch_size]
+                    df_slice = df_cotangents[t][start:start + self.microbatch_size]
+                    term_loss = (dr_m * dr_slice).sum() + (df_m * df_slice).sum() + pen_m / self.accumulation_steps
+                    step_loss = step_loss + term_loss
+                step_loss.backward()
             self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
         record.calls = calls_before if logical_calls is None else logical_calls
         self._reduce_gradients(self.opt_d, 'discriminator')
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
-        discriminator = self.graph.models['discriminator']
-        flags = [p.requires_grad for p in discriminator.parameters()]
-        discriminator.requires_grad_(False)
+        if getattr(self.opt_d, 'record', None) is not None:
+            rec = self.opt_d.record
+            if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
+                stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
+                dist.all_reduce(stats)
+                stats /= self.world_size
+                rec.ema_residual = float(stats[0].item())
+                rec.ema_data_scale = float(stats[1].item())
+        saved_flags = []
+        seen_modules = set()
+        for term in terms:
+            if id(term.module) in seen_modules:
+                continue
+            seen_modules.add(id(term.module))
+            flags = [p.requires_grad for p in term.module.parameters()]
+            term.module.requires_grad_(False)
+            saved_flags.append((term.module, flags))
         try:
             def generator_micro(index, start):
                 local_batch = self._microbatch(batch, start)
@@ -626,40 +781,55 @@ class ReplicatedTrainer(ReferenceTrainer):
                 # Recreate precisely the fake used during D, without consuming a
                 # second generator RNG trajectory in the logical update.
                 context = self._isolated_replay(generation_rng[index], lambda: generate(local_z, local_batch))
-                fake, real = context['generated'], local_batch['real']
-                if self._digest(fake) != d_records[index][1][3]:
+                fake = context['generated']
+                if self._digest(fake) != d_records[index][1][1]:
                     raise ValueError('Generator replay did not reproduce the fake used by the discriminator')
-                gf, gr = self.graph.critic(fake, context), self.graph.critic(real, context).detach()
-                self._micro_logits(gf, gr)
+                term_records = []
+                for term in terms:
+                    r_s, f_s, r_sc, f_sc = _bound_scores(
+                        term, context, self.graph, "generator", term.generator_phase, first="fake", noise=acc_noise)
+                    self._micro_logits(f_sc, r_sc)
+                    term_records.append((f_sc, r_sc.detach()))
                 objectives = []
-                for term, objective in zip(cfg['objectives'], self.objectives):
-                    inputs = {arg: self.graph.resolve(path, context) for arg, path in term['inputs'].items()}
-                    for arg in term['detach']:
+                for term_spec, objective in zip(cfg['objectives'], self.objectives):
+                    inputs = {arg: self.graph.resolve(path, context) for arg, path in term_spec['inputs'].items()}
+                    for arg in term_spec['detach']:
                         inputs[arg] = detach(inputs[arg])
                     value = objective(**inputs)
                     if not isinstance(value, torch.Tensor) or value.numel() != 1:
                         raise ValueError('Each objective must return one scalar tensor')
-                    objectives.append(term['weight'] * value)
-                return gf, gr, objectives, local_z, self._digest(fake)
+                    objectives.append(term_spec['weight'] * value)
+                return term_records, objectives, local_z, self._digest(fake)
 
             g_records = []
             for index, start in enumerate(starts):
                 rng = self._accumulation_rng()
                 def prepass():
-                    gf, gr, terms, _, fake_digest = self._immutable_forward(lambda: generator_micro(index, start))
-                    for value in terms:
+                    term_records, terms_obj, _, fake_digest = self._immutable_forward(lambda: generator_micro(index, start))
+                    for value in terms_obj:
                         self._finite_loss(value)
-                    return gf.detach(), gr.detach(), detach(terms), fake_digest
+                    return (
+                        [(gf.detach(), gr.detach()) for gf, gr in term_records],
+                        detach(terms_obj),
+                        fake_digest
+                    )
                 g_records.append((rng, self._phase(f'G micro {index} discovery', prepass)))
-            gf = torch.cat([record[1][0] for record in g_records]).requires_grad_(True)
-            gr = torch.cat([record[1][1] for record in g_records])
-            global_gr, global_gf = self._logits(gr, gf)
-            g_adversarial = self.gan.g_loss(global_gf, global_gr)
-            weighted_adversarial = cfg['adversarial']['weight'] * g_adversarial
+            all_gf = []
+            g_unweighted, g_weighted = [], []
+            for t, term in enumerate(terms):
+                gf_t = torch.cat([rec[1][0][t][0] for rec in g_records]).requires_grad_(True)
+                gr_t = torch.cat([rec[1][0][t][1] for rec in g_records])
+                global_gr_t, global_gf_t = self._logits(gr_t, gf_t)
+                loss_raw = term.gan.g_loss(global_gf_t, global_gr_t)
+                g_unweighted.append(loss_raw)
+                g_weighted.append(term.weight * loss_raw)
+                all_gf.append(gf_t)
+            g_adversarial = _sum_tensors(g_unweighted)
+            weighted_adversarial = _sum_tensors(g_weighted)
             self._phase('accumulated G objective', lambda: self._finite_loss(weighted_adversarial))
-            g_cotangent, = self._phase('accumulated G logit derivatives', lambda: torch.autograd.grad(weighted_adversarial, (gf,)))
+            g_cotangents = self._phase('accumulated G logit derivatives', lambda: torch.autograd.grad(weighted_adversarial, tuple(all_gf)))
             objective_factors = [1 / self.accumulation_steps if reduction == 'mean' else 1 for reduction in self._objective_reductions]
-            objective_losses = [sum(record[1][2][i] * factor for record in g_records) for i, factor in enumerate(objective_factors)]
+            objective_losses = [sum(record[1][1][i] * factor for record in g_records) for i, factor in enumerate(objective_factors)]
             self.opt_g.zero_grad(set_to_none=True)
             z_cotangent = torch.zeros_like(z) if z.requires_grad else None
             any_z_gradient = False
@@ -668,19 +838,22 @@ class ReplicatedTrainer(ReferenceTrainer):
                 def replay():
                     nonlocal any_z_gradient
                     current = self._immutable_forward(lambda: generator_micro(index, start))
-                    gf_micro, gr_micro, objectives, local_z, fake_digest = current
-                    if self._digest(detach((gf_micro, gr_micro, objectives, fake_digest))) != self._digest(expected):
+                    term_records, objectives, local_z, fake_digest = current
+                    if fake_digest != expected[2]:
                         raise ValueError('Generator microbatch replay differs from discovery outputs')
-                    loss = (gf_micro * g_cotangent[start:start + self.microbatch_size]).sum()
-                    loss = loss + sum(value * factor for value, factor in zip(objectives, objective_factors))
-                    loss.backward()
+                    step_loss = 0
+                    for t, (gf_m, _) in enumerate(term_records):
+                        gf_slice = g_cotangents[t][start:start + self.microbatch_size]
+                        step_loss = step_loss + (gf_m * gf_slice).sum()
+                    step_loss = step_loss + sum(value * factor for value, factor in zip(objectives, objective_factors))
+                    step_loss.backward()
                     if z_cotangent is not None and local_z.grad is not None:
                         any_z_gradient = True
                         z_cotangent[start:start + self.microbatch_size].copy_(local_z.grad)
                 self._phase(f'G micro {index} replay', lambda: self._isolated_replay(rng, replay))
             def prior_backward():
                 rows = None if selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[selected]
-                prior_loss = self.spread(rows) if rows is not None else z.new_zeros(())
+                prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else z.new_zeros(())
                 self._finite_loss(prior_loss)
                 self._finite_loss(weighted_adversarial.detach() + prior_loss.detach() + sum(objective_losses))
                 outputs, gradients = [], []
@@ -697,13 +870,20 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
             self._phase('generator optimizer', self.opt_g.step)
             self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
+            if hasattr(self, 'aggregation_strategy') and hasattr(self.aggregation_strategy, 'on_step_complete'):
+                self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
         finally:
-            for parameter, flag in zip(discriminator.parameters(), flags):
-                parameter.requires_grad_(flag)
+            for module, flags in saved_flags:
+                for parameter, flag in zip(module.parameters(), flags):
+                    parameter.requires_grad_(flag)
         g_loss = weighted_adversarial.detach() + prior_loss + sum(objective_losses)
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
-        self._assert_replicas('complete replicated state')
+        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
+            if self.aggregation_strategy.should_assert_replicas(step):
+                self._assert_replicas('complete replicated state')
+        else:
+            self._assert_replicas('complete replicated state')
         values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
             d_penalty, d_adversarial_raw, d_adversarial, weighted_adversarial,
             *objective_losses]), dtype=torch.float64, device=self.device)
@@ -727,7 +907,7 @@ class ReplicatedTrainer(ReferenceTrainer):
 class ReplicatedCPUTrainer(ReplicatedTrainer):
     """Existing CPU/Gloo entry point; CUDA callers use ReplicatedTrainer."""
 
-    def __init__(self, config, *, world_size=2, accumulation_steps=1):
+    def __init__(self, config, *, world_size=2, accumulation_steps=1, **kwargs):
         if dist.is_initialized() and dist.get_backend() != 'gloo':
             raise ValueError('ReplicatedCPUTrainer requires the default Gloo group')
-        super().__init__(config, world_size=world_size, accumulation_steps=accumulation_steps)
+        super().__init__(config, world_size=world_size, accumulation_steps=accumulation_steps, **kwargs)

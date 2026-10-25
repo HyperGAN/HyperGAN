@@ -20,14 +20,65 @@ def resolve(value):
     return resolve_execution_profile(value, resolve_config({}))
 
 
-def test_replicated_recipe_rejects_extra_adversarial_terms():
+def test_replicated_recipe_allows_extra_adversarial_terms():
+    """Verify validate_replicated_recipe accepts extra adversarial_terms."""
     from hypergan.execution_profiles import validate_replicated_recipe
-    legacy = resolve_config({})
-    validate_replicated_recipe(legacy)
-    extra = resolve_config({"adversarial_terms": [{
-        "id": "extra", "component": "discriminator", "real": "batch.real", "fake": "generated"}]})
-    with pytest.raises(ValueError, match="adversarial_terms"):
-        validate_replicated_recipe(extra)
+    extra = resolve_config({
+        "components": {
+            "generator": {"factory": "mlp", "args": {"input_dim": 4, "output_dim": 2, "hidden": [4]}, "inputs": {"x": "latent"}},
+            "discriminator": {"factory": "linear", "args": {"in_features": 2, "out_features": 1, "bias": False}, "inputs": {"input": "candidate"}},
+            "extra_critic": {"factory": "linear", "args": {"in_features": 2, "out_features": 1, "bias": False}, "inputs": {"input": "candidate"}},
+        },
+        "adversarial_terms": [{
+            "id": "extra", "component": "extra_critic", "real": "batch.real", "fake": "generated", "weight": 0.5, "penalty": False
+        }]
+    })
+    validate_replicated_recipe(extra)
+
+
+def test_replicated_recipe_allows_component_reuse():
+    """Verify validate_replicated_recipe accepts component reuse."""
+    from hypergan.execution_profiles import validate_replicated_recipe
+    reuse_config = resolve_config({
+        "components": {
+            "generator": {"factory": "linear", "args": {"in_features": 4, "out_features": 4}, "inputs": {"input": "latent"}},
+            "reconstruction": {"reuse": "generator", "inputs": {"input": "components.generator"}},
+            "discriminator": {"factory": "linear", "args": {"in_features": 4, "out_features": 1}, "inputs": {"input": "candidate"}},
+        },
+        "objectives": [{
+            "factory": "mse", "inputs": {"prediction": "components.reconstruction", "target": "components.generator"}, "weight": 1.0
+        }]
+    })
+    validate_replicated_recipe(reuse_config)
+
+
+def test_replicated_recipe_allows_prior_bound_inputs():
+    """Verify validate_replicated_recipe accepts prior.means and prior.sigma inputs."""
+    from hypergan.execution_profiles import validate_replicated_recipe
+    prior_bound = resolve_config({
+        "prior": {"kind": "mog", "args": {"num_particles": 8, "z_dim": 4}},
+        "components": {
+            "generator": {"factory": "linear", "args": {"in_features": 4, "out_features": 2}, "inputs": {"input": "latent"}},
+            "encoder": {"factory": "linear", "args": {"in_features": 4, "out_features": 2}, "inputs": {"input": "prior.means"}},
+            "discriminator": {"factory": "linear", "args": {"in_features": 2, "out_features": 1}, "inputs": {"input": "candidate"}},
+        },
+        "objectives": [{
+            "factory": "mse", "inputs": {"prediction": "components.encoder", "target": "components.generator"}, "weight": 1.0
+        }]
+    })
+    validate_replicated_recipe(prior_bound)
+
+
+def test_replicated_recipe_allows_particlegan_presets_and_recipe_optimizer():
+    """Verify validate_replicated_recipe accepts resolved presets and optimizer.implementation='recipe'."""
+    from hypergan.execution_profiles import validate_replicated_recipe
+    preset_config = resolve_config({
+        "defaults": "particlegan",
+        "training": {"device": "cpu", "batch_size": 16},
+    })
+    assert preset_config.get("recipe")
+    assert preset_config["optimizer"]["implementation"] == "recipe"
+    validate_replicated_recipe(preset_config)
 
 
 def test_replicated_recipe_allows_cifar_reference_policies():
@@ -52,15 +103,35 @@ def test_replicated_recipe_allows_cifar_reference_policies():
 def test_single_defaults_and_replicated_effective_batch():
     single = resolve(raw())
     assert single == {'schema_version': 1, 'execution': {
-        'name': 'cpu-single', 'world_size': 1, 'accumulation_steps': 1,
+        'name': 'cpu-single', 'world_size': 1, 'nodes': 1, 'node_rank': 0,
+        'ranks_per_node': 1, 'rendezvous': 'file://', 'accumulation_steps': 1,
         'global_batch_size': 16, 'local_batch_size': 16, 'microbatch_size': 16,
-        'accumulation_algorithm': 'retained-local-graph-v1'},
+        'accumulation_algorithm': 'retained-local-graph-v1',
+        'aggregation': {
+            'strategy': 'gradient_allreduce',
+            'sync_every_steps': 1,
+            'outer_lr': 1.0,
+            'outer_momentum': 0.0,
+        }},
+        'aggregation': {
+            'strategy': 'gradient_allreduce',
+            'sync_every_steps': 1,
+            'outer_lr': 1.0,
+            'outer_momentum': 0.0,
+        },
         'preflight': {'timeout': 60.0, 'collective_timeout': 15.0}}
     replicated = resolve(raw('cpu-replicated-gloo', world_size=2, accumulation_steps=4))
     assert replicated['execution'] == {
-        'name': 'cpu-replicated-gloo', 'world_size': 2, 'accumulation_steps': 4,
+        'name': 'cpu-replicated-gloo', 'world_size': 2, 'nodes': 1, 'node_rank': 0,
+        'ranks_per_node': 2, 'rendezvous': 'file://', 'accumulation_steps': 4,
         'global_batch_size': 16, 'local_batch_size': 8, 'microbatch_size': 2,
-        'accumulation_algorithm': 'detached-logit-vjp-replay-v1'}
+        'accumulation_algorithm': 'detached-logit-vjp-replay-v1',
+        'aggregation': {
+            'strategy': 'gradient_allreduce',
+            'sync_every_steps': 1,
+            'outer_lr': 1.0,
+            'outer_momentum': 0.0,
+        }}
     assert resolve(raw('cpu-replicated-gloo'))['execution']['world_size'] == 2
     assert resolve(raw('cpu-replicated-gloo'))['execution']['accumulation_algorithm'] == 'retained-local-graph-v1'
 
@@ -184,9 +255,16 @@ def test_cuda_replicated_identity_and_explicit_device_ownership():
     config = resolve_config({'training': {'device': 'cuda', 'batch_size': 32}})
     profile = resolve_execution_profile(raw('cuda-replicated-nccl', accumulation_steps=4), config)
     assert profile['execution'] == {
-        'name': 'cuda-replicated-nccl', 'world_size': 2, 'accumulation_steps': 4,
+        'name': 'cuda-replicated-nccl', 'world_size': 2, 'nodes': 1, 'node_rank': 0,
+        'ranks_per_node': 2, 'rendezvous': 'file://', 'accumulation_steps': 4,
         'global_batch_size': 32, 'local_batch_size': 16, 'microbatch_size': 4,
-        'accumulation_algorithm': 'detached-logit-vjp-replay-v1'}
+        'accumulation_algorithm': 'detached-logit-vjp-replay-v1',
+        'aggregation': {
+            'strategy': 'gradient_allreduce',
+            'sync_every_steps': 1,
+            'outer_lr': 1.0,
+            'outer_momentum': 0.0,
+        }}
     assert validate_checkpoint_kind('hypergan-distributed-training-checkpoint', profile)
     for device in ('cpu', 'cuda:0', 'cuda:1'):
         with pytest.raises(ValueError, match='training.device=cuda'):
@@ -222,3 +300,134 @@ assert 'torch' not in sys.modules
 '''
     subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), '-c', code],
                    cwd=tmp_path, check=True, timeout=15)
+
+
+def test_profile_canonical_defaults_when_omitted():
+    """Verify omitted nodes, node_rank, ranks_per_node, rendezvous, and aggregation default properly."""
+    # cpu-single
+    single = resolve(raw())
+    assert single['execution']['nodes'] == 1
+    assert single['execution']['node_rank'] == 0
+    assert single['execution']['ranks_per_node'] == 1
+    assert single['execution']['rendezvous'] == 'file://'
+    assert single['execution']['aggregation'] == {
+        'strategy': 'gradient_allreduce',
+        'sync_every_steps': 1,
+        'outer_lr': 1.0,
+        'outer_momentum': 0.0,
+    }
+
+    # cpu-replicated-gloo
+    replicated = resolve(raw('cpu-replicated-gloo', world_size=2))
+    assert replicated['execution']['nodes'] == 1
+    assert replicated['execution']['node_rank'] == 0
+    assert replicated['execution']['ranks_per_node'] == 2
+    assert replicated['execution']['rendezvous'] == 'file://'
+    assert replicated['execution']['aggregation'] == {
+        'strategy': 'gradient_allreduce',
+        'sync_every_steps': 1,
+        'outer_lr': 1.0,
+        'outer_momentum': 0.0,
+    }
+
+
+@pytest.mark.parametrize('world_size,nodes,node_rank,expected_ranks_per_node', [
+    (2, 2, 0, 1),
+    (2, 2, 1, 1),
+    (4, 2, 0, 2),
+    (4, 2, 1, 2),
+    (4, 4, 3, 1),
+    (8, 2, 1, 4),
+])
+def test_valid_multinode_topology(world_size, nodes, node_rank, expected_ranks_per_node):
+    config = resolve_config({'training': {'batch_size': 16}})
+    profile = resolve_execution_profile(
+        raw('cpu-replicated-gloo', world_size=world_size, nodes=nodes, node_rank=node_rank),
+        config
+    )
+    assert profile['execution']['nodes'] == nodes
+    assert profile['execution']['node_rank'] == node_rank
+    assert profile['execution']['ranks_per_node'] == expected_ranks_per_node
+
+
+@pytest.mark.parametrize('rendezvous', [
+    'file:///tmp/hypergan-rdzv',
+    'tcp://10.0.0.1:29500',
+    'tcp://coordinator.internal:12345',
+])
+def test_valid_rendezvous_uris(rendezvous):
+    config = resolve_config({'training': {'batch_size': 16}})
+    profile = resolve_execution_profile(
+        raw('cpu-replicated-gloo', world_size=2, rendezvous=rendezvous),
+        config
+    )
+    assert profile['execution']['rendezvous'] == rendezvous
+
+
+@pytest.mark.parametrize('aggregation,expected', [
+    (
+        {'strategy': 'gradient_allreduce', 'sync_every_steps': 1},
+        {'strategy': 'gradient_allreduce', 'sync_every_steps': 1, 'outer_lr': 1.0, 'outer_momentum': 0.0}
+    ),
+    (
+        {'strategy': 'parameter_average', 'sync_every_steps': 4},
+        {'strategy': 'parameter_average', 'sync_every_steps': 4, 'outer_lr': 1.0, 'outer_momentum': 0.0}
+    ),
+    (
+        {'strategy': 'pseudo_gradient', 'sync_every_steps': 2, 'outer_lr': 0.8, 'outer_momentum': 0.9},
+        {'strategy': 'pseudo_gradient', 'sync_every_steps': 2, 'outer_lr': 0.8, 'outer_momentum': 0.9}
+    ),
+])
+def test_aggregation_table_resolution(aggregation, expected):
+    profile = resolve_execution_profile(
+        {'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': aggregation},
+        resolve_config({})
+    )
+    assert profile['execution']['aggregation'] == expected
+    assert profile['aggregation'] == expected
+
+
+@pytest.mark.parametrize('values,match', [
+    # Nodes validation
+    (raw('cpu-replicated-gloo', world_size=4, nodes=0), 'nodes'),
+    (raw('cpu-replicated-gloo', world_size=4, nodes=-1), 'nodes'),
+    (raw('cpu-replicated-gloo', world_size=4, nodes=1.5), 'nodes'),
+    (raw('cpu-replicated-gloo', world_size=4, nodes=3), 'nodes'),  # 4 not divisible by 3
+    (raw('cpu-replicated-gloo', world_size=2, nodes=4), 'nodes'),  # nodes > world_size
+    # Node rank validation
+    (raw('cpu-replicated-gloo', world_size=2, nodes=2, node_rank=-1), 'node_rank'),
+    (raw('cpu-replicated-gloo', world_size=2, nodes=2, node_rank=2), 'node_rank'),
+    (raw('cpu-replicated-gloo', world_size=2, nodes=2, node_rank=1.0), 'node_rank'),
+    # Rendezvous URI validation
+    (raw('cpu-replicated-gloo', rendezvous='http://coordinator:8080'), 'rendezvous'),
+    (raw('cpu-replicated-gloo', rendezvous='ftp://coordinator:21'), 'rendezvous'),
+    (raw('cpu-replicated-gloo', rendezvous='coordinator:29500'), 'rendezvous'),
+    (raw('cpu-replicated-gloo', rendezvous='tcp://coordinator'), 'rendezvous'),
+    (raw('cpu-replicated-gloo', rendezvous='tcp://coordinator:-5'), 'rendezvous'),
+    (raw('cpu-replicated-gloo', rendezvous=123), 'rendezvous'),
+    # Aggregation validation
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': []}, 'table'),
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': {'strategy': 'unknown'}}, 'strategy'),
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': {'strategy': 'gradient_allreduce', 'sync_every_steps': 2}}, 'sync_every_steps'),
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': {'strategy': 'parameter_average', 'sync_every_steps': 0}}, 'sync_every_steps'),
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': {'strategy': 'pseudo_gradient', 'outer_lr': 0.0}}, 'outer_lr'),
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': {'strategy': 'pseudo_gradient', 'outer_lr': -1.0}}, 'outer_lr'),
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': {'strategy': 'pseudo_gradient', 'outer_momentum': -0.1}}, 'outer_momentum'),
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': {'strategy': 'pseudo_gradient', 'outer_momentum': 1.0}}, 'outer_momentum'),
+    ({'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'}, 'aggregation': {'unexpected': 1}}, 'Unknown aggregation'),
+])
+def test_invalid_topology_and_aggregation_options(values, match):
+    with pytest.raises(ValueError, match=match):
+        resolve(values)
+
+
+def test_custom_strategy_registration():
+    from hypergan.execution_profiles import register_profile_strategy
+    register_profile_strategy("custom_test_strat")
+    profile = resolve_execution_profile(
+        {'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo'},
+         'aggregation': {'strategy': 'custom_test_strat', 'sync_every_steps': 3}},
+        resolve_config({})
+    )
+    assert profile['execution']['aggregation']['strategy'] == 'custom_test_strat'
+    assert profile['execution']['aggregation']['sync_every_steps'] == 3

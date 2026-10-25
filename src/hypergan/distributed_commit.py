@@ -8,6 +8,7 @@ cooperative protocol fencing, not a sandbox against arbitrary Python file writes
 """
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -177,11 +178,30 @@ def _validate_prepared(run_dir, receipt, *, run_id, attempt_id, controller_id, c
     except (ValueError, RecursionError) as exc:
         raise ValueError('Invalid prepared checkpoint manifest JSON') from exc
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    if (not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary', 'source', 'initial_source'}
+    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation'}
+    if (not isinstance(info, dict) or not required <= set(info) <= allowed
             or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND):
         raise ValueError('Invalid prepared checkpoint manifest schema')
     if any(key in info and not isinstance(info[key], dict) for key in ('source', 'initial_source')):
         raise ValueError('Prepared checkpoint source provenance must be a dictionary')
+    if 'aggregation' in info:
+        agg = info['aggregation']
+        if not isinstance(agg, dict):
+            raise ValueError('Prepared checkpoint aggregation metadata must be a dictionary')
+        if 'strategy' not in agg or not isinstance(agg['strategy'], str) or not _ID.fullmatch(agg['strategy']):
+            raise ValueError('Prepared checkpoint aggregation strategy must be a safe nonempty identifier')
+        if 'sync_every_steps' in agg:
+            cadence = agg['sync_every_steps']
+            if type(cadence) is not int or isinstance(cadence, bool) or cadence < 1:
+                raise ValueError('Prepared checkpoint aggregation sync_every_steps must be a positive integer')
+        if 'outer_lr' in agg:
+            lr = agg['outer_lr']
+            if not isinstance(lr, (int, float)) or isinstance(lr, bool) or lr <= 0 or not math.isfinite(lr):
+                raise ValueError('Prepared checkpoint aggregation outer_lr must be a positive finite number')
+        if 'outer_momentum' in agg:
+            mom = agg['outer_momentum']
+            if not isinstance(mom, (int, float)) or isinstance(mom, bool) or not (0.0 <= mom < 1.0) or not math.isfinite(mom):
+                raise ValueError('Prepared checkpoint aggregation outer_momentum must be in [0.0, 1.0)')
     if (info['run_id'], info['attempt_id']) != (run_id, attempt_id) or type(info['step']) is not int or info['step'] != step:
         raise ValueError('Prepared checkpoint manifest lineage/step differs')
     if _json_bytes(info['identity']) != _json_bytes(identity):

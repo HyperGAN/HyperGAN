@@ -4,6 +4,7 @@ Use from a Python main guard. These wrappers are not public train/resume CLI
 profiles. The shared controller owns the run lock and every visible lifecycle
 record. Workers prepare snapshots; only this parent publishes checkpoints.
 """
+from collections.abc import Mapping
 from dataclasses import asdict
 import hashlib
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 import tempfile
 
 from .bounded_observer import AsyncBoundedObserver
-from .config import config_values, fingerprint, resume_compatible
+from .config import config_values, fingerprint, load_config, resolve_config, resume_compatible
 from .metrics import validate_update_scalars
 from .cpu_worker_service import CPUWorkerService
 from .distributed_commit import CheckpointCommitAuthority, MAX_RANK_BYTES as _DCOMMIT_MAX_RANK_BYTES
@@ -23,6 +24,19 @@ from .execution_profiles import load_execution_profile
 from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, PreviewResult, Restored
 
 MAX_SAMPLE_COUNT = 1024
+
+
+def _normalize_runner_config(config):
+    """Normalize raw config paths, raw config dicts, and already-resolved configs."""
+    if isinstance(config, (str, Path)):
+        return load_config(config)
+    if isinstance(config, Mapping):
+        if ({'components', 'training', 'optimizer'} <= set(config.keys())
+                and isinstance(config.get('training'), Mapping)
+                and 'initialization' in config.get('training', {})):
+            return dict(config)
+        return load_config(config)
+    return load_config(config)
 
 
 def _encoded(value):
@@ -136,7 +150,8 @@ class ReplicatedExecution:
     def _results(self, response, *, expected_step=None):
         try:
             results = response['results']
-            if type(results) is not list or len(results) != self.profile['execution']['world_size']:
+            expected_count = self.profile['execution'].get('ranks_per_node', self.profile['execution']['world_size'])
+            if type(results) is not list or len(results) != expected_count:
                 raise ValueError('Complete-boundary results require exactly one result per rank')
             for rank, item in enumerate(results):
                 if (not isinstance(item, dict) or type(item.get('step')) is not int or item['step'] < 0
@@ -158,11 +173,20 @@ class ReplicatedExecution:
         if self.service is not None:
             return
         try:
+            exec_cfg = self.profile['execution']
+            nodes = exec_cfg.get('nodes', 1)
+            node_rank = exec_cfg.get('node_rank', 0)
+            ranks_per_node = exec_cfg.get('ranks_per_node', exec_cfg['world_size'] // nodes)
+            rendezvous = exec_cfg.get('rendezvous')
             self.service = CPUWorkerService(_create_worker, _handle_command,
                 args=(config_values(self.config), self.profile['execution'], self.context),
                 run_id=self.context['run_id'], attempt_id=self.context['attempt_id'],
-                world_size=self.profile['execution']['world_size'],
-                backend='nccl' if self.profile['execution']['name'] == 'cuda-replicated-nccl' else 'gloo',
+                world_size=exec_cfg['world_size'],
+                node_rank=node_rank,
+                nodes=nodes,
+                ranks_per_node=ranks_per_node,
+                rendezvous=rendezvous,
+                backend='nccl' if exec_cfg['name'] == 'cuda-replicated-nccl' else 'gloo',
                 **{key: self.policy[key] for key in ('startup_timeout', 'command_timeout', 'collective_timeout', 'total_timeout')})
             self.service.start()
             results = self._results(self._command('describe'), expected_step=0)
@@ -171,7 +195,7 @@ class ReplicatedExecution:
             if any(item.get('identity_sha256') != digest for item in results):
                 raise ValueError('Ranks disagree on execution identity acknowledgement')
             self.information = info
-            if not info['recovery_reasons']:
+            if not info['recovery_reasons'] and node_rank == 0:
                 self.authority = CheckpointCommitAuthority(self.context['run_dir'], run_id=self.context['run_id'],
                     attempt_id=self.context['attempt_id'], identity=info['identity'])
         except BaseException as error:
@@ -227,6 +251,16 @@ class ReplicatedExecution:
 
     def checkpoint(self, run_dir, metadata):
         try:
+            node_rank = self.profile['execution'].get('node_rank', 0)
+            if node_rank > 0:
+                sequence = self.service.next_sequence
+                response = self._command('prepare', {'metadata': None,
+                    'command_sequence': sequence, 'controller_id': None})
+                if type(response.get('sequence')) is not int or response['sequence'] != sequence:
+                    raise ValueError('Checkpoint command acknowledgement has the wrong sequence')
+                self._results(response, expected_step=self.step)
+                self.service.assert_healthy()
+                return None
             if self.authority is None or str(Path(run_dir).resolve()) != self.context['run_dir']:
                 raise ValueError('No checkpoint authority for this run')
             sequence = self.service.next_sequence
@@ -253,6 +287,8 @@ class ReplicatedExecution:
         results = self._results(self._command('inference', {'bundle_dir': str(bundle_dir), 'identity': identity}), expected_step=self.step)
         try:
             self.service.assert_healthy()
+            if self.profile['execution'].get('node_rank', 0) > 0:
+                return None
             result = results[0]
             directory = Path(bundle_dir).resolve()
             bundle, sample = Path(result['bundle_path']), Path(result['sample_path'])
@@ -457,14 +493,71 @@ def run_train(config_path, run_dir, steps=None, *, profile, service_policy=None,
               on_event=None, preview_every=0, preview_keep=None, preview_keep_source=None,
               preview_name=None):
     """Internal shared-controller training; numerical imports remain in workers."""
+    config = _normalize_runner_config(config_path)
+    resolved_profile = _resolve_profile(profile, config)
+    if resolved_profile['execution'].get('node_rank', 0) > 0:
+        return run_follower(config, run_dir, steps, profile=resolved_profile, service_policy=service_policy,
+                            checkpoint_every=checkpoint_every, max_seconds=max_seconds, stop_after_steps=stop_after_steps)
     from .run_controller import run_train as controller_train
     from .previews import sample_name
-    return controller_train(config_path, run_dir, steps, checkpoint_every=checkpoint_every,
+    return controller_train(config, run_dir, steps, checkpoint_every=checkpoint_every,
         max_seconds=max_seconds, stop_after_steps=stop_after_steps, on_event=on_event,
         preview_every=preview_every, preview_keep=preview_keep,
         preview_keep_source=preview_keep_source,
         preview_name=sample_name(preview_name),
-        execution_factory=ReplicatedExecutionFactory(profile, service_policy=service_policy))
+        execution_factory=ReplicatedExecutionFactory(resolved_profile, service_policy=service_policy))
+
+
+def run_follower(config, run_dir, steps=None, *, profile, service_policy=None,
+                 checkpoint=None, checkpoint_every=1000, max_seconds=None, stop_after_steps=None):
+    """Headless follower node execution loop without acquiring run_lock or writing metadata."""
+    from .run_controller import AttemptContext
+    config = _normalize_runner_config(config)
+    if steps is not None and config['training']['steps'] != steps:
+        raw = config_values(config)
+        raw['training']['steps'] = steps
+        config = resolve_config(raw)
+    execution = ReplicatedExecution(config, profile, service_policy=service_policy)
+    run_dir = Path(run_dir).resolve()
+    manifest_path = run_dir / 'manifest.json'
+    run_id = None
+    if manifest_path.exists():
+        try:
+            m_data = json.loads(manifest_path.read_text())
+            run_id = m_data.get('run_id')
+        except Exception:
+            pass
+    if not run_id:
+        run_id = f"run-{hashlib.sha256(str(run_dir).encode()).hexdigest()[:12]}"
+    attempt_id = f"attempt-follower-node{profile['execution']['node_rank']}"
+    context = AttemptContext(run_id, attempt_id, 1, run_dir, run_dir / '.follower')
+    execution.configure_attempt(context, preview_every=0, on_event=None)
+    if checkpoint is not None:
+        execution.restore(run_dir, checkpoint, run_id, fingerprint(config))
+    else:
+        execution.start()
+    if checkpoint_every and not execution.information['recovery_reasons']:
+        execution.checkpoint(run_dir, None)
+    target_steps = steps or config['training']['steps']
+    current_step = execution.step
+    try:
+        while current_step < target_steps:
+            update_result = execution.update()
+            current_step = update_result.step
+            if checkpoint_every and current_step % checkpoint_every == 0:
+                execution.checkpoint(run_dir, None)
+            if stop_after_steps and current_step >= stop_after_steps:
+                break
+        if checkpoint_every and current_step % checkpoint_every != 0 and not execution.information['recovery_reasons']:
+            execution.checkpoint(run_dir, None)
+        if execution.inference_available and not stop_after_steps:
+            bundle_dir = run_dir / '.follower' / 'inference'
+            bundle_dir.mkdir(exist_ok=True, parents=True)
+            identity = {'run_id': run_id, 'attempt_id': attempt_id, 'step': current_step}
+            execution.inference(bundle_dir, identity)
+    finally:
+        execution.shutdown()
+    return {'status': 'completed', 'step': current_step, 'node_rank': profile['execution']['node_rank']}
 
 
 def run_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, service_policy=None,
@@ -472,16 +565,22 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, serv
                on_event=None, preview_every=None, preview_keep=None, preview_keep_source=None,
                preview_name=None, steps=None, require_same_config=False):
     """Internal strict fixed-topology resume, validating before attempt publication."""
-    from .run_controller import run_resume as controller_resume
+    manifest = json.loads((Path(run_dir) / 'manifest.json').read_text()) if (Path(run_dir) / 'manifest.json').exists() else {}
     if profile is None:
-        manifest = json.loads((Path(run_dir) / 'manifest.json').read_text())
         execution = manifest.get('execution', {})
         if execution.get('name') not in ('cpu-replicated-gloo', 'cuda-replicated-nccl'):
             raise ValueError('Run has no supported replicated execution identity')
         profile = {'schema_version': 1, 'execution': {key: execution[key] for key in ('name', 'world_size', 'accumulation_steps')}}
+    config = load_config(config_path) if config_path is not None else resolve_config(manifest.get('config', {}))
+    resolved_profile = _resolve_profile(profile, config)
+    if resolved_profile['execution'].get('node_rank', 0) > 0:
+        return run_follower(config, run_dir, steps, profile=resolved_profile, service_policy=service_policy,
+                            checkpoint=checkpoint, checkpoint_every=checkpoint_every or 1000,
+                            max_seconds=max_seconds, stop_after_steps=stop_after_steps)
+    from .run_controller import run_resume as controller_resume
     return controller_resume(run_dir, checkpoint, config_path, checkpoint_every=checkpoint_every,
         max_seconds=max_seconds, stop_after_steps=stop_after_steps, on_event=on_event,
         preview_every=preview_every, preview_keep=preview_keep,
         preview_keep_source=preview_keep_source, preview_name=preview_name,
         steps=steps, require_same_config=require_same_config,
-        execution_factory=ReplicatedExecutionFactory(profile, service_policy=service_policy))
+        execution_factory=ReplicatedExecutionFactory(resolved_profile, service_policy=service_policy))

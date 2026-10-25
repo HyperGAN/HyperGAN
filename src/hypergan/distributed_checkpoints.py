@@ -62,9 +62,11 @@ def distributed_runtime_info(trainer):
     backend = dist.get_backend()
     device = getattr(trainer, 'device', torch.device('cpu'))
     if backend == 'nccl':
-        if (device != torch.device('cuda', trainer.rank)
-                or torch.cuda.current_device() != trainer.rank
-                or torch.cuda.device_count() < trainer.world_size):
+        ranks_per_node = getattr(trainer, 'ranks_per_node', getattr(trainer, 'strategy_info', {}).get('ranks_per_node', trainer.world_size))
+        local_rank = trainer.rank % ranks_per_node
+        if (device != torch.device('cuda', local_rank)
+                or torch.cuda.current_device() != local_rank
+                or torch.cuda.device_count() < ranks_per_node):
             raise ValueError('NCCL runtime requires rank-owned visible CUDA devices')
         runtime = runtime_info('cuda:0')
         runtime['device'] = 'cuda'
@@ -73,13 +75,17 @@ def distributed_runtime_info(trainer):
         pop_keys = ('name', 'capability', 'uuid', 'gcnArchName') if is_rocm else ('name', 'capability', 'uuid')
         for key in pop_keys:
             cuda.pop(key, None)
+        nodes = getattr(trainer, 'nodes', getattr(trainer, 'strategy_info', {}).get('nodes', 1))
+        is_multinode = nodes > 1
+        if is_multinode:
+            cuda.pop('visible_devices', None)
         nccl_ver = getattr(getattr(torch, 'cuda', None), 'nccl', None)
         cuda['nccl'] = list(nccl_ver.version()) if nccl_ver and hasattr(nccl_ver, 'version') else []
         rank_devices = []
-        for rank in range(trainer.world_size):
+        for rank in range(ranks_per_node):
             prop = torch.cuda.get_device_properties(rank)
             uuid_str = str(getattr(prop, 'uuid', 'unavailable'))
-            if is_rocm and uuid_str in ('None', ''):
+            if is_multinode or (is_rocm and uuid_str in ('None', '')):
                 uuid_str = 'unavailable'
             entry = {
                 'rank': rank,
@@ -106,16 +112,24 @@ def _rank_state(trainer, last_batch):
     # Keep wire payloads device-independent; CUDA tensors never travel through
     # pickle with a rank-local device ordinal. Host copies complete pending work.
     if trainer.device.type == 'cuda':
-        if torch.cuda.current_device() != trainer.rank:
+        ranks_per_node = getattr(trainer, 'ranks_per_node', getattr(trainer, 'strategy_info', {}).get('ranks_per_node', trainer.world_size))
+        local_rank = trainer.rank % ranks_per_node
+        if torch.cuda.current_device() != local_rank:
             raise ValueError('CUDA checkpoint requires the rank-owned current device')
         torch.cuda.synchronize(trainer.device)
-    return move_tensors(trainer_state(trainer, last_batch), 'cpu')
+    state = trainer_state(trainer, last_batch)
+    strategy = getattr(trainer, 'aggregation_strategy', getattr(trainer, 'aggregation', None))
+    if strategy is not None and hasattr(strategy, 'state_dict') and callable(strategy.state_dict):
+        state['aggregation'] = move_tensors(strategy.state_dict(), 'cpu')
+    return move_tensors(state, 'cpu')
 
 
 def _validate_rank_rng(trainer, state):
     if trainer.device.type == 'cuda':
         rng = state.get('rng')
-        if not isinstance(rng, dict) or type(rng.get('cuda_device')) is not int or rng['cuda_device'] != trainer.rank:
+        ranks_per_node = getattr(trainer, 'ranks_per_node', getattr(trainer, 'strategy_info', {}).get('ranks_per_node', trainer.world_size))
+        local_rank = trainer.rank % ranks_per_node
+        if not isinstance(rng, dict) or type(rng.get('cuda_device')) is not int or rng['cuda_device'] != local_rank:
             raise ValueError('Checkpoint CUDA RNG current device differs from the owning rank')
 
 
@@ -133,7 +147,8 @@ def _agree(operation, value=None, error=None):
     # Custom hooks may change the ambient device before failing. Agree on that
     # failure using this rank's device, never another rank's NCCL communicator.
     if dist.get_backend() == 'nccl':
-        torch.cuda.set_device(dist.get_rank())
+        device_idx = dist.get_rank() if torch.cuda.device_count() >= dist.get_world_size() else (dist.get_rank() % torch.cuda.device_count())
+        torch.cuda.set_device(device_idx)
     peers = [None] * dist.get_world_size()
     dist.all_gather_object(peers, {'operation': operation, 'value': value, 'error': error})
     if any(peer['operation'] != operation for peer in peers):
@@ -213,10 +228,11 @@ def _distributed_checkpoint_identity(trainer):
                  'preview_snapshot', 'snapshot_renderer', 'previews', 'bounded_observer'):
         implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
     runtime = distributed_runtime_info(trainer)
+    topology = {k: v for k, v in strategy.items() if k not in ('node_rank', 'rendezvous')}
     return _json({'hypergan_checkpoint_version': CURRENT_VERSION,
                   'config': numerical_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
                   'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
-                  'topology': strategy, 'source': source_info(trainer.config)})
+                  'topology': topology, 'source': source_info(trainer.config)})
 
 
 def distributed_checkpoint_identity(trainer):
@@ -322,6 +338,9 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
         error, descriptor, payload = None, None, None
         try:
             root = _root(run_dir)
+            sync_packet = [controller_id, command_sequence, metadata] if rank == 0 else [None, None, None]
+            dist.broadcast_object_list(sync_packet, src=0)
+            controller_id, command_sequence, metadata = sync_packet
             validate_fence(controller_id, command_sequence)
             if world_size > 64:
                 raise ValueError('Prepared checkpoints support at most 64 ranks')
@@ -366,8 +385,14 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
                         os.fsync(output.fileno())
                     records.append({'rank': index, 'file': filename, 'bytes': len(rank_payload),
                                     'sha256': hashlib.sha256(rank_payload).hexdigest()})
+                strategy = getattr(trainer, 'aggregation_strategy', getattr(trainer, 'aggregation', None))
+                agg_meta = strategy.manifest_metadata() if hasattr(strategy, 'manifest_metadata') else (
+                    dict(strategy) if isinstance(strategy, dict) else None
+                )
                 info = dict(lineage, schema_version=SCHEMA, kind=KIND, step=trainer.step,
                             identity=identity, replicated_sha256=descriptor['replicated_sha256'], ranks=records)
+                if agg_meta is not None:
+                    info['aggregation'] = agg_meta
                 if len((json.dumps(info, indent=2, allow_nan=False) + '\n').encode()) > MAX_METADATA_BYTES:
                     raise ValueError('Distributed checkpoint metadata exceeds its byte bound')
                 atomic_json(temporary / 'manifest.json', info)
@@ -418,8 +443,13 @@ def _validate_restore_identity(saved, current):
     # Source provenance is recorded but does not decide restore compatibility.
     excluded = {'hypergan_checkpoint_version', 'runtime', 'implementation', 'source',
                 'config', 'config_sha256'}
-    if not _same_json({key: value for key, value in saved.items() if key not in excluded},
-                      {key: value for key, value in current.items() if key not in excluded}):
+    saved_cmp = {key: value for key, value in saved.items() if key not in excluded}
+    current_cmp = {key: value for key, value in current.items() if key not in excluded}
+    if isinstance(saved_cmp.get('topology'), dict):
+        saved_cmp['topology'] = {k: v for k, v in saved_cmp['topology'].items() if k not in ('node_rank', 'rendezvous')}
+    if isinstance(current_cmp.get('topology'), dict):
+        current_cmp['topology'] = {k: v for k, v in current_cmp['topology'].items() if k not in ('node_rank', 'rendezvous')}
+    if not _same_json(saved_cmp, current_cmp):
         raise ValueError('Distributed checkpoint config/data/topology identity differs')
 
 
@@ -444,7 +474,8 @@ def _read(root, checkpoint, expected_identity, expected_run):
         raise ValueError('Select a completed distributed checkpoint directory inside this run')
     info = _read_json(target / 'manifest.json')
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    if not isinstance(info, dict) or not required <= set(info) <= required | {'request_ids', 'event_boundary', 'source', 'initial_source'} or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
+    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation'}
+    if not isinstance(info, dict) or not required <= set(info) <= allowed or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
         raise ValueError('Invalid distributed checkpoint metadata/schema')
     from .run_state import validate_event_boundary
     validate_event_boundary(root.parent, info)

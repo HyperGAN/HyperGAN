@@ -1,14 +1,16 @@
 """Unit tests for ROCm preflight helper logic.
 
 Verifies:
-1. Single-GPU vs Multi-GPU tests/cuda test partitioning (exactly 31 single-GPU, 18 deferred).
+1. Single-GPU vs Multi-GPU tests/cuda test partitioning, derived from the multi_gpu marker.
 2. Failure classifier across all standard failure categories (crash, numerical tolerance, determinism error, tooling, unknown).
 3. Sanity check numerical math parity and tolerance detection.
 4. Device-order side-by-side comparison table formatting and discrepancy detection.
 5. Report formatting across all 9 preflight sections.
 6. Short real training run simulation.
 """
+import ast
 from pathlib import Path
+import re
 import sys
 import pytest
 
@@ -25,44 +27,97 @@ import rocm_preflight_helper as helper
 # 1. Test Single-GPU vs Multi-GPU tests/cuda Partitioning
 # ---------------------------------------------------------------------------
 
-def test_partition_cuda_tests_exact_counts():
-    """Verify exactly 31 single-GPU tests and 18 deferred multi-GPU tests in tests/cuda."""
+def _marked(node):
+    return any(isinstance(item, ast.Attribute) and item.attr == helper.MULTI_GPU_MARKER for item in ast.walk(node))
+
+
+def _cuda_test_functions():
+    """Yield (path, name, marked, closure source) for every tests/cuda test function.
+
+    The closure is the test plus the module functions it reaches by name and
+    the module's autouse fixtures, which is where these files check GPU counts.
+    """
+    for path in sorted((REPO_ROOT / "tests" / "cuda").glob("test_*.py")):
+        source = path.read_text()
+        tree = ast.parse(source)
+        functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+        module_marked = any(isinstance(node, ast.Assign) and any(getattr(target, "id", None) == "pytestmark" for target in node.targets)
+                            and _marked(node.value) for node in tree.body)
+        autouse = [node for node in functions.values() if any("autouse" in ast.unparse(item) for item in node.decorator_list)]
+        for name, function in functions.items():
+            if not name.startswith("test_"):
+                continue
+            seen, pending = set(), [function, *autouse]
+            while pending:
+                node = pending.pop()
+                if node.name not in seen:
+                    seen.add(node.name)
+                    pending.extend(functions[item.id] for item in ast.walk(node)
+                                   if isinstance(item, ast.Name) and item.id in functions)
+            closure = "\n".join(ast.get_source_segment(source, functions[item]) for item in sorted(seen))
+            yield (f"tests/cuda/{path.name}", name,
+                   module_marked or any(_marked(item) for item in function.decorator_list), closure)
+
+
+def test_partition_cuda_tests_follows_multi_gpu_marker():
+    """The deferred set is exactly the tests whose source carries the multi_gpu marker."""
     single_gpu, deferred = helper.discover_and_partition_cuda_tests(repo_root=REPO_ROOT)
+    functions = list(_cuda_test_functions())
+    expected_deferred = {(path, name) for path, name, marked, _ in functions if marked}
+    expected_single = {(path, name) for path, name, marked, _ in functions if not marked}
 
-    assert len(single_gpu) == 31, f"Expected exactly 31 single-GPU tests, got {len(single_gpu)}: {single_gpu}"
-    assert len(deferred) == 18, f"Expected exactly 18 deferred multi-GPU tests, got {len(deferred)}: {deferred}"
-    assert len(single_gpu) + len(deferred) == 49, "Total partitioned tests must equal 49"
+    def function_ids(tests):
+        return {tuple(test.split("[")[0].split("::")) for test in tests}
 
-    # Partitions must be strictly disjoint
-    overlap = set(single_gpu).intersection(set(deferred))
-    assert not overlap, f"Found overlapping tests between partitions: {overlap}"
+    assert expected_deferred and expected_single
+    assert function_ids(deferred) == expected_deferred
+    assert function_ids(single_gpu) == expected_single
+    assert not set(single_gpu) & set(deferred)
 
-    # Verify key multi-GPU / 2-GPU tests are in the deferred partition
+    # Spot checks, including the 2-GPU NCCL suites that the old hard-coded list missed.
     assert "tests/cuda/test_cuda_two_devices.py::test_second_device_training_and_observation_restore_ambient_device" in deferred
-    assert "tests/cuda/test_cifar_replicated_qualification.py::test_two_gpu_replicated_cifar_mechanics" in deferred
     assert "tests/cuda/test_nccl.py::test_two_gpu_nccl_collectives_gradients_and_timeout_cleanup" in deferred
-    assert "tests/cuda/test_replicated_numerics.py::test_two_gpu_complete_updates_match_global_reference" in deferred
-
-    # Verify key single-GPU tests are in the run partition
+    assert "tests/cuda/test_aggregation_2gpu_nccl.py::test_2gpu_nccl_gradient_allreduce_step_and_replica_agreement" in deferred
+    assert "tests/cuda/test_checkpoint_continuity_2gpu_nccl_challenges.py::test_2gpu_nccl_bit_identical_restoration_verification" in deferred
     assert "tests/cuda/test_native_cuda.py::test_global_cuda_rng_roundtrip_is_exact" in single_gpu
-    assert "tests/cuda/test_metric_scalar_transfer.py::test_scalar_staging_exact_values_one_fence_and_no_gpu_kernels" in single_gpu
     assert "tests/cuda/test_interval_evaluation.py::test_cuda_interval_evaluation_preserves_state_and_snapshot_recovery" in single_gpu
 
 
+def test_cuda_tests_that_need_two_gpus_carry_the_multi_gpu_marker():
+    """A tests/cuda test that checks for two GPUs or uses NCCL must be marked multi_gpu, and only those."""
+    signal = re.compile(r"device_count\(\)\s*(>=\s*2|<\s*2)|\bnccl\b|two[ _-]gpu|2gpu", re.IGNORECASE)
+    mismatched = [f"{path}::{name} (marked={marked})" for path, name, marked, closure in _cuda_test_functions()
+                  if bool(signal.search(closure)) != marked]
+    assert not mismatched, f"multi_gpu marker does not match the test's GPU requirement: {mismatched}"
+
+
 def test_partition_cuda_tests_with_custom_list():
-    """Verify partition logic correctly categorizes arbitrary subsets of tests."""
+    """Unmarked tests are single-GPU; marked ones are deferred whatever their name."""
     custom_tests = [
         "tests/cuda/test_native_cuda.py::test_global_cuda_rng_roundtrip_is_exact",
         "tests/cuda/test_nccl.py::test_two_gpu_nccl_collectives_gradients_and_timeout_cleanup",
         "tests/cuda/custom_new_test.py::test_single_gpu_feature",
+        "tests/cuda/custom_new_test.py::test_new_two_rank_feature",
     ]
-    single, deferred = helper.discover_and_partition_cuda_tests(collected_tests=custom_tests)
+    multi = [
+        "tests/cuda/test_nccl.py::test_two_gpu_nccl_collectives_gradients_and_timeout_cleanup",
+        "tests/cuda/custom_new_test.py::test_new_two_rank_feature",
+    ]
+    single, deferred = helper.discover_and_partition_cuda_tests(collected_tests=custom_tests, multi_gpu_tests=multi)
 
-    assert "tests/cuda/test_nccl.py::test_two_gpu_nccl_collectives_gradients_and_timeout_cleanup" in deferred
-    assert "tests/cuda/test_native_cuda.py::test_global_cuda_rng_roundtrip_is_exact" in single
-    assert "tests/cuda/custom_new_test.py::test_single_gpu_feature" in single
-    assert len(deferred) == 1
-    assert len(single) == 2
+    assert deferred == multi
+    assert single == [
+        "tests/cuda/test_native_cuda.py::test_global_cuda_rng_roundtrip_is_exact",
+        "tests/cuda/custom_new_test.py::test_single_gpu_feature",
+    ]
+    with pytest.raises(ValueError, match="missing from the collected set"):
+        helper.discover_and_partition_cuda_tests(collected_tests=custom_tests[:1], multi_gpu_tests=multi)
+
+
+def test_collect_tests_raises_when_collection_fails(tmp_path):
+    """A failed collection is an error, not a silent fallback to a stale catalogue."""
+    with pytest.raises(RuntimeError, match="Collecting tests/cuda failed"):
+        helper._collect_tests_via_pytest(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -311,9 +366,9 @@ def test_format_preflight_report_contains_all_nine_sections():
         "duration_sec": 12.5,
         "status": "PASS",
     }
-    single_gpu_tests = list(helper.SINGLE_GPU_CUDA_TESTS)
+    single_gpu_tests = [f"tests/cuda/test_native_cuda.py::test_single_{index}" for index in range(3)]
     single_gpu_results = [{"test": t, "outcome": "PASSED", "failure_class": "-"} for t in single_gpu_tests]
-    deferred_tests = list(helper.DEFERRED_MULTI_GPU_TESTS)
+    deferred_tests = [f"tests/cuda/test_nccl.py::test_two_gpu_{index}" for index in range(2)]
     train_res = helper.TrainingRunResult(
         status="PASS",
         recipe="gaussian-grid",
@@ -360,8 +415,9 @@ def test_format_preflight_report_contains_all_nine_sections():
         assert dt in report
 
     # Verify single-GPU test count mentioned
-    assert "31 tests" in report
-    assert "18 tests" in report
+    assert "**Single-GPU Test Suite Target Count**: 3 tests" in report
+    assert "**Multi-GPU / Distributed Deferred Count**: 2 tests" in report
+    assert "### Deferred Multi-GPU Tests (2)" in report
 
 
 def test_format_preflight_report_with_failures():

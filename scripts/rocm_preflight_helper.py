@@ -7,7 +7,7 @@ Implements core preflight automation and diagnostics for AMD ROCm:
 - Step 3: Numerical sanity checks (matmul & conv2d forward/backward on target device vs CPU)
 - Step 4: Device-order side-by-side comparison table (PyTorch vs SMI)
 - Step 5: CPU reference test suite runner (pytest tests/reference)
-- Step 6: Single-GPU tests/cuda selection (31 single-GPU tests to run, 18 multi-GPU deferred)
+- Step 6: Single-GPU tests/cuda selection (tests marked multi_gpu are deferred)
 - Step 7: Short real training run (gaussian-grid recipe, steps/sec, peak VRAM, final loss)
 - Step 8: Phase 2A GPU inventory provider live dump (hardware & compute processes)
 - Step 9: Automatic failure classification (crash, numerical tolerance, determinism error, tooling, unknown)
@@ -30,117 +30,53 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
-# Test Partition Definitions (Phase 3 Requirement 1.6)
-# Exactly 18 Multi-GPU tests requiring >= 2 GPUs or distributed NCCL collectives
-# Exactly 31 Single-GPU / single-process tests to execute on single AMD GPU
-# Total: 49 tests in tests/cuda
-# ---------------------------------------------------------------------------
-
-DEFERRED_MULTI_GPU_TESTS: tuple[str, ...] = (
-    "tests/cuda/test_cifar_replicated_qualification.py::test_cifar_replicated_qualification_artifacts",
-    "tests/cuda/test_cifar_replicated_qualification.py::test_two_gpu_replicated_cifar_mechanics",
-    "tests/cuda/test_cuda_two_devices.py::test_second_device_training_and_observation_restore_ambient_device",
-    "tests/cuda/test_custom_metrics.py::test_two_gpu_custom_scalar_complete_state_parity",
-    "tests/cuda/test_m6_empirical_challenges.py::test_asymmetric_nonfinite_gradient_refusal",
-    "tests/cuda/test_m6_empirical_challenges.py::test_particlegan_controller_state_parity",
-    "tests/cuda/test_metrics.py::test_cuda_replicated_metrics_on_off_and_revision_resume",
-    "tests/cuda/test_nccl.py::test_two_gpu_nccl_collectives_gradients_and_timeout_cleanup",
-    "tests/cuda/test_nccl_service.py::test_nccl_broker_binds_ranks_and_reaps_failed_group",
-    "tests/cuda/test_nccl_service.py::test_nccl_preflight_constructs_in_broker_and_reports_common_runtime",
-    "tests/cuda/test_public_execution_acceptance.py::test_public_two_gpu_train_stop_resume_earlier_snapshot_and_observation",
-    "tests/cuda/test_replicated_numerics.py::test_two_gpu_complete_updates_match_global_reference",
-    "tests/cuda/test_replicated_recovery.py::test_fresh_nccl_groups_resume_observed_state_and_earlier_selection_exactly",
-    "tests/cuda/test_replicated_recovery.py::test_nccl_rank_failure_never_checkpoints_partial_state_and_recovers[partial]",
-    "tests/cuda/test_replicated_recovery.py::test_nccl_rank_failure_never_checkpoints_partial_state_and_recovers[rank-exit]",
-    "tests/cuda/test_replicated_recovery.py::test_nccl_coordinator_death_reaps_native_blocked_ranks_and_allows_takeover",
-    "tests/cuda/test_replicated_recovery.py::test_cuda_rank_rng_corruption_rejects_before_attempt_or_load_hooks[device]",
-    "tests/cuda/test_replicated_recovery.py::test_cuda_rank_rng_corruption_rejects_before_attempt_or_load_hooks[inventory]",
-)
-
-SINGLE_GPU_CUDA_TESTS: tuple[str, ...] = (
-    "tests/cuda/test_custom_metrics.py::test_cuda_custom_scalar_isolation",
-    "tests/cuda/test_custom_metrics.py::test_cuda_manual_snapshot_repeatability_and_training_isolation",
-    "tests/cuda/test_custom_metrics.py::test_cuda_histogram_uses_cpu_aggregation_under_strict_determinism",
-    "tests/cuda/test_hndl_images.py::test_native_feature_pool_deterministic_second_derivative[7]",
-    "tests/cuda/test_hndl_images.py::test_native_feature_pool_deterministic_second_derivative[16]",
-    "tests/cuda/test_hndl_images.py::test_native_sagan_broadcast_and_constants_support_pixel_penalty",
-    "tests/cuda/test_interval_evaluation.py::test_cuda_interval_evaluation_preserves_state_and_snapshot_recovery",
-    "tests/cuda/test_m6_empirical_challenges.py::test_cifar10_data_sharding_bitwise_parity",
-    "tests/cuda/test_m6_empirical_challenges.py::test_image_folder_data_sharding_bitwise_parity",
-    "tests/cuda/test_m6_empirical_challenges.py::test_item_data_sharding_bitwise_parity",
-    "tests/cuda/test_m6_empirical_challenges.py::test_controller_divergence_without_all_gather_negative_control",
-    "tests/cuda/test_metric_scalar_transfer.py::test_scalar_staging_exact_values_one_fence_and_no_gpu_kernels",
-    "tests/cuda/test_metrics.py::test_cuda_native_metrics_on_off_and_revision_resume",
-    "tests/cuda/test_native_cuda.py::test_cuda_updates_move_models_data_and_random_streams[particles]",
-    "tests/cuda/test_native_cuda.py::test_cuda_updates_move_models_data_and_random_streams[mog]",
-    "tests/cuda/test_native_cuda.py::test_cuda_updates_move_models_data_and_random_streams[gaussian]",
-    "tests/cuda/test_native_cuda.py::test_global_cuda_rng_roundtrip_is_exact",
-    "tests/cuda/test_native_cuda.py::test_fresh_process_cuda_recovery_and_observation_preserve_complete_state",
-    "tests/cuda/test_native_cuda.py::test_controlled_cpu_cuda_complete_update_parity",
-    "tests/cuda/test_native_cuda.py::test_cuda_restore_requires_complete_cuda_rng_before_model_load",
-    "tests/cuda/test_native_cuda.py::test_explicit_cpu_stays_cold_with_cuda_available",
-    "tests/cuda/test_trainer_host_syncs.py::test_one_update_reads_the_host_once_per_phase_not_once_per_parameter",
-    "tests/cuda/test_trainer_host_syncs.py::test_gradient_screening_leaves_cuda_gradients_bitwise_unchanged",
-    "tests/cuda/test_trainer_host_syncs.py::test_update_ema_on_cuda_is_bitwise_identical_to_the_previous_loop[0.995]",
-    "tests/cuda/test_trainer_host_syncs.py::test_update_ema_on_cuda_is_bitwise_identical_to_the_previous_loop[0.0]",
-    "tests/cuda/test_trainer_host_syncs.py::test_update_ema_on_cuda_is_bitwise_identical_to_the_previous_loop[1.0]",
-    "tests/cuda/test_trainer_host_syncs.py::test_update_ema_over_a_trained_cuda_graph_matches_the_previous_loop",
-    "tests/cuda/test_trainer_host_syncs.py::test_nonfinite_cuda_loss_and_gradients_refuse_the_optimizer_step[d_gradient-Nonfinite discriminator gradient; run stopped]",
-    "tests/cuda/test_trainer_host_syncs.py::test_nonfinite_cuda_loss_and_gradients_refuse_the_optimizer_step[g_gradient-Nonfinite generator/auxiliary gradient; run stopped]",
-    "tests/cuda/test_trainer_host_syncs.py::test_nonfinite_cuda_loss_and_gradients_refuse_the_optimizer_step[prior_gradient-Nonfinite prior gradient; run stopped]",
-    "tests/cuda/test_trainer_host_syncs.py::test_nonfinite_cuda_loss_and_gradients_refuse_the_optimizer_step[d_loss-Nonfinite discriminator loss; run stopped]",
-)
-
-
-# ---------------------------------------------------------------------------
 # Step 6: Test Partition Logic
 # ---------------------------------------------------------------------------
 
-def _collect_tests_via_pytest(repo_root: Optional[Path] = None) -> list[str]:
-    """Collect test names from tests/cuda via pytest --collect-only."""
+# A tests/cuda test that needs two or more GPUs carries this marker (registered
+# in pyproject.toml). Everything else needs one GPU and runs in step 6.
+MULTI_GPU_MARKER = "multi_gpu"
+
+
+def _collect_tests_via_pytest(repo_root: Optional[Path] = None, marker: str = "") -> list[str]:
+    """Collect tests/cuda node ids via pytest --collect-only, optionally by marker.
+
+    Raises RuntimeError when collection fails, so a broken checkout cannot pass
+    for an empty or stale partition.
+    """
     cwd = repo_root or Path.cwd()
-    cmd = [sys.executable, "-m", "pytest", "--collect-only", "tests/cuda", "-m", "", "-q"]
-    try:
-        res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, check=True)
-        tests = []
-        for line in res.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("tests/cuda/") and "::" in line:
-                tests.append(line)
-        return tests
-    except Exception:
-        return []
+    cmd = [sys.executable, "-m", "pytest", "--collect-only", "tests/cuda", "-m", marker, "-q"]
+    res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    # Exit code 5 means nothing was selected: fine for a marker, not for the whole tree.
+    if res.returncode not in ((0, 5) if marker else (0,)):
+        raise RuntimeError(f"Collecting tests/cuda failed (exit {res.returncode}):\n{res.stdout[-2000:]}\n{res.stderr[-2000:]}")
+    return [line.strip() for line in res.stdout.splitlines()
+            if line.strip().startswith("tests/cuda/") and "::" in line]
 
 
 def discover_and_partition_cuda_tests(
     collected_tests: Optional[list[str]] = None,
     repo_root: Optional[Path] = None,
+    multi_gpu_tests: Optional[list[str]] = None,
 ) -> tuple[list[str], list[str]]:
     """Partition tests/cuda into (single_gpu_tests, deferred_multi_gpu_tests).
 
-    Returns:
-        (single_gpu_tests, deferred_tests)
-        - single_gpu_tests: 31 tests that can run on a single AMD GPU.
-        - deferred_tests: 18 tests requiring >=2 GPUs or multi-node NCCL/RCCL.
+    A test is deferred when pytest selects it with ``-m multi_gpu``; any other
+    collected test is single-GPU. Callers that pass ``collected_tests`` pass the
+    marked subset as ``multi_gpu_tests``.
     """
     if collected_tests is None:
         collected = _collect_tests_via_pytest(repo_root)
-        if not collected:
-            # Fall back to canonical catalogue
-            collected = list(SINGLE_GPU_CUDA_TESTS) + list(DEFERRED_MULTI_GPU_TESTS)
+        multi_gpu_tests = _collect_tests_via_pytest(repo_root, MULTI_GPU_MARKER)
     else:
         collected = list(collected_tests)
 
-    deferred_set = set(DEFERRED_MULTI_GPU_TESTS)
-    deferred: list[str] = []
-    single_gpu: list[str] = []
-
-    for test in collected:
-        if test in deferred_set:
-            deferred.append(test)
-        else:
-            single_gpu.append(test)
-
+    deferred_set = set(multi_gpu_tests or ())
+    unknown = deferred_set.difference(collected)
+    if unknown:
+        raise ValueError(f"multi_gpu tests missing from the collected set: {sorted(unknown)}")
+    single_gpu = [test for test in collected if test not in deferred_set]
+    deferred = [test for test in collected if test in deferred_set]
     return single_gpu, deferred
 
 
@@ -764,10 +700,10 @@ def format_preflight_report(
         f"- **Status**: **`{ref_suite_data.get('status', 'PASS')}`**",
         "",
         "## 6. Single-GPU tests/cuda Execution",
-        f"- **Single-GPU Test Suite Target Count**: 31 tests",
-        f"- **Multi-GPU / Distributed Deferred Count**: 18 tests",
+        f"- **Single-GPU Test Suite Target Count**: {len(single_gpu_tests)} tests",
+        f"- **Multi-GPU / Distributed Deferred Count**: {len(deferred_tests)} tests",
         "",
-        "### Executed Single-GPU Tests (31)",
+        f"### Executed Single-GPU Tests ({len(single_gpu_tests)})",
         "| Test | Outcome | Failure Class |",
         "|---|---|---|",
     ]
@@ -780,8 +716,8 @@ def format_preflight_report(
 
     lines.extend([
         "",
-        "### Deferred Multi-GPU Tests (18)",
-        "*The following 18 tests require >= 2 GPUs or live multi-node NCCL/RCCL process groups and are deferred on single-GPU hardware:*",
+        f"### Deferred Multi-GPU Tests ({len(deferred_tests)})",
+        f"*The following {len(deferred_tests)} tests require >= 2 GPUs or live multi-node NCCL/RCCL process groups and are deferred on single-GPU hardware:*",
         "",
         "| Test | Status | Rationale |",
         "|---|---|---|",
@@ -954,7 +890,11 @@ def run_preflight_pipeline(
 
     # 6. Single-GPU tests/cuda Execution
     print("[Step 6/9] Partitioning and executing single-GPU tests/cuda...")
-    single_gpu_tests, deferred_tests = discover_and_partition_cuda_tests()
+    try:
+        single_gpu_tests, deferred_tests = discover_and_partition_cuda_tests()
+    except (RuntimeError, ValueError) as exc:
+        single_gpu_tests, deferred_tests = [], []
+        failures.append({"component": "tests/cuda collection", "class": classify_failure(str(exc)), "snippet": str(exc)[:200]})
     single_gpu_results: list[dict[str, Any]] = []
 
     # If CUDA is available, run the single-GPU tests

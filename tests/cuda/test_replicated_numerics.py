@@ -170,6 +170,7 @@ def _worker(rank, rendezvous, output):
         dist.destroy_process_group()
 
 
+@pytest.mark.multi_gpu
 def test_two_gpu_complete_updates_match_global_reference(tmp_path):
     assert torch.cuda.is_available() and torch.cuda.device_count() >= 2, 'This acceptance gate requires two visible CUDA GPUs'
     assert dist.is_nccl_available(), 'This acceptance gate requires NCCL'

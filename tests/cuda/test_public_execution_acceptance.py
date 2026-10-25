@@ -2,7 +2,10 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
 import torch
+
+pytestmark = pytest.mark.multi_gpu
 
 
 _spec = importlib.util.spec_from_file_location(

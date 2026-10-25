@@ -26,6 +26,8 @@ import pytest
 import torch
 import torch.distributed as dist
 
+pytestmark = pytest.mark.multi_gpu
+
 # ---------------------------------------------------------------------------
 # Opaque Capability Detection & Fixtures
 # ---------------------------------------------------------------------------

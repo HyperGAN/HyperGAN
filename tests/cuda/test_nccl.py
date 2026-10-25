@@ -5,6 +5,10 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
+pytestmark = pytest.mark.multi_gpu
+
 
 def test_two_gpu_nccl_collectives_gradients_and_timeout_cleanup(tmp_path):
     receipt = tmp_path / 'nccl.json'

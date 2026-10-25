@@ -369,6 +369,16 @@ class ReplicatedTrainer(ReferenceTrainer):
             else:
                 parameter.grad = None
 
+    def _average_critic_statistics(self):
+        # KA2 controller statistics come from rank-local critic scores.
+        rec = getattr(self.opt_d, 'record', None)
+        if rec is not None and hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
+            stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
+            dist.all_reduce(stats)
+            stats /= self.world_size
+            rec.ema_residual = float(stats[0].item())
+            rec.ema_data_scale = float(stats[1].item())
+
     def _finite_optimizer(self, optimizer):
         for parameter in self._parameters(optimizer):
             if not torch.isfinite(parameter).all():
@@ -485,14 +495,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._reduce_gradients(self.opt_d, 'discriminator')
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
-        if getattr(self.opt_d, 'record', None) is not None:
-            rec = self.opt_d.record
-            if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
-                stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
-                dist.all_reduce(stats)
-                stats /= self.world_size
-                rec.ema_residual = float(stats[0].item())
-                rec.ema_data_scale = float(stats[1].item())
+        self._average_critic_statistics()
 
         saved_flags = []
         seen_modules = set()
@@ -796,14 +799,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._reduce_gradients(self.opt_d, 'discriminator')
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
-        if getattr(self.opt_d, 'record', None) is not None:
-            rec = self.opt_d.record
-            if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
-                stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
-                dist.all_reduce(stats)
-                stats /= self.world_size
-                rec.ema_residual = float(stats[0].item())
-                rec.ema_data_scale = float(stats[1].item())
+        self._average_critic_statistics()
         saved_flags = []
         seen_modules = set()
         for term in terms:

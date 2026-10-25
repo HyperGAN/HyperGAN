@@ -10,9 +10,9 @@ Challenges:
    - Local step counters (step_count == K, trainer.step == K)
    - Optimizer regularizer states (latent history, direct history, record)
    - Optimizer moment buffers (exp_avg, exp_avg_sq)
-4. Non-cadence checkpoint rejection challenge:
-   Empirical verification that saving at a non-sync step (e.g. step 1 when sync_every_steps=2)
-   is rejected due to replica state divergence, preserving consistency invariants.
+4. Non-cadence checkpoint challenge:
+   Saving at a non-sync step (e.g. step 1 when sync_every_steps=2) first forces one
+   synchronization, so one replicated state is published (review 2026-10-25 H3).
 """
 from __future__ import annotations
 
@@ -203,7 +203,7 @@ def continuity_worker_entry(
             result['metrics'] = metrics
 
         elif mode == 'split_attempt_non_cadence':
-            # Run 1 step when cadence > 1 and try to checkpoint (must fail)
+            # Run 1 step when cadence > 1 and checkpoint between synchronizations
             row, last_batch = trainer.update()
             metrics.append({'step': row['step'], 'd_loss': float(row['d_loss']), 'g_loss': float(row['g_loss'])})
             try:
@@ -215,6 +215,8 @@ def continuity_worker_entry(
             except ValueError as exc:
                 result['checkpoint_succeeded'] = False
                 result['expected_error'] = str(exc)
+            result['synced_step'] = trainer.aggregation_strategy.synced_step
+            result['weights_sha256'] = trainer._digest(trainer.graph.state_dict())
 
         Path(output_json).write_text(json.dumps(result))
     finally:
@@ -500,10 +502,10 @@ def test_cpu_bit_identical_restoration_verification(tmp_path):
 # Challenge 4: Non-Cadence Checkpoint Rejection Challenge
 # ==============================================================================
 
-def test_cpu_checkpoint_rejects_unsynced_state_at_non_cadence_step(tmp_path):
-    """Challenge 4: Empirically confirm that attempting to save a distributed checkpoint at a
-    non-sync step (e.g. step 1 when sync_every_steps=2) is rejected because rank weights have
-    diverged locally without synchronization.
+def test_cpu_checkpoint_at_non_cadence_step_forces_one_synchronization(tmp_path):
+    """Challenge 4: a distributed checkpoint at a non-sync step (step 1 when
+    sync_every_steps=2) synchronizes the locally diverged replicas once and succeeds,
+    instead of failing replica agreement and poisoning the run.
     """
     root = tmp_path / "reject_root"
     run = tmp_path / "reject_run"
@@ -516,10 +518,10 @@ def test_cpu_checkpoint_rejects_unsynced_state_at_non_cadence_step(tmp_path):
     results = launch_continuity_workers(root, run, 'split_attempt_non_cadence', agg_cfg, total_steps=4, split_steps=1)
     assert len(results) == 2
 
-    # Both ranks must report that checkpoint save failed due to state disagreement
     for r in results:
-        assert r.get('checkpoint_succeeded') is False
-        assert "disagree" in r.get('expected_error', '').lower() or "rejected" in r.get('expected_error', '').lower()
+        assert r.get('checkpoint_succeeded') is True, r.get('expected_error')
+        assert r['synced_step'] == 1
+    assert results[0]['weights_sha256'] == results[1]['weights_sha256']
 
 
 if __name__ == '__main__':

@@ -12,6 +12,9 @@ from hypergan.execution_preflight import _resolve_profile, preflight
 
 
 def _raw(name='cpu-replicated-gloo', **kwargs):
+    if kwargs.get('nodes', 1) > 1:
+        # Multi-node is experimental and requires an explicit tcp:// rendezvous.
+        kwargs.setdefault('rendezvous', 'tcp://node0.cluster:29500')
     return {'schema_version': 1, 'execution': {'name': name, **kwargs}}
 
 
@@ -32,7 +35,7 @@ def test_extreme_topology_max_nodes_and_world_size():
     assert profile['execution']['ranks_per_node'] == 1
     assert profile['execution']['local_batch_size'] == 1
     assert profile['execution']['microbatch_size'] == 1
-    assert profile['execution']['rendezvous'] == 'tcp://127.0.0.1:29500'
+    assert profile['execution']['rendezvous'] == 'tcp://node0.cluster:29500'
 
 
 def test_extreme_topology_last_node_rank():

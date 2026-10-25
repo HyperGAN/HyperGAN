@@ -522,7 +522,8 @@ def run_train(config_path, run_dir, steps=None, *, profile, service_policy=None,
         execution_factory=ReplicatedExecutionFactory(resolved_profile, service_policy=service_policy))
 
 
-def run_follower(config, run_dir, steps=None, *, profile, service_policy=None, **node_0_controls):
+def run_follower(config, run_dir, steps=None, *, profile, service_policy=None,
+                 checkpoint=None, checkpoint_every=None, max_seconds=None, stop_after_steps=None):
     """Experimental follower node: mirror node 0's commands without a schedule of its own.
 
     Node 0 alone owns the run lock, metadata, checkpoint publication, previews,

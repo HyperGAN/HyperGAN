@@ -330,7 +330,8 @@ def test_profile_canonical_defaults_when_omitted():
 def test_valid_multinode_topology(world_size, nodes, node_rank, expected_ranks_per_node):
     config = resolve_config({'training': {'batch_size': 16}})
     profile = resolve_execution_profile(
-        raw('cpu-replicated-gloo', world_size=world_size, nodes=nodes, node_rank=node_rank),
+        raw('cpu-replicated-gloo', world_size=world_size, nodes=nodes, node_rank=node_rank,
+            rendezvous='tcp://node0.cluster:29500'),
         config
     )
     assert profile['execution']['nodes'] == nodes

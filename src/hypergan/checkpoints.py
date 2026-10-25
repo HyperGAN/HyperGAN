@@ -681,8 +681,9 @@ def prune_checkpoints(
     """Evaluate and apply checkpoint retention policy to a run directory adhering to Invariants S1-S5.
 
     ``keep_last`` counts checkpoints on the live branch, the lineage that ends
-    at ``latest.json``. After a resume from an older checkpoint, the abandoned
-    branch's later checkpoints keep only milestone, best, step-zero and
+    at ``latest.json``. After a resume from an older checkpoint, each abandoned
+    attempt keeps its newest checkpoint, so the old branch stays resumable;
+    its other checkpoints keep only milestone, best, step-zero and
     active-evaluation protection.
     """
     run_dir = Path(run_dir).resolve()
@@ -794,6 +795,15 @@ def prune_checkpoints(
         for c in checkpoints:
             if (c['name'] in live_names and c['step'] in last_steps) or (recovery_ckpt and c['name'] == recovery_ckpt):
                 retained_reasons[c['name']].add('keep_last')
+
+    # The newest checkpoint of each attempt off the live branch stays as that
+    # abandoned branch's tip; it no longer counts toward keep_last.
+    abandoned = {}
+    for c in checkpoints:
+        if c['name'] not in live_names:
+            abandoned[c['attempt_id']] = c
+    for c in abandoned.values():
+        retained_reasons[c['name']].add('abandoned_tip')
 
     # S3: Require a newer durable checkpoint before deleting older. Off the
     # live branch, the retained live tip is that newer durable checkpoint.

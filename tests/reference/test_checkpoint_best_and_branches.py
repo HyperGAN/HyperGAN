@@ -129,7 +129,8 @@ def test_retention_keeps_the_live_branch_after_resuming_from_an_older_checkpoint
     branch_fixture(tmp_path)
     report = prune_checkpoints(tmp_path)
     # The live branch keeps its last two; the abandoned 11 and 12 no longer
-    # count as latest, and only milestones (8 and 12) survive from it.
+    # count as latest or last. The abandoned tip (12, also a milestone) and
+    # the milestone 8 survive; 11 is pruned.
     assert steps(report, 'deleted') == [('0001-a', 11)]
     assert steps(report, 'retained') == [('0001-a', 0), ('0001-a', 4), ('0001-a', 8), ('0001-a', 12),
                                          ('0002-b', 4), ('0002-b', 5), ('0002-b', 6)]
@@ -179,6 +180,7 @@ def test_real_resume_from_older_checkpoint_keeps_live_branch(tmp_path):
     resumed = resume(run, checkpoint=resolve_checkpoint(run, 10), stop_after_steps=1)['attempt_id']
     kept = {(p.name.split('-step-')[0], int(p.name.split('-step-')[1][:8]))
             for p in (run / 'checkpoints').iterdir() if p.is_dir()}
-    # Default keep_last=3 counts the live branch 0 -> 10 -> 11; the abandoned
-    # steps 11 and 12 of the first attempt are no longer "latest" or "last".
-    assert kept == {(first, 0), (first, 10), (resumed, 10), (resumed, 11)}
+    # Default keep_last=3 counts the live branch 0 -> 10 -> 11. The abandoned
+    # steps 11 and 12 no longer count as "latest" or "last": only the abandoned
+    # tip 12 stays, so the old branch remains resumable.
+    assert kept == {(first, 0), (first, 10), (first, 12), (resumed, 10), (resumed, 11)}

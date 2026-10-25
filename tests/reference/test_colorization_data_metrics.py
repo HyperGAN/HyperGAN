@@ -6,6 +6,7 @@ import torch
 from PIL import Image
 
 from hypergan.colorization_data import ColorizationData, prepare_manifest, approve_prepared_manifest
+from hypergan.data import EvaluationDataExhausted
 from hypergan.colorization_metrics import ChromaDistributionDistance, GrayscaleStructureDistance, RepeatedConditionChromaDiversity
 
 
@@ -62,8 +63,13 @@ def test_alpha_white_and_pad(logos):
     assert torch.equal(sample['gray'][idx], torch.ones(1, 8, 8))
     opaque = next(i for i, e in enumerate(data.entries) if e['path'] != 'transparent.png')
     assert torch.equal(sample['real'][opaque, :, :2], torch.ones(3, 2, 8))
-    with pytest.raises(StopIteration, match='never wraps'):
+    with pytest.raises(EvaluationDataExhausted, match='never wraps'):
         data(1, generator=torch.Generator())
+
+    def batches():  # How the evaluation worker consumes data (PEP 479).
+        yield data(1, generator=torch.Generator())
+    with pytest.raises(EvaluationDataExhausted, match='lower the evaluation sample_count'):
+        next(batches())
     one_bit = next(e for e in inventory['entries'] if e['path'] == 'one_bit.png')
     assert one_bit['source_mode'] == '1'
     bit_data = ColorizationData(root, manifest, info['sha256'], split=one_bit['split'], shuffle=False)
@@ -112,6 +118,21 @@ def test_all_failures_reported_and_explicit_exclusions_pinned(tmp_path):
     assert manifest['excluded_images'] == report['rejections']
     assert approved['excluded_count'] == 2
     assert (tmp_path / 'broken.png').read_bytes() == b'not an image'
+
+
+def test_rerun_after_rejection_explains_the_leftover_attempt(tmp_path):
+    root = tmp_path / 'images'
+    root.mkdir()
+    (root / 'broken.png').write_bytes(b'not an image')
+    Image.new('RGB', (8, 8)).save(root / 'valid.png')
+    output = tmp_path / 'manifest.json'
+    with pytest.raises(ValueError, match='1 invalid images'):
+        prepare_manifest(root, output, workers=1)
+    (root / 'broken.png').unlink()  # The user repairs the folder and reruns.
+    with pytest.raises(ValueError, match='manifest.candidate.json; choose a new manifest path'):
+        prepare_manifest(root, output, workers=1)
+    fixed = prepare_manifest(root, tmp_path / 'fixed.json', workers=1)
+    assert fixed['train'] + fixed['heldout'] == 1
 
 
 def test_duplicate_bytes_stay_in_same_split(logos):

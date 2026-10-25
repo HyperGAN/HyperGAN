@@ -216,6 +216,20 @@ def sampler_bindings(config):
             for path in (spec.get("inputs") or {}).values()]
 
 
+def _recipe_part(config):
+    """The formulation compared against the reference recipe.
+
+    Observation, retention and launch metadata never change the formulation, and
+    neither do run length (training.steps) or placement (training.device): a
+    longer run or a different device is still the reference recipe. The
+    fingerprint and execution identity keep recording both.
+    """
+    ignored = {"metrics", "format", "name_map", "samplers", "checkpoints", "run", "_source_path"}
+    part = {k: v for k, v in config.items() if k not in ignored}
+    part["training"] = {k: v for k, v in part["training"].items() if k not in ("steps", "device")}
+    return part
+
+
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
     _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"}, "configuration")
@@ -560,9 +574,7 @@ def resolve_config(raw):
     if result['metrics']['custom']:
         warnings.append("Custom metrics execute trusted Python in bounded workers; input/output and deadlines are bounded, arbitrary allocations or descendants are not sandboxed.")
     warnings.extend(evaluation_warnings(result))
-    # Observation, retention and launch metadata never change the numerical recipe.
-    ignored_for_match = {"metrics", "format", "name_map", "samplers", "checkpoints", "run", "_source_path"}
-    match = {k: v for k, v in result.items() if k not in ignored_for_match} == {k: v for k, v in DEFAULT.items() if k not in ignored_for_match}
+    match = _recipe_part(result) == _recipe_part(DEFAULT)
     if not match:
         warnings.append("Custom resolved recipe: runnable combinations are unqualified until separately evaluated.")
     if any(":" in s["factory"] for s in components.values()) or ":" in result["data"]["factory"] or any(":" in t["factory"] for t in result["objectives"]):

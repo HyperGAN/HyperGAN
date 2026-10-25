@@ -64,3 +64,18 @@ def test_gaussian_grid_starter_is_the_qualified_reference_when_prepared(tmp_path
     assert Path(prepared.config['_source_path']) == Path(saved).resolve()
     assert prepared.config['qualification']['recipe_match'] is True
     assert not any('unqualified' in warning for warning in prepared.config['warnings'])
+
+
+@pytest.mark.parametrize('device', ['cpu', 'cuda'])
+@pytest.mark.parametrize('steps', [None, 20])
+def test_gaussian_grid_starter_flow_is_the_reference_recipe(tmp_path, device, steps):
+    # README flow: `hypergan new --project p --template gaussian-grid [--device D]`,
+    # then `hypergan train p/configs/gaussian-grid.toml [--steps 20]`.
+    info = init_project(tmp_path / 'p', template='gaussian-grid', device=device)
+    prepared = hg.prepare(hg.load(info['recipe_path']), tmp_path / 'run', steps)
+    config = prepared.config
+    assert (config['training']['device'], config['training']['steps']) == (device, steps or 5)
+    assert config['qualification']['recipe_match'] is True
+    assert not any('unqualified' in warning or 'trusted Python' in warning for warning in config['warnings'])
+    wider = hg.override(hg.load(info['recipe_path']), {'train.batch_size': 32})
+    assert hg.resolve(wider)['qualification']['recipe_match'] is False

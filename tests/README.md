@@ -17,7 +17,7 @@ Run everything from the repository root after `python -m pip install -e '.[dev,t
 | `reducers/` | Shared Foldlite reducers. | `reducers` |
 | `cuda/` | Native CUDA and two-GPU NCCL tests. Never skip missing hardware: they fail without GPUs. | CUDA runtime, GPUs |
 
-Shared helpers sit beside the directories: `hndl_fixtures.py` and `dinov3_fixtures.py` (network fixtures), `distributed_fixtures.py` (toy recipe and the FedAvg/DiLoCo oracles), and `fixtures/` (TOML inputs). `e2e/harness.py` holds the e2e-only builders and the multi-rank smoke runner.
+Shared helpers sit beside the directories: `hndl_fixtures.py` and `dinov3_fixtures.py` (network fixtures), `distributed_fixtures.py` (toy recipe and the FedAvg/DiLoCo oracles), `config_fixtures.py` (engine-recipe TOML writers), and `fixtures/` (TOML inputs). `e2e/harness.py` holds the e2e-only builders and the multi-rank smoke runner.
 
 ## Markers
 

@@ -2,7 +2,7 @@
 
 The [public execution guide](execution.md) documents `train --profile cuda-replicated-nccl` and profile-inferred `resume`. The internal adapter APIs and numerical evidence below also support these commands.
 
-The internal replicated run service supports fixed local CUDA ranks with NCCL. Each rank owns one visible GPU: rank zero uses `cuda:0`, rank one uses `cuda:1`, and so on. The recipe must use `training.device="cuda"`; an indexed device is a native single-GPU choice and is rejected for this profile. `CUDA_VISIBLE_DEVICES` may select and order the devices before launch. The fixed mapping and GPU UUIDs become part of strict recovery identity.
+The internal replicated run service supports fixed local CUDA ranks with NCCL. Each rank owns one visible GPU: rank zero uses `cuda:0`, rank one uses `cuda:1`, and so on. The recipe must use `train.device="cuda"`; an indexed device is a native single-GPU choice and is rejected for this profile. `CUDA_VISIBLE_DEVICES` may select and order the devices before launch. The fixed mapping and GPU UUIDs become part of strict recovery identity.
 
 Public `hypergan train` selects this strategy with `--profile cuda-replicated-nccl`; `hypergan resume` infers its saved execution identity. The lower-level internal API remains available from an importable Python script with a guarded entry point:
 

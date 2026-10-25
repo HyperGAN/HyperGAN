@@ -8,8 +8,10 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -64,32 +66,211 @@ def queue_lock(queue_path: Path):
         os.close(fd)
 
 
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _empty_queue(next_job_id: int = 1) -> dict:
+    return {
+        "schema_version": 1,
+        "next_job_id": next_job_id,
+        "stop_generation": 0,
+        "jobs": [],
+    }
+
+
+def _next_free_job_number(logs_dir: Path) -> int:
+    """First job number whose log file does not exist yet, so new jobs never append to old logs."""
+    highest = 0
+    try:
+        for p in logs_dir.glob("job-*.log"):
+            m = re.fullmatch(r"job-(\d+)\.log", p.name)
+            if m:
+                highest = max(highest, int(m.group(1)))
+    except OSError:
+        pass
+    return highest + 1
+
+
 def load_queue(queue_path: Path) -> dict:
-    """Load queue state from disk or initialize empty state."""
+    """Load queue state from disk or initialize empty state.
+
+    An unreadable queue file is moved aside to ``queue.json.corrupt-<timestamp>``
+    (never overwritten) and job numbering resumes after the newest job log.
+    """
     if not queue_path.is_file():
-        return {
-            "schema_version": 1,
-            "next_job_id": 1,
-            "jobs": [],
-        }
+        return _empty_queue()
     try:
         with queue_path.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        if isinstance(data, dict) and data.get("schema_version") == 1 and isinstance(data.get("jobs"), list):
-            return data
-    except Exception:
-        pass
-    return {
-        "schema_version": 1,
-        "next_job_id": 1,
-        "jobs": [],
-    }
+    except ValueError as exc:
+        reason = f"invalid JSON: {exc}"
+    else:
+        if isinstance(data, dict) and isinstance(data.get("jobs"), list):
+            if data.get("schema_version") == 1:
+                return data
+            raise ValueError(
+                f"Queue file {queue_path} has unsupported schema_version {data.get('schema_version')!r}; "
+                "it was written by a different HyperGAN version"
+            )
+        reason = "not a queue document"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    aside = queue_path.with_name(f"{queue_path.name}.corrupt-{stamp}")
+    os.replace(queue_path, aside)
+    print(
+        f"[queue] warning: {queue_path} is unreadable ({reason}); moved it to {aside.name} and started an empty queue.",
+        file=sys.stderr,
+    )
+    return _empty_queue(_next_free_job_number(queue_path.parent / "logs"))
 
 
 def save_queue(queue_path: Path, data: dict) -> None:
     """Persist queue state atomically to disk."""
     queue_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(queue_path, data)
+
+
+def _find_job(q: dict, job_id: str) -> Optional[dict]:
+    return next((j for j in q.get("jobs", []) if j.get("id") == job_id), None)
+
+
+# Process identity: a bare PID is reused after the process exits or the host reboots,
+# so jobs record (pid, host, boot id, kernel start time) and are only trusted or
+# signalled while all of them still match.
+
+def _boot_id() -> Optional[str]:
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip() or None
+    except OSError:
+        return None
+
+
+def _process_start_ticks(pid: int) -> Optional[int]:
+    """Kernel start time of a process (clock ticks since boot), or None when unavailable."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+        # Field 22 (starttime); the command name in field 2 may contain spaces and ')'.
+        return int(stat.rsplit(")", 1)[1].split()[19])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def _process_identity(pid: int) -> dict:
+    return {
+        "pid": pid,
+        "host": socket.gethostname(),
+        "boot_id": _boot_id(),
+        "start_ticks": _process_start_ticks(pid),
+    }
+
+
+def _identity_alive(identity) -> Optional[bool]:
+    """Whether the recorded process still runs: True/False, or None when this host cannot tell."""
+    if not isinstance(identity, dict) or not isinstance(identity.get("pid"), int):
+        return None
+    if identity.get("host") != socket.gethostname():
+        return None
+    pid = identity["pid"]
+    boot_id = _boot_id()
+    if identity.get("boot_id") and boot_id and identity["boot_id"] != boot_id:
+        return False
+    if identity.get("start_ticks") is not None:
+        return _process_start_ticks(pid) == identity["start_ticks"]
+    if os.name == "nt":
+        # os.kill(pid, 0) terminates the process on Windows.
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Owned by another user, so not a process this queue started.
+        return False
+    return True
+
+
+def _signal_job_process(job: dict, sig: int) -> bool:
+    """Signal a job's trainer only while it is still the process the runner started."""
+    pid = job.get("pid")
+    if not isinstance(pid, int):
+        return False
+    identity = job.get("process")
+    if identity is not None and _identity_alive(identity) is not True:
+        return False
+    try:
+        os.kill(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
+def _reconcile_orphans(q: dict) -> bool:
+    """Mark running jobs whose runner died (crash, SIGKILL, reboot) as interrupted.
+
+    A trainer that outlived its runner keeps the job running until it exits too.
+    Jobs claimed on another host, or by a runner without a recorded identity, are left alone.
+    """
+    changed = False
+    for j in q.get("jobs", []):
+        if j.get("status") != "running" or _identity_alive(j.get("runner")) is not False:
+            continue
+        if _identity_alive(j.get("process")) is True:
+            continue
+        j["status"] = "interrupted"
+        j["pid"] = None
+        j["ended_at"] = _now()
+        j["error"] = f"Queue runner (PID {j['runner']['pid']}) exited while the job was running"
+        changed = True
+    return changed
+
+
+def _load_reconciled(queue_path: Path) -> dict:
+    """load_queue plus orphan reconciliation; call with the queue lock held."""
+    q = load_queue(queue_path)
+    if _reconcile_orphans(q):
+        save_queue(queue_path, q)
+    return q
+
+
+def _peek_stop_generation(queue_path: Path) -> Optional[int]:
+    """Read stop_generation without the lock (writes are atomic replaces)."""
+    try:
+        with queue_path.open("r", encoding="utf-8") as f:
+            value = json.load(f).get("stop_generation", 0)
+        return value if isinstance(value, int) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _normalize_devices(devices, workspace_dict: dict | None = None) -> Optional[frozenset]:
+    """Canonical device set for runner/job matching: aliases resolved, 'cuda:N' == 'N'."""
+    if devices is None:
+        return None
+    items = devices.split(",") if isinstance(devices, str) else [str(d) for d in devices]
+    items = [d.strip() for d in items if str(d).strip()]
+    if not items:
+        return None
+    if not any(d.lower() == "auto" for d in items):
+        try:
+            resolved = resolve_device_aliases(items, workspace_dict)
+            items = [str(d).strip() for d in resolved if str(d).strip()]
+        except ValueError:
+            pass
+    canonical = set()
+    for d in items:
+        low = d.lower()
+        if low.startswith("cuda:") and low[5:].isdigit():
+            d = str(int(low[5:]))
+        elif low.isdigit():
+            d = str(int(low))
+        elif low in ("cpu", "auto"):
+            d = low
+        canonical.add(d)
+    return frozenset(canonical)
+
+
+def _devices_compatible(runner_devices: Optional[frozenset], job_devices: Optional[frozenset]) -> bool:
+    return runner_devices is None or job_devices is None or runner_devices == job_devices
 
 
 def inspect_gpu_hardware() -> list[dict]:
@@ -214,7 +395,7 @@ def queue_add(
             "sets": set_items,
             "no_web": no_web_flag,
             "status": "queued",
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": _now(),
             "started_at": None,
             "ended_at": None,
             "pid": None,
@@ -234,7 +415,7 @@ def queue_ls(
     """List jobs from the queue with optional status filtering."""
     qpath = find_queue_file(queue_file)
     with queue_lock(qpath):
-        q = load_queue(qpath)
+        q = _load_reconciled(qpath)
         jobs = q.get("jobs", [])
         if status_filter:
             jobs = [j for j in jobs if j.get("status") == status_filter]
@@ -249,7 +430,7 @@ def queue_status(
     """Inspect active job progress, summary metrics, and log tail."""
     qpath = find_queue_file(queue_file)
     with queue_lock(qpath):
-        q = load_queue(qpath)
+        q = _load_reconciled(qpath)
         jobs = q.get("jobs", [])
         target = None
         if job_id:
@@ -299,66 +480,77 @@ def queue_stop(
     stop_all: bool = False,
     queue_file: Path | str | None = None,
 ) -> dict:
-    """Cancel queued jobs or signal running jobs to halt."""
+    """Cancel queued jobs or signal running jobs to halt.
+
+    Each running trainer receives exactly one SIGINT (a second one forces an
+    exit without the final checkpoint). ``stop_all`` also bumps the queue's
+    ``stop_generation``, which halts every runner that was started before it.
+    """
     qpath = find_queue_file(queue_file)
     if stop_all:
         with queue_lock(qpath):
-            q = load_queue(qpath)
+            q = _load_reconciled(qpath)
             count = 0
-            running_pids = []
+            to_signal = []
             for j in q.get("jobs", []):
                 if j.get("status") == "queued":
                     j["status"] = "cancelled"
-                    j["ended_at"] = datetime.now(timezone.utc).isoformat()
+                    j["ended_at"] = _now()
                     j["error"] = "Cancelled by queue stop --all"
                     count += 1
-                elif j.get("status") == "running" and j.get("pid"):
-                    running_pids.append(j["pid"])
-            stop_file = qpath.with_name(qpath.name + ".stop")
-            stop_file.touch()
+                elif j.get("status") == "running" and j.get("pid") and not j.get("stop_signalled"):
+                    j["stop_signalled"] = True
+                    to_signal.append(j)
+            q["stop_generation"] = int(q.get("stop_generation", 0)) + 1
+            q["stop_requested_at"] = _now()
             save_queue(qpath, q)
-
-        for pid in running_pids:
-            try:
-                os.kill(pid, signal.SIGINT)
-            except ProcessLookupError:
-                pass
+            signalled = sum(1 for j in to_signal if _signal_job_process(j, signal.SIGINT))
 
         return {
             "stopped_all": True,
             "cancelled_count": count,
-            "stop_file": str(stop_file),
-            "message": f"Cancelled {count} queued job(s), wrote stop file, and signaled running process(es).",
+            "signalled_count": signalled,
+            "stop_generation": q["stop_generation"],
+            "message": (
+                f"Cancelled {count} queued job(s), asked running queue runners to halt, "
+                f"and signaled {signalled} running process(es)."
+            ),
         }
 
     if not job_id:
         raise ValueError("Must provide job_id or specify stop_all=True")
 
     with queue_lock(qpath):
-        q = load_queue(qpath)
-        job = next((j for j in q.get("jobs", []) if j.get("id") == job_id), None)
+        q = _load_reconciled(qpath)
+        job = _find_job(q, job_id)
         if not job:
             raise ValueError(f"Job '{job_id}' not found in queue")
 
         if job.get("status") == "queued":
             job["status"] = "cancelled"
-            job["ended_at"] = datetime.now(timezone.utc).isoformat()
+            job["ended_at"] = _now()
             job["error"] = "Cancelled by user"
             save_queue(qpath, q)
             return {"job_id": job_id, "status": "cancelled", "message": f"Cancelled queued job {job_id}"}
 
         if job.get("status") == "running":
             pid = job.get("pid")
-            if pid:
-                try:
-                    os.kill(pid, signal.SIGINT)
-                except ProcessLookupError:
-                    pass
+            already = bool(job.get("stop_signalled"))
             job["status"] = "cancelled"
-            job["ended_at"] = datetime.now(timezone.utc).isoformat()
+            job["ended_at"] = _now()
             job["error"] = "Stopped by user"
+            # Without a pid the runner has claimed but not launched the job; it
+            # signals the trainer itself once it records the pid and sees this.
+            job["stop_signalled"] = True
             save_queue(qpath, q)
-            return {"job_id": job_id, "status": "cancelled", "message": f"Signaled running job {job_id} (PID {pid})"}
+            signalled = False if already else _signal_job_process(job, signal.SIGINT)
+            if signalled:
+                message = f"Signaled running job {job_id} (PID {pid})"
+            elif pid and not already:
+                message = f"Marked job {job_id} cancelled; its process (PID {pid}) is no longer running"
+            else:
+                message = f"Marked job {job_id} cancelled"
+            return {"job_id": job_id, "status": "cancelled", "signalled": signalled, "message": message}
 
         return {"job_id": job_id, "status": job.get("status"), "message": f"Job {job_id} already has terminal status '{job.get('status')}'"}
 
@@ -408,6 +600,30 @@ def _find_run_dir_from_registry(pid: int | None, job_name: str | None) -> Option
     return None
 
 
+def _run_is_active(run_dir: Path | str) -> bool:
+    """A run is active only while its trainer holds .run.lock (or a remote host reports it live).
+
+    Manifest status alone is not enough: a SIGKILLed trainer leaves ``running`` behind.
+    """
+    from .inspection import check_run_active
+    try:
+        return bool(check_run_active(run_dir)[0])
+    except Exception:
+        return False
+
+
+def _update_job(queue_path: Path, job_id: str, **fields) -> Optional[dict]:
+    """Merge fields into one job under the queue lock; returns a copy of the job as saved."""
+    with queue_lock(queue_path):
+        q = load_queue(queue_path)
+        j = _find_job(q, job_id)
+        if j is None:
+            return None
+        j.update(fields)
+        save_queue(queue_path, q)
+        return dict(j)
+
+
 def queue_run(
     devices: str | None = None,
     poll_interval: float = 5.0,
@@ -426,6 +642,13 @@ def queue_run(
     ws_path = find_workspace(qpath.parent)
     ws_data = load_workspace(ws_path) if ws_path else {}
     working_dir = ws_path.parent if ws_path else qpath.parent.parent
+    runner_devices = _normalize_devices(devices, ws_data)
+    runner_identity = _process_identity(os.getpid())
+
+    with queue_lock(qpath):
+        q = _load_reconciled(qpath)
+        # Only `queue stop --all` issued after this runner started halts it.
+        baseline_generation = int(q.get("stop_generation", 0))
 
     stop_requested = False
     had_failure = False
@@ -435,25 +658,40 @@ def queue_run(
         nonlocal stop_requested
         stop_requested = True
 
+    def _halt_requested() -> bool:
+        # A manual stop file is consumed so it halts one runner pass, not every later `queue run`.
+        if stop_file.is_file():
+            try:
+                stop_file.unlink()
+            except FileNotFoundError:
+                pass
+            if not json_output:
+                print(f"[queue] Stop file '{stop_file.name}' detected; halting runner.", file=sys.stderr)
+            return True
+        generation = _peek_stop_generation(qpath)
+        if generation is not None and generation > baseline_generation:
+            if not json_output:
+                print("[queue] Queue stop requested; halting runner.", file=sys.stderr)
+            return True
+        return False
+
     prev_sigint = signal.signal(signal.SIGINT, _sig_handler)
     prev_sigterm = signal.signal(signal.SIGTERM, _sig_handler)
 
     try:
         while not stop_requested:
-            if stop_file.is_file():
-                if not json_output:
-                    print(f"[queue] Stop file '{stop_file.name}' detected; halting runner.", file=sys.stderr)
+            if _halt_requested():
                 return 0
 
             target_job = None
             with queue_lock(qpath):
-                q = load_queue(qpath)
+                q = _load_reconciled(qpath)
                 for j in q.get("jobs", []):
                     if j.get("status") == "queued":
                         # If runner is bound to specific devices, pick only jobs targeting or compatible with them
-                        if devices is not None and j.get("devices") and j["devices"] != devices:
+                        if not _devices_compatible(runner_devices, _normalize_devices(j.get("devices"), ws_data)):
                             continue
-                        target_job = j
+                        target_job = dict(j)
                         break
 
             if target_job is None:
@@ -472,6 +710,25 @@ def queue_run(
             job_id = target_job["id"]
             job_devices = target_job.get("devices") or devices
 
+            if target_job.get("kind") == "wait":
+                if _run_is_active(target_job["run_dir"]):
+                    # Still waiting
+                    time.sleep(poll_interval)
+                    continue
+
+                # Finished waiting (unless the wait was cancelled meanwhile)
+                with queue_lock(qpath):
+                    q = load_queue(qpath)
+                    j = _find_job(q, job_id)
+                    finished = j is not None and j.get("status") == "queued"
+                    if finished:
+                        j["status"] = "completed"
+                        j["ended_at"] = _now()
+                        save_queue(qpath, q)
+                if finished:
+                    executed_jobs.append({"id": job_id, "name": target_job.get("name"), "status": "completed", "exit_code": 0, "run_dir": target_job.get("run_dir")})
+                continue
+
             # Hardware preflight check
             avail, reason = check_device_availability(job_devices, ws_data)
             if not avail:
@@ -480,70 +737,34 @@ def queue_run(
                 time.sleep(poll_interval)
                 continue
 
-            if target_job.get("kind") == "wait":
-                target_rd = Path(target_job["run_dir"])
-                manifest_path = target_rd / "manifest.json"
-                is_running = True
-                if manifest_path.is_file():
-                    try:
-                        with manifest_path.open("r", encoding="utf-8") as f:
-                            man = json.load(f)
-                        if man.get("status") not in ("running", "initializing"):
-                            is_running = False
-                    except Exception:
-                        pass
-                else:
-                    is_running = False
-
-                if is_running:
-                    # Still waiting
-                    time.sleep(poll_interval)
-                    continue
-
-                # Finished waiting
-                with queue_lock(qpath):
-                    q = load_queue(qpath)
-                    for j in q.get("jobs", []):
-                        if j.get("id") == job_id:
-                            j["status"] = "completed"
-                            j["ended_at"] = datetime.now(timezone.utc).isoformat()
-                    save_queue(qpath, q)
-                executed_jobs.append({"id": job_id, "name": target_job.get("name"), "status": "completed", "exit_code": 0, "run_dir": target_job.get("run_dir")})
-                continue
-
             # Run lock collision check
             if target_job.get("run_dir"):
                 rdir = Path(target_job["run_dir"])
-                lock_file = rdir / ".run.lock"
-                if lock_file.is_file():
-                    is_locked = False
-                    try:
-                        fd = os.open(str(lock_file), os.O_RDWR)
-                        try:
-                            _lock_file(fd)
-                            _unlock_file(fd)
-                        except (BlockingIOError, OSError):
-                            is_locked = True
-                        finally:
-                            os.close(fd)
-                    except Exception:
-                        pass
-                    if is_locked:
-                        if not json_output:
-                            print(f"[queue] Run directory {rdir} locked by active process. Retrying in {poll_interval:.1f}s...", file=sys.stderr)
-                        time.sleep(poll_interval)
-                        continue
+                if _run_is_active(rdir):
+                    if not json_output:
+                        print(f"[queue] Run directory {rdir} locked by active process. Retrying in {poll_interval:.1f}s...", file=sys.stderr)
+                    time.sleep(poll_interval)
+                    continue
 
-            # Transition to running state under lock
-            log_path = Path(target_job["log_file"])
-            log_path.parent.mkdir(parents=True, exist_ok=True)
+            # Claim: the job must still be queued (not cancelled, not taken by another runner)
             with queue_lock(qpath):
                 q = load_queue(qpath)
-                for j in q.get("jobs", []):
-                    if j.get("id") == job_id:
-                        j["status"] = "running"
-                        j["started_at"] = datetime.now(timezone.utc).isoformat()
-                save_queue(qpath, q)
+                j = _find_job(q, job_id)
+                claimed = j is not None and j.get("status") == "queued"
+                if claimed:
+                    j["status"] = "running"
+                    j["started_at"] = _now()
+                    j["runner"] = runner_identity
+                    j["stop_signalled"] = False
+                    save_queue(qpath, q)
+                    target_job = dict(j)
+            if not claimed:
+                if not json_output:
+                    print(f"[queue] {job_id} was cancelled or claimed by another runner; skipping.", file=sys.stderr)
+                continue
+
+            log_path = Path(target_job["log_file"])
+            log_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Both aliases refer to the live log inode. Windows may require
             # elevated privileges for symlinks; a hard link does not.
@@ -585,22 +806,46 @@ def queue_run(
 
             if not json_output:
                 print(f"[queue] Starting {job_id} ({target_job['name']}): {' '.join(cmd)}")
-            with log_path.open("ab") as log_fp:
-                proc = subprocess.Popen(
-                    cmd,
-                    cwd=str(working_dir),
-                    stdout=log_fp,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                )
+            try:
+                with log_path.open("ab") as log_fp:
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=str(working_dir),
+                        stdout=log_fp,
+                        stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL,
+                    )
+            except OSError as exc:
+                had_failure = True
+                _update_job(qpath, job_id, status="failed", ended_at=_now(), error=f"Failed to launch trainer: {exc}")
+                executed_jobs.append({"id": job_id, "name": target_job.get("name"), "status": "failed", "exit_code": None, "run_dir": target_job.get("run_dir")})
+                continue
 
-            with queue_lock(qpath):
-                q = load_queue(qpath)
-                for j in q.get("jobs", []):
-                    if j.get("id") == job_id:
-                        j["pid"] = proc.pid
-                save_queue(qpath, q)
+            def _signal_once() -> None:
+                """SIGINT the trainer unless someone already did: a second SIGINT forces os._exit."""
+                with queue_lock(qpath):
+                    q = load_queue(qpath)
+                    j = _find_job(q, job_id)
+                    already = j is not None and bool(j.get("stop_signalled"))
+                    if j is not None and not already:
+                        j["stop_signalled"] = True
+                        save_queue(qpath, q)
+                if not already:
+                    try:
+                        proc.send_signal(signal.SIGINT)
+                    except (ProcessLookupError, OSError, AttributeError):
+                        pass
 
+            saved = _update_job(qpath, job_id, pid=proc.pid, process=_process_identity(proc.pid))
+            signalled = saved is not None and saved.get("status") != "running"
+            if signalled:
+                # Cancelled between claim and launch: `queue stop` had no pid to signal.
+                try:
+                    proc.send_signal(signal.SIGINT)
+                except (ProcessLookupError, OSError, AttributeError):
+                    pass
+
+            halting = False
             detected_run_dir = target_job.get("run_dir")
             exit_code = None
             while exit_code is None and not stop_requested:
@@ -612,22 +857,17 @@ def queue_run(
                 except subprocess.TimeoutExpired:
                     pass
 
-                if stop_file.is_file():
-                    try:
-                        proc.send_signal(signal.SIGINT)
-                    except ProcessLookupError:
-                        pass
+                if exit_code is None and not halting and _halt_requested():
+                    halting = True
+                if halting and not signalled:
+                    signalled = True
+                    _signal_once()
 
                 if not detected_run_dir:
                     discovered = _extract_run_dir_from_log(log_path)
                     if discovered:
                         detected_run_dir = discovered
-                        with queue_lock(qpath):
-                            q = load_queue(qpath)
-                            for j in q.get("jobs", []):
-                                if j.get("id") == job_id:
-                                    j["run_dir"] = detected_run_dir
-                            save_queue(qpath, q)
+                        _update_job(qpath, job_id, run_dir=detected_run_dir)
 
             if exit_code is None:
                 exit_code = proc.wait()
@@ -647,7 +887,7 @@ def queue_run(
                     if j.get("id") == job_id:
                         j["pid"] = None
                         j["exit_code"] = exit_code
-                        j["ended_at"] = datetime.now(timezone.utc).isoformat()
+                        j["ended_at"] = _now()
                         if detected_run_dir:
                             j["run_dir"] = detected_run_dir
                         if j.get("status") == "running":
@@ -666,6 +906,9 @@ def queue_run(
 
             if not json_output:
                 print(f"[queue] Finished {job_id} with exit code {exit_code}")
+
+            if halting:
+                return 0
 
         return 0
     finally:
@@ -794,9 +1037,10 @@ def format_queue_status(status_info: dict) -> str:
     if summary and isinstance(summary, dict):
         step = summary.get("step")
         total_steps = summary.get("total_steps")
-        speed = summary.get("speed_it_per_sec")
+        # Keys as written by summary.write_summary_json.
+        speed = summary.get("steps_per_sec")
         eta = summary.get("eta_seconds")
-        metrics = summary.get("latest_metrics", {})
+        metrics = summary.get("latest") or {}
 
         progress_str = f"Step {step}/{total_steps}" if total_steps else f"Step {step}"
         if speed:

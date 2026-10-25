@@ -32,16 +32,6 @@ try:
     from e2e.harness import (
         HAVE_CUDA,
         HAVE_2_GPUS,
-        HAVE_M1_RECIPE_PARITY,
-        HAVE_M1_SCHEMA,
-        HAVE_AGGREGATION,
-        HAVE_MULTINODE,
-        HAVE_QUALIFY,
-        requires_m1_recipe_parity,
-        requires_m1_schema,
-        requires_aggregation,
-        requires_multinode,
-        requires_qualify,
         requires_2_gpus,
         make_toy_config,
         make_prior_bound_config,
@@ -57,16 +47,6 @@ except ImportError:
     from tests.e2e.harness import (
         HAVE_CUDA,
         HAVE_2_GPUS,
-        HAVE_M1_RECIPE_PARITY,
-        HAVE_M1_SCHEMA,
-        HAVE_AGGREGATION,
-        HAVE_MULTINODE,
-        HAVE_QUALIFY,
-        requires_m1_recipe_parity,
-        requires_m1_schema,
-        requires_aggregation,
-        requires_multinode,
-        requires_qualify,
         requires_2_gpus,
         make_toy_config,
         make_prior_bound_config,
@@ -83,8 +63,6 @@ except ImportError:
 class TestTier3CrossFeatureCombinations:
     """Tier 3: Pairwise and multi-feature cross-module interaction verification."""
 
-    @requires_m1_schema
-    @requires_aggregation
     def test_tier3_accumulation_steps_plus_parameter_average(self):
         """Combination 1: accumulation_steps > 1 with parameter_average strategy."""
         cfg = make_toy_config(device="cpu", batch_size=16)
@@ -103,8 +81,6 @@ class TestTier3CrossFeatureCombinations:
         assert agg['strategy'] == 'parameter_average'
         assert agg['sync_every_steps'] == 2
 
-    @requires_m1_schema
-    @requires_aggregation
     def test_tier3_accumulation_steps_plus_pseudo_gradient(self):
         """Combination 2: accumulation_steps > 1 with pseudo_gradient strategy."""
         cfg = make_toy_config(device="cpu", batch_size=16)
@@ -124,9 +100,6 @@ class TestTier3CrossFeatureCombinations:
         assert agg['strategy'] == 'pseudo_gradient'
         assert agg['sync_every_steps'] == 4
 
-    @requires_m1_schema
-    @requires_multinode
-    @requires_aggregation
     def test_tier3_multinode_plus_pseudo_gradient(self):
         """Combination 3: multi-node topology (nodes=2) with pseudo_gradient strategy."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -154,7 +127,6 @@ class TestTier3CrossFeatureCombinations:
         agg = resolved.get('aggregation') or resolved['execution'].get('aggregation')
         assert agg['strategy'] == 'pseudo_gradient'
 
-    @requires_m1_recipe_parity
     def test_tier3_component_reuse_plus_adversarial_terms(self):
         """Combination 4: Reused components invoked inside extra adversarial_terms."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -176,7 +148,6 @@ class TestTier3CrossFeatureCombinations:
         from hypergan.execution_profiles import validate_replicated_recipe
         validate_replicated_recipe(cfg)
 
-    @requires_m1_recipe_parity
     def test_tier3_presets_plus_cpu_replicated_gloo(self):
         """Combination 5: Preset ParticleGAN recipe on cpu-replicated-gloo."""
         from hypergan.execution_profiles import validate_replicated_recipe
@@ -190,7 +161,7 @@ class TestTier3CrossFeatureCombinations:
         assert resolved['execution']['name'] == 'cpu-replicated-gloo'
         assert resolved['execution']['local_batch_size'] == 4
 
-    @requires_m1_recipe_parity
+    @pytest.mark.heavy
     @requires_2_gpus
     def test_tier3_presets_plus_cuda_replicated_nccl(self):
         """Combination 6: Preset ParticleGAN recipe on cuda-replicated-nccl."""
@@ -205,8 +176,6 @@ class TestTier3CrossFeatureCombinations:
         assert resolved['execution']['name'] == 'cuda-replicated-nccl'
         assert resolved['execution']['local_batch_size'] == 4
 
-    @requires_m1_recipe_parity
-    @requires_aggregation
     def test_tier3_prior_inputs_plus_parameter_average(self):
         """Combination 7: Generator with prior.z input trained with parameter_average."""
         cfg = make_prior_bound_config(device="cpu", batch_size=8)
@@ -222,8 +191,6 @@ class TestTier3CrossFeatureCombinations:
         agg = resolved.get('aggregation') or resolved['execution'].get('aggregation')
         assert agg['strategy'] == 'parameter_average'
 
-    @requires_m1_schema
-    @requires_multinode
     def test_tier3_multinode_tcp_plus_gradient_allreduce(self):
         """Combination 8: Multi-node TCP rendezvous with gradient_allreduce strategy."""
         cfg = make_toy_config(device="cpu", batch_size=16)
@@ -244,7 +211,6 @@ class TestTier3CrossFeatureCombinations:
         assert exec_tab['ranks_per_node'] == 2
         assert exec_tab['rendezvous'] == 'tcp://127.0.0.1:29500'
 
-    @requires_m1_recipe_parity
     def test_tier3_preset_plus_reuse_plus_adversarial_terms(self):
         """Combination 9: Compound recipe combining presets, component reuse, and extra adversarial terms."""
         from hypergan.execution_profiles import validate_replicated_recipe
@@ -261,7 +227,7 @@ class TestTier3CrossFeatureCombinations:
         ]
         validate_replicated_recipe(cfg)
 
-    @requires_qualify
+    @pytest.mark.heavy
     def test_tier3_qualification_cli_suite_filtering(self, tmp_path):
         """Combination 10: Qualification CLI selectively executing --suite aggregation in dry-run mode."""
         receipt = tmp_path / "qual_filter.json"

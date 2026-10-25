@@ -5,25 +5,60 @@ import hashlib
 from io import BytesIO
 import json
 import logging
+import os
 from pathlib import Path
+import stat
+import time
 import weakref
 
 
 _EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 _FORMATS = ("JPEG", "PNG", "BMP", "WEBP", "TIFF")
+# A file whose mtime/ctime is this close to the scan that inspected it may have
+# been rewritten within one filesystem timestamp tick ("racy" entries, as in
+# git's index). Such cache records are inspected again instead of trusted.
+_RACY_NS = 3_000_000_000
 
 
 class ImageDataError(ValueError):
     """A source read/decode failure, distinct from a loader programming error."""
 
 
+class EvaluationDataExhausted(ValueError):
+    """A finite, non-wrapping evaluation pass has no samples left.
+
+    Deliberately not ``StopIteration``: raised inside a generator, PEP 479
+    turns that into an unexplained ``RuntimeError``.
+    """
+
+
 def _digest(value):
+    """SHA-256 of canonical JSON; the one identity digest for data loaders."""
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()).hexdigest()
 
 
 def _positive_int(value, name):
     if type(value) is not int or value < 1:
         raise ValueError(f"image_folder {name} must be a positive integer")
+
+
+def shard_slice(batch_size, rank, world_size):
+    """This rank's ``slice`` of a global batch, or None when unsharded."""
+    if world_size is None or world_size == 1:
+        return None
+    if (type(world_size) is not int or world_size < 1 or type(rank) is not int
+            or not 0 <= rank < world_size or batch_size % world_size):
+        raise ValueError("Sharded data needs integer 0 <= rank < world_size and a batch_size divisible by world_size")
+    local = batch_size // world_size
+    return slice(rank * local, (rank + 1) * local)
+
+
+def default_manifest_cache():
+    """Inspection cache root: $HYPERGAN_CACHE_DIR, else $XDG_CACHE_HOME/hypergan."""
+    base = os.environ.get("HYPERGAN_CACHE_DIR")
+    if not base:
+        base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "hypergan"
+    return Path(base).expanduser() / "image-folder"
 
 
 class ImageFolder:
@@ -36,8 +71,13 @@ class ImageFolder:
     def __init__(self, root, *, height, width, mode="RGB", resize="none",
                  interpolation="bilinear", fill=0, recursive=True, labels=False,
                  shuffle=True, max_pixels=16_777_216, max_file_bytes=67_108_864,
-                 workers=4, prefetch_batches=1):
+                 workers=4, prefetch_batches=1, manifest_cache=None):
+        # manifest_cache: None uses default_manifest_cache(), a path overrides
+        # it, and False inspects every file on every construction.
         self._configure_workers(workers, prefetch_batches)
+        if manifest_cache is not None and manifest_cache is not False and (
+                not isinstance(manifest_cache, (str, Path)) or not str(manifest_cache).strip()):
+            raise ValueError("image_folder manifest_cache must be a nonempty path, false, or omitted")
         for name, value in (("height", height), ("width", width), ("max_pixels", max_pixels), ("max_file_bytes", max_file_bytes)):
             _positive_int(value, name)
         if mode not in {"RGB", "L"}:
@@ -69,45 +109,134 @@ class ImageFolder:
         self.resize, self.interpolation, self.fill = resize, interpolation, fill
         self.labels, self.shuffle = labels, shuffle
         self.max_pixels, self.max_file_bytes = max_pixels, max_file_bytes
-        self.entries = []
-        ignored = []
+        preprocessing = {"version": 1, "height": height, "width": width, "mode": mode,
+                         "resize": resize, "interpolation": interpolation, "fill": fill,
+                         "exif_orientation": "transpose", "alpha": "reject", "frames": "single",
+                         "dtype": "float32", "layout": "NCHW", "range": [-1, 1],
+                         "pillow_version": __version__, "max_pixels": max_pixels,
+                         "max_file_bytes": max_file_bytes}
+        scan_ns = time.time_ns()
+        files, ignored = [], []
         paths = self.root.rglob("*") if recursive else self.root.iterdir()
         for path in sorted(paths, key=lambda p: p.relative_to(self.root).as_posix()):
             relative = path.relative_to(self.root).as_posix()
-            if path.is_symlink():
+            info = path.lstat()
+            if stat.S_ISLNK(info.st_mode):
                 raise ValueError(f"Image folder contains symlink {relative}; use ordinary files/directories for a stable inventory")
-            if not path.is_file():
+            if not stat.S_ISREG(info.st_mode):
                 continue
             if path.suffix.lower() not in _EXTENSIONS:
                 ignored.append(relative)
                 continue
             if labels and len(path.relative_to(self.root).parts) < 2:
                 raise ValueError(f"Labelled image {relative} needs a named top-level class directory, e.g. cats/example.png")
-            entry = {"path": relative}
-            content = self._read_bytes(entry)
-            image, source = self._decode(content, relative)
-            self._preprocess(image, relative)  # Fail incompatible sizes before a batch starts.
-            entry.update(sha256=hashlib.sha256(content).hexdigest(), bytes=len(content), **source)
-            if labels:
-                entry["class"] = path.relative_to(self.root).parts[0]
-            self.entries.append(entry)
-        if not self.entries:
+            files.append((relative, [info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_ino]))
+        if not files:
             raise ValueError(f"No usable images in {self.root}: accepted=0, ignored_extensions={len(ignored)}, recursive={recursive}. Supported extensions: {', '.join(sorted(_EXTENSIONS))}; check the path and folder layout")
+        self.entries = self._inventory(files, scan_ns, preprocessing, recursive, manifest_cache)
+        if labels:
+            for entry in self.entries:
+                entry["class"] = entry["path"].split("/", 1)[0]
         self.class_map = {name: index for index, name in enumerate(sorted({entry["class"] for entry in self.entries}))} if labels else {}
         self.inventory = {"accepted": len(self.entries), "ignored_extensions": len(ignored), "ignored_paths": ignored, "supported_extensions": sorted(_EXTENSIONS)}
+        # References, not copies: resume_identity() copies on demand, so a
+        # million-image inventory is held once per process.
         self._identity = {
-            "schema_version": 1, "kind": "image_folder", "entries": deepcopy(self.entries),
-            "class_map": deepcopy(self.class_map), "labels": labels, "shuffle": shuffle,
-            "recursive": recursive,
-            "preprocessing": {"version": 1, "height": height, "width": width, "mode": mode,
-                              "resize": resize, "interpolation": interpolation, "fill": fill,
-                              "exif_orientation": "transpose", "alpha": "reject", "frames": "single",
-                              "dtype": "float32", "layout": "NCHW", "range": [-1, 1],
-                              "pillow_version": __version__, "max_pixels": max_pixels,
-                              "max_file_bytes": max_file_bytes},
+            "schema_version": 1, "kind": "image_folder", "entries": self.entries,
+            "class_map": self.class_map, "labels": labels, "shuffle": shuffle,
+            "recursive": recursive, "preprocessing": preprocessing,
         }
         self._identity_sha256 = _digest(self._identity)
         self._permutation, self._cursor, self._epoch = [], 0, 0
+
+    def _inspect(self, relative):
+        """Read, hash, decode and preprocess one file, so bad files fail before training."""
+        entry = {"path": relative}
+        content = self._read_bytes(entry)
+        image, source = self._decode(content, relative)
+        self._preprocess(image, relative)  # Fail incompatible sizes before a batch starts.
+        entry.update(sha256=hashlib.sha256(content).hexdigest(), bytes=len(content), **source)
+        return entry
+
+    def _inventory(self, files, scan_ns, preprocessing, recursive, manifest_cache):
+        """Inventory entries, reusing cached inspections of unchanged files.
+
+        Cache files are keyed by root, listing mode, preprocessing and Pillow
+        version. A record is trusted only when size, mtime, ctime and inode all
+        match and it is not racy. Every training read still checks the source
+        SHA-256, so the cache only skips the up-front decode.
+        """
+        cache_path = None
+        if manifest_cache is not False:
+            try:
+                directory = default_manifest_cache() if manifest_cache is None else Path(manifest_cache).expanduser()
+            except RuntimeError:  # No resolvable home directory: inspect everything.
+                directory = None
+            if directory is not None:
+                key = _digest({"kind": "image_folder_inspection", "version": 1, "root": str(self.root),
+                               "recursive": recursive, "preprocessing": preprocessing})
+                cache_path = directory / f"{key}.json"
+        cached = self._read_inspection_cache(cache_path)
+        records, entries, pending = {}, [None] * len(files), []
+        for position, (relative, signature) in enumerate(files):
+            record = cached.get(relative)
+            if (record is not None and record["signature"] == signature
+                    and max(signature[1], signature[2]) < record["scanned_ns"] - _RACY_NS):
+                entries[position] = {"path": relative, **record["entry"]}
+                records[relative] = record
+            else:
+                pending.append(position)
+        names = [files[position][0] for position in pending]
+        if self.workers and len(names) > 1:
+            results = []
+            # Bound queued work and memory even on million-image folders.
+            for start in range(0, len(names), 1024):
+                results.extend(self._executor().map(self._inspect, names[start:start + 1024]))
+        else:
+            results = [self._inspect(name) for name in names]
+        for position, entry in zip(pending, results):
+            relative, signature = files[position]
+            entries[position] = entry
+            records[relative] = {"signature": signature, "scanned_ns": scan_ns,
+                                 "entry": {k: v for k, v in entry.items() if k != "path"}}
+        if cache_path is not None and (pending or records.keys() != cached.keys()):
+            try:
+                from .run_state import atomic_json
+                atomic_json(cache_path, {"schema_version": 1, "kind": "image_folder_inspection",
+                                         "root": str(self.root), "preprocessing": preprocessing,
+                                         "files": records})
+            except OSError as exc:
+                logging.getLogger(__name__).warning("Image inspection cache not written to %s: %s", cache_path, exc)
+        return entries
+
+    @staticmethod
+    def _read_inspection_cache(path):
+        """Well-formed cache records by relative path; anything unreadable is ignored."""
+        if path is None:
+            return {}
+        try:
+            with path.open("rb") as stream:
+                cache = json.load(stream)
+        except (OSError, ValueError):
+            return {}
+        if not isinstance(cache, dict) or cache.get("schema_version") != 1 or not isinstance(cache.get("files"), dict):
+            return {}
+        valid = {}
+        for relative, record in cache["files"].items():
+            try:
+                entry, signature = record["entry"], record["signature"]
+                sha = entry["sha256"]
+                if (set(record) != {"signature", "scanned_ns", "entry"} or type(record["scanned_ns"]) is not int
+                        or not isinstance(signature, list) or len(signature) != 4 or any(type(v) is not int for v in signature)
+                        or set(entry) != {"sha256", "bytes", "source_width", "source_height", "source_mode"}
+                        or not isinstance(sha, str) or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha)
+                        or entry["bytes"] != signature[0] or entry["source_mode"] not in {"RGB", "L"}
+                        or any(type(entry[k]) is not int or entry[k] < 1 for k in ("source_width", "source_height"))):
+                    continue
+            except (KeyError, TypeError):
+                continue
+            valid[relative] = record
+        return valid
 
     def _configure_workers(self, workers, prefetch_batches):
         for name, value in (("workers", workers), ("prefetch_batches", prefetch_batches)):
@@ -117,6 +246,7 @@ class ImageFolder:
         self._pool, self._pool_finalizer, self._pending = None, None, {}
         self._pixel_cache = None
         self.bad_image_policy = 'error'
+        self.max_bad_images, self.max_consecutive_bad_images = 100, 8
         self._excluded, self._bad_image_streak = {}, 0
 
     def _executor(self):
@@ -178,13 +308,17 @@ class ImageFolder:
                 return cached
         return self._pixels(entry)
 
-    def _prefetch(self, batch_size):
+    def _prefetch(self, batch_size, local=None):
         if not self.workers or not self.prefetch_batches:
             return
         # Only look ahead in the existing permutation: never draw an epoch or
-        # advance the caller-owned RNG just to keep workers busy.
-        stop = self._cursor + batch_size * self.prefetch_batches
-        indices = [i for i in self._permutation[self._cursor:stop] if i not in self._excluded]
+        # advance the caller-owned RNG just to keep workers busy. A sharded
+        # rank reads only its own slice of each upcoming global batch.
+        local = slice(0, batch_size) if local is None else local
+        window = []
+        for start in range(self._cursor, self._cursor + batch_size * self.prefetch_batches, batch_size):
+            window.extend(self._permutation[start + local.start:start + local.stop])
+        indices = [i for i in window if i not in self._excluded]
         wanted = set(indices)
         stale = [self._pending.pop(index) for index in list(self._pending) if index not in wanted]
         for future in stale:
@@ -322,101 +456,82 @@ class ImageFolder:
                              f'max_consecutive_bad_images={self.max_consecutive_bad_images}); '
                              'check the dataset/storage before continuing')
 
+    def _draw(self, count, generator):
+        """Advance the sampler by ``count`` non-excluded indices, drawing epochs as needed."""
+        import torch
+        candidates = []
+        while len(candidates) < count:
+            if self._cursor == len(self._permutation):
+                self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
+                self._cursor = 0
+                self._epoch += 1
+            index = self._permutation[self._cursor]
+            self._cursor += 1
+            if index not in self._excluded:
+                candidates.append(index)
+        return candidates
+
+    def _read_candidates(self, candidates, futures):
+        """Accepted ``(index, pixels)`` in order; ``futures`` is refilled for rollback."""
+        futures.clear()
+        if self.workers:
+            pool = self._executor()
+            for index in candidates:
+                entry = self.entries[index]
+                prefetched = self._pending.pop(index, None)
+                futures.append(pool.submit(self._pixels, entry) if prefetched is None
+                               else pool.submit(self._verified_prefetch, entry, prefetched))
+        accepted = []
+        for position, index in enumerate(candidates):
+            if index in self._excluded:
+                continue
+            try:
+                value = futures[position].result() if self.workers else self._pixels(self.entries[index])
+            except ImageDataError as exc:
+                if self.bad_image_policy != 'skip':
+                    raise
+                self._exclude_image(index, exc)
+            else:
+                accepted.append((index, value))
+                self._bad_image_streak = 0
+        wait(futures)
+        return accepted
+
     def __call__(self, batch_size, *, generator, rank=0, world_size=1):
         import torch
         _positive_int(batch_size, "batch_size")
         if not isinstance(generator, torch.Generator) or generator.device.type != "cpu":
             raise ValueError("image_folder requires a caller-owned CPU torch.Generator")
-        sharded = world_size is not None and world_size > 1
-        local_batch_size = (batch_size // world_size) if sharded else batch_size
+        local = shard_slice(batch_size, rank, world_size)
+        # Strict loading reads only this rank's slice. Skipping must make the
+        # same exclusions on every rank, so each rank reads the whole global
+        # batch (refilling skipped slots) and keeps its slice afterwards.
+        local_only = local is not None and self.bad_image_policy != 'skip'
         # Permutations are replaced at epoch boundaries, never mutated. Keep
         # their reference for rollback instead of copying the entire inventory
         # (hundreds of thousands of indices) twice per training update.
         old_sampler = self._permutation, self._cursor, self._epoch
         old_excluded, old_streak = self._excluded.copy(), self._bad_image_streak
         old_rng = generator.get_state()
-        indices, pixels, futures = [], [], []
+        futures = []
         try:
-            if not sharded:
-                while len(pixels) < batch_size:
-                    candidates = []
-                    while len(candidates) < batch_size - len(pixels):
-                        if self._cursor == len(self._permutation):
-                            self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
-                            self._cursor = 0
-                            self._epoch += 1
-                        index = self._permutation[self._cursor]
-                        self._cursor += 1
-                        if index not in self._excluded:
-                            candidates.append(index)
-                    futures = []
-                    if self.workers:
-                        pool = self._executor()
-                        for index in candidates:
-                            entry = self.entries[index]
-                            prefetched = self._pending.pop(index, None)
-                            futures.append(pool.submit(self._pixels, entry) if prefetched is None
-                                           else pool.submit(self._verified_prefetch, entry, prefetched))
-                    for position, index in enumerate(candidates):
-                        if index in self._excluded:
-                            continue
-                        try:
-                            value = futures[position].result() if self.workers else self._pixels(self.entries[index])
-                        except ImageDataError as exc:
-                            if self.bad_image_policy != 'skip':
-                                raise
-                            self._exclude_image(index, exc)
-                        else:
-                            pixels.append(value)
-                            indices.append(index)
-                            self._bad_image_streak = 0
-                    wait(futures)
+            if local_only:
+                accepted = self._read_candidates(self._draw(batch_size, generator)[local], futures)
             else:
-                candidates = []
-                while len(candidates) < batch_size:
-                    if self._cursor == len(self._permutation):
-                        self._permutation = torch.randperm(len(self.entries), generator=generator).tolist() if self.shuffle else list(range(len(self.entries)))
-                        self._cursor = 0
-                        self._epoch += 1
-                    index = self._permutation[self._cursor]
-                    self._cursor += 1
-                    if index not in self._excluded:
-                        candidates.append(index)
-
-                start = rank * local_batch_size
-                load_candidates = candidates[start:start + local_batch_size]
-
-                futures = []
-                if self.workers:
-                    pool = self._executor()
-                    for index in load_candidates:
-                        entry = self.entries[index]
-                        prefetched = self._pending.pop(index, None)
-                        futures.append(pool.submit(self._pixels, entry) if prefetched is None
-                                       else pool.submit(self._verified_prefetch, entry, prefetched))
-                for position, index in enumerate(load_candidates):
-                    if index in self._excluded:
-                        continue
-                    try:
-                        value = futures[position].result() if self.workers else self._pixels(self.entries[index])
-                    except ImageDataError as exc:
-                        if self.bad_image_policy != 'skip':
-                            raise
-                        self._exclude_image(index, exc)
-                    else:
-                        pixels.append(value)
-                        indices.append(index)
-                        self._bad_image_streak = 0
-                wait(futures)
+                accepted = []
+                while len(accepted) < batch_size:
+                    accepted += self._read_candidates(self._draw(batch_size - len(accepted), generator), futures)
+                if local is not None:
+                    accepted = accepted[local]
             # Start the next reads before CPU normalization/assembly, too.
-            self._prefetch(local_batch_size)
+            self._prefetch(batch_size, local if local_only else None)
             channels = 3 if self.mode == "RGB" else 1
-            tensor = torch.frombuffer(bytearray(b"".join(pixels)), dtype=torch.uint8)
-            tensor = tensor.reshape(local_batch_size, self.height, self.width, channels).permute(0, 3, 1, 2)
+            tensor = torch.frombuffer(bytearray(b"".join(pixels for _, pixels in accepted)), dtype=torch.uint8)
+            tensor = tensor.reshape(len(accepted), self.height, self.width, channels).permute(0, 3, 1, 2)
             batch = {"real": tensor.to(torch.float32).div_(127.5).sub_(1).contiguous()}
             if self.labels:
                 batch["labels"] = torch.tensor([self.class_map[self.entries[index]["class"]]
-                                                for index in indices], dtype=torch.int64)
+                                                for index, _ in accepted], dtype=torch.int64)
             return batch
         except BaseException:
             for future in futures:

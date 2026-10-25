@@ -10,10 +10,24 @@ readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = "MIT"
 license-files = ["LICENSE"]
+# Keep the version classifiers equal to the CI lightweight matrix
+# (tests/foundation/test_repository_consistency.py checks both).
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = ["foldlitedb>=0.1.2,<0.2"]
 
 [project.optional-dependencies]
-train = ["hndl>=0.10.0", "particlegan>=0.9.2,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3"]
+train = ["hndl>=0.10.0,<1", "particlegan>=0.9.2,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3"]
 image = ["Pillow>=13.0.0,<14"]
 cifar = ["torchvision>=0.21,<1", "Pillow>=13.0.0,<14"]
 fid = ["torch-fidelity>=0.3.0,<0.5", "torchvision>=0.21,<1", "Pillow>=13.0.0,<14", "scipy>=1.10,<2.0"]
@@ -44,19 +58,19 @@ namespaces = false
 version = {attr = "hypergan.__version__"}
 
 [tool.pytest.ini_options]
-testpaths = ["tests/foundation", "tests/reference", "tests/unit", "tests/playbooks", "tests/e2e_integration"]
+testpaths = ["tests/foundation", "tests/reference", "tests/unit", "tests/playbooks", "tests/e2e", "tests/e2e_integration"]
 # The default selection is the fast suite: everything except `heavy`. A command
 # line `-m` replaces the one below, so `python -m pytest -m heavy` runs exactly
 # the gated tests and `-m ""` runs both halves together.
 addopts = ["--import-mode=importlib", "-ra", "--strict-markers", "-m", "not heavy"]
 markers = [
-    # The criterion is one measured number: a test is heavy when it took a
-    # second or more in reports/test-durations-2026-09-20.txt. Every test over
-    # that line also starts real operating system processes - a CLI run, a
-    # worker service, a two-rank job, an acceptance driver - so the two ways of
-    # saying it pick out the same 180 tests. Nothing is marked for sitting in a
-    # file next to one that is. Heavy tests are deselected by default and never
-    # skipped: a default run reports them as deselected, not as passing.
+    # A test is heavy when it starts real operating system processes - a CLI
+    # run, a worker service, a two-rank job, an acceptance driver - and takes a
+    # second or more. Measure with `--durations=0` when adding one; the original
+    # measurement is reports/test-durations-2026-09-20.txt. Nothing is marked
+    # for sitting in a file next to one that is. Heavy tests are deselected by
+    # default and never skipped: a default run reports them as deselected, not
+    # as passing. `--collect-only -q -m heavy` prints the current count.
     "heavy: starts real subprocesses or multi-rank jobs; a second or more each",
     # tests/cuda only; scripts/rocm_preflight_helper.py defers these on one GPU.
     "multi_gpu: needs two or more visible GPUs",

@@ -13,6 +13,8 @@ import math
 import torch
 from torch import nn
 
+from .data import shard_slice
+
 
 LABELS = ('red', 'green', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'black')
 # Fixed label order. Channels sit on the cube corners in [-1, 1].
@@ -84,12 +86,16 @@ class ColorWords:
             raise ValueError('noise must be a nonnegative finite number')
         self.noise = float(noise)
 
-    def __call__(self, batch_size, *, generator):
+    def __call__(self, batch_size, *, generator, rank=0, world_size=1):
         if type(batch_size) is not int or batch_size < 1:
             raise ValueError('batch_size must be a positive integer')
-        label = torch.randint(len(LABELS), (batch_size, 1), generator=generator)
-        base = CANONICAL[label.view(-1)].view(batch_size, 3, 1, 1).expand(batch_size, 3, IMAGE_SIZE, IMAGE_SIZE)
-        noise = torch.randn(batch_size, 3, IMAGE_SIZE, IMAGE_SIZE, generator=generator) * self.noise
+        local = shard_slice(batch_size, rank, world_size) or slice(None)
+        # Every rank draws the whole global batch so the stream advances
+        # identically, then builds only its own slice.
+        label = torch.randint(len(LABELS), (batch_size, 1), generator=generator)[local]
+        noise = torch.randn(batch_size, 3, IMAGE_SIZE, IMAGE_SIZE, generator=generator)[local] * self.noise
+        count = len(label)
+        base = CANONICAL[label.view(-1)].view(count, 3, 1, 1).expand(count, 3, IMAGE_SIZE, IMAGE_SIZE)
         return {'real': (base + noise).clamp(-1, 1), 'label': label}
 
 
@@ -254,7 +260,10 @@ def _labels(label):
 
 @torch.no_grad()
 def color_word_metrics(real, label, generator, image_encoder, text_encoder, joint_critic, means, sigma):
-    """Four measurements from one forward. Nothing is written as an image.
+    """Six measurements from one forward. Nothing is written as an image.
+
+    They are label recovery, text-to-image and reconstruction MAE, particle
+    agreement, the distinct particle count and the joint swap gap.
 
     Label recovery is nearest-canonical (squared RGB distance) of the spatial
     mean of ``G(E(text))``. Chance for eight labels is 0.125. Particle

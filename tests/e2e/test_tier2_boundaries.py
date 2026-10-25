@@ -4,7 +4,8 @@ Covers:
 - Empty, None, and zero inputs
 - Negative inputs and out-of-range bounds
 - Odd / indivisible topology (world_size vs nodes, batch_size vs world_size, local_batch vs accumulation)
-- Port limits in TCP rendezvous (port 0, 65536, negative, non-numeric, malformed)
+- TCP rendezvous port limits: tests/foundation/test_profile_m1_challenges.py
+  (test_invalid_rendezvous_ports_and_schemes_rejected) covers them through the product parser
 - Learning aggregation extremes (outer_lr, outer_momentum, sync_every_steps boundaries)
 - Profile payload size limits (MAX_PROFILE_BYTES)
 - Schema versioning boundaries
@@ -26,25 +27,15 @@ from hypergan.execution_profiles import (
 
 try:
     from e2e.harness import (
-        HAVE_M1_SCHEMA,
-        requires_m1_schema,
         make_toy_config,
         make_profile_raw,
     )
 except ImportError:
     from tests.e2e.harness import (
-        HAVE_M1_SCHEMA,
-        requires_m1_schema,
         make_toy_config,
         make_profile_raw,
     )
 
-
-def validate_tcp_port(port: int) -> int:
-    """Canonical TCP port validator according to GLOSSARY and networking standards."""
-    if type(port) is not int or port < 1 or port > 65535:
-        raise ValueError(f"TCP rendezvous port must be an integer between 1 and 65535, got {port}")
-    return port
 
 
 class TestTier2EmptyAndZeroInputs:
@@ -76,7 +67,6 @@ class TestTier2EmptyAndZeroInputs:
         with pytest.raises(ValueError, match="positive integer"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier2_zero_nodes_raises(self):
         """nodes = 0 raises ValueError (must be positive integer >= 1)."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -84,7 +74,6 @@ class TestTier2EmptyAndZeroInputs:
         with pytest.raises(ValueError, match="positive integer"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier2_zero_sync_every_steps_raises(self):
         """sync_every_steps = 0 raises ValueError (must be positive integer >= 1)."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -96,7 +85,6 @@ class TestTier2EmptyAndZeroInputs:
         with pytest.raises(ValueError, match="positive integer"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier2_zero_outer_lr_raises(self):
         """outer_lr = 0.0 raises ValueError (must be positive float > 0.0)."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -126,7 +114,6 @@ class TestTier2NegativeAndOutOfRangeInputs:
         with pytest.raises(ValueError, match="positive integer"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier2_negative_node_rank_raises(self):
         """Negative node_rank raises ValueError."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -134,7 +121,6 @@ class TestTier2NegativeAndOutOfRangeInputs:
         with pytest.raises(ValueError, match="node_rank"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier2_negative_outer_momentum_raises(self):
         """Negative outer_momentum raises ValueError."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -185,7 +171,6 @@ class TestTier2TopologyIndivisibility:
         with pytest.raises(ValueError, match="local_batch_size"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier2_world_size_not_divisible_by_nodes(self):
         """world_size not divisible by nodes raises ValueError (e.g. world_size=3, nodes=2)."""
         cfg = make_toy_config(device="cpu", batch_size=12)
@@ -193,7 +178,6 @@ class TestTier2TopologyIndivisibility:
         with pytest.raises(ValueError, match="nodes"):
             resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier2_nodes_exceeding_world_size_raises(self):
         """nodes > world_size raises ValueError (cannot have more nodes than total ranks)."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -205,18 +189,6 @@ class TestTier2TopologyIndivisibility:
 class TestTier2NetworkingAndLimits:
     """Tier 2: TCP rendezvous port limits, tolerance extremes, and payload limits."""
 
-    def test_tier2_port_limits_boundaries(self):
-        """Validate TCP rendezvous port boundaries (1 <= port <= 65535)."""
-        assert validate_tcp_port(1) == 1
-        assert validate_tcp_port(80) == 80
-        assert validate_tcp_port(29500) == 29500
-        assert validate_tcp_port(65535) == 65535
-
-        for invalid_port in (0, -1, 65536, 70000, "29500", 29500.5):
-            with pytest.raises(ValueError, match="port"):
-                validate_tcp_port(invalid_port)
-
-    @requires_m1_schema
     def test_tier2_outer_momentum_upper_boundary(self):
         """outer_momentum must be strictly < 1.0 (1.0 and above are rejected)."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -229,7 +201,6 @@ class TestTier2NetworkingAndLimits:
             with pytest.raises(ValueError, match="outer_momentum"):
                 resolve_execution_profile(raw, cfg)
 
-    @requires_m1_schema
     def test_tier2_outer_momentum_lower_boundary_zero_accepted(self):
         """outer_momentum = 0.0 is valid (standard pseudo-gradient without momentum)."""
         cfg = make_toy_config(device="cpu", batch_size=8)
@@ -242,7 +213,6 @@ class TestTier2NetworkingAndLimits:
         agg = resolved.get('aggregation') or resolved['execution'].get('aggregation')
         assert agg['outer_momentum'] == pytest.approx(0.0)
 
-    @requires_m1_schema
     def test_tier2_outer_lr_nonfinite_rejected(self):
         """Non-finite outer_lr (inf, -inf, nan) raises ValueError."""
         cfg = make_toy_config(device="cpu", batch_size=8)

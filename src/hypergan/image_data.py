@@ -5,16 +5,9 @@ import pickle
 import numpy as np
 import torch
 
+from .data import EvaluationDataExhausted
+from .dataset_download import CIFAR10_SHA256
 from .image_components import _verified_file
-
-CIFAR10_SHA256 = {
-    'data_batch_1': '54636561a3ce25bd3e19253c6b0d8538147b0ae398331ac4a2d86c6d987368cd',
-    'data_batch_2': '766b2cef9fbc745cf056b3152224f7cf77163b330ea9a15f9392beb8b89bc5a8',
-    'data_batch_3': '0f00d98ebfb30b3ec0ad19f9756dc2630b89003e10525f5e148445e82aa6a1f9',
-    'data_batch_4': '3f7bb240661948b8f4d53e36ec720d8306f5668bd0071dcb4e6c947f78e9682b',
-    'data_batch_5': 'd91802434d8376bbaeeadf58a737e3a1b12ac839077e931237e0dcd43adcb154',
-    'test_batch': 'f53d8d457504f7cff4ea9e021afcf0e0ad8e24a91f3fc42091b8adef61157831',
-}
 
 
 class CIFAR10Data:
@@ -63,7 +56,9 @@ class CIFAR10Data:
             ids = torch.randint(len(self.images), (batch_size,), device=device, generator=generator)
         else:
             if self.cursor + batch_size > len(self.images):
-                raise StopIteration('CIFAR sequential evaluation exhausted; it never wraps or repeats')
+                raise EvaluationDataExhausted(
+                    f'CIFAR {self.split} sequential evaluation exhausted: {self.cursor} of {len(self.images)} '
+                    f'images used, {batch_size} requested; it never wraps or repeats')
             ids = torch.arange(self.cursor, self.cursor + batch_size, device=device)
         self.cursor += batch_size
         if sharded:

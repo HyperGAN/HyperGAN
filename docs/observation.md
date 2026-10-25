@@ -1,6 +1,6 @@
 # Observe a run and request a checkpoint
 
-Event reads and checkpoint requests work from a base installation without importing PyTorch or loading model weights. Native CUDA and local replicated runs share these records. Periodic previews are opt-in; the [optional local viewer](local-web.md) can start with training or reconnect independently.
+Event reads and control requests work from a base installation without importing PyTorch or loading model weights. Native CUDA and local replicated runs share these records. Periodic previews are opt-in; the [optional local viewer](local-web.md) can start with training or reconnect independently.
 
 ```sh
 hypergan train demo --run-dir runs/demo --preview-every 10
@@ -44,7 +44,9 @@ not change the configuration fingerprint, and a replayed run reproduces the same
 losses with different durations. They are selectable in the browser's learning
 curves like any loss, and `metrics.disable` removes any of them.
 
-## Safe checkpoint requests
+## Safe control requests
+
+Control requests ask a running attempt to `checkpoint`, `sample` or `stop`. They share one durable queue, kept under `checkpoint_requests/` in the run directory (the name predates the `sample` and `stop` actions and is kept for compatibility). A `sample` receipt names its preview in `preview_path` and `artifact_path`, and succeeds only when the preview rendered for that request was published.
 
 `checkpoint` submits an atomic request addressed to a specific run and attempt. The default attempt comes from the current manifest; `--attempt-id` lets a caller pin it explicitly. Use a stable `--request-id` for retries. Reusing an ID with different target identity is an error. After resume changes the current attempt, use `--attempt-id ORIGINAL` to retry that original request, or `--status ID` to read its receipt. Without an ID, the command creates one and returns it in the receipt.
 
@@ -166,7 +168,7 @@ missing measurements are never fabricated or averaged. Checkpoint boundaries
 record any outstanding gap before committing the event prefix.
 
 Live manifests coalesce to the newest snapshot and are scheduled at most four
-times per second. Checkpoint request discovery uses a single background
+times per second. Control request discovery uses a single background
 read slot, at most four reads per second. Ordinary updates only consume
 cached results. Startup, periodic checkpoint and terminal control boundaries
 may perform fresh synchronous scans; terminal processing retries one lost

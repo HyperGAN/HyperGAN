@@ -58,7 +58,7 @@ Older-checkpoint selection is explicit. After successful restore, the controller
 
 Every update must return an agreed complete logical step, global metrics and checkpoint readiness from every rank. Partial D/G updates and poisoned groups cannot advance observed progress or publish a checkpoint. Workers prepare checkpoint payloads, while the parent validates the rank-zero receipt and compact peer acknowledgements, checks current group health, and publishes through its process-bound authority.
 
-The same [events and checkpoint requests](observation.md) apply: one parent appends events, polls requests at complete boundaries, coalesces saves, records request IDs in durable metadata and acknowledges after publication. A committed request can be reconciled after a lost acknowledgement. Requests targeting an older attempt are rejected rather than applied to a new one.
+The same [events and control requests](observation.md) apply: one parent appends events, polls requests at complete boundaries, coalesces saves, records request IDs in durable metadata and acknowledges after publication. A committed request can be reconciled after a lost acknowledgement. Requests targeting an older attempt are rejected rather than applied to a new one.
 
 This first adapter treats preparation and publication errors as fatal, including during an optional save. It does not attempt to recover an uncertain group or retry a consumed publication receipt. A later failure may leave a valid complete checkpoint. In particular, an error after pointer replacement can mean latest has changed; inspect durable state rather than assuming every failed attempt left the pointer untouched.
 

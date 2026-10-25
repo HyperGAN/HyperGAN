@@ -7,7 +7,6 @@ in lightweight environments. Training never invokes network downloads implicitly
 
 from copy import deepcopy
 import hashlib
-import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
@@ -16,6 +15,8 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from .run_state import atomic_json
 
 CIFAR10_SHA256 = {
     "data_batch_1": "54636561a3ce25bd3e19253c6b0d8538147b0ae398331ac4a2d86c6d987368cd",
@@ -136,22 +137,6 @@ def _verify_extracted_dir(extracted_root: Path, files_sha256: dict[str, str]) ->
 def _build_config_snippet(factory: str, root: Path) -> str:
     escaped = str(root.resolve()).replace("\\", "/")
     return f'[data]\nfactory = "{factory}"\n\n[data.args]\nroot = "{escaped}"\n'
-
-
-def _write_json_atomic(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=False, allow_nan=False)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_path, path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
 
 
 def _validate_url(url: str) -> str:
@@ -371,8 +356,11 @@ def download_dataset(
     if timeout <= 0:
         raise ValueError("timeout must be a positive number of seconds")
 
+    # Check the link itself: resolve() follows it, after which is_symlink() is always False.
+    if Path(destination).expanduser().is_symlink():
+        raise ValueError(f"Destination path must be a directory (not a file or symlink): {Path(destination).expanduser()}")
     dest_path = Path(destination).expanduser().resolve()
-    if dest_path.exists() and (not dest_path.is_dir() or dest_path.is_symlink()):
+    if dest_path.exists() and not dest_path.is_dir():
         raise ValueError(f"Destination path must be a directory (not a file or symlink): {dest_path}")
 
     cache_path = (
@@ -437,7 +425,7 @@ def download_dataset(
                 "config_snippet": _build_config_snippet(spec["factory"], extracted_target),
             }
             if not manifest_path.is_file() and not verify_only:
-                _write_json_atomic(manifest_path, manifest)
+                atomic_json(manifest_path, manifest)
             return {
                 **manifest,
                 "manifest_path": str(manifest_path),
@@ -452,9 +440,10 @@ def download_dataset(
     reused_archive = False
     resumed_partial = False
     if source_archive is not None:
-        archive_path = Path(source_archive).expanduser().resolve()
+        archive_path = Path(source_archive).expanduser()
         if archive_path.is_symlink() or not archive_path.is_file():
             raise FileNotFoundError(f"Source archive does not exist or is a symlink: {archive_path}")
+        archive_path = archive_path.resolve()
         archive_size, archive_sha = _hash_file(archive_path)
         if spec["expected_bytes"] is not None and archive_size != spec["expected_bytes"]:
             raise ValueError(
@@ -552,7 +541,7 @@ def download_dataset(
         },
         "config_snippet": _build_config_snippet(spec["factory"], extracted_target),
     }
-    _write_json_atomic(manifest_path, manifest)
+    atomic_json(manifest_path, manifest)
 
     return {
         **manifest,

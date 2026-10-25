@@ -13,3 +13,5 @@ dist/
 .agents/
 .claude/
 reports/
+# Qualification receipts are per-machine run outputs, never committed.
+*qualification-receipt*.json

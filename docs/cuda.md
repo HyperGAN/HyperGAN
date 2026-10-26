@@ -55,8 +55,8 @@ python -m pytest tests/cuda -q
 ```
 
 or record it in the `[run.env]` table of the model file or the workspace
-`hypergan.toml`; `hypergan train` and `hypergan resume` then re-execute themselves with that environment
-(see [configuration](configuration.md)):
+`hypergan.toml`; `hypergan train` and `hypergan resume` then re-execute
+themselves with that environment (see [configuration](configuration.md)):
 
 ```toml
 [run.env]

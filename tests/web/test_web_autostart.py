@@ -17,6 +17,28 @@ from hypergan.web_autostart import Viewer, training_viewer
 from hypergan.web_launch import bind_loopback
 
 
+def free_port():
+    """A port free on every address now, so tests never meet a live viewer on 8765."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(('0.0.0.0', 0))
+        return probe.getsockname()[1]
+
+
+@pytest.fixture(autouse=True)
+def viewer_port(monkeypatch):
+    """The default viewer port, moved to a free one for this test.
+
+    Viewers launched with no port read the default at call time, so default-port
+    behaviour stays covered without contending for the owner's real dashboard.
+    """
+    import hypergan.web_autostart
+    import hypergan.web_launch
+    port = free_port()
+    monkeypatch.setattr(hypergan.web_autostart, 'DEFAULT_VIEWER_PORT', port)
+    monkeypatch.setattr(hypergan.web_launch, 'DEFAULT_VIEWER_PORT', port)
+    return port
+
+
 def until(predicate, timeout=12):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -97,10 +119,10 @@ def test_default_does_not_wait_and_optional_bind_failure_is_independent(tmp_path
     assert 'training continues headless' in capsys.readouterr().err
 
 
-def test_automatic_viewer_keeps_fixed_port_and_shares_dashboard(tmp_path):
-    """The root dashboard uses fixed port 8765, and concurrent runs under root share it."""
-    from hypergan.ports import DEFAULT_VIEWER_PORT
+def test_automatic_viewer_keeps_fixed_port_and_shares_dashboard(tmp_path, viewer_port):
+    """The root dashboard uses the fixed default port, and concurrent runs under root share it."""
     from hypergan.web_autostart import stop_viewer
+    DEFAULT_VIEWER_PORT = viewer_port
     first, second = tmp_path / 'first', tmp_path / 'second'
 
     def port_of(viewer):
@@ -115,7 +137,7 @@ def test_automatic_viewer_keeps_fixed_port_and_shares_dashboard(tmp_path):
         with training_viewer(first, required=True) as restarted:
             assert port_of(restarted) == DEFAULT_VIEWER_PORT
             assert restarted.info['origin'].endswith(f':{DEFAULT_VIEWER_PORT}')
-            # A concurrent run under the same runs root shares that dashboard on port 8765.
+            # A concurrent run under the same runs root shares that dashboard on the default port.
             with training_viewer(second, required=True) as concurrent:
                 other = port_of(concurrent)
                 assert other == DEFAULT_VIEWER_PORT
@@ -149,7 +171,7 @@ def test_numerical_failure_keeps_viewer_and_viewer_failure_does_not_fail_trainin
 
 
 @pytest.mark.parametrize('ending', ['normal', 'term', 'kill'])
-def test_parent_exit_or_signal_leaves_server_available(tmp_path, ending):
+def test_parent_exit_or_signal_leaves_server_available(tmp_path, ending, viewer_port):
     from hypergan.web_autostart import _probe, _session, stop_viewer
     script = tmp_path / 'parent.py'
     info = tmp_path / 'info.json'
@@ -158,12 +180,12 @@ def test_parent_exit_or_signal_leaves_server_available(tmp_path, ending):
 import json, time, sys
 from pathlib import Path
 if __name__ == '__main__':
-    with training_viewer(Path(__file__).parent / 'pending', required=True) as viewer:
+    with training_viewer(Path(__file__).parent / 'pending', required=True, port=int(sys.argv[2])) as viewer:
         Path(__file__).with_name('info.json').write_text(json.dumps(viewer.info))
         if sys.argv[1] != 'normal':
             time.sleep(60)
 """)
-    process = subprocess.Popen([sys.executable, str(script), ending], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    process = subprocess.Popen([sys.executable, str(script), ending, str(viewer_port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     try:
         until(info.exists)
         record = json.loads(info.read_text())
@@ -435,6 +457,27 @@ def test_bind_available_raises_actionable_error_on_conflict():
             bind_available(port)
     finally:
         listener.close()
+
+
+def test_bind_available_rejects_swapped_port_and_host():
+    """Arguments in the wrong order fail loudly instead of being silently swapped."""
+    from hypergan.web_launch import bind_available
+    port = free_port()
+    with pytest.raises(TypeError, match='port must be an int or None, not str'):
+        bind_available('127.0.0.1', port)
+    with pytest.raises(TypeError, match='host must be a string, not int'):
+        bind_available(None, port)
+    with pytest.raises(TypeError, match='port must be an int or None, not str'):
+        bind_available(str(port), '127.0.0.1')
+    # Nothing was bound by the rejected calls.
+    with bind_available(port, '127.0.0.1') as listener:
+        assert listener.getsockname() == ('127.0.0.1', port)
+
+
+def test_stable_default_viewer_port_is_8765():
+    """The real default stays the bookmarked port, though tests above use a free one."""
+    from hypergan import ports
+    assert ports.DEFAULT_VIEWER_PORT == 8765
 
 
 def test_ensure_dashboard_running_auto_restart_on_version_mismatch(tmp_path, monkeypatch):

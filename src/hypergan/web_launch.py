@@ -46,8 +46,11 @@ def bind_available(port=None, host="0.0.0.0", *, attempts=1):
     Does not hunt across port range. If the target port is occupied, raises an
     actionable OSError identifying the conflicting process.
     """
-    if isinstance(port, str) and isinstance(host, int):
-        port, host = host, port
+    # Arguments in the wrong order are a caller bug; never guess which was meant.
+    if port is not None and type(port) is not int:
+        raise TypeError(f'port must be an int or None, not {type(port).__name__}')
+    if not isinstance(host, str):
+        raise TypeError(f'host must be a string, not {type(host).__name__}')
     target_port = DEFAULT_VIEWER_PORT if port is None else port
     last_error = None
     for attempt in range(max(1, attempts)):

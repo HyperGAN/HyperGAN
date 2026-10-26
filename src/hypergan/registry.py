@@ -21,8 +21,6 @@ from ._file_lock import lock_file, unlock_file
 from .summary import atomic_write_json, read_summary_json
 from .workspace import find_workspace, load_workspace
 
-_FID_RE = re.compile(r'(?:^|[^a-z0-9])fid(?:$|[^a-z]|50k)', re.IGNORECASE)
-
 # A persisted root that is missing (unmounted drive, offline share) is kept this
 # long before it is forgotten, so one `ps` while a disk is unplugged loses nothing.
 MISSING_ROOT_RETENTION = timedelta(days=30)
@@ -31,13 +29,6 @@ RESERVATION_RETENTION = timedelta(days=1)
 
 # Written by `hypergan tag`; the trainer never rewrites it, unlike manifest.json.
 TAG_FILE = "tag.json"
-
-
-def _is_fid_metric(metric_name: Any) -> bool:
-    if not metric_name:
-        return False
-    return bool(_FID_RE.search(str(metric_name)))
-
 
 
 @contextmanager
@@ -243,6 +234,74 @@ def canonical_slug(
     return extract_or_derive_slug(str(run_id), name=name, run_dir_name=run_dir.name)
 
 
+def read_run_fid(
+    run_dir: Union[Path, str],
+    summary: Optional[Dict[str, Any]] = None,
+    manifest: Optional[Dict[str, Any]] = None,
+    *,
+    fallback_evaluations: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """The FID every reader (`ps`, `status`, the registry, the dashboard) reports for a run.
+
+    summary.json's ``best_fid``/``latest_fid`` describe the run's primary metric
+    when the catalog says it is an FID (summary.is_fid_metric); a non-FID
+    primary metric means no FID. Without a primary metric in summary.json
+    (no summary yet, or legacy receipts without a catalog) the same ranking
+    runs over the recorded evaluations, and failing that a run that evaluated
+    exactly one FID protocol reports it. Different protocols (fid_smoke,
+    fid10k_heldout, fid50k_train) are never pooled.
+    """
+    from .summary import collect_evaluations, compute_best_evaluation, is_fid_metric
+
+    none = {"metric": None, "best_fid": None, "best_step": None, "latest_fid": None}
+    summary = summary if isinstance(summary, dict) else {}
+    best = summary.get("best")
+    if isinstance(best, dict) and best.get("metric"):
+        if not is_fid_metric(best):
+            return none
+        best_fid = summary.get("best_fid")
+        if not isinstance(best_fid, (int, float)):
+            best_fid = best.get("value")
+        return {
+            "metric": str(best["metric"]),
+            "best_fid": float(best_fid) if isinstance(best_fid, (int, float)) else None,
+            "best_step": best.get("step") if best.get("step") is not None else summary.get("best_step"),
+            "latest_fid": summary.get("latest_fid") if isinstance(summary.get("latest_fid"), (int, float)) else None,
+        }
+
+    evaluations = summary.get("evaluations") if isinstance(summary.get("evaluations"), list) else None
+    if not evaluations:
+        evaluations = collect_evaluations(Path(run_dir)) or list(fallback_evaluations or [])
+    evaluations = [
+        r for r in evaluations
+        if isinstance(r, dict) and r.get("metric") and isinstance(r.get("value"), (int, float))
+        and isinstance(r.get("step"), int)
+    ]
+    config = (manifest or {}).get("config")
+    policy = config.get("checkpoints") if isinstance(config, dict) else None
+    best_record = compute_best_evaluation(evaluations, policy=policy if isinstance(policy, dict) else None)
+    if best_record is not None:
+        if not is_fid_metric(best_record):
+            return none
+        metric = best_record["metric"]
+        records = [r for r in evaluations if r["metric"] == metric]
+    else:
+        fid_metrics = {r["metric"] for r in evaluations if is_fid_metric(r)}
+        if len(fid_metrics) != 1:
+            return none
+        metric = fid_metrics.pop()
+        records = [r for r in evaluations if r["metric"] == metric]
+        # FID is minimized; ties prefer the later step, as summary ``best`` does.
+        best_record = min(records, key=lambda r: (r["value"], -r["step"]))
+    latest_record = max(records, key=lambda r: r["step"])
+    return {
+        "metric": str(metric),
+        "best_fid": float(best_record["value"]),
+        "best_step": best_record["step"],
+        "latest_fid": float(latest_record["value"]),
+    }
+
+
 def find_workspace_runs_root(start_path: Optional[Union[Path, str]] = None) -> Optional[Path]:
     """Discover hypergan.toml from start_path and return its resolved runs_root if configured."""
     ws_file = find_workspace(start_path)
@@ -337,9 +396,6 @@ def get_registry_dir(cwd: Optional[Union[Path, str]] = None) -> Path:
     return Path.home() / ".local" / "share" / "hypergan"
 
 
-_get_state_dir = get_registry_dir
-
-
 def _empty_registry() -> Dict[str, Any]:
     return {"schema_version": 1, "runs": {}, "roots": []}
 
@@ -404,11 +460,17 @@ def _load_registry(reg_dir: Path, *, locked: bool) -> Dict[str, Any]:
         return _empty_registry()
 
 
-def _read_registry_unlocked(reg_dir: Path) -> Dict[str, Any]:
-    return _load_registry(reg_dir, locked=False)
+def read_registry(reg_dir: Optional[Union[Path, str]] = None) -> Dict[str, Any]:
+    """A snapshot of runs.json (default: the registry for the current directory).
+
+    Takes no lock: writes are atomic replaces, so a reader never sees a torn
+    file. Use it for lookups; changes go through register_run/unregister_run.
+    """
+    return _load_registry(Path(reg_dir) if reg_dir is not None else get_registry_dir(), locked=False)
 
 
-_load_registry_unlocked = _read_registry_unlocked
+# api.py and web_autostart.py still import the old private name.
+_read_registry_unlocked = read_registry
 
 
 def _registered_slugs(reg_dir: Path, *, exclude_run_id: str = "") -> set:
@@ -641,9 +703,6 @@ def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
                 continue
 
     return roots, run_dirs
-
-
-discover_runs_on_host = _discover_system_roots_and_runs
 
 
 def _read_run_id_fast(run_dir: Path) -> Optional[str]:
@@ -967,18 +1026,9 @@ def _extract_run_entry(
     if sps is None and events_fallback:
         sps = events_fallback.get("steps_per_sec")
 
-    best = summary.get("best") if summary else None
-    best_fid = summary.get("best_fid") if summary else None
-    if best and isinstance(best, dict):
-        b_metric = str(best.get("metric") or "")
-        if _is_fid_metric(b_metric) and isinstance(best.get("value"), (int, float)):
-            best_fid = best.get("value")
-        elif not _is_fid_metric(b_metric):
-            best_fid = None
-    elif best_fid is not None and isinstance(best, dict) and not _is_fid_metric(best.get("metric", "")):
-        best_fid = None
-    if best_fid is None and events_fallback:
-        best_fid = events_fallback.get("best_fid")
+    best_fid = read_run_fid(
+        run_dir, summary, manifest, fallback_evaluations=events_fallback.get("evaluations") if events_fallback else None,
+    )["best_fid"]
 
     device = (
         (summary.get("device") if summary else None)
@@ -1037,9 +1087,6 @@ def _extract_run_entry(
     return result
 
 
-_inspect_run_entry = _extract_run_entry
-
-
 def register_run(
     run_dir: Union[Path, str],
     *,
@@ -1063,7 +1110,7 @@ def register_run(
     lock_path = reg_dir / "registry.lock"
     key = str(run_path)
 
-    snapshot_prev = _read_registry_unlocked(reg_dir)["runs"].get(key)
+    snapshot_prev = read_registry(reg_dir)["runs"].get(key)
     extracted = _extract_run_entry(
         run_path, existing=snapshot_prev if isinstance(snapshot_prev, dict) else None, use_cache=False,
     )
@@ -1284,7 +1331,7 @@ def list_registered_runs(
         or bool(os.environ.get("HYPERGAN_STATE_DIR"))
     )
 
-    original = _read_registry_unlocked(reg_dir)
+    original = read_registry(reg_dir)
     data = copy.deepcopy(original)
     runs_updates: Dict[str, Optional[Dict[str, Any]]] = {}
     changed = False
@@ -1456,7 +1503,10 @@ def sync_registry(
     cwd: Optional[Union[Path, str]] = None,
     extra_roots: Optional[List[Union[Path, str]]] = None,
 ) -> List[Dict[str, Any]]:
-    """Synchronize the registry with known roots, workspace runs_root, and live host runs."""
+    """Synchronize the registry with known roots, workspace runs_root, and live host runs.
+
+    Same as list_registered_runs; kept because api.sync_registry forwards here.
+    """
     return list_registered_runs(cwd=cwd, extra_roots=extra_roots)
 
 
@@ -1535,7 +1585,7 @@ def resolve_run_target(
         raw_before_sync: List[Dict[str, Any]] = []
         if (reg_dir / "runs.json").is_file():
             # Writes are atomic replaces, so this snapshot needs no lock.
-            raw_data = _read_registry_unlocked(reg_dir)
+            raw_data = read_registry(reg_dir)
             for k, v in raw_data.get("runs", {}).items():
                 if isinstance(v, dict):
                     snap = dict(v)
@@ -1691,7 +1741,7 @@ def _protected_dirs(cwd_path: Path) -> Dict[str, str]:
         add(ws_file.parent, "a workspace root")
     add(find_workspace_runs_root(cwd_path), "a workspace runs root")
     try:
-        roots = _read_registry_unlocked(get_registry_dir(cwd_path)).get("roots", [])
+        roots = read_registry(get_registry_dir(cwd_path)).get("roots", [])
     except RuntimeError:
         roots = []
     for root in roots:

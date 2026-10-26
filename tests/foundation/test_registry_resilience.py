@@ -20,7 +20,6 @@ from hypergan.inspection import (
     read_run_logs,
     remove_run,
     run_status,
-    status,
     tag_run,
 )
 from hypergan.registry import (
@@ -215,7 +214,7 @@ def test_corrupted_or_missing_metadata_fallback(tmp_path):
     # Case 1: Truncated/corrupted summary.json -> falls back to manifest.json and events.jsonl
     (run_dir / "summary.json").write_text("{corrupted_json: [1, 2", encoding="utf-8")
 
-    st = status(run_dir, cwd=tmp_path)
+    st = run_status(run_dir, cwd=tmp_path)
     assert st["run_id"] == "deadbeefcafebabe1234567890abcdef"
     assert st["name"] == "resilient-exp"
     assert st["status"] == "completed"

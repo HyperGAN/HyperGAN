@@ -19,7 +19,9 @@ from metrics_server_proof import build
 
 async def ready(root):
     started = time.perf_counter()
-    service = await ObservationService(root, poll_seconds=.01, history_timeout=180).start()
+    # Bootstrap caches live outside the run; keep them in the fixture's temporary tree.
+    service = await ObservationService(root, poll_seconds=.01, history_timeout=180,
+                                       cache_dir=root.parent / 'viewer-cache').start()
     while not service.streams or not all(stream.caught_up for stream in service.streams.values()):
         for stream in service.streams.values():
             if stream.error:
@@ -81,7 +83,7 @@ async def proof(root, count, source):
     finally:
         Reducer.add = original_add
 
-    cache_bytes = sum(path.stat().st_size for path in root.glob('views/*/foldlite/*.fold*'))
+    cache_bytes = sum(path.stat().st_size for path in service.view_cache_dir(MapSpec().revision).glob('*.fold*'))
     return {
         'initial_source_documents': count + 1,
         'initial_measurements': count,
@@ -109,7 +111,8 @@ if __name__ == '__main__':
     if args.documents < 1:
         parser.error('--documents must be positive')
     with tempfile.TemporaryDirectory(prefix='hypergan-foldlite-proof-') as temporary:
-        root = Path(temporary)
+        root = Path(temporary) / 'run'
+        root.mkdir()
         source = build(root, args.documents)
         result = asyncio.run(proof(root, args.documents, source))
     args.output.parent.mkdir(parents=True, exist_ok=True)

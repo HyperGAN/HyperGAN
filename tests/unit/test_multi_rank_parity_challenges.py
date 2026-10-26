@@ -38,14 +38,14 @@ from hypergan.aggregation import (
 )
 from hypergan.config import resolve_config
 try:
-    from e2e.harness import (
+    from tests.distributed_fixtures import (
         oracle_parameter_average,
         oracle_pseudo_gradient_step,
         assert_states_close,
         make_toy_config,
     )
 except ImportError:
-    from tests.e2e.harness import (
+    from distributed_fixtures import (
         oracle_parameter_average,
         oracle_pseudo_gradient_step,
         assert_states_close,
@@ -199,7 +199,7 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 from hypergan.distributed_training import ReplicatedCPUTrainer
-from e2e.harness import make_toy_config
+from distributed_fixtures import make_toy_config
 
 rank = int(sys.argv[1])
 world_size = int(sys.argv[2])
@@ -249,7 +249,7 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 from hypergan.distributed_training import ReplicatedCPUTrainer
-from e2e.harness import make_toy_config
+from distributed_fixtures import make_toy_config
 
 rank = int(sys.argv[1])
 world_size = int(sys.argv[2])
@@ -318,7 +318,7 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 from hypergan.distributed_training import ReplicatedCPUTrainer
-from e2e.harness import make_toy_config
+from distributed_fixtures import make_toy_config
 
 rank = int(sys.argv[1])
 world_size = int(sys.argv[2])
@@ -458,7 +458,7 @@ from datetime import timedelta
 import torch
 import torch.distributed as dist
 from hypergan.distributed_training import ReplicatedCPUTrainer
-from e2e.harness import make_toy_config
+from distributed_fixtures import make_toy_config
 
 rank = int(sys.argv[1])
 world_size = int(sys.argv[2])

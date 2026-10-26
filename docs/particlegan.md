@@ -38,8 +38,8 @@ Existing concrete configurations can still be loaded with their explicit
 settings. Without a recipe snapshot, construction uses ParticleGAN's public
 `Recipe` restoration defaults; HyperGAN no longer selects a named historical
 formulation. Historical checkpoints require their recorded dependency and source
-compatibility. `write_default(..., defaults="hypergan")` emits the concrete
-reference fixture; fresh projects use the released ParticleGAN preset.
+compatibility. The packaged `gaussian-grid` model is the concrete reference
+fixture; fresh image projects use the released ParticleGAN preset.
 
 Fresh parameter initialization uses ParticleGAN's public initializer when
 `training.initialization = "deterministic_orthogonal"`. Loaded pretrained

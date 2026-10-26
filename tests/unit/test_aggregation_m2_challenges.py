@@ -2,7 +2,7 @@
 
 Covers:
 1. Mathematical oracle verification of ParameterAverageAggregation and PseudoGradientAggregation
-   against tests/e2e/harness.py:oracle_parameter_average and oracle_pseudo_gradient_step (oracle_diloco).
+   against tests/distributed_fixtures.py:oracle_parameter_average and oracle_pseudo_gradient_step (oracle_diloco).
 2. Multi-round momentum accumulation matrix:
    outer_momentum in {0.9, 0.5, 0.0} x outer_lr in {1.0, 0.5} across 5 sync rounds.
    Exact verification of:
@@ -38,14 +38,14 @@ from hypergan.aggregation import (
 )
 from hypergan.execution_profiles import resolve_execution_profile
 try:
-    from e2e.harness import (
+    from tests.distributed_fixtures import (
         oracle_parameter_average,
         oracle_pseudo_gradient_step,
         assert_states_close,
         make_toy_config,
     )
 except ImportError:
-    from tests.e2e.harness import (
+    from distributed_fixtures import (
         oracle_parameter_average,
         oracle_pseudo_gradient_step,
         assert_states_close,

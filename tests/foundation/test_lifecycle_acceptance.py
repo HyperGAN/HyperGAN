@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.run_state import run_lock
 
 

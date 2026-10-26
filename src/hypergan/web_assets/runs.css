@@ -53,6 +53,12 @@ time { display: block; min-width: 132px; color: #cbd5e1; font-variant-numeric: t
 .empty-state p { margin: 0; }
 .error, #refresh-status.error { color: #fca5a5; }
 #action-status { padding: 12px; border: 1px solid #475569; border-radius: 6px; }
+.login-panel { display: grid; gap: 8px; max-width: 420px; margin: 0 0 24px; padding: 16px; border: 1px solid #475569; border-radius: 6px; }
+.login-panel[hidden] { display: none; }
+.login-panel h2 { font-size: 16px; color: #e2e8f0; margin: 0; }
+.login-panel p { margin: 0; color: #94a3b8; }
+.login-panel input { min-height: 36px; padding: 6px 10px; background: #0f172a; color: #e2e8f0; border: 1px solid #475569; border-radius: 6px; }
+#login-error { color: #fca5a5; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 @media (max-width: 900px) {
   .container { padding: 16px; }

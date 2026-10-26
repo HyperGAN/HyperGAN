@@ -13,12 +13,13 @@ With the CPU training dependencies installed, save this as `replicated_demo.py` 
 ```python
 from pathlib import Path
 
-from hypergan.config import write_default
+import hypergan.api as hg
 from hypergan.replicated_execution import run_resume, run_train
 
 
 if __name__ == "__main__":
-    config = write_default(Path("replicated-project"), device="cpu")
+    reference = hg.override(hg.packaged("gaussian-grid"), {"train.device": "cpu"})
+    config = hg.save(reference, Path("replicated-project") / "model.toml")
     profile = {
         "schema_version": 1,
         "execution": {
@@ -58,7 +59,7 @@ Older-checkpoint selection is explicit. After successful restore, the controller
 
 Every update must return an agreed complete logical step, global metrics and checkpoint readiness from every rank. Partial D/G updates and poisoned groups cannot advance observed progress or publish a checkpoint. Workers prepare checkpoint payloads, while the parent validates the rank-zero receipt and compact peer acknowledgements, checks current group health, and publishes through its process-bound authority.
 
-The same [events and checkpoint requests](observation.md) apply: one parent appends events, polls requests at complete boundaries, coalesces saves, records request IDs in durable metadata and acknowledges after publication. A committed request can be reconciled after a lost acknowledgement. Requests targeting an older attempt are rejected rather than applied to a new one.
+The same [events and control requests](observation.md) apply: one parent appends events, polls requests at complete boundaries, coalesces saves, records request IDs in durable metadata and acknowledges after publication. A committed request can be reconciled after a lost acknowledgement. Requests targeting an older attempt are rejected rather than applied to a new one.
 
 This first adapter treats preparation and publication errors as fatal, including during an optional save. It does not attempt to recover an uncertain group or retry a consumed publication receipt. A later failure may leave a valid complete checkpoint. In particular, an error after pointer replacement can mean latest has changed; inspect durable state rather than assuming every failed attempt left the pointer untouched.
 
@@ -89,4 +90,4 @@ Controller and adapter source are part of strict recovery identity. Older-source
 
 This service covers the tested fixed-topology CPU and [local CUDA fixtures](replicated-cuda.md). It does not qualify real multi-node execution, image quality or a release.
 
-Multi-node profiles and the `parameter_average`/`pseudo_gradient` aggregation strategies are experimental and warn when a run starts. A multi-node profile needs an explicit `rendezvous = "tcp://<node-0-host>:<port>"` and the same run directory path on every node. Node 0 runs the controller; each follower node runs the same profile with its own `node_rank` and mirrors node 0's command stream, so previews, evaluations, checkpoint and stop requests and time limits are node 0's controls alone. Local-SGD replicas differ between synchronizations: `checkpoint_every` must be a multiple of `sync_every_steps`, and a stop or on-demand checkpoint between synchronizations performs one extra synchronization first. See the [checkpoint report](../reports/core-replicated-service-2026-09-19.md) and [execution ledger](../reports/resurrection-status.md) for acceptance results and the next work.
+Multi-node profiles and the `parameter_average`/`pseudo_gradient` aggregation strategies are experimental and warn when a run starts. A multi-node profile needs an explicit `rendezvous = "tcp://<node-0-host>:<port>"` and the same run directory path on every node. Node 0 runs the controller; each follower node runs the same profile with its own `node_rank` and mirrors node 0's command stream, so previews, evaluations, checkpoint and stop requests and time limits are node 0's controls alone. Local-SGD replicas differ between synchronizations: `checkpoint_every` must be a multiple of `sync_every_steps`, and a stop or on-demand checkpoint between synchronizations performs one extra synchronization first. See the [checkpoint report](../reports/archive/core-replicated-service-2026-09-19.md) and [execution ledger](../reports/archive/resurrection-status.md) for acceptance results and the next work.

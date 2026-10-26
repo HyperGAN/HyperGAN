@@ -1,6 +1,6 @@
 # Shared training lifecycle
 
-The public `hypergan train` and `hypergan resume` commands use one internal run controller (`RunController`). The controller owns the run lock, attempts, manifests, events, stop budgets, checkpoint requests, sample reservations and terminal status. It supports single-process CPU and single-GPU (`cuda`) execution as well as multi-GPU replicated execution (`--devices 0,1` / `--profile cuda-replicated-nccl` and `cpu-replicated-gloo`).
+The public `hypergan train` and `hypergan resume` commands use one internal run controller (`RunController`). The controller owns the run lock, attempts, manifests, events, stop budgets, control requests (checkpoint, sample, stop), sample reservations and terminal status. It supports single-process CPU and single-GPU (`cuda`) execution as well as multi-GPU replicated execution (`--devices 0,1` / `--profile cuda-replicated-nccl` and `cpu-replicated-gloo`).
 
 The [replicated run service](replicated-run-service.md) uses that same controller with persistent workers and parent checkpoint publication, so single-GPU, multi-GPU, and CPU runs share one lifecycle, recovery, and bounded observation contract.
 
@@ -28,4 +28,4 @@ The controller creates an immutable candidate attempt identity in memory before 
 
 The replicated adapter validates agreed complete steps and global metrics, prepares checkpoints in workers, and publishes through the parent authority. Group and publication failures remain fatal during optional saves. It reuses filesystem events, checkpoint receipts and sample reservations; final artifacts when a completed/restored batch is available and worker shutdown precede terminal success. Replicated previews render copied snapshots in a supervised process without a training process group. Progress callbacks run in fresh bounded processes; failures are recorded without recursive delivery. See the [bounded observation contract](replicated-observation.md).
 
-See the [shared-service design](../reports/distributed-run-service-design-2026-09-19.md) and [current checkpoint](../reports/core-replicated-service-2026-09-19.md). GPU/NCCL and actual multi-node execution remain separate qualifications.
+See the [shared-service design](../reports/archive/distributed-run-service-design-2026-09-19.md) and [current checkpoint](../reports/archive/core-replicated-service-2026-09-19.md). GPU/NCCL and actual multi-node execution remain separate qualifications.

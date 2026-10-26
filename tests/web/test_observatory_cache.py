@@ -6,13 +6,12 @@ import time
 import pytest
 from starlette.testclient import TestClient
 
-from hypergan import api, checkpoints, inspection, registry
+from hypergan import api, inspection, registry
 from hypergan.event_views import MapSpec, Projector as EventProjector
 from hypergan.metrics import digest
 from hypergan.run_state import atomic_json
 from hypergan.web_autostart import (
     Projector,
-    ensure_run_projected,
     is_projection_stale_or_missing,
     project_run,
 )
@@ -62,7 +61,7 @@ def _make_run(
         "run_id": run_id,
         "attempt_id": "att-1",
         "stream_id": "training",
-        "stream_generation": "run",
+        "stream_generation": run_id,
         "sequence": 1,
         "step": 0,
         "event": "start",
@@ -75,7 +74,7 @@ def _make_run(
         "run_id": run_id,
         "attempt_id": "att-1",
         "stream_id": "training",
-        "stream_generation": "run",
+        "stream_generation": run_id,
         "sequence": 2,
         "step": step,
         "event": "train",
@@ -149,7 +148,10 @@ def test_discover_runs_watermark_cache_and_registry_integration(tmp_path, monkey
     r1_dir = _make_run(runs_root, "run_hist_1", status="stopped", step=100)
     r2_dir = _make_run(runs_root, "run_hist_2", status="complete", step=200)
 
-    # Also create an external run outside runs_root and register it
+    # A registered run nested deeper under the root is served; one registered
+    # elsewhere on the machine belongs to another root and is never listed.
+    nested_dir = _make_run(runs_root / "group" / "inner", "run_nested", status="stopped", step=50)
+    registry.register_run(nested_dir, status="stopped")
     ext_root = tmp_path / "external_runs"
     ext_root.mkdir()
     ext_dir = _make_run(ext_root, "run_external", status="stopped", step=300)
@@ -166,16 +168,17 @@ def test_discover_runs_watermark_cache_and_registry_integration(tmp_path, monkey
 
     monkeypatch.setattr("hypergan.web_server.read_run_summary", spy_read_summary)
 
-    # First discovery reads all 3 runs (2 in runs_root + 1 in global registry)
     first = svc_reg._discover_runs()
-    assert {r["run_id"] for r in first} == {"run_hist_1", "run_hist_2", "run_external"}
+    assert {r["run_id"] for r in first} == {"run_hist_1", "run_hist_2", "run_nested"}
     assert len(read_calls) == 3
+    assert svc_reg.resolve_run_dir("run_external") is None
+    assert svc_reg.resolve_run_dir("run_nested") == nested_dir.resolve()
 
     # Second discovery with unchanged summary.json/manifest.json mtimes does ZERO reads
     read_calls.clear()
     second = svc_reg._discover_runs()
     assert len(read_calls) == 0
-    assert {r["run_id"] for r in second} == {"run_hist_1", "run_hist_2", "run_external"}
+    assert {r["run_id"] for r in second} == {"run_hist_1", "run_hist_2", "run_nested"}
 
     # Modify summary.json on run_hist_1 (bumping step and mtime)
     summary_path = r1_dir / "summary.json"
@@ -191,75 +194,140 @@ def test_discover_runs_watermark_cache_and_registry_integration(tmp_path, monkey
     r1_row = next(r for r in third if r["run_id"] == "run_hist_1")
     assert r1_row["step"] == 150
 
-    # Verify deleted registered folders are skipped gracefully
-    missing_dir = tmp_path / "deleted_run"
-    monkeypatch.setattr(
-        registry,
-        "list_registered_runs",
-        lambda backfill_cwd=False: [
-            {"run_dir": str(ext_dir)},
-            {"run_dir": str(missing_dir)},
-        ],
-    )
+    # Deleted registered folders are skipped gracefully
+    import shutil
+    shutil.rmtree(nested_dir)
     fourth = svc_reg._discover_runs()
-    assert {r["run_id"] for r in fourth} == {"run_hist_1", "run_hist_2", "run_external"}
+    assert {r["run_id"] for r in fourth} == {"run_hist_1", "run_hist_2"}
 
 
-def test_lazy_on_demand_projection_on_unprojected_and_stale_runs(tmp_path):
+def test_requests_never_project_and_contributions_are_paged(tmp_path, monkeypatch):
+    """Projection belongs to the viewer's projector: no request blocks the event loop on it."""
     runs_root = tmp_path / "runs"
     runs_root.mkdir()
     unprojected_dir = _make_run(runs_root, "run_lazy", status="stopped", step=25, project=False)
 
     map_rev = MapSpec().revision
     contrib_file = unprojected_dir / "views" / map_rev / "contributions.jsonl"
-    proj_file = unprojected_dir / "views" / map_rev / "projection.json"
-    assert not contrib_file.exists()
     assert is_projection_stale_or_missing(unprojected_dir) is True
 
-    svc_reg = ServiceRegistry(runs_root)
-    svc = svc_reg.get_service("run_lazy")
-    assert svc.root == unprojected_dir.resolve()
-    assert contrib_file.is_file()
-    assert proj_file.is_file()
-    assert is_projection_stale_or_missing(unprojected_dir) is False
-
-    # Append a new training event with newer mtime so projection becomes stale
-    manifest = json.loads((unprojected_dir / "manifest.json").read_text(encoding="utf-8"))
-    events_path = unprojected_dir / "events.jsonl"
-    new_event = {
-        "schema_version": 2,
-        "run_id": "run_lazy",
-        "attempt_id": "att-1",
-        "stream_id": "training",
-        "stream_generation": "run",
-        "sequence": 3,
-        "step": 30,
-        "event": "train",
-        "catalog": manifest["metrics_catalog"],
-        "metrics": {"loss/g_total": 0.5},
-    }
-    with events_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(new_event) + "\n")
-    proj_mtime = max(proj_file.stat().st_mtime_ns, contrib_file.stat().st_mtime_ns)
-    os.utime(events_path, ns=(proj_mtime + 10_000_000, proj_mtime + 10_000_000))
-    assert is_projection_stale_or_missing(unprojected_dir) is True
-
-    # Requesting /api/runs/run_lazy/contributions lazily updates the projection
+    import hypergan.web_autostart as autostart
+    original_project_run = autostart.project_run
+    monkeypatch.setattr(autostart, "project_run", lambda *a, **k: pytest.fail("a request projected"))
     session = LocalSession(8765)
     app = create_app(runs_root, session=session)
     with TestClient(app, base_url=session.origin) as client:
-        res = client.get("/api/runs/run_lazy/contributions")
-        assert res.status_code == 200
-        items = res.json()["contributions"]
-        assert len(items) >= 2
-    assert is_projection_stale_or_missing(unprojected_dir) is False
+        assert client.get("/").status_code == 200
+        assert client.get("/runs/run_lazy").status_code == 200
+        assert client.get("/api/runs/run_lazy").status_code == 200
+        # Missing projection: the history waits for the projector instead of failing.
+        bootstrap = client.get(f"/api/v1/runs/run_lazy/views/{map_rev}/bootstrap?series=loss/g_total")
+        assert bootstrap.status_code == 202
+        assert not contrib_file.exists()
+
+        monkeypatch.setattr(autostart, "project_run", original_project_run)
+        assert Projector(runs_root).poll_once() == [unprojected_dir.resolve()]
+        assert contrib_file.is_file()
+
+        first = client.get("/api/runs/run_lazy/contributions", params={"limit": 1}).json()
+        assert len(first["contributions"]) == 1 and first["has_more"] is True
+        rest = client.get("/api/runs/run_lazy/contributions", params={"cursor": first["cursor"]}).json()
+        assert rest["contributions"] and rest["has_more"] is False
+        assert client.get("/api/runs/run_lazy/contributions", params={"limit": 5000}).status_code == 400
 
 
-def test_projector_skips_inactive_runs_with_unchanged_watermark(tmp_path, monkeypatch):
+def _bootstrap_until_done(client, run_id, map_rev, *, attempts=500):
+    url = f"/api/v1/runs/{run_id}/views/{map_rev}/bootstrap?series=loss/g_total"
+    for _ in range(attempts):
+        response = client.get(url)
+        if response.status_code != 202:
+            return response
+        time.sleep(.01)
+    return response
+
+
+def test_nested_registered_run_is_projected_by_the_viewers_projector(tmp_path):
+    """Every run the dashboard serves has a projector, since requests never project."""
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    direct = _make_run(runs_root, "direct", project=False)
+    nested = _make_run(runs_root / "group" / "inner", "run_nested", project=False)
+    registry.register_run(nested, status="stopped")
+
+    projector = Projector(runs_root)
+    assert nested.resolve() in projector._candidate_runs()
+    map_rev = MapSpec().revision
+    session = LocalSession(8765)
+    with TestClient(create_app(runs_root, session=session), base_url=session.origin) as client:
+        assert set(projector.poll_once()) == {direct.resolve(), nested.resolve()}
+        for run_id in ("direct", "run_nested"):
+            response = _bootstrap_until_done(client, run_id, map_rev)
+            assert response.status_code == 200, (run_id, response.text)
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs a directory mode that denies writes (not Windows, not root)")
+def test_projection_failure_in_another_process_reaches_the_server(tmp_path):
+    """The broker's projector and server are separate processes; the failure still shows."""
+    import subprocess
+    import sys
+    import hypergan.web_autostart as autostart
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+    read_only = _make_run(runs_root, "read_only", project=False)
+    read_only.chmod(0o555)
+
+    # The projector runs in its own interpreter, as in the train-launched broker.
+    code = "import sys; from hypergan.web_autostart import Projector; print(Projector(sys.argv[1]).poll_once())"
+    try:
+        done = subprocess.run([sys.executable, "-c", code, str(runs_root)],
+                              capture_output=True, text=True, timeout=120)
+        assert done.returncode == 0, done.stderr
+        assert read_only.resolve() not in autostart._PROJECTION_FAILURES
+        assert "PermissionError" in (autostart.projection_failure(read_only) or "")
+
+        map_rev = MapSpec().revision
+        session = LocalSession(8765)
+        with TestClient(create_app(runs_root, session=session), base_url=session.origin) as client:
+            response = _bootstrap_until_done(client, "read_only", map_rev)
+            assert response.status_code == 404, response.text
+            assert "could not be built: PermissionError" in response.text
+    finally:
+        read_only.chmod(0o755)
+
+    # Once a projection succeeds, the projector clears the record for every process.
+    done = subprocess.run([sys.executable, "-c", code, str(runs_root)], capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    assert autostart.projection_failure(read_only) is None
+
+
+def _append_train_event(run_dir, sequence, step):
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    row = {
+        "schema_version": 2,
+        "run_id": run_dir.name,
+        "attempt_id": "att-1",
+        "stream_id": "training",
+        "stream_generation": run_dir.name,
+        "sequence": sequence,
+        "step": step,
+        "event": "train",
+        "catalog": manifest["metrics_catalog"],
+        "metrics": {"loss/g_total": 0.42},
+    }
+    ev_path = run_dir / "events.jsonl"
+    with ev_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+    now_ns = time.time_ns() + 50_000_000
+    os.utime(ev_path, ns=(now_ns, now_ns))
+
+
+def test_projector_projects_only_runs_whose_events_changed(tmp_path, monkeypatch):
+    """An idle dashboard opens no projector, even for a run that is still training."""
     runs_root = tmp_path / "runs"
     runs_root.mkdir()
     inactive_1 = _make_run(runs_root, "inactive_1", status="stopped", project=True)
-    inactive_2 = _make_run(runs_root, "inactive_2", status="complete", project=True)
+    _make_run(runs_root, "inactive_2", status="complete", project=True)
     active_run = _make_run(runs_root, "active_1", status="running", project=True)
 
     monkeypatch.setattr(
@@ -279,43 +347,24 @@ def test_projector_skips_inactive_runs_with_unchanged_watermark(tmp_path, monkey
 
     proj = Projector(runs_root, poll_interval=0.05)
 
-    # Inactive runs are already projected (events.jsonl mtime <= state.json mtime),
-    # so poll_once ONLY projects active_run!
+    # Every projection is current, so polling does nothing, active run included.
+    proj.poll_once()
+    proj.poll_once()
+    assert projected_dirs == []
+
+    # New events on the active run, then on an inactive one, are each projected once.
+    _append_train_event(active_run, 3, 60)
     proj.poll_once()
     assert projected_dirs == [active_run.resolve()]
 
+    _append_train_event(inactive_1, 3, 60)
     projected_dirs.clear()
     proj.poll_once()
-    assert projected_dirs == [active_run.resolve()]
-
-    # Now update inactive_1's events.jsonl so its watermark changes
-    manifest = json.loads((inactive_1 / "manifest.json").read_text(encoding="utf-8"))
-    ev_path = inactive_1 / "events.jsonl"
-    extra_ev = {
-        "schema_version": 2,
-        "run_id": "inactive_1",
-        "attempt_id": "att-1",
-        "stream_id": "training",
-        "stream_generation": "run",
-        "sequence": 3,
-        "step": 60,
-        "event": "train",
-        "catalog": manifest["metrics_catalog"],
-        "metrics": {"loss/g_total": 0.42},
-    }
-    with ev_path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(extra_ev) + "\n")
-    now_ns = time.time_ns() + 50_000_000
-    os.utime(ev_path, ns=(now_ns, now_ns))
+    assert projected_dirs == [inactive_1.resolve()]
 
     projected_dirs.clear()
     proj.poll_once()
-    assert set(projected_dirs) == {active_run.resolve(), inactive_1.resolve()}
-
-    # Next poll skips inactive_1 again because its new watermark is now recorded
-    projected_dirs.clear()
-    proj.poll_once()
-    assert projected_dirs == [active_run.resolve()]
+    assert projected_dirs == []
 
 
 def test_api_runs_and_live_stop_checkpoint_endpoints_and_ui(tmp_path, monkeypatch):
@@ -337,13 +386,12 @@ def test_api_runs_and_live_stop_checkpoint_endpoints_and_ui(tmp_path, monkeypatc
         stopped_calls.append(Path(target_dir).resolve())
         return {"status": "stopped", "pid": 9999}
 
-    def fake_request_checkpoint(target_dir):
+    def fake_request_checkpoint(target_dir, **kwargs):
         ckpt_calls.append(Path(target_dir).resolve())
         return {"request_id": "req-1", "status": "pending"}
 
     monkeypatch.setattr(inspection, "stop_run", fake_stop_run)
     monkeypatch.setattr(api, "request_checkpoint", fake_request_checkpoint)
-    monkeypatch.setattr(checkpoints, "request_checkpoint", fake_request_checkpoint, raising=False)
 
     session = LocalSession(8765)
     app = create_app(runs_root, session=session)

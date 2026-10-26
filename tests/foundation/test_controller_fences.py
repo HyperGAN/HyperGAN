@@ -1,10 +1,11 @@
 """Attempt identity, execution routing and fatal group failures without torch."""
 from copy import deepcopy
 import json
+from pathlib import Path
 
 import pytest
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.run_controller import (
     CompletedUpdate, ExecutionInfo, FatalExecutionError, ObserverError, Restored, run_resume, run_train,
 )
@@ -14,6 +15,7 @@ from hypergan.run_requests import checkpoint_request_status, submit_checkpoint_r
 class FencedExecution:
     def __init__(self, config, root, options, trace):
         self.root, self.options, self.trace = root, options, trace
+        self.config = config
         self.context = None
         self.step = self.count = 0
         self.closed = False
@@ -67,6 +69,13 @@ class FencedExecution:
         path = run_dir / 'fixture-checkpoints' / f"{metadata['attempt_id']}-{self.step}-{self.count}"
         path.mkdir(parents=True)
         (path / 'manifest.json').write_text(json.dumps(dict(metadata, step=self.step)))
+        if self.options.get('pointer'):
+            # Like the native adapter: the checkpoint records its configuration
+            # and the default recovery pointer names it.
+            from hypergan.config import fingerprint
+            (path / 'manifest.json').write_text(json.dumps(dict(
+                metadata, step=self.step, config_sha256=fingerprint(self.config))))
+            (path.parent / 'latest.json').write_text(json.dumps({'checkpoint': path.name, 'step': self.step}))
         return path
 
     def preview(self, *args, **kwargs):
@@ -475,3 +484,48 @@ def test_resume_without_callback_clears_prior_attempt_worker_status(tmp_path):
     for manifest in (resumed,saved):
         assert 'progress_observation' not in manifest
         assert 'metric_shutdown_error' not in manifest
+
+
+def test_resume_from_the_latest_checkpoint_does_not_rewrite_it(tmp_path):
+    path, root, factory, options, trace, instances = setup(tmp_path, pointer=True)
+    first = run_train(path, root, steps=6, stop_after_steps=2, execution_factory=factory)
+    saved = sorted(p.name for p in (root / 'fixture-checkpoints').iterdir() if p.is_dir())
+    assert len(saved) == 2 and first['last_durable_step'] == 2
+    second = run_resume(root, stop_after_steps=1, execution_factory=factory)
+    written = sorted(p.name for p in (root / 'fixture-checkpoints').iterdir()
+                     if p.is_dir() and p.name not in saved)
+    # Only the new step-3 boundary: no identical copy of the restored step 2.
+    assert [name.rsplit('-', 2)[-2] for name in written] == ['3']
+    assert second['steps'] == second['last_durable_step'] == 3
+    events = [json.loads(line) for line in (root / 'events.jsonl').read_text().splitlines()]
+    resumed = [row for row in events if row['attempt_id'] == second['attempt_id']]
+    assert [row['step'] for row in resumed if row['event'] == 'checkpoint'] == [3]
+
+
+def test_resume_from_an_older_checkpoint_still_moves_the_default_pointer(tmp_path):
+    path, root, factory, options, trace, instances = setup(tmp_path, pointer=True)
+    run_train(path, root, steps=6, stop_after_steps=2, execution_factory=factory)
+    initial = next(p for p in (root / 'fixture-checkpoints').iterdir()
+                   if p.is_dir() and json.loads((p / 'manifest.json').read_text())['step'] == 0)
+    resumed = run_resume(root, checkpoint=initial, max_seconds=1e-9, execution_factory=factory)
+    assert resumed['steps'] == 0
+    pointer = json.loads((root / 'fixture-checkpoints' / 'latest.json').read_text())
+    assert pointer['checkpoint'] == Path(resumed['checkpoint_path']).name
+    assert pointer['checkpoint'].startswith(resumed['attempt_id'])
+
+
+def test_train_rechecks_for_a_run_created_while_it_prepared(tmp_path):
+    path, root, factory, options, trace, instances = setup(tmp_path)
+    existing = {'schema_version': 1, 'run_id': 'another-train', 'status': 'complete'}
+
+    def racing_factory(config):
+        # Another `train` completes this run directory before this one takes the lock.
+        root.mkdir(parents=True, exist_ok=True)
+        (root / 'manifest.json').write_text(json.dumps(existing))
+        return factory(config)
+
+    with pytest.raises(FileExistsError, match='Run directory already exists'):
+        run_train(path, root, steps=3, execution_factory=racing_factory)
+    assert json.loads((root / 'manifest.json').read_text()) == existing
+    assert not (root / 'attempts').exists()
+    assert instances[-1].closed

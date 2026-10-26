@@ -227,7 +227,7 @@ def test_component_construction_order_is_independent_of_json_key_order():
 
 
 def test_run_manifest_reports_configured_named_rng_seeds(tmp_path):
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.training import train
     path = write_default(tmp_path / 'config.toml', device='cpu', defaults='hypergan')
     path.write_text(path.read_text().replace('device = "cpu"', 'device = "cpu"\ndata_seed_offset = 4\nprior_seed_offset = 9'))
@@ -237,7 +237,7 @@ def test_run_manifest_reports_configured_named_rng_seeds(tmp_path):
 
 @pytest.mark.heavy
 def test_explicit_backend_policy_is_applied_before_fresh_resume_identity(tmp_path):
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.training import train
     before = torch.are_deterministic_algorithms_enabled()
     warn_only = torch.is_deterministic_algorithms_warn_only_enabled()

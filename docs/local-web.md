@@ -24,13 +24,22 @@ hypergan serve runs/example --open
 ```
 
 `hypergan view` and `hypergan serve` listen on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
-working across restarts. If that port is busy, it takes the next free port above it,
-up to 100 ports, and prints the port it actually chose. Select another address with
-`--host 127.0.0.1`, a fixed port with `--port 8123`, or an OS-assigned port with
-`--port 0`. An explicitly requested port that is already in use is an error rather
-than a silent move to another port. The printed browser URL uses `127.0.0.1` for a
-wildcard bind; remote browsers use this machine's address with that same port.
-Browser requests remain same-origin.
+working across restarts. A port that is already in use is an error naming the process
+that holds it, never a silent move to another port; when that process is the dashboard
+`hypergan train` started for the same root, `hypergan view` prints and opens its URL
+instead. Select another address with `--host 127.0.0.1`, a fixed port with
+`--port 8123`, or an OS-assigned port with `--port 0`. For a wildcard bind, a viewer
+that `hypergan view` or `hypergan serve` starts prints a `127.0.0.1` URL, while
+`hypergan train`, `hypergan resume` and a `hypergan view` that reuses a running
+dashboard print `localhost`; `localhost`, `127.0.0.1` and `[::1]` are the same
+loopback authority. Browser requests remain same-origin.
+
+A wildcard bind accepts a `Host` that is an IP address, a loopback name, or this
+machine's own host name (with or without its domain, and its mDNS name
+`<host>.local`). Any other DNS name is refused, so a website that rebinds
+its own name to this machine (DNS rebinding) cannot read runs or post controls. To
+reach the viewer directly under another name, such as a MagicDNS name, list it in
+`HYPERGAN_VIEWER_HOSTS` (comma separated); a TLS proxy uses `--public-origin`.
 
 ## Global Runs Dashboard & Live Control Endpoints
 
@@ -53,7 +62,7 @@ Scheduled and multi-node cluster jobs run headlessly by default (`--no-server` o
 hypergan serve /shared/experiments/runs/cluster-run --host 127.0.0.1 --port 8765 --auth token
 ```
 
-When a run's `.run.lock`, `launch/*.json`, `manifest.json`, or `summary.json` records a `hostname` different from the viewer host while the run is in `running` or `initializing` state, HyperGAN marks the run as active and remote (`remote: true`, `active: true`). Viewer disconnection never cancels or signals the remote training job. Control actions (`checkpoint`, `sample`, and `stop`) use the file-backed request queue under `checkpoint_requests/pending/` and `checkpoint_requests/receipts/` rather than local PID signals, so idempotent control requests and receipts work identically for local and headless cluster runs. When `--auth token` is enabled, all state-changing `POST` routes under both `/api/v1/runs/*` and `/api/runs/*` require a valid session cookie or `Authorization: Bearer <token>` header.
+When a run's `.run.lock`, `launch/*.json`, `manifest.json`, or `summary.json` records a `hostname` different from the viewer host while the run is in `running` or `initializing` state, HyperGAN marks the run as active and remote (`remote: true`, `active: true`). Viewer disconnection never cancels or signals the remote training job. Control actions (`checkpoint`, `sample`, and `stop`) use the file-backed request queue under `checkpoint_requests/pending/` and `checkpoint_requests/receipts/` rather than local PID signals, so idempotent control requests and receipts work identically for local and headless cluster runs. When `--auth token` is enabled, every API route except `POST /api/v1/session` requires a valid session cookie or `Authorization: Bearer <token>` header: reads, SSE streams and controls, under both `/api/v1/runs/*` and `/api/runs/*`. Only the HTML shell, its static assets and the sign-in exchange are public; the dashboard then shows a sign-in form and no run data until the browser has a session.
 
 ### Remote browsers over plain HTTP
 
@@ -139,7 +148,7 @@ bootstrap state and SSE envelopes. Every per-run route is served with full parit
 - `/api/runs/{run_id}` & `/api/v1/runs/{run_id}` (and `/status`): public observed/durable progress manifest.
 - `/api/runs/{run_id}/summary` & `/api/v1/runs/{run_id}/summary` (and `/api/runs/{run_id}/metrics` & `/api/v1/runs/{run_id}/metrics`): cached or live run metrics summary (`step`, `steps_per_second`, `latest_fid`, `best_fid`, etc.).
 - `/api/runs/{run_id}/metrics/catalog` & `/api/v1/runs/{run_id}/metrics/catalog?revision=...`: current or historical metric definition catalog.
-- `/api/runs/{run_id}/contributions` & `/api/v1/runs/{run_id}/contributions`: bounded mapped scalar contribution frames.
+- `/api/runs/{run_id}/contributions` & `/api/v1/runs/{run_id}/contributions`: one bounded page of mapped scalar contribution frames (`limit` 1..1000, default 100); pass the returned `cursor` while `has_more` is true.
 - `/api/runs/{run_id}/model` & `/api/v1/runs/{run_id}/model` (and `/architecture`): GAN formulation, losses, optimizers, and HNDL network descriptions.
 - `/api/runs/{run_id}/events` & `/api/v1/runs/{run_id}/events?stream_id=...&cursor=...&limit=100`: bounded raw event pages.
 - `/api/runs/{run_id}/views` & `/api/v1/runs/{run_id}/views`: built-in view and registered streams.
@@ -174,7 +183,17 @@ behind, or when over 30 seconds old with a changed head. Pending work remains on
 fixed-H job even while training advances. Unchanged history is reused indefinitely.
 Live updates never refresh or reduce the cache; changing buckets, selected series,
 range or recovery lineage requests a separate bounded job. `step_from` and
-`step_to` are inclusive optional query limits.
+`step_to` are inclusive optional query limits. Historical caches are derived state
+kept outside the run, under `$HYPERGAN_VIEWER_CACHE` (default
+`~/.cache/hypergan/viewer`), bounded to the 16 most recent per run and the 64 most
+recently viewed runs, so a read-only run that was projected beforehand still charts.
+Projection is the viewer's own background work: a request never projects, and history
+for a run that is still being projected answers 202 until the projection is announced.
+When the viewer's projector fails on a run (for example a read-only run that was never
+projected), history answers 404 with the projector's error, also when the projector runs
+in its own process beside the server (the dashboard `hypergan train` starts keeps the
+error in `.projection-failures/` under the viewer cache); the projector retries when
+the event log grows or after 30 seconds.
 
 SSE sends unchanged `frame` envelopes and control events: `stream_added`,
 `metadata`, `heartbeat`, `bootstrap_ready`, `artifacts`, `gap` and
@@ -289,8 +308,7 @@ not training overhead or image quality.
 ## Automatic viewer during CLI training
 
 With the `web` extra installed, `hypergan train` and `hypergan resume` automatically
-bind port `8765` on `0.0.0.0` — or the next free port above it, up to 100 ports — and
-launch a supervised local viewer. A restarted run reuses the same port, so the viewer
+bind port `8765` on `0.0.0.0` and launch a supervised local viewer. A restarted run reuses the same port, so the viewer
 URL stays stable instead of changing on every start. Startup
 runs concurrently with training; there is no browser launch or readiness wait by
 default. Without the extra, these commands remain silently headless. The Python

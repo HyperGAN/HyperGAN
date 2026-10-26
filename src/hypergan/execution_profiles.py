@@ -26,13 +26,20 @@ def register_profile_strategy(name):
     _REGISTERED_STRATEGIES.add(name)
 
 
-def validate_replicated_recipe(config):
+def validate_replicated_recipe(config, *, accumulation_steps=1):
     """Reject native-only numerical policies before allocating ranks or a viewer."""
     training = config['training']
     if (training.get('phase_draws', 'shared') not in ('shared', 'independent')
             or training.get('data_rng_device', 'cpu') not in ('cpu', 'execution')
             or config.get('optimizer', {}).get('implementation', 'device_adam') not in ('device_adam', 'torch_fused_adam', 'recipe')):
         raise ValueError('Unsupported numerical policies currently require native execution; replicated/accumulated image execution is not qualified')
+    if accumulation_steps > 1:
+        unsupported = [name for name in ('input_noise_std', 'output_noise_std') if training.get(name, 0)]
+        if training.get('phase_draws') == 'independent':
+            unsupported.append('phase_draws=independent')
+        if unsupported:
+            raise ValueError('Replicated accumulation does not implement ' + ', '.join(unsupported)
+                             + '; use accumulation_steps=1 to preserve these numerical policies')
 
 
 def _table(value, name, allowed, required=()):
@@ -207,7 +214,7 @@ def resolve_execution_profile(values, config):
         raise ValueError('Execution profile requires a recipe config with a training table')
     training = config['training']
     if name != 'cpu-single':
-        validate_replicated_recipe(config)
+        validate_replicated_recipe(config, accumulation_steps=accumulation)
     if name == 'cuda-replicated-nccl':
         if training.get('device') != 'cuda':
             raise ValueError('cuda-replicated-nccl requires training.device=cuda; each rank owns its visible GPU index, so cuda:N is ambiguous')

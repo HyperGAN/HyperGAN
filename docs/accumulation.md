@@ -6,6 +6,8 @@ The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to
 
 Public `train` and `resume` select this strategy through a [CPU/Gloo or CUDA/NCCL execution profile](execution.md). Set `accumulation_steps` in the separate profile TOML. The [worker API](cpu-workers.md) remains available to internal callers. Mixed precision and actual clusters require separate qualification.
 
+Configured critic input noise, generator output noise and independent D/G phase draws currently require `accumulation_steps=1`. Profiles with accumulation greater than one reject these settings before launching workers; the replay path does not implement them. Ordinary replicated updates support them.
+
 ## Preserving the objective
 
 Independent microbatch prior regularization losses would use different covariances. HyperGAN instead collects detached logits for the full effective batch and evaluates the pinned ParticleGAN adversarial kernel once per logical D/G loss. Their derivatives provide cotangents for replaying one microbatch's network computation and immediately backpropagating it.

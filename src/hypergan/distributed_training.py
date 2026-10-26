@@ -65,7 +65,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._poisoned = False
         config = self._phase('configuration', lambda: resolve_config(config_values(config)))
         from .execution_profiles import validate_replicated_recipe
-        self._phase('recipe policy', lambda: validate_replicated_recipe(config))
+        self._phase('recipe policy', lambda: validate_replicated_recipe(config, accumulation_steps=accumulation_steps))
         self._agree('configuration', {'fingerprint': fingerprint(config), 'accumulation_steps': accumulation_steps})
         if world_size < 2:
             raise ValueError('Replicated training requires at least two ranks')
@@ -367,6 +367,15 @@ class ReplicatedTrainer(ReferenceTrainer):
                 parameter.grad = gradient / self.world_size
             else:
                 parameter.grad = None
+
+        # Finite local gradients can overflow in SUM before the world-size
+        # division. Every replica receives the same reduction, so reject it
+        # before Adam can mutate parameters or moments.
+        reduced_flags = self._gradient_flags(parameters)
+        if reduced_flags and torch.stack(reduced_flags).sum().item():
+            for parameter in parameters:
+                parameter.grad = None
+            raise ValueError('Nonfinite reduced gradient; optimizer step refused')
 
     def _average_critic_statistics(self):
         # KA2 controller statistics come from rank-local critic scores.

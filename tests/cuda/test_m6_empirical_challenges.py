@@ -95,6 +95,16 @@ def _worker_nonfinite_refusal(rank, rendezvous, out_path):
         expected_mean = 3.0
         results["case4_finite_success"] = bool(torch.allclose(param.grad, torch.full_like(param, expected_mean)))
 
+        # Finite inputs can still overflow the collective SUM. Refuse the
+        # reduced result before any optimizer state or parameters change.
+        param.grad = torch.full_like(param, torch.finfo(param.dtype).max * .75)
+        try:
+            trainer._reduce_gradients(opt, "test_reduced_overflow")
+        except ValueError as exc:
+            results["case5_reduced_overflow"] = "Nonfinite reduced gradient" in str(exc)
+        results["case5_grad_cleared"] = param.grad is None
+        results["case5_optimizer_untouched"] = not opt.state
+
     except Exception as exc:
         results["error"] = f"{type(exc).__name__}: {exc}"
     finally:
@@ -148,6 +158,9 @@ def test_asymmetric_nonfinite_gradient_refusal(tmp_path):
             assert data["case3_neginf_rank1"] is True, f"Rank {rank} failed to raise on Rank 1 -Inf"
             assert data["case3_grad_cleared"] is True, f"Rank {rank} failed to clear grad on Case 3"
             assert data["case4_finite_success"] is True, f"Rank {rank} failed to reduce finite grad"
+            assert data["case5_reduced_overflow"] is True, f"Rank {rank} accepted reduction overflow"
+            assert data["case5_grad_cleared"] is True
+            assert data["case5_optimizer_untouched"] is True
     finally:
         for child in children:
             if child.poll() is None:

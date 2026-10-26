@@ -843,13 +843,19 @@ def _training_viewer(args, *, config=None):
                            config=config)
 
 
-def _print_training_header(run_dir: Path, experiment_name: str, device: str, dashboard_url: str | None = None):
+def _print_training_header(run_dir: Path, experiment_name: str, device: str, dashboard_url: str | None = None,
+                           *, execution=None):
     print("=== HyperGAN ===", file=sys.stderr)
     print(f"Run directory:  {run_dir}", file=sys.stderr)
     print(f"Experiment:     {experiment_name}", file=sys.stderr)
 
     device_str = str(device)
-    if "cuda" in device_str.lower():
+    if execution and execution.get('name') == 'cuda-replicated-nccl':
+        # The coordinator must stay Torch-free. Worker construction owns CUDA;
+        # describe the resolved local rank mapping without probing a GPU here.
+        count = execution.get('ranks_per_node', execution['world_size'])
+        device_str = ', '.join(f'gpu{rank}' for rank in range(count)) + ' (CUDA, NCCL)'
+    elif "cuda" in device_str.lower():
         try:
             import torch
             dev_idx = 0
@@ -1855,7 +1861,9 @@ def _dispatch(args, *, output=None):
                     train_sec = (config_dict.get("training") or config_dict.get("train") or {}) if isinstance(config_dict, dict) else {}
                     dev = "cpu" if is_cpu_override else train_sec.get("device", "cuda")
                     dashboard_url = getattr(args, "_dashboard_url", None)
-                    _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url)
+                    execution = (getattr(prepared, 'profile', None) or {}).get('execution')
+                    _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url,
+                                           execution=execution)
                 is_tty = bool(getattr(output.stdout.original, "isatty", lambda: False)()) if output and hasattr(output, "stdout") else False
                 is_profiled = getattr(prepared, "profile", None) is not None
                 human_footer = (not is_resume_cmd and not is_profiled or is_tty) and not getattr(args, "progress_json", False)

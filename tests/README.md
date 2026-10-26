@@ -34,7 +34,7 @@ python -m pytest -m heavy              # only the heavy tests from the same dire
 python -m pytest -m ""                 # both halves
 python -m pytest tests/web tests/reducers tests/e2e_integration
 python -m pytest tests/browser         # after: python -m playwright install chromium
-python -m pytest tests/cuda            # two NVIDIA GPUs; see docs/cuda.md
+python -m pytest tests/cuda -m ""      # both fast and heavy CUDA tests; two NVIDIA GPUs; see docs/cuda.md
 ```
 
 The default `testpaths` are `foundation`, `reference`, `unit`, `playbooks`, `e2e` and `e2e_integration`. The `web`, `browser`, `reducers` and `cuda` directories run only when you name them.

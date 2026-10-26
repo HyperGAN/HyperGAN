@@ -54,12 +54,8 @@ def require_2gpu_nccl():
 def make_nccl_env() -> Dict[str, str]:
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = env.get("CUDA_VISIBLE_DEVICES", "0,1")
-    env["NCCL_P2P_DISABLE"] = "1"
-    env["NCCL_IB_DISABLE"] = "1"
     env["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     env["TORCH_NCCL_WAIT_TIMEOUT_DUMP_MILSEC"] = "1000"
-    repo_root = str(Path(__file__).resolve().parents[2])
-    env["PYTHONPATH"] = f"{repo_root}/src:{repo_root}/tests:{repo_root}/tests/reference:" + env.get("PYTHONPATH", "")
     return env
 
 
@@ -230,7 +226,7 @@ def run_cuda_continuity_subprocess(
     try:
         for r in range(2):
             cmd = [
-                sys.executable, str(worker_script),
+                sys.executable, *(['-I'] if sys.flags.isolated else []), str(worker_script),
                 mode, str(r), uri, str(cfg_file), str(run_dir), str(out_files[r]),
                 json.dumps(agg_cfg), str(total_steps), str(split_steps),
             ]

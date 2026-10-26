@@ -1,6 +1,6 @@
 # Local two-GPU NCCL readiness
 
-The two local RTX A6000s pass a small NCCL communication and gradient diagnostic. This does not qualify HyperGAN's full replicated GAN update, checkpoint recovery or cluster execution on CUDA. The [readiness report](../reports/archive/gpu-readiness-2026-09-19.md) records exact hardware, results, failures and remaining implementation work.
+The two local RTX A6000s support the NCCL diagnostic below and the complete training/recovery gates described in [multi-GPU readiness](multigpu-readiness.md) and [replicated CUDA training](replicated-cuda.md). The standalone diagnostic itself checks communication and gradients only. The original [readiness report](../reports/archive/gpu-readiness-2026-09-19.md) is historical evidence, preceding full CUDA training integration.
 
 The standalone diagnostic lives in [tests/cuda/nccl_smoke.py](../tests/cuda/nccl_smoke.py). It requires a CUDA-enabled PyTorch interpreter, two visible CUDA devices and `nvidia-smi`. It imports no HyperGAN training implementation and does not download data. Run from a checkout or the source distribution test inventory; the tool is not a public training command or an execution profile. The explicit `python -m pytest tests/cuda -q` hardware gate includes this check and requires two GPUs; it never skips unavailable hardware. Its NCCL wrapper uses a 35-second per-job supervisor deadline plus cleanup grace.
 

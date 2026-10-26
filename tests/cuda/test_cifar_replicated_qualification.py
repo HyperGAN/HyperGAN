@@ -206,10 +206,8 @@ def test_two_gpu_replicated_cifar_mechanics(tmp_path):
             logs.append(log)
             out_json = tmp_path / f"rank-{rank}.json"
             cmd = [
-                sys.executable,
-                "-c",
-                f"from tests.cuda.test_cifar_replicated_qualification import _worker_process; "
-                f"_worker_process({rank}, {str(rendezvous)!r}, {str(out_json)!r})",
+                sys.executable, *(['-I'] if sys.flags.isolated else []),
+                str(Path(__file__).resolve()), str(rank), str(rendezvous), str(out_json),
             ]
             children.append(subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env))
 
@@ -235,3 +233,7 @@ def test_two_gpu_replicated_cifar_mechanics(tmp_path):
             child.wait(timeout=10)
         for log in logs:
             log.close()
+
+
+if __name__ == '__main__':
+    _worker_process(int(sys.argv[1]), sys.argv[2], sys.argv[3])

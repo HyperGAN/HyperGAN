@@ -130,10 +130,8 @@ def test_asymmetric_nonfinite_gradient_refusal(tmp_path):
             logs.append(log)
             out_json = tmp_path / f"rank-{rank}.json"
             cmd = [
-                sys.executable,
-                "-c",
-                f"from tests.cuda.test_m6_empirical_challenges import _worker_nonfinite_refusal; "
-                f"_worker_nonfinite_refusal({rank}, {str(rendezvous)!r}, {str(out_json)!r})",
+                sys.executable, *(['-I'] if sys.flags.isolated else []),
+                str(Path(__file__).resolve()), 'nonfinite', str(rank), str(rendezvous), str(out_json),
             ]
             children.append(subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env))
 
@@ -440,10 +438,8 @@ def test_particlegan_controller_state_parity(tmp_path):
             logs.append(log)
             out_json = tmp_path / f"rank-{rank}.json"
             cmd = [
-                sys.executable,
-                "-c",
-                f"from tests.cuda.test_m6_empirical_challenges import _worker_controller_parity; "
-                f"_worker_controller_parity({rank}, {str(rendezvous)!r}, {str(out_json)!r})",
+                sys.executable, *(['-I'] if sys.flags.isolated else []),
+                str(Path(__file__).resolve()), 'controller', str(rank), str(rendezvous), str(out_json),
             ]
             children.append(subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env))
 
@@ -513,3 +509,8 @@ def test_controller_divergence_without_all_gather_negative_control():
     digest0 = ReplicatedTrainer._digest({"location": c0.location, "reference": c0.reference, "data_score": c0.data_score})
     digest1 = ReplicatedTrainer._digest({"location": c1.location, "reference": c1.reference, "data_score": c1.data_score})
     assert digest0 != digest1, "Expected digest mismatch on un-gathered controller state"
+
+
+if __name__ == '__main__':
+    worker = {'nonfinite': _worker_nonfinite_refusal, 'controller': _worker_controller_parity}[sys.argv[1]]
+    worker(int(sys.argv[2]), sys.argv[3], sys.argv[4])

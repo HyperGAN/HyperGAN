@@ -15,6 +15,7 @@ Writing a model file, preparing data, training, watching and recovering runs.
 - [Recover training runs](recovery.md): checkpoints, resume and compatibility rules.
 - [Native CUDA training](cuda.md): single-GPU training and the CUDA test gate.
 - [Public execution profiles](execution.md) and [execution profiles and preflight](execution-profiles.md): running on several devices.
+- [Multi-GPU readiness before a paid run](multigpu-readiness.md): local gates, larger GPU counts, transport settings and cloud recovery limits.
 - [Container profile](docker.md): building and running the Docker image.
 - [AMD ROCm readiness](rocm.md): ROCm support status and the preflight script; no ROCm hardware run backs it yet.
 - [Migrating from historical HyperGAN](migration.md): legacy configurations and checkpoints.

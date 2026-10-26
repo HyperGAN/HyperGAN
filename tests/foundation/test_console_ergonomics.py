@@ -47,6 +47,25 @@ def test_clean_5_point_header():
     assert "Dashboard:      http://localhost:8765/runs/train-demo" in text
 
 
+def test_replicated_cuda_header_reports_all_local_gpus_without_importing_torch(monkeypatch, capsys):
+    import builtins
+
+    original = builtins.__import__
+    torch_imports = []
+
+    def guarded(name, *args, **kwargs):
+        if name == 'torch':
+            torch_imports.append(name)
+            raise AssertionError('A replicated coordinator must not initialize CUDA for its header')
+        return original(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, '__import__', guarded)
+    _print_training_header(Path('/tmp/replicated'), 'demo', 'cuda', execution={
+        'name': 'cuda-replicated-nccl', 'world_size': 8, 'ranks_per_node': 4})
+    assert not torch_imports
+    assert 'Devices:        gpu0, gpu1, gpu2, gpu3 (CUDA, NCCL)' in capsys.readouterr().err
+
+
 def test_eta_progress_line():
     from hypergan.console_settings import ConsolePolicy
 

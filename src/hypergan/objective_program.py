@@ -1,6 +1,6 @@
 """Compiled native objective program.
 
-Legacy recipes compile into one critic step and one generator step. The
+Every configuration compiles into one critic step and one generator step. The
 executor reads sample bindings, detach policies, terms, and parameter
 sequences from that program.
 """
@@ -17,7 +17,7 @@ class SampleBinding:
 
     ``detach_sample`` drops the graph before the critic forward.
     ``detach_score`` drops it after the forward. A policy that only detaches
-    inputs cannot express both of today's cuts.
+    inputs cannot express both cuts.
     """
     path: str
     detach_sample: bool
@@ -100,7 +100,8 @@ def _phases(real, fake):
     return critic, generator
 
 
-def _legacy_phases():
+def _discriminator_phases():
+    """The implicit discriminator term scores the real batch against the generated sample."""
     return _phases("batch.real", "generated")
 
 
@@ -122,15 +123,15 @@ def _penalty_for_term(spec, make_penalty):
     return make_penalty(spec["penalty_coeff"])
 
 
-def compile_legacy_program(graph, prior, config, objectives, gan, penalty, spread, make_penalty=None):
-    """Compile today's recipe into ``d-then-g-v1``.
+def compile_objective_program(graph, prior, config, objectives, gan, penalty, spread, make_penalty=None):
+    """Compile the configured objectives into the ``d-then-g-v1`` program the trainer runs.
 
     The implicit first term reads the discriminator and its inputs. Optional
     ``adversarial_terms`` append further terms with that same detach policy.
     These records are not another training method.
     """
     discriminator = graph.models["discriminator"]
-    critic_phase, generator_phase = _legacy_phases()
+    critic_phase, generator_phase = _discriminator_phases()
     terms = [AdversarialTerm(
         discriminator, _routes(graph.specs["discriminator"]["inputs"]), config["adversarial"]["weight"],
         True, penalty, gan, critic_phase, generator_phase, "adversarial")]
@@ -143,8 +144,9 @@ def compile_legacy_program(graph, prior, config, objectives, gan, penalty, sprea
             extra_critic, extra_generator, spec["id"]))
     terms = tuple(terms)
     if len(terms) == 1:
-        # Same objects and order as the single-term compiler. Do not filter here:
-        # a discriminator parameter that appears in the generator sequence is an overlap.
+        # The discriminator's own parameter objects, in module order. Do not filter
+        # here: a discriminator parameter that appears in the generator sequence is
+        # an overlap, which the ownership check below rejects.
         critic_parameters = _ordered_unique(parameter for parameter in discriminator.parameters() if parameter.requires_grad)
         generator_parameters = _ordered_unique(graph.generator_parameters())
     else:

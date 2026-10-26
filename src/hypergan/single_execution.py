@@ -29,14 +29,20 @@ class SingleProcessExecution:
         self._previews = None
 
     def environment(self):
+        # Runtime metadata records the thread count training runs with.
+        self._pin_threads()
         return {'runtime': runtime_info(self._device), 'source': source_info(self._config)}
+
+    def _pin_threads(self):
+        # Shutdown restores the caller's thread count; never pin again after it.
+        if self._previous_threads is None and not self._closed:
+            self._previous_threads = torch.get_num_threads()
+            torch.set_num_threads(1)
 
     def _open(self):
         if self._closed:
             raise RuntimeError('Execution has already shut down')
-        if self._previous_threads is None:
-            self._previous_threads = torch.get_num_threads()
-            torch.set_num_threads(1)
+        self._pin_threads()
         if self._trainer is None:
             device = self._device
             if device.type == 'cuda':
@@ -95,6 +101,7 @@ class SingleProcessExecution:
         apply_backend_policy(self._config)
         # Warns on stderr as it is detected; the controller also records them on
         # the run so the owner can read them after the attempt has scrolled past.
+        self._pin_threads()
         current_runtime = runtime_info(self._config['training']['device'])
         migration = {}
         if (isinstance(info['runtime'], dict)

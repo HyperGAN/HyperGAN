@@ -8,7 +8,7 @@ from torch import nn
 
 from hypergan.checkpoints import restore_trainer, trainer_state
 from hypergan.config import load_config, resolve_config
-from hypergan.objective_program import compile_legacy_program
+from hypergan.objective_program import compile_objective_program
 from hypergan.training import ReferenceTrainer
 
 from tests.reference.legacy_native_oracle import legacy_native_update
@@ -212,7 +212,7 @@ def test_duplicate_generator_parameters_keep_the_first_occurrence():
     original = trainer.graph.generator_parameters
     parameters = original()
     trainer.graph.generator_parameters = lambda: [parameters[0], parameters[0], *parameters[1:]]
-    program = compile_legacy_program(
+    program = compile_objective_program(
         trainer.graph, trainer.prior, trainer.config, trainer.objectives, trainer.gan, trainer.penalty, trainer.spread)
     assert program.generator_parameters == tuple(parameters)
 
@@ -224,7 +224,7 @@ def test_overlapping_update_groups_are_rejected():
     original = trainer.graph.generator_parameters
     trainer.graph.generator_parameters = lambda: [shared, *original()]
     with pytest.raises(ValueError, match="both the critic and generator"):
-        compile_legacy_program(
+        compile_objective_program(
             trainer.graph, trainer.prior, trainer.config, trainer.objectives, trainer.gan, trainer.penalty, trainer.spread)
 
 

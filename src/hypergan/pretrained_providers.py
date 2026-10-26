@@ -3,6 +3,11 @@
 Providers construct published library models without downloading weights.
 HNDL verifies and loads the configured local artifact and selects its output.
 """
+from contextlib import contextmanager
+import importlib
+from pathlib import Path
+import sys
+import threading
 
 
 def _torchvision_resnet18():
@@ -35,18 +40,60 @@ def register_providers(registry, providers=None):
     return registry
 
 
-def _dinov3_builder(source_path, source_commit):
-    """Verify the trusted local source before exposing its upstream constructor."""
-    import importlib
-    from pathlib import Path
-    import subprocess
-    import sys
+# Verified checkouts, as (source, commit) -> checkout stamp at verification.
+_VERIFIED = {}
+# Each checkout's own ``dinov3`` modules, kept off ``sys.modules`` between uses.
+_PACKAGES = {}
+_PACKAGE_LOCK = threading.RLock()
 
-    source = Path(source_path).expanduser().resolve()
-    if len(source_commit) != 40 or any(c not in '0123456789abcdef' for c in source_commit):
-        raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
-    if not (source / 'dinov3' / 'hub' / 'backbones.py').is_file():
-        raise FileNotFoundError(f'DINOv3 source checkout missing: {source}')
+
+def _git_dir(source):
+    git = source / '.git'
+    if git.is_file():
+        # Linked worktrees and submodules name their Git directory in this file.
+        text = git.read_text().strip()
+        if text.startswith('gitdir:'):
+            git = (source / text[len('gitdir:'):].strip()).resolve()
+    return git
+
+
+def _checkout_stamp(source):
+    """Identity of the files that change when HEAD, its branch or the index move.
+
+    Checkouts, commits, resets and staging each rewrite at least one of them
+    (Git replaces them by renaming a lock file), so an unchanged stamp means
+    the last ``git`` verification still holds.
+    """
+    git = _git_dir(source)
+    paths = [git / 'HEAD', git / 'index', git / 'packed-refs']
+    try:
+        head = (git / 'HEAD').read_text().strip()
+    except OSError:
+        head = ''
+    if head.startswith('ref:'):
+        ref = head[len('ref:'):].strip()
+        paths.append(git / ref)
+        try:
+            paths.append((git / (git / 'commondir').read_text().strip()).resolve() / ref)
+        except OSError:
+            pass
+    stamp = []
+    for path in paths:
+        try:
+            status = path.stat()
+            stamp.append((status.st_ino, status.st_mtime_ns, status.st_size))
+        except OSError:
+            stamp.append(None)
+    return tuple(stamp)
+
+
+def _verify_checkout(source, source_commit):
+    """Require a clean checkout at ``source_commit``, reusing a still-valid answer."""
+    import subprocess
+    key = (source, source_commit)
+    if key in _VERIFIED and _VERIFIED[key] == _checkout_stamp(source):
+        return
+    _VERIFIED.pop(key, None)
     try:
         actual = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
         dirty = subprocess.check_output(['git', '-C', str(source), 'status', '--porcelain', '--untracked-files=all'], text=True).strip()
@@ -54,16 +101,53 @@ def _dinov3_builder(source_path, source_commit):
         raise ValueError(f'Cannot verify local DINOv3 Git checkout: {source}') from exc
     if actual != source_commit or dirty:
         raise ValueError(f'DINOv3 source must be clean at {source_commit}; got {actual}, dirty={bool(dirty)}')
-    sys.path.insert(0, str(source))
-    try:
+    # Modules imported from an earlier state of this checkout are stale.
+    _PACKAGES.pop(source, None)
+    _VERIFIED[key] = _checkout_stamp(source)
+
+
+def _is_dinov3(name):
+    return name == 'dinov3' or name.startswith('dinov3.')
+
+
+@contextmanager
+def _dinov3_package(source):
+    """Resolve ``dinov3`` imports to one checkout, then restore ``sys.modules``.
+
+    Upstream modules import siblings lazily, so construction runs in this scope
+    too. Another checkout or an installed ``dinov3`` is set aside and put back
+    afterwards; this checkout's modules are kept for its next use.
+    """
+    with _PACKAGE_LOCK:
+        outer = {name: sys.modules.pop(name) for name in [name for name in sys.modules if _is_dinov3(name)]}
+        sys.modules.update(_PACKAGES.get(source, {}))
+        sys.path.insert(0, str(source))
+        try:
+            yield
+        finally:
+            sys.path.remove(str(source))
+            _PACKAGES[source] = {name: sys.modules.pop(name) for name in [name for name in sys.modules if _is_dinov3(name)]}
+            sys.modules.update(outer)
+
+
+def _dinov3_builder(source_path, source_commit):
+    """Verify the trusted local source before exposing its upstream constructor."""
+    source = Path(source_path).expanduser().resolve()
+    if len(source_commit) != 40 or any(c not in '0123456789abcdef' for c in source_commit):
+        raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
+    if not (source / 'dinov3' / 'hub' / 'backbones.py').is_file():
+        raise FileNotFoundError(f'DINOv3 source checkout missing: {source}')
+    _verify_checkout(source, source_commit)
+    with _dinov3_package(source):
         package = importlib.import_module('dinov3')
         if Path(package.__file__).resolve().parent != source / 'dinov3':
             raise ValueError('A different DINOv3 package is imported; use the configured pinned checkout')
         backbones = importlib.import_module('dinov3.hub.backbones')
-    finally:
-        sys.path.remove(str(source))
-    from functools import partial
-    return partial(backbones.dinov3_vits16, pretrained=False)
+
+    def build(*args, **kwargs):
+        with _dinov3_package(source):
+            return backbones.dinov3_vits16(*args, pretrained=False, **kwargs)
+    return build
 
 
 def _dinov3_patch_tokens(model, x):

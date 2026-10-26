@@ -22,7 +22,7 @@ from .particlegan_integration import particlegan_recipe, implementation_files
 from .recipes import ComponentGraph, construct, make_prior, execution_device, move_tensors
 from .checkpoints import data_contract
 from .numerical_policy import apply_backend_policy, rocm_determinism_guard
-from .objective_program import compile_legacy_program, run_native_program
+from .objective_program import compile_objective_program, run_native_program
 
 
 class _MetricScalarTransfer:
@@ -107,9 +107,21 @@ def _version(name):
         return "unknown (source import without distribution metadata)"
 
 
+def _world_size():
+    distributed = torch.distributed
+    return distributed.get_world_size() if distributed.is_available() and distributed.is_initialized() else 1
+
+
 def runtime_info(device='cpu'):
+    """The numerical runtime of this process, read when called.
+
+    ``threads`` is the current intra-op thread count, so callers read it after
+    pinning threads for training. Models and the prior are built in the default
+    dtype, which ``dtype`` names without the ``torch.`` prefix.
+    """
     device = execution_device(device)
-    result = {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": 1, "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "hndl": _version("hndl"), "device": str(device), "dtype": "float32", "world_size": 1, "default_dtype": str(torch.get_default_dtype()), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
+    default_dtype = torch.get_default_dtype()
+    result = {"python": platform.python_version(), "torch": str(torch.__version__), "numpy": np.__version__, "platform": platform.system(), "machine": platform.machine(), "threads": torch.get_num_threads(), "particlegan": _version("particlegan"), "hypergan": _version("hypergan"), "hndl": _version("hndl"), "device": str(device), "dtype": str(default_dtype).removeprefix("torch."), "world_size": _world_size(), "default_dtype": str(default_dtype), "deterministic_algorithms": torch.are_deterministic_algorithms_enabled()}
     if device.type == 'cuda':
         properties = torch.cuda.get_device_properties(device)
         is_rocm = getattr(torch.version, 'hip', None) is not None
@@ -136,13 +148,24 @@ def runtime_info(device='cpu'):
     return result
 
 
+def _distribution_commit(name):
+    """The VCS commit an installer recorded for a distribution (PEP 610), else None."""
+    import json
+    try:
+        record = json.loads(importlib.metadata.distribution(name).read_text("direct_url.json") or "null")
+    except (importlib.metadata.PackageNotFoundError, ValueError):
+        return None
+    vcs = record.get("vcs_info") if isinstance(record, dict) else None
+    commit = vcs.get("commit_id") if isinstance(vcs, dict) else None
+    return commit if isinstance(commit, str) else None
+
+
 def source_info(config=None):
+    """Installed sources: the ParticleGAN release and recipe preset, and HyperGAN's revision."""
     from .provenance import hypergan_source
-    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "407c2f7aad143badfa92ef4e7d5281b95b946542"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
-    if config and config.get('recipe'):
-        result['integration_reference'] = {
-            'repository': 'https://github.com/255BITS/ParticleGAN',
-            'version': _version('particlegan'), 'preset': config['recipe'].get('name')}
+    recipe = (config or {}).get('recipe') or {}
+    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "version": _version("particlegan"), "preset": recipe.get('name')},
+              "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": _distribution_commit("particlegan"), **hypergan_source()}
     result["distribution_records"] = {}
     for name in ("hypergan", "particlegan", "hndl"):
         try:
@@ -318,7 +341,7 @@ class ReferenceTrainer:
             self.opt_d.anchor.decay = config['gradient_penalty']['anchor_decay']
         self.penalty = self.recipe.make_critic_penalty(self.opt_d)
         make_penalty = lambda coeff: self.recipe.make_critic_penalty(self.opt_d, coeff=coeff)
-        self.program = compile_legacy_program(
+        self.program = compile_objective_program(
             self.graph, self.prior, config, self.objectives, self.gan, self.penalty, self.spread, make_penalty)
         groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"]}]
         if config.get('recipe'):

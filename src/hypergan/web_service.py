@@ -250,7 +250,8 @@ class ObservationService:
 
         def relative_path(value):
             path = Path(value)
-            if not path.is_absolute():
+            # A rooted path without a drive (`/x` on Windows) is not relative.
+            if not path.root:
                 return path.as_posix()
             try:
                 return path.relative_to(self.root).as_posix()

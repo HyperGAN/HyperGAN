@@ -265,13 +265,13 @@ def test_nested_registered_run_is_projected_by_the_viewers_projector(tmp_path):
             assert response.status_code == 200, (run_id, response.text)
 
 
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs a directory mode that denies writes (not Windows, not root)")
 def test_projection_failure_in_another_process_reaches_the_server(tmp_path):
     """The broker's projector and server are separate processes; the failure still shows."""
     import subprocess
     import sys
     import hypergan.web_autostart as autostart
-    if os.geteuid() == 0:
-        pytest.skip("root ignores the read-only run directory")
     runs_root = tmp_path / "runs"
     runs_root.mkdir()
     read_only = _make_run(runs_root, "read_only", project=False)

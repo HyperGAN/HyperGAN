@@ -16,6 +16,8 @@ HyperGAN launches one supervised worker per GPU on a single host, using NCCL and
 | Mixed precision / model sharding | Not provided by this replicated float32 path |
 | Multiple hosts | Experimental; separate real-cluster qualification required |
 
+The download-free image gate uses the installed CIFAR generator and pixel critic with synthetic 32×32 tensors. It exercises convolution, normalization, attention and critic double backward on two GPUs, and compares complete state after checkpoint recovery at accumulation factors one and two. This does not qualify CIFAR image quality or a pretrained feature backbone.
+
 The global recipe batch must divide evenly by GPU count, and each local batch must divide by `accumulation_steps`. For a global batch of 64, four GPUs and accumulation two mean 16 samples per rank and eight per microbatch. HyperGAN does not scale learning rates automatically.
 
 Training-mode BatchNorm is rejected. Accumulation greater than one also rejects configured input/output noise and independent D/G draws, which its replay implementation does not implement. Use accumulation one to retain those policies. Custom batch-coupled objectives and mutable forwards require their own numerical qualification.
@@ -32,7 +34,7 @@ python -m pytest tests/cuda -q -m ""
 
 The filtered qualification command exits unsuccessfully if the requested GPU count cannot run; a skipped suite is not a pass. `--cuda-world-size` changes the CUDA suite only. It verifies complete bounded updates and consensus on every requested rank. On a four/eight-GPU allocation, run the same command with that exact count before a longer job.
 
-Qualification preserves inherited `CUDA_VISIBLE_DEVICES` order, including GPU UUID masks, and respects caller-supplied NCCL transport settings. It no longer forces P2P or InfiniBand off. On the local RTX A6000 host, default P2P transport stalled in an initial object collective; the full gate must use the explicitly recorded host workaround:
+Qualification preserves inherited `CUDA_VISIBLE_DEVICES` order, including GPU UUID masks, and respects caller-supplied NCCL transport settings. It no longer forces P2P or InfiniBand off. On the local RTX A6000 host, default NCCL transport stalled in an initial object collective; the gate passes with this explicitly recorded host workaround:
 
 ```sh
 NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 CUBLAS_WORKSPACE_CONFIG=:4096:8 \

@@ -567,7 +567,8 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, serv
         execution = manifest.get('execution', {})
         if execution.get('name') not in ('cpu-replicated-gloo', 'cuda-replicated-nccl'):
             raise ValueError('Run has no supported replicated execution identity')
-        profile = {'schema_version': 1, 'execution': {key: execution[key] for key in ('name', 'world_size', 'accumulation_steps')}}
+        from .execution_profiles import profile_from_execution
+        profile = profile_from_execution(execution)
     config = load_config(config_path) if config_path is not None else resolve_config(manifest.get('config', {}))
     resolved_profile = _resolve_profile(profile, config)
     if resolved_profile['execution'].get('node_rank', 0) > 0:

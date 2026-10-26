@@ -17,6 +17,14 @@ _KINDS = {'cpu-single': 'hypergan-training-checkpoint',
 
 _BUILTIN_STRATEGIES = {'gradient_allreduce', 'parameter_average', 'pseudo_gradient'}
 _REGISTERED_STRATEGIES = set()
+EXECUTION_FIELDS = ('name', 'world_size', 'accumulation_steps', 'nodes', 'node_rank',
+                    'ranks_per_node', 'rendezvous', 'aggregation')
+
+
+def profile_from_execution(execution):
+    """Recover profile inputs without dropping saved aggregation or topology."""
+    return {'schema_version': 1, 'execution': {
+        key: execution[key] for key in EXECUTION_FIELDS if key in execution}}
 
 
 def register_profile_strategy(name):
@@ -152,9 +160,7 @@ def resolve_execution_profile(values, config):
                     ('schema_version', 'execution'))
     if type(values['schema_version']) is not int or values['schema_version'] != 1:
         raise ValueError('Unsupported execution profile schema_version; expected integer 1')
-    execution = _table(values['execution'], 'execution',
-                       ('name', 'world_size', 'accumulation_steps', 'nodes', 'node_rank',
-                        'ranks_per_node', 'rendezvous', 'aggregation'), ('name',))
+    execution = _table(values['execution'], 'execution', EXECUTION_FIELDS, ('name',))
     name = execution['name']
     if not isinstance(name, str) or name not in _NAMES:
         raise ValueError('execution.name must be cpu-single, cpu-replicated-gloo or cuda-replicated-nccl')

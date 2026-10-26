@@ -13,7 +13,8 @@ HyperGAN launches one supervised worker per GPU on a single host, using NCCL and
 | Aggregation | Synchronous `gradient_allreduce`; experimental `parameter_average` and `pseudo_gradient` also have two-GPU tests |
 | Four/eight GPUs | Profiles and the qualification driver accept these counts; real four/eight-rank CPU training is tested, but GPU scaling needs that hardware |
 | Model memory | Replicated on each GPU; adding GPUs does not pool model/optimizer memory. Accumulation reduces activation memory |
-| Mixed precision, model sharding, multiple hosts | Separate qualification required |
+| Mixed precision / model sharding | Not provided by this replicated float32 path |
+| Multiple hosts | Experimental; separate real-cluster qualification required |
 
 The global recipe batch must divide evenly by GPU count, and each local batch must divide by `accumulation_steps`. For a global batch of 64, four GPUs and accumulation two mean 16 samples per rank and eight per microbatch. HyperGAN does not scale learning rates automatically.
 
@@ -40,13 +41,13 @@ NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 CUBLAS_WORKSPACE_CONFIG=:4096:8 \
 
 This host workaround is not a cloud default. Test the allocated machine's default transport before applying a workaround there. Preserve the receipt, test output and environment with the run.
 
-For runtime construction checks against the actual model, use a profile file:
+For runtime construction checks against the actual model, use a profile file. This example selects two GPUs; set `world_size` to the actual allocation:
 
 ```toml
 schema_version = 1
 [execution]
 name = "cuda-replicated-nccl"
-world_size = 4
+world_size = 2
 accumulation_steps = 1
 ```
 
@@ -66,4 +67,4 @@ Persist the entire run directory and recipe/data artifacts. A successful local c
 
 Recovery currently requires the recorded CUDA runtime, visible GPU inventory and ordered physical GPU UUID assignment. A replacement cloud container with different GPUs cannot transparently resume that checkpoint under this strict identity contract. See [replicated CUDA recovery](replicated-cuda.md). Portable recovery across replacement GPUs remains a cloud-readiness gap.
 
-Correctness tests do not establish a throughput gain. Measure the intended model at a fixed global batch and fixed initialization on one and two GPUs before increasing the allocation. Current costs include per-parameter reductions, Python/object collective synchronization, full-state CPU hashing at replica checks/checkpoints, and serialized checkpoint gathering at rank zero. Built-in sharded loaders decode local rows; custom global loaders still duplicate their global draw. Four/eight-GPU speedup must be measured on the requested hardware.
+Correctness tests do not establish a throughput gain. Measure the intended model at a fixed global batch and fixed initialization on one and two GPUs before increasing the allocation. Current costs include per-parameter reductions, Python/object collective synchronization, full-state CPU hashing at replica checks/checkpoints, and serialized checkpoint gathering at rank zero. Image/item loaders can decode local rows; custom global loaders still duplicate their global draw. Four/eight-GPU speedup must be measured on the requested hardware.

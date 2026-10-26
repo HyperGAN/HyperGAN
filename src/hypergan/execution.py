@@ -12,7 +12,7 @@ from pathlib import Path
 from .config import config_values, fingerprint, load_config, resolve_config, resume_compatible
 from .model_file import ConfigError
 from .previews import sample_name
-from .execution_profiles import load_execution_profile, resolve_execution_profile
+from .execution_profiles import load_execution_profile, profile_from_execution, resolve_execution_profile
 from .main_guard import require_main_guard
 from .metric_plugins import enabled_custom
 
@@ -132,7 +132,11 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
     validate_checkpoint_compatibility(identity)
     if execution:
         topology = identity.get('topology', {})
-        if not isinstance(topology, dict) or any(not _same(topology.get(key), value) for key, value in execution.items()):
+        # The checkpoint writer excludes these per-launch fields from shared
+        # numerical topology. Match that contract while retaining every batch,
+        # accumulation, node-count and aggregation check.
+        if not isinstance(topology, dict) or any(not _same(topology.get(key), value)
+                for key, value in execution.items() if key not in ('node_rank', 'rendezvous')):
             raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
     if info.get('event_boundary') is None:
         raise ValueError('Controller checkpoint requires a durable event boundary')
@@ -370,8 +374,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
         raise ValueError('Run has no supported numerical execution identity')
     if profile is None and saved is not None:
-        profile = {'schema_version': 1, 'execution': {
-            key: saved.get(key) for key in ('name', 'world_size', 'accumulation_steps')}}
+        profile = profile_from_execution(saved)
     # A device override is part of the configuration checked against the run below.
     profile, devices = _apply_devices(devices, config, profile, run_dir)
     if _repeat_train:

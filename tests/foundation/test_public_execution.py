@@ -16,7 +16,7 @@ def project(tmp_path, device='cpu'):
     return write_default(tmp_path / 'project', device=device, defaults='hypergan')
 
 
-def stopped(tmp_path, *, replicated=True):
+def stopped(tmp_path, *, replicated=True, execution_options=None):
     path = project(tmp_path)
     config = load_config(path)
     run = tmp_path / 'run'
@@ -27,9 +27,12 @@ def stopped(tmp_path, *, replicated=True):
     identity = {'config_sha256': fingerprint(config), 'hypergan_checkpoint_version': 2}
     if replicated:
         execution = resolve_execution_profile({'schema_version': 1, 'execution': {
-            'name': 'cpu-replicated-gloo', 'accumulation_steps': 2}}, config)['execution']
+            'name': 'cpu-replicated-gloo', 'accumulation_steps': 2, **(execution_options or {})}}, config)['execution']
         manifest['execution'] = execution
-        identity['topology'] = execution
+        # Match the real checkpoint writer: launch-specific fields are not
+        # shared numerical state across ranks or fresh worker groups.
+        identity['topology'] = {key: value for key, value in execution.items()
+                                if key not in ('node_rank', 'rendezvous')}
     root = run / ('distributed-checkpoints' if replicated else 'checkpoints')
     checkpoint = root / 'snapshot'
     checkpoint.mkdir(parents=True)
@@ -88,6 +91,32 @@ def test_resume_infers_numerical_identity_and_accepts_deadlines(tmp_path):
     assert prepared.service_policy['command_timeout'] == 120
     assert (run / 'manifest.json').read_bytes() == before
     assert not (run / 'attempts').exists()
+
+
+@pytest.mark.parametrize('options', [
+    {'aggregation': {'strategy': 'parameter_average', 'sync_every_steps': 7}},
+    {'aggregation': {'strategy': 'pseudo_gradient', 'sync_every_steps': 7,
+                     'outer_lr': .5, 'outer_momentum': .8}},
+    {'world_size': 4, 'nodes': 2, 'node_rank': 0, 'ranks_per_node': 2,
+     'rendezvous': 'tcp://leader:29500'},
+])
+def test_resume_infers_saved_aggregation_and_multinode_fields(tmp_path, options):
+    _, run, checkpoint, manifest = stopped(tmp_path, execution_options=options)
+    prepared = prepare_resume(run)
+    assert prepared.profile['execution'] == manifest['execution']
+    assert prepared.checkpoint == checkpoint
+
+
+def test_internal_resume_also_preserves_saved_aggregation(tmp_path, monkeypatch):
+    from hypergan import replicated_execution, run_controller
+
+    _, run, _, manifest = stopped(tmp_path, execution_options={
+        'aggregation': {'strategy': 'parameter_average', 'sync_every_steps': 7}})
+    monkeypatch.setattr(run_controller, 'run_resume',
+                        lambda *args, **kwargs: kwargs['execution_factory'].profile['execution'])
+    with pytest.warns(RuntimeWarning, match='experimental'):
+        execution = replicated_execution.run_resume(run)
+    assert execution == manifest['execution']
 
 
 def test_resume_native_and_explicit_cpu_identity(tmp_path):

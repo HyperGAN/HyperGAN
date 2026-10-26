@@ -333,6 +333,8 @@ def default_run_dir(stem: str, *, name: str | None = None, start: Path | str | N
         name = re.sub(r"[\\/]+", "-", str(name)).strip("-")
         if not name:
             raise ValueError("Run name must contain a character other than '/'")
+        if name in (".", ".."):
+            raise ValueError(f"run name {name!r} is not a directory name")
     ws_file = find_workspace(start)
     ws_data = load_workspace(ws_file) if ws_file else None
     ws_sec = ws_data.get("workspace", {}) if ws_data else {}

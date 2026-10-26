@@ -413,7 +413,10 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
         try:
             descriptor = _configure_attempt(execution, context, preview_every, on_event)
             requested = descriptor['execution'] if descriptor is not None else None
-            if json.dumps(requested, sort_keys=True, allow_nan=False) != json.dumps(manifest.get('execution'), sort_keys=True, allow_nan=False):
+            # node_rank and rendezvous say where this launch joins, not what it computes.
+            requested, saved = ({k: v for k, v in value.items() if k not in ('node_rank', 'rendezvous')}
+                                if isinstance(value, dict) else value for value in (requested, manifest.get('execution')))
+            if json.dumps(requested, sort_keys=True, allow_nan=False) != json.dumps(saved, sort_keys=True, allow_nan=False):
                 raise ValueError('Resume numerical execution identity differs from the run manifest')
             restored = execution.restore(run_dir, checkpoint, manifest['run_id'], manifest['config_sha256'])
             _apply_execution(manifest, descriptor)

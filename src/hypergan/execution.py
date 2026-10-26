@@ -20,6 +20,8 @@ PROFILE_NAMES = ('cpu-single', 'cpu-replicated-gloo', 'cuda-replicated-nccl')
 SERVICE_TIMEOUTS = ('startup_timeout', 'command_timeout', 'collective_timeout',
                     'total_timeout', 'observer_timeout', 'preview_timeout')
 MAX_METADATA_BYTES = 16 * 1024 * 1024
+# Where this node joins this launch; distributed checkpoint topology omits them too.
+PER_LAUNCH_KEYS = ('node_rank', 'rendezvous')
 
 
 def _read_metadata(path):
@@ -66,6 +68,25 @@ def _execution(profile):
     if profile is None or profile['execution']['name'] == 'cpu-single':
         return None
     return profile['execution']
+
+
+def _numerical_identity(execution):
+    """An execution table without its per-launch keys, as checkpoints record it."""
+    if not isinstance(execution, dict):
+        return execution
+    return {key: value for key, value in execution.items() if key not in PER_LAUNCH_KEYS}
+
+
+def _is_follower(profile, config):
+    """Whether an explicit profile runs a follower node (execution.node_rank > 0).
+
+    Node 0 alone owns a shared run's manifest, checkpoints and resume selection,
+    so a follower checks none of them: it mirrors node 0's command stream.
+    """
+    if profile is None or (isinstance(profile, str) and profile in PROFILE_NAMES):
+        return False
+    execution = _execution(_profile(profile, config))
+    return execution is not None and execution.get('node_rank', 0) > 0
 
 
 def _policy(profile, service_policy):
@@ -132,7 +153,8 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
     validate_checkpoint_compatibility(identity)
     if execution:
         topology = identity.get('topology', {})
-        if not isinstance(topology, dict) or any(not _same(topology.get(key), value) for key, value in execution.items()):
+        if not isinstance(topology, dict) or any(not _same(topology.get(key), value)
+                                                 for key, value in _numerical_identity(execution).items()):
             raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
     if info.get('event_boundary') is None:
         raise ValueError('Controller checkpoint requires a durable event boundary')
@@ -311,6 +333,15 @@ def _is_run(run_dir):
                      'choose a new run directory or remove this one')
 
 
+def _is_follower_launch(profile, devices, config_path, steps, run_dir):
+    """Whether prepare_train's profile is a follower's, which never resumes node 0's run itself."""
+    if profile is None or (isinstance(profile, str) and profile in PROFILE_NAMES):
+        return False
+    config = _training_config(config_path, steps)
+    profile, _ = _apply_devices(devices, config, profile, run_dir)
+    return _is_follower(profile, config)
+
+
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
                   devices=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
@@ -319,7 +350,8 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
     run_dir = Path(run_dir).resolve()
-    if run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
+    if (run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1"
+            and not _is_follower_launch(profile, devices, config_path, steps, run_dir) and _is_run(run_dir)):
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=profile, service_policy=service_policy, devices=devices,
             checkpoint_every=checkpoint_every, max_seconds=max_seconds,
@@ -374,7 +406,9 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             key: saved.get(key) for key in ('name', 'world_size', 'accumulation_steps')}}
     # A device override is part of the configuration checked against the run below.
     profile, devices = _apply_devices(devices, config, profile, run_dir)
-    if _repeat_train:
+    # Node 0 checks and restores the shared run; replicated_execution routes a follower.
+    follower = _is_follower(profile, config)
+    if _repeat_train and not follower:
         original = config_values(resolve_config(manifest['config']))
         changed = _differences(config_values(config), original)
         if changed and not resume_compatible(config, original, include_observation=True):
@@ -385,7 +419,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
                       'use a new run directory for a different numerical configuration')
             raise ConfigError('Training configuration differs from the original run in '
                               + ', '.join(changed) + '; ' + remedy)
-    if fingerprint(config) != manifest['config_sha256']:
+    if not follower and fingerprint(config) != manifest['config_sha256']:
         compat = resume_compatible(config, manifest['config'])
         if (not compat
                 or fingerprint(manifest['config']) != manifest['config_sha256']):
@@ -396,7 +430,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
                               'pinned training-image skipping, or changing its pixel cache, is allowed')
     profile = _profile(profile, config)
     execution = _execution(profile)
-    if not _same(execution, saved):
+    if not follower and not _same(_numerical_identity(execution), _numerical_identity(saved)):
         raise ValueError('Resume numerical execution identity differs from the run manifest')
     policy = _policy(profile, service_policy)
     checkpoint_every = manifest.get('checkpoint_every', 1000) if checkpoint_every is None else checkpoint_every
@@ -404,7 +438,8 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     preview_keep, preview_keep_source = resolve_preview_keep(manifest, preview_keep, preview_keep_source)
     preview_name = sample_name(manifest.get('preview_name') if preview_name is None else preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
-    checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'])
+    if not follower:
+        checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'])
     controls = dict(checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
                     preview_keep=preview_keep, preview_keep_source=preview_keep_source,

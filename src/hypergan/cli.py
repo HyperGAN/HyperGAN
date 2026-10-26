@@ -469,6 +469,10 @@ def _parser():
         help="filter to a specific qualification suite (e.g. single_device, cpu_replicated_gloo, cuda_replicated_nccl, aggregation, multinode, checkpoint_compatibility)",
     )
     qualify_cmd.add_argument(
+        "--cuda-world-size", type=int, default=2,
+        help="number of GPUs to exercise in cuda_replicated_nccl (2–64; default: 2)",
+    )
+    qualify_cmd.add_argument(
         "--timeout",
         type=_validate_qualify_timeout,
         default=180.0,

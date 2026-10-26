@@ -238,6 +238,17 @@ def get_free_tcp_port() -> int:
         return s.getsockname()[1]
 
 
+def _cuda_device_mask(devices: List[int]) -> str:
+    """Translate visible indices without discarding an inherited mask or UUIDs."""
+    inherited = os.environ.get('CUDA_VISIBLE_DEVICES')
+    if inherited is None:
+        return ','.join(str(index) for index in devices)
+    visible = [token.strip() for token in inherited.split(',') if token.strip()]
+    if any(type(index) is not int or index < 0 or index >= len(visible) for index in devices):
+        raise ValueError('Requested qualification GPU is outside CUDA_VISIBLE_DEVICES')
+    return ','.join(visible[index] for index in devices)
+
+
 # ---------------------------------------------------------------------------
 # Worker Subprocess Driver Script
 # ---------------------------------------------------------------------------
@@ -272,7 +283,9 @@ run_dir_str = extra.get("run_dir")
 
 if backend == "nccl":
     avail_gpus = torch.cuda.device_count()
-    local_dev = rank % avail_gpus if avail_gpus > 0 else 0
+    if avail_gpus < world_size:
+        raise RuntimeError(f"Qualification requires {world_size} distinct GPUs; found {avail_gpus}")
+    local_dev = rank
     torch.cuda.set_device(local_dev)
     torch.set_num_threads(1)
     torch.use_deterministic_algorithms(True)
@@ -291,14 +304,15 @@ dist.init_process_group(
 
 try:
     dev_name = "cuda" if backend == "nccl" else "cpu"
+    batch_size = 4 * world_size
     cfg = resolve_config({
         'components': {
             'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]}, 'inputs': {'x': 'latent'}},
             'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}},
         },
-        'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
+        'prior': {'args': {'num_particles': max(16, batch_size), 'z_dim': 4}},
         'gradient_penalty': {'lazy_k': 2, 'kappa': 0.01},
-        'training': {'steps': steps + 2, 'batch_size': 8, 'device': dev_name, 'seed': 42},
+        'training': {'steps': steps + 2, 'batch_size': batch_size, 'device': dev_name, 'seed': 42},
         'sampling': {'count': 4},
     })
 
@@ -310,15 +324,15 @@ try:
         'ranks_per_node': ranks_per_node,
         'rendezvous': init_method,
         'accumulation_steps': 1,
-        'global_batch_size': 8,
-        'local_batch_size': 8 // world_size,
-        'microbatch_size': 8 // world_size,
+        'global_batch_size': batch_size,
+        'local_batch_size': batch_size // world_size,
+        'microbatch_size': batch_size // world_size,
         'accumulation_algorithm': 'retained-local-graph-v1',
         'aggregation': agg_cfg,
     }
 
-    raw_data = torch.linspace(-1, 1, 16, device=dev_name).reshape(8, 2)
-    ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], device=dev_name)
+    raw_data = torch.linspace(-1, 1, batch_size * 2, device=dev_name).reshape(batch_size, 2)
+    ids = torch.arange(batch_size, device=dev_name)
     local_ids = ids.chunk(world_size)[rank]
     local_data = raw_data.chunk(world_size)[rank]
 
@@ -412,7 +426,11 @@ class QualificationRunner:
         verbose: bool = False,
         progress_stream: Optional[TextIO] = None,
         clock: Callable[[], float] = time.monotonic,
+        cuda_world_size: int = 2,
     ):
+        if type(cuda_world_size) is not int or not 2 <= cuda_world_size <= 64:
+            raise ValueError('cuda_world_size must be an integer between 2 and 64')
+        self.cuda_world_size = cuda_world_size
         self.output_path = Path(output_path) if output_path is not None else None
         self.last_output_path: Optional[Path] = None
         self.dry_run = dry_run
@@ -492,17 +510,15 @@ class QualificationRunner:
             package_root = str(Path(__file__).resolve().parents[1])
             env_base["PYTHONPATH"] = package_root + os.pathsep + env_base.get("PYTHONPATH", "")
             if backend == "nccl":
-                env_base["NCCL_P2P_DISABLE"] = "1"
-                env_base["NCCL_IB_DISABLE"] = "1"
                 env_base["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+                if cuda_devices is not None:
+                    env_base['CUDA_VISIBLE_DEVICES'] = _cuda_device_mask(cuda_devices)
 
             procs: List[subprocess.Popen] = []
             logs = []
             try:
                 for r in range(world_size):
                     env = env_base.copy()
-                    if backend == "nccl" and cuda_devices:
-                        env["CUDA_VISIBLE_DEVICES"] = str(cuda_devices[r % len(cuda_devices)])
                     cmd = [
                         sys.executable, str(script),
                         mode, str(r), str(world_size), init_method, backend, str(out_files[r]), extra_str
@@ -581,24 +597,25 @@ class QualificationRunner:
             return self._dry_run_result("cuda_replicated_nccl")
         cuda = (env_info or {}).get("cuda", {})
         dev_count = env_info.get("device_count", 0) if env_info else 0
-        if not (cuda.get("available") and dev_count >= 2 and cuda.get("nccl")):
+        world_size = self.cuda_world_size
+        if not (cuda.get("available") and dev_count >= world_size and cuda.get("nccl")):
             return {
                 "name": "cuda_replicated_nccl",
                 "status": "skipped",
                 "duration_seconds": round(time.monotonic() - t0, 4),
-                "details": {"reason": f"Requires >= 2 CUDA GPUs with NCCL (found {dev_count})"},
+                "details": {"reason": f"Requires >= {world_size} CUDA GPUs with NCCL (found {dev_count})"},
             }
         results = self._run_subprocess_ranks(
-            backend="nccl", world_size=2, steps=2, cuda_devices=[0, 1]
+            backend="nccl", world_size=world_size, steps=2, cuda_devices=list(range(world_size))
         )
-        _require(len(results) == 2 and all(r.get("passed") for r in results), "CUDA NCCL ranks did not all report success")
-        w0, w1 = results[0]["final_weights"], results[1]["final_weights"]
-        _require(w0 == w1, "CUDA NCCL replica weights diverged")
+        _require(len(results) == world_size and all(r.get("passed") for r in results), "CUDA NCCL ranks did not all report success")
+        _require(all(result['final_weights'] == results[0]['final_weights'] for result in results),
+                 "CUDA NCCL replica weights diverged")
         return {
             "name": "cuda_replicated_nccl",
             "status": "passed",
             "duration_seconds": round(time.monotonic() - t0, 4),
-            "details": {"world_size": 2, "steps": 2, "consensus": True},
+            "details": {"world_size": world_size, "steps": 2, "consensus": True},
         }
 
     def _run_suite_aggregation(self, env_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -809,9 +826,11 @@ def run_qualification(
     suite: Optional[str] = None,
     timeout: float = MAX_QUALIFICATION_SECONDS,
     verbose: bool = False,
+    cuda_world_size: int = 2,
 ) -> Dict[str, Any]:
     """Functional entrypoint for qualification harness."""
-    runner = QualificationRunner(output_path=output, dry_run=dry_run, suite_filter=suite, timeout=timeout, verbose=verbose)
+    runner = QualificationRunner(output_path=output, dry_run=dry_run, suite_filter=suite, timeout=timeout,
+                                 verbose=verbose, cuda_world_size=cuda_world_size)
     return runner.run()
 
 
@@ -831,6 +850,7 @@ def run_qualification_cli(args: argparse.Namespace) -> int:
             suite_filter=suite,
             timeout=timeout,
             verbose=verbose,
+            cuda_world_size=getattr(args, 'cuda_world_size', 2),
             # Keep stdout pure JSON under --json.
             progress_stream=sys.stderr if is_json else None,
         )

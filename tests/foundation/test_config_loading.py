@@ -25,9 +25,10 @@ def _model_with_hndl(tmp_path, hndl):
 
 def test_missing_relative_reference_hndl_is_an_error_in_every_loader(tmp_path):
     model = _model_with_hndl(tmp_path, 'nets/reference.hndl')
-    with pytest.raises(ValueError, match='cannot read .*nets/reference.hndl'):
+    # The message names the resolved native path (backslashes on Windows).
+    with pytest.raises(ValueError, match=r'cannot read .*nets[\\/]reference\.hndl'):
         load_config(model)
-    with pytest.raises(ValueError, match='cannot read .*nets/reference.hndl'):
+    with pytest.raises(ValueError, match=r'cannot read .*nets[\\/]reference\.hndl'):
         hg.validate(hg.load(model))
 
 
@@ -86,7 +87,7 @@ def test_lower_leaves_the_callers_spec_unchanged(tmp_path):
 
 def _workspace(tmp_path):
     (tmp_path / 'hypergan.toml').write_text(
-        f'[workspace]\nruns_root = "runs"\n[paths]\ndata = "{tmp_path / "datasets"}"\n', encoding='utf-8')
+        f'[workspace]\nruns_root = "runs"\n[paths]\ndata = "{(tmp_path / "datasets").as_posix()}"\n', encoding='utf-8')
     return load_workspace(tmp_path / 'hypergan.toml')
 
 
@@ -102,11 +103,11 @@ def test_workspace_interpolation_touches_only_path_fields(tmp_path, monkeypatch)
         'evaluations': {'fid': {'label': '{data} FID'}},
     }
     result = interpolate_model_paths(spec, ws)
-    data = str(tmp_path / 'datasets')
+    data, root = (tmp_path / 'datasets').as_posix(), tmp_path.resolve()
     assert result['data']['args'] == {'root': f'{data}/cats', 'cache_dir': f'{data}/cache'}
     generator = result['networks']['generator']
-    assert generator['hndl'] == f'{tmp_path}/nets/g.hndl'
-    assert generator['args']['network_files']['head'] == f'{tmp_path}/head.hndl'
+    assert generator['hndl'] == f'{root}/nets/g.hndl'
+    assert generator['args']['network_files']['head'] == f'{root}/head.hndl'
     assert generator['source'] == 'linear(${width})'
     assert generator['args']['networks']['block'] == 'attention(h, ${heads})'
     assert result['description'] == spec['description']

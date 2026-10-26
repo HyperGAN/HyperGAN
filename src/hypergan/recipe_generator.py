@@ -450,8 +450,6 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
     if dataset_dir is not None:
         dataset_path = Path(dataset_dir).resolve()
         info = inspect_image_dataset(dataset_path)
-        w = info["width"]
-        h = info["height"]
         c = info["channels"]
         mode = info["mode"]
         preset_res = resolution or info["preset_res"]

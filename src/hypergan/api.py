@@ -124,7 +124,7 @@ def load(path):
     if path.suffix.lower() == '.pt':
         raise ModelFileError(f'{path} is an exported .pt bundle, not a model file; '
                              'load it with hg.load_bundle(path) or hg.load_inference(path)')
-    if not path.exists() and path.suffix.lower() not in ('.toml', '.pt'):
+    if not path.exists() and path.suffix.lower() != '.toml':
         try:
             resolved_run = resolve_run_target(raw, allow_latest=(raw == 'latest'))
             if resolved_run.is_dir():

@@ -15,9 +15,9 @@ import torch.distributed as dist
 from hypergan import aggregation, distributed_checkpoints, distributed_commit
 from hypergan.aggregation import (AggregationStrategy, GradientAllreduceStrategy, ParameterAverageStrategy,
                                   PseudoGradientStrategy, _synchronize_optimizer_regularizers)
-from hypergan.config import write_default
 from hypergan.distributed_training import ReplicatedTrainer
 from hypergan.execution_profiles import experimental_features, resolve_execution_profile, validate_checkpoint_cadence
+from tests.config_fixtures import write_default
 
 
 PEER_OFFSET = 2.0  # The simulated second rank holds every value + PEER_OFFSET.

@@ -1,5 +1,6 @@
 """Full trusted training checkpoints, separate from inference bundles."""
 from collections import defaultdict
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -10,7 +11,8 @@ import re
 import shutil
 import uuid
 
-from .run_state import atomic_json, sync_directory, validate_event_boundary
+from ._file_lock import retry_lock
+from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 
 SCHEMA = 1
 
@@ -90,6 +92,9 @@ def trainer_state(trainer, last_batch):
                      base_lrs=trainer.base_lrs, step=trainer.step,
                      streams={name: stream.get_state() for name, stream in trainer.streams.items()},
                      rng=rng, data=trainer.data.state_dict() if callable(getattr(trainer.data, 'state_dict', None)) else None,
+                     # Every buffer, including non-persistent ones state_dict() omits.
+                     # Persistent buffers share storage with their state_dict entries,
+                     # and torch.save writes a shared storage once.
                      buffers={name: dict(getattr(trainer, name).named_buffers()) for name in modules},
                      trainable={name: {key: value.requires_grad for key, value in getattr(trainer, name).named_parameters()} for name in modules},
                      modes={name: {key: module.training for key, module in getattr(trainer, name).named_modules()} for name in modules},
@@ -327,8 +332,12 @@ def _durable_checkpoints(ckpt_root):
         if step is None:
             continue
         attempt = info.get('attempt_id')
+        boundary = info.get('event_boundary')
+        sequence = boundary.get('sequence') if isinstance(boundary, dict) else None
         checkpoints.append({'name': d.name, 'path': d, 'step': step,
-                            'attempt_id': attempt if isinstance(attempt, str) else None})
+                            'attempt_id': attempt if isinstance(attempt, str) else None,
+                            # Event sequence at the write: orders an attempt's checkpoints in time.
+                            'sequence': sequence if type(sequence) is int else -1})
     checkpoints.sort(key=lambda c: (c['step'], c['name']))
     return checkpoints
 
@@ -355,6 +364,24 @@ def _checkpoints_for_records(checkpoints, records):
     return matches
 
 
+def _attempt_manifests(run_dir):
+    paths = [Path(run_dir) / 'manifest.json']
+    attempts = Path(run_dir) / 'attempts'
+    if attempts.is_dir():
+        paths.extend(path / 'manifest.json' for path in attempts.iterdir() if path.is_dir())
+    return [info for info in map(_read_json, paths) if info is not None]
+
+
+def _attempt_checkpoints(run_dir):
+    """attempt_id -> name of the checkpoint that attempt's manifest last recorded."""
+    recorded = {}
+    for info in _attempt_manifests(run_dir):
+        path = info.get('checkpoint_path')
+        if isinstance(info.get('attempt_id'), str) and isinstance(path, str) and path:
+            recorded[info['attempt_id']] = Path(path).name
+    return recorded
+
+
 def _live_branch(run_dir, checkpoints, tip):
     """Names of checkpoints on the lineage that ends at ``tip``, or None when unknown.
 
@@ -366,12 +393,7 @@ def _live_branch(run_dir, checkpoints, tip):
     if tip is None or tip['attempt_id'] is None:
         return None
     parents, known = {}, set()
-    manifests = [Path(run_dir) / 'manifest.json']
-    attempts = Path(run_dir) / 'attempts'
-    if attempts.is_dir():
-        manifests.extend(path / 'manifest.json' for path in attempts.iterdir() if path.is_dir())
-    for path in manifests:
-        info = _read_json(path) or {}
+    for info in _attempt_manifests(run_dir):
         if isinstance(info.get('attempt_id'), str):
             known.add(info['attempt_id'])
         parent = info.get('recovery_parent')
@@ -518,10 +540,7 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
     if manifest is None:
         manifest_file = ckpt_dir / "manifest.json"
         if not manifest_file.is_file():
-            if (ckpt_dir.parent / "manifest.json").is_file():
-                manifest_file = ckpt_dir.parent / "manifest.json"
-            else:
-                raise ValueError(f"Checkpoint manifest missing: {ckpt_dir / 'manifest.json'}")
+            raise ValueError(f"Checkpoint manifest missing: {manifest_file}")
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
 
     state = torch.load(state_file, map_location="cpu", weights_only=True)
@@ -655,8 +674,8 @@ def export_checkpoint_bundle(checkpoint_dir: Path | str, output_dir: Path | str)
     return dest, checksum_path
 
 
-def _prune_report(run_dir, dry_run, retained=(), deleted=()):
-    retained, deleted = list(retained), list(deleted)
+def _prune_report(run_dir, dry_run, retained=(), deleted=(), failed=(), skipped=()):
+    retained, deleted, failed, skipped = list(retained), list(deleted), list(failed), list(skipped)
     reclaimed = sum(item.get('size', 0) for item in deleted)
     return {
         'run_dir': str(run_dir),
@@ -666,6 +685,11 @@ def _prune_report(run_dir, dry_run, retained=(), deleted=()):
         'retained': retained,
         'deleted': deleted,
         'reclaimed_bytes': reclaimed,
+        # Checkpoints whose deletion raised; they are neither deleted nor reclaimed.
+        'failed_count': len(failed),
+        'failed': failed,
+        # Child runs of a parent directory that were not pruned, each with its reason.
+        'skipped': skipped,
         # aliases:
         'pruned': deleted,
         'pruned_count': len(deleted),
@@ -673,12 +697,55 @@ def _prune_report(run_dir, dry_run, retained=(), deleted=()):
     }
 
 
+def _is_run_dir(path):
+    return (path / 'checkpoints').is_dir() or (path / 'manifest.json').is_file()
+
+
 def prune_checkpoints(
     run_dir: Path | str,
     policy: dict | None = None,
     dry_run: bool = False,
 ) -> dict:
-    """Evaluate and apply checkpoint retention policy to a run directory adhering to Invariants S1-S5.
+    """Apply the retention policy to one run, or to each run directly inside a directory of runs.
+
+    Each run is pruned under its run lock. A run another process holds (a
+    trainer, an export) is refused; in a directory of runs it is skipped and
+    listed under ``skipped``. A directory that is neither raises ValueError.
+    The trainer prunes through ``_prune_run_checkpoints`` under the lock it
+    already owns.
+    """
+    run_dir = Path(run_dir).resolve()
+    if not run_dir.is_dir():
+        return _prune_report(run_dir, dry_run)
+    if _is_run_dir(run_dir):
+        with retry_lock(lambda: run_lock(run_dir)):
+            return _prune_run_checkpoints(run_dir, policy=policy, dry_run=dry_run)
+    # Symlinked children are not followed: they may point at another root.
+    child_runs = sorted((d for d in run_dir.iterdir() if d.is_dir() and not d.is_symlink() and _is_run_dir(d)),
+                        key=lambda p: p.name)
+    if not child_runs:
+        raise ValueError(f'Not a HyperGAN run directory or a directory of runs: {run_dir}')
+    retained, deleted, failed, skipped = [], [], [], []
+    for child in child_runs:
+        with ExitStack() as stack:
+            try:
+                stack.enter_context(retry_lock(lambda: run_lock(child)))
+            except RuntimeError:
+                skipped.append({'run_dir': str(child), 'reason': 'locked'})
+                continue
+            try:
+                report = _prune_run_checkpoints(child, policy=policy, dry_run=dry_run)
+            except ValueError as exc:
+                skipped.append({'run_dir': str(child), 'reason': str(exc)})
+                continue
+        retained.extend(report['retained'])
+        deleted.extend(report['deleted'])
+        failed.extend(report['failed'])
+    return _prune_report(run_dir, dry_run, retained, deleted, failed, skipped)
+
+
+def _prune_run_checkpoints(run_dir, policy=None, dry_run=False):
+    """Retention for one run whose lock the caller holds, adhering to Invariants S1-S5.
 
     ``keep_last`` counts checkpoints on the live branch, the lineage that ends
     at ``latest.json``. After a resume from an older checkpoint, each abandoned
@@ -687,18 +754,11 @@ def prune_checkpoints(
     active-evaluation protection.
     """
     run_dir = Path(run_dir).resolve()
-    if not run_dir.is_dir():
-        return _prune_report(run_dir, dry_run)
-
     ckpt_root = run_dir / 'checkpoints'
+    if ckpt_root.is_symlink():
+        raise ValueError(f'Refusing to prune a symlinked checkpoints directory: {ckpt_root}')
     if not ckpt_root.is_dir():
-        child_runs = [d for d in run_dir.iterdir() if d.is_dir() and (d / 'checkpoints').is_dir()]
-        total_retained, total_deleted = [], []
-        for crun in sorted(child_runs, key=lambda p: p.name):
-            sub_res = prune_checkpoints(crun, policy=policy, dry_run=dry_run)
-            total_retained.extend(sub_res.get('retained', []))
-            total_deleted.extend(sub_res.get('deleted', []))
-        return _prune_report(run_dir, dry_run, total_retained, total_deleted)
+        return _prune_report(run_dir, dry_run)
 
     # 1. Resolve Policy
     if policy is None:
@@ -797,13 +857,23 @@ def prune_checkpoints(
                 retained_reasons[c['name']].add('keep_last')
 
     # The newest checkpoint of each attempt off the live branch stays as that
-    # abandoned branch's tip; it no longer counts toward keep_last.
-    abandoned = {}
+    # abandoned branch's tip; it no longer counts toward keep_last. An attempt
+    # can hold several checkpoints at its last step (a periodic one and the
+    # final one), so "newest" is the one written last (event sequence), then
+    # the one its manifest last recorded, never the random name suffix.
+    recorded = _attempt_checkpoints(run_dir)
+    abandoned = defaultdict(list)
     for c in checkpoints:
         if c['name'] not in live_names:
-            abandoned[c['attempt_id']] = c
-    for c in abandoned.values():
-        retained_reasons[c['name']].add('abandoned_tip')
+            abandoned[c['attempt_id']].append(c)
+    for attempt, owned in abandoned.items():
+        newest = max(owned, key=lambda c: (c['step'], c['sequence'], c['name'] == recorded.get(attempt), c['name']))
+        retained_reasons[newest['name']].add('abandoned_tip')
+
+    # Prune never deletes through a symbolic link; its target may be outside the run.
+    for c in checkpoints:
+        if c['path'].is_symlink():
+            retained_reasons[c['name']].add('symlink')
 
     # S3: Require a newer durable checkpoint before deleting older. Off the
     # live branch, the retained live tip is that newer durable checkpoint.
@@ -817,15 +887,24 @@ def prune_checkpoints(
         else:
             deleted_candidates.append(c)
 
-    # Execute deletion if not dry_run
+    # Execute deletion if not dry_run. A checkpoint whose deletion raises is
+    # reported as failed, not as deleted or reclaimed.
+    failed = []
     if not dry_run:
+        removed = []
         for c in deleted_candidates:
             target_dir = c['path']
-            (target_dir / 'state.pt').unlink(missing_ok=True)
-            (target_dir / 'manifest.json').unlink(missing_ok=True)
-            shutil.rmtree(target_dir, ignore_errors=True)
+            try:
+                (target_dir / 'state.pt').unlink(missing_ok=True)
+                (target_dir / 'manifest.json').unlink(missing_ok=True)
+                shutil.rmtree(target_dir)
+            except OSError as exc:
+                failed.append({'step': c['step'], 'name': c['name'], 'error': f'{type(exc).__name__}: {exc}'})
+            else:
+                removed.append(c)
         if deleted_candidates:
             sync_directory(ckpt_root)
+        deleted_candidates = removed
 
     retained = [
         {'step': c['step'], 'name': c['name'], 'reasons': sorted(list(retained_reasons[c['name']]))}
@@ -835,4 +914,4 @@ def prune_checkpoints(
         {'step': c['step'], 'name': c['name'], 'size': c['size']}
         for c in deleted_candidates
     ]
-    return _prune_report(run_dir, dry_run, retained, deleted)
+    return _prune_report(run_dir, dry_run, retained, deleted, failed)

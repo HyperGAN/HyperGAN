@@ -725,8 +725,11 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             emit('checkpoint', checkpoint_path=str(path), request_ids=list(request_ids or []))
             try:
                 retention_policy = config.get('checkpoints')
-                from .checkpoints import prune_checkpoints
-                prune_checkpoints(run_dir, policy=retention_policy, dry_run=False)
+                # This attempt already holds the run lock.
+                from .checkpoints import _prune_run_checkpoints
+                pruned = _prune_run_checkpoints(run_dir, policy=retention_policy, dry_run=False)
+                for item in pruned['failed']:
+                    warnings.warn(f"Automatic checkpoint pruning could not delete {item['name']}: {item['error']}", RuntimeWarning)
             except Exception as exc:
                 warnings.warn(f'Automatic checkpoint pruning failed: {exc}', RuntimeWarning)
             try:

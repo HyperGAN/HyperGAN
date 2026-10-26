@@ -13,12 +13,13 @@ With the CPU training dependencies installed, save this as `replicated_demo.py` 
 ```python
 from pathlib import Path
 
-from hypergan.config import write_default
+import hypergan.api as hg
 from hypergan.replicated_execution import run_resume, run_train
 
 
 if __name__ == "__main__":
-    config = write_default(Path("replicated-project"), device="cpu")
+    reference = hg.override(hg.packaged("gaussian-grid"), {"train.device": "cpu"})
+    config = hg.save(reference, Path("replicated-project") / "model.toml")
     profile = {
         "schema_version": 1,
         "execution": {

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.run_controller import (
     CompletedUpdate, ExecutionInfo, FatalExecutionError, ObserverError, Restored, run_resume, run_train,
 )

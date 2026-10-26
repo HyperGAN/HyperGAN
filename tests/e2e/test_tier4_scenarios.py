@@ -22,7 +22,8 @@ from typing import Any, Dict
 import pytest
 import torch
 
-from hypergan.config import resolve_config, write_default
+from hypergan.config import resolve_config
+from tests.config_fixtures import write_default
 from hypergan.execution_profiles import resolve_execution_profile
 
 try:

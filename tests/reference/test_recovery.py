@@ -10,7 +10,8 @@ import pytest
 import torch
 
 from hypergan.checkpoints import read_checkpoint, trainer_state, restore_trainer
-from hypergan.config import resolve_config, write_default
+from hypergan.config import resolve_config
+from tests.config_fixtures import write_default
 from hypergan.run_state import read_events, run_lock
 from hypergan.training import ReferenceTrainer, resume, train
 

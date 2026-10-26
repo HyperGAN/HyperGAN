@@ -147,7 +147,7 @@ def test_invalid_new_device_leaves_no_project(tmp_path):
 
 
 def test_cli_convert_subcommand(tmp_path):
-    from hypergan.config import LEGACY_REFERENCE_TOML
+    from tests.config_fixtures import LEGACY_REFERENCE_TOML
     legacy = tmp_path / "legacy_recipe.toml"
     legacy.write_text(LEGACY_REFERENCE_TOML, encoding="utf-8")
     out_model = tmp_path / "converted_model.toml"

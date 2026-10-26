@@ -9,12 +9,13 @@ Public `hypergan train` selects this strategy with `--profile cuda-replicated-nc
 ```python
 from pathlib import Path
 
-from hypergan.config import write_default
+import hypergan.api as hg
 from hypergan.replicated_execution import run_resume, run_train
 
 
 if __name__ == "__main__":
-    config = write_default(Path("gpu-project"))
+    reference = hg.override(hg.packaged("gaussian-grid"), {"train.device": "cuda"})
+    config = hg.save(reference, Path("gpu-project") / "model.toml")
     profile = {
         "schema_version": 1,
         "execution": {

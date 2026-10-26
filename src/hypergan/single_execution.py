@@ -9,7 +9,8 @@ from .checkpoints import capture_rng, read_checkpoint, restore_rng, restore_trai
 from .checkpoint_compatibility import CURRENT_VERSION, validate_runtime, validate_implementation
 from .config import config_values, fingerprint, resume_compatible
 from .metrics import validate_update_scalars
-from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, PreviewResult, Restored
+from .main_guard import require_main_guard
+from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, PreviewResult, Restored
 from .training import ReferenceTrainer, _implementation, _recovery_contract, apply_backend_policy, runtime_info, source_info
 from .recipes import execution_device
 
@@ -138,6 +139,7 @@ class SingleProcessExecution:
         if self.preview_busy:
             raise RuntimeError('Preview worker is busy; skip before reserving or capturing another preview')
         if self._previews is None:
+            require_main_guard('Previews')
             self._previews = PreviewWorker()
         snapshot = capture_snapshot_state(self._trainer, self._last_batch, identity)
         self._previews.submit(None, None, dict(identity), self._trainer.step, run_dir, keep,
@@ -146,6 +148,7 @@ class SingleProcessExecution:
     def evaluation_snapshot(self, run_dir, identity):
         from .evaluation_snapshot import capture_evaluation_state
         self._boundary()
+        require_main_guard('Interval evaluations')
         return {'state': capture_evaluation_state(self._trainer, identity)}
 
     @property

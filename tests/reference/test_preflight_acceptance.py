@@ -63,7 +63,8 @@ import multiprocessing
 from pathlib import Path
 import sys
 import time
-from hypergan.config import DEFAULT, resolve_config, write_default
+from hypergan.config import DEFAULT, resolve_config
+from tests.config_fixtures import write_default
 from hypergan.execution_profiles import resolve_execution_profile
 from hypergan.execution_preflight import preflight
 

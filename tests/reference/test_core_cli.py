@@ -16,7 +16,8 @@ from tests.hndl_fixtures import fixture_linear
 
 from hypergan.previews import index_path
 from hypergan.artifacts import sample, save_bundle
-from hypergan.config import resolve_config, write_default
+from hypergan.config import resolve_config
+from tests.config_fixtures import write_default
 
 
 def cli(tmp_path, *args):

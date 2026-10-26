@@ -166,3 +166,22 @@ def test_malformed_recorded_graph_lists_are_ignored():
     merged = describe_run({'config': config, 'config_sha256': 'a' * 64}, recorded=recorded)
     assert merged['networks'][0]['graph']['subgraphs'] == []
     assert merged['networks'][1]['graph']['subgraphs'][0]['nodes'] == []
+
+
+def test_lift_explain_and_description_infer_the_same_roles():
+    import hypergan.api as hg
+    from hypergan.model_description import roles
+    recipe = hg.lower(hg.load(next(p for p in EXAMPLES if p.stem == 'cifar-transgan')))
+    for spec in recipe['components'].values():
+        spec.get('args', {}).pop('file', None)
+    # An engine-recipe component named like an encoder but fed no prior is auxiliary everywhere.
+    recipe['components']['image_encoder'] = dict(recipe['components'].pop('reconstruction'))
+    inferred = roles(recipe, aliases=False)
+    assert inferred['encoder'] == 'encoder' and inferred['image_encoder'] == 'auxiliary'
+    lifted = hg.lift({key: value for key, value in recipe.items() if key != 'name_map'})
+    assert {name: net['role'] for name, net in lifted.spec['networks'].items()} == inferred
+    explained = hg.explain(hg.from_dict({key: value for key, value in recipe.items()
+                                         if key not in ('name_map', 'format')}))
+    for name, role in inferred.items():
+        assert f'{name} [{role}]' in explained
+    assert roles(recipe)['image_encoder'] == 'alias'

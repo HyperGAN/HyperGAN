@@ -170,7 +170,7 @@ def test_checkpoint_write_hashes_while_writing_and_sweeps_stale_pending(tmp_path
 
 @pytest.mark.heavy
 def test_real_resume_from_older_checkpoint_keeps_live_branch(tmp_path):
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.training import resume, train
     path = write_default(tmp_path / 'config.toml', device='cpu', defaults='hypergan')
     text = path.read_text().replace('steps = 5', 'steps = 12').replace('num_particles = 20000', 'num_particles = 32')

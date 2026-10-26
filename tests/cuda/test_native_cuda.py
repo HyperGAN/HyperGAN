@@ -10,7 +10,8 @@ import pytest
 import torch
 
 from hypergan.checkpoints import capture_rng, restore_rng
-from hypergan.config import DEFAULT, resolve_config, write_default
+from hypergan.config import DEFAULT, resolve_config
+from tests.config_fixtures import write_default
 from hypergan.training import ReferenceTrainer
 
 
@@ -187,16 +188,16 @@ def test_cuda_restore_requires_complete_cuda_rng_before_model_load():
 
 
 def test_explicit_cpu_stays_cold_with_cuda_available(tmp_path):
+    write_default(tmp_path/'project',device='cpu')
     code='''
 from pathlib import Path
 import sys
 import torch
-from hypergan.config import write_default
 from hypergan.training import train
 from hypergan.artifacts import sample
 assert not torch.cuda.is_initialized()
 root=Path(sys.argv[1])
-config=write_default(root/'project',device='cpu')
+config=root/'project'/'config.toml'
 result=train(config,root/'run',steps=1,preview_every=1)
 sample(root/'run',count=3)
 assert not torch.cuda.is_initialized(), 'Explicit CPU run initialized CUDA'

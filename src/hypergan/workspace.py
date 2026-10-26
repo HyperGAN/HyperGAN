@@ -123,6 +123,46 @@ def _build_context(workspace_dict: dict, env_vars: dict | None = None) -> dict[s
     return context
 
 
+def interpolate_model_paths(spec: dict, workspace_dict: dict) -> dict:
+    """Substitute workspace ``${var}`` references in a model file's path fields only.
+
+    Path fields are the keys ``hndl``, ``file``, ``root``, ``manifest``,
+    ``cache_dir``, ``weights_path``, ``source_path``, ``path`` and the entries of
+    ``network_files``. Variables are ``${paths.<key>}`` (or ``${<key>}``),
+    ``${workspace.root}``/``${root}`` and ``${workspace.runs_root}``/``${runs_root}``.
+    Other strings are left alone: HNDL sources use ``${param}`` for their own
+    template parameters, and labels may contain braces. The process environment
+    is never read, so a model resolves the same way in every shell.
+    """
+    from .model_file import _PATH_KEYS
+
+    context = _build_context(workspace_dict)
+
+    def substitute(value: str, location: str) -> str:
+        def lookup(match: re.Match) -> str:
+            key = match.group(1)
+            for candidate in (key, key[6:] if key.startswith("paths.") else f"paths.{key}"):
+                if candidate in context:
+                    return context[candidate]
+            raise ValueError(
+                f"{location}: undefined workspace variable '${{{key}}}'. "
+                f"Defined paths: {sorted(workspace_dict.get('paths', {}))}; workspace fields: root, runs_root"
+            )
+        return _VAR_REGEX.sub(lookup, value)
+
+    def walk(item: Any, location: str, is_path: bool) -> Any:
+        if isinstance(item, str):
+            return substitute(item, location) if is_path and "${" in item else item
+        if isinstance(item, dict):
+            return {k: walk(v, f"{location}.{k}" if location else str(k),
+                            is_path or k in _PATH_KEYS) for k, v in item.items()}
+        if isinstance(item, list):
+            return [walk(v, f"{location}[{i}]", is_path) for i, v in enumerate(item)]
+        return deepcopy(item)
+
+    return walk(spec, "", False)
+
+
 def interpolate_variables(data: Any, workspace_dict: dict, env_vars: dict | None = None) -> Any:
     """Recursively replace ${var} and known {var} in strings, dictionaries, and lists.
 
@@ -277,49 +317,28 @@ def resolve_device_aliases(
     return resolved
 
 
-def resolve_run_dir(
-    config_path: Path | str,
-    workspace: dict | Path | str | None = None,
-    cli_run_dir: Path | str | None = None,
-    name: str | None = None,
-) -> Path:
-    """Resolve the target run directory for a training configuration.
+def default_run_dir(stem: str, *, name: str | None = None, start: Path | str | None = None) -> Path:
+    """The directory for a new run when none is given; the CLI and the API both use this.
 
-    Uses cli_run_dir if explicitly provided; otherwise interpolates the workspace
-    run_dir template (with ${name} resolving to `name or stem` and ${stem} to the
-    config filename stem) or falls back to <runs_root>/<name or stem>.
+    Each call makes a fresh ``<stem>-<adj>-<noun>`` directory unless ``name`` is
+    given. Inside a workspace (found from ``start``, else the current directory)
+    its ``run_dir`` template decides, with ``${name}`` the directory name,
+    ``${slug}`` the ``<adj>-<noun>`` part and ``${stem}`` the name or stem; without
+    a template the run goes under ``runs_root``. Otherwise it goes in the current
+    directory.
     """
-    if cli_run_dir is not None:
-        return Path(cli_run_dir).resolve()
+    from .registry import generate_run_slug
 
-    cfg_path = Path(config_path).resolve()
-    stem = cfg_path.stem
-    eff_name = name or stem
-
-    if workspace is None:
-        ws_file = find_workspace(cfg_path)
-        ws_data = load_workspace(ws_file) if ws_file else None
-    elif isinstance(workspace, (str, Path)):
-        ws_data = load_workspace(workspace)
-    elif isinstance(workspace, dict):
-        ws_data = workspace
-    else:
-        ws_data = None
-
-    if ws_data:
-        ws_sec = ws_data.get("workspace", {})
-        ws_root = Path(ws_sec.get("root", Path.cwd())).resolve()
-        runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else ws_root
-        if "run_dir" in ws_sec:
-            run_dir_str = interpolate_variables(
-                ws_sec["run_dir"],
-                ws_data,
-                {"stem": stem, "name": eff_name, "slug": eff_name},
-            )
-            res_path = Path(run_dir_str)
-            if not res_path.is_absolute():
-                return (ws_root / res_path).resolve()
-            return res_path.resolve()
-        return (runs_root / eff_name).resolve()
-
-    return (Path.cwd() / eff_name).resolve()
+    if name is not None:
+        name = re.sub(r"[\\/]+", "-", str(name)).strip("-")
+        if not name:
+            raise ValueError("Run name must contain a character other than '/'")
+    ws_file = find_workspace(start)
+    ws_data = load_workspace(ws_file) if ws_file else None
+    ws_sec = ws_data.get("workspace", {}) if ws_data else {}
+    runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else Path.cwd().resolve()
+    dir_name, slug = (name, name) if name else generate_run_slug(stem, parent_dir=runs_root)
+    if "run_dir" in ws_sec:
+        return Path(interpolate_variables(
+            ws_sec["run_dir"], ws_data, {"stem": name or stem, "name": dir_name, "slug": slug})).resolve()
+    return (runs_root / dir_name).resolve()

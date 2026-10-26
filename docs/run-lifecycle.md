@@ -1,6 +1,6 @@
 # Shared training lifecycle
 
-The public `hypergan train` and `hypergan resume` commands use one internal run controller (`RunController`). The controller owns the run lock, attempts, manifests, events, stop budgets, checkpoint requests, sample reservations and terminal status. It supports single-process CPU and single-GPU (`cuda`) execution as well as multi-GPU replicated execution (`--devices 0,1` / `--profile cuda-replicated-nccl` and `cpu-replicated-gloo`).
+The public `hypergan train` and `hypergan resume` commands use one internal run controller (`RunController`). The controller owns the run lock, attempts, manifests, events, stop budgets, control requests (checkpoint, sample, stop), sample reservations and terminal status. It supports single-process CPU and single-GPU (`cuda`) execution as well as multi-GPU replicated execution (`--devices 0,1` / `--profile cuda-replicated-nccl` and `cpu-replicated-gloo`).
 
 The [replicated run service](replicated-run-service.md) uses that same controller with persistent workers and parent checkpoint publication, so single-GPU, multi-GPU, and CPU runs share one lifecycle, recovery, and bounded observation contract.
 

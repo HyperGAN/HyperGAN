@@ -9,7 +9,7 @@ import sys
 import pytest
 import torch
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.run_state import validate_event_boundary
 from .test_checkpoint_event_commit import equal
 

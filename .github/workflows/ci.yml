@@ -66,8 +66,8 @@ jobs:
                   assert not any(part in {'needs_pytorch', 'worktrees'} for part in parts), name
                   assert not parts or parts[0] not in {'hypergan', 'docs'}, name
                   if parts and parts[0] == 'tests' and len(parts) > 1:
-                      assert parts[1] in {'foundation', 'reference', 'cuda', 'reducers', 'browser', 'web', 'unit', 'playbooks', 'e2e', 'e2e_integration', 'fixtures', 'hndl_fixtures.py', 'dinov3_fixtures.py', 'distributed_fixtures.py'}, name
-              for required in ('src/hypergan/models', 'tests/unit', 'tests/playbooks', 'tests/e2e', 'tests/e2e_integration', 'tests/distributed_fixtures.py'):
+                      assert parts[1] in {'foundation', 'reference', 'cuda', 'reducers', 'browser', 'web', 'unit', 'playbooks', 'e2e', 'e2e_integration', 'fixtures', 'hndl_fixtures.py', 'dinov3_fixtures.py', 'distributed_fixtures.py', 'config_fixtures.py'}, name
+              for required in ('src/hypergan/models', 'tests/unit', 'tests/playbooks', 'tests/e2e', 'tests/e2e_integration', 'tests/distributed_fixtures.py', 'tests/config_fixtures.py'):
                   assert any(p == required or p.startswith(required + '/') for p in rel_paths), required
           PY
           python -c "import pathlib, subprocess, sys; source = next(pathlib.Path('dist').glob('*.tar.gz')); subprocess.check_call([sys.executable, '-m', 'pip', 'wheel', '--no-deps', '--wheel-dir', 'rebuilt', str(source)])"

@@ -37,8 +37,8 @@ try:
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
-from .workspace import find_workspace, load_workspace, interpolate_variables, resolve_device_aliases
-from .model_file import resolve_inheritance, collect_source_files
+from .workspace import find_workspace, load_workspace, interpolate_model_paths, interpolate_variables, resolve_device_aliases
+from .model_file import resolve_inheritance, collect_source_files, require_networks
 
 PACKAGED = Path(__file__).with_name('models')
 
@@ -137,7 +137,7 @@ def load(path):
             spec['name'] = path.stem
 
         if ws_dict is not None:
-            spec = interpolate_variables(spec, ws_dict)
+            spec = interpolate_model_paths(spec, ws_dict)
 
     return Model(spec, base=path.parent.resolve(), path=path.resolve(), origin=path.resolve())
 
@@ -379,6 +379,8 @@ def lower(model):
     model = _model(model)
     if is_model_file(model.spec):
         return _lower(model.spec, model.base)
+    if model.path is not None:
+        require_networks(model.spec)  # A file that declares no model never means the packaged default.
     if model.base is not None:
         from .config import inline_network_sources
         return inline_network_sources(model.spec, model.base)
@@ -505,10 +507,8 @@ def explain(model):
             elif 'reuse' in net_spec or 'reuse' in spec:
                 reuse_target = net_spec.get('reuse') or spec.get('reuse')
                 group = f'parameters of {reuse_target}'
-            elif net_spec.get('trainable') is False or spec.get('trainable') is False or net_spec.get('freeze_parameters') or spec.get('freeze_parameters') or role == 'frozen':
+            elif net_spec.get('trainable') is False or spec.get('trainable') is False or net_spec.get('freeze_parameters') or spec.get('freeze_parameters'):
                 group = 'none (frozen)'
-            elif role == 'shared':
-                group = f'parameters of {spec.get("reuse")}'
             else:
                 group = f'generator-side Adam, lr = {g_lr_str}'
             lines.append(f'{orig_name} [{role}] {factory}')
@@ -519,10 +519,13 @@ def explain(model):
                 received = sorted(set(reach.get(comp_name, [])))
                 lines.append('  gradient from: ' + (', '.join(received) or '-'))
     else:
+        from .model_description import roles
+        inferred = roles({'components': components, 'adversarial_terms': recipe.get('adversarial_terms', [])},
+                         aliases=False)
         for name, spec in components.items():
             orig_name = inv_name_map.get(name, name)
             factory = spec.get('factory', 'reuse')
-            role = 'critic' if name == 'discriminator' or any(t.get('component') == name for t in recipe.get('adversarial_terms', [])) else 'generator'
+            role = inferred[name]
             if role == 'critic':
                 group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
             else:
@@ -800,29 +803,14 @@ def _default_run_dir(model_obj, name=None):
 
     ``model_obj`` is a Model or a model file path. The workspace is found from
     the model file, including the file an overridden Model came from (from the
-    working directory for packaged and in-memory models); its ``runs_root``
-    (default: the working directory) holds ``<name>`` when a name is passed,
-    else a new ``<stem>-<adj>-<noun>`` slug, and its ``run_dir`` template, when
-    set, overrides both.
+    working directory for packaged and in-memory models); the rule itself is
+    ``hypergan.workspace.default_run_dir``.
     """
+    from .workspace import default_run_dir
     cfg_path = _source_file(model_obj)
     in_package = cfg_path is not None and PACKAGED.resolve() in Path(cfg_path).resolve().parents
-    ws_path = find_workspace(Path.cwd() if cfg_path is None or in_package else cfg_path)
-    ws_data = load_workspace(ws_path) if ws_path else {}
-    ws_sec = ws_data.get("workspace", {})
-    runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else Path.cwd().resolve()
-    stem = _run_stem(model_obj)
-    if name:
-        dir_name = short_slug = re.sub(r"[\\/]+", "-", str(name)).strip("-") or stem
-        if dir_name in (".", ".."):
-            raise ValueError(f"run name {name!r} is not a directory name")
-    else:
-        dir_name, short_slug = generate_run_slug(stem, parent_dir=runs_root)
-    if "run_dir" in ws_sec:
-        return Path(interpolate_variables(
-            ws_sec["run_dir"], ws_data, {"stem": name or stem, "name": dir_name, "slug": short_slug},
-        )).resolve()
-    return (runs_root / dir_name).resolve()
+    start = None if cfg_path is None or in_package else cfg_path
+    return default_run_dir(_run_stem(model_obj), name=name or None, start=start)
 
 
 def prepare(model, run_dir=None, steps=None, *, name=None, profile=None, service_policy=None,
@@ -1170,6 +1158,7 @@ def _tensor(value):
 def samples(run, *, name=None):
     """Periodic EMA previews, oldest first (enable with ``train(..., previews=N)``)."""
     import base64
+    from .previews import index_path
     run = _run(run)
     index = run.path / 'previews' / 'index.json'
     if not index.is_file():
@@ -1178,7 +1167,7 @@ def samples(run, *, name=None):
     for entry in json.loads(index.read_text())['previews']:
         if name is not None and entry.get('name') != name:
             continue
-        path = Path(entry['path'])
+        path = index_path(run.path, entry['path'])
         payload = json.loads(path.read_text())
         grid = payload.get('image_grid')
         result.append(Sample(step=payload['step'], name=payload['name'], data=_tensor(payload.get('samples')),
@@ -1508,7 +1497,7 @@ def gc(run=None, dry_run=False, stride=10, *, all_runs=False, all=None):
     if all_runs:
         return gc_all(root=run, dry_run=dry_run, stride=stride)
     from .inspection import gc_run as _gc_run
-    return _gc_run(_run_path(run), dry_run=dry_run, stride=stride)
+    return _gc_run(run.path if isinstance(run, Run) else run, dry_run=dry_run, stride=stride)
 
 
 prune = gc
@@ -1523,7 +1512,7 @@ def gc_all(root=None, dry_run=False, stride=10):
 def compact_events(run, stride=10):
     """Compact redundant train events in events.jsonl, returning reclaimed bytes."""
     from .inspection import compact_events as _compact
-    return _compact(_run_path(run), stride=stride)
+    return _compact(run.path if isinstance(run, Run) else run, stride=stride)
 
 
 # --------------------------------------------------------------------------- viewables
@@ -1607,21 +1596,11 @@ def lift(raw, *, base=None):
     networks = {}
     losses = []
 
-    critics_in_terms = {term.get('component') for term in raw.get('adversarial_terms', [])}
-    if 'discriminator' in components:
-        critics_in_terms.add('discriminator')
+    from .model_description import roles
+    inferred = roles({'components': components, 'adversarial_terms': raw.get('adversarial_terms', [])}, aliases=False)
 
     for name, spec in components.items():
-        if name == 'discriminator' or name in critics_in_terms:
-            role = 'critic'
-        elif name == 'generator':
-            role = 'generator'
-        elif 'encoder' in name or spec.get('factory', '').endswith('Encoder'):
-            role = 'encoder'
-        else:
-            role = 'auxiliary'
-
-        net = {'role': role, 'inputs': dict(spec.get('inputs', {}))}
+        net = {'role': inferred[name], 'inputs': dict(spec.get('inputs', {}))}
         if 'trainable' in spec:
             net['trainable'] = spec['trainable']
         if 'freeze_parameters' in spec:
@@ -2039,7 +2018,7 @@ def _submit_control_request(run_dir=None, *, action="checkpoint", attempt_id=Non
             or existing["request"]["attempt_id"] != target_attempt
             or existing["request"]["action"] != action
         ):
-            raise ValueError("Conflicting checkpoint request ID: reuse requires the same run, attempt and action")
+            raise ValueError("Conflicting control request ID: reuse requires the same run, attempt and action")
         return existing
     return submit_request(
         run_dir,

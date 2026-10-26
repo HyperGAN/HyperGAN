@@ -509,12 +509,6 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
             spec = tomllib.load(f)
         if device:
             spec.setdefault("train", {})["device"] = device
-        rel_ref = (target_path.parent / ".." / "networks" / "reference.hndl").resolve()
-        if not rel_ref.is_file():
-            abs_ref = str((Path(__file__).resolve().parent / "networks" / "reference.hndl").resolve())
-            for net in spec.get("networks", {}).values():
-                if isinstance(net, dict) and net.get("hndl") == "../networks/reference.hndl":
-                    net["hndl"] = abs_ref
     else:
         # Check workspace data path interpolation
         ws_file = find_workspace(target_path) or find_workspace(Path.cwd())
@@ -629,13 +623,25 @@ def init_project(
     device: str = "cuda",
     overwrite: bool = False,
 ) -> Dict[str, Any]:
-    """Initialize a HyperGAN project directory with hypergan.toml, runs/, and configs/<template>.toml."""
-    if template is None or (template == "dcgan" and data_dir is None and resolution is None):
-        template = "gaussian-grid" if (data_dir is None and resolution is None) else (template or "dcgan")
+    """Initialize a HyperGAN project directory with hypergan.toml, runs/, and configs/<template>.toml.
+
+    With no template, the project starts from the 2-D gaussian-grid toy, or from
+    dcgan when image data or a resolution is given. An explicit template is never
+    replaced: an image template needs data_dir (or a resolution, which writes a
+    placeholder ``./data`` root to edit).
+    """
+    if template is None:
+        template = "gaussian-grid" if (data_dir is None and resolution is None) else "dcgan"
     template = template.strip().lower()
     if template not in STARTER_TEMPLATES:
         choices = ", ".join(STARTER_TEMPLATES.keys())
         raise ValueError(f"Unknown starter template {template!r}; choose one of: {choices}")
+    if template != "gaussian-grid" and data_dir is None and resolution is None:
+        raise ValueError(
+            f"Template {template!r} is an image model and needs image data: pass --dataset DIR "
+            "(data_dir= in Python), or --resolution N to write a placeholder ./data root to edit. "
+            "Omit --template for the 2-D gaussian-grid toy that needs no dataset."
+        )
 
     proj_path = Path(project_dir).resolve()
     runs_dir = proj_path / "runs"
@@ -655,14 +661,6 @@ def init_project(
             'run_dir = "${runs_root}/${name}"\n'
         )
         ws_path.write_text(ws_text, encoding="utf-8")
-
-    if template == "gaussian-grid":
-        import shutil
-        src_hndl = (Path(__file__).resolve().parent / "networks" / "reference.hndl").resolve()
-        dst_hndl = proj_path / "networks" / "reference.hndl"
-        dst_hndl.parent.mkdir(parents=True, exist_ok=True)
-        if src_hndl.is_file() and (not dst_hndl.exists() or overwrite):
-            shutil.copyfile(src_hndl, dst_hndl)
 
     if output_config is not None:
         out_p = Path(output_config)

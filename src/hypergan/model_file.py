@@ -166,6 +166,25 @@ def is_model_file(raw):
     return isinstance(raw, dict) and 'networks' in raw and 'components' not in raw
 
 
+def require_networks(raw):
+    """Reject a file that declares no model, so it never silently trains the built-in default.
+
+    Without ``[networks]`` (model file) or ``[components]`` (engine recipe) every
+    other table, such as the internal resolved ``[training]``, would only adjust
+    the packaged 2-D reference recipe.
+    """
+    if isinstance(raw, dict) and 'networks' not in raw and 'components' not in raw:
+        internal = sorted(key for key in raw if key not in TOP_LEVEL)
+        hint = ''
+        if internal:
+            tables = ', '.join(f'[{key}]' for key in internal)
+            hint = (f'; {tables} is an internal resolved-recipe table, not a model-file table' if len(internal) == 1
+                    else f'; {tables} are internal resolved-recipe tables, not model-file tables')
+        raise ModelFileError(f'No [networks] declared{hint}. A {FORMAT} file declares [networks.<name>] with a role '
+                             'and [[losses]], and [train] for training settings (see docs/configuration.md), '
+                             'or extends a packaged model such as extends = "gaussian-grid".')
+
+
 def producer(path):
     """The network whose output a binding reads directly, if any."""
     parts = path.split('.')
@@ -756,13 +775,13 @@ class _Lowering:
             recipe['defaults'] = raw['defaults']
         if 'recipe' in raw:
             recipe['recipe'] = deepcopy(_table(raw['recipe'], 'recipe'))
-        if 'data' not in raw and 'dataset' in raw:
-            raw['data'] = raw['dataset']
-        if 'data' not in raw:
+        # [dataset] is an alias for [data]; read it without writing into the caller's spec.
+        data = raw['data'] if 'data' in raw else raw.get('dataset')
+        if data is None:
             raise ModelFileError('data is required (builtin, factory or dataset)')
-        recipe['data'] = self.data(raw['data'], 'data')
-        if isinstance(raw['data'], dict) and 'batch_size' in raw['data']:
-            recipe.setdefault('training', {}).setdefault('batch_size', raw['data']['batch_size'])
+        recipe['data'] = self.data(data, 'data')
+        if isinstance(data, dict) and 'batch_size' in data:
+            recipe.setdefault('training', {}).setdefault('batch_size', data['batch_size'])
         if 'prior' in raw:
             recipe['prior'] = self.prior(raw['prior'])
         recipe['components'] = {self.names[name]: self.component(name, spec) for name, spec in self.networks.items()}

@@ -5,7 +5,8 @@ import builtins
 
 import pytest
 
-from hypergan.config import config_values, fingerprint, load_config, write_default
+from hypergan.config import config_values, fingerprint, load_config
+from tests.config_fixtures import write_default
 from hypergan.execution import prepare_resume, prepare_train
 from hypergan.execution_profiles import resolve_execution_profile
 from hypergan.run_state import EventJournal
@@ -475,3 +476,53 @@ def test_checkpoint_compatibility_accepts_supported_version(tmp_path, explicit, 
         metadata_path.write_text(json.dumps(metadata))
     assert prepare_resume(run).checkpoint == checkpoint
     assert prepare_train(path, run).checkpoint == checkpoint
+
+
+def test_device_override_reaches_the_prepared_configuration(tmp_path, monkeypatch):
+    # Preparation only; tests/reference/test_execution_launch.py trains with the override.
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    path, run = project(tmp_path, 'cuda'), tmp_path / 'run'
+    prepared = prepare_train(path, run, devices='cpu', stop_after_steps=1)
+    assert prepared.config['training']['device'] == 'cpu'
+    assert prepared.controls['stop_after_steps'] == 1
+    monkeypatch.delenv('CUDA_DEVICE_ORDER', raising=False)
+    _, stopped_run, _, _ = stopped(tmp_path / 'stopped', replicated=False)  # recorded on cpu
+    with pytest.raises(ValueError, match='training.device'):
+        prepare_resume(stopped_run, devices='0')
+
+
+def test_step_override_keeps_the_retention_policy(tmp_path, monkeypatch):
+    import hypergan.api as hg
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    model = hg.save(hg.override(hg.packaged('gaussian-grid'), {'train.device': 'cpu'}), tmp_path / 'model.toml')
+    model.write_text(model.read_text() + '\n[checkpoints]\nkeep_last = 1\n')
+    prepared = prepare_train(model, tmp_path / 'run', steps=4, devices='cpu')
+    assert prepared.config['training']['steps'] == 4
+    assert prepared.config['checkpoints']['keep_last'] == 1
+
+
+@pytest.mark.parametrize('device', ['0', 'cuda:1', '0,1'])
+def test_cuda_device_selection_masks_physical_gpus(tmp_path, monkeypatch, device):
+    import os
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    monkeypatch.delenv('CUDA_DEVICE_ORDER', raising=False)  # restored after the test
+    prepared = prepare_train(project(tmp_path, 'cuda:1'), tmp_path / 'run', devices=device)
+    assert os.environ['CUDA_VISIBLE_DEVICES'] == {'0': '0', 'cuda:1': '1', '0,1': '0,1'}[device]
+    assert prepared.config['training']['device'] == 'cuda'
+
+
+def test_run_directory_without_manifest_has_a_clear_error_or_restarts_its_launch(tmp_path):
+    path = project(tmp_path)
+    unrelated = tmp_path / 'photos'
+    unrelated.mkdir()
+    (unrelated / 'cat.png').write_bytes(b'not a run')
+    with pytest.raises(ValueError, match='not a HyperGAN run .*cat.png'):
+        prepare_train(path, unrelated)
+    with pytest.raises(ValueError, match='has no manifest.json'):
+        prepare_resume(unrelated)
+    assert (unrelated / 'cat.png').read_bytes() == b'not a run'
+    # A launch that stopped before writing its first manifest is started again.
+    launched = tmp_path / 'launched'
+    (launched / 'launch').mkdir(parents=True)
+    (launched / 'launch' / '0001.json').write_text('{}')
+    assert prepare_train(path, launched).operation == 'train'

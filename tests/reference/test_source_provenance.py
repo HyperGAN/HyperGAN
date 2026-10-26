@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 
 
 @pytest.mark.parametrize('existing_run', [False, True])

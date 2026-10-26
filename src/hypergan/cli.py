@@ -402,7 +402,7 @@ def _parser():
     q_add.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_ls = queue_subs.add_parser("ls", help="List jobs from the queue")
-    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled"), default=None, help="filter by status")
+    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled", "interrupted"), default=None, help="filter by status")
     q_ls.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
     q_ls.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
@@ -454,13 +454,13 @@ def _parser():
     qualify_cmd.add_argument(
         "-o", "--output",
         type=Path,
-        default=Path("qualification-receipt.json"),
-        help="destination path for JSON verification receipt (default: qualification-receipt.json)",
+        default=None,
+        help="destination path for JSON verification receipt (default: a per-run file under the HyperGAN state directory, qualification/)",
     )
     qualify_cmd.add_argument(
         "--dry-run",
         action="store_true",
-        help="simulate qualification checks and emit receipt without spawning worker jobs",
+        help="emit a receipt whose suites report dry_run without running any of them",
     )
     qualify_cmd.add_argument(
         "--suite",
@@ -1177,6 +1177,7 @@ def _dispatch(args, *, output=None):
             target = hg.resolve_run_target(args.run_dir) if args.run_dir is not None else hg.resolve_run_target(None)
             if not target.exists():
                 raise FileNotFoundError(f"Run directory does not exist: {target}")
+            # One follow loop for both formats; it never splits a record that is still being written.
             hg.logs(target, tail=args.tail, follow=args.follow, raw=bool(getattr(args, "json", False)), stream=sys.stdout)
         elif args.command == "stop":
             res = hg.stop(args.run_dir, stop_all=args.all, timeout=args.timeout)
@@ -1298,8 +1299,8 @@ def _dispatch(args, *, output=None):
                     if skipped_count:
                         print(f"  Skipped:  {skipped_count} active runs")
             else:
-                target_run = hg.resolve_run_target(args.run_dir)
-                res = hg.gc(target_run, dry_run=args.dry_run, stride=args.stride)
+                # gc resolves strictly itself; the fuzzy read-only resolver must not pick its target.
+                res = hg.gc(args.run_dir, dry_run=args.dry_run, stride=args.stride)
                 if getattr(args, "json", False):
                     _print_json(res)
                 else:
@@ -1308,7 +1309,7 @@ def _dispatch(args, *, output=None):
                     events_str = format_bytes(res.get("events_reclaimed_bytes", 0))
                     total_str = format_bytes(res.get("reclaimed_bytes", 0))
                     prefix = "Would clean" if args.dry_run else "Cleaned"
-                    print(f"{prefix} run: {res.get('run_dir', target_run)}")
+                    print(f"{prefix} run: {res.get('run_dir', args.run_dir)}")
                     print(f"  Views removed:     {views_str}")
                     print(f"  Events compacted:  {events_str}")
                     print(f"  Total reclaimed:   {total_str}")

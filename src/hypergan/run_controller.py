@@ -18,6 +18,7 @@ from .config import config_values, fingerprint, load_config, resolve_config, obs
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics, select_preview_metrics, Throughput
 from .previews import DEFAULT_KEEP, DEFAULT_NAME, KEEP_ALL, sample_name
 from .metric_plugins import prepare_custom, ScalarMetrics
+from ._file_lock import retry_lock
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 from .observation_io import ObservationIO
 from .background_poll import BackgroundPoll
@@ -230,6 +231,23 @@ def _cleanup_validation_failure(execution):
                 pass
 
 
+def _resume_point_is_current(manifest):
+    """Whether the restored checkpoint is already the run's default recovery point.
+
+    True only when `latest.json` names the restored checkpoint and that
+    checkpoint was written for the configuration this attempt runs. Anything
+    unreadable answers False, so the caller writes a fresh checkpoint.
+    """
+    try:
+        restored = Path(manifest['resumed_from'])
+        pointer = json.loads((restored.parent / 'latest.json').read_text(encoding='utf-8'))
+        saved = json.loads((restored / 'manifest.json').read_text(encoding='utf-8'))
+        return (isinstance(pointer, dict) and pointer.get('checkpoint') == restored.name
+                and isinstance(saved, dict) and saved.get('config_sha256') == manifest['config_sha256'])
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
+
+
 def _record_model(run_dir, model):
     """Network detail is advisory: a failure to record it never stops training."""
     if model is None:
@@ -276,8 +294,12 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
         run_dir.mkdir(parents=True, exist_ok=True)
         sync_directory(run_dir.parent)
         node_rank = execution.profile['execution'].get('node_rank', 0) if hasattr(execution, 'profile') else 0
-        lock_ctx = run_lock(run_dir) if node_rank == 0 else nullcontext()
+        lock_ctx = retry_lock(lambda: run_lock(run_dir)) if node_rank == 0 else nullcontext()
         with lock_ctx:
+            # The check above is only an early answer; another train may have
+            # created this run while this one was being prepared.
+            if node_rank == 0 and (run_dir / 'manifest.json').exists():
+                raise FileExistsError(f'Run directory already exists: {run_dir}')
             managed = True
             try:
                 from .provenance import write_launch_provenance, snapshot_config_sources, determine_attempt
@@ -318,7 +340,10 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
             if os.environ.get("_HYPERGAN_REEXEC") == "1":
                 os.environ.pop("_HYPERGAN_REEXEC", None)
             os.environ.pop("_HYPERGAN_REEXEC_ATTEMPT", None)
-            manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
+            from .registry import extract_or_derive_slug, reserve_run_slug
+            # Assigned once, unique in the registry; readers never re-derive it.
+            slug = reserve_run_slug(run_dir, run_id) if node_rank == 0 else extract_or_derive_slug(run_id, run_dir_name=run_dir.name)
+            manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id, 'slug': slug,
                     'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
                     'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
                     'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
@@ -351,7 +376,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
     if not run_dir.is_dir():
         raise ValueError(f'Run directory does not exist: {run_dir}')
     node_rank = execution_factory.profile['execution'].get('node_rank', 0) if hasattr(execution_factory, 'profile') else 0
-    lock_ctx = run_lock(run_dir) if node_rank == 0 else nullcontext()
+    lock_ctx = retry_lock(lambda: run_lock(run_dir)) if node_rank == 0 else nullcontext()
     with lock_ctx:
         manifest = json.loads((run_dir / 'manifest.json').read_text())
         required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
@@ -532,6 +557,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     checkpoint_custom_publications = 0
     preview_publications = 0
     checkpoint_preview_publications = 0
+    last_preview_record = None
 
     def emit(event, *, _observe=True, _step=None, **values):
         nonlocal sequence, dropped, last_event_step
@@ -720,10 +746,11 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                  **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
 
         def publish_preview_result(preview):
-            nonlocal preview_publications
+            nonlocal preview_publications, last_preview_record
             if preview is None:
                 return
             record, preview_index, errors = preview.record, preview.index, preview.errors
+            last_preview_record = record
             # The manifest is rewritten and fsynced on every publication, so it
             # carries a recent tail; previews/index.json is the whole history.
             manifest['previews'] = preview_index['previews'][-MANIFEST_PREVIEWS:]
@@ -740,9 +767,14 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 observer_error('preview_retention', RuntimeError(error), step=record['step'])
 
         def collect_preview(*, final=False):
+            """Publish a finished preview; return why an outstanding one did not publish.
+
+            Failures stay optional observations here. The return value lets a
+            caller waiting on one particular preview report that failure too.
+            """
             hook = getattr(execution, 'close_previews' if final else 'poll_preview', None)
             if hook is None:
-                return
+                return None
             try:
                 if final and hasattr(execution, 'preview_busy'):
                     while execution.preview_busy:
@@ -751,17 +783,20 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                             if execution.abort_previews():
                                 manifest['cancelled_previews'] = manifest.get('cancelled_previews', 0) + 1
                                 emit('preview_cancelled', reason=stop.reason)
-                            return
+                                return RuntimeError(f'Preview cancelled: {stop.reason}')
+                            return None
                         if execution.preview_busy:
                             # Only terminal draining waits. Poll so a signal
                             # received during that wait can cancel immediately.
                             time.sleep(.01)
-                    return
+                    return None
                 publish_preview_result(hook())
             except FatalExecutionError:
                 raise
             except Exception as exc:
                 observer_error('preview', exc, step=getattr(exc, 'preview_context', {}).get('step'))
+                return exc
+            return None
 
         def preview_now():
             if getattr(execution, 'preview_busy', False):
@@ -782,25 +817,38 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 return
 
         def sample_now():
+            """Render one preview for a sample request; return (path, error).
+
+            Success names only the preview published for the sequence reserved
+            here, never an earlier periodic preview.
+            """
             try:
                 if getattr(execution, 'preview_busy', False):
                     collect_preview(final=True)
                 if getattr(execution, 'preview_busy', False):
                     return None, RuntimeError('Preview worker is busy')
+                sequence = manifest['next_sample_sequence']
                 identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
-                            'attempt_index': index, 'sample_sequence': manifest['next_sample_sequence'],
+                            'attempt_index': index, 'sample_sequence': sequence,
                             'name': sample_name(manifest.get('preview_name'))}
                 manifest['next_sample_sequence'] += 1
                 publish()
+                failure = None
                 preview_res = execution.preview(run_dir, identity, keep=manifest['preview_keep'])
                 if preview_res is not None:
                     publish_preview_result(preview_res)
                 elif getattr(execution, 'preview_busy', False):
-                    collect_preview(final=True)
-                sample_path = manifest.get('preview_path')
-                if not sample_path:
+                    failure = collect_preview(final=True)
+                record = last_preview_record
+                if (record is None or not isinstance(record.get('identity'), dict)
+                        or record['identity'].get('attempt_id') != attempt_id
+                        or record['identity'].get('sample_sequence') != sequence):
+                    if failure is not None:
+                        return None, failure
+                    return None, RuntimeError(f'Preview for sample sequence {sequence} was not published')
+                if not record.get('path'):
                     return None, RuntimeError('Preview generation produced no artifact path')
-                return sample_path, None
+                return record['path'], None
             except FatalExecutionError:
                 raise
             except Exception as exc:
@@ -825,7 +873,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             except RuntimeError:
                 return  # A producer holds the short queue lock; retry next boundary.
             except Exception as exc:
-                observer_error('checkpoint_requests', exc)
+                observer_error('control_requests', exc)
                 return
             matching = []
             matching_sample = []
@@ -852,7 +900,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                         error=error,
                     )
                 except Exception as exc:
-                    observer_error('checkpoint_acknowledgement', exc)
+                    observer_error('control_acknowledgement', exc)
                     return
                 emit(event_name, receipt=receipt)
 
@@ -898,7 +946,6 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     acknowledge(
                         request,
                         'succeeded' if sample_path else 'rejected',
-                        path=sample_path,
                         sample_path=sample_path,
                         error=f'{type(sample_err).__name__}: {sample_err}'[:1000] if sample_err else None,
                     )
@@ -933,9 +980,12 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
              restored_step=parent['step'] if parent else 0,
              checkpoint_id=parent['checkpoint_id'] if parent else None,
              checkpoint_sha256=parent['checkpoint_sha256'] if parent else None)
-        if manifest['last_durable_step'] is None or manifest.get('resumed_from'):
+        if manifest['last_durable_step'] is None or (
+                manifest.get('resumed_from') and not _resume_point_is_current(manifest)):
             # Accepting an older recovery point must also move the default pointer,
-            # even if this attempt stops before another update.
+            # even if this attempt stops before another update. Resuming the
+            # checkpoint the pointer already names, with its configuration,
+            # would only write an identical copy.
             checkpoint_now()
         publish()
         poll_requests(force=True)

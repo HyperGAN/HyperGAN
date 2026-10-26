@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from hypergan.config import load_config, resolve_config, write_default
+from hypergan.config import load_config, resolve_config
+from tests.config_fixtures import write_default
 from hypergan.execution import train
 from hypergan.model_description import MODEL_FILE, build_networks, describe_run
 

@@ -333,12 +333,42 @@ def _publish_grids(temporary, target, payload):
     return payload, records
 
 
+def index_path(run_dir, value):
+    """Resolve a path recorded in `previews/index.json` against its run directory.
+
+    The index stores paths relative to the run directory, so a run that is
+    moved or copied still resolves. Indexes written before that hold absolute
+    paths: one naming a file inside a `previews/<generation>/` directory is
+    mapped onto `run_dir` the same way, and any other path is returned as is.
+    A rooted path without a drive (`/x` on Windows) counts as absolute, so it
+    never resolves against `run_dir`.
+    """
+    path, run_dir = Path(value), Path(run_dir)
+    if not path.root:
+        return run_dir / path
+    parts = path.parts
+    if len(parts) >= 3 and parts[-3] == 'previews' and _GENERATION.fullmatch(parts[-2]):
+        return run_dir.joinpath(*parts[-3:])
+    return path
+
+
+def _relative_record(saved):
+    """The index form of a generation record: paths relative to the run directory."""
+    generation = Path(saved['path']).parent.name
+    portable = dict(saved, path=f'previews/{generation}/preview.json')
+    for field, filename in GRIDS:
+        if isinstance(saved.get(field), dict):
+            portable[field] = dict(saved[field], path=f'previews/{generation}/{filename}')
+    return portable
+
+
 def _indexed_generations(root, run_id):
     """Map generation directory name to the record the published index holds.
 
     The index is this producer's own output under the run lock. It is still
     validated before reuse: anything unreadable or malformed simply falls back
-    to rereading the generation manifests.
+    to rereading the generation manifests. Both relative and older absolute
+    entries name their generation by the directory that holds the file.
     """
     try:
         published = json.loads((root / 'index.json').read_text(encoding='utf-8'))
@@ -547,8 +577,11 @@ def _publish_preview(run_dir, identity, step, render, keep):
                  'keep': keep, 'retention': 'all' if keep == KEEP_ALL else 'thinned',
                  'names': sorted({saved.get('name', DEFAULT_NAME) for saved, _ in retained}),
                  'previews': [saved for saved, _ in retained]}
+        # The published index is portable (paths relative to the run directory);
+        # the index returned to the caller names files where they are now.
+        portable = dict(index, previews=[_relative_record(saved) for saved, _ in retained])
         try:
-            atomic_json(root / 'index.json', index)
+            atomic_json(root / 'index.json', portable)
         except Exception:
             # If index publication failed before replacement, do not accumulate an
             # unindexed generation on every failed observation. After replacement,
@@ -557,7 +590,7 @@ def _publish_preview(run_dir, identity, step, render, keep):
                 visible = json.loads((root / 'index.json').read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 visible = None
-            if visible != index:
+            if visible != portable:
                 shutil.rmtree(target)
                 sync_directory(root)
             raise
@@ -580,7 +613,8 @@ def _publish_preview(run_dir, identity, step, render, keep):
         if not completed and target.exists():
             try:
                 visible = json.loads((root / 'index.json').read_text(encoding='utf-8'))
-                referenced = any(item.get('path') == str(target / 'preview.json') for item in visible.get('previews', []))
+                referenced = any(index_path(run_dir, item.get('path')) == target / 'preview.json'
+                                 for item in visible.get('previews', []))
             except (OSError, ValueError, AttributeError, TypeError):
                 referenced = False
             if not referenced:

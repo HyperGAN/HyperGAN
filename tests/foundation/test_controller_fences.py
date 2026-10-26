@@ -374,14 +374,16 @@ def test_final_delayed_metrics_keep_source_step_and_current_checkpoint_frontier(
         assert instances[0].closed
     else:
         manifest = run_train(path, root, steps=2, checkpoint_every=2, execution_factory=factory)
-        # The final periodic save preceded metric completion. Refresh its event
-        # boundary with a second same-step save without changing trainer state.
-        assert instances[0].count == 3
+        # The final periodic save preceded metric completion. Trainer state is
+        # unchanged, so only the run's durable event frontier moves past it.
+        assert instances[0].count == 2
         info = json.loads((Path(manifest['checkpoint_path']) / 'manifest.json').read_text())
         validate_event_boundary(root, info)
-        prefix = (root / 'events.jsonl').read_bytes()[:info['event_boundary']['offset']]
+        boundary = manifest['durable_event_boundary']
+        assert boundary['sequence'] > info['event_boundary']['sequence']
+        prefix = (root / 'events.jsonl').read_bytes()[:boundary['offset']]
         saved_events = [json.loads(line) for line in prefix.splitlines()]
-        assert saved_events[-1]['step'] == info['step'] == 2
+        assert saved_events[-1]['step'] == boundary['step'] == info['step'] == 2
         assert any(event['event'] == 'metric' and event['step'] == 1 for event in saved_events)
     events = read_event_page(root)['events']
     measured = [event for event in events if event['event'] == 'metric']

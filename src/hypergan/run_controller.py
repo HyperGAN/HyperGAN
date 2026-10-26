@@ -140,14 +140,27 @@ def _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every=0,
         raise ValueError('stop_after_steps must be a positive integer')
 
 
+def _with_steps(config, steps):
+    """The configuration with an overridden step budget, or unchanged when steps is None.
+
+    Re-resolving through load_config keeps the retention, launch and source
+    tables; resolving config_values alone would drop the launch tables.
+    """
+    if steps is None:
+        return config
+    return load_config({**config, 'training': {**config['training'], 'steps': steps}})
+
+
 def _candidate_attempt(run_dir, run_id):
-    """Choose identity without writes; existing runs require the caller's lock."""
-    root = run_dir / 'attempts'
-    indexes = ([int(p.name.split('-')[0]) for p in root.iterdir()
-                if p.is_dir() and p.name.split('-')[0].isdigit()] if root.exists() else [])
-    index = max(indexes, default=0) + 1
+    """Choose identity without writes; existing runs require the caller's lock.
+
+    The index also numbers this attempt's ``launch/NNNN.json`` record, including
+    one a re-executing parent already wrote for it.
+    """
+    from .provenance import determine_attempt
+    index = determine_attempt(run_dir)
     identity = f'{index:04d}-{uuid.uuid4().hex}'
-    return AttemptContext(run_id, identity, index, run_dir, root / identity)
+    return AttemptContext(run_id, identity, index, run_dir, run_dir / 'attempts' / identity)
 
 
 def _persist_attempt(context):
@@ -259,6 +272,39 @@ def _record_model(run_dir, model):
         warnings.warn(f'Network description was not recorded: {exc}', RuntimeWarning)
 
 
+def _record_launch(run_dir, attempt, config, config_path):
+    """Write ``launch/NNNN.json`` for this attempt unless a re-executing parent already did.
+
+    Launch provenance is advisory and never stops training. The re-exec markers
+    are consumed only after the attempt number that one of them carries was read.
+    """
+    try:
+        from .provenance import write_launch_provenance
+        if not (run_dir / 'launch' / f'{attempt:04d}.json').is_file():
+            meta = {'run': config.get('run', {})}
+            src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
+            if src_p and Path(src_p).is_file():
+                from .workspace import find_workspace, load_workspace
+                ws_p = find_workspace(Path(src_p).resolve())
+                if ws_p:
+                    try:
+                        ws_d = load_workspace(ws_p)
+                        r_env = config.get('run', {}).get('env')
+                        if isinstance(r_env, str) and r_env in ws_d.get('envs', {}):
+                            e_conf = ws_d['envs'][r_env]
+                            wt = e_conf.get('worktree') or e_conf.get('src')
+                            if wt:
+                                meta['worktree'] = wt
+                    except Exception:
+                        pass
+            write_launch_provenance(run_dir, attempt=attempt, metadata=meta)
+    except Exception:
+        pass
+    if os.environ.get('_HYPERGAN_REEXEC') == '1':
+        os.environ.pop('_HYPERGAN_REEXEC', None)
+    os.environ.pop('_HYPERGAN_REEXEC_ATTEMPT', None)
+
+
 def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_seconds=None,
           stop_after_steps=None, on_event=None, preview_every=0, preview_keep=None,
           preview_keep_source=None, preview_name=DEFAULT_NAME, execution_factory=None):
@@ -268,14 +314,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     src_p = (config_path.get('_source_path') if isinstance(config_path, dict) else None) or (config_path if isinstance(config_path, (str, Path)) else None)
-    config = load_config(config_path)
-    if steps is not None:
-        raw = config_values(config)
-        raw['training']['steps'] = steps
-        if src_p:
-            raw['_source_path'] = str(src_p)
-        config = resolve_config(raw)
-    elif src_p and isinstance(config, dict) and '_source_path' not in config:
+    config = _with_steps(load_config(config_path), steps)
+    if src_p and '_source_path' not in config:
         config['_source_path'] = str(src_p)
     run_dir = Path(run_dir).resolve()
     if (run_dir / 'manifest.json').exists():
@@ -301,34 +341,12 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
             if node_rank == 0 and (run_dir / 'manifest.json').exists():
                 raise FileExistsError(f'Run directory already exists: {run_dir}')
             managed = True
+            _record_launch(run_dir, context.attempt_index, config, config_path)
             try:
-                from .provenance import write_launch_provenance, snapshot_config_sources, determine_attempt
+                from .provenance import snapshot_config_sources
                 from .model_file import collect_source_files
                 from .workspace import find_workspace
 
-                attempt = determine_attempt(run_dir)
-                launch_file = run_dir / "launch" / f"{attempt:04d}.json"
-                if not launch_file.is_file():
-                    meta = {
-                        "run": config.get("run", {}),
-                    }
-                    src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
-                    if src_p and Path(src_p).is_file():
-                        cfg_p = Path(src_p).resolve()
-                        ws_p = find_workspace(cfg_p)
-                        if ws_p:
-                            try:
-                                from .workspace import load_workspace
-                                ws_d = load_workspace(ws_p)
-                                r_env = config.get("run", {}).get("env")
-                                if isinstance(r_env, str) and r_env in ws_d.get("envs", {}):
-                                    e_conf = ws_d["envs"][r_env]
-                                    wt = e_conf.get("worktree") or e_conf.get("src")
-                                    if wt:
-                                        meta["worktree"] = wt
-                            except Exception:
-                                pass
-                    write_launch_provenance(run_dir, attempt=attempt, metadata=meta)
                 src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
                 if src_p and Path(src_p).is_file():
                     cfg_p = Path(src_p).resolve()
@@ -337,9 +355,6 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
                     snapshot_config_sources(run_dir, sources)
             except Exception:
                 pass
-            if os.environ.get("_HYPERGAN_REEXEC") == "1":
-                os.environ.pop("_HYPERGAN_REEXEC", None)
-            os.environ.pop("_HYPERGAN_REEXEC_ATTEMPT", None)
             from .registry import extract_or_derive_slug, reserve_run_slug
             # Assigned once, unique in the registry; readers never re-derive it.
             slug = reserve_run_slug(run_dir, run_id) if node_rank == 0 else extract_or_derive_slug(run_id, run_dir_name=run_dir.name)
@@ -394,9 +409,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
         if steps is not None:
             if config_path is None:
                 raise ValueError('A training step override requires an explicit configuration')
-            raw = config_values(config)
-            raw['training']['steps'] = steps
-            config = resolve_config(raw)
+            config = _with_steps(config, steps)
         if require_same_config:
             original = resolve_config(manifest['config'])
             if not resume_compatible(config, original, include_observation=True):
@@ -442,35 +455,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
                             durable_event_boundary=checkpoint_info.get('event_boundary'),
                             checkpoint_path=str(restored.checkpoint_path), last_durable_step=restored.step,
                             resumed_from=str(restored.checkpoint_path), steps=restored.step)
-            if os.environ.get("_HYPERGAN_REEXEC") == "1":
-                os.environ.pop("_HYPERGAN_REEXEC", None)
-            os.environ.pop("_HYPERGAN_REEXEC_ATTEMPT", None)
-            try:
-                from .provenance import write_launch_provenance, determine_attempt
-                attempt = determine_attempt(run_dir)
-                meta = {
-                    "run": config.get("run", {}),
-                }
-                src_p = config.get('_source_path') or (config_path if isinstance(config_path, (str, Path)) else None)
-                if src_p and Path(src_p).is_file():
-                    cfg_p = Path(src_p).resolve()
-                    from .workspace import find_workspace
-                    ws_p = find_workspace(cfg_p)
-                    if ws_p:
-                        try:
-                            from .workspace import load_workspace
-                            ws_d = load_workspace(ws_p)
-                            r_env = config.get("run", {}).get("env")
-                            if isinstance(r_env, str) and r_env in ws_d.get("envs", {}):
-                                e_conf = ws_d["envs"][r_env]
-                                wt = e_conf.get("worktree") or e_conf.get("src")
-                                if wt:
-                                    meta["worktree"] = wt
-                        except Exception:
-                            pass
-                write_launch_provenance(run_dir, attempt=attempt, metadata=meta)
-            except Exception:
-                pass
+            _record_launch(run_dir, context.attempt_index, config, config_path)
         except BaseException:
             _cleanup_validation_failure(execution)
             raise
@@ -735,6 +720,23 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             except Exception:
                 pass
             return path, None
+
+        def commit_events():
+            """Make events published after the last checkpoint durable without saving state again.
+
+            The trainer state is unchanged since that checkpoint, so only the
+            run's durable event frontier moves. The checkpoint keeps its own
+            boundary, which resume validates as a committed prefix of the log.
+            """
+            nonlocal checkpoint_custom_publications, checkpoint_preview_publications
+            if not manifest['resume_supported']:
+                return
+            if dropped is not None or last_event_step != manifest['steps']:
+                emit('checkpoint_boundary', _observe=False)
+            manifest['durable_event_boundary'] = journal.commit_boundary()
+            checkpoint_custom_publications = custom_publications
+            checkpoint_preview_publications = preview_publications
+            publish()
 
         def observer_error(source, error, *, step=None):
             source_step = manifest['steps'] if step is None else step
@@ -1064,10 +1066,11 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         # Reconcile one transient lost acknowledgement before ending the attempt.
         # Saved request IDs identify the existing checkpoint and avoid a second save.
         poll_requests(force=True)
-        if (manifest['last_durable_step'] != manifest['steps']
-                or custom_publications != checkpoint_custom_publications
-                or preview_publications != checkpoint_preview_publications):
+        if manifest['last_durable_step'] != manifest['steps']:
             checkpoint_now()
+        elif (custom_publications != checkpoint_custom_publications
+                or preview_publications != checkpoint_preview_publications):
+            commit_events()
         if stop is not None and stop.reason:
             manifest['stop_reason'] = stop.reason
         elif control_stop_requested and not manifest.get('stop_reason'):

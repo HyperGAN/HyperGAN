@@ -689,18 +689,8 @@ def _maybe_reexec(run_spec, ws_path, ws_data, run_dir, argv, *, prepare=None):
 
 
 def _determine_attempt(run_dir: Path) -> int:
-    reexec_att = os.environ.get("_HYPERGAN_REEXEC_ATTEMPT")
-    if reexec_att:
-        try:
-            return int(reexec_att)
-        except ValueError:
-            pass
-    launch_dir = run_dir / "launch"
-    if launch_dir.is_dir():
-        existing = [p for p in launch_dir.glob("*.json") if re.fullmatch(r"\d{4}\.json", p.name)]
-        if existing:
-            return max(int(p.stem) for p in existing) + 1
-    return 1
+    from .provenance import determine_attempt
+    return determine_attempt(run_dir)
 
 
 def _reconstruct_argv_for_reexec(argv, old_config_str, new_config_str, run_dir_str):

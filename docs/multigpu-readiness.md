@@ -69,4 +69,21 @@ Persist the entire run directory and recipe/data artifacts. A successful local c
 
 Recovery currently requires the recorded CUDA runtime, visible GPU inventory and ordered physical GPU UUID assignment. A replacement cloud container with different GPUs cannot transparently resume that checkpoint under this strict identity contract. See [replicated CUDA recovery](replicated-cuda.md). Portable recovery across replacement GPUs remains a cloud-readiness gap.
 
-Correctness tests do not establish a throughput gain. Measure the intended model at a fixed global batch and fixed initialization on one and two GPUs before increasing the allocation. Current costs include per-parameter reductions, Python/object collective synchronization, full-state CPU hashing at replica checks/checkpoints, and serialized checkpoint gathering at rank zero. Image/item loaders can decode local rows; custom global loaders still duplicate their global draw. Four/eight-GPU speedup must be measured on the requested hardware.
+Correctness tests do not establish a throughput gain. Measure the intended model at a fixed global batch and fixed initialization on one and two GPUs before increasing the allocation. Current costs include per-parameter reductions, Python/object collective synchronization, full-state CPU hashing at replica checks/checkpoints, and serialized checkpoint gathering at rank zero. The current KA2 optimizer also reads one control scalar per trained critic tensor each step; the GPU profiler gate accounts for these separately from HyperGAN's fused gradient screening. Image/item loaders can decode local rows; custom global loaders still duplicate their global draw. Four/eight-GPU speedup must be measured on the requested hardware.
+
+## Local evidence: 2026-10-26
+
+Final core, public recovery and CUDA validation used the clean installed wheel from `73cc71c4`, outside the checkout, on two RTX A6000s. Runtime: Python 3.14.8, PyTorch 2.14.1+cu130, NCCL 2.30.7, ParticleGAN 0.9.3 and HNDL 0.10.0. The NCCL workaround above was explicit in the GPU environment. Larger-rank and reordered-mask checks also ran earlier in this change.
+
+| Gate | Result |
+| --- | --- |
+| Default CPU/core selection | 2,644 passed; one version-specific migration skip; 261 heavy tests deselected |
+| Public CPU stop/resume, repeated train and checkpoint replay | Three heavy acceptance tests passed |
+| CUDA coverage | 62 passed across the main gate and focused follow-up runs; two external-data/artifact skips |
+| Hardware qualification receipt | All six suites passed, including two-GPU NCCL and checkpoint compatibility |
+| Reordered GPU UUID mask | Two-GPU qualification passed |
+| Larger rank counts | Complete four/eight-rank CPU driver tests passed; no four/eight-GPU hardware claim |
+
+The main CUDA run passed 51 cases before stopping at an outdated profiler expectation. Updating its exact accounting for KA2's per-critic control reads preserved the strict gradient-screening assertions; all ten profiler/nonfinite/EMA cases then passed. The added image-component recovery case passed separately. Together these runs cover every currently collected CUDA case. The two skips require the archived CIFAR qualification run and a local CIFAR dataset; neither was counted as passing.
+
+Machine receipts, JUnit XML and logs remain locally under `reports/multigpu-readiness-2026-10-26/` (ignored by Git). These checks launched no Modal resources.

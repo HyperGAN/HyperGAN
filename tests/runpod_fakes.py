@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import io
+import itertools
 import json
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +42,10 @@ def build_fake_receipt(
     return receipt
 
 
+# Pod ids are unique across clients, as RunPod's are, so one registry can hold several.
+_POD_IDS = itertools.count(1)
+
+
 class FakeRunPodClient:
     """Pod client recording lifecycle calls; ``fail_at`` names the call that raises."""
 
@@ -58,7 +63,6 @@ class FakeRunPodClient:
         self.executed_pods: List[str] = []
         self.create_calls: List[Dict[str, Any]] = []
         self.lifecycle_history: List[str] = []
-        self._next_id = 1
 
     def get_gpu_catalog(self) -> List[Dict[str, Any]]:
         return copy.deepcopy(self.catalog)
@@ -66,8 +70,7 @@ class FakeRunPodClient:
     def create_pod(self, gpu_type: str, image: str = "hypergan:latest", timeout_seconds: int = 180) -> str:
         if self.fail_at == "create_pod":
             raise RuntimeError("Simulated cloud creation failure")
-        pod_id = f"fake-pod-{self._next_id}"
-        self._next_id += 1
+        pod_id = f"fake-pod-{next(_POD_IDS)}"
         self.created_pods.append(pod_id)
         self.create_calls.append({"pod_id": pod_id, "gpu_type": gpu_type, "image": image,
                                   "timeout_seconds": timeout_seconds})

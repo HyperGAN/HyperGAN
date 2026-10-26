@@ -8,7 +8,8 @@ import subprocess
 import pytest
 
 from hypergan.config import (
-    DEFAULT, config_values, fingerprint, load_config, numerical_values, resolve_config, resume_compatible, write_default)
+    DEFAULT, config_values, fingerprint, load_config, numerical_values, resolve_config, resume_compatible)
+from tests.config_fixtures import write_default
 
 # The default recipe under the legacy concrete configuration (without 'name' per Decision D3).
 LEGACY_FINGERPRINT = "8edda59414e07e02d1c02529c85fed3831f4029e5c4d8269dcceeede8604849c"

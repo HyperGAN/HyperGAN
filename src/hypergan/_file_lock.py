@@ -1,4 +1,5 @@
 """Exclusive descriptor locks shared by queue writers and run-lock probes."""
+from contextlib import ExitStack, contextmanager
 import errno
 import os
 import time
@@ -30,3 +31,25 @@ def unlock_file(fd):
     else:
         import fcntl
         fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+@contextmanager
+def retry_lock(acquire, *, seconds=1.0, interval=.02):
+    """Enter the lock context ``acquire()`` returns, retrying while it raises RuntimeError.
+
+    Liveness probes (`ps`, `logs -f`, the queue) hold a run's lock for a few
+    microseconds to test it. A trainer or maintenance command that retries
+    briefly is not refused just because a probe landed at the same instant.
+    """
+    deadline = time.monotonic() + seconds
+    stack = ExitStack()
+    while True:
+        try:
+            stack.enter_context(acquire())
+            break
+        except RuntimeError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(interval)
+    with stack:
+        yield

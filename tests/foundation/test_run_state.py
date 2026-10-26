@@ -150,7 +150,7 @@ def test_request_receipt_idempotency_and_conflicting_targets(tmp_path):
     assert submit(tmp_path) == first
     assert pending_requests(tmp_path) == [first['request']]
     for kwargs in ({'attempt': '0002-second'}, {'run': 'another-run'}):
-        with pytest.raises(ValueError, match='Conflicting checkpoint request ID'):
+        with pytest.raises(ValueError, match='Conflicting control request ID'):
             submit(tmp_path, **kwargs)
     receipt = succeed(tmp_path)
     assert receipt['status'] == 'succeeded' and receipt['step'] == 2
@@ -158,7 +158,7 @@ def test_request_receipt_idempotency_and_conflicting_targets(tmp_path):
     assert submit(tmp_path) == receipt
     assert succeed(tmp_path) == receipt
     assert pending_requests(tmp_path) == []
-    with pytest.raises(ValueError, match='Conflicting checkpoint acknowledgement'):
+    with pytest.raises(ValueError, match='Conflicting control acknowledgement'):
         succeed(tmp_path, step=3)
 
 
@@ -268,7 +268,7 @@ def test_queue_lock_is_distinct_from_trainer_lock_and_nonblocking(tmp_path):
 
 
 def test_bad_files_wrong_ids_unknown_status_and_symlink_directories(tmp_path):
-    with pytest.raises(FileNotFoundError, match='Unknown checkpoint request'):
+    with pytest.raises(FileNotFoundError, match='Unknown control request'):
         checkpoint_request_status(tmp_path, 'unknown')
     submit(tmp_path)
     path = tmp_path / 'checkpoint_requests' / 'pending' / 'request-request-one.json'
@@ -280,7 +280,7 @@ def test_bad_files_wrong_ids_unknown_status_and_symlink_directories(tmp_path):
     with pytest.raises(ValueError, match='ID differs from filename'):
         checkpoint_request_status(tmp_path, 'request-one')
     path.write_text('[]')
-    with pytest.raises(ValueError, match='Invalid checkpoint request fields'):
+    with pytest.raises(ValueError, match='Invalid control request fields'):
         pending_requests(tmp_path)
 
 
@@ -313,7 +313,7 @@ def test_nonfinite_and_deeply_nested_complete_json_fail_cleanly(tmp_path):
     submit(tmp_path)
     path = tmp_path / 'checkpoint_requests' / 'pending' / 'request-request-one.json'
     path.write_bytes(b'[' * 2000 + b']' * 2000)
-    with pytest.raises(ValueError, match='Invalid checkpoint request'):
+    with pytest.raises(ValueError, match='Invalid control request'):
         pending_requests(tmp_path)
 
 
@@ -442,7 +442,7 @@ def test_stop_and_sample_request_receipt_idempotency_and_status(tmp_path):
     assert stop_req['request']['action'] == 'stop'
     assert submit_stop_request(tmp_path, run_id='run-one', attempt_id='0001-first', request_id='stop-one') == stop_req
 
-    with pytest.raises(ValueError, match='Conflicting checkpoint request ID'):
+    with pytest.raises(ValueError, match='Conflicting control request ID'):
         submit_stop_request(tmp_path, run_id='run-one', attempt_id='0001-first', request_id='sample-one')
 
     assert [r['request_id'] for r in pending_requests(tmp_path)] == ['sample-one', 'stop-one']
@@ -550,12 +550,106 @@ def test_run_controller_services_sample_and_stop_requests_at_update_boundary(tmp
     sample_rec = request_status(run_dir, 'sample-req-1')
     assert sample_rec['status'] == 'succeeded'
     assert sample_rec['step'] == 1
-    assert sample_rec['artifact_path']
+    assert sample_rec['artifact_path'] == sample_rec['preview_path'] == result['preview_path']
+    # A sample receipt names its preview in its own fields, not as a checkpoint.
+    assert sample_rec['checkpoint_path'] is None
 
     stop_rec = request_status(run_dir, 'stop-req-1')
     assert stop_rec['status'] == 'succeeded'
     assert stop_rec['step'] == 2
     assert stop_rec['checkpoint_path']
+
+
+class _SampleExecution:
+    """Fake adapter whose first preview publishes and whose later previews do not."""
+    inference_available = False
+
+    def __init__(self, run_dir, outcome):
+        self.run_dir, self.outcome = run_dir, outcome
+        self.step, self.busy = 0, False
+
+    def environment(self):
+        return {'runtime': {'python': '3.12'}, 'source': {'hypergan_commit': 'deadbeef'}}
+
+    def start(self):
+        from hypergan.run_controller import ExecutionInfo
+        return ExecutionInfo(step=0, data_identity={'dataset': 'synthetic'}, recovery_reasons=[],
+                             checkpoint_metadata={'resume_supported': True})
+
+    def update(self):
+        from hypergan.api import request_sample, request_stop
+        from hypergan.run_controller import CompletedUpdate
+        self.step += 1
+        if self.step in (1, 2):
+            request_sample(self.run_dir, request_id=f'sample-{self.step}')
+        elif self.step == 3:
+            request_stop(self.run_dir, request_id='stop-3')
+        return CompletedUpdate(step=self.step, metrics={'g_loss': 1.0, 'd_loss': 0.5})
+
+    def checkpoint(self, target_dir, metadata):
+        path = target_dir / 'checkpoints' / f'step-{self.step}'
+        path.mkdir(parents=True, exist_ok=True)
+        (path / 'manifest.json').write_text(json.dumps(metadata), encoding='utf-8')
+        return path
+
+    def preview(self, target_dir, identity, *, keep):
+        from hypergan.previews import publish_preview_payload
+        from hypergan.run_controller import PreviewResult
+        if identity['sample_sequence'] == 1:
+            payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity,
+                       'name': identity['name'], 'step': self.step, 'count': 1,
+                       'shape': [1, 1], 'samples': [[0.5]]}
+            return PreviewResult(*publish_preview_payload(target_dir, payload, identity, self.step, keep=keep))
+        # Asynchronous rendering: the result arrives through poll_preview.
+        self.busy = self.outcome == 'renderer-fails'
+        return None
+
+    @property
+    def preview_busy(self):
+        return self.busy
+
+    def poll_preview(self, *, wait=False):
+        if self.busy:
+            self.busy = False
+            raise RuntimeError('renderer crashed')
+        return None
+
+    def close_previews(self):
+        return self.poll_preview(wait=True)
+
+    def abort_previews(self):
+        self.busy = False
+        return True
+
+    def inference(self, bundle_dir, identity):
+        raise AssertionError('inference is unavailable')
+
+    def observe(self, callback, event):
+        callback(event)
+
+    def shutdown(self):
+        pass
+
+
+@pytest.mark.parametrize('outcome', ['renderer-fails', 'nothing-published'])
+def test_sample_request_is_rejected_when_its_own_preview_does_not_publish(tmp_path, outcome):
+    from hypergan.api import request_status
+    from hypergan.run_controller import run_train
+
+    run_dir = tmp_path / 'run'
+    result = run_train({'training': {'steps': 10}}, run_dir, checkpoint_every=1,
+                       execution_factory=lambda config: _SampleExecution(run_dir, outcome))
+    assert result['status'] == 'stopped' and result['steps'] == 3
+
+    first = request_status(run_dir, 'sample-1')
+    assert first['status'] == 'succeeded' and first['preview_path'] == result['preview_path']
+    second = request_status(run_dir, 'sample-2')
+    # The earlier preview must not be reported as this request's sample.
+    assert second['status'] == 'rejected'
+    assert second['preview_path'] is None and second['step'] is None
+    expected = 'renderer crashed' if outcome == 'renderer-fails' else 'sample sequence 2 was not published'
+    assert expected in second['error']
+    assert result['preview_count'] == 1
 
 
 def test_remote_cluster_run_attachment_and_file_backed_stop(tmp_path, monkeypatch):

@@ -10,7 +10,8 @@ import torch
 from particlegan import Recipe, get_recipe
 
 from hypergan.artifacts import sample, save_bundle
-from hypergan.config import DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, load_config, resolve_config, write_default
+from hypergan.config import DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, load_config, resolve_config
+from tests.config_fixtures import write_default
 from hypergan.training import ReferenceTrainer, train
 
 

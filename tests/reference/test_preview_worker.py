@@ -64,7 +64,7 @@ def test_failed_renderer_releases_snapshot_and_slot(tmp_path, monkeypatch):
 def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp_path, monkeypatch, fail):
     import hypergan.preview_worker as module
     from hypergan.checkpoints import read_checkpoint
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.distributed_checkpoints import _digest
     from hypergan.training import train
 
@@ -109,7 +109,7 @@ def test_training_finishes_updates_while_preview_waits_and_keeps_source_step(tmp
 @pytest.mark.heavy
 def test_fatal_update_cancels_hung_cpu_renderer_and_reaps_process(tmp_path, monkeypatch):
     import torch
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.training import ReferenceTrainer, train
 
     module = tmp_path / 'hanging_preview.py'
@@ -162,7 +162,7 @@ class Generator(MLP):
 def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path, monkeypatch):
     import hypergan.preview_worker as worker
     import hypergan.run_controller as controller
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.training import train
 
     class Stop:
@@ -206,7 +206,7 @@ def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path
 def test_blocked_snapshot_storage_allows_updates_and_preserves_complete_state(tmp_path, monkeypatch):
     import hypergan.preview_snapshot as snapshots
     from hypergan.checkpoints import read_checkpoint
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.distributed_checkpoints import _digest
     from hypergan.training import train, resume
 
@@ -268,7 +268,7 @@ def test_stalled_snapshot_storage_has_terminal_deadline_and_source_context(tmp_p
 def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path, monkeypatch):
     import hypergan.preview_worker as worker
     import hypergan.run_controller as controller
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.training import train
 
     class Stop:
@@ -310,7 +310,7 @@ def test_signal_arriving_during_terminal_preview_drain_cancels_promptly(tmp_path
 
 def test_controller_terminal_poll_enforces_stalled_snapshot_storage_deadline(tmp_path, monkeypatch):
     import hypergan.preview_snapshot as snapshots
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.single_execution import SingleProcessExecution
     from hypergan.training import train
 

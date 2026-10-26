@@ -6,7 +6,8 @@ import sys
 import pytest
 
 from hypergan.config import (
-    DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, config_values, load_config, resolve_config, write_default)
+    DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, config_values, load_config, resolve_config)
+from tests.config_fixtures import write_default
 
 
 def test_default_roundtrip_without_runtime(tmp_path):

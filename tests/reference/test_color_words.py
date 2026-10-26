@@ -83,6 +83,20 @@ def test_color_words_shapes_labels_and_resume_contract():
     assert contract['supported'] is True and contract['stateful'] is False
 
 
+def test_color_words_ranks_build_only_their_slice_of_the_global_draw():
+    data = ColorWords()
+    stream = torch.Generator().manual_seed(SEED)
+    expected = data(8, generator=stream)
+    parts = []
+    for rank in (0, 1):
+        generator = torch.Generator().manual_seed(SEED)
+        parts.append(data(8, generator=generator, rank=rank, world_size=2))
+        assert torch.equal(generator.get_state(), stream.get_state())
+    assert all(len(part['real']) == len(part['label']) == 4 for part in parts)
+    for key in ('real', 'label'):
+        assert torch.equal(torch.cat([part[key] for part in parts]), expected[key])
+
+
 def test_router_straight_through_updates_means_and_query():
     means = torch.tensor([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], requires_grad=True)
     query = torch.tensor([[0.45, 0.05], [0.05, 0.45]], requires_grad=True)

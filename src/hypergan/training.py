@@ -3,7 +3,6 @@
 Fixed-runtime recovery is supported; image quality and DDP require separate qualification.
 """
 import copy
-import functools
 import hashlib
 import importlib
 import importlib.metadata
@@ -30,8 +29,8 @@ class _MetricScalarTransfer:
     """Stage scalar observations with one CUDA stream fence and no GPU kernels.
 
     Reusable pinned buffers are local to this trainer and grouped by source dtype
-    so mixed objectives retain their exact Python-float conversion. Copies remain
-    one per scalar; only the redundant host waits are removed. CPU fixtures use
+    so mixed objectives retain their exact Python-float conversion. Each scalar
+    is copied separately, and the host waits once for all of them. CPU fixtures use
     the direct conversion without initializing CUDA or allocating pinned memory.
     """
     def __init__(self, device):
@@ -71,7 +70,7 @@ class _MetricScalarTransfer:
 def _paired_groups(targets, sources):
     """Pair tensors positionally, grouped so one foreach call sees one kind.
 
-    ``zip`` keeps the previous per-tensor pairing; the grouping key is every
+    ``zip`` pairs the i-th target with the i-th source; the grouping key is every
     property a foreach fast route requires to be uniform, so mixed device or
     dtype inventories simply produce more groups instead of a silent fallback.
     """
@@ -86,11 +85,11 @@ def _paired_groups(targets, sources):
 
 @torch.no_grad()
 def update_ema(average, current, decay):
-    """Fused EMA update; bitwise identical to the previous per-tensor loop.
+    """Fused EMA update: ``average`` moves toward ``current`` by ``1 - decay``.
 
     ``torch._foreach_lerp_``/``torch._foreach_copy_`` evaluate the same element
-    math as ``Tensor.lerp_``/``Tensor.copy_`` while issuing one launch per group
-    instead of one per tensor. Integer buffers such as BatchNorm
+    math as ``Tensor.lerp_``/``Tensor.copy_`` per tensor, bit for bit, with one
+    launch per group of like tensors. Integer buffers such as BatchNorm
     ``num_batches_tracked`` copy unchanged; empty inventories are skipped
     because the foreach operators reject empty tensor lists.
     """
@@ -155,65 +154,44 @@ def source_info(config=None):
     return result
 
 
-class DeviceAdam:
-    """Mixin for the recipe-built Adam optimizers the trainer steps.
+_CAPTURE_GUARDS = ('_accelerator_graph_capture_health_check', '_cuda_graph_capture_health_check')
 
-    CPU parameters cannot be CUDA-graph captured; avoid initializing a GPU.
-    Torch 2.14's generic capture guard queries the accelerator even for an
-    entirely CPU optimizer. Keep its normal guard for accelerator parameters.
-    ``step`` is the recipe optimizer's own step, named here so tests can
-    intercept every trainer optimizer step in one place.
+
+def _skip_cpu_capture_guard(optimizer):
+    """Skip the graph-capture guard of an Adam optimizer whose parameters are all on the CPU.
+
+    CPU parameters cannot be CUDA-graph captured, yet torch 2.14's generic guard
+    queries the accelerator even for an entirely CPU optimizer, which initializes
+    a GPU. The guard is replaced on the instance only: the optimizer keeps its
+    class, because ParticleGAN validates exact optimizer types. Optimizers with
+    any accelerator parameter keep torch's guard.
     """
-    def step(self, closure=None):
-        return super().step(closure)
-
-    def _accelerator_graph_capture_health_check(self):
-        if any(parameter.device.type != 'cpu' for group in self.param_groups for parameter in group['params']):
-            return super()._accelerator_graph_capture_health_check()
-
-    def _cuda_graph_capture_health_check(self):
-        if any(parameter.device.type != 'cpu' for group in self.param_groups for parameter in group['params']):
-            return super()._cuda_graph_capture_health_check()
-
-
-def _device_step(self, closure=None):
-    return DeviceAdam.step(self, closure)
-
-
-# The recipe optimizer's step is already wrapped with torch's step hooks.
-# Marked so torch does not wrap this class's step again (Optimizer.__setstate__
-# does, e.g. on deepcopy), which would run the hooks twice and pin the step
-# function that ``DeviceAdam.step`` interception relies on looking up late.
-_device_step.hooked = True
-
-
-@functools.cache
-def _device_class(cls):
-    return type(f'Device{cls.__name__}', (DeviceAdam, cls), {'__module__': __name__, 'step': _device_step})
-
-
-def _device_optimizer(optimizer):
-    """Keep the CPU Adam guard local to actual Adam optimizers."""
-    if (type(optimizer) is torch.optim.Adam
-            and getattr(optimizer, 'recipe_optimizer_family', None) == 'adam'):
-        # ParticleGAN's plain Adam penalty validates the exact optimizer type;
-        # bind only the CPU guard instead of changing the optimizer's class.
-        if all(parameter.device.type == 'cpu' for group in optimizer.param_groups for parameter in group['params']):
-            for guard in ('_accelerator_graph_capture_health_check', '_cuda_graph_capture_health_check'):
-                if hasattr(optimizer, guard):
-                    setattr(optimizer, guard, lambda: None)
+    if not isinstance(optimizer, torch.optim.Adam):
         return optimizer
-    if (isinstance(optimizer, torch.optim.Adam)
-            and getattr(optimizer, 'recipe_optimizer_family', None) != 'adam'):
-        optimizer.__class__ = _device_class(type(optimizer))
+    if all(parameter.device.type == 'cpu' for group in optimizer.param_groups for parameter in group['params']):
+        for guard in _CAPTURE_GUARDS:
+            if hasattr(optimizer, guard) and guard not in optimizer.__dict__:
+                setattr(optimizer, guard, lambda: None)
     return optimizer
+
+
+# Fresh orthogonal initialization seeds. The prior uses `seed + 2`; component
+# `index` (in graph order) uses `seed + index` for the first two components and
+# skips the prior's offset after that, so no two networks share a seed.
+PRIOR_INIT_SEED_OFFSET = 2
+
+
+def component_init_seed(seed, index):
+    """Initialization seed of the component at position `index` in the graph."""
+    return seed + index if index < PRIOR_INIT_SEED_OFFSET else seed + index + 1
 
 
 def initialize_fresh_parameters(graph, seed):
     """Public deterministic initialization, preserving loaded HNDL checkpoints.
 
-    A trainable pretrained trunk is still loaded state. Temporarily excluding
-    its parameters from initialization preserves values without changing its
+    Each component gets its own seed (`component_init_seed`). A trainable
+    pretrained trunk is still loaded state. Temporarily excluding its
+    parameters from initialization preserves values without changing its
     permanent fine-tuning policy or detaching future forwards.
     """
     from hndl.operators.pretrained import Pretrained
@@ -225,12 +203,10 @@ def initialize_fresh_parameters(graph, seed):
         for parameter in loaded.values():
             parameter.requires_grad_(False)
         for index, model in enumerate(graph.models.values()):
-            deterministic_orthogonal_(model, seed=seed + index)
+            deterministic_orthogonal_(model, seed=component_init_seed(seed, index))
     finally:
         for key, parameter in loaded.items():
             parameter.requires_grad_(flags[key])
-
-
 
 
 class ScoredCritic(torch.nn.Module):
@@ -302,7 +278,7 @@ class ReferenceTrainer:
         if settings['initialization'] == 'deterministic_orthogonal':
             initialize_fresh_parameters(self.graph, settings['seed'])
             from particlegan.init import deterministic_orthogonal_
-            deterministic_orthogonal_(self.prior, seed=settings['seed'] + 2)
+            deterministic_orthogonal_(self.prior, seed=settings['seed'] + PRIOR_INIT_SEED_OFFSET)
         self.data = construct(config["data"])
         self.recipe = particlegan_recipe(config)
         # Recipe-owned freezing/reference moments happen before optimizers and
@@ -337,7 +313,7 @@ class ReferenceTrainer:
         else:
             self.critic = torch.nn.ModuleDict({name: self.graph.models[name] for name in names})
         ema_critic = copy.deepcopy(self.critic) if config["gradient_penalty"]["anchor_weight"] else None
-        self.opt_d = _device_optimizer(self.recipe.make_critic_optimizer(self.critic, ema_critic=ema_critic, **optimizer_options))
+        self.opt_d = _skip_cpu_capture_guard(self.recipe.make_critic_optimizer(self.critic, ema_critic=ema_critic, **optimizer_options))
         if not config.get('recipe') and getattr(self.opt_d, 'anchor', None) is not None:
             self.opt_d.anchor.decay = config['gradient_penalty']['anchor_decay']
         self.penalty = self.recipe.make_critic_penalty(self.opt_d)
@@ -357,7 +333,7 @@ class ReferenceTrainer:
         table = getattr(self.prior, "z", None)
         latent_table = table if (type(self.prior) is ParticlePrior and table.requires_grad
                                  and self.program.prior_parameters == (table,)) else None
-        self.opt_g = _device_optimizer(self.recipe.make_generator_optimizer(
+        self.opt_g = _skip_cpu_capture_guard(self.recipe.make_generator_optimizer(
             groups, modules=self.graph, latent_table=latent_table, **optimizer_options))
         prior_ids = {id(parameter) for parameter in self.program.prior_parameters}
         self.lr_roles = [[group.get('role', 'prior' if all(id(parameter) in prior_ids for parameter in group['params']) else 'generator')
@@ -431,8 +407,8 @@ class ReferenceTrainer:
         preserves inf/nan, so gradients stay bitwise unchanged while a whole
         group is screened in one launch per device and dtype instead of one
         blocking host read per tensor. Gradients the kernel does not accept
-        (integer, complex or non-strided) keep the previous elementwise
-        ``isfinite`` reduction, which is also computed without a host read.
+        (integer, complex or non-strided) use an elementwise ``isfinite``
+        reduction, which is also computed without a host read.
         """
         fused, flags = {}, []
         for parameter in parameters:
@@ -454,8 +430,8 @@ class ReferenceTrainer:
 
         ``groups`` pairs a message with the parameters it describes. Every flag
         is computed on the device, stacked into one small tensor and read once,
-        so the per-tensor synchronizations are gone while the optimizer step is
-        still reached only when nothing was flagged: a refused step leaves
+        so there is no per-tensor synchronization, and the optimizer step is
+        reached only when nothing was flagged: a refused step leaves
         parameters and optimizer state untouched. The loss flag is stacked first
         so a nonfinite loss keeps reporting the loss message.
         """

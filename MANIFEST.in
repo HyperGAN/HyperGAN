@@ -11,6 +11,8 @@ prune worktrees
 prune tests
 include tests/hndl_fixtures.py
 include tests/dinov3_fixtures.py
+include tests/distributed_fixtures.py
+include tests/config_fixtures.py
 recursive-include tests/fixtures *.toml
 recursive-include tests/foundation *.py
 recursive-include tests/reference *.py
@@ -20,6 +22,7 @@ recursive-include tests/browser *.py
 recursive-include tests/web *.py
 recursive-include tests/unit *.py
 recursive-include tests/playbooks *.py
+recursive-include tests/e2e *.py
 recursive-include tests/e2e_integration *.py
 recursive-include scripts *.py *.sh
 recursive-include src/hypergan/web_assets *.html *.css *.js *.txt *.json *.png

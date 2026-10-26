@@ -3,7 +3,7 @@
 Running list of feedback from the project owner, gathered while using HyperGAN.
 This is a living document: new items are appended as they come up, and each
 item is updated as it is addressed. Earlier, already-implemented feedback lives
-in [feedback-2026-09-20.md](feedback-2026-09-20.md).
+in [feedback-2026-09-20.md](archive/feedback-2026-09-20.md).
 
 Status legend: `[ ]` open · `[~]` in progress · `[x]` done (link the PR).
 
@@ -144,7 +144,7 @@ train your own network with it."
 
 **Status:** Completed and merged into `develop` in PR #388 (`hypergan-model/1` and Python API) and PR #391 (`docs/usability-plan`).
 
-- [x] Proposal for review: [python-api-2026-09-26.md](python-api-2026-09-26.md) on branch `docs/python-api-proposal`.
+- [x] Proposal for review: [python-api-2026-09-26.md](archive/python-api-2026-09-26.md) on branch `docs/python-api-proposal`.
 - [x] Owner decisions recorded and integrated: modality-agnostic design, extension points for data, samplers, metrics, evaluations, and loss functions.
 - [x] Modality-agnostic declarative format `hypergan-model/1` in `src/hypergan/model_file.py`:
   - Explicit network roles (`generator`, `critic`, `encoder`, `auxiliary`), input bindings, and unified `[[losses]]` array.

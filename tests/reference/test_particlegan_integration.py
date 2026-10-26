@@ -176,3 +176,54 @@ def test_unimplemented_recipe_mechanisms_fail_before_training(delta):
     raw['recipe'].update(delta)
     with pytest.raises(ValueError, match='(does not|do not) implement'):
         particlegan_recipe(raw)
+
+
+@pytest.mark.parametrize('count, expected', [(1, [7]), (2, [7, 8]), (3, [7, 8, 10]), (4, [7, 8, 10, 11])])
+def test_fresh_initialization_gives_every_network_its_own_seed(monkeypatch, count, expected):
+    import particlegan.init
+    from hypergan.training import PRIOR_INIT_SEED_OFFSET
+    seeds = []
+    monkeypatch.setattr(particlegan.init, 'deterministic_orthogonal_',
+                        lambda module, seed: seeds.append(seed))
+    graph = torch.nn.Module()
+    graph.models = torch.nn.ModuleDict({f'net{index}': torch.nn.Linear(2, 2) for index in range(count)})
+    initialize_fresh_parameters(graph, 7)
+    # One and two networks keep seed and seed + 1; later ones skip the prior's seed.
+    assert seeds == expected
+    assert 7 + PRIOR_INIT_SEED_OFFSET not in seeds
+
+
+def test_two_network_initialization_is_unchanged():
+    from particlegan.init import deterministic_orthogonal_
+    graph = torch.nn.Module()
+    graph.models = torch.nn.ModuleDict({'generator': torch.nn.Linear(3, 4), 'discriminator': torch.nn.Linear(4, 1)})
+    expected = copy.deepcopy(graph.models)
+    for index, model in enumerate(expected.values()):
+        deterministic_orthogonal_(model, seed=5 + index)
+    initialize_fresh_parameters(graph, 5)
+    equal(expected.state_dict(), graph.models.state_dict())
+
+
+def test_cpu_capture_guard_keeps_the_recipe_optimizer_class(tmp_path, monkeypatch):
+    from particlegan.k3p import K3PGeneratorAdam
+    from hypergan.config import load_config
+    from tests.config_fixtures import write_default
+    from hypergan.training import _skip_cpu_capture_guard
+    trainer = ReferenceTrainer(load_config(write_default(tmp_path / 'config', device='cpu', defaults='hypergan')))
+    # ParticleGAN checks exact optimizer types (routed row transport accepts
+    # only Adam, AdamW and K3PGeneratorAdam), so the guard never swaps classes.
+    assert type(trainer.opt_g) is K3PGeneratorAdam
+
+    def accelerator_query(self):
+        raise AssertionError('a CPU optimizer queried the accelerator')
+    for guard in ('_accelerator_graph_capture_health_check', '_cuda_graph_capture_health_check'):
+        monkeypatch.setattr(torch.optim.Adam, guard, accelerator_query)
+    parameter = torch.nn.Parameter(torch.ones(2))
+    optimizer = _skip_cpu_capture_guard(torch.optim.Adam([parameter], lr=0.1))
+    assert type(optimizer) is torch.optim.Adam
+    parameter.grad = torch.ones(2)
+    optimizer.step()
+    assert torch.allclose(parameter.detach(), torch.full((2,), 0.9))
+    meta = torch.optim.Adam([torch.nn.Parameter(torch.ones(2, device='meta'))])
+    assert _skip_cpu_capture_guard(meta) is meta
+    assert not {'_accelerator_graph_capture_health_check', '_cuda_graph_capture_health_check'} & set(vars(meta))

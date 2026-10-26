@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from hypergan.checkpoints import read_checkpoint
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.execution import prepare_train, train
 from hypergan.training import resume
 

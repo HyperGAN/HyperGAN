@@ -158,14 +158,105 @@ def test_compute_best_evaluation_modes():
     assert best["value"] == 18.5
     assert best["step"] == 2000
 
-    # Max mode (e.g. accuracy)
+    # Max mode comes from the catalog's declared direction, not the name.
     acc_evals = [
-        {"step": 1000, "metric": "accuracy", "value": 0.82},
-        {"step": 2000, "metric": "accuracy", "value": 0.94},
+        {"step": 1000, "metric": "accuracy", "value": 0.82, "direction": "maximize"},
+        {"step": 2000, "metric": "accuracy", "value": 0.94, "direction": "maximize"},
     ]
     best_acc = compute_best_evaluation(acc_evals)
     assert best_acc["value"] == 0.94
     assert best_acc["step"] == 2000
+    assert best_acc["direction"] == "maximize"
+    # Without a declared direction a name is not evidence of one.
+    assert compute_best_evaluation([{**r, "direction": None} for r in acc_evals]) is None
+
+
+def write_catalog(run_dir, definitions):
+    """A valid immutable catalog revision holding the given descriptors."""
+    from hypergan.metrics import digest
+    metrics = {}
+    for name, fields in definitions.items():
+        definition = {"kind": "scalar", "source": "custom:" + name, **fields}
+        metrics[name] = dict(definition, definition_hash=digest(definition))
+    catalog = {"schema_version": 1, "metrics": metrics}
+    revision = digest(catalog)
+    path = Path(run_dir) / "metrics" / f"catalog-{revision}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(catalog), encoding="utf-8")
+    return revision
+
+
+def write_receipt(run_dir, metric, step, value, catalog, attempt="attempt-1"):
+    directory = Path(run_dir) / "metrics" / "evaluations" / f"step-{step:08d}-{metric}-{step:08x}"
+    directory.mkdir(parents=True)
+    (directory / "receipt.json").write_text(json.dumps({
+        "schema_version": 1, "status": "complete", "metric_id": metric, "source_step": step,
+        "attempt_id": attempt, "catalog": catalog, "result": {"value": value, "step": step}}), encoding="utf-8")
+
+
+LOGOS_CATALOG = {
+    "random_spread": {"direction": "none", "unit": "ratio"},
+    "chroma": {"direction": "minimize", "unit": "normalized_chroma"},
+    "structure": {"direction": "minimize", "unit": "normalized_luminance_gradient"},
+    "fid10k_heldout": {"direction": "minimize", "unit": "FID"},
+}
+
+
+def test_best_never_pools_unrelated_metrics(tmp_path):
+    # Review 2026-10-25 #9: the logos schedule before any FID completes. The
+    # pooled minimum used to pick random_spread=0.02, the most collapsed generator.
+    revision = write_catalog(tmp_path, LOGOS_CATALOG)
+    for metric, step, value in [("chroma", 1000, .05), ("random_spread", 2000, .02),
+                                ("random_spread", 3000, .95), ("structure", 3000, .04)]:
+        write_receipt(tmp_path, metric, step, value, revision)
+    manifest = {"run_id": "logos", "status": "running", "steps": 3100, "config": {"training": {"steps": 10000}}}
+    write_summary_json(tmp_path, manifest)
+    summary = read_summary_json(tmp_path)
+    # Two declared-minimize metrics and no configured keep_best metric: no single "best".
+    assert summary["best"] is None and summary["best_fid"] is None and summary["latest_fid"] is None
+    # The configured keep_best metric is the primary metric.
+    manifest["config"]["checkpoints"] = {"keep_best": {"metric": "chroma", "mode": "min", "count": 1}}
+    write_summary_json(tmp_path, manifest)
+    assert read_summary_json(tmp_path)["best"] == {"metric": "chroma", "value": .05, "step": 1000,
+        "checkpoint": None, "direction": "minimize", "unit": "normalized_chroma"}
+    # Once FID results exist and keep_best names FID, only that FID protocol counts.
+    write_receipt(tmp_path, "fid10k_heldout", 5000, 80.0, revision)
+    write_receipt(tmp_path, "fid10k_heldout", 10000, 60.0, revision)
+    manifest["config"]["checkpoints"] = {"keep_best": {"metric": "fid10k_heldout", "mode": "max", "count": 1}}
+    write_summary_json(tmp_path, manifest)
+    summary = read_summary_json(tmp_path)
+    # The catalog's declared minimize wins over a contradictory keep_best.mode.
+    assert (summary["best"]["metric"], summary["best"]["value"], summary["best_fid"]) == ("fid10k_heldout", 60.0, 60.0)
+
+
+def test_single_declared_direction_defines_best_without_keep_best_metric(tmp_path):
+    revision = write_catalog(tmp_path, {"modes_covered": {"direction": "maximize", "unit": "modes"},
+                                        "spread": {"direction": "none", "unit": "ratio"}})
+    for metric, step, value in [("modes_covered", 100, 3.0), ("modes_covered", 200, 9.0),
+                                ("modes_covered", 300, 7.0), ("spread", 300, 99.0)]:
+        write_receipt(tmp_path, metric, step, value, revision)
+    write_summary_json(tmp_path, {"run_id": "r", "status": "running", "steps": 300, "config": {}})
+    best = read_summary_json(tmp_path)["best"]
+    assert (best["metric"], best["value"], best["step"], best["direction"]) == ("modes_covered", 9.0, 200, "maximize")
+    assert read_summary_json(tmp_path)["best_fid"] is None
+
+
+def test_latest_tracks_newest_evaluation_after_training_moves_on(tmp_path):
+    # Review 2026-10-25 #9: evaluations finish after their source step, so the
+    # second FID used to be ignored and latest froze at the first value.
+    revision = write_catalog(tmp_path, {"fid50k_train": {"direction": "minimize", "unit": "FID"}})
+    manifest = {"run_id": "r", "status": "running", "config": {"training": {"steps": 50000}}}
+    write_receipt(tmp_path, "fid50k_train", 10000, 80.0, revision)
+    write_summary_json(tmp_path, dict(manifest, steps=10500))
+    write_receipt(tmp_path, "fid50k_train", 20000, 40.0, revision)
+    write_summary_json(tmp_path, dict(manifest, steps=20600))
+    summary = read_summary_json(tmp_path)
+    assert summary["latest"]["fid50k_train"] == 40.0
+    assert summary["latest_fid"] == 40.0 and summary["best_fid"] == 40.0
+    write_receipt(tmp_path, "fid50k_train", 30000, 55.0, revision)
+    write_summary_json(tmp_path, dict(manifest, steps=30700))
+    summary = read_summary_json(tmp_path)
+    assert (summary["latest_fid"], summary["best_fid"], summary["best"]["step"]) == (55.0, 40.0, 20000)
 
 
 def test_read_summary_json_nonexistent_or_invalid(tmp_path):

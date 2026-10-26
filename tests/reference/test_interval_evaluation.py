@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.training import train, resume
 from hypergan.checkpoints import read_checkpoint
 from hypergan.distributed_checkpoints import _digest

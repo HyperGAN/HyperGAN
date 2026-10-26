@@ -5,7 +5,7 @@ Training dependencies are loaded only when a training or sampling API is used.
 
 __version__ = "2.0.0a1"
 
-from .api import __all__ as _api_all
+from .api import __all__ as _api_all, ALIASES as _ALIASES
 
 __all__ = tuple(_api_all)
 del _api_all
@@ -20,8 +20,8 @@ def __getattr__(name: str):
     if name == "metrics":
         return importlib.import_module(".metrics", __name__)
 
-    # Guard: only allow public symbols declared in __all__
-    if name in __all__:
+    # Guard: only allow public symbols declared in __all__ (or their aliases)
+    if name in __all__ or name in _ALIASES:
         api = importlib.import_module(".api", __name__)
         if hasattr(api, name):
             return getattr(api, name)

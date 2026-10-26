@@ -9,6 +9,15 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 IMAGE_FORMATS = ("JPEG", "PNG", "WEBP", "BMP", "TIFF")
 
 
+PRESET_RESOLUTIONS = (32, 64, 128, 256)
+
+
+def preset_resolution(width: int, height: int) -> int:
+    """The smallest starter resolution that holds width x height (256 for anything larger)."""
+    max_dim = max(width, height)
+    return next((res for res in PRESET_RESOLUTIONS if max_dim <= res), PRESET_RESOLUTIONS[-1])
+
+
 def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
     """Scan dataset directory using header-only inspection without decoding pixel buffers into RAM."""
     from PIL import Image
@@ -63,15 +72,7 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
 
     has_varying = any(w != target_w or h != target_h for w, h in zip(widths, heights))
 
-    max_dim = max(target_w, target_h)
-    if max_dim <= 32:
-        preset_res = 32
-    elif max_dim <= 64:
-        preset_res = 64
-    elif max_dim <= 128:
-        preset_res = 128
-    else:
-        preset_res = 256
+    preset_res = preset_resolution(target_w, target_h)
 
     return {
         "count": len(image_paths),
@@ -154,14 +155,7 @@ def _upsample_conv_tail(start_res: int, target_res: int, channels: int) -> str:
 def get_hndl_templates(width: int, height: int, channels: int, template: str = "dcgan") -> Tuple[str, str]:
     """Select optimal generator and critic HNDL architecture templates for resolution and template style."""
     max_dim = max(width, height)
-    if max_dim <= 32:
-        preset_res = 32
-    elif max_dim <= 64:
-        preset_res = 64
-    elif max_dim <= 128:
-        preset_res = 128
-    else:
-        preset_res = 256
+    preset_res = preset_resolution(width, height)
 
     if max_dim <= 32:
         # CIFAR-32 template
@@ -336,7 +330,7 @@ h = leaky_relu(h, 0.2)
     return gen.strip(), disc.strip()
 
 
-def _add_recipe_comments(body: str, config_name: str, template: Optional[str] = None, data_spec: Optional[dict] = None) -> str:
+def _add_recipe_comments(body: str, config_name: str, template: Optional[str] = None, *, data_spec: dict) -> str:
     """Inject concise, self-documenting comments above each TOML section."""
     import hashlib
     import re
@@ -355,31 +349,14 @@ def _add_recipe_comments(body: str, config_name: str, template: Optional[str] = 
         commented = re.sub(pattern, replacement, commented, count=1)
 
     if "[evaluations" not in commented:
-        is_image = (
-            template in ("dcgan", "resnet", "tiny-transformer")
-            or (data_spec and data_spec.get("builtin") == "image_folder")
-            or 'builtin = "image_folder"' in body
-        )
+        is_image = template in ("dcgan", "resnet", "tiny-transformer") or data_spec.get("builtin") == "image_folder"
         if is_image:
-            d_args = (data_spec or {}).get("args", {})
+            d_args = data_spec.get("args", {})
             root_val = d_args.get("root", "./data")
             h_val = d_args.get("height", 64)
             w_val = d_args.get("width", 64)
             m_val = d_args.get("mode", "RGB")
             r_val = d_args.get("resize", "center_crop")
-            if not d_args:
-                m_root = re.search(r'root\s*=\s*"([^"]+)"', body)
-                if m_root:
-                    root_val = m_root.group(1)
-                m_h = re.search(r'height\s*=\s*(\d+)', body)
-                if m_h:
-                    h_val = int(m_h.group(1))
-                m_w = re.search(r'width\s*=\s*(\d+)', body)
-                if m_w:
-                    w_val = int(m_w.group(1))
-                m_m = re.search(r'mode\s*=\s*"([^"]+)"', body)
-                if m_m:
-                    m_val = m_m.group(1)
             eval_data_comment = (
                 f'# data = {{ builtin = "image_folder", args = {{ root = "{root_val}", '
                 f'height = {h_val}, width = {w_val}, mode = "{m_val}", resize = "{r_val}" }} }}\n'
@@ -477,23 +454,13 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
         h = info["height"]
         c = info["channels"]
         mode = info["mode"]
-        preset_res = resolution or info.get("preset_res")
-        if preset_res is None:
-            max_dim = max(w, h)
-            if max_dim <= 32:
-                preset_res = 32
-            elif max_dim <= 64:
-                preset_res = 64
-            elif max_dim <= 128:
-                preset_res = 128
-            else:
-                preset_res = 256
+        preset_res = resolution or info["preset_res"]
     else:
         dataset_path = None
         c = 3
         mode = "RGB"
         preset_res = int(resolution or 64)
-        if preset_res not in (32, 64, 128, 256):
+        if preset_res not in PRESET_RESOLUTIONS:
             raise ValueError(f"Unsupported resolution {preset_res}; choose one of 32, 64, 128, 256")
 
     if target_path.exists() and not overwrite:
@@ -605,7 +572,7 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
 
     from .toml_writer import dumps as _dumps
     body = _dumps(spec, table_depth=3)
-    text = _add_recipe_comments(body, target_path.name, template=template, data_spec=spec.get("data"))
+    text = _add_recipe_comments(body, target_path.name, template=template, data_spec=spec["data"])
     target_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target_path.with_name(target_path.name + ".tmp")
     tmp_path.write_text(text, encoding="utf-8")

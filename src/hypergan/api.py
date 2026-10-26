@@ -44,24 +44,39 @@ PACKAGED = Path(__file__).with_name('models')
 
 __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'ConfigError',
            'model', 'load', 'load_bundle', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
-           'validate_config', 'init_project', 'new', 'list_templates',
+           'init_project', 'new', 'list_templates',
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
            'train', 'resume', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
-           'lift', 'load_recipe', 'describe', 'describe_model', 'data_check', 'check_data',
+           'lift', 'load_recipe', 'describe', 'data_check',
            'download_dataset', 'dataset_info', 'list_datasets',
-           'preflight', 'preflight_check', 'serve', 'viewer_status',
-           'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
+           'preflight', 'serve', 'viewer_status',
+           'stop_viewer', 'contributions', 'project', 'request_checkpoint',
            'request_status', 'request_sample', 'request_stop',
            'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
            'resolve_inheritance', 'collect_source_files',
-           'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'list_runs', 'runs', 'runs_ls', 'runs_compare', 'compare', 'diff', 'gc', 'prune', 'gc_all', 'compact_events',
+           'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'list_runs', 'compare', 'diff', 'gc', 'gc_all', 'compact_events',
            'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
            'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service', 'queue_clear']
+
+# Other names for functions in __all__, kept for compatibility. ``hg.<alias>``
+# still resolves (see hypergan.__getattr__), but only the canonical name is
+# exported and documented.
+ALIASES = {
+    'validate_config': 'validate',
+    'describe_model': 'describe',
+    'check_data': 'data_check',
+    'preflight_check': 'preflight',   # with runtime=True by default
+    'runs': 'list_runs',
+    'runs_ls': 'list_runs',
+    'runs_compare': 'compare',
+    'prune': 'gc',
+    'checkpoint_status': 'request_status',
+}
 
 
 
@@ -97,13 +112,18 @@ def _model(value):
 
 
 def load(path):
-    """Load a model file, an engine recipe TOML, a run's stored Model, or a .pt bundle."""
+    """Load a model file, an engine recipe TOML, or a run's stored Model, as a ``Model``.
+
+    An exported ``.pt`` bundle holds weights, not a model file: load it with
+    ``hg.load_bundle(path)`` (or ``hg.load_inference(path)`` for a ready graph).
+    """
     if isinstance(path, Run):
         return _load_stored_run_model(path.path)
     raw = str(path)
     path = Path(path)
     if path.suffix.lower() == '.pt':
-        return load_bundle(path)
+        raise ModelFileError(f'{path} is an exported .pt bundle, not a model file; '
+                             'load it with hg.load_bundle(path) or hg.load_inference(path)')
     if not path.exists() and path.suffix.lower() not in ('.toml', '.pt'):
         try:
             resolved_run = resolve_run_target(raw, allow_latest=(raw == 'latest'))
@@ -275,8 +295,6 @@ def override(model, changes=None, /, **sections):
             target = target[key]
         last_key = _segment(target, parts[-1], dotted) if isinstance(target, list) else parts[-1]
         target[last_key] = deepcopy(value)
-        if isinstance(target, dict) and last_key == 'id' and value is None:
-            target['__id_required__'] = True
 
     norm_sections = {}
     for key, value in sections.items():
@@ -416,12 +434,18 @@ def new(data_dir=None, output_path=None, *, template=None, resolution=None, devi
     """Scaffold a new HyperGAN model file (or initialize a project directory when project is set).
 
     ``dataset`` is another name for ``data_dir``, the directory of training images.
+    ``name`` names the model file (``<name>.toml``; ``configs/<name>.toml`` in a
+    project) when ``output_path`` does not.
     """
     if dataset is not None:
         if data_dir is not None:
             raise TypeError("new() takes data_dir or dataset, not both")
         data_dir = dataset
+    if name is not None and output_path is not None:
+        raise TypeError("new() takes name or output_path, not both: both name the model file")
     if project is not None:
+        if name is not None:
+            output_path = Path("configs") / f"{Path(str(name)).name.removesuffix('.toml')}.toml"
         return init_project(
             project,
             template=template,
@@ -1089,24 +1113,31 @@ def load_inference(target=None):
                 pass
         path = bundle_dir / "model.pt"
         if not path.is_file():
-            try:
-                from .checkpoints import resolve_checkpoint, export_checkpoint_bundle
-                ckpt_dir = resolve_checkpoint(run_dir, target="latest")
-                path, checksum_path = export_checkpoint_bundle(ckpt_dir, output_dir=run_dir)
-                bundle_dir = run_dir
-            except Exception:
-                pass
-        if not path.is_file():
-            raise FileNotFoundError(f"No inference bundle or checkpoint found for {target or run_dir}")
-        sha_file = bundle_dir / "model.sha256"
-        if sha_file.is_file():
-            expected = sha_file.read_text(encoding="utf-8").strip()
-            if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-                raise ValueError("Inference artifact hash mismatch")
+            path = None
         else:
-            expected = hashlib.sha256(path.read_bytes()).hexdigest()
+            sha_file = bundle_dir / "model.sha256"
+            if sha_file.is_file():
+                expected = sha_file.read_text(encoding="utf-8").strip()
+                if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                    raise ValueError("Inference artifact hash mismatch")
+            else:
+                expected = hashlib.sha256(path.read_bytes()).hexdigest()
 
-    state = torch.load(path, map_location="cpu", weights_only=True)
+    if path is not None:
+        state = torch.load(path, map_location="cpu", weights_only=True)
+    else:
+        # No exported bundle: build it from the latest checkpoint in memory.
+        # Loading never writes into the run; `hypergan export` does that.
+        import io
+        from .checkpoints import resolve_checkpoint as _resolve_checkpoint, extract_ema_bundle as _extract
+        try:
+            ckpt_dir = _resolve_checkpoint(run_dir, target="latest")
+        except ValueError as exc:
+            raise FileNotFoundError(f"No inference bundle or checkpoint found for {target or run_dir}: {exc}") from None
+        state = _extract(ckpt_dir)
+        buffer = io.BytesIO()
+        torch.save(state, buffer)
+        expected = hashlib.sha256(buffer.getvalue()).hexdigest()
     if not isinstance(state, dict) or state.get("schema_version") != 1 or state.get("kind") != "ema-inference":
         raise ValueError("Unsupported inference artifact schema")
     for key in ("config", "components", "model_states", "prior", "example_inputs"):
@@ -1273,9 +1304,14 @@ def export(run=None, checkpoint="latest", output=None):
 
 
 def prune_checkpoints(run=None, policy=None, dry_run=False):
-    """Prune obsolete checkpoints in run under the retention policy."""
+    """Prune obsolete checkpoints in run under the retention policy.
+
+    It deletes files, so ``run`` is resolved strictly, like ``rm`` and ``gc``:
+    an exact run ID, short ID, slug, tag, run directory name, or run path.
+    """
     from .checkpoints import prune_checkpoints as _prune
-    return _prune(_run_path(run), policy=policy, dry_run=dry_run)
+    from .registry import resolve_destructive_target
+    return _prune(resolve_destructive_target(run), policy=policy, dry_run=dry_run)
 
 
 def resolve_checkpoint(run=None, target="latest"):
@@ -1361,10 +1397,8 @@ def status(run=None):
     return _status(_run_path(run))
 
 
-def ps(all_runs=False, cwd=None, *, all=None, root=None):
+def ps(all_runs=False, cwd=None, *, root=None):
     """List active training runs (or all runs if all_runs=True) enriched with GPU VRAM and queue status."""
-    if all is not None:
-        all_runs = bool(all)
     target_cwd = root if root is not None else cwd
     from .inspection import ps_runs as _ps
     return _ps(all_runs=all_runs, cwd=target_cwd)
@@ -1480,20 +1514,18 @@ runs = list_runs
 
 
 def runs_ls(root=None, sort="updated", status_filter=None, *, status=None, cwd=None):
-    """Discover and list all runs under root with filtering and sorting."""
+    """Alias of ``list_runs`` (see ``ALIASES``)."""
     return list_runs(root, sort=sort, status=status, status_filter=status_filter, cwd=cwd)
 
 
 def runs_compare(runs, metric="loss/g_total", at_steps=None):
-    """Compare multiple runs for a given metric across step milestones."""
+    """Compare multiple runs for a given metric across step milestones (``compare`` is the canonical name)."""
     from .inspection import compare_runs as _compare_runs
     return _compare_runs(runs, metric=metric, at_steps=at_steps)
 
 
-def gc(run=None, dry_run=False, stride=10, *, all_runs=False, all=None):
+def gc(run=None, dry_run=False, stride=10, *, all_runs=False):
     """Clean rebuildable views and compact events on a finished run (or all runs if all_runs=True)."""
-    if all is not None:
-        all_runs = bool(all)
     if all_runs:
         return gc_all(root=run, dry_run=dry_run, stride=stride)
     from .inspection import gc_run as _gc_run
@@ -1853,7 +1885,8 @@ def data_check(config, output=None):
     cfg = resolve(config) if isinstance(config, Model) or is_model_file(config) else load_config(config)
     if cfg["data"]["factory"] != "image_folder":
         raise ValueError("data-check currently supports data.factory='image_folder'")
-    data = ImageFolder(**cfg["data"]["args"])
+    # Re-decode every file: a check must not trust the stat-signature inspection cache.
+    data = ImageFolder(**dict(cfg["data"]["args"], manifest_cache=False))
     manifest = {"schema_version": 1, "data": data.resume_identity(), "inventory": data.inventory}
     if output is not None:
         out_path = Path(output)
@@ -1908,7 +1941,7 @@ def preflight(config, profile=None, runtime=False):
 
 
 def preflight_check(config, profile=None, runtime=True):
-    """Run preflight check on config (defaults to runtime=True)."""
+    """Alias of ``preflight`` with ``runtime=True`` by default (see ``ALIASES``)."""
     return preflight(config, profile=profile, runtime=runtime)
 
 
@@ -2044,11 +2077,19 @@ def request_stop(run_dir=None, attempt_id=None, request_id=None):
     return _submit_control_request(run_dir, action="stop", attempt_id=attempt_id, request_id=request_id)
 
 
-def ensure_dashboard_running(runs_root=None, check_version=True, run_id=None):
-    """Ensure the persistent root dashboard is running for runs_root, returning its URL."""
+def ensure_dashboard_running(runs_root=None, check_version=True, run_id=None, *,
+                             host=None, port=None, auth=None, public_origin=None):
+    """Ensure the persistent root dashboard is running for runs_root, returning its URL.
+
+    ``host``, ``port``, ``auth`` and ``public_origin`` are those of ``hypergan
+    view``; any left as None keeps the dashboard default.
+    """
     from .web_autostart import ensure_dashboard_running as autostart_ensure
     target = Path(runs_root) if runs_root is not None else None
-    return autostart_ensure(target, check_version=check_version, run_id=run_id)
+    options = {key: value for key, value in
+               (("host", host), ("port", port), ("auth", auth), ("public_origin", public_origin))
+               if value is not None}
+    return autostart_ensure(target, check_version=check_version, run_id=run_id, **options)
 
 
 def stop_all_servers(force=False):
@@ -2109,10 +2150,10 @@ def queue_stop(job_id=None, stop_all=False, queue_file=None):
     return _stop(job_id=job_id, stop_all=stop_all, queue_file=queue_file)
 
 
-def queue_run(devices=None, poll_interval=5.0, once=False, queue_file=None):
-    """Process and run jobs sequentially from the queue until drained."""
+def queue_run(devices=None, poll_interval=5.0, once=False, queue_file=None, *, no_web=False):
+    """Process and run jobs sequentially from the queue until drained (``no_web``: start no dashboard)."""
     from .queue import queue_run as _run
-    return _run(devices=devices, poll_interval=poll_interval, once=once, queue_file=queue_file)
+    return _run(devices=devices, poll_interval=poll_interval, once=once, no_web=no_web, queue_file=queue_file)
 
 
 def queue_install_service(user=True, devices=None, name=None, dry_run=False):

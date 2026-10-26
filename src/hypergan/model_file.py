@@ -111,33 +111,39 @@ def normalize_checkpoint_policy(policy=None):
     if unknown:
         raise ValueError(f"Unknown field(s) in checkpoint retention policy: {', '.join(sorted(unknown))}")
 
-    keep_last = policy.get('keep_last', 3)
+    defaults = DEFAULT_CHECKPOINT_POLICY
+    keep_last = policy.get('keep_last', defaults['keep_last'])
     if not isinstance(keep_last, int) or isinstance(keep_last, bool) or keep_last < 0:
         raise ValueError("keep_last must be a non-negative integer")
 
-    keep_every = policy.get('keep_every', 50000)
+    keep_every = policy.get('keep_every', defaults['keep_every'])
     if keep_every is not None and (not isinstance(keep_every, int) or isinstance(keep_every, bool) or keep_every < 0):
         raise ValueError("keep_every must be a non-negative integer or None")
 
-    export_bundle = policy.get('export_bundle', 'on_eval')
+    export_bundle = policy.get('export_bundle', defaults['export_bundle'])
     if export_bundle is not None and export_bundle not in ('on_eval', 'never', 'on_checkpoint'):
         raise ValueError("export_bundle must be one of 'on_eval', 'never', 'on_checkpoint', or None")
 
-    raw_best = policy.get('keep_best', {'metric': 'fid50k_train', 'mode': 'min', 'count': 2})
+    default_best = defaults['keep_best']
+    raw_best = policy.get('keep_best', default_best)
     if raw_best is None or raw_best is False or raw_best == 0:
         keep_best = None
     elif isinstance(raw_best, int) and not isinstance(raw_best, bool):
         if raw_best < 0:
             raise ValueError("keep_best count must be a non-negative integer")
-        keep_best = {'metric': 'fid50k_train', 'mode': 'min', 'count': raw_best}
+        keep_best = dict(default_best, count=raw_best)
     elif isinstance(raw_best, dict):
-        metric = raw_best.get('metric', 'fid50k_train')
+        unknown_best = set(raw_best) - set(default_best)
+        if unknown_best:
+            raise ValueError(f"keep_best has unknown field(s): {', '.join(sorted(unknown_best))}; expected metric, mode, count")
+        metric = raw_best.get('metric', default_best['metric'])
         if not isinstance(metric, str):
             raise ValueError("keep_best.metric must be a string")
-        mode = raw_best.get('mode', 'min')
+        mode = raw_best.get('mode', default_best['mode'])
         if mode not in ('min', 'max'):
             raise ValueError("keep_best.mode must be 'min' or 'max'")
-        count = raw_best.get('count', 2 if 'metric' not in raw_best else 1)
+        # The default count is the same whichever fields the table sets.
+        count = raw_best.get('count', default_best['count'])
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise ValueError("keep_best.count must be a non-negative integer")
         keep_best = {'metric': metric, 'mode': mode, 'count': count}
@@ -496,7 +502,9 @@ class _Lowering:
                 recipe.setdefault('adversarial_terms', []).append(term)
             elif kind in ('objective', 'reconstruction'):
                 loss = deepcopy(loss)
-                id_cleared = loss.pop('__id_required__', False)
+                # An explicit id = None (hg.override / --set ...id=null) clears the
+                # reconstruction default, so the loss must be given an id.
+                id_cleared = 'id' in loss and loss['id'] is None
                 _table(loss, location, {'type', 'id', 'fn', 'args', 'inputs', 'input', 'target', 'weight', 'detach', 'owner', 'network'})
                 if kind == 'reconstruction' and not id_cleared:
                     loss.setdefault('id', 'reconstruction')
@@ -728,38 +736,12 @@ class _Lowering:
                 )
 
     def checkpoints(self, table):
+        """Validate [checkpoints] with the same rules ``normalize_checkpoint_policy`` applies."""
         _table(table, 'checkpoints', CHECKPOINT_FIELDS)
-        if 'keep_last' in table:
-            v = table['keep_last']
-            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
-                raise ModelFileError('checkpoints.keep_last must be a non-negative integer')
-        if 'keep_every' in table:
-            v = table['keep_every']
-            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
-                raise ModelFileError('checkpoints.keep_every must be a non-negative integer')
-        if 'export_bundle' in table:
-            v = table['export_bundle']
-            if not isinstance(v, str):
-                raise ModelFileError('checkpoints.export_bundle must be a string')
-        if 'keep_best' in table:
-            v = table['keep_best']
-            if v is False or v is None:
-                pass
-            elif isinstance(v, int) and not isinstance(v, bool):
-                if v < 0:
-                    raise ModelFileError('checkpoints.keep_best count must be a non-negative integer')
-            elif isinstance(v, dict):
-                _table(v, 'checkpoints.keep_best', {'metric', 'mode', 'count'})
-                if 'metric' in v and not isinstance(v['metric'], str):
-                    raise ModelFileError('checkpoints.keep_best.metric must be a string')
-                if 'mode' in v and v['mode'] not in ('min', 'max'):
-                    raise ModelFileError("checkpoints.keep_best.mode must be 'min' or 'max'")
-                if 'count' in v:
-                    cnt = v['count']
-                    if not isinstance(cnt, int) or isinstance(cnt, bool) or cnt < 0:
-                        raise ModelFileError('checkpoints.keep_best.count must be a non-negative integer')
-            else:
-                raise ModelFileError('checkpoints.keep_best must be an integer count or table with {metric, mode, count}')
+        try:
+            return normalize_checkpoint_policy(table)
+        except ValueError as exc:
+            raise ModelFileError(f'checkpoints.{exc}') from None
 
     def run(self):
         raw = self.raw
@@ -807,8 +789,7 @@ class _Lowering:
         if 'every_steps' not in recipe.get('metrics', {}):
             recipe.setdefault('metrics', {})['every_steps'] = 1
         if 'checkpoints' in raw:
-            self.checkpoints(raw['checkpoints'])
-            recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])
+            recipe['checkpoints'] = self.checkpoints(raw['checkpoints'])
         if 'run' in raw:
             _table(raw['run'], 'run', RUN_FIELDS)
             recipe.setdefault('run', {}).update(deepcopy(raw['run']))
@@ -882,6 +863,37 @@ def _anchor_relative_paths(spec, base_dir, _in_path_container=False):
     return deepcopy(spec)
 
 
+def resolve_extends(parent_ref, *, config_path=None, workspace_root=None) -> Path:
+    """The file an ``extends`` reference names; one rule for loading and provenance.
+
+    An absolute path is used as is. A relative one is looked up next to the
+    declaring file, then under the workspace root, then among the packaged
+    models (``"gaussian-grid"`` or ``"gaussian-grid.toml"``). The working
+    directory is never searched, so a model means the same thing wherever it
+    is loaded from.
+    """
+    if not isinstance(parent_ref, str) or not parent_ref.strip():
+        raise ValueError("extends must be a nonempty path or packaged model name")
+    ref = Path(parent_ref)
+    if ref.is_absolute():
+        candidates = [ref]
+    else:
+        packaged_dir = Path(__file__).resolve().parent / "models"
+        candidates = [Path(config_path).resolve().parent / ref] if config_path is not None else []
+        if workspace_root is not None:
+            candidates.append(Path(workspace_root).resolve() / ref)
+        candidates.append(packaged_dir / ref)
+        if not parent_ref.endswith(".toml"):
+            candidates.append(packaged_dir / f"{parent_ref}.toml")
+    for cand in candidates:
+        if cand.is_file():
+            return cand.resolve()
+    raise FileNotFoundError(
+        f"Inherited configuration '{parent_ref}' not found (searched relative to the config file's directory, "
+        f"the workspace root, and the packaged models)"
+    )
+
+
 def resolve_inheritance(
     model_dict: dict,
     config_path: Path | str | None = None,
@@ -910,44 +922,7 @@ def resolve_inheritance(
         return model_dict
 
     parent_ref = model_dict.pop("extends")
-    parent_path = None
-    ref_as_path = Path(parent_ref)
-
-    if ref_as_path.is_absolute() and ref_as_path.is_file():
-        parent_path = ref_as_path.resolve()
-    else:
-        # Search candidates in order:
-        # 1. relative to config_path.parent
-        if config_path is not None:
-            cand = (Path(config_path).resolve().parent / parent_ref).resolve()
-            if cand.is_file():
-                parent_path = cand
-        # 2. relative to workspace_root
-        if parent_path is None and workspace_root is not None:
-            cand = (Path(workspace_root).resolve() / parent_ref).resolve()
-            if cand.is_file():
-                parent_path = cand
-        # 3. relative to current working directory
-        if parent_path is None:
-            cand = (Path.cwd() / parent_ref).resolve()
-            if cand.is_file():
-                parent_path = cand
-        # 4. packaged model in hypergan/models
-        if parent_path is None:
-            packaged_dir = Path(__file__).resolve().parent / "models"
-            cand = (packaged_dir / parent_ref).resolve()
-            if cand.is_file():
-                parent_path = cand
-            elif not parent_ref.endswith(".toml"):
-                cand = (packaged_dir / f"{parent_ref}.toml").resolve()
-                if cand.is_file():
-                    parent_path = cand
-
-    if parent_path is None:
-        raise FileNotFoundError(
-            f"Inherited configuration '{parent_ref}' not found (searched relative to config directory, "
-            f"workspace root, current directory, and packaged models)"
-        )
+    parent_path = resolve_extends(parent_ref, config_path=config_path, workspace_root=workspace_root)
 
     parent_canon = str(parent_path)
     if parent_canon in new_chain:
@@ -1000,18 +975,7 @@ def collect_source_files(config_path: Path | str, workspace_root: Path | str | N
             with p.open('rb') as f:
                 data = tomllib.load(f)
             if isinstance(data, dict) and 'extends' in data:
-                parent_ref = data['extends']
-                cand = (p.parent / parent_ref).resolve()
-                if not cand.is_file() and workspace_root is not None:
-                    cand = (Path(workspace_root).resolve() / parent_ref).resolve()
-                if not cand.is_file():
-                    cand = (Path.cwd() / parent_ref).resolve()
-                if not cand.is_file():
-                    cand = (Path(__file__).resolve().parent / "models" / parent_ref).resolve()
-                    if not cand.is_file() and not parent_ref.endswith(".toml"):
-                        cand = (Path(__file__).resolve().parent / "models" / f"{parent_ref}.toml").resolve()
-                if cand.is_file():
-                    _walk(cand)
+                _walk(resolve_extends(data['extends'], config_path=p, workspace_root=workspace_root))
         except Exception:
             pass
         sources.append(p)

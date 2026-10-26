@@ -190,8 +190,6 @@ def test_override_addresses_losses_by_id_and_merges_sections():
 def test_errors_name_the_field(change, message):
     model = hg.load(EXAMPLES / 'two_critics.toml')
     spec = hg.override(model, change).spec
-    if change == {'losses.reconstruction.id': None}:
-        del spec['losses'][2]['id']
     with pytest.raises(ModelFileError, match=message.replace('(', r'\(')):
         lower(spec, EXAMPLES)
 

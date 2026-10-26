@@ -359,12 +359,8 @@ class CLIProgress:
                 else:
                     eta_str = "--:--:--"
                 progress_line = f"step {step:,} / {total:,} ({pct:.1f}%) · {rate_str} · ETA {eta_str}"
-                is_atty = hasattr(self.output.stderr, "isatty") and self.output.stderr.isatty()
-                if is_atty:
-                    self.output.stderr.write(f"\r\033[K{progress_line}")
-                    self.output.stderr.flush()
-                else:
-                    self.output.stderr.write(f"{progress_line}\n")
+                # stderr is a bounded _Stream (never a TTY): one line per progress event.
+                self.output.stderr.write(f"{progress_line}\n")
             else:
                 metrics = event.get('metrics', {})
                 values = ' '.join(f'{label}={metrics[key]:.6g}' for key, label in
@@ -382,9 +378,7 @@ class CLIProgress:
             step = event.get('step', '?')
             path = event.get('checkpoint_path', '')
             step_str = f"{step:,}" if isinstance(step, int) else str(step)
-            is_atty = hasattr(self.output.stderr, "isatty") and self.output.stderr.isatty()
-            prefix = "\r\033[K" if is_atty else ""
-            self.output.stderr.write(f"{prefix}[CHECKPOINT] step {step_str}: saved to {path}\n")
+            self.output.stderr.write(f"[CHECKPOINT] step {step_str}: saved to {path}\n")
         elif event.get('event') in ('evaluation', 'evaluation_result'):
             step = event.get('step', '?')
             step_str = f"{step:,}" if isinstance(step, int) else str(step)
@@ -395,9 +389,7 @@ class CLIProgress:
             val_str = f"{val:.2f}" if isinstance(val, (int, float)) else str(val)
             is_best = event.get('best', False)
             best_tag = " (new best!)" if is_best else ""
-            is_atty = hasattr(self.output.stderr, "isatty") and self.output.stderr.isatty()
-            prefix = "\r\033[K" if is_atty else ""
-            self.output.stderr.write(f"{prefix}[EVAL] step {step_str}: {metric_id} = {val_str}{best_tag}\n")
+            self.output.stderr.write(f"[EVAL] step {step_str}: {metric_id} = {val_str}{best_tag}\n")
         else:
             message = event.get('error') or event.get('reason') or event.get('stop_reason')
             self.output.stderr.write(f"{event.get('event', 'status')} at step {event.get('step', '?')}" +
@@ -450,7 +442,7 @@ class TrainingOutput:
             rate_str = f"{rate:.1f} it/s" if rate is not None else "-- it/s"
             run_id = manifest.get('run_id') or (Path(run_dir).name if run_dir else "")
 
-            best_fid_str = None
+            best_str = best_label = None
             has_best = bool(manifest.get('best_checkpoint') or manifest.get('best'))
             if run_dir:
                 try:
@@ -459,7 +451,9 @@ class TrainingOutput:
                     if s_data and s_data.get('best'):
                         has_best = True
                         b = s_data['best']
-                        best_fid_str = f"{b.get('value', 0):.2f} ({b.get('metric')} at step {b.get('step', 0):,})"
+                        best_str = f"{b.get('value', 0):.2f} ({b.get('metric')} at step {b.get('step', 0):,})"
+                        # summary.best_fid is set only when the primary metric is an FID.
+                        best_label = "Best FID:" if s_data.get('best_fid') is not None else "Best:    "
                 except Exception:
                     pass
 
@@ -470,8 +464,8 @@ class TrainingOutput:
                 lines.append("Training complete")
                 lines.append(f"  Steps:       {step:,} / {total_steps:,} ({pct:.1f}%)")
                 lines.append(f"  Time:        {dur_str} ({rate_str})")
-                if best_fid_str:
-                    lines.append(f"  Best FID:    {best_fid_str}")
+                if best_str:
+                    lines.append(f"  {best_label}    {best_str}")
                 lines.append(f"  Checkpoint:  {ckpt_path}")
                 if run_dir:
                     export_ckpt = "best" if has_best else "latest"

@@ -123,7 +123,8 @@ raise SystemExit(main(sys.argv[1:]))
     )
     assert result.returncode != 0
     assert "hypergan[train]" in result.stderr
-    assert "unqualified" in result.stderr
+    # The packaged gaussian-grid starter is qualified, so no unqualified
+    # warning is expected here (custom recipes cover that warning elsewhere).
     assert "Traceback" not in result.stderr
 
 
@@ -181,22 +182,22 @@ def test_cli_checkpoints_prune(tmp_path):
     run_dir = tmp_path / "run"
     ckpt_dir = run_dir / "checkpoints" / "att-1-step-00000100-uuid1"
     ckpt_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(json.dumps({"run_id": "c0ffee00c0ffee00"}), encoding="utf-8")
     (ckpt_dir / "manifest.json").write_text(json.dumps({"step": 100}), encoding="utf-8")
     (ckpt_dir / "state.pt").write_bytes(b"dummy")
+    env = {"HYPERGAN_HOME": str(tmp_path / "state")}
 
     # hypergan checkpoints prune RUN_DIR --dry-run
-    res1 = run_cli(tmp_path, "checkpoints", "prune", run_dir, "--dry-run", isolated=False)
+    res1 = run_cli(tmp_path, "checkpoints", "prune", run_dir, "--dry-run", isolated=False, env=env)
     assert res1.returncode == 0, res1.stderr
     data1 = json.loads(res1.stdout)
     assert data1["dry_run"] is True
     assert data1["retained_count"] == 1
 
-    # alias: hypergan checkpoint prune RUN_DIR --dry-run
-    res2 = run_cli(tmp_path, "checkpoint", "prune", run_dir, "--dry-run", isolated=False)
-    assert res2.returncode == 0, res2.stderr
-    data2 = json.loads(res2.stdout)
-    assert data2["dry_run"] is True
-    assert data2["retained_count"] == 1
+    # The singular spelling is not silently rewritten: it names the command.
+    res2 = run_cli(tmp_path, "checkpoint", "prune", run_dir, "--dry-run", isolated=False, env=env)
+    assert res2.returncode == 2
+    assert "use `hypergan checkpoints prune`" in res2.stderr
 
 
 def test_cli_eval_help_and_export(tmp_path):
@@ -455,10 +456,11 @@ def test_cli_tag_prune_rm_and_optional_path_inspect(tmp_path):
     assert tag_out["name"] == "promoted-baseline"
     assert json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))["name"] == "promoted-baseline"
 
-    # 3. hypergan prune (alias for gc)
+    # 3. hypergan prune (deprecated spelling of gc: still runs, warns)
     res_prune = run_cli(tmp_path, "prune", run_dir, "--dry-run", isolated=False)
     assert res_prune.returncode == 0, res_prune.stderr
     assert "Would clean run:" in res_prune.stdout
+    assert "`hypergan prune` is deprecated" in res_prune.stderr and "hypergan gc" in res_prune.stderr
 
     # 4. hypergan rm
     res_rm = run_cli(tmp_path, "rm", run_dir, isolated=False)

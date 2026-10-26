@@ -71,7 +71,8 @@ def test_api_checkpoints_and_export(tmp_path):
     assert out_pt.name == "model.pt"
     assert (out_pt.parent / "model.sha256").is_file()
 
-    # 4. prune_checkpoints
+    # 4. prune_checkpoints (destructive: the run needs its identity marker)
+    (run_dir / "manifest.json").write_text(json.dumps({"run_id": "c0ffee00c0ffee00"}), encoding="utf-8")
     report = hg.prune_checkpoints(run_dir, dry_run=True)
     assert report["dry_run"] is True
     assert report["retained_count"] == 1

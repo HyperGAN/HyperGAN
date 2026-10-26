@@ -101,22 +101,30 @@ def _run_options(parser):
                              "(default: g; the real batch is published as x)")
 
 
-_add_run_options = _run_options
+# How the run-management commands name a run (registry.resolve_destructive_target).
+_RUN_TARGET = "run ID, short ID, slug, tag, run directory name, or path"
+
+# Deprecated top-level command spellings: old -> (current command, warning).
+# They still run for one release, warn on stderr and are not listed in --help.
+_DEPRECATED_COMMANDS = {
+    "prune": ("gc", "warning: `hypergan prune` is deprecated and will be removed; use `hypergan gc` "
+                    "(views and events), or `hypergan checkpoints prune` for checkpoint retention"),
+}
 
 
 class _CustomParser(argparse.ArgumentParser):
-    def parse_args(self, args=None, namespace=None):
-        if args is None:
-            args = sys.argv[1:]
-        if len(args) >= 2 and args[0] == "checkpoint" and args[1] == "prune":
-            args = ["checkpoints", *args[1:]]
-        return super().parse_args(args, namespace)
-
     def parse_known_args(self, args=None, namespace=None):
-        if args is None:
-            args = sys.argv[1:]
-        if len(args) >= 2 and args[0] == "checkpoint" and args[1] == "prune":
-            args = ["checkpoints", *args[1:]]
+        args = list(sys.argv[1:] if args is None else args)
+        # Global options are flags without values, so the first positional is the command.
+        index = next((i for i, arg in enumerate(args) if not arg.startswith("-")), None)
+        if index is not None:
+            command = args[index]
+            if command in _DEPRECATED_COMMANDS:
+                current, warning = _DEPRECATED_COMMANDS[command]
+                print(warning, file=sys.stderr)
+                args[index] = current
+            elif command == "checkpoint" and args[index + 1:index + 2] == ["prune"]:
+                self.error("`hypergan checkpoint prune` is not a command; use `hypergan checkpoints prune`")
         return super().parse_known_args(args, namespace)
 
 
@@ -128,7 +136,8 @@ def _parser():
     parser.add_argument("--json", action="store_true", dest="global_json", help="output results as JSON")
     parser.add_argument("--debug", action="store_true",
                         help="print the full traceback when a command fails (same as HYPERGAN_DEBUG=1)")
-    commands = parser.add_subparsers(dest="command", required=True)
+    # Subcommand parsers are plain: only the top level maps deprecated spellings.
+    commands = parser.add_subparsers(dest="command", required=True, parser_class=argparse.ArgumentParser)
     commands.add_parser("version", help="Print the HyperGAN version")
     recipes_cmd = commands.add_parser("recipes", help="List the packaged model recipes (JSON)")
     recipes_cmd.add_argument("--json", action="store_true", help="accepted for consistency; the list is always JSON")
@@ -189,24 +198,24 @@ def _parser():
     ps_cmd.add_argument("-q", "--quiet", action="store_true", help="only display short run IDs")
     ps_cmd.add_argument("--json", action="store_true", help="output structured JSON")
     status_cmd = commands.add_parser("status", help="Show a concise, human-friendly status summary of a run")
-    status_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active or latest run)")
+    status_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help=f"{_RUN_TARGET} (default: active or latest run)")
     status_cmd.add_argument("--json", action="store_true", help="output structured status as JSON")
     logs_cmd = commands.add_parser("logs", help="View or follow (-f) live formatted training logs for a run")
-    logs_cmd.add_argument("run_dir", nargs="?", type=str, default=None, help="run directory, slug, short ID, or name (default: active or latest run)")
+    logs_cmd.add_argument("run_dir", nargs="?", type=str, default=None, help=f"{_RUN_TARGET} (default: active or latest run)")
     logs_cmd.add_argument("-f", "--follow", action="store_true", help="follow live log output (Ctrl+C detaches without stopping training)")
     logs_cmd.add_argument("-n", "--tail", type=_positive_int, default=50, help="number of recent log lines to show (default: 50)")
     logs_cmd.add_argument("--json", action="store_true", help="output raw JSON lines")
     stop_cmd = commands.add_parser("stop", help="Gracefully stop an active training run (saves checkpoint and halts)")
-    stop_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="active run directory, slug, short ID, or name (default: active run)")
+    stop_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help=f"active run: {_RUN_TARGET} (default: active run)")
     stop_cmd.add_argument("--all", action="store_true", help="gracefully stop all active training runs")
     stop_cmd.add_argument("--timeout", type=_positive_seconds, default=15.0, help="seconds to wait for graceful checkpoint shutdown (default: 15)")
     stop_cmd.add_argument("--json", action="store_true", help="output structured JSON")
     tag_cmd = commands.add_parser("tag", help="Rename or tag a training run in its manifest and global registry")
-    tag_cmd.add_argument("run_dir", type=Path, help="run directory, slug, short ID, or name")
+    tag_cmd.add_argument("run_dir", type=Path, help=_RUN_TARGET)
     tag_cmd.add_argument("name", help="new name or tag for the run")
     tag_cmd.add_argument("--json", action="store_true", help="output structured JSON")
     rm_cmd = commands.add_parser("rm", help="Remove a training run directory and its registry entry")
-    rm_cmd.add_argument("run_dir", type=Path, help="run directory, slug, short ID, or name to remove")
+    rm_cmd.add_argument("run_dir", type=Path, help=f"run to remove: {_RUN_TARGET}")
     rm_cmd.add_argument("-f", "--force", action="store_true", help="force removal (stops run first if active)")
     rm_cmd.add_argument("--json", action="store_true", help="output structured JSON")
     runs = commands.add_parser("runs", help="Inspect and compare experiment runs")
@@ -253,8 +262,8 @@ def _parser():
     report_cmd.add_argument("runs", nargs="*", default=[], help="run directories, slugs, or tags (default: all registered runs)")
     report_cmd.add_argument("--json", action="store_true", help="output report as JSON")
 
-    gc_cmd = commands.add_parser("gc", aliases=["prune"], help="Clean rebuildable views and compact events in finished runs")
-    gc_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, or ID to clean")
+    gc_cmd = commands.add_parser("gc", help="Clean rebuildable views and compact events in finished runs")
+    gc_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help=f"run to clean: {_RUN_TARGET}")
     gc_cmd.add_argument("--all", action="store_true", help="clean all runs in workspace runs root")
     gc_cmd.add_argument("--dry-run", action="store_true", help="calculate reclaimable space without modifying files")
     gc_cmd.add_argument("--stride", type=_positive_int, default=10, help="compaction stride for routine train events (default: 10)")
@@ -330,7 +339,7 @@ def _parser():
     from .evaluation_cli import add_evaluate_parser
     add_evaluate_parser(commands)
     checkpoint = commands.add_parser("checkpoint", help="Request or inspect an on-demand checkpoint for an active run")
-    checkpoint.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name (default: active run)")
+    checkpoint.add_argument("run_dir", nargs="?", type=Path, default=None, help=f"{_RUN_TARGET} (default: active run)")
     operation = checkpoint.add_mutually_exclusive_group()
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
@@ -338,7 +347,7 @@ def _parser():
     checkpoints = commands.add_parser("checkpoints", help="Manage a run's saved checkpoints (prune)")
     checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True)
     prune = checkpoints_subs.add_parser("prune", help="Prune obsolete checkpoints under the retention policy")
-    prune.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
+    prune.add_argument("run_dir", nargs="?", type=Path, default=None, help=_RUN_TARGET)
     prune.add_argument("--dry-run", action="store_true", help="evaluate retention without deleting any files")
     prune.add_argument("--json", action="store_true", help="output prune results as JSON")
     export = commands.add_parser("export", help="Export a standalone EMA inference model bundle from a run checkpoint")
@@ -486,9 +495,6 @@ def _parser():
     )
 
     return parser
-
-
-_build_parser = _parser
 
 
 def _parse_set_value(raw: str) -> object:
@@ -1073,13 +1079,9 @@ def _run_report(run_targets=None, is_json=False):
         )
         elapsed_sec = s_data.get("elapsed_seconds") or m_data.get("training_seconds") or m_data.get("seconds", 0)
 
-        best_fid = None
-        b = s_data.get("best")
-        if isinstance(b, dict):
-            if "fid" in str(b.get("metric", "")).lower():
-                best_fid = b.get("value")
-        if best_fid is None and m_data.get("best_fid") is not None:
-            best_fid = m_data.get("best_fid")
+        # summary.best_fid is set only when the primary metric is an FID
+        # (summary.is_fid_metric); summary.best may be any metric.
+        best_fid = s_data["best_fid"] if "best_fid" in s_data else m_data.get("best_fid")
 
         latest_metrics = s_data.get("latest_metrics") or m_data.get("latest_metrics") or {}
         if not isinstance(latest_metrics, dict):
@@ -1277,7 +1279,7 @@ def _dispatch(args, *, output=None):
         elif args.command == "qualify":
             from .qualify import run_qualification_cli
             return run_qualification_cli(args)
-        elif args.command in {"gc", "prune"}:
+        elif args.command == "gc":
             if args.all:
                 res = hg.gc_all(root=args.run_dir, dry_run=args.dry_run, stride=args.stride)
                 if getattr(args, "json", False):
@@ -1475,20 +1477,21 @@ def _dispatch(args, *, output=None):
                     target_dest = out_opt if out_opt is not None else args.path
                 if target_dest is None:
                     raise ValueError("path is required (or pass `hypergan new --list` to see starter templates)")
+                # One naming rule for every template: a .toml path is the file,
+                # anything else is a directory holding model.toml.
+                dest = target_dest if target_dest.suffix == ".toml" and not target_dest.is_dir() else target_dest / "model.toml"
                 if dataset_arg is not None or (tmpl is not None and tmpl != "gaussian-grid") or res_opt is not None:
                     from .recipe_generator import generate_recipe
-                    dest = target_dest if target_dest.suffix == ".toml" else (target_dest / "model.toml" if target_dest.is_dir() else target_dest.with_suffix(".toml"))
-                    name = target_dest.stem
                     saved = generate_recipe(
-                        name,
-                        dataset_arg,
-                        dest,
+                        dataset_dir=dataset_arg,
+                        output_path=dest,
                         device=args.device,
                         template=tmpl or "dcgan",
                         resolution=res_opt,
                     )
                     if getattr(args, "json", False):
-                        _print_json({"recipe": str(saved), "name": name, "device": args.device, "template": tmpl or "dcgan"})
+                        # generate_recipe names the model after its file.
+                        _print_json({"recipe": str(saved), "name": saved.stem, "device": args.device, "template": tmpl or "dcgan"})
                     else:
                         print(saved)
                 else:
@@ -1497,10 +1500,9 @@ def _dispatch(args, *, output=None):
                     m = hg.packaged("gaussian-grid")
                     if args.device:
                         m = hg.override(m, {"train.device": args.device})
-                    dest = target_dest / "model.toml" if (target_dest.is_dir() or target_dest.suffix != ".toml") else target_dest
                     if dest.exists():
                         raise FileExistsError(f"{dest} already exists; choose a new path")
-                    saved = hg.save(m, dest)
+                    saved = Path(hg.save(m, dest)).resolve()
                     if getattr(args, "json", False):
                         _print_json({"recipe": str(saved), "device": args.device, "template": "gaussian-grid"})
                     else:

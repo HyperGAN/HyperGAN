@@ -1,6 +1,12 @@
 import { evaluationShelf } from "./evaluations.js";
 import { modelPanel } from "./model.js";
 import { chartColors as colors, chartOptions, init } from "./chart.js";
+import {
+  attemptsAfterLoad,
+  canCoarsen,
+  coarserBucket,
+  initialBucket,
+} from "./coarsen.js";
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -861,7 +867,7 @@ async function connect() {
   $("login").hidden = true;
   $("workspace").hidden = false;
   if (location.hash === "#model") selectTab("model", { remember: false });
-  state.bucket = Math.max(1, Math.ceil((state.run.steps || 1) / 180));
+  state.bucket = initialBucket(state.run.steps);
   await reconfigure();
 }
 function waitForRun() {
@@ -911,7 +917,7 @@ async function reconfigure({ coarser = false } = {}) {
   state.queueCount = 0;
   state.queueBytes = 0;
   if (coarser) {
-    state.bucket *= 2;
+    state.bucket = coarserBucket(state.bucket, state.run?.steps);
     state.coarsenAttempts++;
   } else state.coarsenAttempts = 0;
   state.groups.clear();
@@ -957,6 +963,10 @@ async function loadBootstrap(epoch) {
     state.ready = true;
     state.retries = 0;
     state.bucket = bootstrap.bucket_steps;
+    state.coarsenAttempts = attemptsAfterLoad(
+      state.coarsenAttempts,
+      result.groups.length,
+    );
     $("bucket-label").textContent =
       `${fmt(state.bucket)} step${state.bucket === 1 ? "" : "s"} / bucket`;
     $("coverage").textContent = "History loaded";
@@ -972,7 +982,7 @@ async function loadBootstrap(epoch) {
       notice(error.message);
       if (
         /2048 groups|1 MiB|capacity/.test(error.message) &&
-        state.coarsenAttempts < 4
+        canCoarsen(state.coarsenAttempts)
       ) {
         queueMicrotask(() => {
           if (epoch === state.epoch) reconfigure({ coarser: true });
@@ -1115,12 +1125,15 @@ function openStream(epoch) {
         if (epoch !== state.epoch) return;
         stream.close();
         notice(error.message);
-        if (error.message.includes("capacity") && state.coarsenAttempts < 4)
+        if (
+          error.message.includes("capacity") &&
+          canCoarsen(state.coarsenAttempts)
+        )
           reconfigure({ coarser: true });
         else if (error.message.includes("capacity")) {
           state.ready = false;
           notice(
-            "This view contains too many attempt partitions. Select fewer metrics or narrow the step range.",
+            "This view has more chart points than the browser keeps live, even with wider buckets. Select fewer metrics or narrow the step range.",
           );
         } else refreshMetadata(epoch);
       })

@@ -26,7 +26,9 @@ def test_host_origin_and_login_validation():
     assert session.cookie_name != LocalSession(8124, auth="token").cookie_name
     assert session.permits_request("127.0.0.1:8123")
     assert session.permits_request("127.0.0.1:8123", "http://127.0.0.1:8123")
-    for host, origin in [("localhost:8123", None), ("evil.test:8123", None),
+    # Loopback spellings are one authority, so a printed localhost link works.
+    assert session.permits_request("localhost:8123", "http://localhost:8123")
+    for host, origin in [("evil.test:8123", None),
                          (session.host, "null"), (session.host, "http://evil.test"),
                          (session.host, "http://127.0.0.1:8124")]:
         assert not session.permits_request(host, origin)
@@ -101,10 +103,13 @@ def test_default_no_auth_and_wildcard_remote_same_origin(tmp_path):
     session = LocalSession(8123, host='0.0.0.0')
     assert session.origin == 'http://127.0.0.1:8123'
     assert session.authenticated()
-    assert session.permits_request('training.example:8123', 'http://training.example:8123')
-    assert not session.permits_request('training.example:8123', 'http://foreign.example:8123')
-    assert not session.permits_request('training.example:8124')
-    assert not session.permits_request('training.example:8123@foreign.example')
+    # Remote clients reach a wildcard bind by IP or by this machine's names;
+    # any other DNS name could be a rebinding attack and is refused.
+    assert session.permits_request('192.168.1.20:8123', 'http://192.168.1.20:8123')
+    assert not session.permits_request('training.example:8123', 'http://training.example:8123')
+    assert not session.permits_request('192.168.1.20:8123', 'http://foreign.example:8123')
+    assert not session.permits_request('192.168.1.20:8124')
+    assert not session.permits_request('192.168.1.20:8123@foreign.example')
     record = json.loads(session.write_credentials(tmp_path / 'session.json').read_text())
     assert record['auth_mode'] == 'none'
     assert 'token' not in record

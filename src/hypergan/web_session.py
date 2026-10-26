@@ -1,13 +1,48 @@
 """Local viewer credentials, independent of HTTP and numerical runtimes."""
 
 import hmac
+import ipaddress
 import json
 import os
 from pathlib import Path
 import secrets
+import socket
 import tempfile
 import time
 from urllib.parse import urlsplit
+
+WILDCARD_HOSTS = frozenset({"0.0.0.0", ""})
+LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+# Extra DNS names, comma separated, under which the owner reaches this machine
+# directly (for example a MagicDNS name). A proxy uses --public-origin instead.
+ALLOWED_HOSTS_ENV = "HYPERGAN_VIEWER_HOSTS"
+
+
+def _is_loopback(host):
+    if host in LOOPBACK_NAMES:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _machine_names():
+    """This machine's own names; never resolved, so no DNS answer can add one."""
+    names = set()
+    try:
+        name = socket.gethostname().lower().rstrip(".")
+    except OSError:
+        name = ""
+    if name:
+        short = name.split(".")[0]
+        # `<host>.local` is this machine's mDNS name; the .local zone cannot be
+        # registered publicly, so a rebinding site cannot own it.
+        names.update({name, short, short + ".local"})
+    for extra in os.environ.get(ALLOWED_HOSTS_ENV, "").split(","):
+        if extra.strip():
+            names.add(extra.strip().lower().rstrip("."))
+    return names
 
 
 def normalize_public_origin(value):
@@ -79,8 +114,18 @@ class LocalSession:
         self.auth_mode = auth
         self.bind_host = host
         self.port = port
-        browser_host = "127.0.0.1" if host == "0.0.0.0" else host
+        wildcard = host in WILDCARD_HOSTS
+        browser_host = "127.0.0.1" if wildcard else host
         self.host = f"{browser_host}:{port}"
+        # DNS rebinding sends an attacker's own name in Host, so only names this
+        # machine answers to are accepted: loopback aliases are equivalent, a
+        # wildcard bind also takes any IP literal, and never an arbitrary name.
+        self._accept_ip_literals = wildcard
+        self._accepted_names = _machine_names()
+        if wildcard or _is_loopback(host):
+            self._accepted_names |= LOOPBACK_NAMES
+        if not wildcard:
+            self._accepted_names.add(host.lower().strip("[]"))
         self.origin = f"http://{self.host}"
         # An explicitly named TLS proxy is the only other accepted authority.
         self.public_origin = normalize_public_origin(public_origin)
@@ -107,16 +152,25 @@ class LocalSession:
                 and candidate.isascii() and hmac.compare_digest(candidate, expected))
 
     def _direct_host(self, host):
-        # Wildcard binding accepts remote hostnames, while browser requests must
-        # still be same-origin. Explicit binding restricts the Host authority.
+        # Browser requests must also be same-origin; see match_request.
         if not isinstance(host, str) or any(char in host for char in "/\\@?# "):
             return False
         try:
             parsed = urlsplit("http://" + host)
-            valid = bool(parsed.hostname) and (parsed.port or 80) == self.port
+            name = (parsed.hostname or "").rstrip(".")
+            if not name or (parsed.port or 80) != self.port:
+                return False
         except ValueError:
             return False
-        return valid and (self.bind_host == "0.0.0.0" or host == self.host)
+        if name in self._accepted_names:
+            return True
+        if not self._accept_ip_literals:
+            return False
+        try:
+            ipaddress.ip_address(name)
+            return True
+        except ValueError:
+            return False
 
     def _public_host(self, host):
         """True when an authority names exactly the configured public origin."""

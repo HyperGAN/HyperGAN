@@ -111,6 +111,14 @@ function updateActions(row, active = row.dataset.active === 'true') {
   row.querySelector('.actions-cell a').setAttribute('aria-label', `Open run ${row.dataset.name}`);
 }
 
+// A token-mode dashboard serves no run data until this browser has a session.
+function signedOut() { return !byId('login').hidden; }
+function showLogin() {
+  byId('login').hidden = false;
+  byId('refresh-status').textContent = 'Sign in to see runs';
+  byId('token').focus();
+}
+
 let refreshing = null;
 function refreshRuns() {
   if (refreshing) return refreshing;
@@ -118,7 +126,8 @@ function refreshRuns() {
   byId('refresh-status').textContent = 'Refreshing…';
   refreshing = (async () => {
     try {
-      const response = await fetch('/api/runs', {cache: 'no-store'});
+      const response = await fetch('/api/v1/runs', {cache: 'no-store', credentials: 'same-origin'});
+      if (response.status === 401) { showLogin(); return; }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const runs = await response.json();
       if (!Array.isArray(runs) || runs.some(run => !run || typeof run.run_id !== 'string')) {
@@ -170,7 +179,9 @@ body.addEventListener('click', async event => {
   notice.classList.remove('error');
   notice.textContent = `Requesting ${actionLabel} for ${name}…`;
   try {
-    const response = await fetch(`/api/runs/${encodeURIComponent(id)}/${action}`, {method: 'POST'});
+    const response = await fetch(`/api/v1/runs/${encodeURIComponent(id)}/${action}`,
+      {method: 'POST', credentials: 'same-origin'});
+    if (response.status === 401) showLogin();
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || `HTTP ${response.status}`);
@@ -186,6 +197,23 @@ body.addEventListener('click', async event => {
   }
 });
 
+byId('login').addEventListener('submit', async event => {
+  event.preventDefault();
+  const token = byId('token').value;
+  byId('token').value = '';
+  byId('login-error').textContent = '';
+  try {
+    const response = await fetch('/api/v1/session', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({token}),
+    });
+    if (!response.ok) throw new Error(response.status === 401 ? 'That token was not accepted.' : `HTTP ${response.status}`);
+    byId('login').hidden = true;
+    await refreshRuns();
+  } catch (error) {
+    byId('login-error').textContent = error.message;
+  }
+});
 byId('search').addEventListener('input', filterRows);
 byId('status-filter').addEventListener('change', filterRows);
 byId('sort-order').addEventListener('change', sortRows);
@@ -200,6 +228,6 @@ for (const row of rows.values()) { formatCreated(row); updateActions(row); }
 sortRows();
 filterRows();
 // Poll even an empty workspace so new and resumed runs appear without a reload.
-const refreshTimer = setInterval(() => { if (!document.hidden) refreshRuns(); }, 3000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshRuns(); });
+const refreshTimer = setInterval(() => { if (!document.hidden && !signedOut()) refreshRuns(); }, 3000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !signedOut()) refreshRuns(); });
 window.addEventListener('pagehide', event => { if (!event.persisted) clearInterval(refreshTimer); });

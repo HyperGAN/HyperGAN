@@ -63,8 +63,8 @@ def _run_options(parser):
     server.add_argument("--no-server", "--no-web", dest="no_server", action="store_true",
                         help="train without web imports or listening sockets")
     parser.add_argument("--port", "--server-port", dest="server_port", type=int,
-                        help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}, "
-                             "or the next free port above it; 0 selects any free port)")
+                        help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}; an occupied "
+                             "port is an error, never a search; 0 selects any free port)")
     parser.add_argument("--host", "--server-host", dest="server_host", default=None, help="listen address (default: 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--public-origin", type=_public_origin, metavar="URL",
@@ -291,8 +291,8 @@ def _parser():
     serve.add_argument("run_dir", nargs="?", type=Path, default=None)
     from .ports import DEFAULT_VIEWER_PORT
     serve.add_argument("--port", "--server-port", dest="port", type=int,
-                       help=f"listen port (default: {DEFAULT_VIEWER_PORT}, or the next free port "
-                            "above it; 0 selects any free port)")
+                       help=f"listen port (default: {DEFAULT_VIEWER_PORT}; an occupied port is an "
+                            "error, never a search; 0 selects any free port)")
     serve.add_argument("--host", "--server-host", dest="host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
     serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--public-origin", type=_public_origin, metavar="URL",

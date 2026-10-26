@@ -14,10 +14,8 @@ from hypergan.web_session import LocalSession
 
 
 @pytest.fixture
-def dashboard(tmp_path, monkeypatch):
-    from hypergan import registry
-
-    monkeypatch.setattr(registry, 'list_registered_runs', lambda: [])
+def dashboard(tmp_path, request):
+    auth = getattr(request, 'param', 'none')
     root = tmp_path / 'runs'
     root.mkdir()
     # A workspace can have other directories before any run is created. Keep
@@ -30,7 +28,7 @@ def dashboard(tmp_path, monkeypatch):
             created_at=created_at, steps=100, total_steps=1000, **values))
 
     listener = bind_loopback()
-    session = LocalSession(listener.getsockname()[1])
+    session = LocalSession(listener.getsockname()[1], auth=auth)
     server = uvicorn.Server(uvicorn.Config(create_app(root, session), log_level='error'))
     thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
     thread.start()
@@ -49,6 +47,7 @@ def dashboard(tmp_path, monkeypatch):
             page.on('console', lambda message: errors.append(message.text)
                     if 'Content Security Policy' in message.text else None)
             page.clock.install()
+            page.viewer_session = session
             yield page, session.origin, root, publish
             assert not errors
             browser.close()
@@ -136,19 +135,19 @@ def test_index_refresh_and_action_errors_are_visible(dashboard):
     page, origin, root, publish = dashboard
     publish('active', status='running')
     page.goto(origin)
-    page.route('**/api/runs/active/checkpoint', lambda route: route.fulfill(
+    page.route('**/api/v1/runs/active/checkpoint', lambda route: route.fulfill(
         status=400, json={'error': 'Run is not active'}))
     page.get_by_role('button', name='Checkpoint active', exact=True).click()
     expect(page.locator('#action-status')).to_have_text('Could not checkpoint active: Run is not active')
     expect(page.get_by_role('button', name='Checkpoint active', exact=True)).to_be_enabled()
-    page.route('**/api/runs/active/checkpoint', lambda route: route.fulfill(json={'ok': True}))
+    page.route('**/api/v1/runs/active/checkpoint', lambda route: route.fulfill(json={'ok': True}))
     page.get_by_role('button', name='Checkpoint active', exact=True).click()
     expect(page.locator('#action-status')).to_have_text('Checkpoint requested for active.')
-    page.route('**/api/runs', lambda route: route.fulfill(status=503, json={'error': 'Unavailable'}))
+    page.route('**/api/v1/runs', lambda route: route.fulfill(status=503, json={'error': 'Unavailable'}))
     page.get_by_role('button', name='Refresh', exact=True).click()
     expect(page.locator('#refresh-status')).to_contain_text('Refresh failed (HTTP 503)')
     assert visible_ids(page) == ['active']
-    page.unroute('**/api/runs')
+    page.unroute('**/api/v1/runs')
     page.clock.fast_forward(3000)
     expect(page.locator('#refresh-status')).to_contain_text('Updated')
 
@@ -166,3 +165,25 @@ def test_index_responsive_layout(dashboard, width):
     expect(page.get_by_label('Search runs')).to_be_visible()
     expect(page.get_by_label('Status', exact=True)).to_be_visible()
     expect(page.get_by_role('button', name='Stop very-long-run-name-', exact=False)).to_be_visible()
+
+
+@pytest.mark.parametrize('dashboard', ['token'], indirect=True)
+def test_token_dashboard_signs_in_before_listing_and_its_buttons_authenticate(dashboard):
+    page, origin, root, publish = dashboard
+    publish('active', status='running', slug='secret-run')
+    page.goto(origin)
+    # No run data reaches a signed-out browser, not even in the first HTML.
+    expect(page.locator('#login')).to_be_visible()
+    assert page.locator('#runs-body tr').count() == 0
+    assert 'secret-run' not in page.content() and str(root) not in page.content()
+    page.get_by_label('Session token').fill('wrong')
+    page.get_by_role('button', name='Sign in').click()
+    expect(page.locator('#login-error')).to_have_text('That token was not accepted.')
+    page.get_by_label('Session token').fill(page.viewer_session._token)
+    page.get_by_role('button', name='Sign in').click()
+    expect(page.locator('#login')).to_be_hidden()
+    expect(page.locator('tr[data-id="active"]')).to_be_visible()
+    # The control reaches its handler with the session cookie (the run has no
+    # live trainer, so the handler itself refuses it), never a 401.
+    page.get_by_role('button', name='Checkpoint active', exact=True).click()
+    expect(page.locator('#action-status')).to_have_text("Could not checkpoint active: Run 'active' is not active")

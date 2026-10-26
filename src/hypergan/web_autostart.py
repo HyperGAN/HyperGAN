@@ -368,14 +368,104 @@ def ensure_run_projected(run_dir: Path | str) -> bool:
         return False
 
 
-class Projector:
-    """Background projector that only projects active runs or runs whose events.jsonl watermark changed."""
+# Last projection failure per resolved run directory, so the viewer can answer
+# with the reason instead of waiting for a projection the background projector
+# cannot build (a read-only run, a failing projection). The broker runs the
+# projector and the server in separate processes, so the failure is also kept
+# as a small record in the private viewer cache, never in the run.
+_PROJECTION_FAILURES: dict[Path, str] = {}
+PROJECTION_RETRY_SECONDS = 30.0
+_FAILURE_RECORDS = '.projection-failures'
 
-    def __init__(self, root: Path | str, *, poll_interval: float = 0.1):
+
+def _failure_record(run_dir: Path) -> Path:
+    from .web_service import view_cache_root
+    name = hashlib.sha256(str(run_dir).encode()).hexdigest()[:32]
+    return view_cache_root() / _FAILURE_RECORDS / (name + '.json')
+
+
+def _record_projection_failure(run_dir: Path, error: str | None) -> None:
+    """Remember (or with None, forget) why projecting `run_dir` failed, for any process."""
+    if error is None:
+        _PROJECTION_FAILURES.pop(run_dir, None)
+    else:
+        _PROJECTION_FAILURES[run_dir] = error
+    try:
+        record = _failure_record(run_dir)
+        if error is None:
+            record.unlink(missing_ok=True)
+            return
+        if record.parent.is_symlink() or record.parent.parent.is_symlink():
+            return
+        record.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        tmp = record.with_name(f'{record.name}.{os.getpid()}.tmp')
+        tmp.write_text(json.dumps({'run_dir': str(run_dir), 'error': error}), encoding='utf-8')
+        os.replace(tmp, record)
+    except OSError:
+        pass
+
+
+def projection_failure(run_dir: Path | str) -> str | None:
+    """Why the viewer's background projector last failed on `run_dir`, if it did."""
+    run_dir = Path(run_dir).resolve()
+    failure = _PROJECTION_FAILURES.get(run_dir)
+    if failure is not None:
+        return failure
+    try:
+        record = _failure_record(run_dir)
+        if record.is_symlink():
+            return None
+        data = json.loads(record.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get('run_dir') != str(run_dir):
+        return None
+    error = data.get('error')
+    return error[:500] if isinstance(error, str) and error else None
+
+
+def registered_run_dirs(root: Path | str) -> list[Path]:
+    """Registered runs nested anywhere under `root` (never `root` itself or another root's)."""
+    from . import registry as _reg_mod
+    root = Path(root).resolve()
+    try:
+        data = _reg_mod._read_registry_unlocked(_reg_mod.get_registry_dir(root))
+        entries = list(data.get('runs', {}).values())
+    except (OSError, ValueError, AttributeError):
+        return []
+    dirs: list[Path] = []
+    seen: set[Path] = set()
+    for item in entries:
+        rdir_val = item.get('run_dir') if isinstance(item, dict) else None
+        if not rdir_val:
+            continue
+        try:
+            p = Path(rdir_val).resolve()
+            if (p not in seen and p != root and p.is_relative_to(root) and p.is_dir()
+                    and ((p / 'manifest.json').is_file() or (p / 'summary.json').is_file())):
+                seen.add(p)
+                dirs.append(p)
+        except (OSError, ValueError):
+            continue
+    return dirs
+
+
+class Projector:
+    """Background projector for every run under a root whose events.jsonl changed.
+
+    A run is projected only when its event log's watermark moved since the last
+    projection, whether or not it is training, so an idle persistent dashboard
+    does no projection work and opens no projector.
+    """
+
+    def __init__(self, root: Path | str, *, poll_interval: float = 0.25):
         self.root = Path(root).resolve()
         self.runs_root = self.root
         self.poll_interval = poll_interval
         self._last_projected_watermark: dict[Path, tuple[int, int]] = {}
+        self._last_failure: dict[Path, tuple[tuple[int, int] | None, float]] = {}
+        # Runs whose failure record (possibly left by an earlier viewer) is known gone.
+        self._cleared: set[Path] = set()
 
     def _candidate_runs(self) -> list[Path]:
         if (self.root / 'manifest.json').is_file() or (self.root / 'events.jsonl').is_file():
@@ -397,12 +487,17 @@ class Projector:
                                 candidates.append(resolved)
             except OSError:
                 pass
+        # The same registered runs the dashboard serves, at any depth under the
+        # root: a served run must have a projector, since requests never project.
+        if not (self.root / 'summary.json').is_file():
+            for d in registered_run_dirs(self.root):
+                if d not in seen and (d / 'events.jsonl').is_file():
+                    seen.add(d)
+                    candidates.append(d)
         return sorted(candidates)
 
     def _should_project(self, run_dir: Path) -> tuple[bool, tuple[int, int] | None]:
-        from .inspection import check_run_active
         run_dir = run_dir.resolve()
-        is_active, _ = check_run_active(run_dir)
         events_file = run_dir / 'events.jsonl'
         watermark: tuple[int, int] | None = None
         try:
@@ -412,9 +507,6 @@ class Projector:
         except OSError:
             watermark = None
 
-        if is_active:
-            return True, watermark
-
         if watermark is None or watermark[1] == 0:
             return False, watermark
 
@@ -422,9 +514,18 @@ class Projector:
         if last_wm is not None and last_wm == watermark:
             return False, watermark
 
+        # A failed log is retried when it grows or after a pause, not every poll.
+        failed = self._last_failure.get(run_dir)
+        if (failed is not None and failed[0] == watermark
+                and time.monotonic() - failed[1] < PROJECTION_RETRY_SECONDS):
+            return False, watermark
+
         proj_mtime = _projection_state_mtime_ns(run_dir)
         if last_wm is None and proj_mtime is not None and proj_mtime >= watermark[0]:
             self._last_projected_watermark[run_dir] = watermark
+            if run_dir not in self._cleared:
+                _record_projection_failure(run_dir, None)
+                self._cleared.add(run_dir)
             return False, watermark
 
         return True, watermark
@@ -444,13 +545,15 @@ class Projector:
                     pass
                 if watermark is not None:
                     self._last_projected_watermark[run_dir] = watermark
+                if self._last_failure.pop(run_dir, None) is not None or run_dir not in self._cleared:
+                    _record_projection_failure(run_dir, None)
+                    self._cleared.add(run_dir)
                 projected.append(run_dir)
-            except Exception:
-                pass
+            except Exception as exc:
+                self._last_failure[run_dir] = (watermark, time.monotonic())
+                self._cleared.discard(run_dir)
+                _record_projection_failure(run_dir, f'{type(exc).__name__}: {exc}'[:500])
         return projected
-
-    step = poll_once
-    _step = poll_once
 
     def _loop(self, stop=None, *, max_iterations: int | None = None) -> None:
         iterations = 0
@@ -469,6 +572,9 @@ class Projector:
 
 
 def _has_sub_runs(root: Path) -> bool:
+    if not (root / 'manifest.json').is_file() and any(
+            (d / 'events.jsonl').is_file() for d in registered_run_dirs(root)):
+        return True
     for search_dir in (root, root / 'runs'):
         try:
             if search_dir.is_dir() and any(
@@ -524,7 +630,7 @@ def _project(root, stop):
                         projector.project(limit=100)
                         return
     else:
-        bg_projector = Projector(root, poll_interval=0.1)
+        bg_projector = Projector(root)
         bg_projector._loop(stop=stop)
 
 
@@ -916,17 +1022,52 @@ def launch_dashboard_daemon(runs_root: Path, port: int = DEFAULT_VIEWER_PORT,
             ], stdin=subprocess.DEVNULL, stdout=log, stderr=log, close_fds=True, **options)
 
 
+def _registered_dashboard(runs_root: Path) -> tuple[dict | None, str | None]:
+    """This root's running registered viewer and its bearer token, if any.
+
+    The token comes from the private session file, so probing a token-mode
+    dashboard reads its real identity instead of a bare 401.
+    """
+    try:
+        private = _registry(runs_root)
+        state = _read_state(private)
+        if not state or not _running(private, state):
+            return None, None
+    except (OSError, ValueError, KeyError, RuntimeError):
+        return None, None
+    token = None
+    if state.get('session_file') and state.get('server_instance_id'):
+        try:
+            token = _session(state)._token or None
+        except (OSError, ValueError, KeyError, RuntimeError):
+            token = None
+    return state, token
+
+
+def _stop_registered_dashboard(runs_root: Path, state: dict) -> None:
+    stop_viewer(runs_root, launch_id=state.get('launch_id'))
+
+
+def dashboard_url(host: str, port: int, run_id: str | None = None) -> str:
+    """The local link to print: loopback for a wildcard or loopback bind, else the bind address."""
+    from .web_session import WILDCARD_HOSTS, _is_loopback
+    name = 'localhost' if host in WILDCARD_HOSTS or _is_loopback(host) else host
+    url = f"http://{'[' + name + ']' if ':' in name else name}:{port}"
+    return f"{url}/runs/{run_id}" if run_id else url
+
+
 def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWER_PORT,
                              host: str = "0.0.0.0", auth: str = "none",
                              public_origin: str | None = None,
                              check_version: bool = True, run_id: str | None = None) -> str:
-    """Ensure a persistent root dashboard is running on port 8765 for runs_root.
+    """Ensure a persistent root dashboard for runs_root is serving `port`, and return its URL.
 
-    - Probes port 8765 on loopback.
-    - If server is running: checks version, git_commit, and asset_hash against current checkout.
-      If mismatch detected, cleanly stops old dashboard with stop_dashboard(runs_root) and starts fresh daemon.
-    - If no server is running: starts background daemon bound to port 8765 for runs_root.
-    - Returns URL http://localhost:8765 (or http://localhost:8765/runs/<run_id> when called with specific run).
+    - Probes the port on loopback, with this root's registered credential when it has one.
+    - A dashboard for another root, or one this root did not register, is never
+      stopped: that is reported as an error naming how to stop it.
+    - This root's own dashboard is restarted when its version, assets or commit
+      differ from the current checkout; otherwise it is reused.
+    - With no server on the port, a background dashboard daemon is started.
     """
     runs_root = Path(runs_root).resolve()
     if (runs_root / 'manifest.json').is_file() and run_id is None:
@@ -939,69 +1080,80 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
         elif (runs_root / 'runs' / str(run_id)).is_dir():
             ensure_run_projected(runs_root / 'runs' / str(run_id))
 
-    probed = probe_dashboard("127.0.0.1", port)
+    state, token = _registered_dashboard(runs_root)
+    probed = probe_dashboard("127.0.0.1", port, auth_token=token)
+    if probed is not None and probed.get('alien'):
+        owner = get_port_owner(port)
+        if owner:
+            pid, comm = owner
+            raise OSError(f"Port {port} is already in use by PID {pid} ({comm}); "
+                          f"specify a different root or stop conflicting process")
+        raise OSError(f"Port {port} is already in use; specify a different root or stop conflicting process")
     if probed is None:
         owner = get_port_owner(port)
         if owner:
             pid, comm = owner
             raise OSError(f"Port {port} is already in use by PID {pid} ({comm}); "
                           f"specify a different root or stop conflicting process")
-    elif probed is not None:
-        if probed.get('alien'):
-            owner = get_port_owner(port)
-            if owner:
-                pid, comm = owner
-                raise OSError(f"Port {port} is already in use by PID {pid} ({comm}); "
-                              f"specify a different root or stop conflicting process")
-            raise OSError(f"Port {port} is already in use; specify a different root or stop conflicting process")
-
-        if check_version:
-            from . import __version__
-            from .web_assets import compute_asset_hash
-            from .provenance import hypergan_source
-
-            local_version = __version__
-            local_hash = compute_asset_hash()
-            local_commit = hypergan_source().get('hypergan_commit')
-
-            mismatch = False
-            reasons = []
-            if probed.get('version') != local_version:
-                mismatch = True
-                reasons.append(f"version {probed.get('version')} != {local_version}")
-            if local_hash != 'unknown' and probed.get('asset_hash') and probed.get('asset_hash') != local_hash:
-                mismatch = True
-                reasons.append(f"asset_hash {probed.get('asset_hash', '')[:8]} != {local_hash[:8]}")
-            if local_commit and probed.get('git_commit') and probed.get('git_commit') != local_commit:
-                mismatch = True
-                reasons.append(f"git_commit {probed.get('git_commit', '')[:8]} != {local_commit[:8]}")
-
-            if mismatch:
-                print(f"Restarting dashboard on port {port} ({', '.join(reasons)})...", file=sys.stderr, flush=True)
-                stop_dashboard(runs_root)
-                time.sleep(0.3)
-                probed = None
-            else:
-                remote_root = probed.get('runs_root')
-                if remote_root and Path(remote_root).resolve() != runs_root.resolve():
-                    raise OSError(f"Port {port} is already running a dashboard for root '{remote_root}'; "
-                                  f"stop it with 'hypergan view {remote_root} --stop' or specify a different root.")
+    elif probed.get('auth_required'):
+        raise OSError(f"Port {port} is serving a token-protected dashboard that this root did not start; "
+                      f"stop it with 'hypergan stop-server --all' or choose another port")
+    else:
+        remote_root = probed.get('runs_root')
+        if remote_root and Path(remote_root).resolve() != runs_root:
+            raise OSError(f"Port {port} is already running a dashboard for root '{remote_root}'; "
+                          f"stop it with 'hypergan view {remote_root} --stop' or specify a different root.")
+        if auth != 'none' and probed.get('auth_mode') != auth:
+            # Reusing it would silently serve this run without the requested auth.
+            raise OSError(f"Port {port} already serves this root's dashboard with --auth "
+                          f"{probed.get('auth_mode')}; stop it with 'hypergan view {runs_root} --stop' "
+                          f"to start it with --auth {auth}")
+        reasons = _dashboard_mismatch(probed) if check_version else []
+        if reasons:
+            own = state is not None and probed.get('server_instance_id') == state.get('server_instance_id')
+            if not own:
+                raise OSError(f"Port {port} is serving an outdated dashboard ({', '.join(reasons)}) that this "
+                              f"command cannot restart; stop it with 'hypergan view {runs_root} --stop' and retry")
+            print(f"Restarting dashboard on port {port} ({', '.join(reasons)})...", file=sys.stderr, flush=True)
+            _stop_registered_dashboard(runs_root, state)
+            deadline = time.monotonic() + 5.0
+            while probe_dashboard("127.0.0.1", port) is not None and time.monotonic() < deadline:
+                time.sleep(0.1)
+            probed = None
 
     if probed is None:
         launch_dashboard_daemon(runs_root, port=port, host=host, auth=auth, public_origin=public_origin)
         deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            probed = probe_dashboard("127.0.0.1", port)
-            if probed and not probed.get('alien'):
+        while True:
+            state, token = _registered_dashboard(runs_root)
+            probed = probe_dashboard("127.0.0.1", port, auth_token=token)
+            if probed and not probed.get('alien') and not probed.get('auth_required'):
                 break
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"Dashboard failed to start on port {port} within 10 seconds")
             time.sleep(0.1)
-        if not probed or probed.get('alien'):
-            raise RuntimeError(f"Dashboard failed to start on port {port} within 10 seconds")
+        remote_root = probed.get('runs_root')
+        if remote_root and Path(remote_root).resolve() != runs_root:
+            raise OSError(f"Port {port} was taken by a dashboard for root '{remote_root}' while this one started")
 
-    url = f"http://localhost:{port}"
-    if run_id:
-        url = f"{url}/runs/{run_id}"
-    return url
+    return dashboard_url(host, port, run_id)
+
+
+def _dashboard_mismatch(probed: dict) -> list[str]:
+    from . import __version__
+    from .web_assets import compute_asset_hash
+    from .provenance import hypergan_source
+
+    local_hash = compute_asset_hash()
+    local_commit = hypergan_source().get('hypergan_commit')
+    reasons = []
+    if probed.get('version') != __version__:
+        reasons.append(f"version {probed.get('version')} != {__version__}")
+    if local_hash != 'unknown' and probed.get('asset_hash') and probed.get('asset_hash') != local_hash:
+        reasons.append(f"asset_hash {probed.get('asset_hash', '')[:8]} != {local_hash[:8]}")
+    if local_commit and probed.get('git_commit') and probed.get('git_commit') != local_commit:
+        reasons.append(f"git_commit {probed.get('git_commit', '')[:8]} != {local_commit[:8]}")
+    return reasons
 
 
 def _resolve_dashboard_target(runs_root: Path | str | None = None) -> Path:
@@ -1034,7 +1186,11 @@ def dashboard_status(runs_root: Path | str | None = None) -> dict:
     info = viewer_status(target.resolve())
     if info.get("status") == "ready":
         port = info.get("port") or DEFAULT_VIEWER_PORT
-        probed = probe_dashboard("127.0.0.1", port)
+        try:
+            token = _session(info)._token or None
+        except (OSError, ValueError, KeyError, RuntimeError):
+            token = None
+        probed = probe_dashboard("127.0.0.1", port, auth_token=token)
         if probed and not probed.get("alien"):
             info.update({
                 "version": probed.get("version"),
@@ -1045,87 +1201,108 @@ def dashboard_status(runs_root: Path | str | None = None) -> dict:
     return info
 
 
+def _process_tokens(proc_root: str, pid: int) -> list[str] | None:
+    try:
+        raw = Path(f'{proc_root}/{pid}/cmdline').read_bytes()
+    except OSError:
+        return None
+    return [token.decode('utf-8', errors='ignore') for token in raw.split(b'\0') if token]
+
+
+def _parent_pid(proc_root: str, pid: int) -> int | None:
+    try:
+        # The command name may contain spaces or parentheses; fields follow the last ')'.
+        return int(Path(f'{proc_root}/{pid}/stat').read_text().rsplit(')', 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _is_viewer_command(tokens: list[str]) -> bool:
+    """True for `python -m hypergan.web_autostart|web_server` and `hypergan view|serve`."""
+    if any(mod in tokens for mod in ('hypergan.web_autostart', 'hypergan.web_server')):
+        return True
+    if len(tokens) < 2:
+        return False
+    exe = Path(tokens[0]).name
+    if not (exe == 'hypergan' or (exe.startswith('python') and len(tokens) >= 3 and tokens[1] == '-m'
+                                  and tokens[2] in ('hypergan', 'hypergan.cli'))):
+        return False
+    subcmd = next((tok for tok in tokens[1:] if not tok.startswith('-') and tok not in ('hypergan', 'hypergan.cli')), None)
+    return subcmd in ('view', 'serve')
+
+
 def stop_all_servers(force: bool = False) -> list[int]:
-    """Terminate all legacy per-run viewers, root dashboards, supervisors, and leaked projectors across the host."""
-    killed_pids = set()
+    """Terminate every viewer, dashboard and supervisor of the current user on this host.
+
+    A PID is signalled only when it is known to be a viewer process now: a
+    supervisor whose registry lifetime lock is held, that supervisor's own
+    children, or a process whose command line is a viewer command. A PID left
+    in a stopped or stale state file can belong to anything after reuse
+    (a training job, for one), so it is never signalled.
+    """
     current_pid = os.getpid()
     current_uid = os.getuid() if hasattr(os, 'getuid') else None
+    proc_root = getattr(os, 'environ', {}).get('HYPERGAN_PROC_ROOT', '/proc')
+    has_proc = os.path.exists(proc_root)
+    candidates: set[int] = set()
 
-    # 1. Sweep /tmp/hypergan-viewers-* directories
+    # 1. Registered viewers whose broker or server still holds its lifetime lock.
     tmp_dir = Path(tempfile.gettempdir())
+    registries = []
     for viewers_dir in tmp_dir.glob('hypergan-viewers-*'):
-        if not viewers_dir.is_dir():
-            continue
         try:
-            for reg in viewers_dir.iterdir():
-                if not reg.is_dir():
-                    continue
-                state_file = reg / 'state.json'
-                if state_file.is_file():
-                    try:
-                        state = json.loads(state_file.read_text(encoding='utf-8'))
-                        sup_pid = state.get('supervisor_pid')
-                        if sup_pid and sup_pid != current_pid:
-                            killed_pids.add(sup_pid)
-                        processes = state.get('processes', {})
-                        if isinstance(processes, dict):
-                            for p_pid in processes.values():
-                                if isinstance(p_pid, int) and p_pid != current_pid:
-                                    killed_pids.add(p_pid)
-                        launch_id = state.get('launch_id')
-                        if launch_id:
-                            try:
-                                (reg / f'stop-{launch_id}').touch(mode=0o600)
-                            except OSError:
-                                pass
-                    except Exception:
-                        pass
+            registries.extend(reg for reg in viewers_dir.iterdir() if reg.is_dir())
         except OSError:
             pass
+    for reg in registries:
+        try:
+            state = json.loads((reg / 'state.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(state, dict):
+            continue
+        launch_id = state.get('launch_id')
+        if launch_id:
+            try:
+                (reg / f'stop-{launch_id}').touch(mode=0o600)
+            except OSError:
+                pass
+        try:
+            locked = _locked(reg)
+        except (OSError, RuntimeError):
+            locked = False
+        if not locked:
+            continue
+        supervisor = state.get('supervisor_pid')
+        if type(supervisor) is not int or supervisor == current_pid:
+            continue
+        candidates.add(supervisor)
+        processes = state.get('processes', {})
+        for child in (processes.values() if isinstance(processes, dict) else ()):
+            if type(child) is int and child != current_pid and (
+                    not has_proc or child == supervisor or _parent_pid(proc_root, child) == supervisor):
+                candidates.add(child)
 
-    # 2. Inspect host process table via /proc for hypergan processes owned by current user
-    proc_root = getattr(os, 'environ', {}).get('HYPERGAN_PROC_ROOT', '/proc')
-    if os.path.exists(proc_root):
+    # 2. Viewer commands in the host process table owned by the current user.
+    if has_proc:
         try:
             for entry in os.listdir(proc_root):
-                if not entry.isdigit():
-                    continue
-                pid = int(entry)
-                if pid == current_pid:
+                if not entry.isdigit() or int(entry) == current_pid:
                     continue
                 try:
-                    stat_info = os.stat(f'{proc_root}/{pid}')
-                    if current_uid is not None and stat_info.st_uid != current_uid:
+                    if current_uid is not None and os.stat(f'{proc_root}/{entry}').st_uid != current_uid:
                         continue
-                    cmdline_bytes = Path(f'{proc_root}/{pid}/cmdline').read_bytes()
-                    tokens = [t.decode('utf-8', errors='ignore') for t in cmdline_bytes.split(b'\0') if t]
-                    if not tokens:
-                        continue
-                    is_web_server = False
-                    if any(mod in tokens for mod in ('hypergan.web_autostart', 'hypergan.web_server')):
-                        is_web_server = True
-                    elif len(tokens) >= 2:
-                        exe = Path(tokens[0]).name
-                        if exe == 'hypergan' or (exe.startswith('python') and len(tokens) >= 3 and tokens[1] == '-m' and tokens[2] in ('hypergan', 'hypergan.cli')):
-                            subcmd = None
-                            for tok in tokens[1:]:
-                                if not tok.startswith('-'):
-                                    if tok in ('hypergan', 'hypergan.cli'):
-                                        continue
-                                    subcmd = tok
-                                    break
-                            if subcmd in ('view', 'serve'):
-                                is_web_server = True
-                    if is_web_server:
-                        killed_pids.add(pid)
-                except (OSError, PermissionError, ProcessLookupError):
-                    pass
+                except OSError:
+                    continue
+                tokens = _process_tokens(proc_root, int(entry))
+                if tokens and _is_viewer_command(tokens):
+                    candidates.add(int(entry))
         except OSError:
             pass
 
     # 3. Terminate candidate processes gracefully first (SIGTERM), then forcibly (SIGKILL)
     active_killed = []
-    for pid in killed_pids:
+    for pid in candidates:
         try:
             os.kill(pid, signal.SIGTERM)
             active_killed.append(pid)
@@ -1143,17 +1320,13 @@ def stop_all_servers(force: bool = False) -> list[int]:
                 pass
 
     # 4. Clean up registry directories
-    for viewers_dir in tmp_dir.glob('hypergan-viewers-*'):
-        if not viewers_dir.is_dir():
-            continue
+    for reg in registries:
         try:
-            for reg in viewers_dir.iterdir():
-                if reg.is_dir():
-                    for f in reg.glob('session-*.json'):
-                        f.unlink(missing_ok=True)
-                    for f in reg.glob('stop-*'):
-                        f.unlink(missing_ok=True)
-                    (reg / 'state.json').unlink(missing_ok=True)
+            for f in reg.glob('session-*.json'):
+                f.unlink(missing_ok=True)
+            for f in reg.glob('stop-*'):
+                f.unlink(missing_ok=True)
+            (reg / 'state.json').unlink(missing_ok=True)
         except OSError:
             pass
 

@@ -2,6 +2,8 @@
 
 > **Archived.** Issue #186 agent work product, moved from the repository root on 2026-10-25. It records the plan and test claims at the time and is not maintained; see [tests/README.md](../../tests/README.md) and [GLOSSARY.md](../../GLOSSARY.md) for the current layout and terms.
 
+> **Superseded:** receipts were never "signed": `receipt_sha256` is an unkeyed self-hash that anyone who edits a receipt can recompute, and no key is ever emitted or stored. The receipt keys are `schema_version`, `qualification_id`, `timestamp`, `status`, `duration_seconds`, `environment`, `suites` and `receipt_sha256`. The current contract is the `receipt` row in [GLOSSARY.md](../../GLOSSARY.md) and `validate_qualification_receipt` in `src/hypergan/qualify.py`.
+
 ## Overview
 
 This document specifies the architecture, testing methodology, execution instructions, and authoritative oracle derivations for the HyperGAN Multi-Device Execution E2E test suite (`tests/e2e`).

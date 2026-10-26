@@ -27,6 +27,7 @@ classifiers = [
 dependencies = ["foldlitedb>=0.1.2,<0.2"]
 
 [project.optional-dependencies]
+# CI tests only torch==2.14.0 (.github/workflows/ci.yml); the rest of the range is untested.
 train = ["hndl>=0.10.0,<1", "particlegan>=0.9.2,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3"]
 image = ["Pillow>=13.0.0,<14"]
 cifar = ["torchvision>=0.21,<1", "Pillow>=13.0.0,<14"]
@@ -66,8 +67,9 @@ addopts = ["--import-mode=importlib", "-ra", "--strict-markers", "-m", "not heav
 markers = [
     # A test is heavy when it starts real operating system processes - a CLI
     # run, a worker service, a two-rank job, an acceptance driver - and takes a
-    # second or more. Measure with `--durations=0` when adding one; the original
-    # measurement is reports/test-durations-2026-09-20.txt. Nothing is marked
+    # second or more. Measure with `--durations=0` when adding one. The only
+    # recorded measurement, reports/test-durations-2026-09-20.txt, predates every
+    # October suite, so it is history, not the current list. Nothing is marked
     # for sitting in a file next to one that is. Heavy tests are deselected by
     # default and never skipped: a default run reports them as deselected, not
     # as passing. `--collect-only -q -m heavy` prints the current count.

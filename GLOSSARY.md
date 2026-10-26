@@ -60,7 +60,7 @@ An execution profile separates *how* a run is distributed from *what* is trained
 | **`nodes`** | `execution.nodes` | `1` | Number of host machines (node brokers) in the run. |
 | **`node_rank`** | `execution.node_rank` | `0` | Zero-based index (`0 .. nodes - 1`) of this host. |
 | **`ranks_per_node`** | `execution.ranks_per_node` | `world_size // nodes` | Derived number of ranks started on each node. |
-| **`rendezvous`** | `execution.rendezvous` | local `file://` URI | Process-group meeting point: `file:///...` on one host, `tcp://<host>:<port>` across hosts. |
+| **`rendezvous`** | `execution.rendezvous` | local `file://` URI (one node only) | Process-group meeting point: `file:///...` on one host. Multi-node (`nodes > 1`) is experimental and has no default: every node must set an explicit `tcp://<node-0-host>:<port>`, and validation refuses a profile without one. |
 | **`global_batch_size`** | `execution.global_batch_size` | `train.batch_size` | The model file's `train.batch_size`, recorded in the profile identity. |
 | **`local_batch_size`** | `execution.local_batch_size` | `batch_size // world_size` | Derived samples per rank per global step. |
 | **`accumulation_steps`** | `execution.accumulation_steps` | `1` | Number of microbatches each rank splits its local batch into before one optimizer step. |
@@ -106,5 +106,5 @@ outer_momentum = 0.0
 | **`timeout`** | `preflight.timeout` | `60` | Seconds allowed for worker startup and preflight construction before forced cleanup. |
 | **`collective_timeout`** | `preflight.collective_timeout` | `15` | Seconds allowed for one distributed collective before the process group is aborted. |
 | **qualification** | `hypergan qualify` | — | A bounded smoke suite of single-device, replicated, aggregation and multi-node checks that writes a receipt. |
-| **receipt** | `--output` (default `qualification-receipt.json`) | — | Machine-readable JSON result of `hypergan qualify`: environment, suite outcomes, timings and parity numbers, plus `receipt_sha256`. That hash is an unkeyed self-hash: it catches accidental edits, not deliberate ones, and the receipt is not signed. |
+| **receipt** | `--output` (default `<state dir>/qualification/qualification-receipt-<id>.json`) | — | Machine-readable JSON result of `hypergan qualify`, written to a new file under the HyperGAN state directory (`HYPERGAN_HOME` or `HYPERGAN_STATE_DIR`, else `~/.local/share/hypergan`), never the working directory, unless `--output` names a path: environment, suite outcomes, timings and parity numbers, plus `receipt_sha256`. The receipt and each suite have a `status` of `passed`, `failed`, `skipped` (nothing could run, e.g. no GPUs) or `dry_run` (`--dry-run`: nothing ran); only a suite that ran and checked its result is `passed`. That hash is an unkeyed self-hash: it catches accidental edits, not deliberate ones, and the receipt is not signed. |
 | **`runpod`** | `hypergan qualify` RunPod options, `RUNPOD_API_KEY` | `--dry-run` | Integration for qualifying remote cloud GPUs with cost guardrails and pod cleanup. Experimental. |

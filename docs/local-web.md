@@ -15,21 +15,25 @@ hypergan view --status
 hypergan view --stop
 ```
 
-You can also run the standalone projection service and single-run server independently:
+You can also run the standalone projection service and a single-run viewer independently:
 
 ```sh
 hypergan project runs/example --follow
 # In another terminal:
-hypergan serve runs/example --open
+hypergan view runs/example --open
 ```
 
-`hypergan view` and `hypergan serve` listen on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
+This page uses `hypergan view` throughout. `hypergan serve`, which `--help` does not
+list, starts the same foreground server for a run or runs root with the same
+options; it adds `--session-file` and has no `--status` or `--stop`.
+
+`hypergan view` listens on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
 working across restarts. A port that is already in use is an error naming the process
 that holds it, never a silent move to another port; when that process is the dashboard
 `hypergan train` started for the same root, `hypergan view` prints and opens its URL
 instead. Select another address with `--host 127.0.0.1`, a fixed port with
 `--port 8123`, or an OS-assigned port with `--port 0`. For a wildcard bind, a viewer
-that `hypergan view` or `hypergan serve` starts prints a `127.0.0.1` URL, while
+that `hypergan view` starts prints a `127.0.0.1` URL, while
 `hypergan train`, `hypergan resume` and a `hypergan view` that reuses a running
 dashboard print `localhost`; `localhost`, `127.0.0.1` and `[::1]` are the same
 loopback authority. Browser requests remain same-origin.
@@ -47,19 +51,31 @@ When serving a workspace or runs directory (or when runs are registered in the g
 
 - **`GET /` (Global Runs Dashboard)**: Lists discovered and registered runs with labeled search (name, slug, or ID), status filters, result counts, and clear-filter feedback. Complete includes `completed`; Stopped includes `interrupted` and cancelled runs. Creation times appear in the browser's time zone, with UTC timestamps in tooltips; missing recorded times show `Unknown`. Sort newest first (default), oldest first, or by name. The responsive table becomes run cards on narrow screens. While the tab is visible, `/api/runs` refreshes every 3 seconds, including empty dashboards, adding and removing runs and updating progress, throughput (`it/s`), disk usage, and available controls without resetting filters. A Refresh button and visible failure/retry messages support recovery. FID columns are omitted from this overview.
 - **`GET /api/runs` and `GET /api/v1/runs`**: Returns a JSON array of all discovered/registered runs with their `run_id`, `short_id`, `slug`, `name`, `status`, `active`, `running`, `pid`, `created_at`, `step`, `total_steps`, `steps_per_second`, `latest_fid`, `best_fid`, `best_step`, `disk_bytes`, `disk_formatted`, `run_dir`, and `url`. `created_at` is an ISO 8601 UTC timestamp from recorded creation metadata or the first launch receipt (`launch/0001.json`), or `null` when unavailable. It does not use the manifest's modification time, which changes during training. FID fields remain available to API clients.
-- **`GET /runs/<id_or_slug_or_tag>`**: Opens the per-run Web Observatory UI for any run addressed by its full `run_id`, 8-character `short_id`, Docker-style `slug` (e.g. `fleet-hawk`), custom tag (`hypergan tag <run> <tag>`), or directory name. Automatically ensures built-in scalar projections are up to date before serving.
+- **`GET /runs/<id_or_slug_or_tag>`**: Opens the per-run Web Observatory UI for any run addressed by its full `run_id`, 8-character `short_id`, Docker-style `slug` (e.g. `fleet-hawk`), custom tag (`hypergan tag <run> <tag>`, stored in the run's `tag.json`), or directory name. Automatically ensures built-in scalar projections are up to date before serving.
 - **`POST /api/runs/<id>/checkpoint` (and `POST /api/v1/runs/<id>/checkpoint`)**: Submits an idempotent, attempt-bound durable checkpoint request to an active run at the next completed update boundary (returns HTTP 400 if the run is not active). Accepts an optional JSON body `{"request_id": "...", "attempt_id": "..."}`.
 - **`POST /api/runs/<id>/sample` (and `POST /api/v1/runs/<id>/sample`)**: Submits an idempotent, attempt-bound bounded preview sample request to an active run at the next completed update boundary without disturbing training RNG or optimizer state (returns HTTP 400 if the run is not active). Accepts an optional JSON body `{"request_id": "...", "attempt_id": "..."}`.
 - **`POST /api/runs/<id>/stop` (and `POST /api/v1/runs/<id>/stop`)**: Submits an idempotent, attempt-bound graceful stop request (and signals local runs via SIGINT when running on the same host) so the trainer saves a boundary checkpoint and halts cleanly at the next completed update boundary (returns HTTP 400 if the run is not active).
 - **`GET /api/runs/<id>/requests/<request_id>` (and `GET /api/v1/runs/<id>/requests/<request_id>`)**: Reads the durable status or receipt (`pending`, `succeeded`, `failed`, or `rejected`) for a control request (`checkpoint`, `sample`, or `stop`).
 
+From the terminal, the commands that change or delete a run, `hypergan stop`,
+`hypergan tag`, `hypergan gc` and `hypergan rm`, resolve their target strictly. It
+must be exactly a run ID or 8-character short ID, a slug, a tag, a run directory
+name, or a path to a run directory (one whose `manifest.json` or `summary.json`
+records a `run_id`). There is no prefix or substring matching: a reference that
+matches several runs is an error listing the candidates, and workspace roots,
+runs roots, `$HOME`, `/` and symbolic links are refused. `hypergan gc --all` needs a
+workspace or an explicit root (`hypergan gc --all <runs-root>`). Tags live in the
+run's `tag.json`, which the trainer never rewrites, so tagging an active run is
+allowed. The [README](../README.md#which-run-rm-gc-stop-and-tag-act-on) has the
+full rules.
+
 ### Headless cluster attachment and file-backed control requests
 
-Scheduled and multi-node cluster jobs run headlessly by default (`--no-server` or no local viewer per rank), with only the designated writer publishing global progress, events, and preview artifacts to the run directory. Attach `hypergan view` or `hypergan serve` to a shared or synchronized run directory from a login node or local workstation (or tunnel to a single service on the allocated host via SSH or `--public-origin`):
+Scheduled and multi-node cluster jobs run headlessly by default (`--no-server` or no local viewer per rank), with only the designated writer publishing global progress, events, and preview artifacts to the run directory. Attach `hypergan view` to a shared or synchronized run directory from a login node or local workstation (or tunnel to a single service on the allocated host via SSH or `--public-origin`):
 
 ```sh
 # Attach to a headless cluster run on a shared filesystem without importing torch
-hypergan serve /shared/experiments/runs/cluster-run --host 127.0.0.1 --port 8765 --auth token
+hypergan view /shared/experiments/runs/cluster-run --host 127.0.0.1 --port 8765 --auth token
 ```
 
 When a run's `.run.lock`, `launch/*.json`, `manifest.json`, or `summary.json` records a `hostname` different from the viewer host while the run is in `running` or `initializing` state, HyperGAN marks the run as active and remote (`remote: true`, `active: true`). Viewer disconnection never cancels or signals the remote training job. Control actions (`checkpoint`, `sample`, and `stop`) use the file-backed request queue under `checkpoint_requests/pending/` and `checkpoint_requests/receipts/` rather than local PID signals, so idempotent control requests and receipts work identically for local and headless cluster runs. When `--auth token` is enabled, every API route except `POST /api/v1/session` requires a valid session cookie or `Authorization: Bearer <token>` header: reads, SSE streams and controls, under both `/api/v1/runs/*` and `/api/runs/*`. Only the HTML shell, its static assets and the sign-in exchange are public; the dashboard then shows a sign-in form and no run data until the browser has a session.
@@ -86,7 +102,7 @@ hypergan train project/config.toml --run-dir runs/example \
     --public-origin https://mlserver.tail1234.ts.net
 # or for an existing run / dashboard:
 hypergan view runs --public-origin https://mlserver.tail1234.ts.net
-hypergan serve runs/example --public-origin https://mlserver.tail1234.ts.net
+hypergan view runs/example --public-origin https://mlserver.tail1234.ts.net
 ```
 
 `tailscale serve --bg 8765` publishes `https://<machine>.<tailnet>.ts.net` on
@@ -97,7 +113,7 @@ run request fail; the option is what makes that one origin acceptable.
 `--public-origin` takes an absolute `http://` or `https://` URL with a host and
 an optional port and nothing else. A path, query, fragment, username or password
 is refused with an error naming the value, and `https://host:443/` is the same
-origin as `https://host`. `train`, `resume`, `view` and `serve` all accept it, and, like
+origin as `https://host`. `train`, `resume` and `view` all accept it, and, like
 `--server-host` and `--auth`, naming it requires the viewer rather than leaving
 it optional. The supervised viewer is a detached subprocess, so the value
 travels in that viewer's private registry state; `hypergan view --status`, `hypergan server-status RUN`,
@@ -162,7 +178,7 @@ bootstrap state and SSE envelopes. Every per-run route is served with full parit
 
 The global `/api/v1/stream` also reports run creation and future stream
 registrations. This lets an automatically started viewer wait for the first run
-manifest without browser polling. Standalone `serve` requires an existing run.
+manifest without browser polling. A standalone `hypergan view RUN` requires an existing run.
 Selectors are `training`, `projection:<map_revision>`, `evaluation:<id>`, or `*` for
 future matching streams. A replay cursor requires one explicit stream. Without a
 cursor, an SSE subscriber starts at the current committed watermark; source
@@ -326,7 +342,7 @@ also imply that requirement. `--port` names an exact port and fails if it is occ
 rather than searching upward as the default does; `--port 0` asks the operating system
 for any free port, and `--server-port` remains accepted as its original spelling.
 `--server-host` selects the bind address; `--auth token`
-enables token authentication with the same behavior as standalone `serve`;
+enables token authentication with the same behavior as standalone `hypergan view`;
 `--public-origin` names a TLS proxy in front of the viewer, described under
 [HTTPS through your own TLS proxy](#https-through-your-own-tls-proxy). Only `--open` launches a browser. `--no-server`
 performs no web imports or socket setup and conflicts with these explicit viewer options.
@@ -369,8 +385,8 @@ the registered incarnation, removes its private credentials, drains one final
 bounded projection page and joins children within bounded deadlines. A large
 backlog may remain resumable with `hypergan project RUN`. If the supervisor itself
 dies, its children exit independently; the next launch safely replaces stale
-registry state and rotates credentials. Standalone `serve` remains a foreground
-command; stop that command with Ctrl-C.
+registry state and rotates credentials. A standalone `hypergan view` remains a
+foreground command; stop that command with Ctrl-C.
 
 ### Headline run summary
 
@@ -445,7 +461,7 @@ each request, so a plain refresh shows the current files:
 
 ```sh
 hypergan train config.toml --run-dir runs/example --dev
-hypergan serve runs/example --dev
+hypergan view runs/example --dev
 HYPERGAN_VIEWER_DEV=1 hypergan resume runs/example
 ```
 

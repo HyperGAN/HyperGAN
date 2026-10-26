@@ -37,7 +37,7 @@ HyperGAN 2.0.0a1 is a ground-up architectural rebuild centered on configurable P
   - Daemonless global run registry addressing runs from any directory by Docker-style slug (`fleet-hawk`), short ID, custom tag (`hypergan tag`), or path.
 - **CUDA, Multi-GPU & AMD ROCm Support**:
   - Single-GPU and multi-GPU replicated training (`--devices 0,1` / `cuda-replicated-nccl`) with coordinated rank recovery and automatic CPU fallback warnings when CUDA is unavailable.
-  - First-class AMD ROCm / HIP runtime detection, determinism guards, and GPU inventory support alongside NVIDIA CUDA.
+  - Experimental AMD ROCm / HIP support, untested on AMD hardware: runtime detection, determinism guards, and GPU inventory providers are covered only by tests that patch `torch.cuda`. `scripts/rocm_preflight.sh` is the first hardware check ([docs/rocm.md](docs/rocm.md)).
 - **Security & Packaging**:
   - Require `Pillow>=13.0.0,<14` for image extras, allowlist `Image.open` formats, and enforce `weights_only=True` in EMA bundle extraction.
   - Automated CI distribution verification (`twine check --strict`, stamped `_build_provenance.json`) and PyPI Trusted Publishing via `.github/workflows/release.yml`.

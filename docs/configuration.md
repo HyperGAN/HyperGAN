@@ -365,7 +365,7 @@ device = "cuda:0"
 samples = 50000
 batch_size = 128
 seed = 10000
-on_busy = "skip"
+on_busy = "skip"                  # the only value: a busy evaluator defers this evaluation, see below
 timeout = 3600
 on_error = "fail"
 
@@ -392,8 +392,16 @@ horizontal_flip = false
 | `device` | `string` | Execution device for the evaluation worker (`"cuda"`, `"cuda:1"`, `"cpu"`). |
 | `data` | `table` | Required evaluation dataset specification (`builtin`, `dataset`, or `factory` + `args`). Evaluations never implicitly fall back to training data. |
 | `output` / `target` | `string` | Generator output binding to evaluate (defaults to `sampling.output` or `"generated"`, or bind a specific network such as `"reconstruction"`). |
-| `on_busy` | `string` | Behavior when a previous evaluation worker is still running (`"skip"` by default). |
+| `on_busy` | `string` | What a due evaluation does while the evaluator is still running an earlier one. `"skip"` is the default and the only accepted value; the name is historical, because the evaluation is deferred, not dropped (see below). |
 | `timeout`, `on_error` | `int`, `string` | Worker deadline in seconds and failure policy (`"fail"` or `"disable"`). |
+
+One evaluator runs interval evaluations, one at a time. A metric that comes due
+while it is busy is not dropped: it stays pending and runs at the first step
+boundary after the evaluator frees up, on the model at that step. When several
+metrics are pending, the one that has waited longest goes first, so a short
+cadence cannot starve a longer one such as FID. Further due points of a metric
+that is still pending are coalesced into that single evaluation and counted as
+`skipped_busy` in the run's `evaluation_schedule`.
 
 ### Scalar Training Metrics (`[metrics]`)
 
@@ -477,8 +485,29 @@ export_bundle = "on_eval"         # "on_eval" | "on_checkpoint" | "never"
 | --- | --- | --- |
 | `keep_last` | `int` | Number of most recent complete checkpoints to retain during pruning (default `3`). |
 | `keep_every` | `int` | Milestone step interval whose checkpoints are permanently retained (default `50000`). |
-| `keep_best` | `int` / `table` | Retain top-performing checkpoints by evaluation metric (`{ metric = "fid50k_train", mode = "min" | "max", count = 2 }`, or an integer `count` shorthand for `fid50k_train`). Set `false` or `0` to disable. |
+| `keep_best` | `int` / `table` | Retain the checkpoints of the `count` best evaluations of the run's primary metric (`{ metric = "fid50k_train", mode = "min" | "max", count = 2 }`, or an integer `count` shorthand for `fid50k_train`). `count` defaults to `2`, also when the table names only `metric` or `mode`. Set `false` or `0` to disable. |
 | `export_bundle` | `string` | Automatic standalone EMA inference bundle (`model.pt`) export policy (`"on_eval"`, `"on_checkpoint"`, or `"never"`). |
+
+**Which metric is "best".** `keep_best` retention, `--checkpoint best`, and the
+`best` entry of `summary.json` (shown by `hypergan status`) all rank one primary
+metric per run:
+
+1. `keep_best.metric`, when that metric has results;
+2. otherwise the only evaluated metric whose catalog declares a direction
+   (`minimize` or `maximize`).
+
+When neither applies, for example when `keep_best.metric` has no results yet and
+two or more evaluated metrics declare a direction, the run has no primary metric:
+`--checkpoint best` is an error and `keep_best` retains nothing extra. Unrelated
+metrics are never pooled. The direction comes from the metric catalog and wins
+over `mode`; `keep_best.mode` applies only when the configured metric declares
+no direction. A model file with several minimized evaluations, such as chroma,
+structure and FID, should therefore name its metric:
+
+```toml
+[checkpoints]
+keep_best = { metric = "fid10k_heldout", mode = "min", count = 2 }
+```
 
 ---
 

@@ -70,6 +70,10 @@ cublas_workspace_config = ":4096:8"
 count = 16
 seed = 10000
 
+# chroma, structure and FID all minimize, so "best" needs a named metric.
+[checkpoints]
+keep_best = { metric = "fid10k_heldout", mode = "min", count = 2 }
+
 [metrics]
 preset = "standard"
 every_steps = 10

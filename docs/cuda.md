@@ -25,8 +25,45 @@ The regular `python -m pytest` suite selects the fast foundation and CPU numeric
 
 ```sh
 python -m pytest tests/cuda -q
+# Two GPUs whose NCCL peer-to-peer path hangs (see Troubleshooting below):
+NCCL_P2P_DISABLE=1 python -m pytest tests/cuda -q
 ```
+
+Tests marked `multi_gpu` need two or more visible GPUs; the rest run on one.
 
 Run against an installed wheel outside the checkout for integration evidence, using an absolute tests path and `python -I -m pytest ... --import-mode=importlib`. The CUDA suite includes native updates/recovery, the NCCL diagnostic, and complete replicated numerical/recovery cases. See the [execution ledger](../reports/archive/resurrection-status.md) for exact results and limits. Two GPUs on one host do not establish image quality or a real cluster.
 
 The [internal CUDA/NCCL profile](replicated-cuda.md) connects rank-owned devices, device-aware reductions, accumulated replay and coordinated recovery to the existing independent supervisor. The [public execution commands](execution.md) now select this profile with `--profile cuda-replicated-nccl` and infer it on resume. Actual two-host testing follows with a concrete cloud allocation.
+
+# Troubleshooting: NCCL hangs at the first collective
+
+On some multi-GPU hosts NCCL's direct GPU-to-GPU (peer-to-peer, P2P) transport
+does not work, and every NCCL job stalls at its first collective, an all-gather,
+until the collective timeout aborts it. This happens on the project's development
+machine with two RTX A6000s, for two-rank training and for the NCCL tests in
+`tests/cuda` alike. Setting `NCCL_P2P_DISABLE=1` makes NCCL copy through host
+memory instead, and the same jobs then complete, at some cost in collective
+bandwidth.
+
+Set it in the shell that launches training or the tests; the rank processes
+inherit it:
+
+```sh
+export NCCL_P2P_DISABLE=1
+hypergan train demo --run-dir runs/demo --profile cuda-replicated-nccl --steps 100 --no-server
+python -m pytest tests/cuda -q
+```
+
+or record it in the `[run.env]` table of the model file or the workspace
+`hypergan.toml`; `hypergan train` and `hypergan resume` then re-execute themselves with that environment
+(see [configuration](configuration.md)):
+
+```toml
+[run.env]
+NCCL_P2P_DISABLE = "1"
+```
+
+`hypergan qualify` already sets `NCCL_P2P_DISABLE=1` and `NCCL_IB_DISABLE=1` for
+its own NCCL suite. If a job still hangs, rerun it with `NCCL_DEBUG=INFO` to see
+which transport NCCL selects, and check `nvidia-smi topo -m` for the link between
+the GPUs.

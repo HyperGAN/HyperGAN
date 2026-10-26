@@ -14,7 +14,7 @@ The [128×128 and 256×256 logo colorization recipes](docs/colorization.md) pair
 
 ## Install
 
-Use Python 3.12+ for the tested training runtime. Lightweight package checks cover Python 3.11–3.14 on Linux, macOS and Windows; the CPU reference profile is tested on Linux.
+Use Python 3.12+ for the tested training runtime. Lightweight package checks cover Python 3.11–3.14 on Linux, macOS and Windows; the CPU reference profile is tested on Linux. The `train` extra accepts `torch>=2.6,<3`, but CI tests only `torch==2.14.0`, the version the commands below install; other versions are untested.
 
 Install the `2.0.0a1` alpha release from PyPI:
 
@@ -46,7 +46,7 @@ python -m pip install 'torch==2.14.0' --index-url https://download.pytorch.org/w
 python -m pip install '.[train,image,web]'
 ```
 
-For a CPU correctness fixture, install the CPU PyTorch wheel instead (`--index-url https://download.pytorch.org/whl/cpu`) and pass `--device cpu` (or `-d cpu`). Lightweight CLI commands (`new`, `validate`, `ps`, `status`, `logs`, `inspect`, `tag`, `runs`, `queue`, `prune`, `rm`) do not import PyTorch or ParticleGAN.
+For a CPU correctness fixture, install the CPU PyTorch wheel instead (`--index-url https://download.pytorch.org/whl/cpu`) and pass `--device cpu` (or `-d cpu`). Lightweight CLI commands (`new`, `validate`, `ps`, `status`, `logs`, `inspect`, `tag`, `runs`, `queue`, `gc`, `rm`) do not import PyTorch or ParticleGAN.
 
 ---
 
@@ -131,7 +131,9 @@ hypergan stop --all
 
 ### Tagging & Inspecting Runs
 ```sh
-# Rename or tag a run in its manifest, summary, and global registry
+# Tag (rename) a run. The tag is stored in RUN/tag.json, which the trainer never
+# rewrites, so an active run can be tagged; a stopped run also gets the new name in
+# its manifest and summary. The global registry is updated either way.
 hypergan tag fleet-hawk baseline-dcgan32
 
 # Inspect full run manifest JSON or model architecture/loss/optimizer summary
@@ -181,13 +183,28 @@ hypergan queue stop --all
 ### Garbage Collection & Run Removal
 ```sh
 # Reclaim disk space by cleaning rebuildable views and compacting routine train events
-hypergan prune baseline-dcgan32 --dry-run
+hypergan gc baseline-dcgan32 --dry-run
 hypergan gc baseline-dcgan32
+hypergan gc --all            # every finished run in this workspace's runs root
 hypergan checkpoints prune baseline-dcgan32 --dry-run
 
 # Delete a run directory and unregister it from the global registry (-f stops if active)
 hypergan rm exp-lr2e4
 ```
+
+#### Which run `rm`, `gc`, `stop` and `tag` act on
+
+These commands change or delete a run, so they resolve their target strictly. The target must be exactly one of:
+
+- a run ID or its 8-character short ID;
+- a slug;
+- a tag set with `hypergan tag`;
+- a run directory name;
+- a path to a run directory, meaning a directory whose `manifest.json` or `summary.json` records a `run_id` (a path to that `manifest.json` also works).
+
+There is no prefix, substring or config-name matching. A reference that matches more than one run is an error that lists the candidates with their run IDs; repeat the command with one of them. A workspace root (a directory with `hypergan.toml`), a workspace or registered runs root, any directory that contains runs, `$HOME`, `/` and symbolic links are refused before anything is touched. With no target, the command acts on the current directory when it is a run; otherwise `stop` stops the only active run (and refuses when several are active), and the others ask you to name the run.
+
+`hypergan gc --all` cleans every finished run under the current workspace's runs root and skips active ones. It needs a workspace (a `hypergan.toml` in this directory or above) or an explicit root, `hypergan gc --all <runs-root>`, and never reaches runs the registry knows about elsewhere.
 
 ---
 
@@ -245,7 +262,7 @@ def main():
     bundle = hg.load_bundle(bundle_path)    # or hg.load(bundle_path)
 
     # 4. Clean up
-    hg.prune("my-best-gan", dry_run=True)
+    hg.gc("my-best-gan", dry_run=True)
     hg.rm("my-best-gan")
 
 

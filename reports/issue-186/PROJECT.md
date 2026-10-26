@@ -2,6 +2,8 @@
 
 > **Archived.** Issue #186 agent work product, moved from the repository root on 2026-10-25. It records the plan and test claims at the time and is not maintained; see [tests/README.md](../../tests/README.md) and [GLOSSARY.md](../../GLOSSARY.md) for the current layout and terms.
 
+> **Superseded:** §Interface Contracts 5 below is out of date. `--output` no longer defaults to `qualification-receipt.json` in the working directory: receipts go to a new file under the HyperGAN state directory, `<state dir>/qualification/`. The receipt and suite `status` is `passed`, `failed`, `skipped` or `dry_run`, not only `passed`/`failed`. The current contract is the `receipt` row in [GLOSSARY.md](../../GLOSSARY.md) and `RECEIPT_STATUSES` / `validate_qualification_receipt` in `src/hypergan/qualify.py`.
+
 ## Architecture
 - **Configuration & Profiles (`src/hypergan/execution_profiles.py`)**:
   Parses and validates `execution.toml` and `config.toml` strictly adhering to canonical terms from `GLOSSARY.md`. Resolves topology (`world_size`, `nodes`, `node_rank`, `ranks_per_node`, `rendezvous`), batch geometry (`global_batch_size`, `local_batch_size`, `microbatch_size`, `accumulation_steps`), and `[aggregation]` configuration.

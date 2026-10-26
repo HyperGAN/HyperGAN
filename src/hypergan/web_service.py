@@ -242,8 +242,8 @@ class ObservationService:
     def _relocator(self):
         """Map an indexed path to one relative to this run directory.
 
-        Producers record absolute paths, which name the old location once a run
-        is moved, renamed or copied. The old run directory is the longest prefix
+        Producers record paths relative to the run; older runs hold absolute
+        paths, which name the old location once a run is moved, renamed or copied. The old run directory is the longest prefix
         whose remainder exists here; it is found once and reused for the index.
         """
         stale_prefixes = []

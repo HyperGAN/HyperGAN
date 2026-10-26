@@ -1271,8 +1271,14 @@ def test_moved_run_with_absolute_preview_index_still_opens(tmp_path):
     payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity, 'step': 1,
                'count': 1, 'shape': [1, 2], 'samples': [[.2, .3]]}
     publish_preview_payload(original, payload, identity, 1)
-    index = json.loads((original / 'previews' / 'index.json').read_text())
-    assert index['previews'][0]['path'].startswith(str(original))
+    # Producers now index relative paths; older runs hold absolute ones, which
+    # name the old location once the run moves.
+    index_file = original / 'previews' / 'index.json'
+    index = json.loads(index_file.read_text())
+    for record in index['previews']:
+        assert not Path(record['path']).is_absolute()
+        record['path'] = str(original / record['path'])
+    atomic_json(index_file, index)
     moved = tmp_path / 'home' / 'runs' / 'renamed'
     moved.parent.mkdir(parents=True)
     original.rename(moved)
@@ -1527,7 +1533,7 @@ def test_running_dashboard_is_reused_by_view_for_its_root(tmp_path, monkeypatch)
 
 
 def test_moved_run_marks_only_the_missing_preview_unavailable(tmp_path):
-    from hypergan.previews import publish_preview_payload
+    from hypergan.previews import index_path, publish_preview_payload
     original = tmp_path / 'workspace' / 'runs' / 'x'
     original.parent.mkdir(parents=True)
     fixture_run(original, 2)
@@ -1537,7 +1543,12 @@ def test_moved_run_marks_only_the_missing_preview_unavailable(tmp_path):
         payload = {'schema_version': 1, 'kind': 'ema-preview', 'identity': identity, 'step': sequence,
                    'count': 1, 'shape': [1, 2], 'samples': [[.2, .3]]}
         publish_preview_payload(original, payload, identity, sequence)
-    index = json.loads((original / 'previews' / 'index.json').read_text())
+    # An older run's absolute index: the moved run's files are found by suffix.
+    index_file = original / 'previews' / 'index.json'
+    index = json.loads(index_file.read_text())
+    for record in index['previews']:
+        record['path'] = str(index_path(original, record['path']))
+    atomic_json(index_file, index)
     lost, kept = index['previews'][0], index['previews'][1]
     Path(lost['path']).unlink()
     moved = tmp_path / 'home' / 'renamed'

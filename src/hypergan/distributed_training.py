@@ -5,6 +5,7 @@ The caller owns the default Gloo or NCCL group, finite timeouts and whole-job li
 """
 import copy
 import hashlib
+import inspect
 import random
 import sys
 import warnings
@@ -18,11 +19,6 @@ from .distributed import Collectives
 from .recipes import detach, move_tensors
 from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, noise_levels, schedule_learning_rates, update_ema, with_noise
 from .objective_program import _bound_scores, _sum_tensors, score_candidate
-from . import distributed_checkpoints as _dc
-from . import distributed_commit as _dcommit
-
-_dc.MAX_RANK_BYTES = 1024 * 1024 * 1024
-_dcommit.MAX_RANK_BYTES = 1024 * 1024 * 1024
 
 class ReplicatedTrainer(ReferenceTrainer):
     """One complete D/G/prior/auxiliary/EMA update per global batch.
@@ -48,7 +44,10 @@ class ReplicatedTrainer(ReferenceTrainer):
         if ranks_per_node is None:
             ranks_per_node = world_size // nodes
         if rendezvous is None:
-            rendezvous = 'file://' if nodes == 1 else 'tcp://127.0.0.1:29500'
+            if nodes > 1:
+                raise ValueError('Experimental multi-node execution requires an explicit rendezvous '
+                                 '(tcp://<node-0-host>:<port>); loopback cannot reach other hosts')
+            rendezvous = 'file://'
         if aggregation is None:
             aggregation = {'strategy': 'gradient_allreduce', 'sync_every_steps': 1,
                            'outer_lr': 1.0, 'outer_momentum': 0.0}
@@ -119,6 +118,8 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._phase('initialization', initialize)
         from .aggregation import resolve_aggregation_strategy
         self.aggregation_strategy = resolve_aggregation_strategy(self.strategy_info['aggregation'], trainer=self)
+        # Every rank must take the same replica-check collectives.
+        self._agree('replica check interval', getattr(self.aggregation_strategy, 'replica_check_every', None))
         self._phase('module compatibility', self._check_modules)
         if accumulation_steps > 1:
             self._phase('accumulation compatibility', self._check_accumulation)
@@ -222,6 +223,35 @@ class ReplicatedTrainer(ReferenceTrainer):
     def _assert_replicas(self, name):
         self._agree(name, self._phase(name + ' validation', self._replica_digest))
 
+    def synchronize_replicas(self):
+        """Force one local-SGD synchronization so a checkpoint has one replicated state.
+
+        Between synchronizations parameter_average/pseudo_gradient replicas differ.
+        A checkpoint at such a step averages them first, which is one extra
+        synchronization in the trajectory; checkpoint_every is validated against
+        sync_every_steps so this only happens for stop and on-demand checkpoints.
+        """
+        strategy = self.aggregation_strategy
+        if not callable(getattr(strategy, 'is_synchronized', None)) or not callable(getattr(strategy, 'synchronize', None)):
+            return False
+        def boundary():
+            # A half/failed update is not synchronized here; the checkpoint itself rejects it.
+            return bool(self._poisoned or not self.checkpoint_ready or strategy.is_synchronized(self.step))
+        synchronized = self._phase('aggregation state', boundary)
+        self._agree('aggregation state', synchronized)
+        if synchronized:
+            return False
+        self.checkpoint_ready = False
+        try:
+            self._phase('aggregation synchronization', strategy.synchronize)
+            self._phase('synchronized CUDA completion', self._synchronize)
+            self._assert_replicas('synchronized replicated state')
+        except BaseException:
+            self._poisoned = True
+            raise
+        self.checkpoint_ready = True
+        return True
+
     def batch(self):
         def shard(value):
             if isinstance(value, torch.Tensor):
@@ -238,10 +268,11 @@ class ReplicatedTrainer(ReferenceTrainer):
             return value
 
         def draw():
-            try:
+            if self._data_shards is None:
+                self._data_shards = self._accepts_shard(self.data)
+            if self._data_shards:
                 return self.data(self.global_batch_size, generator=self.streams['data'], rank=self.rank, world_size=self.world_size)
-            except TypeError:
-                return self.data(self.global_batch_size, generator=self.streams['data'])
+            return self.data(self.global_batch_size, generator=self.streams['data'])
 
         data_draw = self._phase('data draw', draw)
         if isinstance(data_draw, dict) and isinstance(data_draw.get('real'), torch.Tensor):
@@ -256,6 +287,19 @@ class ReplicatedTrainer(ReferenceTrainer):
 
         self._phase('local data validation', lambda: self._validate_batch(batch))
         return batch
+
+    _data_shards = None
+
+    @staticmethod
+    def _accepts_shard(source):
+        """Pass rank/world_size only to data sources that declare them."""
+        try:
+            parameters = inspect.signature(source).parameters.values()
+        except (TypeError, ValueError):
+            return False
+        names = {parameter.name for parameter in parameters}
+        return ({'rank', 'world_size'} <= names
+                or any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters))
 
     def _validate_batch(self, batch):
         if not isinstance(batch, dict) or not isinstance(batch.get('real'), torch.Tensor):
@@ -293,11 +337,9 @@ class ReplicatedTrainer(ReferenceTrainer):
         return flags
 
     def _reduce_gradients(self, optimizer, name):
-        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
-            if hasattr(self.aggregation_strategy, 'on_backward'):
-                self.aggregation_strategy.on_backward(optimizer, name)
-            if getattr(self.aggregation_strategy, 'name', None) != 'gradient_allreduce':
-                return
+        self.aggregation_strategy.on_backward(optimizer, name)
+        if not getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            return
         parameters = self._parameters(optimizer)
         present = [p.grad is not None for p in parameters]
         sparse = any(p.grad.layout != torch.strided for p in parameters if p.grad is not None)
@@ -325,6 +367,16 @@ class ReplicatedTrainer(ReferenceTrainer):
                 parameter.grad = gradient / self.world_size
             else:
                 parameter.grad = None
+
+    def _average_critic_statistics(self):
+        # KA2 controller statistics come from rank-local critic scores.
+        rec = getattr(self.opt_d, 'record', None)
+        if rec is not None and hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
+            stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
+            dist.all_reduce(stats)
+            stats /= self.world_size
+            rec.ema_residual = float(stats[0].item())
+            rec.ema_data_scale = float(stats[1].item())
 
     def _finite_optimizer(self, optimizer):
         for parameter in self._parameters(optimizer):
@@ -442,14 +494,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._reduce_gradients(self.opt_d, 'discriminator')
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
-        if getattr(self.opt_d, 'record', None) is not None:
-            rec = self.opt_d.record
-            if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
-                stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
-                dist.all_reduce(stats)
-                stats /= self.world_size
-                rec.ema_residual = float(stats[0].item())
-                rec.ema_data_scale = float(stats[1].item())
+        self._average_critic_statistics()
 
         saved_flags = []
         seen_modules = set()
@@ -511,25 +556,21 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
 
             if getattr(self.opt_g, '_protected', None) is not None:
-                if getattr(self.aggregation_strategy, 'name', None) == 'gradient_allreduce':
+                if getattr(self.aggregation_strategy, 'reduces_gradients', False):
                     dist.all_reduce(self.opt_g._protected)
                     self.opt_g._protected /= self.world_size
 
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
             self._phase('generator optimizer', self.opt_g.step)
             self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
-            if hasattr(self, 'aggregation_strategy') and hasattr(self.aggregation_strategy, 'on_step_complete'):
-                self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
+            self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
         finally:
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
-        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
-            if self.aggregation_strategy.should_assert_replicas(step):
-                self._assert_replicas('complete replicated state')
-        else:
+        if self.aggregation_strategy.should_assert_replicas(step):
             self._assert_replicas('complete replicated state')
         values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
             d_penalty, d_adversarial, d_adversarial_weighted, g_adversarial_weighted,
@@ -757,14 +798,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._reduce_gradients(self.opt_d, 'discriminator')
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
-        if getattr(self.opt_d, 'record', None) is not None:
-            rec = self.opt_d.record
-            if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
-                stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
-                dist.all_reduce(stats)
-                stats /= self.world_size
-                rec.ema_residual = float(stats[0].item())
-                rec.ema_data_scale = float(stats[1].item())
+        self._average_critic_statistics()
         saved_flags = []
         seen_modules = set()
         for term in terms:
@@ -870,8 +904,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
             self._phase('generator optimizer', self.opt_g.step)
             self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
-            if hasattr(self, 'aggregation_strategy') and hasattr(self.aggregation_strategy, 'on_step_complete'):
-                self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
+            self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
         finally:
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
@@ -879,10 +912,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         g_loss = weighted_adversarial.detach() + prior_loss + sum(objective_losses)
         self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
         self._phase('module compatibility', self._check_modules)
-        if hasattr(self, 'aggregation_strategy') and self.aggregation_strategy is not None:
-            if self.aggregation_strategy.should_assert_replicas(step):
-                self._assert_replicas('complete replicated state')
-        else:
+        if self.aggregation_strategy.should_assert_replicas(step):
             self._assert_replicas('complete replicated state')
         values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
             d_penalty, d_adversarial_raw, d_adversarial, weighted_adversarial,

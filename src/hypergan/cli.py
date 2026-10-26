@@ -53,7 +53,8 @@ def _positive_seconds(value):
 
 def _run_options(parser):
     from .ports import DEFAULT_VIEWER_PORT
-    parser.add_argument("--profile", help="execution profile name or TOML path; new runs default to native device, existing runs inherit")
+    parser.add_argument("--profile", help="execution profile name or TOML path; new runs default to native device, existing runs inherit "
+                                          "(multi-node profiles and the parameter_average/pseudo_gradient aggregation strategies are experimental)")
     from .execution import SERVICE_TIMEOUTS
     for name in SERVICE_TIMEOUTS:
         parser.add_argument("--" + name.replace("_", "-"), type=_positive_seconds,

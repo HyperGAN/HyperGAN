@@ -54,10 +54,24 @@ class TestGradientAllreduceStrategyUnit:
         with pytest.raises(ValueError, match="gradient_allreduce requires sync_every_steps = 1"):
             GradientAllreduceStrategy(sync_every_steps=0)
 
-    def test_should_assert_replicas_always_true(self):
+    def test_replica_digest_runs_on_an_interval_not_every_step(self, monkeypatch):
+        # Review 2026-10-25 M5: a full host-side SHA-256 of model and optimizer
+        # state after every update dominated step time.
+        monkeypatch.delenv("HYPERGAN_REPLICA_CHECK_EVERY", raising=False)
         strat = GradientAllreduceStrategy()
-        for s in (0, 1, 2, 5, 100):
-            assert strat.should_assert_replicas(s) is True
+        assert strat.replica_check_every == 100
+        assert [s for s in range(0, 301) if strat.should_assert_replicas(s)] == [0, 1, 100, 200, 300]
+        monkeypatch.setenv("HYPERGAN_REPLICA_CHECK_EVERY", "1")
+        debug = GradientAllreduceStrategy()
+        assert all(debug.should_assert_replicas(s) for s in (0, 1, 2, 5, 100))
+        monkeypatch.setenv("HYPERGAN_REPLICA_CHECK_EVERY", "0")
+        with pytest.raises(ValueError, match="replica_check_every"):
+            GradientAllreduceStrategy()
+
+    def test_reduces_gradients_capability(self):
+        assert GradientAllreduceStrategy.reduces_gradients is True
+        assert ParameterAverageStrategy.reduces_gradients is False
+        assert PseudoGradientStrategy.reduces_gradients is False
 
     def test_manifest_metadata(self):
         strat = GradientAllreduceStrategy()
@@ -202,7 +216,7 @@ class TestPseudoGradientStrategyUnit:
         model.weight.data.copy_(torch.tensor([[8.0, 17.0]]))
 
         # Round 1 synchronization (step 2)
-        strat.post_step(step=2, models=model)
+        strat.on_step_complete(step=2, models=model)
         # v1 = 0.9 * 0 + [2.0, 3.0] = [2.0, 3.0]
         # anchor1 = [10.0, 20.0] - 0.5 * [2.0, 3.0] = [9.0, 18.5]
         expected_v1 = torch.tensor([[2.0, 3.0]])
@@ -217,7 +231,7 @@ class TestPseudoGradientStrategyUnit:
         model.weight.data.copy_(torch.tensor([[8.5, 17.5]]))
 
         # Round 2 synchronization (step 4)
-        strat.post_step(step=4, models=model)
+        strat.on_step_complete(step=4, models=model)
         # v2 = 0.9 * [2.0, 3.0] + [0.5, 1.0] = [1.8 + 0.5, 2.7 + 1.0] = [2.3, 3.7]
         # anchor2 = [9.0, 18.5] - 0.5 * [2.3, 3.7] = [9.0 - 1.15, 18.5 - 1.85] = [7.85, 16.65]
         expected_v2 = torch.tensor([[2.3, 3.7]])
@@ -232,10 +246,11 @@ class TestPseudoGradientStrategyUnit:
         strat.on_step_complete(2)
 
         state = strat.state_dict()
+        # Review 2026-10-25 M6: one canonical key each, not four aliased clones.
         assert "anchor" in state
-        assert "anchor_weights" in state
-        assert "momentum" in state
         assert "momentum_buffer" in state
+        assert "anchor_weights" not in state
+        assert "momentum" not in state
         assert state["outer_lr"] == 0.75
         assert state["outer_momentum"] == 0.8
         assert state["sync_every_steps"] == 2
@@ -278,8 +293,6 @@ class TestAggregationRegistry:
                 self.trainer = trainer
                 self.custom_param = custom_param
 
-            def pre_step(self, step: int, models: Any = None, optimizers: Any = None) -> None: pass
-            def post_step(self, step: int, models: Any = None, optimizers: Any = None, collectives: Any = None) -> None: pass
             def on_backward(self, optimizer: Any, name: str) -> None: pass
             def on_step_complete(self, step: int) -> None: pass
             def should_assert_replicas(self, step: int) -> bool: return True

@@ -369,7 +369,7 @@ def _setup_dist_mocks(monkeypatch, world_size=2, rank=0):
 
 
 def test_rendezvous_default_switching(monkeypatch):
-    """Verify default rendezvous is 'file://' when nodes=1, and 'tcp://127.0.0.1:29500' when nodes > 1."""
+    """Default rendezvous is 'file://' when nodes=1; nodes > 1 requires an explicit rendezvous."""
     import hypergan.distributed_training as dt
 
     _setup_dist_mocks(monkeypatch, world_size=2)
@@ -380,10 +380,11 @@ def test_rendezvous_default_switching(monkeypatch):
     assert t1.rendezvous == 'file://'
     assert t1.strategy_info['rendezvous'] == 'file://'
 
-    # nodes = 2 -> tcp://127.0.0.1:29500
-    t2 = dt.ReplicatedTrainer(config, world_size=2, nodes=2)
-    assert t2.rendezvous == 'tcp://127.0.0.1:29500'
-    assert t2.strategy_info['rendezvous'] == 'tcp://127.0.0.1:29500'
+    # nodes = 2: a loopback default hangs on separate hosts (review 2026-10-25 L1)
+    with pytest.raises(ValueError, match='requires an explicit rendezvous'):
+        dt.ReplicatedTrainer(config, world_size=2, nodes=2)
+    t2 = dt.ReplicatedTrainer(config, world_size=2, nodes=2, rendezvous='tcp://node0:29500')
+    assert t2.strategy_info['rendezvous'] == 'tcp://node0:29500'
 
 
 def test_derived_ranks_per_node_defaulting(monkeypatch):
@@ -396,12 +397,12 @@ def test_derived_ranks_per_node_defaulting(monkeypatch):
     config['training']['batch_size'] = 64
 
     # world_size = 4, nodes = 2 -> ranks_per_node = 2
-    t = dt.ReplicatedTrainer(config, world_size=4, nodes=2)
+    t = dt.ReplicatedTrainer(config, world_size=4, nodes=2, rendezvous='tcp://node0:29500')
     assert t.ranks_per_node == 2
     assert t.strategy_info['ranks_per_node'] == 2
 
     # explicit override ranks_per_node = 1
-    t_explicit = dt.ReplicatedTrainer(config, world_size=4, nodes=2, ranks_per_node=1)
+    t_explicit = dt.ReplicatedTrainer(config, world_size=4, nodes=2, ranks_per_node=1, rendezvous='tcp://node0:29500')
     assert t_explicit.ranks_per_node == 1
     assert t_explicit.strategy_info['ranks_per_node'] == 1
 

@@ -284,7 +284,8 @@ try:
     elif mode == "non_cadence_save":
         # Under parameter_average or pseudo_gradient with sync_every_steps=2,
         # step 1 causes weight divergence across distinct rank data shards.
-        # Checkpoint save at step 1 should fail consensus agreement.
+        # A checkpoint at step 1 first forces one synchronization (review
+        # 2026-10-25 H3: it used to fail consensus and poison the run).
         trainer = ReplicatedTrainer(
             cfg, world_size=2, accumulation_steps=1, nodes=2,
             node_rank=node_rank, ranks_per_node=1, rendezvous=tcp_url,
@@ -305,6 +306,9 @@ try:
 
         result['rejected'] = rejected
         result['rejection_error'] = rejection_error
+        result['weights_sha256'] = ReplicatedTrainer._digest(trainer.graph.state_dict())
+        result['synced_step'] = trainer.aggregation_strategy.synced_step
+        result['checkpoint_ready'] = trainer.checkpoint_ready
         Path(out_path).write_text(json.dumps(result))
 
 finally:
@@ -638,10 +642,10 @@ def test_2node_exact_trajectory_continuity_matrix_cpu(tmp_path, strategy, sync_e
 # ==============================================================================
 
 @pytest.mark.parametrize("strategy", ["parameter_average", "pseudo_gradient"])
-def test_non_cadence_checkpoint_rejection_multi_node(tmp_path, strategy):
-    """Challenge 4: Verify that attempting a checkpoint save at an unsynchronized local step
-    (e.g. step 1 when sync_every_steps=2) across 2 nodes over TCP is safely rejected
-    due to cross-node replica divergence.
+def test_non_cadence_checkpoint_forces_one_synchronization_multi_node(tmp_path, strategy):
+    """Challenge 4: a checkpoint at an unsynchronized local step (step 1 when
+    sync_every_steps=2) across 2 nodes over TCP synchronizes the replicas once and
+    publishes one replicated state instead of failing the run.
     """
     agg = {
         'strategy': strategy,
@@ -655,13 +659,11 @@ def test_non_cadence_checkpoint_rejection_multi_node(tmp_path, strategy):
     results = run_challenge_nodes(tmp_path, mode="non_cadence_save", backend="gloo", agg_cfg=agg, steps=1, run_dir=run_dir)
     assert len(results) == 2
     for r in results:
-        assert r['rejected'] is True, f"Non-cadence checkpoint for {strategy} should have been rejected"
-        assert "disagree on checkpoint step, lineage, config/runtime/source/data/topology or replicated numerical state" in r['rejection_error']
-
-    # Confirm no published generation in distributed-checkpoints
-    dist_root = run_dir / 'distributed-checkpoints'
-    if dist_root.exists():
-        assert not (dist_root / 'latest.json').exists(), "No latest pointer should be published on rejected non-cadence checkpoint"
+        assert r['rejected'] is False, r['rejection_error']
+        assert r['synced_step'] == 1 and r['checkpoint_ready'] is True
+    assert results[0]['weights_sha256'] == results[1]['weights_sha256']
+    latest = json.loads((run_dir / 'distributed-checkpoints' / 'latest.json').read_text())
+    assert latest['step'] == 1
 
 
 # ==============================================================================

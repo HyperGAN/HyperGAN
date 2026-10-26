@@ -32,12 +32,11 @@ from .config import config_values, fingerprint, numerical_values, resume_compati
 from .recipes import move_tensors
 from .run_state import atomic_json, sync_directory
 from .training import _implementation, _recovery_contract, runtime_info, source_info
-from .distributed_commit import (make_prepared_receipt, preparation_directory, validate_fence,
-                                 _validate_prepared, _publish)
+from .distributed_commit import (MAX_RANK_BYTES, make_prepared_receipt, preparation_directory,
+                                 validate_fence, _validate_prepared, _publish)
 
 SCHEMA = 1
 KIND = 'hypergan-distributed-training-checkpoint'
-MAX_RANK_BYTES = 256 * 1024 * 1024
 MAX_METADATA_BYTES = 16 * 1024 * 1024
 _SHARED = ('graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
            'step', 'buffers', 'trainable', 'modes')
@@ -143,12 +142,20 @@ def _same_json(left, right):
     return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)
 
 
-def _agree(operation, value=None, error=None):
+def _local_device(trainer):
+    """The rank-owned CUDA device: local rank on this node, never the global rank."""
+    device = getattr(trainer, 'device', None)
+    if isinstance(device, torch.device) and device.type == 'cuda' and device.index is not None:
+        return device
+    ranks_per_node = getattr(trainer, 'ranks_per_node', None) or getattr(trainer, 'strategy_info', {}).get('ranks_per_node')
+    return torch.device('cuda', dist.get_rank() % (ranks_per_node or torch.cuda.device_count()))
+
+
+def _agree(operation, value=None, error=None, *, trainer=None):
     # Custom hooks may change the ambient device before failing. Agree on that
     # failure using this rank's device, never another rank's NCCL communicator.
     if dist.get_backend() == 'nccl':
-        device_idx = dist.get_rank() if torch.cuda.device_count() >= dist.get_world_size() else (dist.get_rank() % torch.cuda.device_count())
-        torch.cuda.set_device(device_idx)
+        torch.cuda.set_device(_local_device(trainer))
     peers = [None] * dist.get_world_size()
     dist.all_gather_object(peers, {'operation': operation, 'value': value, 'error': error})
     if any(peer['operation'] != operation for peer in peers):
@@ -324,7 +331,7 @@ def save_distributed_checkpoint(run_dir, trainer, last_batch, metadata):
 def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, command_sequence, controller_id):
     """Stage every complete rank state without publishing a generation or latest pointer.
 
-    Each payload is capped at 256 MiB; rank zero holds O(world_size * rank_bytes)
+    Each payload is capped at MAX_RANK_BYTES (1 GiB); rank zero holds O(world_size * rank_bytes)
     memory. Trusted-worker object collectives carry CPU-serialized state (NCCL
     stages these bytes through the rank GPU). This is not a scalable/sharded
     checkpoint transport. The parent owns run_lock.
@@ -332,6 +339,11 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
     command completed on every worker. A parent authority publishes separately.
     """
     rank, world_size = _group()
+    # Experimental local-SGD replicas differ between synchronizations; one complete
+    # state needs them averaged first. Collective, and a no-op at sync boundaries.
+    synchronize = getattr(trainer, 'synchronize_replicas', None)
+    if callable(synchronize):
+        synchronize()
     rng = capture_rng()
     temporary = None
     try:
@@ -360,7 +372,7 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
                 raise ValueError('Distributed checkpoint metadata exceeds its byte bound')
         except Exception as exc:
             error = f'{type(exc).__name__}: {exc}'
-        peers = _agree('prepare:collect', descriptor, error)
+        peers = _agree('prepare:collect', descriptor, error, trainer=trainer)
         if any(not _same_json(peer, peers[0]) for peer in peers):
             raise ValueError('Ranks disagree on checkpoint step, lineage, config/runtime/source/data/topology or replicated numerical state')
         payloads = [None] * world_size if rank == 0 else None
@@ -403,7 +415,7 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
                 error = f'{type(exc).__name__}: {exc}'
         # Missing ranks must prevent the receipt from becoming a successful
         # all-rank command result. No worker in this API publishes canonical state.
-        _agree('prepare:staged', error=error)
+        _agree('prepare:staged', error=error, trainer=trainer)
         result = [receipt]
         dist.broadcast_object_list(result, src=0)
         temporary = None  # Owned managed staging remains for parent validation.
@@ -537,7 +549,7 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
     except Exception as exc:
         error = f'{type(exc).__name__}: {exc}'
     restore_rng(initial_rng)
-    peers = _agree('restore:prepare', descriptor, error)
+    peers = _agree('restore:prepare', descriptor, error, trainer=trainer)
     if any(not _same_json(peer, peers[0]) for peer in peers):
         raise ValueError('Ranks disagree on distributed checkpoint selection or expected identity')
     payloads, response = None, [None]
@@ -568,7 +580,7 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
         error = f'{type(exc).__name__}: {exc}'
     finally:
         restore_rng(initial_rng)
-    _agree('restore:validated', error=error)
+    _agree('restore:validated', error=error, trainer=trainer)
     trainer.checkpoint_ready = False
     try:
         error, last_batch = None, None
@@ -580,7 +592,7 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
                 raise ValueError('Live restored rank state differs from checkpoint')
         except Exception as exc:
             error = f'{type(exc).__name__}: {exc}'
-        _agree('restore:loaded', error=error)
+        _agree('restore:loaded', error=error, trainer=trainer)
     except BaseException:
         trainer.checkpoint_ready = False
         trainer._poisoned = True

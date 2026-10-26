@@ -20,7 +20,9 @@ from .run_state import atomic_json, sync_directory
 SCHEMA = 1
 KIND = 'hypergan-distributed-training-checkpoint'
 PREPARED_KIND = 'hypergan-prepared-distributed-checkpoint'
-MAX_RANK_BYTES = 256 * 1024 * 1024
+# The one per-rank payload bound for distributed checkpoints (prepare, commit and
+# restore). Full-depth transformer generators need more than 256 MiB.
+MAX_RANK_BYTES = 1024 * 1024 * 1024
 MAX_METADATA_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_BYTES = 65536
 MAX_RANKS = 64

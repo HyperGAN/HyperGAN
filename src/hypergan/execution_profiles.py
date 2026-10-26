@@ -183,8 +183,14 @@ def resolve_execution_profile(values, config):
 
     if 'rendezvous' in execution:
         rendezvous = _validate_rendezvous(execution['rendezvous'])
+    elif nodes > 1:
+        raise ValueError('Multi-node execution is experimental and requires an explicit execution.rendezvous = '
+                         '"tcp://<node-0-host>:<port>" on every node; a loopback default cannot reach other hosts')
     else:
-        rendezvous = 'file://' if nodes == 1 else 'tcp://127.0.0.1:29500'
+        rendezvous = 'file://'
+    if nodes > 1 and not rendezvous.startswith('tcp://'):
+        raise ValueError('Multi-node execution is experimental and requires a tcp://<node-0-host>:<port> rendezvous; '
+                         'followers detect a failed node 0 through its TCP store')
 
     if name == 'cpu-single' and rendezvous.startswith('tcp://'):
         raise ValueError('cpu-single requires file:// rendezvous; tcp:// is unsupported for single-device execution')
@@ -229,6 +235,34 @@ def resolve_execution_profile(values, config):
                           'aggregation': aggregation},
             'aggregation': aggregation,
             'preflight': {'timeout': timeout, 'collective_timeout': collective}}
+
+
+def experimental_features(profile):
+    """Name the experimental parts of a resolved profile, for warnings and help."""
+    execution = profile['execution']
+    features = []
+    if execution.get('nodes', 1) > 1:
+        features.append(f"multi-node execution (nodes={execution['nodes']})")
+    strategy = execution.get('aggregation', {}).get('strategy', 'gradient_allreduce')
+    if strategy != 'gradient_allreduce':
+        features.append(f'aggregation.strategy={strategy!r}')
+    return features
+
+
+def validate_checkpoint_cadence(profile, checkpoint_every):
+    """Periodic checkpoints of local-SGD runs must land on synchronization steps.
+
+    A checkpoint between synchronizations forces one (see
+    ReplicatedTrainer.synchronize_replicas), which would silently change the
+    configured sync schedule every checkpoint_every steps.
+    """
+    aggregation = profile['execution'].get('aggregation', {})
+    sync = aggregation.get('sync_every_steps', 1)
+    if (aggregation.get('strategy', 'gradient_allreduce') != 'gradient_allreduce'
+            and type(checkpoint_every) is int and checkpoint_every % sync):
+        raise ValueError(f"aggregation.strategy={aggregation['strategy']!r} is experimental: checkpoint_every "
+                         f"({checkpoint_every}) must be a multiple of aggregation.sync_every_steps ({sync}), "
+                         f"e.g. {max(sync, checkpoint_every - checkpoint_every % sync)}")
 
 
 def load_execution_profile(path, config):

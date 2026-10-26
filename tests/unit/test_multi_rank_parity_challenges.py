@@ -400,7 +400,7 @@ class TestPseudoGradientDiLoCoSpecificationParity:
         )
         model.weight.data.copy_(init_weight)
         model.bias.data.copy_(init_bias)
-        strat.pre_step(step=0, models=model)
+        strat.initialize(models=model)
 
         for round_idx in range(1, 6):
             # Generate 3 distinct simulated replica states

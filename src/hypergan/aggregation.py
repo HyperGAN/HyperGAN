@@ -11,11 +11,15 @@ Provides:
   1. GradientAllreduceStrategy ('gradient_allreduce'): synchronous gradient all-reduction after backward (sync_every_steps=1).
   2. ParameterAverageStrategy ('parameter_average'): periodic cross-rank parameter averaging (FedAvg / Local SGD).
   3. PseudoGradientStrategy ('pseudo_gradient'): DiLoCo outer-optimizer with momentum.
+
+parameter_average and pseudo_gradient are experimental local-SGD strategies: replicas
+differ between synchronizations, so a checkpoint at any other step first forces one
+synchronization (see ``synchronize``).
 """
 from __future__ import annotations
 
-import copy
 import math
+import os
 from typing import Any, Dict, List, Optional, Protocol, Tuple, Type, runtime_checkable
 
 import torch
@@ -26,19 +30,19 @@ from .execution_profiles import register_profile_strategy
 
 @runtime_checkable
 class AggregationStrategy(Protocol):
-    """Protocol defining the learning aggregation contract with ReplicatedTrainer."""
+    """Protocol defining the learning aggregation contract with ReplicatedTrainer.
+
+    ``reduces_gradients`` asks the trainer to mean-reduce every gradient across ranks
+    before each optimizer step. A strategy without it keeps rank-local gradients and
+    must make replicas agree itself, at least at the steps where
+    ``should_assert_replicas`` is true. Optional ``is_synchronized(step)`` and
+    ``synchronize()`` let checkpoints bring diverged replicas into agreement.
+    """
     name: str
-
-    def pre_step(self, step: int, models: Any = None, optimizers: Any = None) -> None:
-        """Pre-optimizer step hook."""
-        ...
-
-    def post_step(self, step: int, models: Any = None, optimizers: Any = None, collectives: Any = None) -> None:
-        """Post-optimizer step hook."""
-        ...
+    reduces_gradients: bool
 
     def on_backward(self, optimizer: Any, name: str) -> None:
-        """Post-backward gradient reduction hook."""
+        """Post-backward gradient hook."""
         ...
 
     def on_step_complete(self, step: int) -> None:
@@ -66,20 +70,44 @@ class AggregationStrategy(Protocol):
 # Canonical Strategy 1: "gradient_allreduce"
 # ==============================================================================
 
+REPLICA_CHECK_EVERY = 100
+
+
+def _replica_check_every(value=None):
+    """Steps between full replica digests for gradient_allreduce.
+
+    The digest copies every parameter, buffer and optimizer tensor to the host
+    and hashes it, so it is a debug check, not a per-step cost. Set
+    HYPERGAN_REPLICA_CHECK_EVERY=1 to check after every update. Checkpoints
+    always verify complete replica agreement regardless of this interval.
+    """
+    if value is None:
+        raw = os.environ.get('HYPERGAN_REPLICA_CHECK_EVERY')
+        if raw is None:
+            return REPLICA_CHECK_EVERY
+        try:
+            value = int(raw)
+        except ValueError:
+            raise ValueError('HYPERGAN_REPLICA_CHECK_EVERY must be a positive integer') from None
+    if type(value) is not int or value < 1:
+        raise ValueError('replica_check_every must be a positive integer')
+    return value
+
+
 class GradientAllreduceStrategy:
     """Synchronous post-backward mean gradient all-reduce before optimizer step."""
     name: str = "gradient_allreduce"
+    reduces_gradients: bool = True
 
-    def __init__(self, trainer: Any = None, sync_every_steps: int = 1, **kwargs: Any) -> None:
+    def __init__(self, trainer: Any = None, sync_every_steps: int = 1, replica_check_every: Optional[int] = None,
+                 **kwargs: Any) -> None:
         if sync_every_steps != 1:
             raise ValueError("gradient_allreduce requires sync_every_steps = 1")
         self.trainer = trainer
         self.sync_every_steps = 1
+        self.replica_check_every = _replica_check_every(replica_check_every)
         self.step_count = 0
         self.settings = kwargs
-
-    def pre_step(self, step: int, models: Any = None, optimizers: Any = None) -> None:
-        pass
 
     def on_backward(self, optimizer: Any, name: str) -> None:
         # If running inside ReplicatedTrainer, _reduce_gradients handles the reduction.
@@ -100,14 +128,19 @@ class GradientAllreduceStrategy:
                 dist.all_reduce(grad, op=dist.ReduceOp.SUM)
                 p.grad = grad / world_size
 
-    def on_step_complete(self, step: int) -> None:
+    def on_step_complete(self, step: int, models: Any = None, optimizers: Any = None) -> None:
         self.step_count = step
 
-    def post_step(self, step: int, models: Any = None, optimizers: Any = None, collectives: Any = None) -> None:
-        self.on_step_complete(step)
-
     def should_assert_replicas(self, step: int) -> bool:
+        # Reduced gradients keep replicas equal by construction; the digest only
+        # catches nondeterministic kernels or rank-local state, so sample it.
+        return step <= 1 or step % self.replica_check_every == 0
+
+    def is_synchronized(self, step: int) -> bool:
         return True
+
+    def synchronize(self, models: Any = None, optimizers: Any = None) -> None:
+        pass
 
     def state_dict(self) -> Dict[str, Any]:
         return {
@@ -212,7 +245,7 @@ def _synchronize_optimizer_regularizers(
             ):
                 data = hist.data.contiguous()
                 dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                hist.data.copy_(data)
+                hist.data.copy_(data / world_size)
 
         # 2. Synchronize critic step record scalar records (opt_d.record)
         rec = getattr(opt, "record", None)
@@ -237,38 +270,59 @@ def _synchronize_optimizer_regularizers(
         # 3. Synchronize EMA critic network if attached to optimizer
         ema_critic = getattr(opt, "ema_critic", None)
         if ema_critic is not None and isinstance(ema_critic, torch.nn.Module):
-            for p in ema_critic.parameters():
+            _average_modules([ema_critic], world_size)
+
+
+def _average_modules(modules: List[torch.nn.Module], world_size: int, *, parameters: bool = True) -> None:
+    """Mean floating parameters and buffers across ranks; rank zero owns integer buffers."""
+    for module in modules:
+        if parameters:
+            for p in module.parameters():
                 data = p.data.contiguous()
                 dist.all_reduce(data, op=dist.ReduceOp.SUM)
                 p.data.copy_(data / world_size)
-            for name, buf in ema_critic.named_buffers():
-                if buf.is_floating_point():
-                    data = buf.data.contiguous()
-                    dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                    buf.data.copy_(data / world_size)
-                else:
-                    dist.broadcast(buf.data, src=0)
+        for buf in module.buffers():
+            if buf.is_floating_point():
+                data = buf.data.contiguous()
+                dist.all_reduce(data, op=dist.ReduceOp.SUM)
+                buf.data.copy_(data / world_size)
+            else:
+                dist.broadcast(buf.data, src=0)
 
 
-# ==============================================================================
-# Canonical Strategy 2: "parameter_average"
-# ==============================================================================
+def _strategy_optimizers(trainer: Any = None, optimizers: Any = None) -> List[Any]:
+    if optimizers is not None:
+        return list(optimizers) if isinstance(optimizers, (list, tuple)) else [optimizers]
+    if trainer is None:
+        return []
+    return [opt for opt in (getattr(trainer, "opt_g", None), getattr(trainer, "opt_d", None))
+            if opt is not None and hasattr(opt, "state")]
 
 
-class ParameterAverageStrategy:
-    """Periodic cross-rank parameter averaging (FedAvg / Local SGD)."""
-    name: str = "parameter_average"
+def _synchronize_optimizers(trainer: Any, optimizers: Any, world_size: int) -> None:
+    """Average optimizer moments and ParticleGAN regularizer state across ranks."""
+    opts = _strategy_optimizers(trainer, optimizers)
+    _synchronize_optimizer_moments(opts, world_size, _resolve_comm_device(trainer, opts))
+    _synchronize_optimizer_regularizers(trainer, opts)
 
-    def __init__(self, trainer: Any = None, sync_every_steps: int = 1, **kwargs: Any) -> None:
+
+class _LocalSGDStrategy:
+    """Shared cadence and checkpoint synchronization for experimental local-SGD strategies.
+
+    Replicas train independently between synchronizations. ``synced_step`` records
+    the last step whose state was synchronized, so a checkpoint at any step can force
+    exactly one synchronization and a resumed run does not repeat it.
+    """
+    reduces_gradients: bool = False
+
+    def _init_cadence(self, trainer: Any, sync_every_steps: int, settings: Dict[str, Any]) -> None:
         if type(sync_every_steps) is not int or sync_every_steps < 1:
             raise ValueError("aggregation.sync_every_steps must be a positive integer >= 1")
         self.trainer = trainer
         self.sync_every_steps = sync_every_steps
         self.step_count = 0
-        self.settings = kwargs
-
-    def pre_step(self, step: int, models: Any = None, optimizers: Any = None) -> None:
-        pass
+        self.synced_step = 0
+        self.settings = settings
 
     def on_backward(self, optimizer: Any, name: str) -> None:
         pass
@@ -276,15 +330,45 @@ class ParameterAverageStrategy:
     def should_assert_replicas(self, step: int) -> bool:
         return step % self.sync_every_steps == 0
 
-    def on_step_complete(self, step: int) -> None:
-        self.step_count = step
-        if self.should_assert_replicas(step):
-            self._synchronize()
+    def is_synchronized(self, step: int) -> bool:
+        return self.should_assert_replicas(step) or self.synced_step == step
 
-    def post_step(self, step: int, models: Any = None, optimizers: Any = None, collectives: Any = None) -> None:
+    def on_step_complete(self, step: int, models: Any = None, optimizers: Any = None) -> None:
         self.step_count = step
         if self.should_assert_replicas(step):
-            self._synchronize(models=models, optimizers=optimizers)
+            self.synchronize(models=models, optimizers=optimizers)
+
+    def synchronize(self, models: Any = None, optimizers: Any = None) -> None:
+        self._synchronize(models=models, optimizers=optimizers)
+        self.synced_step = self.step_count
+
+    def _cadence_state(self) -> Dict[str, Any]:
+        return {
+            "strategy": self.name,
+            "step": self.step_count,
+            "step_count": self.step_count,
+            "synced_step": self.synced_step,
+            "sync_every_steps": self.sync_every_steps,
+        }
+
+    def _load_cadence(self, state: Dict[str, Any]) -> None:
+        self.step_count = state.get("step_count", state.get("step", self.step_count))
+        self.sync_every_steps = state.get("sync_every_steps", self.sync_every_steps)
+        # Older checkpoints were only valid at sync boundaries.
+        self.synced_step = state.get("synced_step", self.step_count)
+
+
+# ==============================================================================
+# Canonical Strategy 2: "parameter_average"
+# ==============================================================================
+
+
+class ParameterAverageStrategy(_LocalSGDStrategy):
+    """Experimental periodic cross-rank parameter averaging (FedAvg / Local SGD)."""
+    name: str = "parameter_average"
+
+    def __init__(self, trainer: Any = None, sync_every_steps: int = 1, **kwargs: Any) -> None:
+        self._init_cadence(trainer, sync_every_steps, kwargs)
 
     def _get_models(self, models: Any = None) -> List[torch.nn.Module]:
         if models is not None:
@@ -313,48 +397,14 @@ class ParameterAverageStrategy:
         world_size = dist.get_world_size()
         if world_size <= 1:
             return
-
-        model_list = self._get_models(models)
-        for model in model_list:
-            for p in model.parameters():
-                data = p.data.contiguous()
-                dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                p.data.copy_(data / world_size)
-
-            for name, buf in model.named_buffers():
-                if buf.is_floating_point():
-                    data = buf.data.contiguous()
-                    dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                    buf.data.copy_(data / world_size)
-                else:
-                    dist.broadcast(buf.data, src=0)
-
-        # Synchronize optimizer momentum states across ranks
-        opts = []
-        if optimizers is not None:
-            opts = optimizers if isinstance(optimizers, (list, tuple)) else [optimizers]
-        elif self.trainer is not None:
-            for opt_name in ("opt_g", "opt_d"):
-                opt = getattr(self.trainer, opt_name, None)
-                if opt is not None and hasattr(opt, "state"):
-                    opts.append(opt)
-
-        comm_device = _resolve_comm_device(self.trainer, opts)
-        _synchronize_optimizer_moments(opts, world_size, comm_device)
-
-        _synchronize_optimizer_regularizers(self.trainer, opts)
+        _average_modules(self._get_models(models), world_size)
+        _synchronize_optimizers(self.trainer, optimizers, world_size)
 
     def state_dict(self) -> Dict[str, Any]:
-        return {
-            "strategy": self.name,
-            "step": self.step_count,
-            "step_count": self.step_count,
-            "sync_every_steps": self.sync_every_steps,
-        }
+        return self._cadence_state()
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
-        self.step_count = state.get("step_count", state.get("step", self.step_count))
-        self.sync_every_steps = state.get("sync_every_steps", self.sync_every_steps)
+        self._load_cadence(state)
 
     def manifest_metadata(self) -> Dict[str, Any]:
         return {
@@ -367,8 +417,12 @@ class ParameterAverageStrategy:
 # Canonical Strategy 3: "pseudo_gradient" (DiLoCo / FedOpt)
 # ==============================================================================
 
-class PseudoGradientStrategy:
-    """Federated outer-optimizer update (DiLoCo / FedOpt) using pseudo-gradients."""
+class PseudoGradientStrategy(_LocalSGDStrategy):
+    """Experimental federated outer-optimizer update (DiLoCo / FedOpt) using pseudo-gradients.
+
+    Unlike the usual DiLoCo, inner Adam moments and ParticleGAN regularizer state are
+    also averaged at every synchronization, so replicas stay bitwise identical there.
+    """
     name: str = "pseudo_gradient"
 
     def __init__(
@@ -379,19 +433,14 @@ class PseudoGradientStrategy:
         outer_momentum: float = 0.0,
         **kwargs: Any,
     ) -> None:
-        if type(sync_every_steps) is not int or sync_every_steps < 1:
-            raise ValueError("aggregation.sync_every_steps must be a positive integer >= 1")
+        self._init_cadence(trainer, sync_every_steps, kwargs)
         if not isinstance(outer_lr, (int, float)) or isinstance(outer_lr, bool) or outer_lr <= 0.0 or not math.isfinite(outer_lr):
             raise ValueError("aggregation.outer_lr must be a finite positive float")
         if not isinstance(outer_momentum, (int, float)) or isinstance(outer_momentum, bool) or not (0.0 <= outer_momentum < 1.0) or not math.isfinite(outer_momentum):
             raise ValueError("aggregation.outer_momentum must be a finite float in [0.0, 1.0)")
 
-        self.trainer = trainer
-        self.sync_every_steps = sync_every_steps
         self.outer_lr = float(outer_lr)
         self.outer_momentum = float(outer_momentum)
-        self.step_count = 0
-        self.settings = kwargs
 
         self.anchor: Dict[str, torch.Tensor] = {}
         self.momentum_buffer: Dict[str, torch.Tensor] = {}
@@ -434,6 +483,29 @@ class PseudoGradientStrategy:
 
         return named_params
 
+    def _get_modules(self, models: Any = None) -> List[torch.nn.Module]:
+        """Modules whose parameters take the outer step; their buffers are averaged."""
+        if models is not None:
+            if isinstance(models, torch.nn.Module):
+                return [models]
+            values = models.values() if isinstance(models, dict) else models if isinstance(models, (list, tuple)) else ()
+            return [m for m in values if isinstance(m, torch.nn.Module)]
+        found: List[torch.nn.Module] = []
+        if self.trainer is None:
+            return found
+        candidates = [getattr(self.trainer, attr, None) for attr in ("graph", "prior")]
+        if hasattr(self.trainer, "models") and isinstance(self.trainer.models, dict):
+            candidates.extend(self.trainer.models.values())
+        for mod in candidates:
+            if isinstance(mod, torch.nn.Module) and all(mod is not seen for seen in found):
+                found.append(mod)
+        return found
+
+    def initialize(self, models: Any = None) -> None:
+        """Capture the outer anchor from the current replicated parameters."""
+        self.anchor, self.momentum_buffer = {}, {}
+        self._init_anchor_and_momentum(models)
+
     def _init_anchor_and_momentum(self, models: Any = None) -> None:
         params = self._get_named_parameters(models)
         for k, p in params.items():
@@ -441,26 +513,6 @@ class PseudoGradientStrategy:
                 self.anchor[k] = p.detach().clone().cpu()
             if k not in self.momentum_buffer:
                 self.momentum_buffer[k] = torch.zeros_like(self.anchor[k])
-
-    def pre_step(self, step: int, models: Any = None, optimizers: Any = None) -> None:
-        if not self.anchor:
-            self._init_anchor_and_momentum(models)
-
-    def on_backward(self, optimizer: Any, name: str) -> None:
-        pass
-
-    def should_assert_replicas(self, step: int) -> bool:
-        return step % self.sync_every_steps == 0
-
-    def on_step_complete(self, step: int) -> None:
-        self.step_count = step
-        if self.should_assert_replicas(step):
-            self._synchronize()
-
-    def post_step(self, step: int, models: Any = None, optimizers: Any = None, collectives: Any = None) -> None:
-        self.step_count = step
-        if self.should_assert_replicas(step):
-            self._synchronize(models=models, optimizers=optimizers)
 
     def _synchronize(self, models: Any = None, optimizers: Any = None) -> None:
         if not self.anchor:
@@ -495,59 +547,29 @@ class PseudoGradientStrategy:
 
             p.data.copy_(new_anchor)
 
-        # Synchronize EMA models across ranks to maintain bitwise identical state
-        if is_dist and world_size > 1 and self.trainer is not None:
-            for ema_attr in ("ema_graph", "ema_prior"):
-                ema_mod = getattr(self.trainer, ema_attr, None)
-                if isinstance(ema_mod, torch.nn.Module):
-                    for p in ema_mod.parameters():
-                        data = p.data.contiguous()
-                        dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                        p.data.copy_(data / world_size)
-                    for name, buf in ema_mod.named_buffers():
-                        if buf.is_floating_point():
-                            data = buf.data.contiguous()
-                            dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                            buf.data.copy_(data / world_size)
-                        else:
-                            dist.broadcast(buf.data, src=0)
-
-            # Synchronize optimizer floating moments and regularizers across ranks
-            opts = []
-            if optimizers is not None:
-                opts = optimizers if isinstance(optimizers, (list, tuple)) else [optimizers]
-            elif self.trainer is not None:
-                for opt_name in ("opt_g", "opt_d"):
-                    opt = getattr(self.trainer, opt_name, None)
-                    if opt is not None and hasattr(opt, "state"):
-                        opts.append(opt)
-
-            comm_device = _resolve_comm_device(self.trainer, opts)
-            _synchronize_optimizer_moments(opts, world_size, comm_device)
-
-            _synchronize_optimizer_regularizers(self.trainer, opts)
+        if is_dist and world_size > 1:
+            # Buffers (e.g. spectral-norm weight_u) evolve locally and take no outer step.
+            _average_modules(self._get_modules(models), world_size, parameters=False)
+            if self.trainer is not None:
+                _average_modules([mod for mod in (getattr(self.trainer, "ema_graph", None),
+                                                  getattr(self.trainer, "ema_prior", None))
+                                  if isinstance(mod, torch.nn.Module)], world_size)
+            _synchronize_optimizers(self.trainer, optimizers, world_size)
 
     def state_dict(self) -> Dict[str, Any]:
         if not self.anchor:
             self._init_anchor_and_momentum()
-        return {
-            "strategy": self.name,
-            "step": self.step_count,
-            "step_count": self.step_count,
-            "sync_every_steps": self.sync_every_steps,
-            "outer_lr": self.outer_lr,
-            "outer_momentum": self.outer_momentum,
-            "anchor": {k: v.clone() for k, v in self.anchor.items()},
-            "anchor_weights": {k: v.clone() for k, v in self.anchor.items()},
-            "momentum": {k: v.clone() for k, v in self.momentum_buffer.items()},
-            "momentum_buffer": {k: v.clone() for k, v in self.momentum_buffer.items()},
-        }
+        return dict(self._cadence_state(),
+                    outer_lr=self.outer_lr,
+                    outer_momentum=self.outer_momentum,
+                    anchor={k: v.clone() for k, v in self.anchor.items()},
+                    momentum_buffer={k: v.clone() for k, v in self.momentum_buffer.items()})
 
     def load_state_dict(self, state: Dict[str, Any]) -> None:
-        self.step_count = state.get("step_count", state.get("step", self.step_count))
-        self.sync_every_steps = state.get("sync_every_steps", self.sync_every_steps)
+        self._load_cadence(state)
         self.outer_lr = state.get("outer_lr", self.outer_lr)
         self.outer_momentum = state.get("outer_momentum", self.outer_momentum)
+        # Older checkpoints also carried aliases of the same tensors.
         anchor_data = state.get("anchor") or state.get("anchor_weights") or state.get("weights") or {}
         self.anchor = {k: v.clone() for k, v in anchor_data.items()}
         momentum_data = state.get("momentum_buffer") or state.get("momentum") or {}

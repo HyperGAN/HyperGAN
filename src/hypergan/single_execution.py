@@ -99,9 +99,9 @@ class SingleProcessExecution:
                                  'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
                                  'pinned training-image skipping, or changing its pixel cache, is allowed')
         apply_backend_policy(self._config)
+        self._pin_threads()
         # Warns on stderr as it is detected; the controller also records them on
         # the run so the owner can read them after the attempt has scrolled past.
-        self._pin_threads()
         current_runtime = runtime_info(self._config['training']['device'])
         migration = {}
         if (isinstance(info['runtime'], dict)

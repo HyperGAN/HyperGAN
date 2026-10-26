@@ -2,6 +2,7 @@
 import hashlib
 import importlib
 import inspect
+import json
 from pathlib import Path
 import random
 
@@ -10,14 +11,39 @@ import torch
 
 from .artifacts import _restore_buffers
 from .config import resolve_config
-from .metric_plugins import _factory, finite_json
+from .data import EvaluationDataExhausted
+from .metric_plugins import _factory, check_evaluation_data, finite_json
 from .recipes import ComponentGraph, construct, execution_device, make_prior, move_tensors
 
 MAX_BATCH_ELEMENTS = 16 * 1024 * 1024
+# The protocol, and so the whole result, must fit the 64 KiB plugin budget.
+MAX_DATA_IDENTITY_BYTES = 16 * 1024
+MAX_IDENTITY_FIELD_BYTES = 1024
 
 
-class EvaluationDataExhausted(ValueError):
-    """The evaluation data ran out before the declared sample count."""
+def _canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+
+
+def _bounded_identity(identity):
+    """Protocol-sized data identity: oversized fields become their SHA-256 and size.
+
+    An image_folder identity lists every file, so a few hundred images would
+    exceed the plugin budget. The digests still pin the content exactly.
+    """
+    encoded = _canonical(identity)
+    if len(encoded) <= MAX_DATA_IDENTITY_BYTES:
+        return json.loads(encoded)
+    result = {'identity_sha256': hashlib.sha256(encoded).hexdigest()}
+    if isinstance(identity, dict):
+        for key, value in identity.items():
+            field = _canonical(value)
+            result[key] = json.loads(field) if len(field) <= MAX_IDENTITY_FIELD_BYTES else {
+                'sha256': hashlib.sha256(field).hexdigest(), 'bytes': len(field),
+                **({'items': len(value)} if isinstance(value, (list, dict)) else {})}
+    if len(_canonical(result)) > MAX_DATA_IDENTITY_BYTES:
+        result = {'identity_sha256': result['identity_sha256']}
+    return result
 
 
 def _draw(data, size, generator, count, sample_count):
@@ -84,7 +110,13 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
         if ':' in evaluation['data']['factory']:
             raise ValueError('Custom evaluation data must expose resume_identity() for dataset/protocol provenance')
         data_identity = {'factory': evaluation['data']['factory'], 'args': evaluation['data']['args']}
-    data_identity = finite_json(data_identity)
+    # An item dataset without identity() names only its import path and args,
+    # which do not pin its content, so reference results derived from it are not reusable.
+    content_pinned = not (isinstance(data_identity, dict) and data_identity.get('kind') == 'item_data'
+                          and data_identity.get('dataset_identity') is None)
+    data_identity_sha256 = hashlib.sha256(_canonical(data_identity)).hexdigest()
+    data_identity = _bounded_identity(data_identity)
+    check_evaluation_data(data, evaluation, spec['inputs'])
     instance, description = _factory(spec['factory'], spec['args'])
     if description != expected:
         raise ValueError('Metric source or descriptor changed since runtime preflight')
@@ -93,6 +125,18 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                        for value in constructors if ':' in value['factory']]
     code = _sources([type(data), type(prior), *[type(module) for module in graph.modules()],
                      *factory_modules, evaluate_snapshot, apply_backend_policy])
+    # Everything that fixes the reference images and the backend their features
+    # are computed on; a metric adds its own weights/version before caching.
+    reference_identity = {
+        'data_identity_sha256': data_identity_sha256,
+        'data_sources': {name: code[name] for name in _sources([type(data)])},
+        'data_factory': evaluation['data']['factory'], 'sample_count': evaluation['sample_count'],
+        'batch_size': evaluation['batch_size'], 'seed': seed, 'inputs': spec['inputs'],
+        'device': str(device), 'torch': torch.__version__, 'numpy': np.__version__,
+        'backend': backend_info()} if content_pinned else None
+    if reference_identity is not None and ':' in evaluation['data']['factory']:
+        module = evaluation['data']['factory'].split(':', 1)[0]
+        reference_identity['data_sources'][module] = code[module]
     data_rng = torch.Generator().manual_seed(seed + 1)
     prior_rng = torch.Generator(device=device).manual_seed(seed + 2)
     count = 0
@@ -133,7 +177,8 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     with torch.inference_mode():
         value = instance.evaluate(batches=batches(), context={'sample_count': evaluation['sample_count'],
                                   'seed': seed, 'step': saved['step'], 'snapshot_sha256': snapshot_sha256,
-                                  'run_id': identity['run_id'], 'attempt_id': owner['attempt_id']})
+                                  'run_id': identity['run_id'], 'attempt_id': owner['attempt_id'],
+                                  'reference_identity': reference_identity})
     if count != evaluation['sample_count']:
         raise ValueError('Snapshot metric did not consume its complete declared evaluation sample count')
     value = finite_json(value)

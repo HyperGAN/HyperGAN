@@ -382,7 +382,7 @@ def _add_recipe_comments(body: str, config_name: str, template: Optional[str] = 
                     m_val = m_m.group(1)
             eval_data_comment = (
                 f'# data = {{ builtin = "image_folder", args = {{ root = "{root_val}", '
-                f'height = {h_val}, width = {w_val}, mode = "{m_val}", resize = "{r_val}" }} }}\n'
+                f'height = {h_val}, width = {w_val}, mode = "{m_val}", resize = "{r_val}", shuffle = false }} }}\n'
             )
         else:
             eval_data_comment = '# data = { builtin = "gaussian_grid", args = { side = 10, noise = 0.015 } }\n'

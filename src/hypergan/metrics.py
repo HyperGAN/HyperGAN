@@ -133,11 +133,33 @@ def snapshot_metrics(config, trigger=None):
                   if spec['mode'] == 'snapshot' and (trigger is None or spec['trigger'] == trigger))
 
 
+def normalize_device(value):
+    """Canonical 'cpu', 'cuda' or 'cuda:N' for one device: N, gpuN, cuda[:N] or cpu."""
+    if type(value) is int and value >= 0:
+        return f'cuda:{value}'
+    text = value.strip().lower() if isinstance(value, str) else ''
+    match = re.fullmatch(r'(?:cuda:|gpu)?([0-9]+)', text)
+    if match:
+        return f'cuda:{int(match.group(1))}'
+    if text in ('cpu', 'cuda'):
+        return text
+    raise ValueError(f'Expected one device (cpu, cuda, cuda:N, N or gpuN), got {value!r}')
+
+
+def _device_set(value):
+    items = value.split(',') if isinstance(value, str) else value if isinstance(value, (list, tuple)) else [value]
+    return {normalize_device(item) for item in items if not isinstance(item, str) or item.strip()}
+
+
 def same_gpu(left, right):
-    """Whether two requests may name the same GPU; bare 'cuda' matches any index."""
-    if not left.startswith('cuda') or not right.startswith('cuda'):
-        return False
-    return left == right or 'cuda' in (left, right)
+    """Whether two device requests may name the same GPU.
+
+    The one collision rule for config warnings and ``hypergan evaluate``. Bare
+    'cuda' matches any index: replicated training expands it to every visible
+    GPU. Either side may list several devices ('0,1'); cpu never collides.
+    """
+    left, right = ({device for device in _device_set(side) if device != 'cpu'} for side in (left, right))
+    return any(a == b or 'cuda' in (a, b) for a in left for b in right)
 
 
 def evaluation_warnings(config):

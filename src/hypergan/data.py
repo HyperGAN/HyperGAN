@@ -53,12 +53,33 @@ def shard_slice(batch_size, rank, world_size):
     return slice(rank * local, (rank + 1) * local)
 
 
-def default_manifest_cache():
-    """Inspection cache root: $HYPERGAN_CACHE_DIR, else $XDG_CACHE_HOME/hypergan."""
+def identity_change_hint(saved, current):
+    """A sentence naming a Pillow version change between two data identities, else ''.
+
+    Image identities record the Pillow version because decoding may differ
+    between releases, so upgrading Pillow alone blocks resume.
+    """
+    versions = [value.get("preprocessing", {}).get("pillow_version") if isinstance(value, dict)
+                and isinstance(value.get("preprocessing"), dict) else None for value in (saved, current)]
+    old, new = versions
+    if old is None or new is None or old == new:
+        return ""
+    return (f"; the run's images were inventoried with Pillow {old} but Pillow {new} is installed, and "
+            f"decoded pixels may differ between Pillow versions: install Pillow=={old} "
+            f"(pip install 'pillow=={old}') to resume this run, or start a new run with Pillow {new}")
+
+
+def default_cache_root():
+    """Derived-data cache root: $HYPERGAN_CACHE_DIR, else $XDG_CACHE_HOME/hypergan."""
     base = os.environ.get("HYPERGAN_CACHE_DIR")
     if not base:
         base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "hypergan"
-    return Path(base).expanduser() / "image-folder"
+    return Path(base).expanduser()
+
+
+def default_manifest_cache():
+    """Inspection cache directory under default_cache_root()."""
+    return default_cache_root() / "image-folder"
 
 
 class ImageFolder:
@@ -388,6 +409,10 @@ class ImageFolder:
         color = self.fill if self.mode == "L" else (self.fill,) * 3
         return self._ops.pad(image, size, method=method, color=color, centering=(0.5, 0.5))
 
+    def __len__(self):
+        """Samples in one epoch, so evaluation can refuse a sample_count that would wrap."""
+        return len(self.entries)
+
     def resume_identity(self):
         """JSON-compatible identity; relocation is allowed, data/decoding changes aren't."""
         return deepcopy(self._identity)
@@ -409,7 +434,9 @@ class ImageFolder:
         if not isinstance(state, dict) or set(state) != fields:
             raise ValueError("Invalid image_folder sampler state fields")
         if type(state["schema_version"]) is not int or state["schema_version"] not in (1, 2) or state["identity_sha256"] != self._identity_sha256:
-            raise ValueError("Image folder sampler schema or data/preprocessing/class-map identity mismatch")
+            raise ValueError("Image folder sampler schema or data/preprocessing/class-map identity mismatch: "
+                             "the images, preprocessing, class map or installed Pillow version "
+                             f"(now {self._identity['preprocessing']['pillow_version']}) changed since this state was saved")
         order, cursor, epoch = state["permutation"], state["cursor"], state["epoch"]
         n = len(self.entries)
         if not isinstance(order, list) or any(type(i) is not int for i in order) or (order and sorted(order) != list(range(n))):

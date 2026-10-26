@@ -115,7 +115,35 @@ def validate_custom(specs):
                 raise ValueError(f'{name}.evaluation.data requires factory and args')
             if data['factory'] not in ('gaussian_grid', 'paired_linear', 'image_folder') and (data['factory'].count(':') != 1 or not all(data['factory'].split(':'))):
                 raise ValueError(f'{name}.evaluation.data.factory requires built-in data or module:object')
+            # A shuffled folder wraps into a new epoch instead of running out,
+            # so reference statistics could silently count images twice.
+            if (data['factory'] == 'image_folder' and 'evaluation.reference' in inputs.values()
+                    and data['args'].get('shuffle', True) is not False):
+                raise ValueError(
+                    f'{name}.evaluation.data: image_folder reference data must set shuffle = false, so '
+                    'each reference image is used at most once and reference statistics do not depend '
+                    'on the evaluation seed')
         finite_json(spec)
+
+
+def check_evaluation_data(data, evaluation, inputs):
+    """Refuse constructed evaluation data that would run out, wrap or repeat.
+
+    The worker calls this before generating anything. Data that defines
+    ``__len__`` must hold at least sample_count samples, and a shuffled image
+    folder, which draws a new epoch instead of running out, may not supply
+    reference images.
+    """
+    from .data import EvaluationDataExhausted, ImageFolder
+    sample_count = evaluation['sample_count']
+    if callable(getattr(type(data), '__len__', None)) and sample_count > len(data):
+        raise EvaluationDataExhausted(
+            f'Evaluation sample_count {sample_count} exceeds the {len(data)} samples of its evaluation '
+            'data; lower the evaluation sample count or use evaluation data with at least '
+            f'{sample_count} items, since repeated items would bias the statistics')
+    if 'evaluation.reference' in inputs.values() and isinstance(data, ImageFolder) and data.shuffle:
+        raise ValueError('Reference evaluation data must not shuffle: set shuffle = false in the '
+                         'evaluation data args so each reference image is used at most once')
 
 
 def _factory(reference, args):

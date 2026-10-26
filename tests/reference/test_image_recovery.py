@@ -140,3 +140,18 @@ def test_image_resume_rejects_changed_content_or_class_map(tmp_path, change):
     _, _, after = read_checkpoint(run)
     _equal(after, before)
     assert stopped["last_durable_step"] == 2
+
+
+def test_image_resume_after_pillow_change_names_pillow_and_the_fix(tmp_path, monkeypatch):
+    import re
+    import PIL
+    config, _ = _project(tmp_path)
+    run = tmp_path / "run"
+    train(config, run, stop_after_steps=2, checkpoint_every=1)
+    installed = re.escape(PIL.__version__)
+    # The identity records the Pillow version, since decoding may differ between releases.
+    monkeypatch.setattr(PIL, "__version__", "0.0.1")
+    with pytest.raises(ValueError, match=rf"differs from checkpoint; the run's images were inventoried with "
+                                         rf"Pillow {installed} but Pillow 0\.0\.1 is installed.*"
+                                         rf"pip install 'pillow=={installed}'"):
+        resume(run)

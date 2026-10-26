@@ -90,6 +90,24 @@ moments produce unbiased sample covariance without retaining all features;
 torch-fidelity computes the final Fréchet distance. Temporary TF32 settings are
 restored even on errors.
 
+Reference statistics are computed once and cached. The first evaluation writes
+the reference mean and covariance to `$HYPERGAN_CACHE_DIR/fid-reference` (default
+`$XDG_CACHE_HOME/hypergan`, else `~/.cache/hypergan`). Later evaluations, from any
+run, then run Inception only on generated images. The cache key covers the data
+identity and loader source, sample count, batch size, seed, input bindings,
+device, torch/NumPy versions, backend flags, weight SHA256 and torch-fidelity
+version, so any protocol change recomputes. Each file carries a SHA-256 of its
+contents. A damaged or mismatched file is recomputed, and the cache is safe to
+delete. `args.reference_cache = "path"` moves it; `reference_cache = false`
+recomputes on every evaluation. Item datasets without an `identity()` are never
+cached, because their import path and arguments do not pin their content.
+
+Reference data must not repeat images. Evaluation fails before generating
+anything when `sample_count` exceeds the length of data that defines `__len__`,
+such as `image_folder`. An `image_folder` that supplies `evaluation.reference`
+must set `shuffle = false`, because a shuffled folder starts a new epoch instead
+of running out.
+
 A low-count smoke evaluation proves this path executes; it is not a competitive
 quality result. The selected ParticleGAN reproduction protocol requires 50,000
 generated images and all 50,000 CIFAR-10 training references, with the source

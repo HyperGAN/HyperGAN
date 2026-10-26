@@ -103,6 +103,7 @@ height = 64
 width = 64
 mode = "RGB"
 resize = "center_crop"
+shuffle = false  # reference images are used once each, never repeated
 ```
 
 When lowered to the low-level engine recipe schema, `builtin = "image_folder"` resolves to `factory = "image_folder"` under `[data]`:

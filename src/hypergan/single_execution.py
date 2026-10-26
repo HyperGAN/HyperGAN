@@ -108,7 +108,10 @@ class SingleProcessExecution:
         if reasons:
             raise ValueError('Recovery unsupported: ' + '; '.join(reasons))
         if contract != info['data_contract']:
-            raise ValueError('Resume data identity or state protocol differs from checkpoint')
+            from .data import identity_change_hint
+            saved = info['data_contract'] if isinstance(info['data_contract'], dict) else {}
+            raise ValueError('Resume data identity or state protocol differs from checkpoint'
+                             + identity_change_hint(saved.get('identity'), contract['identity']))
         validate_implementation(info['implementation'], _implementation(self._trainer))
         self._ready = False
         self._last_batch = restore_trainer(self._trainer, state)

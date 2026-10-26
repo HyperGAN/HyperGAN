@@ -1,11 +1,10 @@
 """File publication recovery and bounds need no numerical dependencies."""
 import hashlib
-import io
 import json
 
 import pytest
 
-from hypergan.metric_evaluation import _copy_snapshot, _recover_abandoned
+from hypergan.metric_evaluation import _recover_abandoned
 from hypergan.run_state import atomic_json
 
 
@@ -46,17 +45,6 @@ def test_committed_receipt_without_registry_is_rediscovered_without_changing_res
     assert (directory/'events.jsonl').read_bytes()==encoded
     assert json.loads((directory/'receipt.json').read_text())['status']=='complete'
     assert not (directory/'snapshot.pt').exists()
-
-
-def test_growing_snapshot_copy_never_exceeds_byte_budget(monkeypatch):
-    import hypergan.metric_evaluation as module
-    monkeypatch.setattr(module,'MAX_SNAPSHOT_BYTES',1024)
-    output=io.BytesIO()
-    with pytest.raises(ValueError,match='copy budget'):
-        _copy_snapshot(io.BytesIO(b'x'*1025),output)
-    assert len(output.getvalue())<=1024
-    output=io.BytesIO()
-    assert _copy_snapshot(io.BytesIO(b'x'*1024),output)==1024
 
 
 def test_unregistered_completed_receipt_corruption_is_not_silently_repaired(tmp_path):

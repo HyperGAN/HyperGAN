@@ -206,7 +206,8 @@ def test_two_network_initialization_is_unchanged():
 
 def test_cpu_capture_guard_keeps_the_recipe_optimizer_class(tmp_path, monkeypatch):
     from particlegan.k3p import K3PGeneratorAdam
-    from hypergan.config import load_config, write_default
+    from hypergan.config import load_config
+    from tests.config_fixtures import write_default
     from hypergan.training import _skip_cpu_capture_guard
     trainer = ReferenceTrainer(load_config(write_default(tmp_path / 'config', device='cpu', defaults='hypergan')))
     # ParticleGAN checks exact optimizer types (routed row transport accepts

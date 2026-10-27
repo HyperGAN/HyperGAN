@@ -71,6 +71,23 @@ Recovery currently requires the recorded CUDA runtime, visible GPU inventory and
 
 Correctness tests do not establish a throughput gain. Measure the intended model at a fixed global batch and fixed initialization on one and two GPUs before increasing the allocation. Current costs include per-parameter reductions, Python/object collective synchronization, full-state CPU hashing at replica checks/checkpoints, and serialized checkpoint gathering at rank zero. The current KA2 optimizer also reads one control scalar per trained critic tensor each step; the GPU profiler gate accounts for these separately from HyperGAN's fused gradient screening. Image/item loaders can decode local rows; custom global loaders still duplicate their global draw. Four/eight-GPU speedup must be measured on the requested hardware.
 
+### Tiny real two-node smoke
+
+The optional [Modal runner](../scripts/modal_multinode_smoke.py) requests two managed A10 nodes, with four GPUs per node. [Modal clusters require whole GPU nodes](https://modal.com/docs/guide/multi-node-clusters); this gate uses eight GPUs total with RDMA disabled. The runner has no automatic retries or warm containers, a 120-second function timeout, a 90-second worker budget and a 240-second call wait limit. Allow roughly $1 for the gate, including startup and image building, at current A10 pricing.
+
+Authenticate Modal locally, build exactly one current wheel into `dist/`, and run:
+
+```sh
+python -m build --wheel --outdir dist
+modal run scripts/modal_multinode_smoke.py --output reports/modal-multinode-smoke/modal.json
+```
+
+The [worker](../scripts/multinode_smoke_worker.py) performs three fixed-initialization small GAN updates. Every rank checks finite losses, changed generator/discriminator/prior/EMA state and exact complete-state replica agreement; a final NCCL object collective returns evidence for every global rank. There are no dataset downloads, previews or seed sweeps. Success receipts contain every rank's evidence; allocation or training failures write a failure receipt, cancel the call and exit unsuccessfully.
+
+This deliberately small gate exercises the internal replicated trainer across managed nodes. It does not qualify the public multi-node supervisor, shared checkpoint storage, restart, RDMA, image quality or scaling performance. The worker can also run with Gloo to validate the fixture locally; separate masked CUDA processes on the local two-GPU host remain a single-physical-host check.
+
+On 2026-10-26, [the Modal gate passed](https://modal.com/apps/martyn/main/ap-2bXd4iCHtiov7vJ7llrWaJ): two managed nodes, four NVIDIA A10 GPUs each, three updates on all eight ranks, finite losses, changed D/G/prior/EMA state and one identical final replica digest across all ranks. Measured execution was 8.48 seconds; the app completed and no containers remained running. The runner did not apply the local P2P/IB workaround. Python 3.12 used PyTorch 2.14.1+cu130, ParticleGAN 0.9.3 and HNDL 0.10.0 from installed packages. The uploaded wheel contains the `9f51f88b` runtime; its SHA-256 is recorded in `reports/modal-multinode-smoke/modal.json` (ignored by Git). The same worker also passed locally with two CPU/Gloo ranks and on the two RTX A6000s with the explicit local NCCL workaround. These checks keep one initialization and do not establish recovery or throughput.
+
 ## Local evidence: 2026-10-26
 
 Final core, public recovery and CUDA validation used the clean installed wheel from `73cc71c4`, outside the checkout, on two RTX A6000s. Runtime: Python 3.14.8, PyTorch 2.14.1+cu130, NCCL 2.30.7, ParticleGAN 0.9.3 and HNDL 0.10.0. The NCCL workaround above was explicit in the GPU environment. Larger-rank and reordered-mask checks also ran earlier in this change.

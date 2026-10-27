@@ -4,7 +4,8 @@ Build one current wheel into dist/ first, then run:
     modal run scripts/modal_multinode_smoke.py --output reports/modal-multinode.json
 
 The allocation is two complete A10 nodes (four GPUs each), with a 120-second
-function timeout and 90-second worker budget. Images are built before GPU work.
+function timeout, 90-second worker budget and 240-second call wait limit.
+Images are built before GPU work.
 Only three fixed-initialization small GAN updates run. This is not recovery,
 public launcher, image quality, throughput or RDMA qualification.
 """
@@ -100,8 +101,15 @@ def smoke(wheel_sha256: str):
 
 @app.local_entrypoint()
 def main(output: str = 'reports/modal-multinode-smoke.json'):
-    result = smoke.remote(WHEEL_SHA256)
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    call = smoke.spawn(WHEEL_SHA256)
+    try:
+        result = call.get(timeout=240)
+    except BaseException as error:
+        call.cancel(terminate_containers=True)
+        destination.write_text(json.dumps({'status': 'failed', 'wheel_sha256': WHEEL_SHA256,
+                                          'error': f'{type(error).__name__}: {error}'}, indent=2) + '\n')
+        raise
     destination.write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, indent=2))

@@ -53,3 +53,20 @@ Throughput is global samples consumed divided by the **slowest rank's measured w
 `report.json` retains per-rank timings, topology, resolved-recipe and state digests, GPU/runtime identity, memory, startup/warmup duration and the uploaded wheel checksum. `comparison.md` reports throughput, speedup, scaling efficiency and memory relative to the first selected topology. Modal JSON also includes estimated steady samples per dollar using requested GPU/CPU/RAM resources; startup, queue time, image builds and billing adjustments are excluded from that efficiency estimate. Partial results are preserved if a later profile fails.
 
 The benchmark covers resident synthetic inputs and the internal trainer API. Data decoding/transfers, the public supervisor, previews, checkpoint I/O, restart, image quality, mixed precision and RDMA require separate tests. Results on a small 32px model do not establish scaling for larger recipes; compare throughput and cost on the intended workload before choosing a long-run allocation.
+
+## Measured smoke: 2026-10-26
+
+[The default Modal matrix](https://modal.com/apps/martyn/main/ap-Ofp9Cgnb9cx4orL3J4hSLD) passed with a global batch of 64, ten warmup updates and fifty measured updates. Every topology had identical initial model/prior/EMA state and resolved recipe, finite measured losses and matching complete replica state. Runtime: Python 3.12, PyTorch 2.14.1+cu130, ParticleGAN 0.9.3 and HNDL 0.10.0. The clean installed wheel was built from `18fe37f3`; the receipt records its SHA-256, `bb2cb9d29ea9c4263a04c0f4dedb01d50d9e7c2f9794a6cabee3a480e8803bdb`.
+
+| A10 topology | Images/sec | Speedup | Efficiency | Median ms | p95 ms | Peak MiB per GPU |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 GPU | 696.06 | 1.00x | 100.0% | 88.47 | 120.40 | 781.4 |
+| 2 GPUs, one node | 532.50 | 0.77x | 38.3% | 119.19 | 130.86 | 437.4 |
+| 4 GPUs, one node | 561.09 | 0.81x | 20.2% | 113.31 | 128.76 | 244.7 |
+| 2 nodes × 4 GPUs | 234.72 | 0.34x | 4.2% | 207.44 | 488.18 | 163.4 |
+
+One A10 was fastest and cheapest per sample in this bounded cohort. Larger allocations reduced peak activation memory but provided no throughput gain. These measurements alone do not identify which communication, synchronization or CPU costs dominate; profiling or a larger intended recipe is needed for that attribution.
+
+Charging every call's full wall time at the configured GPU/CPU/RAM rates gives a conservative **$0.192 resource estimate**, including queue time; adding the reserved $0.50 build allowance gives $0.692. This is not verified billed usage. The measured update windows alone account for about $0.045 in estimated GPU time. The app stopped with no running containers.
+
+The same image cohort passed on the local two-RTX-A6000 host, using its explicit NCCL workaround: 881.92 images/sec on one GPU and 699.14 on two (0.79x). Local native/two-rank CPU integration also passed in strong and weak modes. Machine receipts and rank logs remain under `reports/scaling-2026-10-26-local/` and `reports/scaling-2026-10-26-modal/`, ignored by Git. These are single bounded performance cohorts, not image-quality or long-run stability qualifications.

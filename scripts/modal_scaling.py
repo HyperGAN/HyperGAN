@@ -87,20 +87,26 @@ def two_nodes(spec):
 @app.local_entrypoint()
 def main(output: str = 'reports/modal-scaling', topologies: str = '1,2,4,2x4',
          mode: str = 'strong', workload: str = 'images', batch_size: int = 64,
-         warmup: int = 10, steps: int = 50, budget_usd: float = 2.0):
+         warmup: int = 10, steps: int = 50, budget_usd: float = 2.0,
+         call_wait_seconds: int = 180):
     settings = benchmark.options(mode, workload, batch_size, warmup, steps)
-    plan = benchmark.modal_plan(settings, benchmark.topologies(topologies), budget_usd)
+    plan = benchmark.modal_plan(settings, benchmark.topologies(topologies), budget_usd, call_wait_seconds)
     root = Path(output)
     root.mkdir(parents=True, exist_ok=False)
     (root / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
     functions = {(1, 1): one, (1, 2): two, (1, 4): four, (2, 4): two_nodes}
-    results, calls = [], []
+    results, calls, submitted = [], [], []
     try:
         for spec in plan['profiles']:
             started = time.monotonic()
             call = functions[(spec['nodes'], spec['gpus_per_node'])].spawn(spec)
             calls.append(call)
-            result = call.get(timeout=benchmark.CALL_SECONDS)
+            submitted.append({'topology': benchmark.label(spec['nodes'], spec['gpus_per_node']),
+                              'function_call_id': call.object_id})
+            (root / 'calls.json').write_text(json.dumps(submitted, indent=2) + '\n')
+            print(f"Submitted {submitted[-1]['topology']}: {call.object_id}; "
+                  f"waiting up to {plan['call_wait_seconds']} seconds", flush=True)
+            result = call.get(timeout=plan['call_wait_seconds'])
             # Validate the returned rank evidence again on the client.
             checked = benchmark.summarize(result['ranks'], spec)
             checked['node_wall_seconds'] = result['node_wall_seconds']
@@ -119,6 +125,7 @@ def main(output: str = 'reports/modal-scaling', topologies: str = '1,2,4,2x4',
                 call.cancel(terminate_containers=True)
             except Exception as cleanup_error:
                 print(f'Call cancellation failed: {cleanup_error}', flush=True)
-        (root / 'failure.json').write_text(json.dumps({'status': 'failed', 'error': str(error),
+        (root / 'failure.json').write_text(json.dumps({'status': 'failed', 'error_type': type(error).__name__,
+                                                     'error': str(error),
                                                      'complete_profiles': len(results)}, indent=2) + '\n')
         raise

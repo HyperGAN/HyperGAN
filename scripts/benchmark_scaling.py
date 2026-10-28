@@ -71,21 +71,23 @@ def payload(settings, nodes, gpus, backend='nccl'):
                 global_batch_size=batch, backend=backend)
 
 
-def modal_plan(settings, selected, budget_usd=2.0):
+def modal_plan(settings, selected, budget_usd=2.0, call_wait_seconds=CALL_SECONDS):
     if not math.isfinite(budget_usd) or budget_usd <= 0:
         raise ValueError('Budget must be finite and positive')
+    if type(call_wait_seconds) is not int or call_wait_seconds < 1:
+        raise ValueError('Call wait must be a positive integer number of seconds')
     allowed = {(1, 1), (1, 2), (1, 4), (2, 4)}
     if not selected or any(pair not in allowed for pair in selected):
         raise ValueError('Modal A10 topologies supported here: 1,2,4,2x4')
     profiles = [payload(settings, *pair) for pair in selected]
     # Sequential calls, one CPU core and 4 GiB requested per GPU. Conservatively
     # charge the entire call wait, including queue time, against the estimate.
-    ceiling = BUILD_RESERVE_USD + sum(p['world_size'] * CALL_SECONDS *
+    ceiling = BUILD_RESERVE_USD + sum(p['world_size'] * call_wait_seconds *
                                      (A10_SECOND + CPU_SECOND + 4 * GIB_SECOND) for p in profiles)
     if ceiling > budget_usd:
         raise ValueError(f'Conservative estimate ${ceiling:.3f} exceeds budget ${budget_usd:.3f}')
     return {'profiles': profiles, 'estimated_ceiling_usd': ceiling, 'budget_usd': budget_usd,
-            'build_reserve_usd': BUILD_RESERVE_USD, 'call_wait_seconds': CALL_SECONDS,
+            'build_reserve_usd': BUILD_RESERVE_USD, 'call_wait_seconds': call_wait_seconds,
             'pricing_date': '2026-10-26',
             'cost_scope': 'list-price estimate including reserved build allowance; not an account spending limit'}
 
@@ -329,6 +331,8 @@ def main():
     parser.add_argument('--output', default='reports/local-scaling')
     parser.add_argument('--plan-modal', action='store_true')
     parser.add_argument('--budget-usd', type=float, default=2.0)
+    parser.add_argument('--call-wait-seconds', type=int, default=CALL_SECONDS,
+                        help='Modal result wait, including scheduling; execution limits stay fixed')
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--payload', help=argparse.SUPPRESS)
     parser.add_argument('--node-rank', type=int, default=0, help=argparse.SUPPRESS)
@@ -341,7 +345,7 @@ def main():
     settings = options(args.mode, args.workload, args.batch_size, args.warmup, args.steps)
     selected = topologies(args.topologies)
     if args.plan_modal:
-        print(json.dumps(modal_plan(settings, selected, args.budget_usd), indent=2))
+        print(json.dumps(modal_plan(settings, selected, args.budget_usd, args.call_wait_seconds), indent=2))
         return
     if any(nodes != 1 for nodes, _ in selected):
         raise ValueError('Local driver supports one physical host; use Modal for multiple nodes')

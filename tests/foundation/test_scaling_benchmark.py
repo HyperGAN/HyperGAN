@@ -84,6 +84,22 @@ def test_duplicate_topology_is_rejected():
         benchmark.topologies('2,1x2')
 
 
+def test_longer_modal_wait_is_charged_to_budget_before_submission():
+    settings, selected = benchmark.options(batch_size=256), [(2, 4)]
+    with pytest.raises(ValueError, match='exceeds budget'):
+        benchmark.modal_plan(settings, selected, budget_usd=2, call_wait_seconds=900)
+    plan = benchmark.modal_plan(settings, selected, budget_usd=3, call_wait_seconds=900)
+    assert plan['call_wait_seconds'] == 900
+    assert plan['estimated_ceiling_usd'] == pytest.approx(2.861456)
+    assert plan['profiles'] == benchmark.modal_plan(settings, selected)['profiles']
+
+
+@pytest.mark.parametrize('wait', [0, -1, True, 1.5, float('inf')])
+def test_invalid_modal_wait_is_rejected(wait):
+    with pytest.raises(ValueError, match='Call wait'):
+        benchmark.modal_plan(benchmark.options(), [(2, 4)], call_wait_seconds=wait)
+
+
 def test_comparison_uses_baseline_and_refuses_changed_initialization():
     rows, request = receipt(world=1)
     first = benchmark.summarize(rows, request)

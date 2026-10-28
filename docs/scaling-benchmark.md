@@ -44,6 +44,15 @@ The budget guard uses [Modal's list prices](https://modal.com/pricing), verified
 
 Each function has a 105-second execution timeout and a 45-second startup timeout. Local rank groups have a 90-second worker deadline and 25-second collective timeout. A failed or overdue call cancels submitted calls, terminates containers and writes a failure receipt alongside any complete earlier profiles. Existing output directories are refused to preserve evidence.
 
+Cluster allocation can take longer than the default 180-second client wait. Use `--call-wait-seconds` to allow more scheduling time without increasing the execution, startup or worker limits. The budget estimate charges the full selected wait for every requested resource. For a two-node batch-256 attempt with a 900-second result wait, the conservative estimate is $2.861, including the build allowance:
+
+```sh
+python scripts/benchmark_scaling.py --plan-modal --topologies 2x4 --batch-size 256 --call-wait-seconds 900 --budget-usd 3
+modal run scripts/modal_scaling.py --topologies 2x4 --batch-size 256 --call-wait-seconds 900 --budget-usd 3 --output reports/modal-long-wait
+```
+
+The client wait includes scheduling and execution. Modal schedules all nodes in a cluster together; no training start time in the call history indicates that the function did not begin execution. `calls.json` preserves submitted call IDs for inspecting that history, and failure receipts include the exception type to distinguish a client `TimeoutError` from an execution `FunctionTimeoutError`.
+
 ## Timing and interpretation
 
 Warmup, imports, initialization, synthetic-input preparation, extra boundary replica digests and receipt serialization are outside the timed window. CUDA work is synchronized before the window and after every update. Distributed ranks enter a common boundary before timing; no extra per-step barriers or debug hashes are added. The trainer's normal gradient screening, metrics, collectives and replica-check cadence stay enabled and are recorded. With the default sixty total updates, the normal step-one digest falls in warmup; longer runs include any periodic digest they reach.

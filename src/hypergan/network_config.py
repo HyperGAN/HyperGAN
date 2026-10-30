@@ -66,35 +66,115 @@ def validate_pretrained_providers(providers):
             raise ValueError('DINOv3 source_commit must be a full lowercase Git SHA')
 
 
-def validate_network_args(args, location):
+def validate_network_args(args, location=None, registry=None):
+    """Statically parse and validate HNDL network architecture text via hndl.resolve().
+
+    If location is a non-empty string, raises ValueError on error (for backward compatibility).
+    If location is None, returns a list of error diagnostic strings (empty if valid).
+    """
+    if location is not None and not isinstance(location, str):
+        registry = location
+        location = None
+    loc_str = location or "network_args"
+    errors = []
+
+    def _fail(msg: str):
+        if location:
+            raise ValueError(msg)
+        errors.append(msg)
+
+    if not isinstance(args, dict):
+        _fail(f"{loc_str} must be a table")
+        return errors
+
     allowed = {'source', 'file', 'input_shape', 'output_shape', 'parameters', 'input_dtype', 'pretrained_providers'}
-    if set(args) - allowed:
-        raise ValueError(f'{location}: unknown HNDL arguments {sorted(set(args) - allowed)}')
+    unknown = set(args) - allowed
+    if unknown:
+        _fail(f"{loc_str}: unknown HNDL arguments {sorted(unknown)}")
+        return errors
+
     if ('source' in args) == ('file' in args):
-        raise ValueError(f'{location}: specify exactly one of source or file')
+        _fail(f"{loc_str}: specify exactly one of source or file")
+        return errors
+
     for key in ('input_shape', 'output_shape'):
         contract = args.get(key)
         shapes = contract if isinstance(contract, dict) else {key: contract}
         if not shapes or any(not isinstance(name, str) or not name.isidentifier() for name in shapes):
-            raise ValueError(f'{location}.{key} must declare valid port names')
+            _fail(f"{loc_str}.{key} must declare valid port names")
+            return errors
         for name, shape in shapes.items():
             if (not isinstance(shape, (list, tuple)) or len(shape) not in (2, 3, 4)
                     or shape[0] != 'B' or any(type(size) is not int or size < 1 for size in shape[1:])):
-                raise ValueError(f'{location}.{key}.{name} must be ["B", positive dimensions...]')
+                _fail(f"{loc_str}.{key}.{name} must be ['B', positive dimensions...]")
+                return errors
+
     if not isinstance(args.get('parameters', {}), dict):
-        raise ValueError(f'{location}.parameters must be a table')
-    validate_pretrained_providers(args.get('pretrained_providers', {}))
-    if 'source' in args:
-        render_source(args['source'], args.get('parameters'))
-    elif not isinstance(args['file'], str) or not args['file']:
-        raise ValueError(f'{location}.file must name a .hndl file')
+        _fail(f"{loc_str}.parameters must be a table")
+        return errors
+
+    try:
+        validate_pretrained_providers(args.get('pretrained_providers', {}))
+    except ValueError as exc:
+        _fail(str(exc))
+        return errors
+
     dtype = args.get('input_dtype')
     if dtype is not None:
         ports = args['input_shape'] if isinstance(args['input_shape'], dict) else {'x': None}
         dtypes = dtype if isinstance(dtype, dict) else {name: dtype for name in ports}
         if (not dtypes or set(dtypes) - set(ports)
                 or any(value not in ('float32', 'int32', 'int64', 'bool') for value in dtypes.values())):
-            raise ValueError(f'{location}.input_dtype must declare supported dtypes for input ports')
+            _fail(f"{loc_str}.input_dtype must declare supported dtypes for input ports")
+            return errors
+
+    source_text = None
+    if 'source' in args:
+        try:
+            source_text = render_source(args['source'], args.get('parameters'))
+        except Exception as exc:
+            _fail(f"{loc_str}: {exc}")
+            return errors
+    elif 'file' in args:
+        f = args['file']
+        if not isinstance(f, str) or not f or Path(f).suffix != '.hndl':
+            _fail(f"{loc_str}.file must name a .hndl file")
+            return errors
+        try:
+            target_path = NETWORK_DIRECTORY / f
+            if target_path.is_file():
+                source_text = packaged_source(f)
+            elif Path(f).is_file():
+                source_text = read_source(Path(f))
+            else:
+                _fail(f"{loc_str}.file: '{f}' not found")
+                return errors
+        except Exception as exc:
+            _fail(f"{loc_str}.file: {exc}")
+            return errors
+
+    if location is None and source_text is not None:
+        try:
+            from hndl import Registry, HNDLError, resolve as hndl_resolve
+            from .hndl_augmentation import register_augmentation
+            from .pretrained_providers import register_providers
+            active_reg = register_augmentation(Registry.builtins() if registry is None else registry)
+            active_reg = register_providers(active_reg, args.get('pretrained_providers'))
+            hndl_resolve(
+                source_text,
+                input_shape=args['input_shape'],
+                output_shape=args['output_shape'],
+                registry=active_reg,
+                input_dtype=args.get('input_dtype'),
+            )
+        except HNDLError as exc:
+            _fail(f"{loc_str}: {exc}")
+            return errors
+        except Exception as exc:
+            _fail(f"{loc_str}: HNDL validation error: {exc}")
+            return errors
+
+    return errors
 
 
 # Templates are loaded without importing their numerical adapters. Resolved

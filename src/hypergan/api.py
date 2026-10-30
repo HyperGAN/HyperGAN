@@ -63,7 +63,8 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'resolve_inheritance', 'collect_source_files',
            'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'list_runs', 'runs', 'runs_ls', 'runs_compare', 'compare', 'diff', 'gc', 'prune', 'gc_all', 'compact_events',
            'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
-           'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service', 'queue_clear']
+           'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service', 'queue_clear',
+           'schema', 'operators', 'ops']
 
 
 
@@ -2298,3 +2299,19 @@ def list_templates():
     """List available starter templates (e.g. gaussian-grid, dcgan, resnet, tiny-transformer)."""
     from .recipe_generator import list_starter_templates
     return list_starter_templates()
+
+
+def schema(section=None):
+    """Return the hypergan-model/1 specification, optionally filtered to a section."""
+    from .schema_info import get_schema
+    return get_schema(section)
+
+
+def operators(query=None):
+    """Return catalog of all 85 HNDL operators, optionally filtered by search query."""
+    from .ops_info import get_operators
+    return get_operators(query)
+
+
+ops = operators
+

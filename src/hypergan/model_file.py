@@ -50,6 +50,7 @@ Bindings name a value: ``latent``, ``batch.<field>``, ``generated``,
 """
 from copy import deepcopy
 from pathlib import Path
+import difflib
 import re
 
 try:
@@ -178,9 +179,17 @@ def require_networks(raw):
         internal = sorted(key for key in raw if key not in TOP_LEVEL)
         hint = ''
         if internal:
+            candidates = list(TOP_LEVEL) + ['training', 'network']
+            suggestions = []
+            for k in internal:
+                m = difflib.get_close_matches(k, candidates, n=1, cutoff=0.5)
+                if m:
+                    target = "train" if m[0] == "training" else m[0]
+                    suggestions.append(f"did you mean '[{target}]'?")
+            sugg_text = f" ({'; '.join(suggestions)})" if suggestions else ""
             tables = ', '.join(f'[{key}]' for key in internal)
-            hint = (f'; {tables} is an internal resolved-recipe table, not a model-file table' if len(internal) == 1
-                    else f'; {tables} are internal resolved-recipe tables, not model-file tables')
+            hint = (f'; {tables} is an internal resolved-recipe table, not a model-file table{sugg_text}' if len(internal) == 1
+                    else f'; {tables} are internal resolved-recipe tables, not model-file tables{sugg_text}')
         raise ModelFileError(f'No [networks] declared{hint}. A {FORMAT} file declares [networks.<name>] with a role '
                              'and [[losses]], and [train] for training settings (see docs/configuration.md), '
                              'or extends a packaged model such as extends = "gaussian-grid".')
@@ -217,7 +226,13 @@ def _table(value, location, allowed=None):
     if allowed is not None:
         unknown = sorted(set(value) - set(allowed))
         if unknown:
-            raise ModelFileError(f'Unknown {location} field(s): {", ".join(unknown)}; expected one of {", ".join(sorted(allowed))}')
+            suggestions = []
+            for u in unknown:
+                m = difflib.get_close_matches(u, allowed, n=1, cutoff=0.6)
+                if m:
+                    suggestions.append(f"did you mean '{m[0]}'?")
+            sugg_str = f" ({'; '.join(suggestions)})" if suggestions else ""
+            raise ModelFileError(f'Unknown {location} field(s): {", ".join(unknown)}{sugg_str}; expected one of {", ".join(sorted(allowed))}')
     return value
 
 
@@ -806,7 +821,7 @@ class _Lowering:
         if metrics:
             recipe['metrics'] = metrics
         if 'every_steps' not in recipe.get('metrics', {}):
-            recipe.setdefault('metrics', {})['every_steps'] = 1
+            recipe.setdefault('metrics', {})['every_steps'] = 10
         if 'checkpoints' in raw:
             self.checkpoints(raw['checkpoints'])
             recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])

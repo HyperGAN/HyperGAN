@@ -112,9 +112,12 @@ _add_run_options = _run_options
 
 
 class _CustomParser(argparse.ArgumentParser):
+    _active_argv: list[str] = []
+
     def parse_args(self, args=None, namespace=None):
         if args is None:
             args = sys.argv[1:]
+        _CustomParser._active_argv = list(args)
         if len(args) >= 2 and args[0] == "checkpoint" and args[1] == "prune":
             args = ["checkpoints", *args[1:]]
         return super().parse_args(args, namespace)
@@ -122,9 +125,73 @@ class _CustomParser(argparse.ArgumentParser):
     def parse_known_args(self, args=None, namespace=None):
         if args is None:
             args = sys.argv[1:]
+        _CustomParser._active_argv = list(args)
         if len(args) >= 2 and args[0] == "checkpoint" and args[1] == "prune":
             args = ["checkpoints", *args[1:]]
         return super().parse_known_args(args, namespace)
+
+    def error(self, message):
+        is_json = "--json" in (_CustomParser._active_argv or sys.argv[1:])
+        if is_json:
+            envelope = {
+                "ok": False,
+                "error": {
+                    "type": "ArgumentError",
+                    "message": message,
+                    "details": {},
+                },
+            }
+            print(json.dumps(envelope, indent=2), file=sys.stdout)
+            sys.exit(2)
+        super().error(message)
+
+
+def _format_error_envelope(exc: BaseException) -> dict:
+    err_type = type(exc).__name__
+    message = str(exc)
+    details = {}
+    if hasattr(exc, "details") and isinstance(exc.details, dict):
+        details.update(exc.details)
+    if isinstance(exc, ModuleNotFoundError) and exc.name:
+        details["module"] = exc.name
+        if exc.name.split(".")[0] in {"torch", "particlegan", "numpy"}:
+            message = "training dependencies are missing; install 'hypergan[train]' in this environment"
+    elif isinstance(exc, OSError):
+        if getattr(exc, "filename", None):
+            details["filename"] = str(exc.filename)
+        if getattr(exc, "errno", None):
+            details["errno"] = exc.errno
+    return {
+        "ok": False,
+        "error": {
+            "type": err_type,
+            "message": message,
+            "details": details,
+        },
+    }
+
+
+def _attach_global_flags(top_parser: argparse.ArgumentParser) -> None:
+    """Recursively ensure every subparser and nested subparser accepts --json and -q/--quiet."""
+    def _walk(p: argparse.ArgumentParser) -> None:
+        for action in p._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for choice_parser in action.choices.values():
+                    existing = set()
+                    for act in choice_parser._actions:
+                        existing.update(act.option_strings)
+                    if "--json" not in existing:
+                        choice_parser.add_argument(
+                            "--json", action="store_true", help="output results as JSON"
+                        )
+                    if not ({"-q", "--quiet"} & existing):
+                        choice_parser.add_argument(
+                            "-q", "--quiet", action="store_true",
+                            help="suppress non-essential output, banners, and progress",
+                        )
+                    _walk(choice_parser)
+
+    _walk(top_parser)
 
 
 def _parser():
@@ -133,12 +200,20 @@ def _parser():
     )
     parser.add_argument("--version", action="version", version=f"hypergan {__version__}")
     parser.add_argument("--json", action="store_true", dest="global_json", help="output results as JSON")
+    parser.add_argument("-q", "--quiet", action="store_true", dest="global_quiet",
+                        help="suppress non-essential output, banners, and progress")
     parser.add_argument("--debug", action="store_true",
                         help="print the full traceback when a command fails (same as HYPERGAN_DEBUG=1)")
-    commands = parser.add_subparsers(dest="command", required=True)
+    commands = parser.add_subparsers(dest="command", required=True, parser_class=_CustomParser)
     commands.add_parser("version", help="Print the HyperGAN version")
     recipes_cmd = commands.add_parser("recipes", help="List the packaged model recipes (JSON)")
     recipes_cmd.add_argument("--json", action="store_true", help="accepted for consistency; the list is always JSON")
+    schema_cmd = commands.add_parser("schema", help="Introspect hypergan-model/1 specification and section schemas")
+    schema_cmd.add_argument("--section", default=None, help="specific schema section to inspect (e.g. train, data, networks)")
+    schema_cmd.add_argument("--json", action="store_true", help="output full schema JSON")
+    ops_cmd = commands.add_parser("ops", help="Introspect HNDL neural network operators and signatures")
+    ops_cmd.add_argument("query", nargs="?", default=None, help="search query filtering operator name, category, or summary")
+    ops_cmd.add_argument("--json", action="store_true", help="output operators catalog as JSON")
     new = commands.add_parser("new", help="Create a starter project or model .toml configuration (does not start training)")
     new.add_argument("path", nargs="?", type=Path, default=None, help="destination .toml file, project directory, or dataset directory (when -o is given)")
     new.add_argument("-l", "--list", dest="list_templates", action="store_true", help="list available starter templates and examples")
@@ -220,7 +295,7 @@ def _parser():
     runs.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
     runs.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
     runs.add_argument("--json", action="store_true", default=False, help="output runs table as JSON array")
-    runs_subs = runs.add_subparsers(dest="runs_command", required=False)
+    runs_subs = runs.add_subparsers(dest="runs_command", required=False, parser_class=_CustomParser)
     runs_ls = runs_subs.add_parser("ls", help="List runs under root directory")
     runs_ls.add_argument("root", nargs="?", type=Path, default=None, help="runs root directory")
     runs_ls.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
@@ -343,7 +418,7 @@ def _parser():
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
     checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
     checkpoints = commands.add_parser("checkpoints", help="Manage a run's saved checkpoints (prune)")
-    checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True)
+    checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True, parser_class=_CustomParser)
     prune = checkpoints_subs.add_parser("prune", help="Prune obsolete checkpoints under the retention policy")
     prune.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
     prune.add_argument("--dry-run", action="store_true", help="evaluate retention without deleting any files")
@@ -405,7 +480,7 @@ def _parser():
     queue_cmd = commands.add_parser("queue", help="Multi-GPU job queue scheduler, runner daemon, and service generator")
     queue_cmd.add_argument("--json", action="store_true", default=False, help="output JSON format")
     queue_cmd.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
-    queue_subs = queue_cmd.add_subparsers(dest="queue_command", required=False)
+    queue_subs = queue_cmd.add_subparsers(dest="queue_command", required=False, parser_class=_CustomParser)
 
     q_add = queue_subs.add_parser("add", help="Enqueue a training experiment or wait directive")
     q_add.add_argument("model_file", type=Path, help="path to experiment model TOML (or run directory if --wait)")
@@ -508,6 +583,7 @@ def _parser():
         help="print receipt JSON to stdout in addition to saving to disk",
     )
 
+    _attach_global_flags(parser)
     return parser
 
 
@@ -1201,15 +1277,37 @@ def main(argv=None):
     if not argv:
         _parser().print_help()
         return 0
-    args = _parser().parse_args(argv)
-    args._argv = list(argv)
-    if getattr(args, "global_json", False):
-        setattr(args, "json", True)
-    if args.command in {"train", "resume"}:
-        from .bounded_cli_output import training_output
-        with training_output(progress_json=args.progress_json) as output:
-            return _dispatch(args, output=output)
-    return _dispatch(args)
+    try:
+        _CustomParser._active_argv = list(argv)
+        args = _parser().parse_args(argv)
+        args._argv = list(argv)
+        if getattr(args, "global_json", False):
+            setattr(args, "json", True)
+        if not hasattr(args, "json"):
+            setattr(args, "json", False)
+        if getattr(args, "global_quiet", False):
+            setattr(args, "quiet", True)
+        if not hasattr(args, "quiet"):
+            setattr(args, "quiet", False)
+
+        if args.command in {"train", "resume"}:
+            from .bounded_cli_output import training_output
+            with training_output(progress_json=args.progress_json or args.json, quiet=args.quiet) as output:
+                return _dispatch(args, output=output)
+        return _dispatch(args)
+    except SystemExit as exc:
+        return exc.code
+    except BaseException as exc:
+        is_json = "--json" in (argv or [])
+        if _debug(args if 'args' in locals() else None):
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+        if is_json:
+            envelope = _format_error_envelope(exc)
+            print(json.dumps(envelope, indent=2), file=sys.stdout)
+        else:
+            print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 def _dispatch(args, *, output=None):
@@ -1217,7 +1315,47 @@ def _dispatch(args, *, output=None):
         from . import api as hg
 
         if args.command == "version":
-            print(f"hypergan {__version__}")
+            if getattr(args, "json", False):
+                _print_json({"version": __version__})
+            elif getattr(args, "quiet", False):
+                print(__version__)
+            else:
+                print(f"hypergan {__version__}")
+        elif args.command == "schema":
+            section = getattr(args, "section", None)
+            from .schema_info import get_schema
+            try:
+                res = get_schema(section)
+            except KeyError as exc:
+                if getattr(args, "json", False):
+                    print(json.dumps(_format_error_envelope(exc), indent=2), file=sys.stdout)
+                else:
+                    print(f"error: {exc}", file=sys.stderr)
+                return 1
+            if getattr(args, "json", False):
+                print(json.dumps(res, indent=2), file=sys.stdout)
+            else:
+                if section:
+                    print(f"HyperGAN Schema Section: [{section}]")
+                    for k, v in res.items():
+                        if k not in ("format", "section"):
+                            print(f"  {k}: {v}")
+                else:
+                    print(f"HyperGAN Model Specification ({res.get('format', 'hypergan-model/1')})")
+                    print("Available sections:")
+                    for s in sorted(res.get("sections", {}).keys()):
+                        desc = res["sections"][s].get("description", "")
+                        print(f"  [{s}] - {desc}")
+        elif args.command == "ops":
+            from .ops_info import get_operators
+            ops_list = get_operators(getattr(args, "query", None))
+            if getattr(args, "json", False):
+                print(json.dumps(ops_list, indent=2), file=sys.stdout)
+            else:
+                q_label = f" matching '{args.query}'" if getattr(args, "query", None) else ""
+                print(f"HyperGAN HNDL Operators ({len(ops_list)}{q_label}):")
+                for op in ops_list:
+                    print(f"  {op['name']:<20} [{op['category']:<14}] {op['summary']}")
         elif args.command == "inspect":
             target_p = hg.resolve_run_target(None) if args.path is None else args.path
             run = hg.open_run(target_p)
@@ -1916,11 +2054,12 @@ def _dispatch(args, *, output=None):
             hint = manual_evaluation_hint(prepared.config, **labels)
             if hint:
                 print(f"hint: {hint}", file=sys.stderr)
-            output.configure(args.run_dir, progress_every=args.progress_every,
-                             evaluation_reminder=manual_evaluation_reminder(prepared.config, **labels))
             config_dict = getattr(prepared.config, 'spec', prepared.config)
+            prog_every = args.progress_every if args.progress_every is not None else ((config_dict.get('run', {}) or {}).get('progress_every') if isinstance(config_dict, dict) else None)
+            output.configure(args.run_dir, progress_every=prog_every,
+                             evaluation_reminder=manual_evaluation_reminder(prepared.config, **labels))
             with _training_viewer(args, config=config_dict):
-                if not getattr(args, "progress_json", False):
+                if not getattr(args, "progress_json", False) and not getattr(args, "json", False) and not getattr(args, "quiet", False):
                     exp_name = config_dict.get("name") if isinstance(config_dict, dict) else (target_path.stem if target_path else args.run_dir.name)
                     train_sec = (config_dict.get("training") or config_dict.get("train") or {}) if isinstance(config_dict, dict) else {}
                     dev = "cpu" if is_cpu_override else train_sec.get("device", "cuda")
@@ -1930,7 +2069,7 @@ def _dispatch(args, *, output=None):
                                            execution=execution)
                 is_tty = bool(getattr(output.stdout.original, "isatty", lambda: False)()) if output and hasattr(output, "stdout") else False
                 is_profiled = getattr(prepared, "profile", None) is not None
-                human_footer = (not is_resume_cmd and not is_profiled or is_tty) and not getattr(args, "progress_json", False)
+                human_footer = (not is_resume_cmd and not is_profiled or is_tty) and not getattr(args, "progress_json", False) and not getattr(args, "json", False) and not getattr(args, "quiet", False)
                 run_manifest = prepared.run(on_event=output.progress)
                 dash_footer = getattr(args, "_dashboard_url", None) or ("headless (viewer disabled)" if args.no_server else None)
                 output.result(run_manifest, run_dir=args.run_dir, human=human_footer, dashboard_url=dash_footer)
@@ -2120,22 +2259,31 @@ def _dispatch(args, *, output=None):
                 )
                 print(instructions)
     except KeyboardInterrupt:
-        print("error: interrupted", file=sys.stderr)
-        return 130
-    except ModuleNotFoundError as exc:
-        if _debug(args):
-            import traceback
-            traceback.print_exc()
-        if exc.name and exc.name.split(".")[0] in {"torch", "particlegan", "numpy"}:
-            print("error: training dependencies are missing; install 'hypergan[train]' in this environment", file=sys.stderr)
+        if getattr(args, "json", False):
+            envelope = {
+                "ok": False,
+                "error": {
+                    "type": "KeyboardInterrupt",
+                    "message": "interrupted",
+                    "details": {},
+                },
+            }
+            print(json.dumps(envelope, indent=2), file=sys.stdout)
         else:
-            print(f"error: {exc}", file=sys.stderr)
-        return 1
-    except (OSError, ValueError, TypeError, RuntimeError, ImportError, KeyError, argparse.ArgumentTypeError) as exc:
+            print("error: interrupted", file=sys.stderr)
+        return 130
+    except BaseException as exc:
         if _debug(args):
             import traceback
-            traceback.print_exc()
-        print(f"error: {exc}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+        if getattr(args, "json", False):
+            envelope = _format_error_envelope(exc)
+            print(json.dumps(envelope, indent=2), file=sys.stdout)
+        else:
+            if isinstance(exc, ModuleNotFoundError) and exc.name and exc.name.split(".")[0] in {"torch", "particlegan", "numpy"}:
+                print("error: training dependencies are missing; install 'hypergan[train]' in this environment", file=sys.stderr)
+            else:
+                print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0
 

@@ -8,7 +8,7 @@ Run everything from the repository root after `python -m pip install -e '.[dev,t
 | --- | --- | --- |
 | `foundation/` | Lightweight package: CLI parsing, model files, registry, queue, packaging and docs consistency. Must pass without PyTorch. | core install |
 | `reference/` | Numerical reference on CPU: training steps, bit-exact stop/resume, checkpoints, metrics, replicated CPU workers. | `train`, `image`, `cifar` |
-| `unit/` | Focused module tests: aggregation strategies, profiles, multi-node topology, qualify, RunPod runner. | `train` |
+| `unit/` | Focused module tests: aggregation strategies, profiles, multi-node topology, qualify. | `train` |
 | `playbooks/` | User journeys through the CLI and Python API (new, validate, train, inspect, sample, export, rm). | `train`, `web` |
 | `e2e/` | Multi-device acceptance suite (Issue #186): replicated profiles, aggregation, multi-node TCP, qualification. | `train` |
 | `e2e_integration/` | Foldlite DB reducer integration. | `reducers`, `web` |

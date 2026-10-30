@@ -107,4 +107,3 @@ outer_momentum = 0.0
 | **`collective_timeout`** | `preflight.collective_timeout` | `15` | Seconds allowed for one distributed collective before the process group is aborted. |
 | **qualification** | `hypergan qualify` | — | A bounded smoke suite of single-device, replicated, aggregation and multi-node checks that writes a receipt. |
 | **receipt** | `--output` (default `qualification-receipt.json`) | — | Machine-readable JSON result of `hypergan qualify`: environment, suite outcomes, timings and parity numbers, plus `receipt_sha256`. That hash is an unkeyed self-hash: it catches accidental edits, not deliberate ones, and the receipt is not signed. |
-| **`runpod`** | `hypergan qualify` RunPod options, `RUNPOD_API_KEY` | `--dry-run` | Integration for qualifying remote cloud GPUs with cost guardrails and pod cleanup. Experimental. |

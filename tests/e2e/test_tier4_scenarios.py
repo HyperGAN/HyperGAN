@@ -35,7 +35,6 @@ try:
         make_profile_raw,
         validate_qualification_receipt,
         compute_receipt_sha256,
-        MockRunPodClient,
         run_replicated_cpu_smoke_test,
     )
 except ImportError:
@@ -47,7 +46,6 @@ except ImportError:
         make_profile_raw,
         validate_qualification_receipt,
         compute_receipt_sha256,
-        MockRunPodClient,
         run_replicated_cpu_smoke_test,
     )
 
@@ -197,22 +195,3 @@ class TestTier4RealWorldScenarios:
         validate_qualification_receipt(receipt)
         assert receipt["status"] == "passed"
         assert receipt["duration_seconds"] <= 180.0
-
-    def test_tier4_runpod_ephemeral_cleanup_trap_guarantee(self):
-        """Scenario 5: Verify RunPod cloud provisioning trap guarantees pod destruction on failure."""
-        client = MockRunPodClient(fail_at=None)
-
-        def mock_runpod_qualification_runner(client: MockRunPodClient, simulate_network_drop: bool = True):
-            pod = client.create_pod("RTX A5000", "hypergan:latest", timeout_seconds=180)
-            try:
-                if simulate_network_drop:
-                    raise ConnectionResetError("SSH link dropped to cloud instance")
-                return {"status": "ok"}
-            finally:
-                # Guaranteed cleanup in finally trap
-                client.terminate_pod(pod)
-
-        with pytest.raises(ConnectionResetError, match="SSH link dropped"):
-            mock_runpod_qualification_runner(client, simulate_network_drop=True)
-
-        assert client.all_pods_cleaned_up, "Cloud instance leaked after task exception!"

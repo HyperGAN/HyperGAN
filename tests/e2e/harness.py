@@ -3,7 +3,7 @@
 Provides:
 - hardware capability flags and the two-GPU skip marker (the only skips: missing hardware)
 - recipe and execution-profile builders for replicated tests
-- a multi-rank Gloo CPU smoke runner and a RunPod lifecycle mock for guardrail tests
+- a multi-rank Gloo CPU smoke runner
 
 The toy recipe and aggregation oracles live in ``tests/distributed_fixtures.py``
 so unit tests can share them without importing this harness. Every feature these tests cover has shipped, so nothing here
@@ -212,38 +212,6 @@ from hypergan.qualify import (  # noqa: E402
     compute_receipt_sha256,
     validate_qualification_receipt,
 )
-
-
-# ---------------------------------------------------------------------------
-# Ephemeral RunPod Runner Guardrail Mock / Simulator
-# ---------------------------------------------------------------------------
-
-class MockRunPodClient:
-    """Mock RunPod API client recording lifecycle calls for guardrail verification."""
-
-    def __init__(self, fail_at: Optional[str] = None):
-        self.created_pods: List[str] = []
-        self.terminated_pods: List[str] = []
-        self.fail_at = fail_at
-        self._next_id = 1
-
-    def create_pod(self, gpu_type: str, image: str, timeout_seconds: int) -> str:
-        if self.fail_at == "create_pod":
-            raise RuntimeError("Simulated cloud creation failure")
-        pod_id = f"mock-pod-{self._next_id}"
-        self._next_id += 1
-        self.created_pods.append(pod_id)
-        return pod_id
-
-    def terminate_pod(self, pod_id: str) -> bool:
-        if pod_id in self.created_pods:
-            self.terminated_pods.append(pod_id)
-            return True
-        return False
-
-    @property
-    def all_pods_cleaned_up(self) -> bool:
-        return set(self.created_pods) == set(self.terminated_pods)
 
 
 # ---------------------------------------------------------------------------

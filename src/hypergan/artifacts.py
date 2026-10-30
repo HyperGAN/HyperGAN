@@ -238,7 +238,10 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_im
             target = checkpoint if checkpoint is not None else "latest"
             ckpt_dir = resolve_checkpoint(run_dir, target)
             state = extract_ema_bundle(ckpt_dir)
-            source_file = ckpt_dir / "model.pt" if (ckpt_dir / "model.pt").is_file() else ckpt_dir / "state.pt"
+            source_file = next(
+                (ckpt_dir / cand for cand in ("model.pt", "state.pt", "rank-00000.pt") if (ckpt_dir / cand).is_file()),
+                ckpt_dir / "state.pt",
+            )
             expected = hashlib.sha256(source_file.read_bytes()).hexdigest() if source_file.is_file() else ""
         else:
             path = target_bundle

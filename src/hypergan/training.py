@@ -507,7 +507,8 @@ def train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_second
 
 def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
            max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None, preview_keep=None,
-           preview_keep_source=None, preview_name=None, steps=None, require_same_config=False):
+           preview_keep_source=None, preview_name=None, steps=None, require_same_config=False,
+           allow_device_change=False, allow_batch_size_change=False):
     """Resume full state, allowing a longer target for constant-rate training."""
     from .run_controller import run_resume
     from .single_execution import SingleProcessExecution
@@ -516,4 +517,5 @@ def resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
                       preview_every=preview_every, preview_keep=preview_keep,
                       preview_keep_source=preview_keep_source, preview_name=preview_name,
                       steps=steps, require_same_config=require_same_config,
+                      allow_device_change=allow_device_change, allow_batch_size_change=allow_batch_size_change,
                       execution_factory=SingleProcessExecution)

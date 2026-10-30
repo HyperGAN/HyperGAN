@@ -673,13 +673,21 @@ def _diff_keys(current, saved, prefix=""):
     return diffs
 
 
-def resume_differences(config, original, *, include_observation=False) -> list[str]:
+def resume_differences(config, original, *, include_observation=False,
+                       allow_device_change=False, allow_batch_size_change=False) -> list[str]:
     """Return the list of specific differing section/keys between two configs for resume."""
-    result = resume_compatible(config, original, include_observation=include_observation)
+    result = resume_compatible(
+        config,
+        original,
+        include_observation=include_observation,
+        allow_device_change=allow_device_change,
+        allow_batch_size_change=allow_batch_size_change,
+    )
     return getattr(result, "differences", [])
 
 
-def resume_compatible(config, original, *, include_observation=False, details=False, return_differences=False):
+def resume_compatible(config, original, *, include_observation=False, details=False, return_differences=False,
+                      allow_device_change=False, allow_batch_size_change=False):
     """Allow constant-LR extension, pinned-image skip opt-in and pixel caching.
 
     Keep fingerprints unchanged: existing checkpoints retain their original
@@ -693,6 +701,32 @@ def resume_compatible(config, original, *, include_observation=False, details=Fa
         if include_observation:
             current.pop('name', None)
             saved.pop('name', None)
+        if allow_device_change:
+            cur_dev = current['training']['device']
+            sav_dev = saved['training']['device']
+            validate_device(cur_dev)
+            validate_device(sav_dev)
+            if cur_dev != sav_dev:
+                cur_p_args = current.get('prior', {}).get('args', {})
+                sav_p_args = saved.get('prior', {}).get('args', {})
+                if isinstance(cur_p_args, dict) and isinstance(sav_p_args, dict):
+                    if cur_p_args.get('device') == cur_dev:
+                        if 'device' in sav_p_args:
+                            cur_p_args['device'] = sav_p_args['device']
+                        else:
+                            cur_p_args.pop('device', None)
+                current['training']['device'] = sav_dev
+        if allow_batch_size_change:
+            cur_bs = current['training']['batch_size']
+            sav_bs = saved['training']['batch_size']
+            _positive(cur_bs, 'training.batch_size', integer=True)
+            _positive(sav_bs, 'training.batch_size', integer=True)
+            if cur_bs != sav_bs:
+                if (isinstance(current.get('recipe'), dict) and isinstance(saved.get('recipe'), dict)
+                        and current['recipe'].get('batch_size') == cur_bs
+                        and saved['recipe'].get('batch_size') == sav_bs):
+                    current['recipe']['batch_size'] = sav_bs
+                current['training']['batch_size'] = sav_bs
         factory = 'hypergan.colorization_data:ColorizationData'
         if current.get('data', {}).get('factory') == saved.get('data', {}).get('factory') == factory:
             left, right = current['data']['args'], saved['data']['args']

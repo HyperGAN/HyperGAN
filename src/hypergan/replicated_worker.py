@@ -144,9 +144,20 @@ def handle_command(state, operation, payload):
         metrics, state['batch'] = trainer.update()
         return {**_ready(state), 'metrics': metrics}
     if operation == 'restore':
-        path, info, state['batch'] = restore_distributed_checkpoint(context['run_dir'], trainer,
-            {'run_id': context['run_id']}, checkpoint=payload['checkpoint'])
-        return {**_ready(state), 'checkpoint_path': str(path), 'saved_step': info['step']}
+        path, info, state['batch'], restore_warnings = restore_distributed_checkpoint(
+            context['run_dir'],
+            trainer,
+            {'run_id': context['run_id']},
+            checkpoint=payload['checkpoint'],
+            allow_elastic=True,
+            return_warnings=True,
+        )
+        return {
+            **_ready(state),
+            'checkpoint_path': str(path),
+            'saved_step': info['step'],
+            'warnings': list(restore_warnings),
+        }
     if operation == 'prepare':
         metadata = payload['metadata']
         if not state.get('follower') and any(metadata[key] != context[key] for key in ('run_id', 'attempt_id')):

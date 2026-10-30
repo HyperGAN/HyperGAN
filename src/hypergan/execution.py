@@ -94,35 +94,25 @@ def _policy(profile, service_policy):
     return resolve_policy(profile, service_policy)
 
 
-def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
-    """Pin a complete generation and reject routing/config conflicts without torch.
+def _validate_saved_checkpoint_topology(topology):
+    if not isinstance(topology, dict) or topology.get('name') not in PROFILE_NAMES[1:]:
+        raise ValueError('Resume checkpoint numerical execution identity differs from valid topology schema')
+    for key in ('world_size', 'accumulation_steps', 'nodes', 'ranks_per_node',
+                'global_batch_size', 'local_batch_size', 'microbatch_size'):
+        if key in topology:
+            val = topology[key]
+            if type(val) is not int or isinstance(val, bool) or val < 1:
+                raise ValueError('Resume checkpoint numerical execution identity differs from valid topology schema')
+
+
+def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps, *, current_config=None):
+    """Pin a complete generation across checkpoints/ and distributed-checkpoints/ without torch.
 
     The adapter validates all payload bytes, runtime, data and implementation
     during restore, under the run lock and before publishing a new attempt.
     """
-    root = (run_dir / ('distributed-checkpoints' if execution else 'checkpoints')).resolve()
-    pointer = None
-    if checkpoint is None:
-        if not (root / 'latest.json').exists():
-            raise ValueError('No full training checkpoint exists; an inference model is not resumable')
-        pointer = _read_metadata(root / 'latest.json')
-        if type(pointer.get('schema_version')) is not int or pointer['schema_version'] != 1:
-            raise ValueError('Unsupported training checkpoint pointer schema')
-        if execution and pointer.get('kind') != 'hypergan-distributed-training-checkpoint':
-            raise ValueError('Invalid distributed checkpoint pointer kind')
-        name = pointer.get('checkpoint')
-        if not isinstance(name, str) or Path(name).name != name:
-            raise ValueError('Invalid training checkpoint pointer path')
-        checkpoint = root / name
-    target = Path(checkpoint)
-    if not target.is_absolute():
-        choices = (target, run_dir / target, root / target)
-        target = next((choice for choice in choices if choice.is_dir()), root / target)
-    if target.is_symlink():
-        raise ValueError('Checkpoint must be an ordinary completed directory inside this run')
-    target = target.resolve()
-    if target.parent != root or target.name.startswith('.') or not target.is_dir():
-        raise ValueError('Checkpoint must be a completed checkpoint directory inside this run')
+    from .checkpoints import resolve_resume_checkpoint_dir
+    target, pointer = resolve_resume_checkpoint_dir(run_dir, checkpoint, run_manifest=manifest)
     info = _read_metadata(target / 'manifest.json')
     if type(info.get('schema_version')) is not int or info['schema_version'] != 1:
         raise ValueError('Unsupported training checkpoint schema')
@@ -130,29 +120,42 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
         raise ValueError('Checkpoint step is outside the original schedule')
     if pointer is not None and (type(pointer.get('step')) is not int or pointer['step'] != info['step']):
         raise ValueError('Checkpoint pointer step differs from generation')
-    expected = 'hypergan-distributed-training-checkpoint' if execution else 'hypergan-training-checkpoint'
-    if info.get('kind') != expected:
-        raise ValueError(f'Selected execution requires checkpoint kind {expected}')
+    expected_root_kind = (
+        'hypergan-distributed-training-checkpoint'
+        if target.parent.name == 'distributed-checkpoints'
+        else 'hypergan-training-checkpoint'
+    )
+    if info.get('kind') != expected_root_kind:
+        raise ValueError(f'Unsupported or mismatched training checkpoint kind {info.get("kind")!r}')
     if info.get('run_id') != manifest['run_id']:
         raise ValueError('Checkpoint belongs to a different run')
-    identity = info.get('identity', {}) if execution else info
+    is_dist_ckpt = info['kind'] == 'hypergan-distributed-training-checkpoint'
+    identity = info.get('identity', {}) if is_dist_ckpt else info
     if not isinstance(identity, dict):
         raise ValueError('Resume checkpoint configuration differs from the run manifest')
     if identity.get('config_sha256') != manifest['config_sha256']:
         saved_config = identity.get('config')
-        if (not resume_compatible(manifest['config'], saved_config)
-                or fingerprint(saved_config) != identity.get('config_sha256')):
+        ref_config = (
+            manifest['config']
+            if isinstance(manifest.get('config'), dict) and manifest['config']
+            else current_config
+        )
+        if (
+            not isinstance(saved_config, dict)
+            or not isinstance(ref_config, dict)
+            or not resume_compatible(
+                ref_config,
+                saved_config,
+                allow_device_change=True,
+                allow_batch_size_change=True,
+            )
+            or fingerprint(saved_config) != identity.get('config_sha256')
+        ):
             raise ValueError('Resume checkpoint configuration differs from the run manifest')
     from .checkpoint_compatibility import validate_checkpoint_compatibility
     validate_checkpoint_compatibility(identity)
-    if execution:
-        topology = identity.get('topology', {})
-        # The checkpoint writer excludes these per-launch fields from shared
-        # numerical topology. Match that contract while retaining every batch,
-        # accumulation, node-count and aggregation check.
-        if not isinstance(topology, dict) or any(not _same(topology.get(key), value)
-                for key, value in execution.items() if key not in ('node_rank', 'rendezvous')):
-            raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
+    if is_dist_ckpt:
+        _validate_saved_checkpoint_topology(identity.get('topology'))
     if info.get('event_boundary') is None:
         raise ValueError('Controller checkpoint requires a durable event boundary')
     from .run_state import validate_event_boundary
@@ -208,6 +211,43 @@ def _is_follower(profile=None):
     return False
 
 
+def _sync_prior_device(config):
+    if not isinstance(config, dict):
+        return
+    dev = config.get("training", {}).get("device")
+    if isinstance(dev, str) and dev:
+        prior_args = config.get("prior", {}).get("args")
+        if isinstance(prior_args, dict) and "device" in prior_args:
+            prior_args["device"] = dev
+
+
+def _requests_single_device(*, devices=None, device=None, nodes=None, strategy=None, sync_every=None, context_path=None):
+    """True when explicit CLI/API arguments request single-device execution rather than inheriting saved replication."""
+    cluster_env = detect_cluster_environment()
+    eff_nodes = int(nodes) if nodes is not None else int(cluster_env.get("nodes") or 1)
+    if eff_nodes > 1 or strategy is not None or (sync_every is not None and int(sync_every) > 1):
+        return False
+    if devices is not None:
+        from .workspace import find_workspace, load_workspace, resolve_device_aliases
+        ws_path = None
+        for cand in (os.environ.get("HYPERGAN_WORKSPACE"), context_path, Path.cwd()):
+            if cand is not None:
+                try:
+                    p = Path(cand)
+                    ws_path = p if (p.is_file() and p.name == "hypergan.toml") else find_workspace(p)
+                    if ws_path:
+                        break
+                except Exception:
+                    pass
+        ws_data = load_workspace(ws_path) if ws_path else {}
+        resolved = resolve_device_aliases(devices, ws_data)
+        dev_list = [d.strip() for d in (resolved if isinstance(resolved, list) else str(resolved).split(",")) if d.strip()]
+        return len(dev_list) == 1
+    if device is not None:
+        return True
+    return False
+
+
 def _apply_execution_options(
     devices=None,
     device=None,
@@ -225,6 +265,7 @@ def _apply_execution_options(
             config["training"]["device"] = device
         elif isinstance(config, dict):
             config.setdefault("training", {})["device"] = device
+        _sync_prior_device(config)
     cli_nodes = nodes
     cli_node_rank = node_rank
     cli_rendezvous = rendezvous
@@ -336,15 +377,18 @@ def _apply_execution_options(
         _set_visible_devices(",".join(dev_list))
         if isinstance(config, dict) and "training" in config:
             config["training"]["device"] = "cuda"
+            _sync_prior_device(config)
     elif len(dev_list) == 1:
         if dev_list[0].lower() == "cpu":
             _set_visible_devices("", order=False)
             if isinstance(config, dict) and "training" in config:
                 config["training"]["device"] = "cpu"
+                _sync_prior_device(config)
         else:
             _set_visible_devices(dev_list[0])
             if isinstance(config, dict) and "training" in config:
                 config["training"]["device"] = "cuda"
+                _sync_prior_device(config)
 
     # Determine runtime name
     is_cpu = (
@@ -381,6 +425,7 @@ def _apply_execution_options(
         }
         if isinstance(config, dict) and "training" in config:
             config["training"]["device"] = "cpu" if is_cpu else "cuda"
+            _sync_prior_device(config)
     elif profile is not None:
         has_cli_or_env_override = (
             cli_nodes is not None
@@ -416,8 +461,29 @@ def _apply_execution_options(
                     profile["execution"]["rendezvous"] = rendezvous
             elif isinstance(profile, dict) and "execution" in profile:
                 profile = deepcopy(profile)
-                if cli_nodes is not None or cluster_env.get("nodes") is not None:
-                    profile["execution"]["nodes"] = nodes
+                old_exec = profile["execution"]
+                old_nodes = old_exec.get("nodes", 1)
+                old_world = old_exec.get("world_size", 1)
+                old_rpn = old_exec.get("ranks_per_node")
+                if type(old_rpn) is not int or old_rpn < 1:
+                    old_rpn = (
+                        max(1, old_world // max(1, old_nodes))
+                        if type(old_world) is int and type(old_nodes) is int
+                        else 1
+                    )
+                if cli_nodes is not None or cluster_env.get("nodes") is not None or len(dev_list) > 1:
+                    new_nodes = nodes if (cli_nodes is not None or cluster_env.get("nodes") is not None) else old_nodes
+                    new_rpn = len(dev_list) if len(dev_list) > 1 else old_rpn
+                    new_world = new_rpn * new_nodes
+                    profile["execution"]["nodes"] = new_nodes
+                    profile["execution"]["ranks_per_node"] = new_rpn
+                    profile["execution"]["world_size"] = new_world
+                    if len(dev_list) > 1:
+                        profile["execution"]["name"] = name
+                    if (new_nodes, new_rpn, new_world) != (old_nodes, old_rpn, old_world):
+                        for k in ("global_batch_size", "local_batch_size", "microbatch_size", "accumulation_algorithm"):
+                            profile["execution"].pop(k, None)
+                        profile.pop("preflight", None)
                 if cli_node_rank is not None or cluster_env.get("node_rank") is not None:
                     profile["execution"]["node_rank"] = node_rank
                 if cli_rendezvous is not None or cluster_env.get("rendezvous") is not None:
@@ -433,6 +499,17 @@ def _apply_execution_options(
                         profile["aggregation"] = agg
                     if "aggregation" in profile.get("execution", {}):
                         profile["execution"]["aggregation"] = deepcopy(agg)
+
+    prof_name = (
+        profile
+        if isinstance(profile, str)
+        else (profile.get("execution", {}).get("name") if isinstance(profile, dict) and isinstance(profile.get("execution"), dict) else None)
+    )
+    if prof_name == "cuda-replicated-nccl" and isinstance(config, dict):
+        cur_dev = str(config.get("training", {}).get("device") or "")
+        if cur_dev.startswith("cuda:"):
+            config["training"]["device"] = "cuda"
+            _sync_prior_device(config)
 
     return profile, devices
 
@@ -474,6 +551,9 @@ class PreparedExecution:
     rendezvous: object = None
     strategy: object = None
     sync_every: object = None
+    device: object = None
+    allow_device_change: bool = False
+    allow_batch_size_change: bool = False
 
     def run(self, *, on_event=None):
         exec_cfg = _execution(self.profile)
@@ -487,12 +567,16 @@ class PreparedExecution:
         if self.operation == 'train':
             current = prepare_train(self.config_path, self.run_dir, self.steps,
                 profile=self.profile, service_policy=self.service_policy, devices=self.devices,
+                device=self.device,
                 nodes=self.nodes, node_rank=self.node_rank, rendezvous=self.rendezvous,
                 strategy=self.strategy, sync_every=self.sync_every, **self.controls)
         else:
             current = prepare_resume(self.run_dir, self.checkpoint, self.config_path,
                 steps=self.steps, _repeat_train=self.repeat_train,
+                _allow_device_change=self.allow_device_change,
+                _allow_batch_size_change=self.allow_batch_size_change,
                 profile=self.profile, service_policy=self.service_policy, devices=self.devices,
+                device=self.device,
                 nodes=self.nodes, node_rank=self.node_rank, rendezvous=self.rendezvous,
                 strategy=self.strategy, sync_every=self.sync_every, **self.controls)
         if current.operation != self.operation:
@@ -510,18 +594,25 @@ class PreparedExecution:
         else:
             from .replicated_execution import run_train, run_resume
             options = {'profile': self.profile, 'service_policy': self.service_policy}
-        if self.devices is None:
+        if (
+            self.devices is None
+            and self.device is None
+            and not self.allow_device_change
+            and not self.allow_batch_size_change
+        ):
             # The controller reloads config_path under the run lock and rejects late edits.
             config, steps = self.config_path, self.steps
         else:
-            # A device override exists only in the prepared configuration, so train
-            # exactly that (steps included); reloading config_path would drop it.
+            # A device or batch-size override exists in the prepared configuration, so run
+            # exactly that (steps included); reloading config_path or manifest would drop it.
             config, steps = _launch_config(current.config, self.config_path), None
         if self.operation == 'train':
             return run_train(config, self.run_dir, steps,
                              on_event=on_event, **options, **self.controls)
         return run_resume(self.run_dir, self.checkpoint, config,
                           steps=steps, require_same_config=self.repeat_train,
+                          allow_device_change=self.allow_device_change,
+                          allow_batch_size_change=self.allow_batch_size_change,
                           on_event=on_event, **options, **self.controls)
 
 
@@ -565,6 +656,8 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
                   preview_name=None):
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
+    raw_profile = profile
+    raw_devices = devices
     run_dir = Path(run_dir).resolve() if run_dir is not None else None
     config = _training_config(config_path, steps)
     profile, devices = _apply_execution_options(
@@ -575,7 +668,7 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     profile = _profile(profile, config)
     if run_dir is not None and not _is_follower(profile) and run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
-            profile=profile, service_policy=service_policy, devices=devices, device=device,
+            profile=raw_profile, service_policy=service_policy, devices=raw_devices, device=device,
             nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
             checkpoint_every=checkpoint_every, max_seconds=max_seconds,
             stop_after_steps=stop_after_steps, preview_every=preview_every,
@@ -599,17 +692,22 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
                     preview_keep=preview_keep, preview_keep_source=preview_keep_source,
                     preview_name=preview_name)
     return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls, False,
-                             devices, nodes, node_rank, rendezvous, strategy, sync_every)
+                             devices, nodes, node_rank, rendezvous, strategy, sync_every, device)
 
 
 def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _repeat_train=False,
+                   _allow_device_change=False, _allow_batch_size_change=False,
                    profile=None, service_policy=None, devices=None, device=None,
                    nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, preview_keep=None, preview_keep_source=None,
                    preview_name=None):
-    """Infer persisted numerical routing and pin an earlier/latest complete snapshot."""
+    """Infer persisted numerical routing or validate an elastic cross-topology migration."""
     from .run_controller import _controls, resolve_preview_keep
+    explicit_device_requested = bool(devices is not None or device is not None or _allow_device_change)
+    single_device_requested = _requests_single_device(
+        devices=devices, device=device, nodes=nodes, strategy=strategy, sync_every=sync_every, context_path=run_dir
+    )
     run_dir = Path(run_dir).resolve() if run_dir is not None else None
     is_follower = _is_follower(profile) or (node_rank is not None and node_rank > 0)
     if not is_follower and config_path is not None:
@@ -639,8 +737,21 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
         saved = manifest.get('execution')
         if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
             raise ValueError('Run has no supported numerical execution identity')
-        if profile is None and saved is not None:
-            profile = profile_from_execution(saved)
+        if saved is not None:
+            saved_profile = resolve_execution_profile(profile_from_execution(saved), config) if False else profile_from_execution(saved)
+            # Validate saved execution types strictly even when scaling down to single-device.
+            resolve_execution_profile(deepcopy(saved_profile), resolve_config({
+                **config_values(config),
+                'training': {
+                    **config_values(config)['training'],
+                    'device': 'cpu' if saved.get('name') == 'cpu-replicated-gloo' else 'cuda',
+                    'batch_size': saved.get('global_batch_size', config['training']['batch_size'])
+                    if type(saved.get('global_batch_size')) is int and saved.get('global_batch_size') >= 1
+                    else config['training']['batch_size'],
+                },
+            }))
+            if profile is None and not single_device_requested:
+                profile = saved_profile
     else:
         if config_path is not None:
             config = _training_config(config_path, steps)
@@ -648,6 +759,8 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             manifest = _read_metadata(run_dir / 'manifest.json')
             config = resolve_config(manifest['config'])
             saved = manifest.get('execution')
+            if isinstance(saved, dict) and saved.get('name') in PROFILE_NAMES[1:] and profile is None and not single_device_requested:
+                profile = profile_from_execution(saved)
         elif run_dir is not None and (run_dir / 'recipe.toml').is_file():
             config = _training_config(run_dir / 'recipe.toml', steps)
         elif run_dir is not None and (run_dir / 'model.toml').is_file():
@@ -662,11 +775,26 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     )
     if not is_follower and isinstance(profile, dict) and _execution(profile) and _execution(profile).get('node_rank', 0) > 0:
         is_follower = True
+    saved_dev = (
+        str(manifest.get('config', {}).get('training', {}).get('device') or '')
+        if isinstance(manifest.get('config'), dict) and isinstance(manifest['config'].get('training'), dict)
+        else ''
+    )
+    cur_dev = str(config.get('training', {}).get('device') or '') if isinstance(config, dict) else ''
+    same_cuda_family = saved_dev.split(':')[0] == 'cuda' and cur_dev.split(':')[0] == 'cuda'
+    allow_device_change = bool(explicit_device_requested or same_cuda_family)
+    allow_batch_size_change = bool(_allow_batch_size_change)
     if not is_follower:
         if _repeat_train:
             original = config_values(resolve_config(manifest['config']))
             changed = _differences(config_values(config), original)
-            if changed and not resume_compatible(config, original, include_observation=True):
+            if changed and not resume_compatible(
+                config,
+                original,
+                include_observation=True,
+                allow_device_change=allow_device_change,
+                allow_batch_size_change=allow_batch_size_change,
+            ):
                 # Resolved defaults are part of the recorded configuration, so a default
                 # that changed between releases surfaces here instead of silently applying.
                 remedy = ('`hypergan resume RUN --config CONFIG` continues this run with changed '
@@ -675,7 +803,12 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
                 raise ConfigError('Training configuration differs from the original run in '
                                   + ', '.join(changed) + '; ' + remedy)
         if fingerprint(config) != manifest['config_sha256']:
-            compat = resume_compatible(config, manifest['config'])
+            compat = resume_compatible(
+                config,
+                manifest['config'],
+                allow_device_change=allow_device_change,
+                allow_batch_size_change=allow_batch_size_change,
+            )
             if (not compat
                     or fingerprint(manifest['config']) != manifest['config_sha256']):
                 diffs = getattr(compat, 'differences', ())
@@ -686,8 +819,6 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     profile = _profile(profile, config)
     execution = _execution(profile)
     is_follower = is_follower or (execution is not None and execution.get('node_rank', 0) > 0)
-    if (not is_follower or saved is not None) and not _same_topology(execution, saved):
-        raise ValueError('Resume numerical execution identity differs from the run manifest')
     policy = _policy(profile, service_policy)
     run_cfg = (config.get('run', {}) if isinstance(config, dict) else {}) or (manifest.get('config', {}).get('run', {}) if isinstance(manifest.get('config'), dict) else {})
     if checkpoint_every is None:
@@ -697,13 +828,18 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     preview_keep, preview_keep_source = resolve_preview_keep(manifest, preview_keep, preview_keep_source)
     preview_name = sample_name(manifest.get('preview_name') if preview_name is None else preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
-    checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps']) if not is_follower else None
+    checkpoint = (
+        _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'], current_config=config)
+        if not is_follower
+        else None
+    )
     controls = dict(checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
                     preview_keep=preview_keep, preview_keep_source=preview_keep_source,
                     preview_name=preview_name)
     return PreparedExecution('resume', config, run_dir, config_path, checkpoint, steps, profile, policy, controls, _repeat_train,
-                             devices, nodes, node_rank, rendezvous, strategy, sync_every)
+                             devices, nodes, node_rank, rendezvous, strategy, sync_every,
+                             device, allow_device_change, allow_batch_size_change)
 
 
 def train(config_path, run_dir, steps=None, *, on_event=None, **options):

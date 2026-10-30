@@ -1295,6 +1295,8 @@ def _run_report(run_targets=None, is_json=False):
                 artifacts.append(cand)
         if (r_dir / "checkpoints").is_dir():
             artifacts.append("checkpoints/")
+        if (r_dir / "distributed-checkpoints").is_dir():
+            artifacts.append("distributed-checkpoints/")
 
         records.append({
             "run_id": run_id,

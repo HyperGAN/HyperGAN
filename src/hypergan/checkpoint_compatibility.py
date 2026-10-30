@@ -60,8 +60,52 @@ DEVICE_IDENTITY_KEYS = HARDWARE_TOLERANCE_KEYS
 _CARD_IDENTITY_KEYS = frozenset({'cuda.uuid', 'cuda.visible_devices'})
 
 
-def _is_hardware_tolerant(path: str) -> bool:
-    return path in HARDWARE_TOLERANCE_KEYS or path.startswith('cuda.rank_devices.')
+_ELASTIC_TOPOLOGY_RUNTIME_KEYS = frozenset({
+    'backend',
+    'interop_threads',
+    'threads',
+})
+
+
+def _is_hardware_tolerant(path: str, *, elastic_topology: bool = False, cross_device_type: bool = False) -> bool:
+    if path in HARDWARE_TOLERANCE_KEYS or path.startswith('cuda.rank_devices.'):
+        return True
+    if elastic_topology and path in _ELASTIC_TOPOLOGY_RUNTIME_KEYS:
+        return True
+    if cross_device_type and (path == 'cuda' or path.startswith('cuda.')):
+        return True
+    return False
+
+
+def format_topology_descriptor(topology, device=None) -> str:
+    """Compact human-readable summary of a single-device or replicated execution topology."""
+    if not isinstance(topology, dict) or not topology.get('name') or topology.get('name') == 'cpu-single':
+        base = 'native/1 rank'
+    else:
+        name = topology.get('name', 'replicated')
+        ranks = topology.get('world_size', 1)
+        rank_word = 'rank' if ranks == 1 else 'ranks'
+        nodes = topology.get('nodes', 1)
+        nodes_suffix = f'/{nodes} nodes' if isinstance(nodes, int) and nodes > 1 else ''
+        base = f'{name}/{ranks} {rank_word}{nodes_suffix}'
+    if device:
+        return f'{base} [{device}]'
+    return base
+
+
+def format_topology_change_warning(saved_topology, current_topology, *, saved_device=None,
+                                   current_device=None, step=0, emit=True) -> str:
+    """Build (and optionally emit) a structured warning for cross-topology or cross-device resume."""
+    show_dev = bool(saved_device and current_device and saved_device != current_device)
+    left = format_topology_descriptor(saved_topology, saved_device if show_dev else None)
+    right = format_topology_descriptor(current_topology, current_device if show_dev else None)
+    message = (
+        f'Execution topology changed on resume ({left} -> {right} at step {step}); '
+        'shared model/optimizer/EMA/prior state restored with re-seeded per-rank streams.'
+    )
+    if emit:
+        warnings.warn(message, HyperGANHardwareWarning, stacklevel=2)
+    return message
 
 
 # Every other key in `runtime` decides numerical behaviour and stays a hard
@@ -137,7 +181,7 @@ def _device_identity_warning(saved, differences):
 
 
 def validate_runtime(saved, current, *, warn=None, saved_implementation=None,
-                     current_implementation=None):
+                     current_implementation=None, elastic_topology=False):
     """Reject an incompatible runtime, naming every differing key path.
 
     A difference confined to HARDWARE_TOLERANCE_KEYS warns and resumes; any
@@ -161,14 +205,34 @@ def validate_runtime(saved, current, *, warn=None, saved_implementation=None,
     differences = _differences(saved, current)
     if not differences and not upgraded:
         return []
-    incompatible = [difference for difference in differences
-                    if not _is_hardware_tolerant(difference[0])]
+    saved_dev = str(saved.get('device', '') or '').split(':')[0]
+    current_dev = str(current.get('device', '') or '').split(':')[0]
+    cross_device_type = bool(
+        elastic_topology
+        and saved_dev in ('cpu', 'cuda')
+        and current_dev in ('cpu', 'cuda')
+        and saved_dev != current_dev
+    )
+    incompatible = [
+        difference for difference in differences
+        if not _is_hardware_tolerant(
+            difference[0],
+            elastic_topology=elastic_topology,
+            cross_device_type=cross_device_type,
+        )
+    ]
     if incompatible:
         raise ValueError(
             'Resume runtime/topology differs from checkpoint: ' + _describe(incompatible) +
             '. Resume with the runtime that wrote the checkpoint, or start a new run directory.')
-    hardware_diffs = [difference for difference in differences
-                      if _is_hardware_tolerant(difference[0])]
+    hardware_diffs = [
+        difference for difference in differences
+        if _is_hardware_tolerant(
+            difference[0],
+            elastic_topology=elastic_topology,
+            cross_device_type=cross_device_type,
+        )
+    ]
     messages = []
     if hardware_diffs:
         card = saved.get('cuda') if isinstance(saved.get('cuda'), dict) else {}

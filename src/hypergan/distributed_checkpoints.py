@@ -25,9 +25,23 @@ import uuid
 import torch
 import torch.distributed as dist
 
-from .checkpoints import capture_rng, file_sha256, restore_rng, restore_trainer, trainer_state
-from .checkpoint_compatibility import (CURRENT_VERSION, validate_checkpoint_compatibility,
-                                       validate_implementation, validate_runtime)
+from .checkpoints import (
+    capture_rng,
+    file_sha256,
+    read_checkpoint,
+    resolve_resume_checkpoint_dir,
+    restore_rng,
+    restore_trainer,
+    restore_trainer_cross_topology,
+    trainer_state,
+)
+from .checkpoint_compatibility import (
+    CURRENT_VERSION,
+    format_topology_change_warning,
+    validate_checkpoint_compatibility,
+    validate_implementation,
+    validate_runtime,
+)
 from .config import config_values, fingerprint, numerical_values, resume_compatible
 from .recipes import move_tensors
 from .run_state import atomic_json, sync_directory
@@ -219,27 +233,36 @@ def _distributed_checkpoint_identity(trainer):
     contract, reasons = _recovery_contract(trainer)
     if reasons:
         raise ValueError('Recovery unsupported: ' + '; '.join(reasons))
-    implementation = _implementation(trainer)
-    for module in (inspect.getmodule(type(trainer)), inspect.getmodule(distributed_checkpoint_identity)):
-        path = getattr(module, '__file__', None)
-        if not path or not Path(path).is_file():
-            raise ValueError('Distributed trainer/checkpoint implementation needs an inspectable source file')
-        implementation[module.__name__] = file_sha256(path)
-    import hypergan.distributed
-    implementation['hypergan.distributed'] = file_sha256(hypergan.distributed.__file__)
-    import hypergan.distributed_commit
-    implementation['hypergan.distributed_commit'] = file_sha256(hypergan.distributed_commit.__file__)
-    # Worker execution and parent publication policy affect continuation too.
-    # Hash files without importing the numerical worker in a parent process.
-    for name in ('replicated_execution', 'replicated_worker', 'cpu_worker_service',
-                 'preview_snapshot', 'snapshot_renderer', 'previews', 'bounded_observer'):
-        implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
+    cached_provenance = getattr(trainer, '_checkpoint_provenance', None)
+    if cached_provenance is None:
+        implementation = _implementation(trainer)
+        for module in (inspect.getmodule(type(trainer)), inspect.getmodule(distributed_checkpoint_identity)):
+            path = getattr(module, '__file__', None)
+            if not path or not Path(path).is_file():
+                raise ValueError('Distributed trainer/checkpoint implementation needs an inspectable source file')
+            implementation[module.__name__] = file_sha256(path)
+        import hypergan.distributed
+        implementation['hypergan.distributed'] = file_sha256(hypergan.distributed.__file__)
+        import hypergan.distributed_commit
+        implementation['hypergan.distributed_commit'] = file_sha256(hypergan.distributed_commit.__file__)
+        # Worker execution and parent publication policy affect continuation too.
+        # Hash files without importing the numerical worker in a parent process.
+        for name in ('replicated_execution', 'replicated_worker', 'cpu_worker_service',
+                     'preview_snapshot', 'snapshot_renderer', 'previews', 'bounded_observer'):
+            implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
+        source = source_info(trainer.config)
+        try:
+            trainer._checkpoint_provenance = (copy.deepcopy(implementation), copy.deepcopy(source))
+        except (AttributeError, TypeError):
+            pass
+    else:
+        implementation, source = copy.deepcopy(cached_provenance)
     runtime = distributed_runtime_info(trainer)
     topology = {k: v for k, v in strategy.items() if k not in ('node_rank', 'rendezvous')}
     return _json({'hypergan_checkpoint_version': CURRENT_VERSION,
                   'config': numerical_values(trainer.config), 'config_sha256': fingerprint(trainer.config),
                   'runtime': runtime, 'implementation': implementation, 'data_contract': contract,
-                  'topology': topology, 'source': source_info(trainer.config)})
+                  'topology': topology, 'source': source})
 
 
 def distributed_checkpoint_identity(trainer):
@@ -436,14 +459,15 @@ def _read_json(path):
     return json.loads(content)
 
 
-def _validate_restore_identity(saved, current):
+def _validate_restore_identity(saved, current, *, warn=None):
     """Accept compatible HyperGAN builds without weakening current-rank agreement."""
     if not isinstance(saved, dict):
         raise ValueError('Distributed checkpoint identity must be a dictionary')
     validate_checkpoint_compatibility(saved)
-    validate_runtime(saved.get('runtime'), current['runtime'],
-                     saved_implementation=saved.get('implementation'),
-                     current_implementation=current['implementation'])
+    rt_warnings = validate_runtime(saved.get('runtime'), current['runtime'],
+                                   warn=warn,
+                                   saved_implementation=saved.get('implementation'),
+                                   current_implementation=current['implementation'])
     validate_implementation(saved.get('implementation'), current['implementation'])
     for identity in (saved, current):
         if (not isinstance(identity.get('config'), dict)
@@ -463,9 +487,97 @@ def _validate_restore_identity(saved, current):
         current_cmp['topology'] = {k: v for k, v in current_cmp['topology'].items() if k not in ('node_rank', 'rendezvous')}
     if not _same_json(saved_cmp, current_cmp):
         raise ValueError('Distributed checkpoint config/data/topology identity differs')
+    return rt_warnings
 
 
-def _read(root, checkpoint, expected_identity, expected_run):
+def read_distributed_checkpoint_for_elastic(run_dir, target, expected_run):
+    """Read and integrity-verify a distributed checkpoint of arbitrary world_size M >= 1.
+
+    Verifies manifest schema, event boundary, every saved rank file's byte count,
+    SHA-256 digest, step, and shared numerical state digest (`replicated_sha256`),
+    then returns `(target, info, identity, rank0_state)`.
+    """
+    run_dir = Path(run_dir).resolve()
+    root = (run_dir / 'distributed-checkpoints').resolve()
+    target = Path(target)
+    if not target.is_absolute():
+        target = root / target
+    if target.is_symlink():
+        raise ValueError('Distributed checkpoint generation must not be a symlink')
+    target = target.resolve()
+    if target.parent != root or not target.is_dir() or target.name.startswith('.'):
+        raise ValueError('Select a completed distributed checkpoint directory inside this run')
+    info = _read_json(target / 'manifest.json')
+    required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
+    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation'}
+    if not isinstance(info, dict) or not required <= set(info) <= allowed or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
+        raise ValueError('Invalid distributed checkpoint metadata/schema')
+    from .run_state import validate_event_boundary
+    validate_event_boundary(run_dir, info)
+    if info['run_id'] != expected_run:
+        raise ValueError('Distributed checkpoint run identity differs')
+    identity = info.get('identity')
+    if not isinstance(identity, dict):
+        raise ValueError('Distributed checkpoint identity must be a dictionary')
+    validate_checkpoint_compatibility(identity)
+    lineage = {key: info[key] for key in ('run_id', 'attempt_id', 'next_sample_sequence')}
+    if 'request_ids' in info:
+        lineage['request_ids'] = info['request_ids']
+    _metadata(lineage)
+    if type(info['step']) is not int or info['step'] < 0:
+        raise ValueError('Distributed checkpoint step is invalid')
+    if not isinstance(info['ranks'], list) or len(info['ranks']) < 1:
+        raise ValueError('Distributed checkpoint must contain at least one saved rank')
+    rank0_state = None
+    for rank_idx, record in enumerate(info['ranks']):
+        if (
+            not isinstance(record, dict)
+            or set(record) != {'rank', 'file', 'bytes', 'sha256'}
+            or type(record['rank']) is not int
+            or record['rank'] != rank_idx
+            or record['file'] != f'rank-{rank_idx:05d}.pt'
+        ):
+            raise ValueError('Invalid distributed checkpoint rank inventory')
+        if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
+            raise ValueError('Invalid distributed checkpoint payload size')
+        path = target / record['file']
+        if path.is_symlink() or not path.is_file() or path.stat().st_size != record['bytes']:
+            raise ValueError('Distributed rank payload size/type mismatch')
+        with path.open('rb') as source:
+            payload = source.read(record['bytes'] + 1)
+        if len(payload) != record['bytes']:
+            raise ValueError('Distributed rank payload changed size while reading')
+        if hashlib.sha256(payload).hexdigest() != record['sha256']:
+            raise ValueError('Distributed rank payload digest mismatch')
+        state = _deserialize(payload)
+        if state['step'] != info['step'] or _shared_digest(state) != info['replicated_sha256']:
+            raise ValueError('Distributed rank numerical state differs from committed agreement')
+        if rank_idx == 0:
+            rank0_state = state
+    return target, info, identity, rank0_state
+
+
+def _is_same_distributed_topology(saved_identity, current_identity, saved_ranks_len, world_size):
+    if not isinstance(saved_identity, dict) or saved_ranks_len != world_size:
+        return False
+    saved_cfg = saved_identity.get('config')
+    current_cfg = current_identity.get('config')
+    if not isinstance(saved_cfg, dict) or not isinstance(current_cfg, dict):
+        return False
+    saved_tr = saved_cfg.get('training', {})
+    current_tr = current_cfg.get('training', {})
+    if saved_tr.get('device') != current_tr.get('device') or saved_tr.get('batch_size') != current_tr.get('batch_size'):
+        return False
+    saved_topo = saved_identity.get('topology')
+    current_topo = current_identity.get('topology')
+    if not isinstance(saved_topo, dict) or not isinstance(current_topo, dict):
+        return False
+    s_clean = {k: v for k, v in saved_topo.items() if k not in ('node_rank', 'rendezvous')}
+    c_clean = {k: v for k, v in current_topo.items() if k not in ('node_rank', 'rendezvous')}
+    return _same_json(s_clean, c_clean)
+
+
+def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
     pointer = None
     if checkpoint is None:
         pointer = _read_json(root / 'latest.json')
@@ -493,7 +605,7 @@ def _read(root, checkpoint, expected_identity, expected_run):
     validate_event_boundary(root.parent, info)
     if info['run_id'] != expected_run:
         raise ValueError('Distributed checkpoint run identity differs')
-    _validate_restore_identity(info['identity'], expected_identity)
+    rt_warnings = _validate_restore_identity(info['identity'], expected_identity, warn=warn)
     lineage = {key: info[key] for key in ('run_id', 'attempt_id', 'next_sample_sequence')}
     if 'request_ids' in info:
         lineage['request_ids'] = info['request_ids']
@@ -523,21 +635,104 @@ def _read(root, checkpoint, expected_identity, expected_run):
         if state['step'] != info['step'] or _shared_digest(state) != info['replicated_sha256']:
             raise ValueError('Distributed rank numerical state differs from committed agreement')
         payloads.append(payload)
+    if warn is not None:
+        return target, info, payloads, rt_warnings
     return target, info, payloads
 
 
-def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoint=None):
+def _read_elastic(run_dir, checkpoint, expected_identity, expected_run, world_size):
+    """Resolve across checkpoints/ and distributed-checkpoints/; choose exact or elastic restore."""
+    run_manifest_path = Path(run_dir).resolve() / 'manifest.json'
+    run_manifest = _read_json(run_manifest_path) if run_manifest_path.is_file() else None
+    target, pointer = resolve_resume_checkpoint_dir(run_dir, checkpoint, run_manifest=run_manifest)
+    info = _read_json(target / 'manifest.json')
+    if not isinstance(info, dict):
+        raise ValueError('Invalid training checkpoint metadata')
+    kind = info.get('kind')
+    if kind == KIND:
+        ranks_list = info.get('ranks')
+        ranks_len = len(ranks_list) if isinstance(ranks_list, list) else -1
+        if _is_same_distributed_topology(info.get('identity'), expected_identity, ranks_len, world_size):
+            collected_warnings = []
+            target, info, payloads, _ = _read(
+                target.parent, target, expected_identity, expected_run, warn=collected_warnings.append
+            )
+            if pointer is not None and pointer.get('step') != info['step']:
+                raise ValueError('Distributed checkpoint pointer step differs from generation')
+            return 'exact', target, info, payloads, collected_warnings
+
+        target, info, saved_identity, shared_state = read_distributed_checkpoint_for_elastic(
+            run_dir, target, expected_run
+        )
+        saved_topology = saved_identity.get('topology')
+    elif kind == 'hypergan-training-checkpoint':
+        target, info, shared_state = read_checkpoint(run_dir, target)
+        if info['run_id'] != expected_run:
+            raise ValueError('Training checkpoint run identity differs')
+        saved_identity = info
+        saved_topology = None
+    else:
+        raise ValueError(f'Unsupported checkpoint kind for restore: {kind!r}')
+
+    if pointer is not None and pointer.get('step') != info['step']:
+        raise ValueError('Checkpoint pointer step differs from generation')
+    if type(info.get('step')) is not int or not 0 <= info['step'] <= expected_identity['config']['training']['steps']:
+        raise ValueError('Checkpoint step is outside the configured schedule')
+
+    validate_checkpoint_compatibility(saved_identity)
+    collected_warnings = []
+    validate_runtime(
+        saved_identity.get('runtime'),
+        expected_identity['runtime'],
+        warn=collected_warnings.append,
+        saved_implementation=saved_identity.get('implementation'),
+        current_implementation=expected_identity['implementation'],
+        elastic_topology=True,
+    )
+    validate_implementation(saved_identity.get('implementation'), expected_identity['implementation'])
+    saved_cfg = saved_identity.get('config')
+    if not isinstance(saved_cfg, dict) or fingerprint(saved_cfg) != saved_identity.get('config_sha256'):
+        raise ValueError('Checkpoint configuration fingerprint differs')
+    if not resume_compatible(
+        expected_identity['config'], saved_cfg, allow_device_change=True, allow_batch_size_change=True
+    ):
+        raise ValueError('Checkpoint configuration is incompatible with resume configuration')
+    if not _same_json(saved_identity.get('data_contract'), expected_identity.get('data_contract')):
+        raise ValueError('Checkpoint data identity or state protocol differs from trainer')
+
+    topo_warning = format_topology_change_warning(
+        saved_topology,
+        expected_identity.get('topology'),
+        saved_device=saved_cfg.get('training', {}).get('device'),
+        current_device=expected_identity['config'].get('training', {}).get('device'),
+        step=info['step'],
+        emit=False,
+    )
+    collected_warnings.append(topo_warning)
+    shared_payload = _serialize(move_tensors(shared_state, 'cpu'))
+    return 'elastic', target, info, shared_payload, collected_warnings
+
+
+def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoint=None, *,
+                                   allow_elastic=False, return_warnings=False):
     """Validate all rank files/identities before restoring each rank's own state.
 
-    The same world size and rank ownership are mandatory. Validation uses an
-    isolated trainer copy before any live mutation. Actual load-hook failure poisons
-    every rank; callers must abort the whole job instead of continuing partially.
+    When ``allow_elastic`` is False (default), the same world size and rank ownership
+    are mandatory. When ``allow_elastic`` is True, matching topologies still take the
+    exact bitwise per-rank scatter path, while cross-topology checkpoints (`1 -> N`,
+    `M -> N`, strategy/backend/device changes) broadcast verified shared numerical
+    state from rank 0, re-seed per-rank streams deterministically, and assert 100%
+    all-rank `_shared_digest` replica agreement.
     """
     rank, world_size = _group()
     initial_rng = capture_rng()
     error, descriptor = None, None
     try:
-        root = _root(run_dir) if rank == 0 else None
+        root = _root(run_dir) if (rank == 0 and not allow_elastic) else None
+        if rank == 0 and allow_elastic:
+            run_path = Path(run_dir).resolve()
+            if not run_path.is_dir():
+                raise ValueError(f'Run directory must already exist: {run_path}')
         if getattr(trainer, '_poisoned', False):
             raise ValueError('Restore requires a fresh trainer after a failed update; restart the whole worker group')
         if getattr(trainer, 'checkpoint_ready', False) is not True:
@@ -552,16 +747,76 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
     peers = _agree('restore:prepare', descriptor, error, trainer=trainer)
     if any(not _same_json(peer, peers[0]) for peer in peers):
         raise ValueError('Ranks disagree on distributed checkpoint selection or expected identity')
-    payloads, response = None, [None]
+    payloads, shared_payload, response = None, None, [None]
     if rank == 0:
         try:
-            target, info, payloads = _read(root, checkpoint, identity, expected['run_id'])
-            response[0] = {'path': str(target), 'info': info, 'error': None}
+            if allow_elastic:
+                mode, target, info, raw_payload, warnings_out = _read_elastic(
+                    run_dir, checkpoint, identity, expected['run_id'], world_size
+                )
+                if mode == 'exact':
+                    payloads = raw_payload
+                else:
+                    shared_payload = raw_payload
+                response[0] = {
+                    'path': str(target),
+                    'info': info,
+                    'mode': mode,
+                    'warnings': warnings_out,
+                    'error': None,
+                }
+            else:
+                target, info, payloads = _read(root, checkpoint, identity, expected['run_id'])
+                response[0] = {'path': str(target), 'info': info, 'mode': 'exact', 'warnings': [], 'error': None}
         except Exception as exc:
-            response[0] = {'path': None, 'info': None, 'error': f'{type(exc).__name__}: {exc}'}
+            response[0] = {'path': None, 'info': None, 'mode': None, 'warnings': [], 'error': f'{type(exc).__name__}: {exc}'}
     dist.broadcast_object_list(response, src=0)
     if response[0]['error']:
         raise ValueError('Invalid distributed checkpoint: ' + response[0]['error'])
+
+    if response[0]['mode'] == 'elastic':
+        shared_box = [shared_payload if rank == 0 else None]
+        dist.broadcast_object_list(shared_box, src=0)
+        error, candidate_shared_digest = None, None
+        try:
+            state = _deserialize(shared_box[0])
+            memo = {id(module): module for module in list(sys.modules.values()) if isinstance(module, types.ModuleType)}
+            candidate = copy.deepcopy(trainer, memo)
+            candidate_last_batch = restore_trainer_cross_topology(
+                candidate, copy.deepcopy(state), rank=rank, world_size=world_size
+            )
+            candidate_shared_digest = _shared_digest(_rank_state(candidate, candidate_last_batch))
+        except Exception as exc:
+            error = f'{type(exc).__name__}: {exc}'
+        finally:
+            restore_rng(initial_rng)
+        validated_digests = _agree('restore:validated', candidate_shared_digest, error=error, trainer=trainer)
+        if any(item != validated_digests[0] for item in validated_digests):
+            raise ValueError('Ranks disagree on cross-topology candidate shared numerical state')
+        trainer.checkpoint_ready = False
+        try:
+            error, last_batch, live_shared_digest = None, None, None
+            try:
+                last_batch = restore_trainer_cross_topology(
+                    trainer, _deserialize(shared_box[0]), rank=rank, world_size=world_size
+                )
+                live_shared_digest = _shared_digest(_rank_state(trainer, last_batch))
+                if live_shared_digest != candidate_shared_digest:
+                    raise ValueError('Live cross-topology rank state differs from validated candidate')
+            except Exception as exc:
+                error = f'{type(exc).__name__}: {exc}'
+            loaded_digests = _agree('restore:loaded', live_shared_digest, error=error, trainer=trainer)
+            if any(item != loaded_digests[0] for item in loaded_digests):
+                raise ValueError('Ranks disagree on restored cross-topology shared numerical state')
+        except BaseException:
+            trainer.checkpoint_ready = False
+            trainer._poisoned = True
+            raise
+        trainer.checkpoint_ready = True
+        if return_warnings:
+            return Path(response[0]['path']), response[0]['info'], last_batch, tuple(response[0].get('warnings') or ())
+        return Path(response[0]['path']), response[0]['info'], last_batch
+
     local = [None]
     dist.scatter_object_list(local, scatter_object_input_list=payloads, src=0)
     error, state = None, None
@@ -598,4 +853,6 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
         trainer._poisoned = True
         raise
     trainer.checkpoint_ready = True
+    if return_warnings:
+        return Path(response[0]['path']), response[0]['info'], last_batch, tuple(response[0].get('warnings') or ())
     return Path(response[0]['path']), response[0]['info'], last_batch

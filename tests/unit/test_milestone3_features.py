@@ -173,6 +173,7 @@ def test_feature_37_health_telemetry_catalog_registration():
         "grad_norm/prior",
         "optimizer/d_guard_ratio",
         "prior/particle_rms",
+        "diversity/ratio",
     ]
     for key in telemetry_keys:
         assert key in catalog["metrics"]

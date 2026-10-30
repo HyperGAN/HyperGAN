@@ -342,6 +342,7 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
         ('grad_norm_prior', 'grad_norm/prior'),
         ('d_guard_ratio', 'optimizer/d_guard_ratio'),
         ('particle_rms', 'prior/particle_rms'),
+        ('diversity_ratio', 'diversity/ratio'),
     ):
         if alt in values and primary not in values:
             values[primary] = values[alt]
@@ -351,6 +352,11 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
     for name, definition in catalog['metrics'].items():
         source = definition['source']
         if source.startswith(('custom:', 'preview:')):
+            if name == 'diversity/ratio' and 'diversity/ratio' in values:
+                value = values['diversity/ratio']
+                if type(value) not in (int, float) or not math.isfinite(value):
+                    raise ValueError(f'Nonfinite or invalid metric value: {name}')
+                metrics[name] = float(value)
             continue
         if source not in values:
             statuses[name] = {'status': 'unavailable', 'reason': 'Execution did not provide this scalar'}

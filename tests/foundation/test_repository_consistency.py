@@ -31,6 +31,7 @@ pytestmark = pytest.mark.skipif(not (ROOT / '.github').is_dir(), reason='needs a
 DOC_FILES = [*(p for p in ('README.md', 'CONTRIBUTING.md', 'tests/README.md') if (ROOT / p).is_file()),
              *sorted(str(p.relative_to(ROOT).as_posix()) for p in (ROOT / 'docs').glob('*.md'))]
 SHELL_FENCES = {'', 'sh', 'bash', 'shell', 'console', 'zsh'}
+PYTHON_FENCES = {'python', 'py'}
 COMMAND = re.compile(r'^(?:[A-Z_][A-Z0-9_]*=\S+\s+)*(?:hypergan|python3? -m hypergan)\s+(.*)$')
 
 
@@ -92,6 +93,57 @@ def test_every_documented_hypergan_command_parses():
             if exc.code:
                 failures.append(f'{relative}: {line}\n    {stderr.getvalue().strip().splitlines()[-1:]}')
     assert not failures, 'documented commands that do not parse:\n' + '\n'.join(failures)
+
+
+def _python_blocks():
+    for relative in DOC_FILES:
+        path = ROOT / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding='utf-8')
+        language = None
+        lines = []
+        start_line = 0
+        for idx, line in enumerate(text.splitlines(), start=1):
+            fence = re.fullmatch(r'\s*```(\w*)\s*', line)
+            if fence and language is None:
+                language = fence.group(1)
+                start_line = idx
+                lines = []
+            elif line.strip() == '```' and language is not None:
+                if language in PYTHON_FENCES:
+                    yield relative, start_line, idx, '\n'.join(lines)
+                language = None
+            elif language is not None:
+                lines.append(line)
+
+
+def test_every_documented_python_block_parses_ast():
+    """Verify that every ```python code block across all documentation parses as valid Python AST."""
+    blocks = list(_python_blocks())
+    assert len(blocks) >= 40, f'Expected at least 40 Python blocks in documentation, found {len(blocks)}'
+
+    failures = []
+    for relative, start, end, code in blocks:
+        try:
+            ast.parse(code)
+        except SyntaxError as exc:
+            failures.append(f'{relative}:{start}-{end}: SyntaxError: {exc}')
+
+    assert not failures, 'Documented Python code blocks failed AST parse:\n' + '\n'.join(failures)
+
+
+def test_no_hndl_blocks_erroneously_tagged_as_python():
+    """Verify that HNDL DSL blocks are tagged with ```hndl and not ```python."""
+    failures = []
+    for relative, start, end, code in _python_blocks():
+        if re.search(r'\b(pretrained\(\$\{|diff_augment\(x,\s*transforms=)', code):
+            if 'import ' not in code and 'def ' not in code:
+                failures.append(
+                    f'{relative}:{start}-{end}: Contains raw HNDL DSL; must be fenced as ```hndl'
+                )
+
+    assert not failures, 'HNDL DSL snippets erroneously tagged as ```python:\n' + '\n'.join(failures)
 
 
 def _ci_matrices():

@@ -186,45 +186,68 @@ def rank_evaluations(evaluations: list[dict], policy: dict | None = None) -> tup
     return metric, direction, sorted(records, key=lambda r: (sign * r["value"], -r["step"]))
 
 
+_STEP_DIR_RE = re.compile(r"(?:^|[_-])step[_-](\d+)(?:$|[_-])", re.IGNORECASE)
+
+
 def collect_checkpoints(run_dir: Path, evaluations_by_step: dict | None = None) -> list[dict]:
-    """Scan checkpoints/*/manifest.json and collect active checkpoint records."""
-    ckpt_root = Path(run_dir) / "checkpoints"
-    results = []
-    if not ckpt_root.is_dir():
-        return results
-
+    """Scan checkpoints/ and distributed-checkpoints/ and collect active checkpoint records."""
+    root_dir = Path(run_dir)
     eval_by_step = evaluations_by_step or {}
+    deduped: dict[tuple[int, str], dict] = {}
 
-    for manifest_path in ckpt_root.glob("*/manifest.json"):
-        dir_name = manifest_path.parent.name
-        if dir_name.startswith("."):
+    for subdir in ("checkpoints", "distributed-checkpoints"):
+        ckpt_root = root_dir / subdir
+        if not ckpt_root.is_dir():
             continue
         try:
-            data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            step = data.get("step")
-            if step is None or not isinstance(step, int):
+            entries = list(ckpt_root.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            dir_name = entry.name
+            if dir_name.startswith(".") or not entry.is_dir():
+                continue
+            manifest_path = entry / "manifest.json"
+            step = None
+            ts = None
+            if manifest_path.is_file():
+                try:
+                    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                raw_step = data.get("step")
+                if isinstance(raw_step, int) and not isinstance(raw_step, bool):
+                    step = raw_step
+                raw_ts = data.get("created_at") or data.get("timestamp")
+                if isinstance(raw_ts, str) and raw_ts:
+                    ts = raw_ts
+            if step is None:
+                match = _STEP_DIR_RE.search(dir_name)
+                if match is not None:
+                    step = int(match.group(1))
+            if step is None:
                 continue
 
-            ts = data.get("created_at")
             if ts is None:
+                stat_target = manifest_path if manifest_path.is_file() else entry
                 try:
-                    ts = datetime.fromtimestamp(manifest_path.stat().st_mtime, timezone.utc).isoformat()
+                    ts = datetime.fromtimestamp(stat_target.stat().st_mtime, timezone.utc).isoformat()
                 except OSError:
                     ts = None
 
             metrics_at_step = dict(eval_by_step.get(step, {}))
-
-            results.append({
+            deduped[(step, dir_name)] = {
                 "step": step,
                 "name": dir_name,
-                "path": f"checkpoints/{dir_name}",
+                "path": f"{subdir}/{dir_name}",
                 "timestamp": ts,
                 "metrics": metrics_at_step,
-            })
-        except Exception:
-            continue
+            }
 
-    results.sort(key=lambda c: (c["step"], c["name"]))
+    results = list(deduped.values())
+    results.sort(key=lambda c: (c["step"], c.get("timestamp") or "", c["name"]))
     return results
 
 

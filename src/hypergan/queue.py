@@ -486,7 +486,13 @@ def queue_add(
             m_file = None
         else:
             kind = "experiment"
-            m_path = Path(model_file).resolve()
+            raw_model_path = Path(model_file)
+            if not raw_model_path.exists():
+                from .config import resolve_packaged_model_path
+                pkg_cand = resolve_packaged_model_path(model_file)
+                if pkg_cand is not None:
+                    raw_model_path = pkg_cand
+            m_path = raw_model_path.resolve()
             m_file = str(m_path)
             job_name = name or m_path.stem
             target_run_dir = str(Path(run_dir).resolve()) if run_dir else None

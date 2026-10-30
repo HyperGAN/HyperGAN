@@ -779,6 +779,26 @@ def _read_hndl_file(file, base, location):
         raise ValueError(f'{location}: cannot read {file}: {exc}') from exc
 
 
+PACKAGED_MODELS_DIR = Path(__file__).with_name("models")
+
+
+def resolve_packaged_model_path(value):
+    """Resolve a bare packaged model name (with or without .toml) if no local path exists."""
+    if not isinstance(value, (str, Path)):
+        return None
+    raw = str(value)
+    if not raw or "/" in raw or "\\" in raw:
+        return None
+    candidate_local = Path(value)
+    if candidate_local.is_absolute() or candidate_local.exists():
+        return None
+    stem = raw[:-5] if raw.lower().endswith(".toml") else raw
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]*", stem) is None:
+        return None
+    packaged_file = PACKAGED_MODELS_DIR / f"{stem}.toml"
+    return packaged_file.resolve() if packaged_file.is_file() else None
+
+
 def load_config(path):
     """Resolve a recipe or model file path, or an in-memory recipe/model mapping.
 
@@ -804,9 +824,14 @@ def load_config(path):
         if is_model_file(raw):
             return resolve_config(lower(raw))
         return resolve_config(raw)
+    raw_path = str(path)
     path = Path(path)
     if not path.exists() and path.parent.name == "examples" and (path.parent / "archive" / path.name).is_file():
         path = path.parent / "archive" / path.name
+    if not path.exists():
+        packaged_file = resolve_packaged_model_path(raw_path)
+        if packaged_file is not None:
+            path = packaged_file
     if path.is_dir():
         path = path / "model.toml" if (path / "model.toml").is_file() else path / "config.toml"
     with path.open("rb") as stream:

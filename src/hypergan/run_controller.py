@@ -4,6 +4,7 @@ The execution interface is internal. Public training commands remain separate
 from adapters that configure a fenced attempt before constructing workers.
 """
 from contextlib import nullcontext
+import copy
 from dataclasses import dataclass
 import json
 import math
@@ -209,13 +210,33 @@ def _configure_attempt(execution, context, preview_every, on_event):
     return _json_value(value)
 
 
-def _apply_execution(manifest, descriptor):
+def _canonical_execution_topology(exec_dict):
+    if not isinstance(exec_dict, dict):
+        return None
+    return {k: v for k, v in exec_dict.items() if k not in ('node_rank', 'rendezvous')}
+
+
+def _apply_execution(manifest, descriptor, config=None):
     if descriptor is not None:
         manifest.update(descriptor)
         if descriptor['execution'].get('name') != 'cpu-single':
             manifest['qualification']['status'] = 'unqualified'
             # The native stream summary cannot describe rank-specific streams.
             manifest.pop('rng_streams', None)
+    else:
+        manifest.pop('execution', None)
+        manifest.pop('service_policy', None)
+        if config is not None and 'rng_streams' not in manifest:
+            manifest['rng_streams'] = {
+                name: config['training']['seed'] + offset
+                for name, offset in [
+                    ('data', config['training']['data_seed_offset']),
+                    ('prior', config['training']['prior_seed_offset']),
+                    ('penalty', 3),
+                    ('noise', 5),
+                ]
+            }
+            manifest['rng_streams']['sampling'] = config['sampling']['seed']
 
 
 def _cleanup_validation_failure(execution):
@@ -236,15 +257,31 @@ def _resume_point_is_current(manifest):
     """Whether the restored checkpoint is already the run's default recovery point.
 
     True only when `latest.json` names the restored checkpoint and that
-    checkpoint was written for the configuration this attempt runs. Anything
-    unreadable answers False, so the caller writes a fresh checkpoint.
+    checkpoint was written for the configuration and topology this attempt runs.
+    Anything unreadable answers False, so the caller writes a fresh checkpoint.
     """
     try:
         restored = Path(manifest['resumed_from'])
+        if restored.parent.name in ('checkpoints', 'distributed-checkpoints'):
+            expected_root = 'distributed-checkpoints' if manifest.get('execution') else 'checkpoints'
+            if restored.parent.name != expected_root:
+                return False
         pointer = json.loads((restored.parent / 'latest.json').read_text(encoding='utf-8'))
         saved = json.loads((restored / 'manifest.json').read_text(encoding='utf-8'))
-        return (isinstance(pointer, dict) and pointer.get('checkpoint') == restored.name
-                and isinstance(saved, dict) and saved.get('config_sha256') == manifest['config_sha256'])
+        if not (isinstance(pointer, dict) and pointer.get('checkpoint') == restored.name and isinstance(saved, dict)):
+            return False
+        saved_sha = saved.get('config_sha256')
+        if saved_sha is None and isinstance(saved.get('identity'), dict):
+            saved_sha = saved['identity'].get('config_sha256')
+            saved_topo = saved['identity'].get('topology')
+            curr_exec = manifest.get('execution')
+            if isinstance(saved_topo, dict) and isinstance(curr_exec, dict):
+                if (
+                    saved_topo.get('world_size') != curr_exec.get('world_size')
+                    or saved_topo.get('name') != curr_exec.get('name')
+                ):
+                    return False
+        return saved_sha == manifest['config_sha256']
     except (OSError, KeyError, TypeError, ValueError):
         return False
 
@@ -369,7 +406,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
 def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
                max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None,
                preview_keep=None, preview_keep_source=None, preview_name=None,
-               execution_factory=None, steps=None, require_same_config=False):
+               execution_factory=None, steps=None, require_same_config=False,
+               allow_device_change=False, allow_batch_size_change=False):
     """Bind an in-memory candidate, then restore before publishing that attempt."""
     if execution_factory is None:
         raise TypeError('run_resume requires an execution_factory')
@@ -400,11 +438,24 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             config = resolve_config(raw)
         if require_same_config:
             original = resolve_config(manifest['config'])
-            if not resume_compatible(config, original, include_observation=True):
+            if not resume_compatible(
+                config,
+                original,
+                include_observation=True,
+                allow_device_change=allow_device_change,
+                allow_batch_size_change=allow_batch_size_change,
+            ):
                 raise ValueError('Training configuration differs from the original run; use a new run directory for a different configuration')
         if fingerprint(config) != manifest['config_sha256']:
-            if (not resume_compatible(config, manifest['config'])
-                    or fingerprint(manifest['config']) != manifest['config_sha256']):
+            if (
+                not resume_compatible(
+                    config,
+                    manifest['config'],
+                    allow_device_change=allow_device_change,
+                    allow_batch_size_change=allow_batch_size_change,
+                )
+                or fingerprint(manifest['config']) != manifest['config_sha256']
+            ):
                 raise ValueError('Resume configuration differs from the original run; only an increased '
                                  'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
                                  'pinned training-image skipping, or changing its pixel cache, is allowed')
@@ -414,10 +465,29 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
         try:
             descriptor = _configure_attempt(execution, context, preview_every, on_event)
             requested = descriptor['execution'] if descriptor is not None else None
-            if json.dumps(requested, sort_keys=True, allow_nan=False) != json.dumps(manifest.get('execution'), sort_keys=True, allow_nan=False):
+            if (
+                not getattr(execution, 'supports_elastic_resume', False)
+                and json.dumps(requested, sort_keys=True, allow_nan=False)
+                != json.dumps(manifest.get('execution'), sort_keys=True, allow_nan=False)
+            ):
                 raise ValueError('Resume numerical execution identity differs from the run manifest')
             restored = execution.restore(run_dir, checkpoint, manifest['run_id'], manifest['config_sha256'])
-            _apply_execution(manifest, descriptor)
+            previous_execution = copy.deepcopy(manifest.get('execution'))
+            previous_device = manifest.get('config', {}).get('training', {}).get('device')
+            if (
+                _canonical_execution_topology(previous_execution) != _canonical_execution_topology(requested)
+                or (previous_device or '').split(':')[0] != config['training']['device'].split(':')[0]
+            ):
+                manifest.setdefault('topology_history', []).append({
+                    'step': restored.step,
+                    'attempt_id': context.attempt_id,
+                    'from_execution': previous_execution,
+                    'to_execution': copy.deepcopy(requested),
+                    'from_device': previous_device,
+                    'to_device': config['training']['device'],
+                })
+                manifest.setdefault('qualification', {})['status'] = 'unqualified'
+            _apply_execution(manifest, descriptor, config=config)
             # A resume condition the adapter qualified rather than rejected. The
             # adapter already warned; keep it durable on the run as well.
             recorded = manifest.setdefault('warnings', [])
@@ -437,6 +507,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             manifest['config'] = config_values(config)
             manifest['config_sha256'] = fingerprint(config)
             manifest['total_steps'] = config['training']['steps']
+            manifest['global_batch_size'] = config['training']['batch_size']
             _preserve_initial_source(run_dir, manifest)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
                             preview_keep_source=preview_keep_source, preview_name=preview_name,

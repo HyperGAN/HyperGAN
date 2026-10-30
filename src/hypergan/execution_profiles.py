@@ -228,7 +228,10 @@ def resolve_execution_profile(values, config):
         raise ValueError('CPU execution profiles require training.device=cpu')
     batch = _positive_integer(training.get('batch_size'), 'training.batch_size')
     if batch % world:
-        raise ValueError('Global training.batch_size must divide evenly across execution.world_size')
+        raise ValueError(
+            f'Global training.batch_size must divide evenly across execution.world_size '
+            f'(got batch_size={batch}, world_size={world}); choose a divisor device count or adjust train.batch_size'
+        )
     local = batch // world
     if local % accumulation:
         raise ValueError('execution.accumulation_steps must divide local_batch_size evenly')

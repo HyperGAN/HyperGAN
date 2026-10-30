@@ -304,9 +304,9 @@ def test_follower_prepare_resume_without_local_manifest_succeeds(tmp_path):
         assert result == {"status": "completed", "node_rank": 1}
 
 
-def test_follower_prepare_resume_with_conflicting_manifest_raises_topology_mismatch(tmp_path):
-    """When a follower node has a local manifest with a conflicting execution topology,
-    prepare_resume still validates saved against execution and raises ValueError.
+def test_follower_prepare_resume_with_rescaled_manifest_adapts_topology(tmp_path):
+    """When a follower node has a local manifest from an earlier 4-node attempt and
+    resumes with nodes=2, prepare_resume elastically adapts the follower topology to 2 nodes.
     """
     config_file = tmp_path / "model.toml"
     config_file.write_text('extends = "gaussian-grid"\n')
@@ -329,14 +329,15 @@ def test_follower_prepare_resume_with_conflicting_manifest_raises_topology_misma
     }
     (follower_run_dir / "manifest.json").write_text(json.dumps(manifest_data))
 
-    # Follower attempts to resume with nodes=2 (conflicting with saved nodes=4)
-    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
-        prepare_resume(
-            run_dir=follower_run_dir,
-            nodes=2,
-            node_rank=1,
-            rendezvous="tcp://127.0.0.1:29500",
-        )
+    prep = prepare_resume(
+        run_dir=follower_run_dir,
+        nodes=2,
+        node_rank=1,
+        rendezvous="tcp://127.0.0.1:29500",
+    )
+    assert prep.profile["execution"]["nodes"] == 2
+    assert prep.profile["execution"]["world_size"] == 2
+    assert prep.profile["execution"]["node_rank"] == 1
 
 
 def test_four_tier_precedence_hierarchy_slurm_cli_toml_defaults():
@@ -618,12 +619,14 @@ def test_follower_resume_viewer_suppression_across_all_rank_sources():
     assert isinstance(cli._training_viewer(args_no_rank, config={"run": {"node_rank": 1}}), nullcontext)
 
 
-def test_leader_resume_single_device_cpu_rejected_with_replicated_gloo(tmp_path):
-    """Leader resuming a single-device CPU run with replicated Gloo profile or multi-node flags must fail."""
+def test_leader_resume_single_device_cpu_scales_up_with_replicated_gloo(tmp_path):
+    """Leader resuming a single-device CPU run with replicated Gloo profile or multi-node flags scales up elastically."""
     cpu_proj = write_default(tmp_path / "cpu_proj", device="cpu", defaults="hypergan")
     cpu_cfg = load_config(cpu_proj)
     cpu_run = tmp_path / "cpu_run"
     cpu_run.mkdir()
+    journal = EventJournal(cpu_run)
+    journal.append({"run_id": "cpu_run", "attempt_id": "att1", "step": 0, "sequence": 1, "event": "start"})
     (cpu_run / "manifest.json").write_text(json.dumps({
         "schema_version": 1, "run_id": "cpu_run", "config": config_values(cpu_cfg),
         "config_sha256": fingerprint(cpu_cfg), "next_sample_sequence": 0
@@ -634,23 +637,28 @@ def test_leader_resume_single_device_cpu_rejected_with_replicated_gloo(tmp_path)
     }))
     (cpu_run / "checkpoints" / "snap").mkdir()
     (cpu_run / "checkpoints" / "snap" / "manifest.json").write_text(json.dumps({
-        "schema_version": 1, "run_id": "cpu_run", "step": 0, "kind": "hypergan-training-checkpoint",
-        "config_sha256": fingerprint(cpu_cfg), "event_boundary": {"step": 0, "sequence": 0}
+        "schema_version": 1, "run_id": "cpu_run", "attempt_id": "att1", "step": 0,
+        "kind": "hypergan-training-checkpoint", "hypergan_checkpoint_version": 2,
+        "config_sha256": fingerprint(cpu_cfg), "event_boundary": journal.commit_boundary()
     }))
 
-    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
-        prepare_resume(cpu_run, profile="cpu-replicated-gloo")
+    prep_gloo = prepare_resume(cpu_run, profile="cpu-replicated-gloo")
+    assert prep_gloo.profile["execution"]["name"] == "cpu-replicated-gloo"
+    assert prep_gloo.profile["execution"]["world_size"] == 2
 
-    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
-        prepare_resume(cpu_run, nodes=2, node_rank=0, rendezvous="tcp://127.0.0.1:29500")
+    prep_mn = prepare_resume(cpu_run, nodes=2, node_rank=0, rendezvous="tcp://127.0.0.1:29500")
+    assert prep_mn.profile["execution"]["nodes"] == 2
+    assert prep_mn.profile["execution"]["world_size"] == 2
 
 
-def test_leader_resume_single_device_cuda_rejected_with_replicated_nccl(tmp_path):
-    """Leader resuming a single-device CUDA run with replicated NCCL profile or multi-node flags must fail."""
+def test_leader_resume_single_device_cuda_scales_up_with_replicated_nccl(tmp_path):
+    """Leader resuming a single-device CUDA run with replicated NCCL profile or multi-node flags scales up elastically."""
     cuda_proj = write_default(tmp_path / "cuda_proj", device="cuda", defaults="hypergan")
     cuda_cfg = load_config(cuda_proj)
     cuda_run = tmp_path / "cuda_run"
     cuda_run.mkdir()
+    journal = EventJournal(cuda_run)
+    journal.append({"run_id": "cuda_run", "attempt_id": "att1", "step": 0, "sequence": 1, "event": "start"})
     (cuda_run / "manifest.json").write_text(json.dumps({
         "schema_version": 1, "run_id": "cuda_run", "config": config_values(cuda_cfg),
         "config_sha256": fingerprint(cuda_cfg), "next_sample_sequence": 0
@@ -661,19 +669,22 @@ def test_leader_resume_single_device_cuda_rejected_with_replicated_nccl(tmp_path
     }))
     (cuda_run / "checkpoints" / "snap").mkdir()
     (cuda_run / "checkpoints" / "snap" / "manifest.json").write_text(json.dumps({
-        "schema_version": 1, "run_id": "cuda_run", "step": 0, "kind": "hypergan-training-checkpoint",
-        "config_sha256": fingerprint(cuda_cfg), "event_boundary": {"step": 0, "sequence": 0}
+        "schema_version": 1, "run_id": "cuda_run", "attempt_id": "att1", "step": 0,
+        "kind": "hypergan-training-checkpoint", "hypergan_checkpoint_version": 2,
+        "config_sha256": fingerprint(cuda_cfg), "event_boundary": journal.commit_boundary()
     }))
 
-    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
-        prepare_resume(cuda_run, profile="cuda-replicated-nccl")
+    prep_nccl = prepare_resume(cuda_run, profile="cuda-replicated-nccl")
+    assert prep_nccl.profile["execution"]["name"] == "cuda-replicated-nccl"
+    assert prep_nccl.profile["execution"]["world_size"] == 2
 
-    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
-        prepare_resume(cuda_run, nodes=2, node_rank=0, rendezvous="tcp://127.0.0.1:29500")
+    prep_mn = prepare_resume(cuda_run, nodes=2, node_rank=0, rendezvous="tcp://127.0.0.1:29500")
+    assert prep_mn.profile["execution"]["nodes"] == 2
+    assert prep_mn.profile["execution"]["world_size"] == 2
 
 
-def test_leader_resume_replicated_conflicting_topology_rejected(tmp_path):
-    """Leader resuming a replicated run with conflicting nodes/world-size must fail."""
+def test_leader_resume_replicated_rescales_topology_cleanly(tmp_path):
+    """Leader resuming a replicated run with new nodes/world-size rescales elastically."""
     rep_proj = write_default(tmp_path / "rep_proj", device="cpu", defaults="hypergan")
     rep_cfg = load_config(rep_proj)
     rep_run = tmp_path / "rep_run"
@@ -715,17 +726,24 @@ def test_leader_resume_replicated_conflicting_topology_rejected(tmp_path):
         "schema_version": 1, "checkpoint": "snap", "step": 0, "kind": "hypergan-distributed-training-checkpoint"
     }))
 
-    bad_profile = deepcopy(resolved_profile)
-    bad_profile["execution"]["world_size"] = 4
-    bad_profile["execution"]["nodes"] = 4
-    bad_profile["execution"]["ranks_per_node"] = 1
-    bad_profile["execution"]["local_batch_size"] = 4
-    bad_profile["execution"]["microbatch_size"] = 4
-    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
-        prepare_resume(rep_run, profile=bad_profile)
+    scaled_profile = {
+        "schema_version": 1,
+        "execution": {
+            "name": "cpu-replicated-gloo",
+            "world_size": 4,
+            "nodes": 4,
+            "node_rank": 0,
+            "ranks_per_node": 1,
+            "rendezvous": "tcp://10.0.0.1:29500",
+        },
+    }
+    prep_prof = prepare_resume(rep_run, profile=scaled_profile)
+    assert prep_prof.profile["execution"]["world_size"] == 4
+    assert prep_prof.profile["execution"]["nodes"] == 4
 
-    with pytest.raises(ValueError):
-        prepare_resume(rep_run, nodes=4, node_rank=0)
+    prep_nodes = prepare_resume(rep_run, nodes=4, node_rank=0)
+    assert prep_nodes.profile["execution"]["world_size"] == 4
+    assert prep_nodes.profile["execution"]["nodes"] == 4
 
 
 def test_leader_resume_replicated_ephemeral_port_succeeds(tmp_path):

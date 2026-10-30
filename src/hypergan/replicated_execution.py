@@ -105,6 +105,8 @@ class ReplicatedExecutionFactory:
 
 
 class ReplicatedExecution:
+    supports_elastic_resume = True
+
     def environment(self):
         # Actual installed runtime/source is supplied by supervised workers in
         # ExecutionInfo, never inferred from a torch-free parent's environment.
@@ -227,7 +229,12 @@ class ReplicatedExecution:
         if fingerprint(self.config) != config_sha256:
             manifest = json.loads((Path(run_dir) / 'manifest.json').read_text())
             original = manifest.get('config')
-            if not resume_compatible(self.config, original) or fingerprint(original) != config_sha256:
+            if (
+                not resume_compatible(
+                    self.config, original, allow_device_change=True, allow_batch_size_change=True
+                )
+                or fingerprint(original) != config_sha256
+            ):
                 raise ValueError('Resume configuration differs from the original run')
         self._open()
         if self.information['recovery_reasons']:
@@ -240,7 +247,12 @@ class ReplicatedExecution:
             if result['saved_step'] != result['step']:
                 raise ValueError('Restored step differs from saved checkpoint step')
             self.step, self._inference_available = result['step'], result['inference_available']
-            return Restored(checkpoint_path=Path(result['checkpoint_path']), step=self.step)
+            restore_warnings = tuple(result.get('warnings') or ())
+            if restore_warnings:
+                from .checkpoint_compatibility import HyperGANHardwareWarning
+                for msg in restore_warnings:
+                    warnings.warn(msg, HyperGANHardwareWarning, stacklevel=2)
+            return Restored(checkpoint_path=Path(result['checkpoint_path']), step=self.step, warnings=restore_warnings)
         except BaseException as error:
             self._fail(error)
 
@@ -560,8 +572,9 @@ def run_follower(config, run_dir, steps=None, *, profile, service_policy=None,
 def run_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, service_policy=None,
                checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                on_event=None, preview_every=None, preview_keep=None, preview_keep_source=None,
-               preview_name=None, steps=None, require_same_config=False):
-    """Internal strict fixed-topology resume, validating before attempt publication."""
+               preview_name=None, steps=None, require_same_config=False,
+               allow_device_change=False, allow_batch_size_change=False):
+    """Internal replicated resume supporting fixed-topology and elastic cross-topology migration."""
     manifest = json.loads((Path(run_dir) / 'manifest.json').read_text()) if (Path(run_dir) / 'manifest.json').exists() else {}
     if profile is None:
         execution = manifest.get('execution', {})
@@ -581,4 +594,5 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, profile=None, serv
         preview_every=preview_every, preview_keep=preview_keep,
         preview_keep_source=preview_keep_source, preview_name=preview_name,
         steps=steps, require_same_config=require_same_config,
+        allow_device_change=allow_device_change, allow_batch_size_change=allow_batch_size_change,
         execution_factory=ReplicatedExecutionFactory(resolved_profile, service_policy=service_policy))

@@ -8,13 +8,8 @@ format = "hypergan-model/1"
 name = "cifar10-transgan"
 
 [data]
-factory = "hypergan.image_data:CIFAR10Data"
-
-[data.args]
-root = "./data"
-split = "train"
-sampling = "random"
-horizontal_flip = true
+builtin = "cifar10"
+args = { root = "~/.hypergan/cache/cifar10", split = "train", sampling = "random", horizontal_flip = true }
 
 [networks.generator]
 role = "generator"
@@ -307,12 +302,12 @@ batch_size = 128
 seed = 34002
 
 [evaluations.fid50k_train.args]
-weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_path = "https://github.com/toshas/torch-fidelity/releases/download/v0.2.0/weights-inception-2015-12-05-6726825d.pth"
 weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
 
 [evaluations.fid50k_train.data]
-factory = "hypergan.image_data:CIFAR10Data"
-args = { root = "./data", split = "train", sampling = "sequential", horizontal_flip = false }
+builtin = "cifar10"
+args = { root = "~/.hypergan/cache/cifar10", split = "train", sampling = "sequential", horizontal_flip = false }
 
 [[losses]]
 type = "adversarial"

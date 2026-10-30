@@ -30,8 +30,11 @@ def test_device_override_is_the_configuration_that_trains_and_resumes(tmp_path, 
     import torch
     if hasattr(torch, "cuda"):
         monkeypatch.setattr(torch.cuda, "is_initialized", lambda: False)
+    migrated = prepare_resume(run, devices='0')
+    assert migrated.config['training']['device'] == 'cuda'
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
     with pytest.raises(ValueError, match='training.device'):
-        prepare_resume(run, devices='0')
+        prepare_resume(run, config_path=path)
 
 
 def test_device_selection_is_refused_after_cuda_initialized(tmp_path, monkeypatch):

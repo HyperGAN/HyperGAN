@@ -123,8 +123,10 @@ def test_resume_native_and_explicit_cpu_identity(tmp_path):
     _, run, checkpoint, _ = stopped(tmp_path, replicated=False)
     assert prepare_resume(run).profile is None
     assert prepare_resume(run, profile='cpu-single').checkpoint == checkpoint
-    with pytest.raises(ValueError, match='execution identity differs'):
-        prepare_resume(run, profile='cpu-replicated-gloo')
+    scaled = prepare_resume(run, profile='cpu-replicated-gloo')
+    assert scaled.checkpoint == checkpoint
+    assert scaled.profile['execution']['name'] == 'cpu-replicated-gloo'
+    assert scaled.profile['execution']['world_size'] == 2
 
 
 @pytest.mark.parametrize('execution', [None, {}, {'name': 'unknown'}, [], 'cpu-single'])
@@ -138,8 +140,11 @@ def test_unknown_saved_execution_never_falls_back_to_native(tmp_path, execution)
 
 def test_resume_rejects_topology_schedule_checkpoint_conflicts(tmp_path, monkeypatch):
     path, run, checkpoint, _ = stopped(tmp_path)
-    with pytest.raises(ValueError, match='execution identity differs'):
-        prepare_resume(run, profile='cpu-replicated-gloo')  # saved accumulation is 2
+    # Elastic cross-topology resume permits changing accumulation_steps / profile, while device-incompatible profiles fail.
+    rescaled = prepare_resume(run, profile='cpu-replicated-gloo')
+    assert rescaled.profile['execution']['accumulation_steps'] == 1
+    with pytest.raises(ValueError, match='training.device=cuda'):
+        prepare_resume(run, profile='cuda-replicated-nccl')
     config = load_config(path)
     changed = deepcopy(config_values(config))
     changed['training']['steps'] += 1
@@ -351,11 +356,11 @@ def test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports(
     elif conflict == 'schedule':
         extra = ['--steps', '6']
     elif conflict == 'profile':
-        extra = ['--profile', 'cpu-single']
+        extra = ['--profile', 'cuda-replicated-nccl']
     else:
         (run / 'distributed-checkpoints' / 'latest.json').unlink()
     before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
-    monkeypatch.setattr(cli, '_training_viewer', lambda _: pytest.fail('viewer started on conflict'))
+    monkeypatch.setattr(cli, '_training_viewer', lambda *a, **kw: pytest.fail('viewer started on conflict'))
     original_import = builtins.__import__
     def guarded(name, *args, **kwargs):
         assert name.split('.')[0] not in {'torch', 'particlegan'}
@@ -366,7 +371,7 @@ def test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports(
     error = capsys.readouterr().err
     assert 'error:' in error
     assert ('configuration differs' if conflict in {'config', 'metrics', 'schedule'} else
-            'execution identity differs' if conflict == 'profile' else
+            'training.device=cuda' if conflict == 'profile' else
             'No full training checkpoint') in error
     assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
 
@@ -516,8 +521,10 @@ def test_device_override_reaches_the_prepared_configuration(tmp_path, monkeypatc
     assert prepared.controls['stop_after_steps'] == 1
     monkeypatch.delenv('CUDA_DEVICE_ORDER', raising=False)
     _, stopped_run, _, _ = stopped(tmp_path / 'stopped', replicated=False)  # recorded on cpu
+    migrated = prepare_resume(stopped_run, devices='0')
+    assert migrated.config['training']['device'] == 'cuda'
     with pytest.raises(ValueError, match='training.device'):
-        prepare_resume(stopped_run, devices='0')
+        prepare_resume(stopped_run, config_path=path)
 
 
 def test_step_override_keeps_the_retention_policy(tmp_path, monkeypatch):

@@ -6,6 +6,7 @@ The caller owns the default Gloo or NCCL group, finite timeouts and whole-job li
 import copy
 import hashlib
 import inspect
+import math
 import os
 import random
 import sys
@@ -478,6 +479,130 @@ class ReplicatedTrainer(ReferenceTrainer):
         # logits suffice; the parameter-gradient mean forms the global loss.
         return real, fake
 
+    @staticmethod
+    def _critic_checked_parameters(terms):
+        if len(terms) == 1:
+            return list(terms[0].module.parameters())
+        checked = []
+        seen = set()
+        for term in terms:
+            for parameter in term.module.parameters():
+                if id(parameter) in seen:
+                    continue
+                seen.add(id(parameter))
+                checked.append(parameter)
+        return checked
+
+    def _grad_norm_scalar(self, parameters):
+        with torch.no_grad():
+            grads = [p.grad.detach() for p in parameters if p.grad is not None]
+            if not grads:
+                return torch.zeros((), dtype=torch.float64, device=self.device)
+            sq_sum = sum(g.double().norm(2) ** 2 for g in grads)
+            return torch.sqrt(sq_sum).reshape(())
+
+    def _particle_rms_scalar(self):
+        with torch.no_grad():
+            if hasattr(self, 'prior') and hasattr(self.prior, 'z') and isinstance(self.prior.z, torch.Tensor):
+                return torch.sqrt(torch.mean(self.prior.z.detach().double() ** 2)).reshape(())
+            return torch.zeros((), dtype=torch.float64, device=self.device)
+
+    def _critic_score_scalars(self, real_score, fake_score):
+        with torch.no_grad():
+            if isinstance(real_score, torch.Tensor) and isinstance(fake_score, torch.Tensor):
+                rs = real_score.detach()
+                fs = fake_score.detach()
+                real_mean = rs.double().mean().reshape(())
+                fake_mean = fs.double().mean().reshape(())
+                try:
+                    acc = (rs > fs).double().mean().reshape(())
+                except RuntimeError:
+                    acc = torch.full((), 0.5, dtype=torch.float64, device=self.device)
+                return real_mean, fake_mean, acc
+            zero = torch.zeros((), dtype=torch.float64, device=self.device)
+            half = torch.full((), 0.5, dtype=torch.float64, device=self.device)
+            return zero, zero, half
+
+    def _sample_moment_scalars(self, fake_samples, real_samples):
+        with torch.no_grad():
+            if (isinstance(fake_samples, torch.Tensor) and isinstance(real_samples, torch.Tensor)
+                    and fake_samples.numel() > 0 and real_samples.numel() > 0):
+                fs = fake_samples.detach().double()
+                rs = real_samples.detach().double()
+                return (
+                    fs.mean().reshape(()),
+                    fs.square().mean().reshape(()),
+                    rs.mean().reshape(()),
+                    rs.square().mean().reshape(()),
+                    int(fake_samples.numel()),
+                    int(real_samples.numel()),
+                )
+            zero = torch.zeros((), dtype=torch.float64, device=self.device)
+            return zero, zero, zero, zero, 0, 0
+
+    @staticmethod
+    def _populate_telemetry(row, tail, global_fake_numel, global_real_numel):
+        (
+            raw_real_mean,
+            raw_fake_mean,
+            raw_acc,
+            raw_gn_critic,
+            raw_gn_gen,
+            raw_gn_prior,
+            raw_particle_rms,
+            fake_mean,
+            fake_sq_mean,
+            real_mean,
+            real_sq_mean,
+            raw_d_guard,
+        ) = tail
+        critic_real_mean = float(raw_real_mean) if math.isfinite(raw_real_mean) else 0.0
+        critic_fake_mean = float(raw_fake_mean) if math.isfinite(raw_fake_mean) else 0.0
+        critic_margin = critic_real_mean - critic_fake_mean
+        if not math.isfinite(critic_margin):
+            critic_margin = 0.0
+        critic_accuracy = float(raw_acc) if math.isfinite(raw_acc) else 0.5
+        critic_grad_norm = float(raw_gn_critic) if math.isfinite(raw_gn_critic) else 0.0
+        gen_grad_norm = float(raw_gn_gen) if math.isfinite(raw_gn_gen) else 0.0
+        prior_grad_norm = float(raw_gn_prior) if math.isfinite(raw_gn_prior) else 0.0
+        particle_rms = float(raw_particle_rms) if math.isfinite(raw_particle_rms) else 0.0
+        d_guard_ratio = float(raw_d_guard) if math.isfinite(raw_d_guard) else 1.0
+
+        if (
+            global_fake_numel > 1
+            and global_real_numel > 1
+            and all(math.isfinite(v) for v in (fake_mean, fake_sq_mean, real_mean, real_sq_mean))
+        ):
+            fake_var = max(0.0, fake_sq_mean - fake_mean * fake_mean) * (global_fake_numel / (global_fake_numel - 1))
+            real_var = max(0.0, real_sq_mean - real_mean * real_mean) * (global_real_numel / (global_real_numel - 1))
+            cand_ratio = math.sqrt(fake_var) / (math.sqrt(real_var) + 1e-8)
+            diversity_ratio = float(cand_ratio) if math.isfinite(cand_ratio) else 1.0
+        else:
+            diversity_ratio = 1.0
+
+        row.update(
+            critic_real_mean=critic_real_mean,
+            critic_fake_mean=critic_fake_mean,
+            critic_margin=critic_margin,
+            critic_accuracy=critic_accuracy,
+            grad_norm_critic=critic_grad_norm,
+            grad_norm_generator=gen_grad_norm,
+            grad_norm_prior=prior_grad_norm,
+            d_guard_ratio=d_guard_ratio,
+            particle_rms=particle_rms,
+            diversity_ratio=diversity_ratio,
+        )
+        row["critic/real_mean"] = critic_real_mean
+        row["critic/fake_mean"] = critic_fake_mean
+        row["critic/margin"] = critic_margin
+        row["critic/accuracy"] = critic_accuracy
+        row["grad_norm/critic"] = critic_grad_norm
+        row["grad_norm/generator"] = gen_grad_norm
+        row["grad_norm/prior"] = prior_grad_norm
+        row["optimizer/d_guard_ratio"] = d_guard_ratio
+        row["prior/particle_rms"] = particle_rms
+        row["diversity/ratio"] = diversity_ratio
+
     def update(self, batch=None, latent_draw=None):
         try:
             self._agree('update boundary', {'step': self.step, 'ready': self.checkpoint_ready, 'poisoned': self._poisoned})
@@ -561,6 +686,9 @@ class ReplicatedTrainer(ReferenceTrainer):
             weighted = []
             penalties = []
             last_fake = None
+            last_real = None
+            last_r_sc = None
+            last_f_sc = None
             for term in terms:
                 r_s, f_s, r_sc, f_sc = _bound_scores(
                     term, context, self.graph, "critic", term.critic_phase, first="real", noise=noise)
@@ -568,21 +696,30 @@ class ReplicatedTrainer(ReferenceTrainer):
                 loss = term.gan.d_loss(r_sc, f_sc)
                 unweighted.append(loss)
                 weighted.append(term.weight * loss)
+                last_real = r_s
                 last_fake = f_s
+                last_r_sc = r_sc
+                last_f_sc = f_sc
                 if term.penalty_fn is not None:
                     penalties.append(penalty_fn(term, r_s, f_s))
             d_adv = _sum_tensors(unweighted)
             d_adv_weighted = _sum_tensors(weighted)
             d_pen = _sum_tensors(penalties) if penalties else (last_fake.new_zeros(()) if last_fake is not None else real.new_zeros(()))
             d_tot = d_adv_weighted + d_pen
-            return d_adv, d_adv_weighted, d_pen, d_tot
+            score_stats = self._critic_score_scalars(last_r_sc, last_f_sc)
+            moment_stats = self._sample_moment_scalars(last_fake, last_real)
+            return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
 
         self.opt_d.zero_grad(set_to_none=True)
-        d_adversarial, d_adversarial_weighted, d_penalty, d_loss = self._phase(
+        d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
             'discriminator forward and penalty', discriminator_forward)
+        critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
+        fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
         self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
         self._phase('discriminator backward', d_loss.backward)
         self._reduce_gradients(self.opt_d, 'discriminator')
+        critic_grad_norm_t = self._grad_norm_scalar(self._critic_checked_parameters(terms))
+        d_guard_ratio = float(getattr(self.opt_d, 'd_guard_ratio', 1.0) or 1.0)
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
         self._average_critic_statistics()
@@ -652,6 +789,12 @@ class ReplicatedTrainer(ReferenceTrainer):
                     self.opt_g._protected /= self.world_size
 
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
+            gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
+            prior_grad_norm_t = (
+                self._grad_norm_scalar(self.program.prior_checked)
+                if self.program.prior_checked
+                else torch.zeros((), dtype=torch.float64, device=self.device)
+            )
             self._phase('generator optimizer', self.opt_g.step)
             self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
             self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
@@ -663,9 +806,18 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._phase('module compatibility', self._check_modules)
         if self.aggregation_strategy.should_assert_replicas(step):
             self._assert_replicas('complete replicated state')
-        values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
+        particle_rms_t = self._particle_rms_scalar()
+        n_objectives = len(objective_losses)
+        transferred = self._metric_transfer([
+            d_loss, g_loss, g_adversarial, prior_loss,
             d_penalty, d_adversarial, d_adversarial_weighted, g_adversarial_weighted,
-            *objective_losses]), dtype=torch.float64, device=self.device)
+            *objective_losses,
+            critic_real_mean_t, critic_fake_mean_t, critic_acc_t,
+            critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
+            particle_rms_t,
+            fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
+        ])
+        values = torch.tensor([*transferred, d_guard_ratio], dtype=torch.float64, device=self.device)
         dist.all_reduce(values)
         values /= self.world_size
         self._phase('complete CUDA update', self._synchronize)
@@ -674,8 +826,14 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._handshake_complete = True
         values = values.tolist()
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
-        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,
+        row.update(event='train', step=step, objectives=values[8:8 + n_objectives], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size, world_size=self.world_size)
+        self._populate_telemetry(
+            row,
+            values[8 + n_objectives:],
+            local_fake_numel * self.world_size,
+            local_real_numel * self.world_size,
+        )
         return row, detach(batch)
 
     def _scored_critic(self, context, input_noise=(0, None)):
@@ -825,20 +983,26 @@ class ReplicatedTrainer(ReferenceTrainer):
             except Exception:
                 return term.penalty_fn(critic_fn, real_sample, fake_sample)
 
-        def discriminator_micro(index, start):
+        def discriminator_micro(index, start, *, capture_moments=False):
             local_batch = self._microbatch(batch, start)
             local_z = z.detach()[start:start + self.microbatch_size].requires_grad_(z.requires_grad)
             context = detach(generate(local_z, local_batch))
             term_records = []
+            last_real = None
+            last_fake = None
             for term in terms:
                 r_s, f_s, r_sc, f_sc = _bound_scores(
                     term, context, self.graph, "critic", term.critic_phase, first="real", noise=acc_noise)
                 self._micro_logits(r_sc, f_sc)
+                last_real = r_s
+                last_fake = f_s
                 if term.penalty_fn is not None:
                     pen = penalty_fn_acc(term, r_s, f_s, context)
                 else:
                     pen = f_s.new_zeros(())
                 term_records.append((r_sc, f_sc, pen))
+            if capture_moments:
+                return term_records, self._digest(context['generated']), self._sample_moment_scalars(last_fake, last_real)
             return term_records, self._digest(context['generated'])
 
         # Prepasses use ordinary grad mode and immediately discard each graph,
@@ -847,10 +1011,11 @@ class ReplicatedTrainer(ReferenceTrainer):
             rng = self._accumulation_rng()
             generation_rng.append(rng)
             def prepass():
-                term_records, fake_digest = self._immutable_forward(lambda: discriminator_micro(index, start))
+                term_records, fake_digest, sample_moments = self._immutable_forward(
+                    lambda: discriminator_micro(index, start, capture_moments=True))
                 for _, _, pen in term_records:
                     self._finite_loss(pen)
-                return [(r_sc.detach(), f_sc.detach(), pen.detach()) for r_sc, f_sc, pen in term_records], fake_digest
+                return [(r_sc.detach(), f_sc.detach(), pen.detach()) for r_sc, f_sc, pen in term_records], fake_digest, sample_moments
             d_records.append((rng, self._phase(f'D micro {index} discovery', prepass)))
             if logical_calls is None:
                 logical_calls = record.calls
@@ -893,6 +1058,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
         record.calls = calls_before if logical_calls is None else logical_calls
         self._reduce_gradients(self.opt_d, 'discriminator')
+        critic_grad_norm_t = self._grad_norm_scalar(self._critic_checked_parameters(terms))
+        d_guard_ratio = float(getattr(self.opt_d, 'd_guard_ratio', 1.0) or 1.0)
         self._phase('discriminator optimizer', self.opt_d.step)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
         self._average_critic_statistics()
@@ -999,6 +1166,12 @@ class ReplicatedTrainer(ReferenceTrainer):
                 return prior_loss.detach()
             prior_loss = self._phase('global prior regularizer and latent backward', prior_backward)
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
+            gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
+            prior_grad_norm_t = (
+                self._grad_norm_scalar(self.program.prior_checked)
+                if self.program.prior_checked
+                else torch.zeros((), dtype=torch.float64, device=self.device)
+            )
             self._phase('generator optimizer', self.opt_g.step)
             self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
             self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
@@ -1011,9 +1184,27 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._phase('module compatibility', self._check_modules)
         if self.aggregation_strategy.should_assert_replicas(step):
             self._assert_replicas('complete replicated state')
-        values = torch.tensor(self._metric_transfer([d_loss, g_loss, g_adversarial, prior_loss,
+        critic_real_mean_t, critic_fake_mean_t, critic_acc_t = self._critic_score_scalars(
+            all_dr[-1] if all_dr else None, all_df[-1] if all_df else None)
+        micro_moments = [rec[1][2] for rec in d_records]
+        fake_mean_t = (sum(m[0] for m in micro_moments) / self.accumulation_steps).reshape(())
+        fake_sq_mean_t = (sum(m[1] for m in micro_moments) / self.accumulation_steps).reshape(())
+        real_mean_t = (sum(m[2] for m in micro_moments) / self.accumulation_steps).reshape(())
+        real_sq_mean_t = (sum(m[3] for m in micro_moments) / self.accumulation_steps).reshape(())
+        local_fake_numel = sum(m[4] for m in micro_moments)
+        local_real_numel = sum(m[5] for m in micro_moments)
+        particle_rms_t = self._particle_rms_scalar()
+        n_objectives = len(objective_losses)
+        transferred = self._metric_transfer([
+            d_loss, g_loss, g_adversarial, prior_loss,
             d_penalty, d_adversarial_raw, d_adversarial, weighted_adversarial,
-            *objective_losses]), dtype=torch.float64, device=self.device)
+            *objective_losses,
+            critic_real_mean_t, critic_fake_mean_t, critic_acc_t,
+            critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
+            particle_rms_t,
+            fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
+        ])
+        values = torch.tensor([*transferred, d_guard_ratio], dtype=torch.float64, device=self.device)
         dist.all_reduce(values)
         values /= self.world_size
         self._phase('complete CUDA update', self._synchronize)
@@ -1021,9 +1212,15 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._handshake_complete = True
         values = values.tolist()
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
-        row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,
+        row.update(event='train', step=step, objectives=values[8:8 + n_objectives], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size,
                    world_size=self.world_size, accumulation_steps=self.accumulation_steps, microbatch_size=self.microbatch_size)
+        self._populate_telemetry(
+            row,
+            values[8 + n_objectives:],
+            local_fake_numel * self.world_size,
+            local_real_numel * self.world_size,
+        )
         return row, detach(batch)
 
     @staticmethod

@@ -200,6 +200,198 @@ def restore_trainer(trainer, state):
         raise ValueError(f'Invalid training checkpoint state: {exc}') from exc
 
 
+def _adapt_last_batch(last_batch, target_batch_size, device, *, rank=0):
+    import torch
+    from .recipes import move_tensors
+    if last_batch is None:
+        return None
+
+    def adapt(value):
+        if isinstance(value, torch.Tensor):
+            if value.ndim == 0 or target_batch_size is None or target_batch_size <= 0:
+                return value.detach().clone().to(device)
+            n = value.shape[0]
+            if n == target_batch_size:
+                return value.detach().clone().to(device)
+            start = rank * target_batch_size
+            if n >= start + target_batch_size:
+                return value[start:start + target_batch_size].detach().clone().to(device)
+            if n > 0:
+                repeats = (target_batch_size + n - 1) // n
+                tiled = value.repeat(repeats, *([1] * (value.ndim - 1)))
+                return tiled[:target_batch_size].detach().clone().to(device)
+            return value.detach().clone().to(device)
+        if isinstance(value, dict):
+            return {k: adapt(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return type(value)(adapt(v) for v in value)
+        return move_tensors(value, device)
+
+    return adapt(last_batch)
+
+
+def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
+    import copy
+    import numpy as np
+    import torch
+    from .recipes import move_tensors
+    from .training import _skip_cpu_capture_guard
+
+    required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
+                'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
+    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation'}:
+        raise ValueError('Checkpoint training state fields are incomplete or unsupported')
+    if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
+        raise ValueError('Checkpoint step is outside the configured training schedule')
+    if len(state['optimizers']) != 2 or len(state['base_lrs']) != 2:
+        raise ValueError('Checkpoint requires both optimizer states and base learning rates')
+    if not isinstance(state['streams'], dict):
+        raise ValueError('Checkpoint named RNG streams must be a dictionary')
+    if set(state['modes']) != {'graph', 'prior', 'ema_graph', 'ema_prior'}:
+        raise ValueError('Checkpoint module mode inventory differs from trainer')
+    for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
+        module = getattr(trainer, name)
+        if set(state[name]) != set(module.state_dict()):
+            raise ValueError('Checkpoint model state inventory differs from trainer')
+        for key, value in module.state_dict().items():
+            if isinstance(value, torch.Tensor) and (
+                not isinstance(state[name][key], torch.Tensor)
+                or state[name][key].shape != value.shape
+                or state[name][key].dtype != value.dtype
+            ):
+                raise ValueError('Checkpoint model tensor shape or dtype differs from trainer')
+        if (
+            set(state['buffers'][name]) != dict(module.named_buffers()).keys()
+            or set(state['trainable'][name]) != dict(module.named_parameters()).keys()
+        ):
+            raise ValueError('Checkpoint buffer/parameter inventory differs from trainer')
+        for key, value in module.named_buffers():
+            saved_buf = state['buffers'][name][key]
+            if saved_buf.shape != value.shape or saved_buf.dtype != value.dtype:
+                raise ValueError('Checkpoint buffer shape or dtype differs from trainer')
+        if set(state['modes'][name]) != dict(getattr(trainer, name).named_modules()).keys():
+            raise ValueError('Checkpoint nested module mode inventory differs from trainer')
+        if any(type(value) is not bool for value in (*state['modes'][name].values(), *state['trainable'][name].values())):
+            raise ValueError('Checkpoint module modes and trainability must be boolean')
+
+    target_device = torch.device(getattr(trainer, 'device', 'cpu'))
+    prepared_optimizers = []
+    for optimizer, saved, rates in zip((trainer.opt_g, trainer.opt_d), state['optimizers'], state['base_lrs']):
+        if (
+            set(saved) != set(optimizer.state_dict())
+            or len(saved['param_groups']) != len(optimizer.param_groups)
+            or len(rates) != len(optimizer.param_groups)
+        ):
+            raise ValueError('Checkpoint optimizer parameter groups differ from trainer')
+        saved_copy = copy.deepcopy(saved)
+        for actual, prior in zip(optimizer.param_groups, saved_copy['param_groups']):
+            if len(actual['params']) != len(prior['params']):
+                raise ValueError('Checkpoint optimizer parameter inventory differs from trainer')
+            for dev_flag in ('fused', 'capturable'):
+                if dev_flag in actual:
+                    prior[dev_flag] = actual[dev_flag]
+                elif target_device.type == 'cpu' and prior.get(dev_flag):
+                    prior[dev_flag] = False
+        if 'regularizer' in saved_copy:
+            saved_copy['regularizer'] = move_tensors(saved_copy['regularizer'], target_device)
+        validate = getattr(optimizer, 'validate_state_dict', None)
+        if validate is not None:
+            validate(saved_copy)
+        prepared_optimizers.append(saved_copy)
+    if state['base_lrs'] != trainer.base_lrs:
+        raise ValueError('Checkpoint base learning rates differ from original configuration')
+
+    for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
+        module = getattr(trainer, name)
+        module.load_state_dict(state[name], strict=True)
+        with torch.no_grad():
+            for key, buffer in module.named_buffers():
+                buffer.copy_(state['buffers'][name][key])
+        for key, parameter in module.named_parameters():
+            parameter.requires_grad_(state['trainable'][name][key])
+        for key, child in module.named_modules():
+            child.training = state['modes'][name][key]
+
+    for optimizer, saved_copy in zip((trainer.opt_g, trainer.opt_d), prepared_optimizers):
+        optimizer.load_state_dict(saved_copy)
+        for group in optimizer.param_groups:
+            use_device_step = bool(group.get('fused') or group.get('capturable')) and target_device.type != 'cpu'
+            step_device = target_device if use_device_step else torch.device('cpu')
+            for p in group['params']:
+                p_state = optimizer.state.get(p)
+                if isinstance(p_state, dict) and isinstance(p_state.get('step'), torch.Tensor):
+                    p_state['step'] = p_state['step'].to(step_device)
+        if target_device.type == 'cpu':
+            _skip_cpu_capture_guard(optimizer)
+
+    trainer.base_lrs = copy.deepcopy(state['base_lrs'])
+    trainer.step = state['step']
+
+    settings = trainer.config['training']
+    base_seed = int(settings['seed'])
+    data_offset = int(settings.get('data_seed_offset', 1))
+    prior_offset = int(settings.get('prior_seed_offset', 2))
+    step_val = int(state['step'])
+    rank_mix = (base_seed + (step_val + 1) * 2654435761 + rank * 104729 + world_size * 65537) % (2 ** 63)
+    offsets = {'prior': prior_offset, 'penalty': 3, 'noise': 5}
+
+    for name, stream in trainer.streams.items():
+        if name == 'data':
+            saved_data_stream = state['streams'].get('data')
+            restored_data_stream = False
+            if (
+                isinstance(saved_data_stream, torch.Tensor)
+                and saved_data_stream.dtype == torch.uint8
+                and saved_data_stream.shape == stream.get_state().shape
+            ):
+                try:
+                    torch.Generator(device=stream.device).set_state(saved_data_stream)
+                    stream.set_state(saved_data_stream)
+                    restored_data_stream = True
+                except RuntimeError:
+                    restored_data_stream = False
+            if not restored_data_stream:
+                stream.manual_seed((base_seed + data_offset + 1000003 * (step_val + 1)) % (2 ** 63))
+        else:
+            stream.manual_seed((rank_mix + offsets.get(name, 17)) % (2 ** 63))
+
+    if state['data'] is not None and callable(getattr(trainer.data, 'load_state_dict', None)):
+        saved_data_state = copy.deepcopy(state['data'])
+        if not (isinstance(saved_data_state, dict) and 'owner_rank' in saved_data_state and saved_data_state['owner_rank'] != rank):
+            trainer.data.load_state_dict(saved_data_state)
+
+    strategy = getattr(trainer, 'aggregation_strategy', getattr(trainer, 'aggregation', None))
+    if strategy is not None:
+        saved_agg = state.get('aggregation')
+        if (
+            isinstance(saved_agg, dict)
+            and saved_agg.get('strategy') == getattr(strategy, 'name', None)
+            and callable(getattr(strategy, 'load_state_dict', None))
+        ):
+            strategy.load_state_dict(move_tensors(copy.deepcopy(saved_agg), 'cpu'))
+        else:
+            if callable(getattr(strategy, 'initialize', None)):
+                strategy.initialize()
+            if hasattr(strategy, 'step_count'):
+                strategy.step_count = step_val
+            if hasattr(strategy, 'last_synced_step'):
+                strategy.last_synced_step = step_val
+
+    torch.manual_seed(rank_mix)
+    random.seed(rank_mix)
+    np.random.seed(rank_mix % (2 ** 32))
+
+    target_bs = getattr(trainer, 'local_batch_size', settings['batch_size'])
+    return _adapt_last_batch(state['last_batch'], target_bs, target_device, rank=rank)
+
+
+def restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
+    try:
+        return _restore_trainer_cross_topology(trainer, state, rank=rank, world_size=world_size)
+    except (KeyError, TypeError, AttributeError, IndexError, RuntimeError) as exc:
+        raise ValueError(f'Invalid training checkpoint state for cross-topology restore: {exc}') from exc
+
+
 class _HashingWriter:
     """Digest bytes as torch.save streams them, so the payload is never re-read."""
     def __init__(self, output):
@@ -392,51 +584,166 @@ def _live_branch(run_dir, checkpoints, tip):
     return branch
 
 
+CHECKPOINT_DIR_NAMES = ("checkpoints", "distributed-checkpoints")
+
+
+def _checkpoint_roots(run_dir: Path, *, existing_only: bool = True) -> list[Path]:
+    run_dir = Path(run_dir).resolve()
+    roots = [(run_dir / name).resolve() for name in CHECKPOINT_DIR_NAMES]
+    if existing_only:
+        return [r for r in roots if r.is_dir()]
+    return roots
+
+
+def _checkpoint_sort_key(ckpt_dir: Path, run_manifest: dict | None = None) -> tuple:
+    info = _read_json(ckpt_dir / "manifest.json") or {}
+    step = info.get("step")
+    if type(step) is not int:
+        m = re.search(r"-step-(\d+)-", ckpt_dir.name)
+        step = int(m.group(1)) if m else -1
+    eb = info.get("event_boundary") if isinstance(info.get("event_boundary"), dict) else {}
+    seq = eb.get("sequence", -1) if type(eb.get("sequence")) is int else -1
+    manifest_ckpt = (run_manifest or {}).get("checkpoint_path")
+    is_current = False
+    if isinstance(manifest_ckpt, str) and manifest_ckpt:
+        try:
+            is_current = ckpt_dir.resolve() == Path(manifest_ckpt).resolve()
+        except OSError:
+            is_current = False
+    try:
+        mtime_ns = (ckpt_dir / "manifest.json").stat().st_mtime_ns
+    except OSError:
+        mtime_ns = -1
+    return (step, seq, is_current, mtime_ns, ckpt_dir.name)
+
+
+def resolve_resume_checkpoint_dir(run_dir: Path | str, checkpoint=None, *, run_manifest: dict | None = None) -> tuple[Path, dict | None]:
+    """Resolve latest or explicit checkpoint across checkpoints/ and distributed-checkpoints/."""
+    run_dir = Path(run_dir).resolve()
+    all_roots = _checkpoint_roots(run_dir, existing_only=False)
+    if run_manifest is None:
+        run_manifest = _read_json(run_dir / "manifest.json") or {}
+
+    is_latest = checkpoint is None or (isinstance(checkpoint, str) and checkpoint.strip().lower() == "latest")
+    if is_latest:
+        candidates = []
+        for root in all_roots:
+            pointer_path = root / "latest.json"
+            if not pointer_path.exists():
+                continue
+            try:
+                pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ValueError("Invalid training checkpoint pointer") from exc
+            if not isinstance(pointer, dict) or type(pointer.get("schema_version")) is not int or pointer["schema_version"] != SCHEMA:
+                raise ValueError("Unsupported training checkpoint pointer schema")
+            if root.name == "distributed-checkpoints" and pointer.get("kind") != "hypergan-distributed-training-checkpoint":
+                raise ValueError("Invalid distributed checkpoint pointer kind")
+            name = pointer.get("checkpoint")
+            if not isinstance(name, str) or Path(name).name != name:
+                raise ValueError("Invalid training checkpoint pointer path")
+            cand = root / name
+            if cand.is_symlink():
+                raise ValueError("Checkpoint must be an ordinary completed directory inside this run")
+            cand_resolved = cand.resolve()
+            if cand_resolved.parent != root or cand_resolved.name.startswith(".") or not cand_resolved.is_dir():
+                raise ValueError("Checkpoint must be a completed checkpoint directory inside this run")
+            info = _read_json(cand_resolved / "manifest.json")
+            if not isinstance(info, dict):
+                raise ValueError("Invalid training checkpoint metadata")
+            step = info.get("step")
+            if type(step) is not int:
+                raise ValueError("Checkpoint step is outside the original schedule")
+            if type(pointer.get("step")) is not int:
+                raise ValueError("Checkpoint pointer step differs from generation")
+            candidates.append((_checkpoint_sort_key(cand_resolved, run_manifest), cand_resolved, pointer))
+        if not candidates:
+            raise ValueError("No full training checkpoint exists; an inference model is not resumable")
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        _, winner, winner_pointer = candidates[0]
+        return winner, winner_pointer
+
+    # Explicit step int, digit string, or 'best'
+    if (
+        (isinstance(checkpoint, int) and not isinstance(checkpoint, bool))
+        or (isinstance(checkpoint, str) and checkpoint.strip() == "best")
+        or (
+            isinstance(checkpoint, str)
+            and checkpoint.strip().isdigit()
+            and not (run_dir / checkpoint).exists()
+            and not any((r / checkpoint).exists() for r in all_roots)
+        )
+    ):
+        resolved = resolve_checkpoint(run_dir, checkpoint)
+        return resolved, None
+
+    target = Path(checkpoint)
+    if not target.is_absolute():
+        choices = (target, run_dir / target, *(r / target for r in all_roots))
+        target = next((choice for choice in choices if choice.exists() or choice.is_symlink()), all_roots[0] / target)
+    if target.is_symlink():
+        raise ValueError("Checkpoint must be an ordinary completed directory inside this run")
+    target = target.resolve()
+    if target.parent not in all_roots or target.name.startswith(".") or not target.is_dir():
+        raise ValueError("Checkpoint must be a completed checkpoint directory inside this run")
+    return target, None
+
+
 def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest") -> Path:
     """Resolve a checkpoint target ('latest', 'best', integer step, or path) to a checkpoint directory."""
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
         raise ValueError(f"Run directory not found: {run_dir}")
-    ckpt_root = run_dir / "checkpoints"
-    if not ckpt_root.is_dir():
+    ckpt_roots = _checkpoint_roots(run_dir, existing_only=True)
+    if not ckpt_roots:
         raise ValueError(f"No checkpoints directory found in {run_dir}")
+    run_manifest = _read_json(run_dir / "manifest.json") or {}
 
     target_str = str(target).strip() if target is not None else "latest"
 
     # 1. Target: "latest" (or None)
     if target is None or target_str in ("latest", "None", ""):
-        latest_file = ckpt_root / "latest.json"
-        if latest_file.is_file():
-            try:
-                latest = json.loads(latest_file.read_text(encoding="utf-8"))
-                if isinstance(latest, dict) and latest.get("checkpoint"):
-                    candidate = ckpt_root / latest["checkpoint"]
-                    if candidate.is_dir():
-                        return candidate.resolve()
-            except Exception:
-                pass
-        # Fallback to max step on disk
+        pointer_candidates = []
+        for ckpt_root in ckpt_roots:
+            latest_file = ckpt_root / "latest.json"
+            if latest_file.is_file():
+                try:
+                    latest = json.loads(latest_file.read_text(encoding="utf-8"))
+                    if isinstance(latest, dict) and latest.get("checkpoint"):
+                        candidate = ckpt_root / latest["checkpoint"]
+                        if candidate.is_dir():
+                            resolved_cand = candidate.resolve()
+                            pointer_candidates.append((_checkpoint_sort_key(resolved_cand, run_manifest), resolved_cand))
+                except Exception:
+                    pass
+        if pointer_candidates:
+            pointer_candidates.sort(key=lambda item: item[0], reverse=True)
+            return pointer_candidates[0][1]
+
+        # Fallback to max step on disk across all roots
         candidates = []
-        for p in ckpt_root.iterdir():
-            if p.is_dir() and not p.name.startswith("."):
-                match = re.search(r"-step-(\d+)-", p.name)
-                step_val = None
-                if match:
-                    step_val = int(match.group(1))
-                else:
-                    mf = p / "manifest.json"
-                    if mf.is_file():
-                        try:
-                            m_info = json.loads(mf.read_text(encoding="utf-8"))
-                            step_val = m_info.get("step")
-                        except Exception:
-                            pass
-                if step_val is not None:
-                    candidates.append((step_val, p))
+        for ckpt_root in ckpt_roots:
+            for p in ckpt_root.iterdir():
+                if p.is_dir() and not p.name.startswith("."):
+                    match = re.search(r"-step-(\d+)-", p.name)
+                    step_val = None
+                    if match:
+                        step_val = int(match.group(1))
+                    else:
+                        mf = p / "manifest.json"
+                        if mf.is_file():
+                            try:
+                                m_info = json.loads(mf.read_text(encoding="utf-8"))
+                                step_val = m_info.get("step")
+                            except Exception:
+                                pass
+                    if step_val is not None:
+                        resolved_p = p.resolve()
+                        candidates.append((_checkpoint_sort_key(resolved_p, run_manifest), resolved_p))
         if not candidates:
-            raise ValueError(f"No training checkpoints found in {ckpt_root}")
-        candidates.sort(key=lambda item: (item[0], item[1].name), reverse=True)
-        return candidates[0][1].resolve()
+            raise ValueError(f"No training checkpoints found in {ckpt_roots[0]}")
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return candidates[0][1]
 
     # 2. Target: "best": the best-ranked primary-metric evaluation that has a checkpoint
     if target_str == "best":
@@ -448,43 +755,59 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
         if metric is None:
             raise ValueError("No primary metric defines the best checkpoint: set checkpoints.keep_best.metric "
                              "to an evaluated metric, or pass an explicit step or latest")
-        by_record = _checkpoints_for_records(_durable_checkpoints(ckpt_root), ranked)
+        all_durable = []
+        for ckpt_root in ckpt_roots:
+            all_durable.extend(_durable_checkpoints(ckpt_root))
+        all_durable.sort(key=lambda c: (c["step"], c["name"]))
+        by_record = _checkpoints_for_records(all_durable, ranked)
         for record in ranked:
             if by_record.get(id(record)):
                 return by_record[id(record)][-1]['path'].resolve()
-        raise ValueError(f"No checkpoint exists at any evaluated step of {metric} in {ckpt_root}")
+        raise ValueError(f"No checkpoint exists at any evaluated step of {metric} in {ckpt_roots[0]}")
 
     # 3. Target: STEP (integer or numeric digits)
-    if isinstance(target, int) or target_str.isdigit():
+    if (isinstance(target, int) and not isinstance(target, bool)) or target_str.isdigit():
         step = int(target)
         pattern = f"-step-{step:08d}-"
-        matches = [p for p in ckpt_root.iterdir() if p.is_dir() and not p.name.startswith(".") and pattern in p.name]
+        matches = [
+            p for ckpt_root in ckpt_roots for p in ckpt_root.iterdir()
+            if p.is_dir() and not p.name.startswith(".") and pattern in p.name
+        ]
         if not matches:
             fallback_pattern = f"-step-{step}-"
-            matches = [p for p in ckpt_root.iterdir() if p.is_dir() and not p.name.startswith(".") and fallback_pattern in p.name]
+            matches = [
+                p for ckpt_root in ckpt_roots for p in ckpt_root.iterdir()
+                if p.is_dir() and not p.name.startswith(".") and fallback_pattern in p.name
+            ]
         if not matches:
-            for p in ckpt_root.iterdir():
-                if p.is_dir() and not p.name.startswith("."):
-                    mf = p / "manifest.json"
-                    if mf.is_file():
-                        try:
-                            m_info = json.loads(mf.read_text(encoding="utf-8"))
-                            if m_info.get("step") == step:
-                                matches.append(p)
-                        except Exception:
-                            pass
+            for ckpt_root in ckpt_roots:
+                for p in ckpt_root.iterdir():
+                    if p.is_dir() and not p.name.startswith("."):
+                        mf = p / "manifest.json"
+                        if mf.is_file():
+                            try:
+                                m_info = json.loads(mf.read_text(encoding="utf-8"))
+                                if m_info.get("step") == step:
+                                    matches.append(p)
+                            except Exception:
+                                pass
         if not matches:
-            raise ValueError(f"Checkpoint for step {step} not found in {ckpt_root}")
-        matches.sort(key=lambda p: p.name, reverse=True)
+            raise ValueError(f"Checkpoint for step {step} not found in {ckpt_roots[0]}")
+        matches.sort(key=lambda p: _checkpoint_sort_key(p.resolve(), run_manifest), reverse=True)
         return matches[0].resolve()
 
     # 4. Target: PATH
     cand_path = Path(target_str)
-    choices = [cand_path, run_dir / cand_path, ckpt_root / cand_path]
+    choices = [cand_path, run_dir / cand_path, *(ckpt_root / cand_path for ckpt_root in ckpt_roots)]
     for c in choices:
-        if c.is_file() and c.name in ("state.pt", "model.pt"):
+        if c.is_file() and c.name in ("state.pt", "model.pt", "rank-00000.pt"):
             return c.parent.resolve()
-        if c.is_dir() and ((c / "state.pt").is_file() or (c / "manifest.json").is_file() or (c / "model.pt").is_file()):
+        if c.is_dir() and (
+            (c / "state.pt").is_file()
+            or (c / "rank-00000.pt").is_file()
+            or (c / "manifest.json").is_file()
+            or (c / "model.pt").is_file()
+        ):
             return c.resolve()
 
     raise ValueError(f"Checkpoint path not found: {target}")
@@ -507,12 +830,14 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None,
             return bundle
         state_file = path
         ckpt_dir = path.parent
-    elif path.is_file() and path.name == "state.pt":
+    elif path.is_file() and path.name in ("state.pt", "rank-00000.pt"):
         state_file = path
         ckpt_dir = path.parent
     elif path.is_dir():
         ckpt_dir = path
         state_file = ckpt_dir / "state.pt"
+        if not state_file.is_file() and (ckpt_dir / "rank-00000.pt").is_file():
+            state_file = ckpt_dir / "rank-00000.pt"
         if not state_file.is_file() and (ckpt_dir / "model.pt").is_file():
             bundle = torch.load(ckpt_dir / "model.pt", map_location="cpu", weights_only=True)
             if isinstance(bundle, dict) and bundle.get("kind") == "ema-inference":
@@ -548,6 +873,15 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None,
         raise ValueError("Checkpoint state missing EMA weights; cannot construct EMA inference bundle")
 
     config = manifest.get("config")
+    if not isinstance(config, dict) and isinstance(manifest.get("identity"), dict):
+        run_manifest = _read_json(ckpt_dir.parent.parent / "manifest.json") or {}
+        if isinstance(run_manifest.get("config"), dict) and (
+            not manifest.get("run_id") or run_manifest.get("run_id") == manifest.get("run_id")
+        ):
+            config = run_manifest["config"]
+        elif isinstance(manifest["identity"].get("config"), dict):
+            from .config import resolve_config
+            config = resolve_config(manifest["identity"]["config"])
     if not isinstance(config, dict) or "components" not in config:
         raise ValueError("Checkpoint manifest missing valid configuration components")
 
@@ -732,18 +1066,21 @@ def prune_checkpoints(
     if not run_dir.is_dir():
         return _prune_report(run_dir, dry_run)
 
-    ckpt_root = run_dir / 'checkpoints'
-    if not ckpt_root.is_dir():
+    ckpt_roots = _checkpoint_roots(run_dir, existing_only=True)
+    if not ckpt_roots:
         return _prune_report(run_dir, dry_run)
 
-    with _prune_lock(ckpt_root):
+    with _prune_lock(ckpt_roots[0]):
         # 1. Resolve Policy
         if policy is None:
             policy = _run_policy(run_dir)
         policy = normalize_checkpoint_policy(policy)
 
-        # 2. Discover durable checkpoints
-        checkpoints = _durable_checkpoints(ckpt_root)
+        # 2. Discover durable checkpoints across checkpoints/ and distributed-checkpoints/
+        checkpoints = []
+        for ckpt_root in ckpt_roots:
+            checkpoints.extend(_durable_checkpoints(ckpt_root))
+        checkpoints.sort(key=lambda c: (c['step'], c['name']))
         for c in checkpoints:
             size = 0
             try:
@@ -761,10 +1098,19 @@ def prune_checkpoints(
         # 3. Retain map: name -> set of reasons
         retained_reasons = defaultdict(set)
 
-        # S1: Never delete latest. Without a pointer, the highest step stands in
-        # and the branch is unknown, so every checkpoint counts as live.
-        latest_name = (_read_json(ckpt_root / 'latest.json') or {}).get('checkpoint')
-        tip = next((c for c in checkpoints if c['name'] == latest_name), None)
+        # S1: Never delete latest. Compare pointers across roots so the newest tip wins.
+        m_data = _read_json(run_dir / 'manifest.json') or {}
+        tip_candidates = []
+        root_latest_names = {}
+        for ckpt_root in ckpt_roots:
+            latest_name = (_read_json(ckpt_root / 'latest.json') or {}).get('checkpoint')
+            if latest_name:
+                root_latest_names[ckpt_root] = latest_name
+                cand = next((c for c in checkpoints if c['path'].parent == ckpt_root and c['name'] == latest_name), None)
+                if cand is not None:
+                    tip_candidates.append((_checkpoint_sort_key(cand['path'], m_data), cand))
+        tip_candidates.sort(key=lambda item: item[0], reverse=True)
+        tip = tip_candidates[0][1] if tip_candidates else None
         branch = _live_branch(run_dir, checkpoints, tip)
         max_step = max(c['step'] for c in checkpoints)
         for c in checkpoints:
@@ -775,7 +1121,6 @@ def prune_checkpoints(
 
         # S2: Pin active interval evaluations
         pinned_steps = set()
-        m_data = _read_json(run_dir / 'manifest.json') or {}
         schedule = m_data.get('evaluation_schedule')
         for item in (schedule.values() if isinstance(schedule, dict) else []):
             if isinstance(item, dict) and item.get('status') == 'running' and type(item.get('source_step')) is int:
@@ -857,6 +1202,7 @@ def prune_checkpoints(
         # Execute deletion if not dry_run
         deleted = []
         if not dry_run:
+            deleted_names_by_root = defaultdict(set)
             for c in deleted_candidates:
                 target_dir = c['path']
                 try:
@@ -864,10 +1210,25 @@ def prune_checkpoints(
                     (target_dir / 'manifest.json').unlink(missing_ok=True)
                     shutil.rmtree(target_dir)
                     deleted.append({'step': c['step'], 'name': c['name'], 'size': c['size']})
+                    deleted_names_by_root[target_dir.parent].add(c['name'])
                 except OSError:
                     pass
             if deleted:
-                sync_directory(ckpt_root)
+                for ckpt_root, removed_names in deleted_names_by_root.items():
+                    if root_latest_names.get(ckpt_root) in removed_names:
+                        remaining_in_root = [
+                            c for c in checkpoints
+                            if c['path'].parent == ckpt_root and c['name'] not in removed_names
+                        ]
+                        pointer_file = ckpt_root / 'latest.json'
+                        if remaining_in_root:
+                            newest = max(remaining_in_root, key=lambda c: _checkpoint_sort_key(c['path'], m_data))
+                            old_ptr = _read_json(pointer_file) or {'schema_version': SCHEMA}
+                            new_ptr = dict(old_ptr, schema_version=SCHEMA, checkpoint=newest['name'], step=newest['step'])
+                            atomic_json(pointer_file, new_ptr)
+                        else:
+                            pointer_file.unlink(missing_ok=True)
+                    sync_directory(ckpt_root)
         else:
             deleted = [
                 {'step': c['step'], 'name': c['name'], 'size': c['size']}

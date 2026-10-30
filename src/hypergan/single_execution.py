@@ -5,8 +5,21 @@ from types import SimpleNamespace
 
 import torch
 
-from .checkpoints import capture_rng, read_checkpoint, restore_rng, restore_trainer, write_checkpoint
-from .checkpoint_compatibility import CURRENT_VERSION, validate_runtime, validate_implementation
+from .checkpoints import (
+    capture_rng,
+    read_checkpoint,
+    resolve_resume_checkpoint_dir,
+    restore_rng,
+    restore_trainer,
+    restore_trainer_cross_topology,
+    write_checkpoint,
+)
+from .checkpoint_compatibility import (
+    CURRENT_VERSION,
+    format_topology_change_warning,
+    validate_implementation,
+    validate_runtime,
+)
 from .config import config_values, fingerprint, resume_compatible
 from .metrics import validate_update_scalars
 from .main_guard import require_main_guard
@@ -16,6 +29,8 @@ from .recipes import execution_device
 
 
 class SingleProcessExecution:
+    supports_elastic_resume = True
+
     def __init__(self, config):
         self._config = config
         apply_backend_policy(config)
@@ -78,40 +93,88 @@ class SingleProcessExecution:
             return None
 
     def restore(self, run_dir, checkpoint, run_id, config_sha256):
-        target, info, state = read_checkpoint(run_dir, checkpoint)
-        if info['run_id'] != run_id:
-            raise ValueError('Checkpoint belongs to a different run')
+        import json
+        manifest_path = Path(run_dir) / 'manifest.json'
+        run_manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else None
+        target, pointer = resolve_resume_checkpoint_dir(run_dir, checkpoint, run_manifest=run_manifest)
+        is_distributed = target.parent.name == 'distributed-checkpoints'
+        if is_distributed:
+            from .distributed_checkpoints import read_distributed_checkpoint_for_elastic
+            target, info, identity, state = read_distributed_checkpoint_for_elastic(run_dir, target, run_id)
+            if pointer is not None and pointer.get('step') != info['step']:
+                raise ValueError('Checkpoint pointer step differs from generation')
+            saved_topology = identity.get('topology')
+        else:
+            target, info, state = read_checkpoint(run_dir, target)
+            if pointer is not None and pointer.get('step') != info['step']:
+                raise ValueError('Checkpoint pointer step differs from generation')
+            if info['run_id'] != run_id:
+                raise ValueError('Checkpoint belongs to a different run')
+            identity = info
+            saved_topology = None
+
         if fingerprint(self._config) != config_sha256:
-            import json
             saved = json.loads((Path(run_dir) / 'manifest.json').read_text())['config']
-            if not resume_compatible(self._config, saved) or fingerprint(saved) != config_sha256:
+            if (
+                not resume_compatible(
+                    self._config, saved, allow_device_change=True, allow_batch_size_change=True
+                )
+                or fingerprint(saved) != config_sha256
+            ):
                 raise ValueError('Resume configuration differs from the run manifest')
-        if fingerprint(self._config) != info['config_sha256']:
-            if (not resume_compatible(self._config, info['config'])
-                    or fingerprint(info['config']) != info['config_sha256']):
+        if fingerprint(self._config) != identity['config_sha256']:
+            if (
+                not resume_compatible(
+                    self._config, identity['config'], allow_device_change=True, allow_batch_size_change=True
+                )
+                or fingerprint(identity['config']) != identity['config_sha256']
+            ):
                 raise ValueError('Resume configuration differs from checkpoint; only an increased '
                                  'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
                                  'pinned training-image skipping, or changing its pixel cache, is allowed')
         apply_backend_policy(self._config)
-        # Warns on stderr as it is detected; the controller also records them on
-        # the run so the owner can read them after the attempt has scrolled past.
         current_runtime = runtime_info(self._config['training']['device'])
+        saved_device = identity['config']['training']['device']
+        current_device = self._config['training']['device']
+        device_type_changed = saved_device.split(':')[0] != current_device.split(':')[0]
+        batch_size_changed = identity['config']['training']['batch_size'] != self._config['training']['batch_size']
+        is_cross_topology = is_distributed or device_type_changed or batch_size_changed
+
         migration = {}
-        if (isinstance(info['runtime'], dict)
-                and (info['runtime'].get('particlegan'), current_runtime.get('particlegan')) == ('0.5.0', '0.6.0')):
+        if (isinstance(identity['runtime'], dict)
+                and (identity['runtime'].get('particlegan'), current_runtime.get('particlegan')) == ('0.5.0', '0.6.0')):
             self._open()
-            migration = {'saved_implementation': info['implementation'],
+            migration = {'saved_implementation': identity['implementation'],
                          'current_implementation': _implementation(self._trainer)}
-        runtime_warnings = validate_runtime(info['runtime'], current_runtime, **migration)
+        runtime_warnings = list(
+            validate_runtime(
+                identity['runtime'],
+                current_runtime,
+                elastic_topology=is_cross_topology,
+                **migration,
+            )
+        )
         self._open()
         contract, reasons = _recovery_contract(self._trainer)
         if reasons:
             raise ValueError('Recovery unsupported: ' + '; '.join(reasons))
-        if contract != info['data_contract']:
+        if contract != identity['data_contract']:
             raise ValueError('Resume data identity or state protocol differs from checkpoint')
-        validate_implementation(info['implementation'], _implementation(self._trainer))
+        validate_implementation(identity['implementation'], _implementation(self._trainer))
         self._ready = False
-        self._last_batch = restore_trainer(self._trainer, state)
+        if is_cross_topology:
+            self._last_batch = restore_trainer_cross_topology(self._trainer, state, rank=0, world_size=1)
+            topo_warning = format_topology_change_warning(
+                saved_topology,
+                None,
+                saved_device=saved_device,
+                current_device=current_device,
+                step=self._trainer.step,
+                emit=True,
+            )
+            runtime_warnings.append(topo_warning)
+        else:
+            self._last_batch = restore_trainer(self._trainer, state)
         if self._device.type == 'cuda':
             torch.cuda.synchronize(self._device)
         self._ready = True

@@ -1030,9 +1030,10 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             statuses.update(custom_statuses)
             if custom_values:
                 publication = 'sampled'
+            loss_kwargs = {"d_loss": row.get("d_loss"), "g_loss": row.get("g_loss")} if publication != "disabled" else {}
             emit('train', metrics=metrics, measurement_status=statuses, metric_publication=publication,
-                 d_loss=row.get('d_loss'), g_loss=row.get('g_loss'),
                  total_steps=config['training']['steps'],
+                 **loss_kwargs,
                  **progress,
                  **{key: row[key] for key in ('global_batch_size', 'local_batch_size', 'world_size',
                                              'accumulation_steps', 'microbatch_size') if key in row})

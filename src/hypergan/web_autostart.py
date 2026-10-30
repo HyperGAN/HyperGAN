@@ -992,7 +992,7 @@ def probe_dashboard(host: str = "127.0.0.1", port: int = DEFAULT_VIEWER_PORT,
 
 
 def launch_dashboard_daemon(runs_root: Path, port: int = DEFAULT_VIEWER_PORT,
-                            host: str = "0.0.0.0", auth: str = "none",
+                            host: str = "127.0.0.1", auth: str = "none",
                             public_origin: str | None = None) -> None:
     from .run_state import atomic_json
     from .web_session import normalize_public_origin
@@ -1057,7 +1057,7 @@ def dashboard_url(host: str, port: int, run_id: str | None = None) -> str:
 
 
 def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWER_PORT,
-                             host: str = "0.0.0.0", auth: str = "none",
+                             host: str = "127.0.0.1", auth: str = "none",
                              public_origin: str | None = None,
                              check_version: bool = True, run_id: str | None = None) -> str:
     """Ensure a persistent root dashboard for runs_root is serving `port`, and return its URL.
@@ -1371,7 +1371,7 @@ class Viewer:
                     # cannot authenticate a new incarnation; remove this stale
                     # private file when the next launcher takes over.
                     (self.private / ('session-' + state['launch_id'] + '.json')).unlink(missing_ok=True)
-                host, auth = host or '0.0.0.0', auth or 'none'
+                host, auth = host or '127.0.0.1', auth or 'none'
                 # Fail unusable ports before numerical imports. The broker
                 # repeats the same selection, so a port lost in between is
                 # re-searched for a default request and an actionable error

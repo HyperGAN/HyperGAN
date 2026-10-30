@@ -83,6 +83,30 @@ function updateRow(row, run) {
   const badge = row.querySelector('.badge');
   badge.dataset.status = status;
   badge.textContent = status;
+  const thumbCell = row.querySelector('.thumbnail-cell');
+  if (thumbCell) {
+    if (run.thumbnail_url) {
+      thumbCell.innerHTML = `<a href="/runs/${encodeURIComponent(id)}"><img class="run-thumbnail" src="${run.thumbnail_url}" alt="Preview of ${run.name || id}" loading="lazy" width="48" height="48" /></a>`;
+    } else {
+      thumbCell.innerHTML = '<span class="no-thumbnail" title="No previews yet">—</span>';
+    }
+  }
+  const fidCell = row.querySelector('[data-field="fid"]');
+  if (fidCell) {
+    const bestFid = run.best_fid ?? run.fid_best;
+    const latestFid = run.latest_fid ?? run.fid_latest;
+    if (typeof bestFid === 'number' && Number.isFinite(bestFid)) {
+      if (typeof latestFid === 'number' && Number.isFinite(latestFid) && Math.abs(latestFid - bestFid) > 0.01) {
+        fidCell.innerHTML = `<span class="best-fid" title="Best FID">${bestFid.toFixed(2)}</span> <small class="latest-fid" title="Latest FID">(${latestFid.toFixed(2)})</small>`;
+      } else {
+        fidCell.innerHTML = `<span class="best-fid" title="Best FID">${bestFid.toFixed(2)}</span>`;
+      }
+    } else if (typeof latestFid === 'number' && Number.isFinite(latestFid)) {
+      fidCell.innerHTML = `<span class="latest-fid" title="Latest FID">${latestFid.toFixed(2)}</span>`;
+    } else {
+      fidCell.innerHTML = '<span class="no-fid">—</span>';
+    }
+  }
   formatCreated(row);
   const step = Number(run.step) || 0;
   const total = Number(run.total_steps || run.max_steps) || 0;

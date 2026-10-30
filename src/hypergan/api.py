@@ -1922,8 +1922,10 @@ def preflight_check(config, profile=None, runtime=True):
     return preflight(config, profile=profile, runtime=runtime)
 
 
-def serve(run_dir=None, port=None, host="0.0.0.0", auth="none", session_file=None, open_browser=False, public_origin=None, dev=False):
+def serve(run_dir=None, port=None, host="127.0.0.1", auth="none", session_file=None, open_browser=False, public_origin=None, dev=False, bind=None):
     """Launch the Web Observatory server for a runs root or run directory."""
+    if bind is not None:
+        host = bind
     if dev:
         from .web_dev import enable
         enable()

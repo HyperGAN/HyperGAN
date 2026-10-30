@@ -17,7 +17,7 @@ def require_web():
         raise RuntimeError("Local serving requires 'hypergan[web]' (missing " + ', '.join(missing) + ')')
 
 
-def bind_server(port=0, host="0.0.0.0"):
+def bind_server(port=0, host="127.0.0.1"):
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError('port must be in 0..65535; zero selects an available port')
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -40,7 +40,7 @@ def bind_server(port=0, host="0.0.0.0"):
         raise
 
 
-def bind_available(port=None, host="0.0.0.0", *, attempts=1):
+def bind_available(port=None, host="127.0.0.1", *, attempts=1):
     """Bind the viewer socket to fixed default port 8765, or explicit requested port.
 
     Does not hunt across port range. If the target port is occupied, raises an
@@ -104,11 +104,11 @@ def running_dashboard(root, port=None, auth="none"):
     if probed.get('auth_mode') != auth:
         raise OSError(f"Port {target_port} already serves this root's dashboard with --auth {probed.get('auth_mode')}; "
                       f"stop it with 'hypergan view {served} --stop' to change its settings")
-    host = state.get('host', '0.0.0.0') if state else '0.0.0.0'
+    host = state.get('host', '127.0.0.1') if state else '127.0.0.1'
     return dashboard_url(host, target_port, run_id)
 
 
-def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=None,
+def serve(run_dir=None, *, port=None, host="127.0.0.1", auth="none", session_file=None,
           open_browser=False, public_origin=None):
     require_web()
     from contextlib import ExitStack

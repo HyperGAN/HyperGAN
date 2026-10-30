@@ -102,7 +102,8 @@ def test_root_index_renders_html_table(tmp_path):
         assert "14.2 it/s" in html
         assert "Created at" in html
         assert "2026-10-17T12:30:00+00:00" in html
-        assert "FID" not in html
+        assert "FID" in html
+        assert "Preview" in html
         assert "120 / 240" in html
         assert '<script src="/assets/runs.js" defer></script>' in html
         assert 'onchange=' not in html
@@ -275,7 +276,9 @@ def test_render_run_index_step_formatting_and_escaping(tmp_path):
     html_out = render_run_index_html(runs, tmp_path)
     assert "120 / 500" in html_out
     assert "50,000 / 100,000" in html_out
-    assert "FID" not in html_out
+    assert "FID" in html_out
+    assert "15.20" in html_out
+    assert "12.40" in html_out
     assert '<script>alert' not in html_out
     assert '&lt;script&gt;' in html_out
     assert '/runs/r1%22' in html_out

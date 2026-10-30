@@ -79,3 +79,9 @@ time { display: block; min-width: 132px; color: #cbd5e1; font-variant-numeric: t
   .controls .search-control { flex-basis: 100%; }
   .refresh-controls { gap: 8px; }
 }
+.thumbnail-cell { width: 56px; text-align: center; }
+.run-thumbnail { width: 48px; height: 48px; border-radius: 4px; object-fit: cover; display: block; border: 1px solid #283145; }
+.no-thumbnail { color: #64748b; font-size: 14px; }
+.best-fid { font-weight: 600; color: #38bdf8; }
+.latest-fid { color: #94a3b8; font-size: 11px; }
+.no-fid { color: #64748b; }

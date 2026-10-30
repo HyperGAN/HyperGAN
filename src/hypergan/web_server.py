@@ -267,6 +267,23 @@ def read_run_summary(run_dir: Path) -> dict:
     disk_bytes = get_run_disk_bytes(run_dir)
     disk_formatted = format_disk_bytes(disk_bytes)
 
+    has_preview = False
+    previews_index = run_dir / "previews" / "index.json"
+    if previews_index.is_file():
+        try:
+            pdata = json.loads(previews_index.read_text(encoding="utf-8"))
+            if isinstance(pdata, dict) and pdata.get("previews"):
+                has_preview = True
+        except Exception:
+            pass
+    elif (run_dir / "previews").is_dir():
+        try:
+            has_preview = any((run_dir / "previews").rglob("*.png"))
+        except Exception:
+            pass
+
+    thumbnail_url = f"/api/v1/runs/{quote(str(run_id), safe='')}/thumbnail" if has_preview else None
+
     return {
         "run_id": run_id,
         "short_id": short_id,
@@ -292,6 +309,7 @@ def read_run_summary(run_dir: Path) -> dict:
         "updated_at": updated_at,
         "disk_bytes": disk_bytes,
         "disk_formatted": disk_formatted,
+        "thumbnail_url": thumbnail_url,
         "run_dir": str(run_dir),
         "url": f"/runs/{quote(str(run_id), safe='')}",
     }
@@ -320,12 +338,34 @@ def _render_run_row(r: dict) -> str:
     created = _created_at(r.get('created_at'))
     date_text = datetime.fromisoformat(created).strftime('%b %d, %Y · %H:%M UTC') if created else 'Unknown'
     url = escape('/runs/' + quote(run_id, safe=''))
+
+    thumb_url = r.get("thumbnail_url")
+    if thumb_url:
+        preview_cell = f'<td data-label="Preview" class="thumbnail-cell"><a href="{url}"><img class="run-thumbnail" src="{escape(thumb_url)}" alt="Preview of {escape(name)}" loading="lazy" width="48" height="48" /></a></td>'
+    else:
+        preview_cell = '<td data-label="Preview" class="thumbnail-cell"><span class="no-thumbnail" title="No previews yet">—</span></td>'
+
+    best_fid = r.get("best_fid") or r.get("fid_best")
+    latest_fid = r.get("latest_fid") or r.get("fid_latest")
+    if isinstance(best_fid, (int, float)):
+        if isinstance(latest_fid, (int, float)) and abs(latest_fid - best_fid) > 0.01:
+            fid_text = f'<span class="best-fid" title="Best FID">{best_fid:.2f}</span> <small class="latest-fid" title="Latest FID">({latest_fid:.2f})</small>'
+        else:
+            fid_text = f'<span class="best-fid" title="Best FID">{best_fid:.2f}</span>'
+    elif isinstance(latest_fid, (int, float)):
+        fid_text = f'<span class="latest-fid" title="Latest FID">{latest_fid:.2f}</span>'
+    else:
+        fid_text = '<span class="no-fid">—</span>'
+    fid_cell = f'<td data-label="FID" data-field="fid">{fid_text}</td>'
+
     return f'''<tr data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
       data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}">
       <td data-label="Run"><a class="run-link" href="{url}">{escape(name)}</a>
         <div class="run-id-sub"><span class="slug-badge">{escape(slug)}</span>
           <span class="id-badge" title="{escape(run_id)}">{escape(short_id)}</span></div></td>
+      {preview_cell}
       <td data-label="Status"><span class="badge" data-status="{escape(status)}">{escape(status)}</span></td>
+      {fid_cell}
       <td data-label="Created at"><time data-field="created" datetime="{escape(created or '')}"
         title="{escape(created or 'Creation time was not recorded')}">{date_text}</time></td>
       <td data-label="Progress"><div class="progress-bar-container"><span data-field="steps">{progress}</span>
@@ -399,7 +439,7 @@ def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = Fa
     <div class="table-container">
       <table class="run-table" id="runs-table">
         <caption class="sr-only">Training runs with creation time, status, and progress</caption>
-        <thead><tr><th scope="col">Run / Name</th><th scope="col">Status</th>
+        <thead><tr><th scope="col">Run / Name</th><th scope="col">Preview</th><th scope="col">Status</th><th scope="col">FID</th>
           <th scope="col">Created at <span id="time-zone">(UTC)</span></th><th scope="col">Progress</th>
           <th scope="col">Speed</th><th scope="col">Disk</th><th scope="col">Actions</th></tr></thead>
         <tbody id="runs-body">{rows}</tbody>
@@ -751,6 +791,7 @@ RUN_ROUTES = (
     ('/stream', 'stream', None),
     ('/artifacts', 'artifacts', None),
     ('/artifacts/{artifact_id}', 'artifacts', None),
+    ('/thumbnail', 'thumbnail', None),
 )
 RUN_PREFIXES = ('/api/runs', '/api/v1/runs')
 
@@ -1169,6 +1210,35 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         return Response(data, media_type='application/octet-stream',
                         headers={'Content-Disposition': 'attachment; filename="artifact.bin"'})
 
+    async def thumbnail_endpoint(request):
+        run_id = request.path_params['run_id']
+        svc = await registry.get(run_id)
+        target_dir = svc.root
+        if target_dir is None or not target_dir.is_dir():
+            raise FileNotFoundError(f"Unknown run directory for run: {run_id}")
+
+        def find_png() -> Path | None:
+            idx = target_dir / "previews" / "index.json"
+            if idx.is_file():
+                try:
+                    data = json.loads(idx.read_text(encoding="utf-8"))
+                    for prev in reversed(data.get("previews", [])):
+                        grid_info = prev.get("image_grid")
+                        if isinstance(grid_info, dict) and grid_info.get("path"):
+                            cand = target_dir / grid_info["path"]
+                            if cand.is_file():
+                                return cand
+                except Exception:
+                    pass
+            pngs = sorted((target_dir / "previews").rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+            return pngs[0] if pngs else None
+
+        png_path = await asyncio.to_thread(find_png)
+        if png_path is None or not png_path.is_file():
+            raise FileNotFoundError("No preview thumbnail available for this run")
+        data = await asyncio.to_thread(png_path.read_bytes)
+        return Response(data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
     async def static(request, asset_override=None):
         asset = asset_override or request.path_params.get('asset', 'index.html')
         if asset not in STATIC_ASSETS:
@@ -1213,7 +1283,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
     run_handlers = {'run': run, 'run_summary': run_summary_endpoint, 'request_status': request_status_endpoint,
                     'run_metrics': run_metrics_summary, 'catalog': catalog, 'contributions': run_contributions,
                     'model': model, 'events': events, 'views': views, 'bootstrap': bootstrap,
-                    'stream': stream, 'artifacts': artifacts,
+                    'stream': stream, 'artifacts': artifacts, 'thumbnail': thumbnail_endpoint,
                     **{'control:' + action: control_endpoint(action) for action in CONTROL_ACTIONS}}
     # (path, endpoint, methods, public). Public routes are the HTML shell, its
     # static assets and the credential exchange; in token mode everything else

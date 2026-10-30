@@ -869,3 +869,23 @@ footer {
 .evaluation-plot text { fill: #d4ded6; font: 11px monospace; }
 .evaluation-list .table-scroll { max-height: 260px; }
 .evaluation-list pre { max-height: 260px; overflow: auto; }
+
+#sample-empty {
+  margin-top: 18px;
+  padding: 24px 20px;
+  background: #171d1b;
+  border: 1px dashed #34433d;
+  border-radius: 8px;
+  text-align: center;
+}
+#sample-empty h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: #e2e8f0;
+}
+#sample-empty p {
+  margin: 0;
+  font-size: 13px;
+  color: #94a3b8;
+  line-height: 1.5;
+}

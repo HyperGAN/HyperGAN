@@ -264,6 +264,11 @@ function updateRun(run) {
     ? `of ${fmt(run.total_steps)} configured steps`
     : "Completed optimizer updates";
   $("raw-events").href = `/api/v1${base()}/events`;
+  const active = Boolean(run.active || run.running || run.status === "running");
+  const sampleBtn = $("action-sample");
+  const checkpointBtn = $("action-checkpoint");
+  if (sampleBtn) sampleBtn.hidden = !active;
+  if (checkpointBtn) checkpointBtn.hidden = !active;
 }
 async function refreshArtifacts() {
   if (!state.run) return;
@@ -364,7 +369,25 @@ function renderArtifacts(artifacts) {
   );
   $("artifact-items").replaceChildren();
   const groups = sampleGroups(artifacts);
-  $("artifacts").hidden = !groups.length;
+  const emptyGuide = $("sample-empty");
+  if (emptyGuide) {
+    if (!groups.length) {
+      emptyGuide.hidden = false;
+      const previewEvery = state.run?.config?.run?.preview_every ?? state.run?.preview_every;
+      if (previewEvery === 0) {
+        $("sample-empty-title").textContent = "Periodic previews disabled";
+        $("sample-empty-description").textContent =
+          "This run was configured with preview generation disabled (--no-previews or preview_every = 0). Click the 'Sample' button in the header above to generate an on-demand preview at the next update boundary.";
+      } else {
+        $("sample-empty-title").textContent = "No samples generated yet";
+        $("sample-empty-description").textContent =
+          "Waiting for the first sample cadence, or click 'Sample' in the header above to request an immediate preview.";
+      }
+    } else {
+      emptyGuide.hidden = true;
+    }
+  }
+  $("artifacts").hidden = false;
   for (const group of groups.slice(0, MAX_SAMPLE_GROUPS))
     $("artifact-items").append(renderSampleGroup(group, shown.get(group.key)));
 }
@@ -1395,6 +1418,39 @@ $("reconnect").onclick = () =>
   state.run
     ? refreshMetadata(state.epoch)
     : connect().catch((error) => notice(error.message));
+if ($("action-sample")) {
+  $("action-sample").onclick = async () => {
+    const btn = $("action-sample");
+    btn.disabled = true;
+    btn.textContent = "Sample…";
+    try {
+      await api(`${base()}/sample`, { method: "POST" });
+      notice("Sample requested at next update boundary.");
+      await refreshArtifacts();
+    } catch (err) {
+      notice(`Sample request failed: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Sample";
+    }
+  };
+}
+if ($("action-checkpoint")) {
+  $("action-checkpoint").onclick = async () => {
+    const btn = $("action-checkpoint");
+    btn.disabled = true;
+    btn.textContent = "Checkpoint…";
+    try {
+      await api(`${base()}/checkpoint`, { method: "POST" });
+      notice("Checkpoint requested at next update boundary.");
+    } catch (err) {
+      notice(`Checkpoint request failed: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Checkpoint";
+    }
+  };
+}
 $("apply-range").onclick = () => {
   const from = $("step-from").value,
     to = $("step-to").value;

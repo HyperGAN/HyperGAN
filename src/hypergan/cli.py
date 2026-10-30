@@ -73,7 +73,8 @@ def _run_options(parser):
     parser.add_argument("--port", "--server-port", dest="server_port", type=int,
                         help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}; an occupied "
                              "port is an error, never a search; 0 selects any free port)")
-    parser.add_argument("--host", "--server-host", dest="server_host", default=None, help="listen address (default: 0.0.0.0)")
+    parser.add_argument("-b", "--bind", "--host", "--server-host", dest="server_host", default=None,
+                        help="listen address (default: 127.0.0.1; e.g. -b 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--public-origin", type=_public_origin, metavar="URL",
                         help="absolute origin of a TLS proxy in front of the viewer, "
@@ -376,7 +377,8 @@ def _parser():
     serve.add_argument("--port", "--server-port", dest="port", type=int,
                        help=f"listen port (default: {DEFAULT_VIEWER_PORT}; an occupied port is an "
                             "error, never a search; 0 selects any free port)")
-    serve.add_argument("--host", "--server-host", dest="host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    serve.add_argument("-b", "--bind", "--host", "--server-host", dest="host", default="127.0.0.1",
+                       help="listen address (default: 127.0.0.1; e.g. -b 0.0.0.0)")
     serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--public-origin", type=_public_origin, metavar="URL",
                        help="absolute origin of a TLS proxy in front of the viewer, "
@@ -395,7 +397,8 @@ def _parser():
     view_mode.add_argument("--status", action="store_true", help="report dashboard status, URL, version, and PID")
     view_mode.add_argument("--stop", action="store_true", help="cleanly stop the running dashboard")
     view.add_argument("--port", "--server-port", dest="port", type=int, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
-    view.add_argument("--host", "--server-host", dest="host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    view.add_argument("-b", "--bind", "--host", "--server-host", dest="host", default="127.0.0.1",
+                      help="listen address (default: 127.0.0.1; e.g. -b 0.0.0.0)")
     view.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     view_browser = view.add_mutually_exclusive_group()
     view_browser.add_argument("--open", action="store_true", help="open the local viewer in a browser")
@@ -925,6 +928,40 @@ def _training_viewer(args, *, config=None):
     if config and isinstance(config, dict) and config.get('run', {}).get('viewer') is False:
         from contextlib import nullcontext
         return nullcontext()
+
+    # TTY-gated viewer autostart: autostart viewer only on interactive TTY
+    # unless explicitly forced, respecting HYPERGAN_NO_SERVER=1 and CI=1.
+    forced = bool(getattr(args, "server", False) or getattr(args, "open", False))
+    has_explicit_viewer_args = bool(
+        forced
+        or getattr(args, "server_port", None) is not None
+        or getattr(args, "server_host", None) is not None
+        or getattr(args, "auth", None) is not None
+        or getattr(args, "public_origin", None) is not None
+        or getattr(args, "viewer_dev", False)
+    )
+
+    if os.environ.get("HYPERGAN_NO_SERVER") == "1":
+        if not forced:
+            from contextlib import nullcontext
+            return nullcontext()
+
+    if not has_explicit_viewer_args:
+        ci_val = os.environ.get("CI", "").strip().lower()
+        if ci_val in ("1", "true", "yes"):
+            from contextlib import nullcontext
+            return nullcontext()
+
+        is_interactive = (
+            hasattr(sys.stdin, "isatty")
+            and sys.stdin.isatty()
+            and hasattr(sys.stdout, "isatty")
+            and sys.stdout.isatty()
+        )
+        if not is_interactive:
+            from contextlib import nullcontext
+            return nullcontext()
+
     # The supervisor is a detached subprocess; the environment is what reaches it.
     if args.viewer_dev:
         from .web_dev import enable
@@ -940,7 +977,7 @@ def _training_viewer(args, *, config=None):
                     or args.public_origin is not None)
     try:
         url = ensure_dashboard_running(runs_root, port=args.server_port or DEFAULT_VIEWER_PORT,
-                                       host=args.server_host or '0.0.0.0',
+                                       host=args.server_host or '127.0.0.1',
                                        auth=args.auth or 'none',
                                        public_origin=args.public_origin,
                                        check_version=True,
@@ -960,7 +997,7 @@ def _training_viewer(args, *, config=None):
 
 
 def _print_training_header(run_dir: Path, experiment_name: str, device: str, dashboard_url: str | None = None,
-                           *, execution=None):
+                           *, execution=None, host: str | None = None):
     print("=== HyperGAN ===", file=sys.stderr)
     print(f"Run directory:  {run_dir}", file=sys.stderr)
     print(f"Experiment:     {experiment_name}", file=sys.stderr)
@@ -1007,16 +1044,19 @@ def _print_training_header(run_dir: Path, experiment_name: str, device: str, das
 
     if dashboard_url:
         lan_url = None
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            lan_ip = s.getsockname()[0]
-            s.close()
-            if lan_ip and lan_ip != "127.0.0.1" and "localhost" in dashboard_url:
-                lan_url = dashboard_url.replace("localhost", lan_ip).replace("127.0.0.1", lan_ip)
-        except Exception:
-            pass
+        # Skip external 8.8.8.8:80 UDP probe when listening on loopback (default 127.0.0.1)
+        is_wildcard = host in ("0.0.0.0", "")
+        if is_wildcard:
+            try:
+                import socket
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                lan_ip = s.getsockname()[0]
+                s.close()
+                if lan_ip and lan_ip != "127.0.0.1" and "localhost" in dashboard_url:
+                    lan_url = dashboard_url.replace("localhost", lan_ip).replace("127.0.0.1", lan_ip)
+            except Exception:
+                pass
         if lan_url:
             print(f"Dashboard:      {dashboard_url} (or {lan_url})", file=sys.stderr)
         else:
@@ -2052,7 +2092,7 @@ def _dispatch(args, *, output=None):
                     dashboard_url = getattr(args, "_dashboard_url", None)
                     execution = (getattr(prepared, 'profile', None) or {}).get('execution')
                     _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url,
-                                           execution=execution)
+                                           execution=execution, host=getattr(args, 'server_host', None))
                 is_tty = bool(getattr(output.stdout.original, "isatty", lambda: False)()) if output and hasattr(output, "stdout") else False
                 is_profiled = getattr(prepared, "profile", None) is not None
                 human_footer = (not is_resume_cmd and not is_profiled or is_tty) and not getattr(args, "progress_json", False) and not getattr(args, "json", False) and not getattr(args, "quiet", False)

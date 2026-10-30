@@ -62,6 +62,8 @@
           </p>
         </div>
         <div class="heading-actions">
+          <button id="action-sample" class="secondary" type="button" hidden>Sample</button>
+          <button id="action-checkpoint" class="secondary" type="button" hidden>Checkpoint</button>
           <button id="reconnect" class="secondary">Reconnect</button
           ><a id="raw-events" class="text-link" target="_blank" rel="noopener"
             >Raw events ↗</a
@@ -201,13 +203,17 @@
             <p id="evaluation-unscheduled" class="evaluation-unscheduled" role="status" hidden></p>
             <ul id="evaluation-items" aria-label="Snapshot metrics"></ul>
           </section>
-          <section id="artifacts" class="artifact-list" hidden>
+          <section id="artifacts" class="artifact-list">
             <h2>Samples & artifacts</h2>
             <p>Samples are grouped by name (<code>g</code> generated, <code>x</code> real). Each
               image name shows its most recent version; drag its history slider to step back.
               The raw generator output behind a grid is a download on that same card; runs
               without images keep it as a card of numbers.
               Artifacts are separate from metric measurements.</p>
+            <div id="sample-empty" class="empty-state" hidden>
+              <h3 id="sample-empty-title">No samples generated yet</h3>
+              <p id="sample-empty-description">Waiting for the first sample cadence, or click 'Sample' in the header to request an immediate preview.</p>
+            </div>
             <ul id="artifact-items"></ul>
           </section>
         </section>

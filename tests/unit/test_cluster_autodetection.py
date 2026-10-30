@@ -110,7 +110,10 @@ def test_four_tier_precedence_env_overrides_toml():
         assert exec_cfg["rendezvous"] == "tcp://custom:29500"  # TOML used since Env had none
 
 
-def test_dynamic_profile_synthesis_multi_gpu():
+def test_dynamic_profile_synthesis_multi_gpu(monkeypatch):
+    import torch
+    if hasattr(torch, "cuda"):
+        monkeypatch.setattr(torch.cuda, "is_initialized", lambda: False)
     config = {"training": {"device": "cuda"}}
     with patch.dict(os.environ, {}, clear=True):
         profile, devices = _apply_execution_options(

@@ -1,4 +1,5 @@
 """Recipe generator creating runnable hypergan-model/1 image recipes sized from datasets."""
+import os
 from pathlib import Path
 import statistics
 from typing import Any, Dict, Optional, Tuple, Union
@@ -18,9 +19,11 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
         raise ValueError(f"Dataset path is not a directory: {dataset_dir}")
 
     image_paths = []
-    for p in dataset_path.rglob("*"):
-        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS and not p.name.startswith("."):
-            image_paths.append(p)
+    for dirpath, _, files in os.walk(dataset_path, followlinks=True):
+        for f in files:
+            p = Path(dirpath) / f
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS and not p.name.startswith("."):
+                image_paths.append(p)
 
     if not image_paths:
         raise ValueError(f"No supported image files found in directory {dataset_dir}")
@@ -57,7 +60,7 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
     import sys
     print(f"Detected {len(image_paths)} images ({target_w}x{target_h} {mode})", file=sys.stderr)
     if "RGBA" in modes_seen:
-        print("warning: dataset contains RGBA images; alpha channels are not supported and will fail validation or training unless converted to RGB or L", file=sys.stderr)
+        print("info: dataset contains RGBA images; alpha channels will be composited onto white by default", file=sys.stderr)
     elif any(m not in ("RGB", "L") for m in modes_seen):
         print(f"warning: dataset contains non-RGB images (modes: {', '.join(sorted(modes_seen - {'RGB', 'L'}))}); unsupported modes will fail validation or training unless converted to RGB or L", file=sys.stderr)
 
@@ -70,8 +73,12 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
         preset_res = 64
     elif max_dim <= 128:
         preset_res = 128
-    else:
+    elif max_dim <= 256:
         preset_res = 256
+    elif max_dim <= 512:
+        preset_res = 512
+    else:
+        preset_res = 1024
 
     return {
         "count": len(image_paths),
@@ -87,17 +94,37 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
 STARTER_TEMPLATES = {
     "dcgan": {
         "name": "dcgan",
-        "description": "Convolutional DCGAN starter (supports 32, 64, 128, 256px images)",
-        "resolutions": [32, 64, 128, 256],
+        "description": "Convolutional DCGAN starter (supports 32..1024px images)",
+        "resolutions": [32, 64, 128, 256, 512, 1024],
     },
     "tiny-transformer": {
         "name": "tiny-transformer",
         "description": "Tiny Transformer generator + conv critic (64 spatial tokens + upsampling)",
-        "resolutions": [32, 64, 128, 256],
+        "resolutions": [32, 64, 128, 256, 512, 1024],
     },
     "resnet": {
         "name": "resnet",
         "description": "Residual upsampling generator + conv critic with skip connections",
+        "resolutions": [32, 64, 128, 256, 512, 1024],
+    },
+    "transgan": {
+        "name": "transgan",
+        "description": "Pure Transformer TransGAN generator (RMSNorm + spatial attention)",
+        "resolutions": [32, 64, 128, 256],
+    },
+    "colorization": {
+        "name": "colorization",
+        "description": "Conditional grayscale-to-RGB colorization generator + critic",
+        "resolutions": [32, 64, 128, 256],
+    },
+    "paired-image": {
+        "name": "paired-image",
+        "description": "Paired image-to-image translation generator + critic",
+        "resolutions": [32, 64, 128, 256],
+    },
+    "conditional": {
+        "name": "conditional",
+        "description": "Conditional GAN with auxiliary conditioning inputs",
         "resolutions": [32, 64, 128, 256],
     },
     "gaussian-grid": {
@@ -160,21 +187,25 @@ def get_hndl_templates(width: int, height: int, channels: int, template: str = "
         preset_res = 64
     elif max_dim <= 128:
         preset_res = 128
-    else:
+    elif max_dim <= 256:
         preset_res = 256
+    elif max_dim <= 512:
+        preset_res = 512
+    else:
+        preset_res = 1024
 
     if max_dim <= 32:
         # CIFAR-32 template
         gen = f"""
 reshape(128, 1, 1)
 deconv(256, kernel_size=4, stride=1, padding=0, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv({channels}, kernel_size=4, stride=2, padding=1)
 tanh()
@@ -194,16 +225,16 @@ flatten()
         gen = f"""
 reshape(128, 1, 1)
 deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(256, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv({channels}, kernel_size=4, stride=2, padding=1)
 tanh()
@@ -225,19 +256,19 @@ flatten()
         gen = f"""
 reshape(128, 1, 1)
 deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(512, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(256, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv({channels}, kernel_size=4, stride=2, padding=1)
 tanh()
@@ -256,32 +287,129 @@ leaky_relu(0.2)
 conv(1, kernel_size=4, stride=1, padding=0)
 flatten()
 """
-    else:
+    elif max_dim <= 256:
         # DCGAN-256 template
         gen = f"""
 reshape(128, 1, 1)
 deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(512, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(256, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv(32, kernel_size=4, stride=2, padding=1, bias=False)
-batch_norm()
+group_norm(8)
 relu()
 deconv({channels}, kernel_size=4, stride=2, padding=1)
 tanh()
 """
         disc = f"""
+conv(32, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+"""
+    elif max_dim <= 512:
+        # DCGAN-512 template
+        gen = f"""
+reshape(128, 1, 1)
+deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
+group_norm(8)
+relu()
+deconv(512, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(256, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(32, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(16, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv({channels}, kernel_size=4, stride=2, padding=1)
+tanh()
+"""
+        disc = f"""
+conv(16, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(32, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+"""
+    else:
+        # DCGAN-1024 template
+        gen = f"""
+reshape(128, 1, 1)
+deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
+group_norm(8)
+relu()
+deconv(512, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(256, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(32, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(16, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(16, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv({channels}, kernel_size=4, stride=2, padding=1)
+tanh()
+"""
+        disc = f"""
+conv(16, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(16, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
 conv(32, kernel_size=4, stride=2, padding=1)
 leaky_relu(0.2)
 conv(64, kernel_size=4, stride=2, padding=1)
@@ -331,6 +459,79 @@ h = conv(h, 256, kernel_size=3, padding=1, name="res0_conv2")
 h = add(h, skip)
 h = leaky_relu(h, 0.2)
 {tail}
+"""
+    elif template == "transgan":
+        tail = _upsample_conv_tail(8, preset_res, channels)
+        gen = f"""
+h = linear(z, 16384, name="input_projection")
+h = reshape(h, 64, 256)
+branch = rms_norm(h, name="block0_norm")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=True, out_bias=True, name="block0_attention")
+h = add(h, branch)
+branch = rms_norm(h, name="block0_ffn_norm")
+branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block0_ffn")
+h = add(h, branch)
+branch = rms_norm(h, name="block1_norm")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=True, out_bias=True, name="block1_attention")
+h = add(h, branch)
+branch = rms_norm(h, name="block1_ffn_norm")
+branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block1_ffn")
+h = add(h, branch)
+h = permute(h, 2, 1)
+h = reshape(h, 256, 8, 8)
+{tail}
+"""
+    elif template == "colorization":
+        tail = _upsample_conv_tail(8, preset_res, channels)
+        gen = f"""
+h = linear(z, 16384, name="input_projection")
+h = reshape(h, 256, 8, 8)
+skip = h
+h = conv(h, 256, kernel_size=3, padding=1, name="res0_conv1")
+h = leaky_relu(h, 0.2)
+h = conv(h, 256, kernel_size=3, padding=1, name="res0_conv2")
+h = add(h, skip)
+h = leaky_relu(h, 0.2)
+{tail}
+"""
+        disc = f"""
+h = concat(x, gray, dim=1)
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+"""
+    elif template in ("paired-image", "conditional"):
+        tail = _upsample_conv_tail(8, preset_res, channels)
+        gen = f"""
+h = linear(z, 16384, name="input_projection")
+h = reshape(h, 256, 8, 8)
+skip = h
+h = conv(h, 256, kernel_size=3, padding=1, name="res0_conv1")
+h = leaky_relu(h, 0.2)
+h = conv(h, 256, kernel_size=3, padding=1, name="res0_conv2")
+h = add(h, skip)
+h = leaky_relu(h, 0.2)
+{tail}
+"""
+        disc = f"""
+h = concat(x, condition, dim=1)
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
 """
 
     return gen.strip(), disc.strip()
@@ -486,15 +687,23 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
                 preset_res = 64
             elif max_dim <= 128:
                 preset_res = 128
-            else:
+            elif max_dim <= 256:
                 preset_res = 256
+            elif max_dim <= 512:
+                preset_res = 512
+            else:
+                preset_res = 1024
+        else:
+            preset_res = int(preset_res)
+            if preset_res not in (32, 64, 128, 256, 512, 1024):
+                raise ValueError(f"Unsupported resolution {preset_res}; choose one of 32, 64, 128, 256, 512, 1024")
     else:
         dataset_path = None
         c = 3
         mode = "RGB"
         preset_res = int(resolution or 64)
-        if preset_res not in (32, 64, 128, 256):
-            raise ValueError(f"Unsupported resolution {preset_res}; choose one of 32, 64, 128, 256")
+        if preset_res not in (32, 64, 128, 256, 512, 1024):
+            raise ValueError(f"Unsupported resolution {preset_res}; choose one of 32, 64, 128, 256, 512, 1024")
 
     if target_path.exists() and not overwrite:
         raise FileExistsError(f"Recipe file already exists: {target_path}")
@@ -535,6 +744,40 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
 
         gen_source, disc_source = get_hndl_templates(preset_res, preset_res, c, template=template)
 
+        if template == "colorization":
+            gen_inputs = {"z": "latent", "gray": "batch.gray"}
+            gen_input_shape = {"z": ["B", 128], "gray": ["B", 1, preset_res, preset_res]}
+            disc_inputs = {"x": "candidate", "gray": "batch.gray"}
+            disc_input_shape = {"x": ["B", 3, preset_res, preset_res], "gray": ["B", 1, preset_res, preset_res]}
+        elif template in ("paired-image", "conditional"):
+            gen_inputs = {"z": "latent", "condition": "batch.condition"}
+            gen_input_shape = {"z": ["B", 128], "condition": ["B", c, preset_res, preset_res]}
+            disc_inputs = {"x": "candidate", "condition": "batch.condition"}
+            disc_input_shape = {"x": ["B", c, preset_res, preset_res], "condition": ["B", c, preset_res, preset_res]}
+        else:
+            gen_inputs = {"z": "latent"}
+            gen_input_shape = {"z": ["B", 128]} if template in ("resnet", "tiny-transformer", "transgan") else ["B", 128]
+            disc_inputs = {"x": "candidate"}
+            disc_input_shape = ["B", c, preset_res, preset_res]
+
+        recipe_losses = [
+            {
+                "type": "adversarial",
+                "critic": "discriminator",
+                "weight": 1.0,
+                "penalty": 1.0,
+            },
+            {
+                "type": "prior",
+            },
+        ]
+        if template in ("colorization", "paired-image"):
+            recipe_losses.append({
+                "type": "reconstruction",
+                "weight": 10.0,
+                "loss": "l1",
+            })
+
         spec = {
             "format": "hypergan-model/1",
             "name": name,
@@ -547,6 +790,7 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
                     "width": preset_res,
                     "mode": mode,
                     "resize": "center_crop",
+                    "alpha": "composite_white",
                 },
             },
             "prior": {
@@ -558,30 +802,20 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
             "networks": {
                 "generator": {
                     "role": "generator",
-                    "inputs": {"z": "latent"},
-                    "input_shape": {"z": ["B", 128]} if template in ("resnet", "tiny-transformer") else ["B", 128],
+                    "inputs": gen_inputs,
+                    "input_shape": gen_input_shape,
                     "output_shape": ["B", c, preset_res, preset_res],
                     "source": gen_source,
                 },
                 "discriminator": {
                     "role": "critic",
-                    "inputs": {"x": "candidate"},
-                    "input_shape": ["B", c, preset_res, preset_res],
+                    "inputs": disc_inputs,
+                    "input_shape": disc_input_shape,
                     "output_shape": ["B", 1],
                     "source": disc_source,
                 },
             },
-            "losses": [
-                {
-                    "type": "adversarial",
-                    "critic": "discriminator",
-                    "weight": 1.0,
-                    "penalty": 1.0,
-                },
-                {
-                    "type": "prior",
-                },
-            ],
+            "losses": recipe_losses,
             "train": {
                 "steps": 200000,
                 "batch_size": 64,

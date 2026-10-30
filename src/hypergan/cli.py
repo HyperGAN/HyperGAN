@@ -19,6 +19,16 @@ def _positive_int(value):
     return number
 
 
+def _port_number(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"must be an integer port number, got {value!r}")
+    if not (0 <= number <= 65535):
+        raise argparse.ArgumentTypeError(f"port number out of range (0..65535): {number}")
+    return number
+
+
 def _non_negative_int(value):
     number = int(value)
     if number < 0:
@@ -70,7 +80,7 @@ def _run_options(parser):
     server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
     server.add_argument("--no-server", "--no-web", dest="no_server", action="store_true",
                         help="train without web imports or listening sockets")
-    parser.add_argument("--port", "--server-port", dest="server_port", type=int,
+    parser.add_argument("--port", "--server-port", dest="server_port", type=_port_number,
                         help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}; an occupied "
                              "port is an error, never a search; 0 selects any free port)")
     parser.add_argument("-b", "--bind", "--host", "--server-host", dest="server_host", default=None,
@@ -218,10 +228,14 @@ def _parser():
     new = commands.add_parser("new", help="Create a starter project or model .toml configuration (does not start training)")
     new.add_argument("path", nargs="?", type=Path, default=None, help="destination .toml file, project directory, or dataset directory (when -o is given)")
     new.add_argument("-l", "--list", dest="list_templates", action="store_true", help="list available starter templates and examples")
-    new.add_argument("-t", "--template", default=None, choices=("dcgan", "tiny-transformer", "resnet", "gaussian-grid"),
+    new.add_argument("-t", "--template", default=None,
+                     choices=("dcgan", "tiny-transformer", "resnet", "transgan", "colorization", "paired-image", "conditional", "gaussian-grid"),
                      help="starter architecture template (default: dcgan with --dataset/--resolution, else gaussian-grid)")
-    new.add_argument("-r", "--resolution", type=int, default=None, choices=(32, 64, 128, 256),
-                     help="target image resolution (32, 64, 128, 256)")
+    new.add_argument("-r", "--resolution", type=int, default=None,
+                     choices=(32, 64, 128, 256, 512, 1024),
+                     help="target image resolution (32, 64, 128, 256, 512, 1024)")
+    new.add_argument("--conditional", action="store_true",
+                     help="generate conditional architecture template with condition input")
     new.add_argument("-o", "--output", type=Path, default=None, help="output .toml file path")
     new.add_argument("-p", "--project", type=Path, default=None, help="initialize a full HyperGAN project directory with hypergan.toml, runs/, and configs/")
     new.add_argument("--device", default="cuda", help="training device: cuda (default), cuda:N, or explicit cpu")
@@ -374,7 +388,7 @@ def _parser():
     serve = commands.add_parser("serve")
     serve.add_argument("run_dir", nargs="?", type=Path, default=None)
     from .ports import DEFAULT_VIEWER_PORT
-    serve.add_argument("--port", "--server-port", dest="port", type=int,
+    serve.add_argument("--port", "--server-port", dest="port", type=_port_number,
                        help=f"listen port (default: {DEFAULT_VIEWER_PORT}; an occupied port is an "
                             "error, never a search; 0 selects any free port)")
     serve.add_argument("-b", "--bind", "--host", "--server-host", dest="host", default="127.0.0.1",
@@ -396,7 +410,7 @@ def _parser():
     view_mode = view.add_mutually_exclusive_group()
     view_mode.add_argument("--status", action="store_true", help="report dashboard status, URL, version, and PID")
     view_mode.add_argument("--stop", action="store_true", help="cleanly stop the running dashboard")
-    view.add_argument("--port", "--server-port", dest="port", type=int, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
+    view.add_argument("--port", "--server-port", dest="port", type=_port_number, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
     view.add_argument("-b", "--bind", "--host", "--server-host", dest="host", default="127.0.0.1",
                       help="listen address (default: 127.0.0.1; e.g. -b 0.0.0.0)")
     view.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
@@ -430,6 +444,11 @@ def _parser():
     export.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
     export.add_argument("--checkpoint", default="latest", help="target checkpoint: best, latest, step number, or path")
     export.add_argument("-o", "--output", type=Path, help="output file or directory (default: <run_dir>/model.pt)")
+    export.add_argument("--format", choices=["bundle", "safetensors", "pt2", "onnx"], default="bundle",
+                        help="export format: bundle (.pt), safetensors, pt2, or onnx (default: bundle)")
+    export.add_argument("--include-example-inputs", action="store_true", default=False,
+                        help="retain raw training images in example_inputs instead of privacy spec")
+    export.add_argument("-d", "--device", default="cpu", help="device for baking/tracing export (default: cpu)")
     export.add_argument("--json", action="store_true", help="output export info as JSON")
     convert = commands.add_parser("convert", help="Convert a legacy recipe TOML into a model file")
     convert.add_argument("recipe", type=Path, help="path to legacy recipe TOML")
@@ -475,6 +494,8 @@ def _parser():
     sample.add_argument("--count", type=_positive_int, default=16, help="number of samples to generate (default: 16)")
     sample.add_argument("--seed", type=int, default=None, help="random seed for sampling (default: [sampling].seed in config, or 42)")
     sample.add_argument("--output", type=Path, default=None, help="output file path for samples (e.g. sample.png or sample.json)")
+    sample.add_argument("-d", "--device", default=None, help="device for inference (e.g. cpu, cuda)")
+    sample.add_argument("--output-dir", type=Path, default=None, help="directory for batch sample PNG outputs")
     sample.add_argument("-i", "--input", dest="inputs", action="append", default=[], metavar="PATH_OR_KEY=PATH", help="conditioning input image file path or KEY=PATH binding for conditional models")
     sample.add_argument("--sampler", help="sampler name declared in [samplers], or module:function import path")
     sample.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
@@ -1610,7 +1631,10 @@ def _dispatch(args, *, output=None):
                     target = args.run_dir
                 _print_json(hg.prune_checkpoints(target, dry_run=args.dry_run))
         elif args.command == "export":
-            out = hg.export(args.run_dir, checkpoint=args.checkpoint, output=args.output)
+            fmt = getattr(args, "format", "bundle")
+            inc_inputs = getattr(args, "include_example_inputs", False)
+            dev = getattr(args, "device", "cpu")
+            out = hg.export_generator(args.run_dir, output_path=args.output, format=fmt, include_example_inputs=inc_inputs, checkpoint=args.checkpoint, device=dev)
             if getattr(args, "json", False):
                 _print_json({"exported": str(out)})
             else:
@@ -1678,6 +1702,8 @@ def _dispatch(args, *, output=None):
                     return 0
                 proj_dir = getattr(args, "project", None)
                 tmpl = getattr(args, "template", None)
+                if getattr(args, "conditional", False) and tmpl is None:
+                    tmpl = "conditional"
                 res_opt = getattr(args, "resolution", None)
                 out_opt = getattr(args, "output", None)
                 if proj_dir is not None:
@@ -2104,20 +2130,45 @@ def _dispatch(args, *, output=None):
             parsed_inputs = None
             if raw_inputs:
                 if len(raw_inputs) == 1 and "=" not in raw_inputs[0]:
-                    parsed_inputs = Path(raw_inputs[0])
+                    val = raw_inputs[0].strip()
+                    if val.startswith(("{", "[")):
+                        try:
+                            parsed_inputs = json.loads(val)
+                        except Exception:
+                            parsed_inputs = val
+                    elif Path(val).is_file() and Path(val).suffix.lower() == ".json":
+                        try:
+                            parsed_inputs = json.loads(Path(val).read_text(encoding="utf-8"))
+                        except Exception:
+                            parsed_inputs = Path(val)
+                    else:
+                        parsed_inputs = Path(val) if Path(val).is_file() else val
                 else:
                     parsed_inputs = {}
                     for item in raw_inputs:
                         if "=" not in item:
                             raise ValueError(
-                                f"Invalid --input '{item}'; expected KEY=PATH when multiple --input flags are given"
+                                f"Invalid --input '{item}'; expected KEY=PATH or KEY=JSON when multiple --input flags are given"
                             )
                         k, v = item.split("=", 1)
                         k = k.strip()
                         v = v.strip()
                         if not k or not v:
                             raise ValueError(f"Invalid --input '{item}'; expected non-empty KEY=PATH")
-                        parsed_inputs[k] = Path(v)
+                        if v.startswith(("{", "[")):
+                            try:
+                                parsed_inputs[k] = json.loads(v)
+                            except Exception:
+                                parsed_inputs[k] = v
+                        elif Path(v).is_file() and Path(v).suffix.lower() == ".json":
+                            try:
+                                parsed_inputs[k] = json.loads(Path(v).read_text(encoding="utf-8"))
+                            except Exception:
+                                parsed_inputs[k] = Path(v)
+                        elif Path(v).is_file():
+                            parsed_inputs[k] = Path(v)
+                        else:
+                            parsed_inputs[k] = v
 
             target_raw = args.run_dir
             target_p = Path(target_raw) if target_raw is not None else None
@@ -2148,6 +2199,8 @@ def _dispatch(args, *, output=None):
                     inputs=parsed_inputs,
                     checkpoint=getattr(args, "checkpoint", None),
                     default_image_png=True,
+                    device=getattr(args, "device", None),
+                    output_dir=getattr(args, "output_dir", None),
                 )
                 if getattr(args, "json", False):
                     _print_json({"sample": str(out_path), "path": str(out_path)})
@@ -2187,6 +2240,8 @@ def _dispatch(args, *, output=None):
                     output=args.output,
                     checkpoint=getattr(args, "checkpoint", None),
                     default_image_png=True,
+                    device=getattr(args, "device", None),
+                    output_dir=getattr(args, "output_dir", None),
                 )
                 view_path = None
                 if getattr(args, "sampler", None):

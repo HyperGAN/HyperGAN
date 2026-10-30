@@ -56,7 +56,7 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'preflight', 'preflight_check', 'serve', 'viewer_status',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
            'request_status', 'request_sample', 'request_stop',
-           'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
+           'export', 'export_generator', 'interpolate', 'LoadedGenerator', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
@@ -65,6 +65,13 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
            'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service', 'queue_clear',
            'schema', 'operators', 'ops', 'RunInfo', 'read_run_info']
+
+
+def __getattr__(name: str):
+    if name == "LoadedGenerator":
+        from .artifacts import LoadedGenerator
+        return LoadedGenerator
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 
@@ -1188,7 +1195,7 @@ def samples(run, *, name=None):
     return sorted(result, key=lambda item: item.step)
 
 
-def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoint=None, default_image_png=False):
+def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoint=None, default_image_png=False, device=None, output_dir=None):
     """Fresh samples from the run's final EMA model (or target checkpoint or .pt bundle)."""
     from .artifacts import sample as draw
     if isinstance(run, (str, Path)) and (str(run).endswith('.pt') or (Path(run).is_file() and Path(run).suffix.lower() == '.pt')):
@@ -1208,7 +1215,9 @@ def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoin
         seed = (cfg or {}).get("sampling", {}).get("seed", 42) if isinstance(cfg, dict) else 42
 
     path = Path(draw(target_path, count=count, seed=seed, inputs=inputs, output=output,
-                     checkpoint=checkpoint, default_image_png=default_image_png))
+                     checkpoint=checkpoint, default_image_png=default_image_png, device=device, output_dir=output_dir))
+    if path.is_dir():
+        return Sample(step=0, name='sample', data=None, inputs={}, particle_ids=None, source='inference', path=path)
     if path.suffix.lower() == '.png':
         from PIL import Image
         with Image.open(path, formats=["PNG"]) as img:
@@ -1273,13 +1282,22 @@ def generate_run_slug(stem, parent_dir=None):
     return _gen_slug(stem, parent_dir=parent_dir)
 
 
-def export(run=None, checkpoint="latest", output=None):
+def export(run=None, checkpoint="latest", output=None, format="bundle", include_example_inputs=False, device="cpu"):
     """Export a standalone EMA inference model bundle from a run checkpoint."""
-    from .checkpoints import resolve_checkpoint as _resolve, export_checkpoint_bundle as _export
-    run_dir = _run_path(run)
-    ckpt_dir = _resolve(run_dir, target=checkpoint)
-    dest, _ = _export(ckpt_dir, output_dir=output or run_dir)
-    return dest
+    from .artifacts import export_generator as _export
+    return _export(run, output_path=output, format=format, include_example_inputs=include_example_inputs, checkpoint=checkpoint, device=device)
+
+
+def export_generator(run_dir=None, output_path=None, format="bundle", include_example_inputs=False, checkpoint="latest", device="cpu"):
+    """Export standalone generator across bundle, safetensors, pt2, or onnx formats."""
+    from .artifacts import export_generator as _export
+    return _export(run_dir, output_path=output_path, format=format, include_example_inputs=include_example_inputs, checkpoint=checkpoint, device=device)
+
+
+def interpolate(v0, v1, steps=10, *, mode="slerp", t=None):
+    """Perform linear or spherical linear interpolation between two latent vectors."""
+    from .artifacts import interpolate as _interpolate
+    return _interpolate(v0, v1, steps=steps, mode=mode, t=t)
 
 
 def prune_checkpoints(run=None, policy=None, dry_run=False):
@@ -1302,22 +1320,22 @@ def extract_ema_bundle(checkpoint_dir, manifest=None):
 
 def load_bundle(path_or_run, *, checkpoint="latest", device="cpu"):
     """Load an exported .pt bundle file or extract the EMA bundle from a run checkpoint."""
+    from .artifacts import LoadedGenerator
     if isinstance(path_or_run, Run):
         run_dir = path_or_run.path
     else:
         p = Path(path_or_run)
         if p.suffix.lower() == ".pt" or (p.is_file() and p.name.endswith(".pt")):
-            import torch
-            return torch.load(p, map_location=device, weights_only=True)
+            return LoadedGenerator(p, device=device)
         run_dir = _run_path(path_or_run)
     try:
         ckpt_dir = resolve_checkpoint(run_dir, target=checkpoint)
-        return extract_ema_bundle(ckpt_dir)
+        bundle_dict = extract_ema_bundle(ckpt_dir)
+        return LoadedGenerator(bundle_dict, device=device)
     except FileNotFoundError:
         model_pt = run_dir / "model.pt"
         if model_pt.is_file():
-            import torch
-            return torch.load(model_pt, map_location=device, weights_only=True)
+            return LoadedGenerator(model_pt, device=device)
         raise
 
 

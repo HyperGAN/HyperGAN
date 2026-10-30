@@ -490,7 +490,7 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
     raise ValueError(f"Checkpoint path not found: {target}")
 
 
-def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None) -> dict:
+def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None, include_example_inputs: bool = False) -> dict:
     """Extract an in-memory EMA inference bundle conforming to kind='ema-inference' from a checkpoint."""
     import torch
     from .config import config_values, sampling_bindings, evaluation_bindings
@@ -498,6 +498,12 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
     if path.is_file() and path.name == "model.pt":
         bundle = torch.load(path, map_location="cpu", weights_only=True)
         if isinstance(bundle, dict) and bundle.get("kind") == "ema-inference":
+            if not include_example_inputs and "example_inputs" in bundle:
+                bundle = dict(bundle)
+                bundle["example_inputs"] = {
+                    k: ({"shape": list(v.shape), "dtype": str(v.dtype)} if hasattr(v, "shape") else v)
+                    for k, v in bundle["example_inputs"].items()
+                }
             return bundle
         state_file = path
         ckpt_dir = path.parent
@@ -510,6 +516,12 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
         if not state_file.is_file() and (ckpt_dir / "model.pt").is_file():
             bundle = torch.load(ckpt_dir / "model.pt", map_location="cpu", weights_only=True)
             if isinstance(bundle, dict) and bundle.get("kind") == "ema-inference":
+                if not include_example_inputs and "example_inputs" in bundle:
+                    bundle = dict(bundle)
+                    bundle["example_inputs"] = {
+                        k: ({"shape": list(v.shape), "dtype": str(v.dtype)} if hasattr(v, "shape") else v)
+                        for k, v in bundle["example_inputs"].items()
+                    }
                 return bundle
     else:
         raise ValueError(f"Checkpoint path not found: {checkpoint_dir}")
@@ -598,7 +610,16 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
     prior_buffers = state.get("buffers", {}).get("ema_prior", {}) if isinstance(state.get("buffers"), dict) else {}
 
     batch = state.get("last_batch") or {}
-    example_inputs = {k: v for k, v in batch.items() if k in needed_inputs} if isinstance(batch, dict) else {}
+    raw_inputs = {k: v for k, v in batch.items() if k in needed_inputs} if isinstance(batch, dict) else {}
+    if not include_example_inputs:
+        example_inputs = {}
+        for k, v in raw_inputs.items():
+            if hasattr(v, "shape"):
+                example_inputs[k] = {"shape": list(v.shape), "dtype": str(v.dtype)}
+            else:
+                example_inputs[k] = v
+    else:
+        example_inputs = raw_inputs
 
     identity = {
         "run_id": manifest.get("run_id", ""),
@@ -625,11 +646,11 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None)
     return bundle
 
 
-def export_checkpoint_bundle(checkpoint_dir: Path | str, output_dir: Path | str) -> tuple[Path, Path]:
+def export_checkpoint_bundle(checkpoint_dir: Path | str, output_dir: Path | str, include_example_inputs: bool = False) -> tuple[Path, Path]:
     """Export an EMA inference bundle (model.pt + model.sha256) to output directory or file path."""
     import torch
     ckpt_dir = Path(checkpoint_dir).resolve()
-    bundle = extract_ema_bundle(ckpt_dir)
+    bundle = extract_ema_bundle(ckpt_dir, include_example_inputs=include_example_inputs)
 
     dest = Path(output_dir).resolve()
     if dest.is_dir() or (not dest.exists() and dest.suffix == ""):

@@ -70,7 +70,8 @@ class ImageFolder:
 
     def __init__(self, root, *, height, width, mode="RGB", resize="none",
                  interpolation="bilinear", fill=0, recursive=True, labels=False,
-                 shuffle=True, max_pixels=16_777_216, max_file_bytes=67_108_864,
+                 shuffle=True, alpha="composite_white", follow_symlinks=False,
+                 max_pixels=16_777_216, max_file_bytes=67_108_864,
                  workers=4, prefetch_batches=1, manifest_cache=None):
         # manifest_cache: None uses default_manifest_cache(), a path overrides
         # it, and False inspects every file on every construction.
@@ -93,6 +94,12 @@ class ImageFolder:
         for name, value in (("recursive", recursive), ("labels", labels), ("shuffle", shuffle)):
             if type(value) is not bool:
                 raise ValueError(f"image_folder {name} must be boolean")
+        if alpha not in {"composite_white", "composite_black", "error"}:
+            raise ValueError("image_folder alpha must be composite_white, composite_black, or error")
+        if type(follow_symlinks) is not bool:
+            raise ValueError("image_folder follow_symlinks must be boolean")
+        self.alpha = alpha
+        self.follow_symlinks = follow_symlinks
         if labels and not recursive:
             raise ValueError("image_folder labels=true requires recursive=true and named class subdirectories")
         if height * width > max_pixels:
@@ -111,17 +118,26 @@ class ImageFolder:
         self.max_pixels, self.max_file_bytes = max_pixels, max_file_bytes
         preprocessing = {"version": 1, "height": height, "width": width, "mode": mode,
                          "resize": resize, "interpolation": interpolation, "fill": fill,
-                         "exif_orientation": "transpose", "alpha": "reject", "frames": "single",
+                         "exif_orientation": "transpose", "alpha": alpha, "frames": "single",
                          "dtype": "float32", "layout": "NCHW", "range": [-1, 1],
                          "pillow_version": __version__, "max_pixels": max_pixels,
                          "max_file_bytes": max_file_bytes}
         scan_ns = time.time_ns()
         files, ignored = [], []
-        paths = self.root.rglob("*") if recursive else self.root.iterdir()
-        for path in sorted(paths, key=lambda p: p.relative_to(self.root).as_posix()):
+        if recursive:
+            if follow_symlinks:
+                candidate_paths = []
+                for dirpath, _, filenames in os.walk(self.root, followlinks=True):
+                    for fname in filenames:
+                        candidate_paths.append(Path(dirpath) / fname)
+            else:
+                candidate_paths = list(self.root.rglob("*"))
+        else:
+            candidate_paths = list(self.root.iterdir())
+        for path in sorted(candidate_paths, key=lambda p: p.relative_to(self.root).as_posix()):
             relative = path.relative_to(self.root).as_posix()
-            info = path.lstat()
-            if stat.S_ISLNK(info.st_mode):
+            info = path.stat() if follow_symlinks else path.lstat()
+            if not follow_symlinks and stat.S_ISLNK(info.st_mode):
                 raise ValueError(f"Image folder contains symlink {relative}; use ordinary files/directories for a stable inventory")
             if not stat.S_ISREG(info.st_mode):
                 continue
@@ -230,7 +246,7 @@ class ImageFolder:
                         or not isinstance(signature, list) or len(signature) != 4 or any(type(v) is not int for v in signature)
                         or set(entry) != {"sha256", "bytes", "source_width", "source_height", "source_mode"}
                         or not isinstance(sha, str) or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha)
-                        or entry["bytes"] != signature[0] or entry["source_mode"] not in {"RGB", "L"}
+                        or entry["bytes"] != signature[0] or entry["source_mode"] not in {"RGB", "RGBA", "L", "LA", "P", "PA", "1", "CMYK"}
                         or any(type(entry[k]) is not int or entry[k] < 1 for k in ("source_width", "source_height"))):
                     continue
             except (KeyError, TypeError):
@@ -331,16 +347,20 @@ class ImageFolder:
     def _read_bytes(self, entry):
         path = self.root / entry["path"]
         try:
-            # Recheck containment: files/directories may be replaced after preflight.
-            if not path.is_relative_to(self.root) or not path.resolve().is_relative_to(self.root):
-                raise ValueError("symlink or path escape since inventory")
-            # Walk only the relative path. Rebuilding every ancestor's parents
-            # for membership tests adds substantial Python work per image.
-            current = path
-            while current != self.root:
-                if current.is_symlink():
+            if not self.follow_symlinks:
+                # Recheck containment: files/directories may be replaced after preflight.
+                if not path.is_relative_to(self.root) or not path.resolve().is_relative_to(self.root):
                     raise ValueError("symlink or path escape since inventory")
-                current = current.parent
+                # Walk only the relative path. Rebuilding every ancestor's parents
+                # for membership tests adds substantial Python work per image.
+                current = path
+                while current != self.root:
+                    if current.is_symlink():
+                        raise ValueError("symlink or path escape since inventory")
+                    current = current.parent
+            else:
+                if not path.is_file():
+                    raise ValueError("file does not exist or is not a regular file")
             with path.open("rb") as stream:
                 content = stream.read(self.max_file_bytes + 1)
             if not content:
@@ -365,11 +385,24 @@ class ImageFolder:
                     raise ValueError(f"decoded size {image.size} exceeds max_pixels={self.max_pixels}")
                 if getattr(image, "n_frames", 1) != 1:
                     raise ValueError("animated/multi-frame images are unsupported; extract one frame explicitly")
-                if image.mode not in {"RGB", "L"}:
-                    raise ValueError(f"source mode {image.mode!r} is unsupported; explicitly convert to RGB or L (composite alpha before loading)")
+
+                has_alpha = image.mode in {"RGBA", "LA", "PA"} or (image.mode == "P" and "transparency" in getattr(image, "info", {}))
+                if has_alpha and self.alpha == "error":
+                    raise ValueError(f"source mode {image.mode!r} contains alpha channel; alpha='error' is configured")
+
                 image.load()  # Detect truncation during preflight, not deep in training.
                 source = {"source_width": image.width, "source_height": image.height, "source_mode": image.mode}
-                result = self._ops.exif_transpose(image).convert(self.mode)
+
+                transposed = self._ops.exif_transpose(image)
+                if has_alpha or transposed.mode in {"RGBA", "LA", "PA"}:
+                    rgba = transposed.convert("RGBA")
+                    bg_color = (255, 255, 255, 255) if self.alpha == "composite_white" else (0, 0, 0, 255)
+                    background = self._image.new("RGBA", rgba.size, bg_color)
+                    result = self._image.alpha_composite(background, rgba).convert(self.mode)
+                elif transposed.mode in {"RGB", "L", "1", "CMYK", "P"}:
+                    result = transposed.convert(self.mode)
+                else:
+                    raise ValueError(f"source mode {image.mode!r} is unsupported; explicitly convert to RGB or L")
             return result, source
         except (OSError, ValueError, self._image.DecompressionBombError, self._image.DecompressionBombWarning) as exc:
             raise ImageDataError(f"Cannot decode image '{name}': {exc}. Repair/remove this file before training; no images were skipped") from exc
@@ -542,3 +575,25 @@ class ImageFolder:
             self._excluded, self._bad_image_streak = old_excluded, old_streak
             generator.set_state(old_rng)
             raise
+
+    def __len__(self):
+        return len(self.entries)
+
+    def __getitem__(self, index):
+        if not isinstance(index, int):
+            raise TypeError("image_folder index must be an integer")
+        if index < 0:
+            index += len(self.entries)
+        if not 0 <= index < len(self.entries):
+            raise IndexError("image_folder index out of range")
+        import torch
+        pixels = self._pixels(self.entries[index])
+        channels = 3 if self.mode == "RGB" else 1
+        tensor = torch.frombuffer(bytearray(pixels), dtype=torch.uint8)
+        tensor = tensor.reshape(self.height, self.width, channels).permute(2, 0, 1)
+        real = tensor.to(torch.float32).div_(127.5).sub_(1).contiguous()
+        item = {"real": real}
+        if self.labels:
+            item["labels"] = torch.tensor(self.class_map[self.entries[index]["class"]], dtype=torch.int64)
+        return item
+

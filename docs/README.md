@@ -7,6 +7,7 @@ Start with the [README](../README.md) for installation and the CLI tour, and the
 Writing a model file, preparing data, training, watching and recovering runs.
 
 - [Configuration](configuration.md): every table and field of a `hypergan-model/1` model file.
+- [HNDL Architecture Reference](hndl-reference.md): syntax, operators and configuration of neural networks in HNDL.
 - [Image-folder data](image-data.md): image folders, preprocessing and dataset checks.
 - [Image previews and samples](image-previews.md): preview grids during training and `hypergan sample`.
 - [Image FID evaluation](image-fid.md): the pinned FID protocol and its `fid` extra.

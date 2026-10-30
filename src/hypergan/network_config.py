@@ -140,18 +140,15 @@ def validate_network_args(args, location=None, registry=None):
         if not isinstance(f, str) or not f or Path(f).suffix != '.hndl':
             _fail(f"{loc_str}.file must name a .hndl file")
             return errors
-        try:
-            target_path = NETWORK_DIRECTORY / f
-            if target_path.is_file():
-                source_text = packaged_source(f)
-            elif Path(f).is_file():
-                source_text = read_source(Path(f))
-            else:
-                _fail(f"{loc_str}.file: '{f}' not found")
+        if location is None:
+            try:
+                if Path(f).name == str(f) and (NETWORK_DIRECTORY / f).is_file():
+                    source_text = packaged_source(f)
+                elif Path(f).is_file():
+                    source_text = read_source(Path(f))
+            except Exception as exc:
+                _fail(f"{loc_str}.file: {exc}")
                 return errors
-        except Exception as exc:
-            _fail(f"{loc_str}.file: {exc}")
-            return errors
 
     if location is None and source_text is not None:
         try:

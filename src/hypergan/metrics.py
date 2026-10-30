@@ -85,6 +85,15 @@ def _available(config):
         'timing/training_seconds': ('training_seconds', 'Time spent training', 'seconds'),
         'throughput/steps_per_second': ('steps_per_second', 'Steps per second', 'steps/second'),
         'progress/samples_seen': ('samples_seen', 'Samples seen', 'samples'),
+        'critic/real_mean': ('critic/real_mean', 'Critic real score mean', 'score'),
+        'critic/fake_mean': ('critic/fake_mean', 'Critic fake score mean', 'score'),
+        'critic/margin': ('critic/margin', 'Critic score margin E[D(x)] - E[D(G(z))]', 'score'),
+        'critic/accuracy': ('critic/accuracy', 'Critic ranking accuracy', 'ratio'),
+        'grad_norm/critic': ('grad_norm/critic', 'Critic L2 gradient norm', 'norm'),
+        'grad_norm/generator': ('grad_norm/generator', 'Generator L2 gradient norm', 'norm'),
+        'grad_norm/prior': ('grad_norm/prior', 'Prior L2 gradient norm', 'norm'),
+        'optimizer/d_guard_ratio': ('optimizer/d_guard_ratio', 'Discriminator guard ratio', 'ratio'),
+        'prior/particle_rms': ('prior/particle_rms', 'Particle table RMS', 'rms'),
     }
     for term in config['objectives']:
         name = objective_id(term)
@@ -206,9 +215,9 @@ def metric_catalog(config):
         definition = {'kind': 'scalar', 'source': source, 'label': label, 'unit': unit,
                       'numerical_sha256': fingerprint(config), 'preset_version': PRESET_VERSION,
                       'direction': 'none', 'scope': 'complete_update',
-                      'owner': 'discriminator' if name.startswith(('loss/d_', 'loss/gradient')) else
-                               'generator' if name.startswith(('loss/g_', 'loss/prior', 'loss/objectives/')) else 'run',
-                      'view': {'panel': 'Loss' if name.startswith('loss/') else 'Progress'}}
+                      'owner': 'discriminator' if name.startswith(('loss/d_', 'loss/gradient', 'critic/', 'optimizer/d_guard_ratio', 'grad_norm/critic')) else
+                               'generator' if name.startswith(('loss/g_', 'loss/prior', 'loss/objectives/', 'grad_norm/generator', 'grad_norm/prior', 'prior/particle_rms')) else 'run',
+                      'view': {'panel': 'Loss' if name.startswith('loss/') else 'Diagnostics' if name.startswith(('critic/', 'grad_norm/')) else 'Progress'}}
         if name == 'loss/total':
             definition['formula'] = 'loss/d_total + loss/g_total'
             definition['description'] = 'Diagnostic sum; not a joint optimization objective or quality score.'
@@ -323,6 +332,21 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
         values['combined'] = row['d_loss'] + row['g_loss']
     for term, value in zip(config['objectives'], row.get('objectives', [])):
         values['objective:' + objective_id(term)] = value
+    for alt, primary in (
+        ('critic_real_mean', 'critic/real_mean'),
+        ('critic_fake_mean', 'critic/fake_mean'),
+        ('critic_margin', 'critic/margin'),
+        ('critic_accuracy', 'critic/accuracy'),
+        ('grad_norm_critic', 'grad_norm/critic'),
+        ('grad_norm_generator', 'grad_norm/generator'),
+        ('grad_norm_prior', 'grad_norm/prior'),
+        ('d_guard_ratio', 'optimizer/d_guard_ratio'),
+        ('particle_rms', 'prior/particle_rms'),
+    ):
+        if alt in values and primary not in values:
+            values[primary] = values[alt]
+        elif primary in values and alt not in values:
+            values[alt] = values[primary]
     metrics, statuses = {}, {}
     for name, definition in catalog['metrics'].items():
         source = definition['source']

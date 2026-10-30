@@ -579,6 +579,8 @@ def run_status(
         "elapsed": elapsed_seconds,
         "eta_seconds": eta_seconds,
         "latest_metrics": latest_metrics,
+        "telemetry_trends": (summary.get("telemetry_trends", {}) if summary else {}),
+        "health_alerts": (summary.get("health_alerts", []) if summary else []),
         "best": best,
         "best_fid": best_fid,
         "best_step": best_step,
@@ -626,6 +628,13 @@ def format_run_status(info: Dict[str, Any]) -> str:
         lines.append("  " + "    ".join(metric_pairs[:4]))
     else:
         lines.append("  (No intermediate scalar metrics logged)")
+
+    alerts = info.get("health_alerts", [])
+    if alerts:
+        lines.append("")
+        lines.append("Health Alerts:")
+        for alert in alerts:
+            lines.append(f"  ! {alert}")
 
     best_obj = info.get("best")
     if isinstance(best_obj, dict) and isinstance(best_obj.get("value"), (int, float)):

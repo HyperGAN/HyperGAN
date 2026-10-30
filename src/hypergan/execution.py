@@ -571,8 +571,11 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
             stop_after_steps=stop_after_steps, preview_every=preview_every,
             preview_keep=preview_keep, preview_keep_source=preview_keep_source,
             preview_name=preview_name)
-    checkpoint_every = 1000 if checkpoint_every is None else checkpoint_every
-    preview_every = 0 if preview_every is None else preview_every
+    run_cfg = config.get('run', {}) if isinstance(config, dict) else {}
+    if checkpoint_every is None:
+        checkpoint_every = run_cfg.get('checkpoint_every', 1000)
+    if preview_every is None:
+        preview_every = run_cfg.get('preview_every', 0)
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     preview_name = sample_name(preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
@@ -676,8 +679,11 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     if (not is_follower or saved is not None) and not _same_topology(execution, saved):
         raise ValueError('Resume numerical execution identity differs from the run manifest')
     policy = _policy(profile, service_policy)
-    checkpoint_every = manifest.get('checkpoint_every', 1000) if checkpoint_every is None else checkpoint_every
-    preview_every = manifest.get('preview_every', 0) if preview_every is None else preview_every
+    run_cfg = (config.get('run', {}) if isinstance(config, dict) else {}) or (manifest.get('config', {}).get('run', {}) if isinstance(manifest.get('config'), dict) else {})
+    if checkpoint_every is None:
+        checkpoint_every = manifest.get('checkpoint_every', run_cfg.get('checkpoint_every', 1000))
+    if preview_every is None:
+        preview_every = manifest.get('preview_every', run_cfg.get('preview_every', 0))
     preview_keep, preview_keep_source = resolve_preview_keep(manifest, preview_keep, preview_keep_source)
     preview_name = sample_name(manifest.get('preview_name') if preview_name is None else preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)

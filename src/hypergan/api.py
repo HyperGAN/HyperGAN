@@ -64,7 +64,7 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'list_runs', 'runs', 'runs_ls', 'runs_compare', 'compare', 'diff', 'gc', 'prune', 'gc_all', 'compact_events',
            'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
            'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service', 'queue_clear',
-           'schema', 'operators', 'ops']
+           'schema', 'operators', 'ops', 'RunInfo', 'read_run_info']
 
 
 
@@ -2314,4 +2314,6 @@ def operators(query=None):
 
 
 ops = operators
+
+from .run_info import RunInfo, read_run_info
 

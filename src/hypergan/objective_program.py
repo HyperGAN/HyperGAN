@@ -350,9 +350,10 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         d_adversarial_weighted = _sum_tensors(weighted)
         d_penalty = _sum_tensors(penalties) if penalties else fake.new_zeros(())
         d_loss = d_adversarial_weighted + d_penalty
+    d_real_score, d_fake_score, d_real_samples, d_fake_samples = real_score, fake_score, real, fake
     d_loss.backward()
     if len(terms) == 1:
-        critic_checked = terms[0].module.parameters()
+        critic_checked = list(terms[0].module.parameters())
     else:
         critic_checked = []
         seen_parameters = set()
@@ -364,6 +365,22 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                 critic_checked.append(parameter)
     trainer._refuse_nonfinite(d_loss, "Nonfinite discriminator loss; run stopped",
                               [("Nonfinite discriminator gradient; run stopped", critic_checked)])
+    try:
+        critic_grad_norm = float(torch.sqrt(sum(p.grad.norm(2)**2 for p in critic_checked if p.grad is not None)).detach().cpu().item())
+    except Exception:
+        critic_grad_norm = 0.0
+
+    try:
+        critic_real_mean = float(d_real_score.mean().detach().cpu().item())
+        critic_fake_mean = float(d_fake_score.mean().detach().cpu().item())
+        critic_margin = critic_real_mean - critic_fake_mean
+        critic_accuracy = float((d_real_score > d_fake_score).float().mean().detach().cpu().item())
+    except Exception:
+        critic_real_mean = 0.0
+        critic_fake_mean = 0.0
+        critic_margin = 0.0
+        critic_accuracy = 0.5
+    d_guard_ratio = float(getattr(trainer.opt_d, 'd_guard_ratio', 1.0) or 1.0)
     trainer.opt_d.step()
     saved_flags = []
     seen_modules = set()
@@ -404,9 +421,19 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         if set_rows is not None and ids is not None and program.prior_parameters:
             set_rows(trainer.prior.z, ids)
         constraint_geometry_backward(g_loss, trainer.opt_g, (g_adversarial_weighted,))
+        gen_checked = list(program.generator_parameters)
+        prior_checked = list(program.prior_checked) if program.prior_checked else []
         trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
-                                  [("Nonfinite generator/auxiliary gradient; run stopped", program.generator_parameters),
-                                   ("Nonfinite prior gradient; run stopped", program.prior_checked)])
+                                  [("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
+                                   ("Nonfinite prior gradient; run stopped", prior_checked)])
+        try:
+            gen_grad_norm = float(torch.sqrt(sum(p.grad.norm(2)**2 for p in gen_checked if p.grad is not None)).detach().cpu().item())
+        except Exception:
+            gen_grad_norm = 0.0
+        try:
+            prior_grad_norm = float(torch.sqrt(sum(p.grad.norm(2)**2 for p in prior_checked if p.grad is not None)).detach().cpu().item()) if prior_checked else 0.0
+        except Exception:
+            prior_grad_norm = 0.0
         trainer.opt_g.step()
     finally:
         for module, flags in saved_flags:
@@ -421,5 +448,43 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     row = dict(zip(("d_loss", "d_adversarial", "d_adversarial_weighted",
                     "g_adversarial_weighted", "g_loss", "g_adversarial",
                     "prior_loss", "gradient_penalty"), values[:8]))
-    row.update(event="train", step=step, objectives=values[8:], lr_scale=scale)
+    try:
+        if hasattr(trainer, 'prior') and hasattr(trainer.prior, 'z') and isinstance(trainer.prior.z, torch.Tensor):
+            particle_rms = float(torch.sqrt(torch.mean(trainer.prior.z ** 2)).detach().cpu().item())
+        else:
+            particle_rms = 0.0
+    except Exception:
+        particle_rms = 0.0
+
+    try:
+        if d_fake_samples is not None and d_real_samples is not None:
+            diversity_ratio = float((d_fake_samples.std() / (d_real_samples.std() + 1e-8)).detach().cpu().item())
+        else:
+            diversity_ratio = 1.0
+    except Exception:
+        diversity_ratio = 1.0
+
+    row.update(
+        event="train", step=step, objectives=values[8:], lr_scale=scale,
+        critic_real_mean=critic_real_mean,
+        critic_fake_mean=critic_fake_mean,
+        critic_margin=critic_margin,
+        critic_accuracy=critic_accuracy,
+        grad_norm_critic=critic_grad_norm,
+        grad_norm_generator=gen_grad_norm,
+        grad_norm_prior=prior_grad_norm,
+        d_guard_ratio=d_guard_ratio,
+        particle_rms=particle_rms,
+        diversity_ratio=diversity_ratio,
+    )
+    row["critic/real_mean"] = critic_real_mean
+    row["critic/fake_mean"] = critic_fake_mean
+    row["critic/margin"] = critic_margin
+    row["critic/accuracy"] = critic_accuracy
+    row["grad_norm/critic"] = critic_grad_norm
+    row["grad_norm/generator"] = gen_grad_norm
+    row["grad_norm/prior"] = prior_grad_norm
+    row["optimizer/d_guard_ratio"] = d_guard_ratio
+    row["prior/particle_rms"] = particle_rms
+    row["diversity/ratio"] = diversity_ratio
     return row, detach(batch)

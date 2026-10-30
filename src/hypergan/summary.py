@@ -351,6 +351,38 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
     )
     pid = manifest.get("pid") or (os.getpid() if canonical_status in ("running", "initializing") else existing_summary.get("pid"))
 
+    # Update telemetry trends (rolling EMA alpha=0.2)
+    telemetry_trends = dict(existing_summary.get("telemetry_trends", {}))
+    for k, v in latest_metrics.items():
+        if isinstance(v, (int, float)) and math.isfinite(v):
+            old_trend = telemetry_trends.get(k)
+            if old_trend is not None and isinstance(old_trend, (int, float)):
+                telemetry_trends[k] = round(0.2 * float(v) + 0.8 * float(old_trend), 6)
+            else:
+                telemetry_trends[k] = round(float(v), 6)
+
+    # Advisory health alerts
+    health_alerts = []
+    gn_critic = latest_metrics.get("grad_norm/critic", latest_metrics.get("grad_norm_critic"))
+    if gn_critic is not None and isinstance(gn_critic, (int, float)) and gn_critic < 1e-5:
+        health_alerts.append("Discriminator vanishing gradient (grad_norm/critic < 1e-5)")
+
+    gn_gen = latest_metrics.get("grad_norm/generator", latest_metrics.get("grad_norm_generator"))
+    if gn_gen is not None and isinstance(gn_gen, (int, float)) and gn_gen < 1e-5:
+        health_alerts.append("Generator vanishing gradient (grad_norm/generator < 1e-5)")
+
+    div_ratio = latest_metrics.get("diversity/ratio", latest_metrics.get("diversity_ratio"))
+    if div_ratio is not None and isinstance(div_ratio, (int, float)) and div_ratio < 0.2:
+        health_alerts.append("Mode collapse risk (diversity/ratio < 0.2)")
+
+    if step is not None and step >= 20:
+        c_acc = latest_metrics.get("critic/accuracy", latest_metrics.get("critic_accuracy"))
+        if c_acc is not None and isinstance(c_acc, (int, float)):
+            if c_acc > 0.98:
+                health_alerts.append("Discriminator overpowering generator (critic/accuracy > 0.98)")
+            elif c_acc < 0.05:
+                health_alerts.append("Critic collapsed (critic/accuracy < 0.05)")
+
     summary_doc = {
         "run_id": run_id,
         "short_id": str(run_id)[:8],
@@ -371,6 +403,8 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
         "latest_fid": latest_fid,
         "checkpoints": ckpt_list,
         "evaluations": eval_list,
+        "health_alerts": health_alerts,
+        "telemetry_trends": telemetry_trends,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "error": manifest.get("error"),
     }

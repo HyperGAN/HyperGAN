@@ -1277,37 +1277,23 @@ def main(argv=None):
     if not argv:
         _parser().print_help()
         return 0
-    try:
-        _CustomParser._active_argv = list(argv)
-        args = _parser().parse_args(argv)
-        args._argv = list(argv)
-        if getattr(args, "global_json", False):
-            setattr(args, "json", True)
-        if not hasattr(args, "json"):
-            setattr(args, "json", False)
-        if getattr(args, "global_quiet", False):
-            setattr(args, "quiet", True)
-        if not hasattr(args, "quiet"):
-            setattr(args, "quiet", False)
+    _CustomParser._active_argv = list(argv)
+    args = _parser().parse_args(argv)
+    args._argv = list(argv)
+    if getattr(args, "global_json", False):
+        setattr(args, "json", True)
+    if not hasattr(args, "json"):
+        setattr(args, "json", False)
+    if getattr(args, "global_quiet", False):
+        setattr(args, "quiet", True)
+    if not hasattr(args, "quiet"):
+        setattr(args, "quiet", False)
 
-        if args.command in {"train", "resume"}:
-            from .bounded_cli_output import training_output
-            with training_output(progress_json=args.progress_json or args.json, quiet=args.quiet) as output:
-                return _dispatch(args, output=output)
-        return _dispatch(args)
-    except SystemExit as exc:
-        return exc.code
-    except BaseException as exc:
-        is_json = "--json" in (argv or [])
-        if _debug(args if 'args' in locals() else None):
-            import traceback
-            traceback.print_exc(file=sys.stderr)
-        if is_json:
-            envelope = _format_error_envelope(exc)
-            print(json.dumps(envelope, indent=2), file=sys.stdout)
-        else:
-            print(f"error: {exc}", file=sys.stderr)
-        return 1
+    if args.command in {"train", "resume"}:
+        from .bounded_cli_output import training_output
+        with training_output(progress_json=args.progress_json or args.json, quiet=args.quiet) as output:
+            return _dispatch(args, output=output)
+    return _dispatch(args)
 
 
 def _dispatch(args, *, output=None):
@@ -2272,7 +2258,7 @@ def _dispatch(args, *, output=None):
         else:
             print("error: interrupted", file=sys.stderr)
         return 130
-    except BaseException as exc:
+    except (OSError, ValueError, TypeError, RuntimeError, ImportError, KeyError, argparse.ArgumentTypeError) as exc:
         if _debug(args):
             import traceback
             traceback.print_exc(file=sys.stderr)

@@ -42,15 +42,16 @@ def private_viewer_cache(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def isolate_hypergan_state(tmp_path):
+def isolate_hypergan_state(tmp_path_factory):
     """Isolate HyperGAN state directory (registry, locks, runs.json) per test."""
-    state_dir = tmp_path / "state"
-    state_dir.mkdir(parents=True, exist_ok=True)
+    state_dir = tmp_path_factory.mktemp("state")
     previous = os.environ.get("HYPERGAN_STATE_DIR")
     os.environ["HYPERGAN_STATE_DIR"] = str(state_dir)
-    yield state_dir
-    if previous is None:
-        os.environ.pop("HYPERGAN_STATE_DIR", None)
-    else:
-        os.environ["HYPERGAN_STATE_DIR"] = previous
+    try:
+        yield state_dir
+    finally:
+        if previous is None:
+            os.environ.pop("HYPERGAN_STATE_DIR", None)
+        else:
+            os.environ["HYPERGAN_STATE_DIR"] = previous
 

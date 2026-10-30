@@ -161,7 +161,7 @@ def format_starter_templates() -> str:
     return "\n".join(lines)
 
 
-def _upsample_conv_tail(start_res: int, target_res: int, channels: int) -> str:
+def _upsample_conv_tail(start_res: int, target_res: int, channels: int, cond_var: Optional[str] = None) -> str:
     """Build nearest-neighbor upsample + conv layers from start_res to target_res."""
     cur = start_res
     ch = 256
@@ -173,9 +173,27 @@ def _upsample_conv_tail(start_res: int, target_res: int, channels: int) -> str:
         blocks.append(f'h = conv(h, {next_ch}, kernel_size=3, padding=1, name="conv{cur}")')
         blocks.append("h = leaky_relu(h, 0.2)")
         ch = next_ch
+    if cond_var is not None:
+        blocks.append(f'h = concat(h, {cond_var}, axis=1)')
     blocks.append(f'h = conv(h, {channels}, kernel_size=3, padding=1, name="rgb")')
     blocks.append("out = tanh(h)")
     return "\n".join(blocks)
+
+
+def _downsample_conv_stages(preset_res: int, cond_var: str) -> str:
+    """Build multi-stage downsampling conv layers dynamically for critic from preset_res down to 1x1."""
+    lines = [f"h = concat(x, {cond_var}, axis=1)"]
+    cur = preset_res
+    ch = 64
+    while cur > 4:
+        next_ch = min(512, ch if cur == preset_res else ch * 2)
+        lines.append(f"conv({next_ch}, kernel_size=4, stride=2, padding=1)")
+        lines.append("leaky_relu(0.2)")
+        cur //= 2
+        ch = next_ch
+    lines.append("conv(1, kernel_size=4, stride=1, padding=0)")
+    lines.append("flatten()")
+    return "\n".join(lines)
 
 
 def get_hndl_templates(width: int, height: int, channels: int, template: str = "dcgan") -> Tuple[str, str]:
@@ -482,7 +500,7 @@ h = reshape(h, 256, 8, 8)
 {tail}
 """
     elif template == "colorization":
-        tail = _upsample_conv_tail(8, preset_res, channels)
+        tail = _upsample_conv_tail(8, preset_res, channels, cond_var="gray")
         gen = f"""
 h = linear(z, 16384, name="input_projection")
 h = reshape(h, 256, 8, 8)
@@ -494,21 +512,9 @@ h = add(h, skip)
 h = leaky_relu(h, 0.2)
 {tail}
 """
-        disc = f"""
-h = concat(x, gray, dim=1)
-conv(64, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(128, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(256, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(512, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(1, kernel_size=4, stride=1, padding=0)
-flatten()
-"""
+        disc = _downsample_conv_stages(preset_res, "gray")
     elif template in ("paired-image", "conditional"):
-        tail = _upsample_conv_tail(8, preset_res, channels)
+        tail = _upsample_conv_tail(8, preset_res, channels, cond_var="condition")
         gen = f"""
 h = linear(z, 16384, name="input_projection")
 h = reshape(h, 256, 8, 8)
@@ -520,19 +526,7 @@ h = add(h, skip)
 h = leaky_relu(h, 0.2)
 {tail}
 """
-        disc = f"""
-h = concat(x, condition, dim=1)
-conv(64, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(128, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(256, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(512, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(1, kernel_size=4, stride=1, padding=0)
-flatten()
-"""
+        disc = _downsample_conv_stages(preset_res, "condition")
 
     return gen.strip(), disc.strip()
 

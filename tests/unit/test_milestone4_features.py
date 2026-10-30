@@ -398,3 +398,33 @@ class TestResolutionLadderAndTemplates:
         content = recipe_path.read_text(encoding="utf-8")
         assert "conditional" in content or "conditioning" in content
         assert 'alpha = "composite_white"' in content
+
+    @pytest.mark.parametrize("template_name", list(STARTER_TEMPLATES.keys()))
+    def test_all_starter_templates_generate_and_validate(self, template_name, tmp_path):
+        """Verify that every starter template generates valid TOML accepted by hypergan validate."""
+        res = 64 if STARTER_TEMPLATES[template_name]["resolutions"] else None
+        recipe_path = tmp_path / f"{template_name}.toml"
+        out = generate_recipe(
+            name=f"test_{template_name}",
+            template=template_name,
+            resolution=res,
+            device="cpu",
+            output_path=recipe_path,
+        )
+        assert out.is_file()
+        warnings = hg.validate(out)
+        assert isinstance(warnings, list)
+
+        # For reconstruction templates, verify loss specification and lowering
+        if template_name in ("colorization", "paired-image"):
+            content = out.read_text(encoding="utf-8")
+            assert 'fn = "l1"' in content
+            assert 'loss = "l1"' not in content
+            model = hg.load(out)
+            resolved = hg.resolve(model)
+            objectives = resolved.get("objectives", [])
+            recon_terms = [obj for obj in objectives if obj.get("id") == "reconstruction"]
+            assert len(recon_terms) == 1
+            assert recon_terms[0]["factory"] == "l1"
+            assert recon_terms[0]["weight"] == 10.0
+

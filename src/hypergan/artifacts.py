@@ -438,11 +438,16 @@ def interpolate(v0: torch.Tensor, v1: torch.Tensor, steps: int = 10, *, mode: st
         a_norm = a / torch.norm(a, dim=-1, keepdim=True).clamp_min(eps)
         b_norm = b / torch.norm(b, dim=-1, keepdim=True).clamp_min(eps)
         dot = (a_norm * b_norm).sum(dim=-1, keepdim=True).clamp(-1.0, 1.0)
-        omega = torch.acos(dot)
+        collinear = dot.abs() > 0.9995
+        if collinear.all():
+            return _lerp(a, b, alpha)
+        safe_dot = torch.where(collinear, torch.zeros_like(dot), dot)
+        omega = torch.acos(safe_dot)
         sin_omega = torch.sin(omega).clamp_min(eps)
         scale0 = torch.sin((1.0 - alpha) * omega) / sin_omega
         scale1 = torch.sin(alpha * omega) / sin_omega
-        return scale0 * a + scale1 * b
+        slerp_val = scale0 * a + scale1 * b
+        return torch.where(collinear, _lerp(a, b, alpha), slerp_val)
 
     interp_fn = _slerp if mode == "slerp" else _lerp
     if t is not None:

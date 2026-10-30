@@ -417,23 +417,14 @@ class TestAdversarialLatentInterpolation:
         for i in range(5):
             assert torch.allclose(walk[i:i+1], v0, atol=1e-5)
 
-    @pytest.mark.xfail(
-        reason="EMPIRICAL CHALLENGE BUG: slerp on identical vectors (v0 == v1) divides 0/eps=0 and collapses to all zeros",
-        strict=False
-    )
     def test_interpolate_identical_vectors_slerp_challenge(self):
         """Adversarial stress test: slerp on identical vectors must not collapse to zero."""
         v0 = torch.tensor([[1.0, 0.0, 0.0]])
         walk = interpolate(v0, v0, steps=5, mode="slerp")
-        # In mathematical slerp, lim_{theta->0} slerp = lerp = v0.
-        # But naive artifacts.py implementation produces all zeros!
         assert not torch.all(walk == 0.0).item(), "slerp returned all zeros for identical vectors!"
         assert torch.allclose(walk[0:1], v0, atol=1e-4), "slerp[0] did not equal v0 for identical vectors!"
+        assert torch.allclose(walk, v0.expand(5, 3), atol=1e-4), "all slerp steps must match v0 for identical vectors!"
 
-    @pytest.mark.xfail(
-        reason="EMPIRICAL CHALLENGE BUG: slerp on anti-parallel vectors (v1 = -v0) suffers from numerical instability at omega=pi",
-        strict=False
-    )
     def test_interpolate_anti_parallel_vectors_slerp_challenge(self):
         """Adversarial stress test: slerp on anti-parallel vectors (dot=-1.0) must preserve endpoints."""
         v0 = torch.tensor([[1.0, 0.0, 0.0]])
@@ -442,6 +433,19 @@ class TestAdversarialLatentInterpolation:
         # Endpoints must match v0 and v1
         assert torch.allclose(walk[0:1], v0, atol=1e-3), f"Endpoint walk[0] ({walk[0]}) does not match v0!"
         assert torch.allclose(walk[-1:], v1, atol=1e-3), f"Endpoint walk[-1] ({walk[-1]}) does not match v1!"
+
+    def test_interpolate_slerp_mixed_batch_and_1d(self):
+        """Verifies slerp handles 1D tensors and mixed batches with per-element collinearity masking."""
+        v0_1d = torch.tensor([1.0, 0.0, 0.0])
+        walk_1d = interpolate(v0_1d, v0_1d, steps=3, mode="slerp")
+        assert walk_1d.shape == (3, 3)
+        assert torch.allclose(walk_1d, v0_1d.expand(3, 3))
+
+        b0 = torch.tensor([[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+        b1 = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+        mid = interpolate(b0, b1, t=0.5, mode="slerp")
+        assert torch.allclose(mid[0], torch.tensor([1.0, 0.0, 0.0]))
+        assert torch.allclose(mid[1], torch.tensor([0.70710678, 0.70710678, 0.0]), atol=1e-4)
 
 
 # ---------------------------------------------------------------------------

@@ -1217,27 +1217,51 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         if target_dir is None or not target_dir.is_dir():
             raise FileNotFoundError(f"Unknown run directory for run: {run_id}")
 
-        def find_png() -> Path | None:
-            idx = target_dir / "previews" / "index.json"
+        target_root = target_dir.resolve()
+
+        def find_png_bytes() -> bytes | None:
+            from .image_grids import inspect_png
+            idx = target_root / "previews" / "index.json"
             if idx.is_file():
                 try:
                     data = json.loads(idx.read_text(encoding="utf-8"))
                     for prev in reversed(data.get("previews", [])):
                         grid_info = prev.get("image_grid")
                         if isinstance(grid_info, dict) and grid_info.get("path"):
-                            cand = target_dir / grid_info["path"]
-                            if cand.is_file():
-                                return cand
+                            raw_path = grid_info["path"]
+                            if not isinstance(raw_path, str) or Path(raw_path).is_absolute() or raw_path.startswith("/"):
+                                continue
+                            cand = (target_root / raw_path).resolve()
+                            if cand.is_file() and cand.is_relative_to(target_root):
+                                try:
+                                    raw_bytes = cand.read_bytes()
+                                    inspect_png(raw_bytes)
+                                    return raw_bytes
+                                except Exception:
+                                    continue
                 except Exception:
                     pass
-            pngs = sorted((target_dir / "previews").rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
-            return pngs[0] if pngs else None
+            previews_dir = (target_root / "previews").resolve()
+            if previews_dir.is_dir() and previews_dir.is_relative_to(target_root):
+                try:
+                    pngs = sorted(previews_dir.rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+                    for p in pngs:
+                        cand = p.resolve()
+                        if cand.is_file() and cand.is_relative_to(target_root):
+                            try:
+                                raw_bytes = cand.read_bytes()
+                                inspect_png(raw_bytes)
+                                return raw_bytes
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+            return None
 
-        png_path = await asyncio.to_thread(find_png)
-        if png_path is None or not png_path.is_file():
+        png_data = await asyncio.to_thread(find_png_bytes)
+        if png_data is None:
             raise FileNotFoundError("No preview thumbnail available for this run")
-        data = await asyncio.to_thread(png_path.read_bytes)
-        return Response(data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+        return Response(png_data, media_type="image/png", headers={"Cache-Control": "no-cache"})
 
     async def static(request, asset_override=None):
         asset = asset_override or request.path_params.get('asset', 'index.html')

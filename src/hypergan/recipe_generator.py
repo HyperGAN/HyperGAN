@@ -775,7 +775,7 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
             recipe_losses.append({
                 "type": "reconstruction",
                 "weight": 10.0,
-                "loss": "l1",
+                "fn": "l1",
             })
 
         spec = {

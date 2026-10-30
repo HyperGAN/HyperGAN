@@ -500,3 +500,157 @@ def test_crashed_unlocked_run_lock_resolves_to_stopped_in_dashboard(tmp_path):
     assert summary["status"] == "stopped"
     assert summary["active"] is False
     assert summary["running"] is False
+
+
+class TestThumbnailEndpointHardening:
+    """Tests for thumbnail_endpoint path containment, fallback, and inspect_png validation."""
+
+    def test_thumbnail_success(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_thumb_ok")
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        img_bytes = encode_png(b"\xff\x00\x00", 1, 1, 3)
+        img_file = previews_dir / "preview_001.png"
+        img_file.write_bytes(img_bytes)
+
+        idx = {
+            "previews": [
+                {"image_grid": {"path": "previews/preview_001.png"}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_thumb_ok/thumbnail")
+            assert res.status_code == 200
+            assert res.headers["content-type"] == "image/png"
+            assert res.content == img_bytes
+
+    def test_thumbnail_fallback_png(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_fallback")
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        img_bytes = encode_png(b"\x00\xff\x00", 1, 1, 3)
+        img_file = previews_dir / "preview_standalone.png"
+        img_file.write_bytes(img_bytes)
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_fallback/thumbnail")
+            assert res.status_code == 200
+            assert res.headers["content-type"] == "image/png"
+            assert res.content == img_bytes
+
+    def test_thumbnail_missing(self, tmp_path):
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        create_mock_run(runs_root, "run_empty")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_empty/thumbnail")
+            assert res.status_code == 404
+            assert "No preview thumbnail available" in res.json().get("error", "")
+
+    def test_thumbnail_path_traversal_dotdot_blocked(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_escape")
+        secret_bytes = encode_png(b"\x00\x00\xff", 1, 1, 3)
+        external_file = runs_root / "secret.png"
+        external_file.write_bytes(secret_bytes)
+
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        idx = {
+            "previews": [
+                {"image_grid": {"path": "../secret.png"}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_escape/thumbnail")
+            assert res.status_code == 404
+
+    def test_thumbnail_absolute_path_blocked(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_abs")
+        external_file = tmp_path / "external.png"
+        external_file.write_bytes(encode_png(b"\x11\x22\x33", 1, 1, 3))
+
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        idx = {
+            "previews": [
+                {"image_grid": {"path": str(external_file.resolve())}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_abs/thumbnail")
+            assert res.status_code == 404
+
+    def test_thumbnail_symlink_escape_blocked(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_symlink")
+        external_target = tmp_path / "outside_target.png"
+        external_target.write_bytes(encode_png(b"\x44\x55\x66", 1, 1, 3))
+
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        link = previews_dir / "symlink_escape.png"
+        link.symlink_to(external_target)
+
+        idx = {
+            "previews": [
+                {"image_grid": {"path": "previews/symlink_escape.png"}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_symlink/thumbnail")
+            assert res.status_code == 404
+
+    def test_thumbnail_non_png_blocked(self, tmp_path):
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_non_png")
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        idx = {
+            "previews": [
+                {"image_grid": {"path": "manifest.json"}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_non_png/thumbnail")
+            assert res.status_code == 404
+

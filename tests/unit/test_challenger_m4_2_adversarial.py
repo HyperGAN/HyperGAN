@@ -421,22 +421,22 @@ class TestExtendedStarterTemplatesAdversarial:
         rc_c, out_c, err_c = run_cli("validate", str(out_cond))
         assert rc_c == 0, f"conditional validation failed: {err_c}"
 
-    def test_colorization_and_paired_image_loss_schema_defect(self, tmp_path):
-        """Adversarial Finding: colorization and paired-image generated recipes use 'loss' instead of 'fn'.
+    def test_colorization_and_paired_image_loss_schema_remediated(self, tmp_path):
+        """Verify colorization and paired-image generated recipes use 'fn' instead of 'loss' and validate cleanly."""
+        for template in ("colorization", "paired-image"):
+            out_file = tmp_path / f"valid_{template}.toml"
+            rc, _, err = run_cli("new", str(out_file), "-t", template, "-r", "64", "--device", "cpu")
+            assert rc == 0, err
+            content = out_file.read_text()
+            assert 'fn = "l1"' in content, f"Expected 'fn = \"l1\"' key in generated {template} recipe"
+            assert 'loss = "l1"' not in content, f"Defective 'loss = \"l1\"' key still found in {template} recipe"
 
-        In src/hypergan/recipe_generator.py lines 774-780, reconstruction loss is emitted as:
-          {"type": "reconstruction", "weight": 10.0, "loss": "l1"}
-        HyperGAN's loss table validator (src/hypergan/model_file.py:516) requires 'fn', not 'loss'.
-        Consequently, hg.validate rejects the generated recipe with ModelFileError.
-        """
-        out_color = tmp_path / "defective_color.toml"
-        run_cli("new", str(out_color), "-t", "colorization", "-r", "64", "--device", "cpu")
-        content = out_color.read_text()
-        assert 'loss = "l1"' in content, "Expected defective 'loss = \"l1\"' key in generated recipe"
+            # Validation succeeds cleanly
+            warnings = hg.validate(out_file)
+            assert isinstance(warnings, list)
+            rc_val, _, err_val = run_cli("validate", str(out_file))
+            assert rc_val == 0, f"{template} failed validation: {err_val}"
 
-        # Empirical validation failure reproduction
-        with pytest.raises(ModelFileError, match=r"Unknown losses\[2\] field\(s\): loss"):
-            hg.validate(out_color)
 
 
 # ===========================================================================

@@ -215,8 +215,14 @@ def oracle_slerp(v0: torch.Tensor, v1: torch.Tensor, t: float, eps: float = 1e-7
     v0_norm = v0 / torch.norm(v0, dim=-1, keepdim=True).clamp_min(eps)
     v1_norm = v1 / torch.norm(v1, dim=-1, keepdim=True).clamp_min(eps)
     dot = (v0_norm * v1_norm).sum(dim=-1, keepdim=True).clamp(-1.0, 1.0)
-    omega = torch.acos(dot)
+    collinear = dot.abs() > 0.9995
+    if collinear.all():
+        return (1.0 - t) * v0 + t * v1
+    safe_dot = torch.where(collinear, torch.zeros_like(dot), dot)
+    omega = torch.acos(safe_dot)
     sin_omega = torch.sin(omega).clamp_min(eps)
     scale0 = torch.sin((1.0 - t) * omega) / sin_omega
     scale1 = torch.sin(t * omega) / sin_omega
-    return scale0 * v0 + scale1 * v1
+    slerp_val = scale0 * v0 + scale1 * v1
+    return torch.where(collinear, (1.0 - t) * v0 + t * v1, slerp_val)
+

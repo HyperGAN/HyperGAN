@@ -503,7 +503,11 @@ class LoadedGenerator(torch.nn.Module, dict):
     def sigma(self):
         return self.particle_sigma
 
-    def sample_latents(self, count: int, generator: torch.Generator | None = None) -> torch.Tensor:
+    def sample_latents(self, count: int, generator: torch.Generator | None = None, seed: int | None = None) -> torch.Tensor:
+        if generator is None and seed is not None:
+            generator = torch.Generator(device=self.device).manual_seed(seed)
+        elif generator is not None and seed is not None:
+            raise ValueError("Cannot provide both generator and seed")
         if self.particle_z is not None:
             idx = torch.randint(0, len(self.particle_z), (count,), generator=generator, device=self.device)
             z = self.particle_z[idx]
@@ -515,8 +519,8 @@ class LoadedGenerator(torch.nn.Module, dict):
             z_dim = self.config.get("prior", {}).get("z_dim", 4)
             return torch.randn(count, z_dim, generator=generator, device=self.device)
 
-    def sample_prior(self, count: int, generator: torch.Generator | None = None) -> torch.Tensor:
-        return self.sample_latents(count, generator=generator)
+    def sample_prior(self, count: int, generator: torch.Generator | None = None, seed: int | None = None) -> torch.Tensor:
+        return self.sample_latents(count, generator=generator, seed=seed)
 
     def forward(self, z: torch.Tensor | None = None, inputs: dict | None = None, **kwargs) -> torch.Tensor:
         if inputs is None:

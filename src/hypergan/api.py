@@ -95,6 +95,18 @@ class TrainResult:
     checkpoint_path: Path | None = None
     stop_reason: str | None = None
 
+    @property
+    def run_dir(self) -> str:
+        return str(getattr(self.run, "path", self.run))
+
+    @property
+    def run_id(self) -> str:
+        return str(getattr(self.run, "run_id", getattr(self.run, "name", "")))
+
+    @property
+    def summary(self) -> dict[str, Any]:
+        return self.metrics
+
 
 @dataclass
 class SampleResult:
@@ -105,6 +117,14 @@ class SampleResult:
     png: bytes | None = None
     data: Any = None
     inputs: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def images(self) -> Any:
+        return self.data
+
+    @property
+    def output_path(self) -> Path:
+        return self.path
 
 
 @dataclass
@@ -139,11 +159,14 @@ class ModelDescription(dict):
 
 
 @dataclass
-class ValidationWarning:
+class ValidationWarning(str):
     """Encapsulates diagnostic validation entries."""
     message: str
     field: str | None = None
     level: str = "warning"
+
+    def __new__(cls, message: str, field: str | None = None, level: str = "warning"):
+        return str.__new__(cls, message)
 
 
 @dataclass
@@ -160,10 +183,15 @@ class RunStatus(dict):
     best_metric: dict[str, Any] | None = None
     recent_checkpoints: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    slug: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         d = dict(self.raw) if self.raw else {}
+        if self.slug is None and "slug" in d:
+            object.__setattr__(self, "slug", d["slug"])
+        elif self.slug is not None:
+            d["slug"] = self.slug
         d.update({
             "run_id": self.run_id,
             "status": self.status,
@@ -176,6 +204,7 @@ class RunStatus(dict):
             "best_metric": self.best_metric,
             "recent_checkpoints": self.recent_checkpoints,
             "warnings": self.warnings,
+            "slug": self.slug,
         })
         dict.__init__(self, d)
 
@@ -184,20 +213,52 @@ class RunStatus(dict):
             return self[name]
         raise AttributeError(f"'RunStatus' object has no attribute {name!r}")
 
+    @property
+    def device(self) -> str:
+        return str(self.get("device") or self.devices)
+
+    @property
+    def pid(self) -> int | None:
+        return self.get("pid")
+
 
 @dataclass
 class PsSnapshot(dict):
     """Encapsulates ps() listing enriched with process metrics."""
-    runs: list[dict[str, Any]] = field(default_factory=list)
+    runs: list[RunStatus] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
     active_count: int = 0
     total_known: int = 0
 
     def __post_init__(self):
+        normalized_runs = [
+            r if isinstance(r, RunStatus) else RunStatus(
+                run_id=str(r.get("run_id", "")),
+                status=str(r.get("status", "unknown")),
+                step=r.get("step"),
+                total_steps=r.get("total_steps") or r.get("max_steps"),
+                percent=r.get("percent"),
+                steps_per_sec=r.get("steps_per_sec"),
+                eta_seconds=r.get("eta_seconds"),
+                devices=str(r.get("device") or r.get("devices", "cpu")),
+                slug=r.get("slug"),
+                raw=r,
+            ) if isinstance(r, dict) else r
+            for r in self.runs
+        ]
+        object.__setattr__(self, "runs", normalized_runs)
         dict.__init__(self, runs=self.runs, queued=self.queued, active_count=self.active_count, total_known=self.total_known)
 
     def __len__(self) -> int:
         return len(self.runs)
+
+    @property
+    def total_count(self) -> int:
+        return self.total_known
+
+    @property
+    def completed_count(self) -> int:
+        return sum(1 for r in self.runs if (getattr(r, "status", None) or r.get("status")) in ("completed", "complete"))
 
     def __iter__(self):
         return iter(super().keys())
@@ -225,6 +286,8 @@ class RunHandle:
             return False
         return self._thread.is_alive()
 
+    is_running = is_alive
+
     def wait(self, timeout: float | None = None) -> Run:
         """Wait for training to complete and return the final Run object."""
         if self._thread is not None:
@@ -235,6 +298,8 @@ class RunHandle:
             raise self._exc
         self._run = open_run(self.run_dir)
         return self._run
+
+    join = wait
 
     def stop(self, timeout: float = 15.0) -> None:
         """Request graceful stop of the training run."""
@@ -583,7 +648,11 @@ def validate(model):
     model = _model(model)
     resolved = resolve(model)
     extra = model_warnings(model.spec) if is_model_file(model.spec) else []
-    return extra + list(resolved['warnings'])
+    raw = extra + list(resolved['warnings'])
+    return [
+        w if isinstance(w, ValidationWarning) else ValidationWarning(message=str(w))
+        for w in raw
+    ]
 
 
 validate_config = validate
@@ -869,6 +938,22 @@ class Run:
     def step(self):
         """Latest recorded training step count."""
         return self.manifest.get('steps')
+
+    @property
+    def stop_reason(self) -> str | None:
+        """Reason why training stopped (e.g. early_stop, max_seconds), if any."""
+        sr = (self.manifest or {}).get('stop_reason')
+        if sr is not None:
+            return str(sr)
+        summary_p = self.path / 'summary.json'
+        if summary_p.is_file():
+            try:
+                data = json.loads(summary_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and data.get('stop_reason'):
+                    return str(data['stop_reason'])
+            except Exception:
+                pass
+        return None
 
     @property
     def config(self):
@@ -1492,6 +1577,11 @@ def generate_run_slug(stem, parent_dir=None):
 
 def export(run=None, checkpoint="latest", output=None, format="bundle", include_example_inputs=False, device="cpu"):
     """Export a standalone EMA inference model bundle from a run checkpoint."""
+    if output is None and isinstance(checkpoint, (str, Path)):
+        ckpt_str = str(checkpoint).lower()
+        if ckpt_str.endswith(('.pt', '.safetensors', '.onnx', '.pt2', '.bin')):
+            output = checkpoint
+            checkpoint = "latest"
     from .artifacts import export_generator as _export
     return _export(run, output_path=output, format=format, include_example_inputs=include_example_inputs, checkpoint=checkpoint, device=device)
 
@@ -1622,8 +1712,24 @@ def ps(all_runs=False, cwd=None, *, all=None, root=None) -> PsSnapshot:
     res = _ps(all_runs=all_runs, cwd=target_cwd)
     if isinstance(res, PsSnapshot):
         return res
+    raw_runs = res.get("runs", [])
+    runs = [
+        r if isinstance(r, RunStatus) else RunStatus(
+            run_id=str(r.get("run_id", "")),
+            status=str(r.get("status", "unknown")),
+            step=r.get("step"),
+            total_steps=r.get("total_steps") or r.get("max_steps"),
+            percent=r.get("percent"),
+            steps_per_sec=r.get("steps_per_sec"),
+            eta_seconds=r.get("eta_seconds"),
+            devices=str(r.get("device") or r.get("devices", "cpu")),
+            slug=r.get("slug"),
+            raw=r,
+        ) if isinstance(r, dict) else r
+        for r in raw_runs
+    ]
     return PsSnapshot(
-        runs=list(res.get("runs", [])),
+        runs=runs,
         queued=list(res.get("queued", [])),
         active_count=int(res.get("active_count", 0)),
         total_known=int(res.get("total_known", 0)),

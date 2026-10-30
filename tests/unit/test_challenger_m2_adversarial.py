@@ -1,4 +1,6 @@
 import builtins
+from contextlib import nullcontext
+from copy import deepcopy
 import io
 import json
 import os
@@ -17,7 +19,7 @@ from hypergan.distributed_checkpoints import (
     restore_distributed_checkpoint,
     save_distributed_checkpoint,
 )
-from hypergan.config import config_values, load_config
+from hypergan.config import config_values, fingerprint, load_config
 from hypergan.distributed_training import ReplicatedCPUTrainer
 from hypergan.execution import (
     _apply_execution_options,
@@ -26,6 +28,9 @@ from hypergan.execution import (
     prepare_resume,
     PreparedExecution,
 )
+from hypergan.execution_profiles import resolve_execution_profile
+from hypergan.run_state import EventJournal
+from tests.config_fixtures import write_default
 from tests.distributed_fixtures import make_toy_config
 
 
@@ -488,5 +493,297 @@ def test_cli_resume_follower_without_manifest_and_viewer_suppressed(tmp_path):
         mock_follower.return_value = {"status": "completed", "node_rank": 1}
         cli._dispatch(args, output=MagicMock())
         assert mock_follower.called
+
+
+def test_follower_resume_hostile_paths_matrix(tmp_path):
+    """Stress-test Feature 22 hostile follower path conditions:
+    Deeply nested nonexistent path, nonexistent parent, read-only directory,
+    broken symlink, and valid symlink.
+    """
+    config_file = tmp_path / "model.toml"
+    config_file.write_text('extends = "gaussian-grid"\n')
+
+    deep_path = tmp_path / "deep" / "nested" / "never" / "created" / "run"
+    no_parent = Path("/nonexistent_dummy_parent_hypergan_12345/run")
+    ro_dir = tmp_path / "readonly_dir"
+    ro_dir.mkdir()
+    ro_dir.chmod(0o444)
+    broken_link = tmp_path / "broken_symlink"
+    broken_link.symlink_to(tmp_path / "does_not_exist_xyz")
+    valid_target = tmp_path / "valid_target"
+    valid_target.mkdir()
+    valid_symlink = tmp_path / "valid_symlink"
+    valid_symlink.symlink_to(valid_target)
+
+    for p in [deep_path, no_parent, ro_dir, broken_link, valid_symlink]:
+        prep = prepare_resume(
+            run_dir=p,
+            config_path=config_file,
+            nodes=2,
+            node_rank=1,
+            rendezvous="tcp://127.0.0.1:29500",
+        )
+        assert isinstance(prep, PreparedExecution)
+        assert prep.operation == "resume"
+        assert prep.checkpoint is None
+        assert prep.profile["execution"]["node_rank"] == 1
+        with patch("hypergan.replicated_execution.run_follower") as mock_follower:
+            mock_follower.return_value = {"status": "completed", "node_rank": 1}
+            res = prep.run()
+            assert mock_follower.called
+            assert res == {"status": "completed", "node_rank": 1}
+
+
+def test_follower_resume_config_matrix(tmp_path):
+    """Stress-test Feature 22 follower config conditions:
+    Valid config succeeds, missing config file raises FileNotFoundError,
+    corrupt config raises syntax error, and omitted config raises ValueError.
+    """
+    deep_path = tmp_path / "deep" / "run"
+    valid_cfg = tmp_path / "valid.toml"
+    valid_cfg.write_text('extends = "gaussian-grid"\n')
+
+    # 1. Valid config
+    prep = prepare_resume(run_dir=deep_path, config_path=valid_cfg, nodes=2, node_rank=1, rendezvous="tcp://127.0.0.1:29500")
+    assert isinstance(prep, PreparedExecution)
+
+    # 2. Missing config file
+    with pytest.raises(FileNotFoundError):
+        prepare_resume(run_dir=deep_path, config_path=tmp_path / "nonexistent.toml", nodes=2, node_rank=1, rendezvous="tcp://127.0.0.1:29500")
+
+    # 3. Corrupt config syntax
+    corrupt_cfg = tmp_path / "corrupt.toml"
+    corrupt_cfg.write_text("extends = [invalid syntax\n")
+    with pytest.raises(Exception):
+        prepare_resume(run_dir=deep_path, config_path=corrupt_cfg, nodes=2, node_rank=1, rendezvous="tcp://127.0.0.1:29500")
+
+    # 4. Omitted config without shared filesystem
+    with pytest.raises(ValueError, match="requires an explicit configuration"):
+        prepare_resume(run_dir=deep_path, config_path=None, nodes=2, node_rank=1, rendezvous="tcp://127.0.0.1:29500")
+
+
+def test_follower_resume_node_rank_sources_matrix(tmp_path):
+    """Stress-test Feature 19 & 22:
+    Follower rank detection across CLI, SLURM_NODEID, NODE_RANK, GROUP_RANK, and TOML [run].
+    Leader (rank 0) rejection when run_dir does not exist.
+    """
+    config_file = tmp_path / "model.toml"
+    config_file.write_text('extends = "gaussian-grid"\n')
+    deep_path = tmp_path / "deep" / "run"
+
+    # 1. CLI node_rank=1
+    prep_cli = prepare_resume(run_dir=deep_path, config_path=config_file, nodes=2, node_rank=1, rendezvous="tcp://127.0.0.1:29500")
+    assert prep_cli.profile["execution"]["node_rank"] == 1
+
+    # 2. SLURM_NODEID=1
+    with patch.dict(os.environ, {"SLURM_NODEID": "1", "SLURM_NNODES": "2", "MASTER_ADDR": "127.0.0.1", "MASTER_PORT": "29500"}):
+        prep_slurm = prepare_resume(run_dir=deep_path, config_path=config_file)
+        assert prep_slurm.profile["execution"]["node_rank"] == 1
+
+    # 3. NODE_RANK=1
+    with patch.dict(os.environ, {"NODE_RANK": "1", "NNODES": "2", "MASTER_ADDR": "127.0.0.1", "MASTER_PORT": "29500"}):
+        prep_node = prepare_resume(run_dir=deep_path, config_path=config_file)
+        assert prep_node.profile["execution"]["node_rank"] == 1
+
+    # 4. GROUP_RANK=1
+    with patch.dict(os.environ, {"GROUP_RANK": "1", "NNODES": "2", "MASTER_ADDR": "127.0.0.1", "MASTER_PORT": "29500"}):
+        prep_group = prepare_resume(run_dir=deep_path, config_path=config_file)
+        assert prep_group.profile["execution"]["node_rank"] == 1
+
+    # 5. TOML [run] node_rank = 1
+    toml_rank = tmp_path / "rank_model.toml"
+    toml_rank.write_text('extends = "gaussian-grid"\n[run]\nnodes = 2\nnode_rank = 1\nrendezvous = "tcp://127.0.0.1:29500"\n')
+    prep_toml = prepare_resume(run_dir=deep_path, config_path=toml_rank)
+    assert prep_toml.profile["execution"]["node_rank"] == 1
+
+    # 6. Negative test: SLURM_NODEID=0 (leader) requires existing run_dir
+    with patch.dict(os.environ, {"SLURM_NODEID": "0"}):
+        with pytest.raises(ValueError):
+            prepare_resume(run_dir=deep_path, config_path=config_file)
+
+
+def test_follower_resume_viewer_suppression_across_all_rank_sources():
+    """Verify viewer suppression across CLI, environment variables, and TOML config."""
+    parser = cli._build_parser()
+    args = parser.parse_args(["resume", "dummy_run", "--node-rank", "1"])
+    assert isinstance(cli._training_viewer(args), nullcontext)
+
+    args_no_rank = parser.parse_args(["resume", "dummy_run"])
+    with patch.dict(os.environ, {"SLURM_NODEID": "1"}):
+        assert isinstance(cli._training_viewer(args_no_rank), nullcontext)
+    with patch.dict(os.environ, {"NODE_RANK": "1"}):
+        assert isinstance(cli._training_viewer(args_no_rank), nullcontext)
+    with patch.dict(os.environ, {"GROUP_RANK": "1"}):
+        assert isinstance(cli._training_viewer(args_no_rank), nullcontext)
+    assert isinstance(cli._training_viewer(args_no_rank, config={"run": {"node_rank": 1}}), nullcontext)
+
+
+def test_leader_resume_single_device_cpu_rejected_with_replicated_gloo(tmp_path):
+    """Leader resuming a single-device CPU run with replicated Gloo profile or multi-node flags must fail."""
+    cpu_proj = write_default(tmp_path / "cpu_proj", device="cpu", defaults="hypergan")
+    cpu_cfg = load_config(cpu_proj)
+    cpu_run = tmp_path / "cpu_run"
+    cpu_run.mkdir()
+    (cpu_run / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": "cpu_run", "config": config_values(cpu_cfg),
+        "config_sha256": fingerprint(cpu_cfg), "next_sample_sequence": 0
+    }))
+    (cpu_run / "checkpoints").mkdir()
+    (cpu_run / "checkpoints" / "latest.json").write_text(json.dumps({
+        "schema_version": 1, "checkpoint": "snap", "step": 0, "kind": "hypergan-training-checkpoint"
+    }))
+    (cpu_run / "checkpoints" / "snap").mkdir()
+    (cpu_run / "checkpoints" / "snap" / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": "cpu_run", "step": 0, "kind": "hypergan-training-checkpoint",
+        "config_sha256": fingerprint(cpu_cfg), "event_boundary": {"step": 0, "sequence": 0}
+    }))
+
+    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
+        prepare_resume(cpu_run, profile="cpu-replicated-gloo")
+
+    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
+        prepare_resume(cpu_run, nodes=2, node_rank=0, rendezvous="tcp://127.0.0.1:29500")
+
+
+def test_leader_resume_single_device_cuda_rejected_with_replicated_nccl(tmp_path):
+    """Leader resuming a single-device CUDA run with replicated NCCL profile or multi-node flags must fail."""
+    cuda_proj = write_default(tmp_path / "cuda_proj", device="cuda", defaults="hypergan")
+    cuda_cfg = load_config(cuda_proj)
+    cuda_run = tmp_path / "cuda_run"
+    cuda_run.mkdir()
+    (cuda_run / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": "cuda_run", "config": config_values(cuda_cfg),
+        "config_sha256": fingerprint(cuda_cfg), "next_sample_sequence": 0
+    }))
+    (cuda_run / "checkpoints").mkdir()
+    (cuda_run / "checkpoints" / "latest.json").write_text(json.dumps({
+        "schema_version": 1, "checkpoint": "snap", "step": 0, "kind": "hypergan-training-checkpoint"
+    }))
+    (cuda_run / "checkpoints" / "snap").mkdir()
+    (cuda_run / "checkpoints" / "snap" / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": "cuda_run", "step": 0, "kind": "hypergan-training-checkpoint",
+        "config_sha256": fingerprint(cuda_cfg), "event_boundary": {"step": 0, "sequence": 0}
+    }))
+
+    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
+        prepare_resume(cuda_run, profile="cuda-replicated-nccl")
+
+    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
+        prepare_resume(cuda_run, nodes=2, node_rank=0, rendezvous="tcp://127.0.0.1:29500")
+
+
+def test_leader_resume_replicated_conflicting_topology_rejected(tmp_path):
+    """Leader resuming a replicated run with conflicting nodes/world-size must fail."""
+    rep_proj = write_default(tmp_path / "rep_proj", device="cpu", defaults="hypergan")
+    rep_cfg = load_config(rep_proj)
+    rep_run = tmp_path / "rep_run"
+    rep_run.mkdir()
+    profile_dict = {
+        "schema_version": 1,
+        "execution": {
+            "name": "cpu-replicated-gloo",
+            "accumulation_steps": 1,
+            "world_size": 2,
+            "nodes": 2,
+            "node_rank": 0,
+            "ranks_per_node": 1,
+            "rendezvous": "tcp://10.0.0.1:29500",
+            "aggregation": {"strategy": "gradient_allreduce", "sync_every_steps": 1, "outer_lr": 1.0, "outer_momentum": 0.0}
+        }
+    }
+    resolved_profile = resolve_execution_profile(profile_dict, rep_cfg)
+    exec_info = resolved_profile["execution"]
+    (rep_run / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": "rep_run_id", "config": config_values(rep_cfg),
+        "config_sha256": fingerprint(rep_cfg), "next_sample_sequence": 0,
+        "checkpoint_every": 100, "preview_every": 0, "preview_keep": 1, "execution": exec_info,
+    }))
+    droot = rep_run / "distributed-checkpoints"
+    snap = droot / "snap"
+    snap.mkdir(parents=True)
+    journal = EventJournal(rep_run)
+    journal.append({"run_id": "rep_run_id", "attempt_id": "att1", "step": 0, "sequence": 1, "event": "start"})
+    (snap / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": "rep_run_id", "attempt_id": "att1", "step": 0,
+        "event_boundary": journal.commit_boundary(), "kind": "hypergan-distributed-training-checkpoint",
+        "identity": {
+            "config_sha256": fingerprint(rep_cfg), "hypergan_checkpoint_version": 2,
+            "topology": {k: v for k, v in exec_info.items() if k not in ("node_rank", "rendezvous")}
+        }
+    }))
+    (droot / "latest.json").write_text(json.dumps({
+        "schema_version": 1, "checkpoint": "snap", "step": 0, "kind": "hypergan-distributed-training-checkpoint"
+    }))
+
+    bad_profile = deepcopy(resolved_profile)
+    bad_profile["execution"]["world_size"] = 4
+    bad_profile["execution"]["nodes"] = 4
+    bad_profile["execution"]["ranks_per_node"] = 1
+    bad_profile["execution"]["local_batch_size"] = 4
+    bad_profile["execution"]["microbatch_size"] = 4
+    with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
+        prepare_resume(rep_run, profile=bad_profile)
+
+    with pytest.raises(ValueError):
+        prepare_resume(rep_run, nodes=4, node_rank=0)
+
+
+def test_leader_resume_replicated_ephemeral_port_succeeds(tmp_path):
+    """Leader resuming a replicated run with a changed rendezvous port must succeed."""
+    rep_proj = write_default(tmp_path / "rep_proj", device="cpu", defaults="hypergan")
+    rep_cfg = load_config(rep_proj)
+    rep_run = tmp_path / "rep_run"
+    rep_run.mkdir()
+    profile_dict = {
+        "schema_version": 1,
+        "execution": {
+            "name": "cpu-replicated-gloo",
+            "accumulation_steps": 1,
+            "world_size": 2,
+            "nodes": 2,
+            "node_rank": 0,
+            "ranks_per_node": 1,
+            "rendezvous": "tcp://10.0.0.1:29500",
+            "aggregation": {"strategy": "gradient_allreduce", "sync_every_steps": 1, "outer_lr": 1.0, "outer_momentum": 0.0}
+        }
+    }
+    resolved_profile = resolve_execution_profile(profile_dict, rep_cfg)
+    exec_info = resolved_profile["execution"]
+    (rep_run / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": "rep_run_id", "config": config_values(rep_cfg),
+        "config_sha256": fingerprint(rep_cfg), "next_sample_sequence": 0,
+        "checkpoint_every": 100, "preview_every": 0, "preview_keep": 1, "execution": exec_info,
+    }))
+    droot = rep_run / "distributed-checkpoints"
+    snap = droot / "snap"
+    snap.mkdir(parents=True)
+    journal = EventJournal(rep_run)
+    journal.append({"run_id": "rep_run_id", "attempt_id": "att1", "step": 0, "sequence": 1, "event": "start"})
+    (snap / "manifest.json").write_text(json.dumps({
+        "schema_version": 1, "run_id": "rep_run_id", "attempt_id": "att1", "step": 0,
+        "event_boundary": journal.commit_boundary(), "kind": "hypergan-distributed-training-checkpoint",
+        "identity": {
+            "config_sha256": fingerprint(rep_cfg), "hypergan_checkpoint_version": 2,
+            "topology": {k: v for k, v in exec_info.items() if k not in ("node_rank", "rendezvous")}
+        }
+    }))
+    (droot / "latest.json").write_text(json.dumps({
+        "schema_version": 1, "checkpoint": "snap", "step": 0, "kind": "hypergan-distributed-training-checkpoint"
+    }))
+
+    prep_port = prepare_resume(rep_run, rendezvous="tcp://10.0.0.1:39999")
+    assert prep_port.profile["execution"]["rendezvous"] == "tcp://10.0.0.1:39999"
+
+    alt_port_profile = deepcopy(resolved_profile)
+    alt_port_profile["execution"]["rendezvous"] = "tcp://10.0.0.1:45678"
+    prep_port2 = prepare_resume(rep_run, profile=alt_port_profile)
+    assert prep_port2.profile["execution"]["rendezvous"] == "tcp://10.0.0.1:45678"
+
+    with patch("hypergan.replicated_execution.run_resume") as mock_resume:
+        mock_resume.return_value = {"status": "completed"}
+        rc_port = cli.main(["resume", str(rep_run), "--rendezvous", "tcp://10.0.0.1:39999", "--no-server"])
+        assert rc_port == 0
+        assert mock_resume.called
+
 
 

@@ -818,6 +818,27 @@ def _warnings(config):
 
 
 def _training_viewer(args, *, config=None):
+    if getattr(args, "node_rank", None) is not None and args.node_rank > 0:
+        from contextlib import nullcontext
+        return nullcontext()
+    for k in ("NODE_RANK", "GROUP_RANK", "SLURM_NODEID"):
+        val = os.environ.get(k)
+        if val is not None:
+            try:
+                if int(val) > 0:
+                    from contextlib import nullcontext
+                    return nullcontext()
+            except ValueError:
+                pass
+    if config and isinstance(config, dict):
+        cand_rank = config.get('run', {}).get('node_rank')
+        if cand_rank is not None:
+            try:
+                if int(cand_rank) > 0:
+                    from contextlib import nullcontext
+                    return nullcontext()
+            except ValueError:
+                pass
     if args.no_server:
         if (args.open or args.server_port is not None or args.server_host is not None
                 or args.auth is not None or args.public_origin is not None or args.viewer_dev):

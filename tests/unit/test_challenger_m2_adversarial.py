@@ -17,6 +17,7 @@ from hypergan.distributed_checkpoints import (
     restore_distributed_checkpoint,
     save_distributed_checkpoint,
 )
+from hypergan.config import config_values, load_config
 from hypergan.distributed_training import ReplicatedCPUTrainer
 from hypergan.execution import (
     _apply_execution_options,
@@ -268,21 +269,65 @@ def test_follower_node_routing_to_run_follower():
         assert kwargs["profile"] == profile
 
 
-def test_follower_prepare_resume_bug_missing_manifest_raises_topology_mismatch(tmp_path):
-    """Adversarial Challenge on Feature 22:
+def test_follower_prepare_resume_without_local_manifest_succeeds(tmp_path):
+    """Feature 22:
     When a follower node calls prepare_resume without a local manifest.json (NFS-free environment),
-    prepare_resume raises ValueError('Resume numerical execution identity differs from the run manifest')
-    because line 664 tests _same_topology(execution, saved) where saved is None.
+    prepare_resume succeeds without requiring a local manifest, returns a PreparedExecution instance,
+    and prep.run() dispatches to run_follower.
     """
     follower_run_dir = tmp_path / "follower_nonexistent_run"
     config_file = tmp_path / "model.toml"
     config_file.write_text('extends = "gaussian-grid"\n')
 
-    # Calling prepare_resume on follower node without local manifest.json
+    prep = prepare_resume(
+        run_dir=follower_run_dir,
+        config_path=config_file,
+        nodes=2,
+        node_rank=1,
+        rendezvous="tcp://127.0.0.1:29500",
+    )
+    assert isinstance(prep, PreparedExecution)
+    assert prep.operation == "resume"
+    assert prep.checkpoint is None
+    assert prep.profile["execution"]["node_rank"] == 1
+    assert prep.profile["execution"]["nodes"] == 2
+
+    with patch("hypergan.replicated_execution.run_follower") as mock_follower:
+        mock_follower.return_value = {"status": "completed", "node_rank": 1}
+        result = prep.run()
+        assert mock_follower.called
+        assert result == {"status": "completed", "node_rank": 1}
+
+
+def test_follower_prepare_resume_with_conflicting_manifest_raises_topology_mismatch(tmp_path):
+    """When a follower node has a local manifest with a conflicting execution topology,
+    prepare_resume still validates saved against execution and raises ValueError.
+    """
+    config_file = tmp_path / "model.toml"
+    config_file.write_text('extends = "gaussian-grid"\n')
+    cfg = load_config(config_file)
+
+    follower_run_dir = tmp_path / "follower_run_with_manifest"
+    follower_run_dir.mkdir(parents=True)
+    manifest_data = {
+        "schema_version": 1,
+        "run_id": "test_run_123",
+        "config": config_values(cfg),
+        "config_sha256": "abc",
+        "next_sample_sequence": 0,
+        "execution": {
+            "name": "cpu-replicated-gloo",
+            "world_size": 4,
+            "nodes": 4,
+            "node_rank": 0,
+        },
+    }
+    (follower_run_dir / "manifest.json").write_text(json.dumps(manifest_data))
+
+    # Follower attempts to resume with nodes=2 (conflicting with saved nodes=4)
     with pytest.raises(ValueError, match="Resume numerical execution identity differs from the run manifest"):
         prepare_resume(
             run_dir=follower_run_dir,
-            config_path=config_file,
             nodes=2,
             node_rank=1,
             rendezvous="tcp://127.0.0.1:29500",
@@ -413,4 +458,35 @@ def test_cli_parser_multinode_adversarial_boundaries():
     # Invalid strategy choice must exit
     with pytest.raises(SystemExit):
         parser.parse_args(["train", "recipe.toml", "--strategy", "unsupported_federated_avg"])
+
+
+def test_cli_resume_follower_without_manifest_and_viewer_suppressed(tmp_path):
+    """Verify Feature 22:
+    CLI resume on follower node without local manifest succeeds, dispatches to run_follower,
+    and suppresses web viewer autostart.
+    """
+    config_file = tmp_path / "model.toml"
+    config_file.write_text('extends = "gaussian-grid"\n')
+    follower_dir = tmp_path / "deeply" / "nested" / "nonexistent_run"
+
+    parser = cli._build_parser()
+    args = parser.parse_args([
+        "resume", str(follower_dir),
+        "--config", str(config_file),
+        "--nodes", "2",
+        "--node-rank", "1",
+        "--rendezvous", "tcp://127.0.0.1:29500",
+    ])
+
+    # 1. Viewer autostart is suppressed
+    viewer_ctx = cli._training_viewer(args)
+    from contextlib import nullcontext
+    assert isinstance(viewer_ctx, nullcontext)
+
+    # 2. CLI dispatch succeeds and routes to run_follower
+    with patch("hypergan.replicated_execution.run_follower") as mock_follower:
+        mock_follower.return_value = {"status": "completed", "node_rank": 1}
+        cli._dispatch(args, output=MagicMock())
+        assert mock_follower.called
+
 

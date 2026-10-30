@@ -599,6 +599,15 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     from .run_controller import _controls, resolve_preview_keep
     run_dir = Path(run_dir).resolve() if run_dir is not None else None
     is_follower = _is_follower(profile) or (node_rank is not None and node_rank > 0)
+    if not is_follower and config_path is not None:
+        try:
+            cand_config = load_config(config_path)
+            if isinstance(cand_config, dict):
+                cand_rank = cand_config.get('run', {}).get('node_rank')
+                if cand_rank is not None and int(cand_rank) > 0:
+                    is_follower = True
+        except Exception:
+            pass
     manifest = {}
     saved = None
     if not is_follower:
@@ -638,6 +647,8 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
         strategy=strategy, sync_every=sync_every, config=config, profile=profile,
         context_path=run_dir
     )
+    if not is_follower and isinstance(profile, dict) and _execution(profile) and _execution(profile).get('node_rank', 0) > 0:
+        is_follower = True
     if not is_follower:
         if _repeat_train:
             original = config_values(resolve_config(manifest['config']))
@@ -661,7 +672,8 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
                                   'pinned training-image skipping, or changing its pixel cache, is allowed')
     profile = _profile(profile, config)
     execution = _execution(profile)
-    if not _same_topology(execution, saved):
+    is_follower = is_follower or (execution is not None and execution.get('node_rank', 0) > 0)
+    if (not is_follower or saved is not None) and not _same_topology(execution, saved):
         raise ValueError('Resume numerical execution identity differs from the run manifest')
     policy = _policy(profile, service_policy)
     checkpoint_every = manifest.get('checkpoint_every', 1000) if checkpoint_every is None else checkpoint_every

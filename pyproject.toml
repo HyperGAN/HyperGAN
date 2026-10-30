@@ -68,7 +68,7 @@ package-dir = {"" = "src"}
 include-package-data = false
 
 [tool.setuptools.package-data]
-"hypergan" = ["networks/*.hndl", "models/*.toml", "_build_provenance.json", "web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json", "web_assets/*.png"]
+"hypergan" = ["py.typed", "networks/*.hndl", "models/*.toml", "_build_provenance.json", "web_assets/*.html", "web_assets/*.css", "web_assets/*.js", "web_assets/*.txt", "web_assets/*.json", "web_assets/*.png"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

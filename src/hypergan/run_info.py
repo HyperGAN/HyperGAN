@@ -31,6 +31,7 @@ class RunInfo:
     steps_per_second: Optional[float] = None
     eta_seconds: Optional[float] = None
     evaluations: List[Dict[str, Any]] = field(default_factory=list)
+    stop_reason: Optional[str] = None
 
     @property
     def is_active(self) -> bool:
@@ -57,6 +58,7 @@ class RunInfo:
             "steps_per_second": self.steps_per_second,
             "eta_seconds": self.eta_seconds,
             "evaluations": self.evaluations,
+            "stop_reason": self.stop_reason,
         }
 
 
@@ -119,6 +121,7 @@ def read_run_info(run_dir: Union[Path, str, None] = None) -> RunInfo:
     pid = summary.get("pid") or manifest.get("pid")
     steps_per_sec = summary.get("steps_per_second") or summary.get("steps_per_sec") or manifest.get("steps_per_second")
     eta_seconds = summary.get("eta_seconds")
+    stop_reason = manifest.get("stop_reason") or summary.get("stop_reason")
 
     return RunInfo(
         run_id=run_id,
@@ -140,4 +143,5 @@ def read_run_info(run_dir: Union[Path, str, None] = None) -> RunInfo:
         steps_per_second=steps_per_sec,
         eta_seconds=eta_seconds,
         evaluations=evaluations,
+        stop_reason=stop_reason,
     )

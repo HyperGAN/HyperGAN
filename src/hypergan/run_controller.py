@@ -559,6 +559,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     preview_publications = 0
     checkpoint_preview_publications = 0
     last_preview_record = None
+    control_stop_requested = False
 
     def emit(event, *, _observe=True, _step=None, **values):
         nonlocal sequence, dropped, last_event_step
@@ -590,15 +591,28 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         last_event_step = row['step']
         if on_event is not None and _observe:
             def notify(value):
+                nonlocal control_stop_requested
                 try:
-                    on_event(value)
+                    from .api import StopTraining
+                except ImportError:
+                    StopTraining = None
+
+                try:
+                    res = on_event(value)
+                    if res is False:
+                        control_stop_requested = True
+                        manifest['stop_reason'] = manifest.get('stop_reason') or 'early_stop'
                 except FatalExecutionError:
                     raise
                 except Exception as exc:
-                    try:
-                        warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
-                    except Warning:
-                        pass
+                    if StopTraining is not None and isinstance(exc, StopTraining):
+                        control_stop_requested = True
+                        manifest['stop_reason'] = str(exc) or 'early_stop'
+                    else:
+                        try:
+                            warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
+                        except Warning:
+                            pass
             try:
                 from .bounded_cli_output import CLIProgress
                 execution.observe(on_event if type(on_event) is CLIProgress else notify, dict(row))
@@ -853,7 +867,6 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
 
         from .run_requests import pending_requests, acknowledge_request
         request_reader = BackgroundPoll(lambda: pending_requests(run_dir))
-        control_stop_requested = False
 
         def is_stopping():
             return bool(control_stop_requested or (stop is not None and stop.reason))

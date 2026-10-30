@@ -20,6 +20,7 @@ model file as a dictionary plus the directory its relative paths use) and
 directory: the run records the lowered recipe, and user code stays where the
 model file's import paths point.
 """
+from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
@@ -28,6 +29,8 @@ import json
 from pathlib import Path
 import re
 import sys
+import threading
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 from .model_file import FORMAT, ConfigError, ModelFileError, is_model_file, lower as _lower, model_warnings, upstream, producer
 from .toml_writer import dumps as _dumps
@@ -44,11 +47,12 @@ from .cache import get_cache_dir, ensure_cached_url, resolve_or_cache, OfflineEr
 PACKAGED = Path(__file__).with_name('models')
 
 __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'ConfigError',
+           'StopTraining', 'TrainResult', 'SampleResult', 'ModelDescription', 'ValidationWarning', 'RunStatus', 'PsSnapshot', 'RunHandle',
            'model', 'load', 'load_bundle', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
            'validate_config', 'init_project', 'new', 'list_templates',
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
-           'train', 'resume', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
+           'train', 'resume', 'launch', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
            'lift', 'load_recipe', 'describe', 'describe_model', 'data_check', 'check_data',
            'download_dataset', 'dataset_info', 'list_datasets',
@@ -72,6 +76,175 @@ def __getattr__(name: str):
         from .artifacts import LoadedGenerator
         return LoadedGenerator
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# --------------------------------------------------------------------------- core exceptions & typed results
+
+class StopTraining(Exception):
+    """Raised to request immediate graceful training termination."""
+    pass
+
+
+@dataclass
+class TrainResult:
+    """Encapsulates training execution results."""
+    run: Any
+    step: int = 0
+    status: str = "completed"
+    metrics: dict[str, Any] = field(default_factory=dict)
+    checkpoint_path: Path | None = None
+    stop_reason: str | None = None
+
+
+@dataclass
+class SampleResult:
+    """Encapsulates batch sampling output."""
+    path: Path
+    count: int = 0
+    step: int = 0
+    png: bytes | None = None
+    data: Any = None
+    inputs: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ModelDescription(dict):
+    """Encapsulates structured model description from describe()."""
+    name: str = ""
+    family: str = ""
+    components: dict[str, Any] = field(default_factory=dict)
+    losses: dict[str, Any] = field(default_factory=dict)
+    optimizers: dict[str, Any] = field(default_factory=dict)
+    prior: dict[str, Any] = field(default_factory=dict)
+    training: dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self):
+        d = dict(self.raw) if self.raw else {}
+        d.update({
+            "name": self.name,
+            "family": self.family,
+            "components": self.components,
+            "losses": self.losses,
+            "optimizers": self.optimizers,
+            "prior": self.prior,
+            "training": self.training,
+        })
+        dict.__init__(self, d)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self:
+            return self[name]
+        raise AttributeError(f"'ModelDescription' object has no attribute {name!r}")
+
+
+@dataclass
+class ValidationWarning:
+    """Encapsulates diagnostic validation entries."""
+    message: str
+    field: str | None = None
+    level: str = "warning"
+
+
+@dataclass
+class RunStatus(dict):
+    """Encapsulates status() inspection summary."""
+    run_id: str
+    status: str
+    step: int | None = None
+    total_steps: int | None = None
+    percent: float | None = None
+    steps_per_sec: float | None = None
+    eta_seconds: float | None = None
+    devices: str = "cpu"
+    best_metric: dict[str, Any] | None = None
+    recent_checkpoints: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self):
+        d = dict(self.raw) if self.raw else {}
+        d.update({
+            "run_id": self.run_id,
+            "status": self.status,
+            "step": self.step,
+            "total_steps": self.total_steps,
+            "percent": self.percent,
+            "steps_per_sec": self.steps_per_sec,
+            "eta_seconds": self.eta_seconds,
+            "devices": self.devices,
+            "best_metric": self.best_metric,
+            "recent_checkpoints": self.recent_checkpoints,
+            "warnings": self.warnings,
+        })
+        dict.__init__(self, d)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self:
+            return self[name]
+        raise AttributeError(f"'RunStatus' object has no attribute {name!r}")
+
+
+@dataclass
+class PsSnapshot(dict):
+    """Encapsulates ps() listing enriched with process metrics."""
+    runs: list[dict[str, Any]] = field(default_factory=list)
+    queued: list[dict[str, Any]] = field(default_factory=list)
+    active_count: int = 0
+    total_known: int = 0
+
+    def __post_init__(self):
+        dict.__init__(self, runs=self.runs, queued=self.queued, active_count=self.active_count, total_known=self.total_known)
+
+    def __len__(self) -> int:
+        return len(self.runs)
+
+    def __iter__(self):
+        return iter(super().keys())
+
+
+class RunHandle:
+    """Handle to a training run launched asynchronously in a background thread."""
+
+    def __init__(self, run_dir: Path, thread: threading.Thread | None, run: Run | None = None):
+        self.run_dir = Path(run_dir)
+        self._thread = thread
+        self._run = run
+        self._exc: Exception | None = None
+
+    @property
+    def run(self) -> Run:
+        """The Run instance for this execution (loaded once available)."""
+        if self._run is None:
+            self._run = open_run(self.run_dir)
+        return self._run
+
+    def is_alive(self) -> bool:
+        """Check if the training thread/process is active."""
+        if self._thread is None:
+            return False
+        return self._thread.is_alive()
+
+    def wait(self, timeout: float | None = None) -> Run:
+        """Wait for training to complete and return the final Run object."""
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                raise TimeoutError(f"Training did not complete within {timeout}s")
+        if self._exc is not None:
+            raise self._exc
+        self._run = open_run(self.run_dir)
+        return self._run
+
+    def stop(self, timeout: float = 15.0) -> None:
+        """Request graceful stop of the training run."""
+        stop(self.run_dir, timeout=timeout)
+
+    @property
+    def run_info(self) -> RunInfo:
+        """Load current RunInfo for the active run."""
+        return read_run_info(self.run_dir)
+
 
 
 
@@ -826,7 +999,7 @@ def _default_run_dir(model_obj, name=None):
 
 
 def prepare(model, run_dir=None, steps=None, *, name=None, profile=None, service_policy=None,
-            devices=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
+            devices=None, device=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
             checkpoint_every=None, max_seconds=None, stop_after_steps=None,
             preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
             preview_name=None, **extra):
@@ -847,10 +1020,15 @@ def prepare(model, run_dir=None, steps=None, *, name=None, profile=None, service
     lowered = lower(model)
     if getattr(model, 'path', None):
         lowered['_source_path'] = str(model.path)
+    if device is not None:
+        if isinstance(lowered, dict) and "training" in lowered:
+            lowered["training"]["device"] = device
+        elif isinstance(lowered, dict):
+            lowered.setdefault("training", {})["device"] = device
 
     def attempt(target):
         return _prepare_train(lowered, target, steps=steps, profile=profile,
-                              service_policy=service_policy, devices=devices,
+                              service_policy=service_policy, devices=devices, device=device,
                               nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
                               strategy=strategy, sync_every=sync_every,
                               checkpoint_every=checkpoint_every,
@@ -910,7 +1088,7 @@ def _load_stored_run_model(run_path: Path):
 
 
 def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
-                   profile=None, service_policy=None, devices=None,
+                   profile=None, service_policy=None, devices=None, device=None,
                    nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
@@ -942,9 +1120,14 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
                 steps = int(step_val)
 
     config_path = lower(model) if model is not None else None
+    if device is not None:
+        if isinstance(config_path, dict) and "training" in config_path:
+            config_path["training"]["device"] = device
+        elif isinstance(config_path, dict):
+            config_path.setdefault("training", {})["device"] = device
     pe = preview_every if preview_every is not None else previews
     return _prepare_resume(run_path, checkpoint=checkpoint, config_path=config_path, steps=steps,
-                           profile=profile, service_policy=service_policy, devices=devices,
+                           profile=profile, service_policy=service_policy, devices=devices, device=device,
                            nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
                            strategy=strategy, sync_every=sync_every,
                            checkpoint_every=checkpoint_every, max_seconds=max_seconds,
@@ -954,8 +1137,8 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
 
 
 def train(model, run_dir=None, *, steps=None, name=None, previews=None, preview_every=None, checkpoint_every=None,
-          profile=None, devices=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
-          on_event=None, **controls):
+          profile=None, devices=None, device=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
+          on_event=None, **controls) -> Run:
     """Train (or continue, if ``run_dir`` exists) and return the ``Run``.
 
     If ``run_dir`` is omitted or None, each call starts a fresh run directory
@@ -963,17 +1146,40 @@ def train(model, run_dir=None, *, steps=None, name=None, previews=None, preview_
     ``<runs_root>/<name>`` when ``name`` is given.
     """
     pe = preview_every if preview_every is not None else previews
-    prep = prepare(model, run_dir, steps=steps, name=name, profile=profile, devices=devices,
+    prep = prepare(model, run_dir, steps=steps, name=name, profile=profile, devices=devices, device=device,
                    nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
                    checkpoint_every=checkpoint_every, preview_every=pe, **controls)
     prep.run(on_event=on_event)
     return open_run(prep.run_dir)
 
 
-def resume(run, model=None, *, steps=None, devices=None, on_event=None, **controls):
+def launch(model, run_dir=None, *, steps=None, name=None, previews=None, preview_every=None, checkpoint_every=None,
+           profile=None, devices=None, device=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
+           on_event=None, **controls) -> RunHandle:
+    """Launch a training run asynchronously in a background thread and return a RunHandle."""
+    pe = preview_every if preview_every is not None else previews
+    prep = prepare(model, run_dir, steps=steps, name=name, profile=profile, devices=devices, device=device,
+                   nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
+                   checkpoint_every=checkpoint_every, preview_every=pe, **controls)
+    handle = RunHandle(run_dir=prep.run_dir, thread=None)
+
+    def _worker():
+        try:
+            prep.run(on_event=on_event)
+        except Exception as exc:
+            handle._exc = exc
+
+    run_name = getattr(model, "name", "run")
+    thread = threading.Thread(target=_worker, name=f"hypergan-train-{run_name}", daemon=True)
+    handle._thread = thread
+    thread.start()
+    return handle
+
+
+def resume(run, model=None, *, steps=None, devices=None, device=None, on_event=None, **controls) -> Run:
     """Continue a run from its latest checkpoint (optionally with changed observation settings)."""
     run = _run(run)
-    prep = prepare_resume(run.path, model=model, steps=steps, devices=devices, **controls)
+    prep = prepare_resume(run.path, model=model, steps=steps, devices=devices, device=device, **controls)
     prep.run(on_event=on_event)
     return open_run(run.path)
 
@@ -1385,19 +1591,43 @@ def inspect(run=None):
     return data
 
 
-def status(run=None):
+def status(run=None) -> RunStatus:
     """Compile human-friendly status summary for a run."""
     from .inspection import run_status as _status
-    return _status(_run_path(run))
+    res = _status(_run_path(run))
+    if isinstance(res, RunStatus):
+        return res
+    return RunStatus(
+        run_id=str(res.get("run_id", "")),
+        status=str(res.get("status", "unknown")),
+        step=res.get("step"),
+        total_steps=res.get("total_steps"),
+        percent=res.get("percent"),
+        steps_per_sec=res.get("steps_per_sec"),
+        eta_seconds=res.get("eta_seconds"),
+        devices=str(res.get("devices", "cpu")),
+        best_metric=res.get("best"),
+        recent_checkpoints=list(res.get("recent_checkpoints", [])),
+        warnings=list(res.get("warnings", [])),
+        raw=res,
+    )
 
 
-def ps(all_runs=False, cwd=None, *, all=None, root=None):
+def ps(all_runs=False, cwd=None, *, all=None, root=None) -> PsSnapshot:
     """List active training runs (or all runs if all_runs=True) enriched with GPU VRAM and queue status."""
     if all is not None:
         all_runs = bool(all)
     target_cwd = root if root is not None else cwd
     from .inspection import ps_runs as _ps
-    return _ps(all_runs=all_runs, cwd=target_cwd)
+    res = _ps(all_runs=all_runs, cwd=target_cwd)
+    if isinstance(res, PsSnapshot):
+        return res
+    return PsSnapshot(
+        runs=list(res.get("runs", [])),
+        queued=list(res.get("queued", [])),
+        active_count=int(res.get("active_count", 0)),
+        total_known=int(res.get("total_known", 0)),
+    )
 
 
 def stop(run=None, *, stop_all=False, timeout=15.0):
@@ -1828,7 +2058,7 @@ def lift(raw, *, base=None):
     return Model(model_spec, base=base)
 
 
-def describe(path=None, networks=False, write=False):
+def describe(path=None, networks=False, write=False) -> ModelDescription:
     """Describe a model's formulation, losses, optimizers, and network architectures."""
     from .model_description import MODEL_FILE, build_networks, describe_run, load as load_model_desc
     manifest = {}
@@ -1870,7 +2100,19 @@ def describe(path=None, networks=False, write=False):
     if write and resolved_path is not None:
         from .run_state import atomic_json
         atomic_json(resolved_path / MODEL_FILE, recorded)
-    return describe_run(manifest if manifest else {"config": config}, recorded=recorded)
+    res = describe_run(manifest if manifest else {"config": config}, recorded=recorded)
+    if isinstance(res, ModelDescription):
+        return res
+    return ModelDescription(
+        name=str(res.get("name", "")),
+        family=str(res.get("family", "")),
+        components=dict(res.get("components", {})),
+        losses=dict(res.get("losses", {})),
+        optimizers=dict(res.get("optimizers", {})),
+        prior=dict(res.get("prior", {})),
+        training=dict(res.get("training", {})),
+        raw=res,
+    )
 
 
 describe_model = describe

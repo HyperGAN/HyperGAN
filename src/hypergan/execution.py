@@ -210,6 +210,7 @@ def _is_follower(profile=None):
 
 def _apply_execution_options(
     devices=None,
+    device=None,
     nodes=None,
     node_rank=None,
     rendezvous=None,
@@ -219,6 +220,11 @@ def _apply_execution_options(
     profile=None,
     context_path=None,
 ):
+    if device is not None:
+        if isinstance(config, dict) and "training" in config:
+            config["training"]["device"] = device
+        elif isinstance(config, dict):
+            config.setdefault("training", {})["device"] = device
     cli_nodes = nodes
     cli_node_rank = node_rank
     cli_rendezvous = rendezvous
@@ -332,9 +338,15 @@ def _apply_execution_options(
             if isinstance(config, dict) and "training" in config:
                 config["training"]["device"] = "cpu"
         else:
-            _set_visible_devices(dev_list[0])
-            if isinstance(config, dict) and "training" in config:
-                config["training"]["device"] = "cuda"
+            import sys
+            _torch = sys.modules.get("torch")
+            if _torch is not None and _torch.cuda.is_initialized():
+                if isinstance(config, dict) and "training" in config:
+                    config["training"]["device"] = f"cuda:{dev_list[0]}"
+            else:
+                _set_visible_devices(dev_list[0])
+                if isinstance(config, dict) and "training" in config:
+                    config["training"]["device"] = "cuda"
 
     # Determine runtime name
     is_cpu = (
@@ -549,7 +561,7 @@ def _is_run(run_dir):
 
 
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
-                  devices=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
+                  devices=None, device=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                   preview_every=None, preview_keep=None, preview_keep_source=None,
                   preview_name=None):
@@ -558,14 +570,14 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     run_dir = Path(run_dir).resolve() if run_dir is not None else None
     config = _training_config(config_path, steps)
     profile, devices = _apply_execution_options(
-        devices=devices, nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
+        devices=devices, device=device, nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
         strategy=strategy, sync_every=sync_every, config=config, profile=profile,
         context_path=run_dir if run_dir else config_path
     )
     profile = _profile(profile, config)
     if run_dir is not None and not _is_follower(profile) and run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
-            profile=profile, service_policy=service_policy, devices=devices,
+            profile=profile, service_policy=service_policy, devices=devices, device=device,
             nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
             checkpoint_every=checkpoint_every, max_seconds=max_seconds,
             stop_after_steps=stop_after_steps, preview_every=preview_every,
@@ -593,7 +605,7 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
 
 
 def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _repeat_train=False,
-                   profile=None, service_policy=None, devices=None,
+                   profile=None, service_policy=None, devices=None, device=None,
                    nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, preview_keep=None, preview_keep_source=None,
@@ -646,7 +658,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
             raise ValueError('Follower node resume without shared filesystem requires an explicit configuration (pass --config or recipe.toml)')
 
     profile, devices = _apply_execution_options(
-        devices=devices, nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
+        devices=devices, device=device, nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
         strategy=strategy, sync_every=sync_every, config=config, profile=profile,
         context_path=run_dir
     )

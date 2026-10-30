@@ -16,7 +16,7 @@ def project_on_path(monkeypatch):
     monkeypatch.syspath_prepend(str(EXAMPLES))
 
 def small(model, steps=3):
-    return hg.override(model, {'train.steps': steps})
+    return hg.override(model, {'train.steps': steps, 'metrics.every_steps': 1})
 
 def run_cli(tmp_path, *args, isolated=True):
     cmd = [sys.executable]

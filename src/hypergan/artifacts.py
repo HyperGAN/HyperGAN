@@ -16,7 +16,7 @@ from .recipes import ComponentGraph, generation_output, generation_particle_ids,
 from .run_state import sync_directory
 
 
-def bundle_state(trainer, batch, include_example_inputs: bool = False):
+def bundle_state(trainer, batch, include_example_inputs: bool = True):
     """Assemble inference state; callers own copying and RNG isolation."""
     # Retain generation/sampling and explicitly selected evaluation dependency
     # graphs, omitting unrelated training components from inference artifacts.
@@ -62,7 +62,7 @@ def bundle_state(trainer, batch, include_example_inputs: bool = False):
     return state
 
 
-def save_bundle(run_dir, trainer, batch, include_example_inputs: bool = False):
+def save_bundle(run_dir, trainer, batch, include_example_inputs: bool = True):
     run_dir = Path(run_dir)
     state = bundle_state(trainer, batch, include_example_inputs=include_example_inputs)
     temporary = run_dir / "model.pt.tmp"

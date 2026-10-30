@@ -13,10 +13,13 @@ import os
 from pathlib import Path
 from itertools import islice
 import re
+import stat as _stat
 import time
 
+from . import inspection as _insp_mod
 from .event_views import MapSpec, ViewSpec, read_projection_page
 from .run_events import read_event_page
+from .summary import is_fid_metric
 from .web_files import read_json, read_bytes, _open
 
 MAX_QUEUE_BYTES = 1048576
@@ -72,6 +75,325 @@ def _sample_name(*candidates):
     return 'sample'
 
 
+def _positive_int(value) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return value
+    return None
+
+
+def _nonneg_int(value) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
+def _finite_float(*candidates) -> float | None:
+    for value in candidates:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            fval = float(value)
+            if math.isfinite(fval):
+                return fval
+    return None
+
+
+def _finite_nonneg_float(*candidates) -> float | None:
+    for value in candidates:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            fval = float(value)
+            if math.isfinite(fval) and fval >= 0.0:
+                return fval
+    return None
+
+
+def _clean_gpu_name(raw: str) -> str:
+    """Strip leading vendor prefix from GPU device names (e.g. 'NVIDIA RTX A6000' -> 'RTX A6000')."""
+    if not isinstance(raw, str):
+        return ""
+    cleaned = raw.strip()
+    if cleaned.upper().startswith("NVIDIA "):
+        cleaned = cleaned[7:].strip()
+    return cleaned
+
+
+def _classify_device_token(raw: object) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    token = raw.strip().lower()
+    if not token or token in ("unknown", "auto", "none"):
+        return None
+    base = token.split(":", 1)[0].split("-", 1)[0]
+    if base in ("rocm", "hip") or "rocm" in token:
+        return "rocm"
+    if base == "xpu" or "xpu" in token:
+        return "xpu"
+    if base == "mps" or "mps" in token:
+        return "mps"
+    if base in ("cuda", "gpu", "nccl") or "cuda" in token or "nccl" in token:
+        return "cuda"
+    if base == "cpu" or "cpu" in token:
+        return "cpu"
+    return None
+
+
+def extract_topology_and_batch(manifest: dict, summary: dict | None = None) -> dict:
+    """Extract canonical hardware topology and batch hierarchy from run metadata."""
+    manifest = manifest if isinstance(manifest, dict) else {}
+    summary = summary if isinstance(summary, dict) else None
+    execution = manifest.get("execution") if isinstance(manifest.get("execution"), dict) else {}
+    runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
+    config = manifest.get("config") if isinstance(manifest.get("config"), dict) else {}
+    training_cfg = config.get("training") if isinstance(config.get("training"), dict) else {}
+    rt_cuda = runtime.get("cuda") if isinstance(runtime.get("cuda"), dict) else None
+
+    has_cuda_dict = bool(rt_cuda)
+    device_kind: str | None = None
+    if has_cuda_dict and rt_cuda.get("hip"):
+        device_kind = "rocm"
+    else:
+        for clue in (runtime.get("device"), execution.get("name"), training_cfg.get("device")):
+            classified = _classify_device_token(clue)
+            if classified is not None:
+                device_kind = classified
+                break
+        if device_kind is None and has_cuda_dict:
+            device_kind = "cuda"
+
+    raw_world_size = _positive_int(execution.get("world_size")) or _positive_int(runtime.get("world_size"))
+    world_size = raw_world_size if raw_world_size is not None else (1 if device_kind is not None else None)
+    raw_nodes = _positive_int(execution.get("nodes"))
+    nodes = raw_nodes if raw_nodes is not None else (1 if world_size is not None else None)
+    raw_rpn = _positive_int(execution.get("ranks_per_node"))
+    if raw_rpn is not None:
+        ranks_per_node = raw_rpn
+    elif world_size is not None and nodes is not None:
+        ranks_per_node = max(1, world_size // nodes)
+    else:
+        ranks_per_node = None
+
+    is_accelerator = device_kind in ("cuda", "mps", "rocm", "xpu")
+    gpu_count = (world_size or 1) if is_accelerator else 0
+
+    gpu_names: list[str] = []
+    if rt_cuda:
+        rank_devices = rt_cuda.get("rank_devices")
+        if isinstance(rank_devices, list) and rank_devices:
+            for dev in rank_devices:
+                if isinstance(dev, dict) and isinstance(dev.get("name"), str):
+                    cleaned = _clean_gpu_name(dev["name"])
+                    if cleaned:
+                        gpu_names.append(cleaned)
+        if not gpu_names and isinstance(rt_cuda.get("name"), str):
+            cleaned = _clean_gpu_name(rt_cuda["name"])
+            if cleaned:
+                gpu_names.append(cleaned)
+
+    gpu_name: str | None = None
+    topo_detail: str | None = None
+    if gpu_names and is_accelerator:
+        counts: OrderedDict[str, int] = OrderedDict()
+        for n in gpu_names:
+            counts[n] = counts.get(n, 0) + 1
+        if len(counts) == 1:
+            gpu_name = next(iter(counts))
+            base_detail = gpu_name if gpu_count == 1 else f"{gpu_count}× {gpu_name}"
+        else:
+            gpu_name = " + ".join(counts.keys())
+            parts = [f"{cnt}× {n}" if cnt > 1 else n for n, cnt in counts.items()]
+            base_detail = " + ".join(parts)
+        if (nodes or 1) > 1 and ranks_per_node:
+            topo_detail = f"{base_detail} · {ranks_per_node}/node"
+        else:
+            topo_detail = base_detail
+    elif device_kind is not None and (nodes or 1) > 1 and ranks_per_node:
+        topo_detail = f"{ranks_per_node}/node"
+
+    topo_label: str | None = None
+    if device_kind == "cpu":
+        ws = world_size or 1
+        nd = nodes or 1
+        if ws > 1 and nd > 1:
+            topo_label = f"{ws} CPU ranks · {nd} nodes"
+        elif ws > 1:
+            topo_label = f"{ws} CPU ranks"
+        else:
+            topo_label = "CPU"
+    elif device_kind == "mps":
+        topo_label = "MPS"
+    elif device_kind in ("cuda", "rocm", "xpu"):
+        nd = nodes or 1
+        if gpu_count == 1:
+            topo_label = "1 GPU"
+        elif nd > 1:
+            topo_label = f"{gpu_count} GPUs · {nd} nodes"
+        else:
+            topo_label = f"{gpu_count} GPUs"
+
+    topology = {
+        "device_kind": device_kind,
+        "world_size": world_size,
+        "nodes": nodes,
+        "ranks_per_node": ranks_per_node,
+        "gpu_count": gpu_count,
+        "gpu_name": gpu_name,
+        "label": topo_label,
+        "detail": topo_detail,
+    }
+
+    global_batch_size = (
+        _positive_int(manifest.get("global_batch_size"))
+        or _positive_int(execution.get("global_batch_size"))
+        or _positive_int(summary.get("global_batch_size") if summary else None)
+        or _positive_int(training_cfg.get("batch_size"))
+    )
+    ws_eff = world_size or 1
+    exec_local = _positive_int(execution.get("local_batch_size"))
+    if exec_local is not None:
+        local_batch_size = exec_local
+    elif global_batch_size is not None and ws_eff > 1 and global_batch_size % ws_eff == 0:
+        local_batch_size = global_batch_size // ws_eff
+    else:
+        local_batch_size = global_batch_size
+
+    accumulation_steps = _positive_int(execution.get("accumulation_steps")) or 1
+    exec_micro = _positive_int(execution.get("microbatch_size"))
+    if exec_micro is not None:
+        microbatch_size = exec_micro
+    elif local_batch_size is not None and accumulation_steps > 1 and local_batch_size % accumulation_steps == 0:
+        microbatch_size = local_batch_size // accumulation_steps
+    else:
+        microbatch_size = local_batch_size
+
+    batch_label = f"Batch {global_batch_size}" if global_batch_size is not None else None
+    batch_detail: str | None = None
+    if ws_eff > 1 and local_batch_size is not None:
+        unit = "GPU" if gpu_count > 1 else "rank"
+        batch_detail = f"{local_batch_size} / {unit}"
+        if accumulation_steps > 1:
+            batch_detail = f"{batch_detail} · ×{accumulation_steps} accum"
+    elif accumulation_steps > 1:
+        batch_detail = f"×{accumulation_steps} accum"
+
+    return {
+        "topology": topology,
+        "global_batch_size": global_batch_size,
+        "local_batch_size": local_batch_size,
+        "microbatch_size": microbatch_size,
+        "accumulation_steps": accumulation_steps,
+        "batch_label": batch_label,
+        "batch_detail": batch_detail,
+    }
+
+
+def _is_stale_unmodified_dir(run_dir: Path, max_idle_seconds: float = 3600.0) -> bool:
+    latest_mtime = 0.0
+    for candidate in (run_dir / ".run.lock", run_dir / "summary.json", run_dir / "manifest.json", run_dir / "events.jsonl"):
+        try:
+            if candidate.exists():
+                latest_mtime = max(latest_mtime, candidate.stat().st_mtime)
+        except OSError:
+            pass
+    if latest_mtime <= 0.0:
+        return False
+    return (time.time() - latest_mtime) > max_idle_seconds
+
+
+def compute_throughput_and_eta(
+    *,
+    active: bool,
+    step: object,
+    total_steps: object,
+    steps_per_second: object,
+    global_batch_size: int | None,
+    summary: dict | None = None,
+) -> tuple[float | None, float | None]:
+    """Compute samples_per_second and active-only eta_seconds consistently."""
+    sps = _finite_nonneg_float(steps_per_second)
+    if sps is not None and isinstance(global_batch_size, int) and not isinstance(global_batch_size, bool) and global_batch_size > 0:
+        samples_per_second: float | None = float(sps) * global_batch_size
+    else:
+        samples_per_second = None
+
+    eta_seconds: float | None = None
+    if active:
+        step_int = _nonneg_int(step)
+        total_int = _positive_int(total_steps)
+        if sps is not None and sps > 0.0 and step_int is not None and total_int is not None and total_int > step_int:
+            eta_seconds = round((total_int - step_int) / float(sps), 2)
+        elif isinstance(summary, dict):
+            eta_seconds = _finite_nonneg_float(summary.get("eta_seconds"))
+    return samples_per_second, eta_seconds
+
+
+def extract_fid_and_health(manifest: dict, summary: dict | None = None) -> dict:
+    """Extract canonical FID, best metric/step, health_alerts, and warnings."""
+    manifest = manifest if isinstance(manifest, dict) else {}
+    summary = summary if isinstance(summary, dict) else None
+
+    best = summary.get("best") if (summary and isinstance(summary.get("best"), dict)) else None
+    if best is None and isinstance(manifest.get("best_checkpoint"), dict):
+        best = manifest["best_checkpoint"]
+
+    best_metric: str | None = None
+    if best and isinstance(best.get("metric"), str) and best["metric"].strip():
+        best_metric = best["metric"].strip()
+    elif summary and isinstance(summary.get("best_metric"), str) and summary["best_metric"].strip():
+        best_metric = summary["best_metric"].strip()
+
+    best_is_fid = False
+    if best is not None:
+        raw_unit = best.get("unit")
+        if isinstance(raw_unit, str) and raw_unit.strip():
+            best_is_fid = raw_unit.strip().upper() == "FID"
+        elif best.get("metric"):
+            best_is_fid = is_fid_metric({"metric": best.get("metric")})
+        else:
+            best_is_fid = True
+
+    best_fid = _finite_float(
+        summary.get("best_fid") if summary else None,
+        summary.get("fid_best") if summary else None,
+        best.get("value") if (best and best_is_fid) else None,
+        manifest.get("best_fid"),
+        manifest.get("fid_best"),
+    )
+
+    best_step = _nonneg_int(best.get("step") if best else None)
+    if best_step is None and summary:
+        best_step = _nonneg_int(summary.get("best_step"))
+    if best_step is None:
+        best_step = _nonneg_int(manifest.get("best_step"))
+
+    metrics_dict = summary.get("metrics") if (summary and isinstance(summary.get("metrics"), dict)) else {}
+    latest_dict = summary.get("latest") if (summary and isinstance(summary.get("latest"), dict)) else {}
+    latest_fid = _finite_float(
+        summary.get("latest_fid") if summary else None,
+        summary.get("fid_latest") if summary else None,
+        metrics_dict.get("fid50k_train"),
+        metrics_dict.get("fid"),
+        latest_dict.get("fid50k_train"),
+        latest_dict.get("fid"),
+        manifest.get("latest_fid"),
+        manifest.get("fid_latest"),
+    )
+
+    raw_alerts = summary.get("health_alerts") if (summary and isinstance(summary.get("health_alerts"), list)) else None
+    if raw_alerts is None and isinstance(manifest.get("health_alerts"), list):
+        raw_alerts = manifest.get("health_alerts")
+    health_alerts = [str(a) for a in (raw_alerts or []) if isinstance(a, str) and a.strip()]
+
+    raw_warnings = manifest.get("warnings")
+    warnings = [str(w) for w in raw_warnings if isinstance(w, str)] if isinstance(raw_warnings, list) else []
+
+    return {
+        "best_fid": best_fid,
+        "latest_fid": latest_fid,
+        "best_step": best_step,
+        "best_metric": best_metric,
+        "health_alerts": health_alerts,
+        "warnings": warnings,
+    }
+
+
 from foldlitedb.streaming import Subscriber, Stream, cursor_offset, sse, stream_events
 
 
@@ -107,6 +429,7 @@ class ObservationService:
         self._artifact_signature = None
         self.artifact_error = None
         self._model_cache = None
+        self._summary_cache = None
         self._artifact_lock = asyncio.Lock()
         self.run_id = None
         self.manifest = {'status': 'waiting'}
@@ -126,6 +449,7 @@ class ObservationService:
         if not (self.root / 'manifest.json').exists():
             return
         self.manifest = await asyncio.to_thread(read_json, self.root, 'manifest.json')
+        await asyncio.to_thread(self._read_cached_summary)
         self.run_id = self.manifest['run_id']
         self.metadata_revision = self._metadata_key(self.manifest)
         self._register('training')
@@ -137,24 +461,140 @@ class ObservationService:
     def _metadata_key(manifest):
         return _digest({k: manifest.get(k) for k in ('run_id', 'attempt_id', 'metrics_catalog', 'status', 'recovery_parent')})
 
+    def _read_cached_summary(self) -> dict | None:
+        try:
+            info = (self.root / 'summary.json').lstat()
+            signature = (info.st_mtime_ns, info.st_size) if _stat.S_ISREG(info.st_mode) else None
+        except OSError:
+            signature = None
+        if self._summary_cache is not None and self._summary_cache[0] == signature:
+            return self._summary_cache[1]
+        loaded = None
+        if signature is not None:
+            try:
+                candidate = read_json(self.root, 'summary.json')
+                if isinstance(candidate, dict):
+                    loaded = candidate
+            except (OSError, ValueError):
+                loaded = None
+        self._summary_cache = (signature, loaded)
+        return loaded
+
     def public_manifest(self):
+        summary = self._read_cached_summary()
         fields = ('schema_version', 'run_id', 'attempt_id', 'attempt_index', 'status', 'steps',
                   'total_steps', 'last_durable_step', 'seconds', 'metrics_catalog',
                   'observation_sha256', 'checkpoint_every', 'stop_reason', 'possible_lost_steps',
                   'evaluation_schedule', 'training_seconds', 'steps_per_second', 'samples_seen',
                   'global_batch_size', 'hostname', 'remote')
         result = {key: self.manifest[key] for key in fields if key in self.manifest}
-        result['name'] = self.manifest.get('config', {}).get('name', self.root.name)
+        cfg = self.manifest.get('config') if isinstance(self.manifest.get('config'), dict) else {}
+        result['name'] = (
+            cfg.get('name')
+            or self.manifest.get('name')
+            or (summary.get('name') if summary else None)
+            or self.root.name
+        )
+
+        is_active = False
+        try:
+            is_active = bool(_insp_mod.check_run_active(self.root)[0])
+        except Exception:
+            is_active = False
+
+        raw_status = self.manifest.get('status') or (summary.get('status') if summary else None) or 'waiting'
+        if (
+            not is_active
+            and str(raw_status).strip().lower() in ('running', 'initializing')
+            and summary
+            and str(summary.get('status') or '').strip().lower() in (
+                'stopped', 'complete', 'completed', 'failed', 'interrupted', 'cancelled', 'canceled'
+            )
+        ):
+            raw_status = summary['status']
+
+        if is_active:
+            status = 'running'
+            active = True
+        elif (
+            str(raw_status).strip().lower() in ('running', 'initializing')
+            and ((self.root / '.run.lock').exists() or _is_stale_unmodified_dir(self.root))
+        ):
+            status = 'stopped'
+            active = False
+        else:
+            status = raw_status
+            active = str(status).strip().lower() in ('running', 'training', 'initializing', 'starting')
+        running = bool(is_active)
+
+        result['status'] = status
+        result['active'] = active
+        result['running'] = running
+
         if 'hostname' not in result or 'remote' not in result:
             try:
-                from .inspection import inspect_run_host
-                host_info = inspect_run_host(self.root)
+                host_info = _insp_mod.inspect_run_host(self.root)
                 if host_info.get('hostname') and 'hostname' not in result:
                     result['hostname'] = host_info['hostname']
                 if host_info.get('remote') and 'remote' not in result:
                     result['remote'] = True
             except Exception:
                 pass
+
+        topo_batch = extract_topology_and_batch(self.manifest, summary)
+        result['topology'] = topo_batch['topology']
+        result['global_batch_size'] = topo_batch['global_batch_size']
+        result['local_batch_size'] = topo_batch['local_batch_size']
+        result['microbatch_size'] = topo_batch['microbatch_size']
+        result['accumulation_steps'] = topo_batch['accumulation_steps']
+        result['batch_label'] = topo_batch['batch_label']
+        result['batch_detail'] = topo_batch['batch_detail']
+
+        sps = _finite_nonneg_float(
+            self.manifest.get('steps_per_second'),
+            self.manifest.get('speed_its'),
+            summary.get('steps_per_second') if summary else None,
+            summary.get('speed_its') if summary else None,
+            summary.get('steps_per_sec') if summary else None,
+        )
+        if sps is not None and 'steps_per_second' not in result:
+            result['steps_per_second'] = sps
+
+        step_val = self.manifest.get('steps')
+        if step_val is None and summary:
+            step_val = summary.get('step')
+        training_cfg = cfg.get('training') if isinstance(cfg.get('training'), dict) else {}
+        total_val = (
+            self.manifest.get('total_steps')
+            or (summary.get('total_steps') if summary else None)
+            or self.manifest.get('max_steps')
+            or (summary.get('max_steps') if summary else None)
+            or self.manifest.get('target_steps')
+            or (summary.get('target_steps') if summary else None)
+            or _positive_int(training_cfg.get('steps'))
+        )
+        if total_val is not None and 'total_steps' not in result:
+            result['total_steps'] = total_val
+
+        samples_per_second, eta_seconds = compute_throughput_and_eta(
+            active=active,
+            step=step_val,
+            total_steps=total_val,
+            steps_per_second=sps,
+            global_batch_size=topo_batch['global_batch_size'],
+            summary=summary,
+        )
+        result['samples_per_second'] = samples_per_second
+        result['eta_seconds'] = eta_seconds
+
+        fid_health = extract_fid_and_health(self.manifest, summary)
+        result['best_fid'] = fid_health['best_fid']
+        result['latest_fid'] = fid_health['latest_fid']
+        result['best_step'] = fid_health['best_step']
+        result['best_metric'] = fid_health['best_metric']
+        result['health_alerts'] = fid_health['health_alerts']
+        result['warnings'] = fid_health['warnings']
+
         boundary = self.manifest.get('durable_event_boundary')
         if isinstance(boundary, dict):
             result['durable_event_boundary'] = boundary
@@ -525,8 +965,11 @@ class ObservationService:
                 manifest = await asyncio.to_thread(read_json, self.root, 'manifest.json')
                 if manifest.get('run_id') != self.run_id:
                     raise ValueError('Observed run identity changed')
+                prev_summary_sig = self._summary_cache[0] if self._summary_cache is not None else None
+                await asyncio.to_thread(self._read_cached_summary)
+                new_summary_sig = self._summary_cache[0] if self._summary_cache is not None else None
                 revision = self._metadata_key(manifest)
-                changed = manifest != self.manifest
+                changed = manifest != self.manifest or new_summary_sig != prev_summary_sig
                 self.manifest = manifest
                 await self.refresh_artifacts()
                 if changed:

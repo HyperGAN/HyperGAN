@@ -3,19 +3,36 @@ import asyncio
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import hashlib
 import html
 import json
 import logging
 from pathlib import Path
+import re
 import time
 from urllib.parse import quote
 
 from . import inspection as _insp_mod
 from . import registry as _reg_mod
 from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
-from .web_files import read_artifact, read_json, _open
-from .web_service import (MAX_GROUPS, MAX_QUEUE_BYTES, MAX_STREAMS, MAX_SUBSCRIBERS, ObservationService, MapSpec,
-                          ViewSpec, cursor_offset)
+from .web_files import read_artifact, read_bytes, read_json, _open
+from .web_service import (
+    MAX_GROUPS,
+    MAX_QUEUE_BYTES,
+    MAX_STREAMS,
+    MAX_SUBSCRIBERS,
+    PREVIEW_INDEX_BYTES,
+    MapSpec,
+    ObservationService,
+    ViewSpec,
+    _finite_nonneg_float,
+    _positive_int,
+    compute_throughput_and_eta,
+    cursor_offset,
+    extract_fid_and_health,
+    extract_topology_and_batch,
+    sse,
+)
 from .web_session import LocalSession
 
 STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'runs.js', 'runs.css', 'logo.png'}
@@ -98,25 +115,17 @@ def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int, int], ...]:
         _stat_watermark(run_dir / "manifest.json"),
         _stat_watermark(run_dir / ".run.lock"),
         _stat_watermark(run_dir / "launch" / "0001.json"),
+        _stat_watermark(run_dir / "previews" / "index.json"),
     )
 
 
 def _disk_run_id(run_dir: Path) -> str | None:
-    manifest_path = run_dir / "manifest.json"
-    if manifest_path.is_file():
+    for relative in ("manifest.json", "summary.json"):
         try:
-            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            loaded = read_json(run_dir, relative)
             if isinstance(loaded, dict) and loaded.get("run_id"):
                 return str(loaded["run_id"])
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            pass
-    summary_path = run_dir / "summary.json"
-    if summary_path.is_file():
-        try:
-            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict) and loaded.get("run_id"):
-                return str(loaded["run_id"])
-        except (OSError, json.JSONDecodeError, UnicodeError):
+        except (OSError, ValueError):
             pass
     return None
 
@@ -143,9 +152,9 @@ def _run_created_at(run_dir: Path, manifest: dict, summary: dict | None) -> str 
             return date
     # The first launch survives resumes; later launch timestamps describe attempts.
     try:
-        launch = json.loads((run_dir / 'launch' / '0001.json').read_text(encoding='utf-8'))
+        launch = read_json(run_dir, 'launch/0001.json')
         return _created_at(launch.get('timestamp')) if isinstance(launch, dict) else None
-    except (OSError, ValueError, UnicodeError):
+    except (OSError, ValueError):
         return None
 
 
@@ -164,26 +173,22 @@ def _is_stale_unmodified_run(run_dir: Path, max_idle_seconds: float = 3600.0) ->
 
 def read_run_summary(run_dir: Path) -> dict:
     run_dir = Path(run_dir).resolve()
-    summary_path = run_dir / "summary.json"
-    manifest_path = run_dir / "manifest.json"
 
     summary = None
-    if summary_path.is_file():
-        try:
-            loaded_summary = json.loads(summary_path.read_text(encoding="utf-8"))
-            if isinstance(loaded_summary, dict):
-                summary = loaded_summary
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            summary = None
+    try:
+        loaded_summary = read_json(run_dir, "summary.json")
+        if isinstance(loaded_summary, dict):
+            summary = loaded_summary
+    except (OSError, ValueError):
+        summary = None
 
     manifest = {}
-    if manifest_path.is_file():
-        try:
-            loaded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if isinstance(loaded_manifest, dict):
-                manifest = loaded_manifest
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            manifest = {}
+    try:
+        loaded_manifest = read_json(run_dir, "manifest.json")
+        if isinstance(loaded_manifest, dict):
+            manifest = loaded_manifest
+    except (OSError, ValueError):
+        manifest = {}
 
     host_info = _insp_mod.inspect_run_host(run_dir)
     try:
@@ -217,20 +222,24 @@ def read_run_summary(run_dir: Path) -> dict:
     raw_status = (summary.get("status") if summary else None) or manifest.get("status") or "unknown"
     if is_active:
         status = "running"
+        active = True
     elif (
         str(raw_status).strip().lower() in ("running", "initializing")
         and ((run_dir / ".run.lock").exists() or _is_stale_unmodified_run(run_dir))
     ):
         status = "stopped"
+        active = False
     else:
         status = raw_status
-    active = bool(is_active or status == "running" or (summary and (summary.get("active") or summary.get("running")) and status == "running"))
+        active = str(status).strip().lower() in ("running", "training", "initializing", "starting")
     running = bool(is_active)
 
     step = (summary.get("step") if summary and "step" in summary else None)
     if step is None:
         step = manifest.get("steps", 0)
 
+    cfg = manifest.get("config") if isinstance(manifest.get("config"), dict) else {}
+    training_cfg = cfg.get("training") if isinstance(cfg.get("training"), dict) else {}
     total_steps = (
         (summary.get("total_steps") if summary else None)
         or manifest.get("total_steps")
@@ -238,6 +247,7 @@ def read_run_summary(run_dir: Path) -> dict:
         or manifest.get("max_steps")
         or (summary.get("target_steps") if summary else None)
         or manifest.get("target_steps")
+        or _positive_int(training_cfg.get("steps"))
     )
     max_steps = (
         (summary.get("max_steps") if summary else None)
@@ -246,21 +256,31 @@ def read_run_summary(run_dir: Path) -> dict:
         or (summary.get("target_steps") if summary else None)
         or manifest.get("target_steps")
     )
-    steps_per_second = (
-        ((summary.get("steps_per_second") or summary.get("speed_its") or summary.get("steps_per_sec")) if summary else None)
-        or manifest.get("steps_per_second")
-        or manifest.get("speed_its")
+    steps_per_second = _finite_nonneg_float(
+        summary.get("steps_per_second") if summary else None,
+        summary.get("speed_its") if summary else None,
+        summary.get("steps_per_sec") if summary else None,
+        manifest.get("steps_per_second"),
+        manifest.get("speed_its"),
     )
 
-    latest_fid = None
-    if summary:
-        latest_fid = summary.get("latest_fid") or summary.get("fid_latest")
-        if latest_fid is None and isinstance(summary.get("metrics"), dict):
-            latest_fid = summary["metrics"].get("fid50k_train") or summary["metrics"].get("fid")
+    topo_batch = extract_topology_and_batch(manifest, summary)
+    samples_per_second, eta_seconds = compute_throughput_and_eta(
+        active=active,
+        step=step,
+        total_steps=total_steps,
+        steps_per_second=steps_per_second,
+        global_batch_size=topo_batch["global_batch_size"],
+        summary=summary,
+    )
 
-    best = summary.get("best") if summary and isinstance(summary.get("best"), dict) else None
-    best_fid = (best.get("value") if best else None) or (summary.get("best_fid") if summary else None) or (summary.get("fid_best") if summary else None)
-    best_step = (best.get("step") if best else None) or (summary.get("best_step") if summary else None)
+    fid_health = extract_fid_and_health(manifest, summary)
+    latest_fid = fid_health["latest_fid"]
+    best_fid = fid_health["best_fid"]
+    best_step = fid_health["best_step"]
+    best_metric = fid_health["best_metric"]
+    health_alerts = fid_health["health_alerts"]
+    warnings = fid_health["warnings"]
 
     updated_at = (summary.get("updated_at") if summary else None) or manifest.get("updated_at")
 
@@ -268,21 +288,71 @@ def read_run_summary(run_dir: Path) -> dict:
     disk_formatted = format_disk_bytes(disk_bytes)
 
     has_preview = False
-    previews_index = run_dir / "previews" / "index.json"
-    if previews_index.is_file():
+    thumbnail_revision: str | None = None
+    try:
+        pdata = read_json(run_dir, "previews/index.json", max_bytes=PREVIEW_INDEX_BYTES)
+        previews_list = pdata.get("previews") if isinstance(pdata, dict) else None
+        if isinstance(previews_list, list) and previews_list:
+            has_preview = True
+            chosen = None
+            for entry in reversed(previews_list):
+                if isinstance(entry, dict) and isinstance(entry.get("image_grid"), dict):
+                    chosen = entry
+                    break
+            if chosen is None:
+                for entry in reversed(previews_list):
+                    if isinstance(entry, dict):
+                        chosen = entry
+                        break
+            if chosen is not None:
+                grid = chosen.get("image_grid") if isinstance(chosen.get("image_grid"), dict) else {}
+                raw_rev = None
+                for candidate_hash in (grid.get("sha256"), chosen.get("sha256")):
+                    if isinstance(candidate_hash, str):
+                        cleaned_rev = re.sub(r"[^A-Za-z0-9]", "", candidate_hash)[:12]
+                        if cleaned_rev:
+                            raw_rev = cleaned_rev
+                            break
+                if not raw_rev:
+                    fallback_token = json.dumps(
+                        [
+                            chosen.get("sample_sequence"),
+                            chosen.get("step"),
+                            grid.get("path") or chosen.get("path"),
+                            len(previews_list),
+                        ],
+                        sort_keys=True,
+                        default=str,
+                    )
+                    raw_rev = hashlib.sha256(fallback_token.encode("utf-8")).hexdigest()[:12]
+                thumbnail_revision = raw_rev
+    except (OSError, ValueError):
+        pass
+    if not has_preview and (run_dir / "previews").is_dir():
         try:
-            pdata = json.loads(previews_index.read_text(encoding="utf-8"))
-            if isinstance(pdata, dict) and pdata.get("previews"):
+            newest_sig: tuple[int, int, str] | None = None
+            for png_path in (run_dir / "previews").rglob("*.png"):
+                try:
+                    if png_path.is_file() and not png_path.is_symlink():
+                        st = png_path.stat()
+                        sig = (st.st_mtime_ns, st.st_size, png_path.name)
+                        if newest_sig is None or sig > newest_sig:
+                            newest_sig = sig
+                except OSError:
+                    continue
+            if newest_sig is not None:
                 has_preview = True
-        except Exception:
-            pass
-    elif (run_dir / "previews").is_dir():
-        try:
-            has_preview = any((run_dir / "previews").rglob("*.png"))
+                thumbnail_revision = hashlib.sha256(
+                    f"{newest_sig[0]}:{newest_sig[1]}".encode("utf-8")
+                ).hexdigest()[:12]
         except Exception:
             pass
 
-    thumbnail_url = f"/api/v1/runs/{quote(str(run_id), safe='')}/thumbnail" if has_preview else None
+    if has_preview:
+        base_thumb = f"/api/v1/runs/{quote(str(run_id), safe='')}/thumbnail"
+        thumbnail_url = f"{base_thumb}?rev={thumbnail_revision}" if thumbnail_revision else base_thumb
+    else:
+        thumbnail_url = None
 
     return {
         "run_id": run_id,
@@ -295,20 +365,33 @@ def read_run_summary(run_dir: Path) -> dict:
         "pid": pid,
         "hostname": host_info.get("hostname"),
         "remote": host_info.get("remote", False),
+        "topology": topo_batch["topology"],
+        "global_batch_size": topo_batch["global_batch_size"],
+        "local_batch_size": topo_batch["local_batch_size"],
+        "microbatch_size": topo_batch["microbatch_size"],
+        "accumulation_steps": topo_batch["accumulation_steps"],
+        "batch_label": topo_batch["batch_label"],
+        "batch_detail": topo_batch["batch_detail"],
         "step": step,
         "total_steps": total_steps,
         "max_steps": max_steps,
         "steps_per_second": steps_per_second,
         "speed_its": steps_per_second,
+        "samples_per_second": samples_per_second,
+        "eta_seconds": eta_seconds,
         "latest_fid": latest_fid,
         "fid_latest": latest_fid,
         "best_fid": best_fid,
         "fid_best": best_fid,
         "best_step": best_step,
+        "best_metric": best_metric,
+        "health_alerts": health_alerts,
+        "warnings": warnings,
         "created_at": _run_created_at(run_dir, manifest, summary),
         "updated_at": updated_at,
         "disk_bytes": disk_bytes,
         "disk_formatted": disk_formatted,
+        "thumbnail_revision": thumbnail_revision,
         "thumbnail_url": thumbnail_url,
         "run_dir": str(run_dir),
         "url": f"/runs/{quote(str(run_id), safe='')}",
@@ -1171,10 +1254,10 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             svc = single_service
         else:
             async def root_events():
-                yield 'event: ready\ndata: {"status": "ready"}\n\n'.encode('utf-8')
+                yield sse('ready', {'status': 'ready'})
                 while True:
                     await asyncio.sleep(15.0)
-                    yield 'event: ping\ndata: {}\n\n'.encode('utf-8')
+                    yield sse('ping', {})
             return ClosingStream(root_events(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
@@ -1221,39 +1304,31 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
 
         def find_png_bytes() -> bytes | None:
             from .image_grids import inspect_png
-            idx = target_root / "previews" / "index.json"
-            if idx.is_file():
-                try:
-                    data = json.loads(idx.read_text(encoding="utf-8"))
-                    for prev in reversed(data.get("previews", [])):
-                        grid_info = prev.get("image_grid")
-                        if isinstance(grid_info, dict) and grid_info.get("path"):
-                            raw_path = grid_info["path"]
-                            if not isinstance(raw_path, str) or Path(raw_path).is_absolute() or raw_path.startswith("/"):
-                                continue
-                            cand = (target_root / raw_path).resolve()
-                            if cand.is_file() and cand.is_relative_to(target_root):
-                                try:
-                                    raw_bytes = cand.read_bytes()
-                                    inspect_png(raw_bytes)
-                                    return raw_bytes
-                                except Exception:
-                                    continue
-                except Exception:
-                    pass
+            try:
+                data = read_json(target_root, "previews/index.json", max_bytes=PREVIEW_INDEX_BYTES)
+                for prev in reversed(data.get("previews", [])):
+                    grid_info = prev.get("image_grid")
+                    if isinstance(grid_info, dict) and isinstance(grid_info.get("path"), str):
+                        try:
+                            raw_bytes = read_bytes(target_root, grid_info["path"], max_bytes=16 * 1048576)
+                            inspect_png(raw_bytes)
+                            return raw_bytes
+                        except Exception:
+                            continue
+            except (OSError, ValueError):
+                pass
             previews_dir = (target_root / "previews").resolve()
             if previews_dir.is_dir() and previews_dir.is_relative_to(target_root):
                 try:
                     pngs = sorted(previews_dir.rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
                     for p in pngs:
-                        cand = p.resolve()
-                        if cand.is_file() and cand.is_relative_to(target_root):
-                            try:
-                                raw_bytes = cand.read_bytes()
-                                inspect_png(raw_bytes)
-                                return raw_bytes
-                            except Exception:
-                                continue
+                        try:
+                            rel = p.relative_to(target_root).as_posix()
+                            raw_bytes = read_bytes(target_root, rel, max_bytes=16 * 1048576)
+                            inspect_png(raw_bytes)
+                            return raw_bytes
+                        except Exception:
+                            continue
                 except Exception:
                     pass
             return None
@@ -1261,7 +1336,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         png_data = await asyncio.to_thread(find_png_bytes)
         if png_data is None:
             raise FileNotFoundError("No preview thumbnail available for this run")
-        return Response(png_data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+        rev = (request.query_params.get("rev") or "").strip()
+        cache_control = "private, max-age=3600" if rev else "no-cache"
+        return Response(png_data, media_type="image/png", headers={"Cache-Control": cache_control})
 
     async def static(request, asset_override=None):
         asset = asset_override or request.path_params.get('asset', 'index.html')

@@ -1702,3 +1702,21 @@ def test_root_empty_at_startup_streams_as_a_dashboard_once_runs_appear(tmp_path)
         assert sent[0]['status'] == 200
         assert sent[1]['body'].startswith(b'event: ready')
     asyncio.run(scenario())
+
+
+def test_tailscale_self_names_are_accepted_without_dns_rebinding_exposure(monkeypatch):
+    import hypergan.web_session as ws
+    extracted = ws._extract_tailscale_self_names({
+        'Self': {
+            'HostName': 'MLServer',
+            'DNSName': 'MLServer.tail12345.ts.net.',
+        }
+    })
+    assert extracted == {'mlserver', 'mlserver.local', 'mlserver.tail12345.ts.net'}
+    monkeypatch.setattr(ws, '_tailscale_machine_names', lambda: frozenset(extracted))
+    session = LocalSession(8123, host='0.0.0.0')
+    assert session.permits_request('mlserver:8123', 'http://mlserver:8123')
+    assert session.permits_request('mlserver.tail12345.ts.net:8123', 'http://mlserver.tail12345.ts.net:8123')
+    assert not session.permits_request('other-node.tail12345.ts.net:8123')
+    assert not session.permits_request('evil.example:8123')
+

@@ -1,5 +1,6 @@
 """Local viewer credentials, independent of HTTP and numerical runtimes."""
 
+import functools
 import hmac
 import ipaddress
 import json
@@ -11,11 +12,12 @@ import tempfile
 import time
 from urllib.parse import urlsplit
 
-WILDCARD_HOSTS = frozenset({"0.0.0.0", ""})
+WILDCARD_HOSTS = frozenset({"0.0.0.0", "::", ""})
 LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
 # Extra DNS names, comma separated, under which the owner reaches this machine
-# directly (for example a MagicDNS name). A proxy uses --public-origin instead.
+# directly (for example a custom LAN DNS alias). A proxy uses --public-origin instead.
 ALLOWED_HOSTS_ENV = "HYPERGAN_VIEWER_HOSTS"
+TAILSCALE_SOCKETS = ("/var/run/tailscale/tailscaled.sock", "/run/tailscale/tailscaled.sock")
 
 
 def _is_loopback(host):
@@ -27,9 +29,68 @@ def _is_loopback(host):
         return False
 
 
-def _machine_names():
-    """This machine's own names; never resolved, so no DNS answer can add one."""
+def _extract_tailscale_self_names(status_payload):
+    """Extract this node's own Tailscale HostName and MagicDNS DNSName."""
     names = set()
+    if not isinstance(status_payload, dict):
+        return names
+    self_node = status_payload.get("Self")
+    if not isinstance(self_node, dict):
+        return names
+    for key in ("DNSName", "HostName"):
+        raw = self_node.get(key)
+        if not isinstance(raw, str):
+            continue
+        cleaned = raw.strip().lower().rstrip(".")
+        if not cleaned or any(ch in cleaned for ch in "/\\@?# \t\r\n:"):
+            continue
+        short = cleaned.split(".")[0]
+        names.add(cleaned)
+        if short:
+            names.update({short, short + ".local"})
+    return names
+
+
+@functools.lru_cache(maxsize=1)
+def _tailscale_machine_names():
+    """Read this machine's own Tailscale names from local tailscaled socket (no DNS)."""
+    if not hasattr(socket, "AF_UNIX"):
+        return frozenset()
+    for sock_path in TAILSCALE_SOCKETS:
+        if not os.path.exists(sock_path):
+            continue
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(0.1)
+                sock.connect(sock_path)
+                sock.sendall(
+                    b"GET /localapi/v0/status HTTP/1.0\r\n"
+                    b"Host: local-tailscaled.sock\r\n\r\n"
+                )
+                chunks = []
+                total = 0
+                while total < 262144:
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+            raw = b"".join(chunks)
+            if b"\r\n\r\n" not in raw:
+                continue
+            body = raw.split(b"\r\n\r\n", 1)[1]
+            payload = json.loads(body.decode("utf-8", errors="replace"))
+            found = _extract_tailscale_self_names(payload)
+            if found:
+                return frozenset(found)
+        except (OSError, ValueError, TypeError):
+            continue
+    return frozenset()
+
+
+def _machine_names():
+    """This machine's own names; never resolved via DNS, so no DNS answer can add one."""
+    names = set(_tailscale_machine_names())
     try:
         name = socket.gethostname().lower().rstrip(".")
     except OSError:

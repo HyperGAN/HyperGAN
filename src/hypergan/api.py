@@ -39,6 +39,7 @@ except ModuleNotFoundError:  # Python 3.10
 
 from .workspace import find_workspace, load_workspace, interpolate_model_paths, interpolate_variables, resolve_device_aliases
 from .model_file import resolve_inheritance, collect_source_files, require_networks
+from .cache import get_cache_dir, ensure_cached_url, resolve_or_cache, OfflineError
 
 PACKAGED = Path(__file__).with_name('models')
 
@@ -51,6 +52,7 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
            'lift', 'load_recipe', 'describe', 'describe_model', 'data_check', 'check_data',
            'download_dataset', 'dataset_info', 'list_datasets',
+           'get_cache_dir', 'ensure_cached_url', 'resolve_or_cache', 'OfflineError',
            'preflight', 'preflight_check', 'serve', 'viewer_status',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
            'request_status', 'request_sample', 'request_stop',

@@ -9,27 +9,23 @@ import hashlib
 import importlib.metadata
 from pathlib import Path
 
+from .cache import INCEPTION_V3_SHA256, INCEPTION_V3_URL, resolve_or_cache
 from .diversity_metrics import merge_moments
 
 
-INCEPTION_SHA256 = '6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2'
+INCEPTION_SHA256 = INCEPTION_V3_SHA256
 # Pinned torch-fidelity release; fid extra pins torch-fidelity>=0.4.0,<0.5.
 TORCH_FIDELITY_VERSION = '0.4.0'
 
 
-def _checked_weights(path, expected):
-    path = Path(path).expanduser().resolve()
+def _checked_weights(path=None, expected=INCEPTION_SHA256):
     if expected != INCEPTION_SHA256:
         raise ValueError('InceptionFID requires the pinned torch-fidelity Inception weight SHA256')
-    if not path.is_file():
-        raise ValueError(f'Inception weights are missing: {path}; supply the pinned local file explicitly')
-    digest = hashlib.sha256()
-    with path.open('rb') as source:
-        for block in iter(lambda: source.read(1024 * 1024), b''):
-            digest.update(block)
-    if digest.hexdigest() != expected:
-        raise ValueError('Inception weight SHA256 does not match the pinned file')
-    return path
+    target = path if path is not None else INCEPTION_V3_URL
+    try:
+        return resolve_or_cache(target, expected_sha256=expected)
+    except FileNotFoundError as exc:
+        raise ValueError(f'Inception weights are missing: {target}; supply the pinned local file explicitly') from exc
 
 
 class _Moments:
@@ -67,7 +63,7 @@ def _uint8_rgb(value):
 
 class InceptionFID:
     """Manual snapshot metric with paired generated/reference input bindings."""
-    def __init__(self, weights_path, weights_sha256=INCEPTION_SHA256):
+    def __init__(self, weights_path=None, weights_sha256=INCEPTION_SHA256):
         self.weights_path = _checked_weights(weights_path, weights_sha256)
         self.weights_sha256 = weights_sha256
         try:

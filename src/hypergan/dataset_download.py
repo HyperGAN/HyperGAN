@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from .cache import OfflineError, cache_file_lock, ensure_cached_url, get_cache_dir, is_offline
 from .run_state import atomic_json
 
 CIFAR10_SHA256 = {
@@ -157,99 +158,112 @@ def _download_archive(
     timeout: float,
 ) -> tuple[int, str, bool]:
     """Download ``url`` into ``archive_path.with_suffix('.tar.gz.part')`` with HTTP Range resume."""
-    validated_url = _validate_url(url)
+    if is_offline():
+        raise OfflineError(
+            f"HyperGAN is running in offline mode (HYPERGAN_OFFLINE=1) and artifact is not cached: "
+            f"{url} -> {archive_path}"
+        )
     archive_path.parent.mkdir(parents=True, exist_ok=True)
-    part_path = archive_path.with_name(archive_path.name + ".part")
+    lock_path = archive_path.with_name(archive_path.name + ".lock")
 
-    if part_path.is_symlink() or part_path.is_dir():
-        raise ValueError(f"Unsafe partial download path: {part_path}")
+    with cache_file_lock(lock_path):
+        if archive_path.is_file():
+            size, sha = _hash_file(archive_path)
+            if (expected_bytes is None or size == expected_bytes) and (expected_sha256 is None or sha == expected_sha256):
+                return size, sha, False
 
-    existing_bytes = part_path.stat().st_size if part_path.is_file() else 0
-    if expected_bytes is not None and existing_bytes > expected_bytes:
-        part_path.unlink(missing_ok=True)
-        existing_bytes = 0
+        validated_url = _validate_url(url)
+        part_path = archive_path.with_name(archive_path.name + ".part")
 
-    if existing_bytes > 0 and expected_bytes is not None and existing_bytes == expected_bytes:
-        size, sha = _hash_file(part_path)
-        if expected_sha256 is None or sha == expected_sha256:
-            os.replace(part_path, archive_path)
-            return size, sha, True
-        part_path.unlink(missing_ok=True)
-        existing_bytes = 0
+        if part_path.is_symlink() or part_path.is_dir():
+            raise ValueError(f"Unsafe partial download path: {part_path}")
 
-    headers = {"User-Agent": "HyperGAN/2.0 dataset-downloader"}
-    if existing_bytes > 0:
-        headers["Range"] = f"bytes={existing_bytes}-"
-
-    req = urllib.request.Request(validated_url, headers=headers)
-    resumed_partial = False
-    try:
-        response = urllib.request.urlopen(req, timeout=timeout)
-    except urllib.error.HTTPError as exc:
-        if existing_bytes > 0 and exc.code == 416:
+        existing_bytes = part_path.stat().st_size if part_path.is_file() else 0
+        if expected_bytes is not None and existing_bytes > expected_bytes:
             part_path.unlink(missing_ok=True)
             existing_bytes = 0
-            req = urllib.request.Request(validated_url, headers={"User-Agent": "HyperGAN/2.0 dataset-downloader"})
+
+        if existing_bytes > 0 and expected_bytes is not None and existing_bytes == expected_bytes:
+            size, sha = _hash_file(part_path)
+            if expected_sha256 is None or sha == expected_sha256:
+                os.replace(part_path, archive_path)
+                return size, sha, True
+            part_path.unlink(missing_ok=True)
+            existing_bytes = 0
+
+        headers = {"User-Agent": "HyperGAN/2.0 dataset-downloader"}
+        if existing_bytes > 0:
+            headers["Range"] = f"bytes={existing_bytes}-"
+
+        req = urllib.request.Request(validated_url, headers=headers)
+        resumed_partial = False
+        try:
             response = urllib.request.urlopen(req, timeout=timeout)
-        else:
-            raise
+        except urllib.error.HTTPError as exc:
+            if existing_bytes > 0 and exc.code == 416:
+                part_path.unlink(missing_ok=True)
+                existing_bytes = 0
+                req = urllib.request.Request(validated_url, headers={"User-Agent": "HyperGAN/2.0 dataset-downloader"})
+                response = urllib.request.urlopen(req, timeout=timeout)
+            else:
+                raise
 
-    with response:
-        status = getattr(response, "status", None) or response.getcode()
-        if existing_bytes > 0 and status == 206:
-            mode = "ab"
-            initial_bytes = existing_bytes
-            resumed_partial = True
-        else:
-            mode = "wb"
-            initial_bytes = 0
-            resumed_partial = False
+        with response:
+            status = getattr(response, "status", None) or response.getcode()
+            if existing_bytes > 0 and status == 206:
+                mode = "ab"
+                initial_bytes = existing_bytes
+                resumed_partial = True
+            else:
+                mode = "wb"
+                initial_bytes = 0
+                resumed_partial = False
 
-        content_length_raw = response.headers.get("Content-Length") if response.headers else None
-        expected_response_bytes = (
-            int(content_length_raw)
-            if content_length_raw is not None and content_length_raw.strip().isdigit()
-            else None
-        )
+            content_length_raw = response.headers.get("Content-Length") if response.headers else None
+            expected_response_bytes = (
+                int(content_length_raw)
+                if content_length_raw is not None and content_length_raw.strip().isdigit()
+                else None
+            )
 
-        written_session = 0
-        with part_path.open(mode) as handle:
-            while True:
-                chunk = response.read(_CHUNK_BYTES)
-                if not chunk:
-                    break
-                written_session += len(chunk)
-                total_so_far = initial_bytes + written_session
-                if expected_bytes is not None and total_so_far > expected_bytes:
-                    raise ValueError(
-                        f"Download from {validated_url} exceeded expected size of "
-                        f"{expected_bytes} bytes (received {total_so_far} bytes)"
-                    )
-                handle.write(chunk)
-            handle.flush()
-            os.fsync(handle.fileno())
+            written_session = 0
+            with part_path.open(mode) as handle:
+                while True:
+                    chunk = response.read(_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    written_session += len(chunk)
+                    total_so_far = initial_bytes + written_session
+                    if expected_bytes is not None and total_so_far > expected_bytes:
+                        raise ValueError(
+                            f"Download from {validated_url} exceeded expected size of "
+                            f"{expected_bytes} bytes (received {total_so_far} bytes)"
+                        )
+                    handle.write(chunk)
+                handle.flush()
+                os.fsync(handle.fileno())
 
-    if expected_response_bytes is not None and written_session != expected_response_bytes:
-        raise IOError(
-            f"Truncated download from {validated_url}: expected {expected_response_bytes} bytes "
-            f"in response body, got {written_session} bytes"
-        )
+        if expected_response_bytes is not None and written_session != expected_response_bytes:
+            raise IOError(
+                f"Truncated download from {validated_url}: expected {expected_response_bytes} bytes "
+                f"in response body, got {written_session} bytes"
+            )
 
-    actual_size, actual_sha = _hash_file(part_path)
-    if expected_bytes is not None and actual_size != expected_bytes:
-        raise ValueError(
-            f"Downloaded archive size mismatch for {archive_path.name}: "
-            f"expected {expected_bytes} bytes, got {actual_size} bytes"
-        )
-    if expected_sha256 is not None and actual_sha != expected_sha256:
-        part_path.unlink(missing_ok=True)
-        raise ValueError(
-            f"Downloaded archive SHA256 mismatch for {archive_path.name}: "
-            f"expected {expected_sha256}, got {actual_sha}"
-        )
+        actual_size, actual_sha = _hash_file(part_path)
+        if expected_bytes is not None and actual_size != expected_bytes:
+            raise ValueError(
+                f"Downloaded archive size mismatch for {archive_path.name}: "
+                f"expected {expected_bytes} bytes, got {actual_size} bytes"
+            )
+        if expected_sha256 is not None and actual_sha != expected_sha256:
+            part_path.unlink(missing_ok=True)
+            raise ValueError(
+                f"Downloaded archive SHA256 mismatch for {archive_path.name}: "
+                f"expected {expected_sha256}, got {actual_sha}"
+            )
 
-    os.replace(part_path, archive_path)
-    return actual_size, actual_sha, resumed_partial
+        os.replace(part_path, archive_path)
+        return actual_size, actual_sha, resumed_partial
 
 
 def _validate_and_extract_tar(archive_path: Path, staging_dir: Path, spec: dict) -> Path:

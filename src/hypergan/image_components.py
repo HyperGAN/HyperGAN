@@ -14,27 +14,19 @@ from torch import nn
 from torch.nn import functional as F
 from particlegan import ucd_scores
 
+from .cache import RESNET18_SHA256, RESNET18_URL, resolve_or_cache
 from .hndl_networks import build_network
 from .network_config import SourceFragment
 
-RESNET18_SHA256 = 'f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec'
 FEATURE_SHA256 = '5de287ab28d569dfc53a5bca4a646d4416621da29e71e80859e6117c7f90b0ac'
 
 
-def _verified_file(path, expected):
-    path = Path(path).expanduser()
-    if len(expected) != 64 or any(c not in '0123456789abcdef' for c in expected):
-        raise ValueError('Expected a lowercase SHA256 digest')
-    if not path.is_file():
-        raise FileNotFoundError(f'Required local artifact is missing: {path}; no automatic downloads')
-    digest = hashlib.sha256()
-    with path.open('rb') as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
-            digest.update(chunk)
-    actual = digest.hexdigest()
-    if actual != expected:
-        raise ValueError(f'Local artifact SHA256 mismatch: {path}; expected {expected}, got {actual}')
-    return path
+def _verified_file(path=None, expected=RESNET18_SHA256):
+    if expected is not None:
+        if len(expected) != 64 or any(c not in '0123456789abcdef' for c in expected):
+            raise ValueError('Expected a lowercase SHA256 digest')
+    target = path if path is not None else RESNET18_URL
+    return resolve_or_cache(target, expected_sha256=expected)
 
 
 def _source(stem, networks=None, **parameters):
@@ -191,7 +183,8 @@ def _load_resnet_features(path, feature_state_sha256, feature_size, networks):
 
 
 class _FeatureCritic(nn.Module):
-    def __init__(self, weights_path, weights_sha256, width, feature_state_sha256, deterministic_features,
+    def __init__(self, weights_path=None, weights_sha256=RESNET18_SHA256, width=32,
+                 feature_state_sha256=FEATURE_SHA256, deterministic_features=True,
                  image_size=32, feature_size=64, attention_seed=124003, networks=None):
         super().__init__()
         self.deterministic_features = deterministic_features
@@ -257,7 +250,7 @@ class CIFARDiscriminator(nn.Module):
     retains native 64/32/16px maps for 256px colorization. The context is always
     a fixed zero image, never another sample or a grayscale condition.
     """
-    def __init__(self, weights_path, weights_sha256=RESNET18_SHA256, width=32,
+    def __init__(self, weights_path=None, weights_sha256=RESNET18_SHA256, width=32,
                  feature_state_sha256=FEATURE_SHA256, attention_seed=124003, deterministic_features=True,
                  image_size=32, feature_size=64, networks=None):
         super().__init__()

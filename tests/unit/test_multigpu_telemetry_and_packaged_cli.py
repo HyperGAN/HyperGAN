@@ -563,3 +563,42 @@ def test_ema_critic_is_initialized_in_eval_mode_and_d_guard_ratio_tracks_spike_c
     row_spike, _ = trainer.update()
     assert 0.0 < row_spike["optimizer/d_guard_ratio"] < 0.2
     assert trainer.opt_d.guard.clipped_tensors > 0
+
+
+def test_cli_train_packaged_recipe_does_not_hijack_existing_run_with_same_experiment_name(tmp_path, monkeypatch):
+    """Running `hypergan train gaussian-grid --run-dir ...` (or a second `hypergan train gaussian-grid`)
+    must create a new run from the packaged recipe rather than hijacking an older run whose
+    manifest config.name is 'gaussian-grid'.
+    """
+    monkeypatch.chdir(tmp_path)
+    run1 = tmp_path / "runs" / "first-run"
+    run2 = tmp_path / "runs" / "second-run"
+
+    rc1 = cli.main([
+        "train", "gaussian-grid",
+        "--run-dir", str(run1),
+        "-d", "cpu",
+        "--steps", "2",
+        "--no-previews",
+        "--no-server",
+        "-q",
+    ])
+    assert rc1 == 0
+    assert (run1 / "manifest.json").is_file()
+
+    rc2 = cli.main([
+        "train", "gaussian-grid",
+        "--run-dir", str(run2),
+        "-d", "cpu",
+        "--steps", "2",
+        "--no-previews",
+        "--no-server",
+        "-q",
+    ])
+    assert rc2 == 0
+    assert (run2 / "manifest.json").is_file()
+    m1 = json.loads((run1 / "manifest.json").read_text(encoding="utf-8"))
+    m2 = json.loads((run2 / "manifest.json").read_text(encoding="utf-8"))
+    assert m1["run_id"] != m2["run_id"]
+    assert m1["steps"] == 2
+    assert m2["steps"] == 2

@@ -7,6 +7,21 @@ import {
   coarserBucket,
   initialBucket,
 } from "./coarsen.js";
+import {
+  MAX_CHART_SERIES,
+  buildViewSearch,
+  collectHealthAlerts,
+  deduplicatedTopologyParts,
+  defaultMetrics,
+  formatBatchPill,
+  formatHostPill,
+  formatTopologyPill,
+  isScalarTrainingMetric,
+  parseViewQuery,
+  presetMetrics,
+  reducedSelection,
+  sameMetricSet,
+} from "./presets.js";
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -31,11 +46,22 @@ const state = {
   retries: 0,
   renderTimer: null,
   sampleVersions: new Map(),
+  sampleControllers: new Map(),
+  lightboxGroupKey: null,
+  pixelated: true,
   stepFrom: null,
   stepTo: null,
   refreshing: false,
   bootstrapSignal: false,
   coarsenAttempts: 0,
+  stopArmed: false,
+  stopArmTimer: null,
+  receiptTimers: new Set(),
+  dismissedAlerts: new Set(),
+  currentAlerts: [],
+  observedFid: null,
+  urlSyncReady: false,
+  pageHidden: false,
 };
 let requestID = 0;
 /* host.js falls back to a portable SHA-256, so a missing Web Crypto API no longer
@@ -99,6 +125,33 @@ function notice(message) {
   $("notice").textContent = message || "";
   $("notice").hidden = !message;
 }
+function clearReceiptPolls() {
+  for (const timer of state.receiptTimers) clearTimeout(timer);
+  state.receiptTimers.clear();
+}
+function disarmStop() {
+  state.stopArmed = false;
+  clearTimeout(state.stopArmTimer);
+  state.stopArmTimer = null;
+  const stopBtn = $("action-stop");
+  if (stopBtn) {
+    stopBtn.textContent = "Stop";
+    delete stopBtn.dataset.armed;
+  }
+  const cancelBtn = $("action-stop-cancel");
+  if (cancelBtn) cancelBtn.hidden = true;
+}
+function armStop() {
+  const stopBtn = $("action-stop");
+  if (!stopBtn) return;
+  state.stopArmed = true;
+  stopBtn.textContent = "Confirm stop?";
+  stopBtn.dataset.armed = "true";
+  const cancelBtn = $("action-stop-cancel");
+  if (cancelBtn) cancelBtn.hidden = false;
+  clearTimeout(state.stopArmTimer);
+  state.stopArmTimer = setTimeout(() => disarmStop(), 4000);
+}
 function stopStream() {
   if (state.stream) {
     state.stream.close();
@@ -109,6 +162,8 @@ function stopStream() {
 }
 function showLogin() {
   stopStream();
+  clearReceiptPolls();
+  disarmStop();
   state.epoch++;
   state.ready = false;
   state.worker?.close();
@@ -140,53 +195,84 @@ const base = () => `/runs/${encodeURIComponent(state.run.run_id)}`;
 // Snapshot evaluations own their results end to end; Learning curves charts the
 // training stream only, so an evaluation id never reaches the catalog or a chart.
 const evaluations = evaluationShelf(api, base);
-// The Model tab reads the recorded configuration; its loss rows can put a
-// series on the Metrics tab.
+// The inline Model & configuration section reads the recorded configuration;
+// clicking any loss series button plots it in Learning curves above.
 const model = modelPanel(api, base, { catalog: () => state.catalog, onPlot: plotMetric });
-const TABS = ["metrics", "model"];
-function activeTab() {
-  return $("tab-model").getAttribute("aria-selected") === "true" ? "model" : "metrics";
+
+function metricDefinitions() {
+  return state.catalog?.metrics || {};
 }
-function selectTab(name, { focus = false, remember = true } = {}) {
-  for (const tab of TABS) {
-    const selected = tab === name;
-    const button = $(`tab-${tab}`);
-    button.setAttribute("aria-selected", String(selected));
-    button.tabIndex = selected ? 0 : -1;
-    $(`panel-${tab}`).hidden = !selected;
-    if (selected && focus) button.focus();
-  }
-  if (remember) {
-    try {
-      history.replaceState(null, "", name === "model" ? "#model" : `${location.pathname}${location.search}`);
-    } catch {}
-  }
-  if (name === "model" && state.run) model.load().catch((error) => notice(error.message));
-  // Charts measured nothing while hidden; size them to the visible panel.
-  if (name === "metrics") requestAnimationFrame(() => { for (const card of state.charts.values()) card.chart.resize(); });
+function trainingSelection() {
+  return [...state.selected];
 }
-// From the Model tab: chart the series, making room by dropping the series
-// selected longest ago when the view already holds its 8.
+function viewSelection() {
+  return reducedSelection(state.selected, metricDefinitions());
+}
+function defaults() {
+  return defaultMetrics(metricDefinitions());
+}
+function syncUrlState() {
+  if (!state.urlSyncReady || !state.catalog) return;
+  const search = buildViewSearch(
+    {
+      selected: state.selected,
+      scale: $("scale")?.value || "linear",
+      smooth: $("smoothing")?.value || "0",
+      stepFrom: state.stepFrom,
+      stepTo: state.stepTo,
+    },
+    metricDefinitions(),
+  );
+  const nextUrl = `${location.pathname}${search}${location.hash}`;
+  if (`${location.pathname}${location.search}${location.hash}` === nextUrl) return;
+  try {
+    history.replaceState(null, "", nextUrl);
+  } catch {}
+}
+
+const PRESET_BUTTONS = [
+  ["select-defaults", "defaults"],
+  ["preset-losses", "losses"],
+  ["preset-health", "health"],
+  ["preset-diversity", "diversity"],
+];
+function updatePresetButtons() {
+  const defs = metricDefinitions();
+  for (const [buttonId, presetName] of PRESET_BUTTONS) {
+    const button = $(buttonId);
+    if (!button) continue;
+    const target = presetMetrics(presetName, defs);
+    const active =
+      state.selected.size > 0 &&
+      target.length > 0 &&
+      sameMetricSet(state.selected, target);
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+}
+
+// From Model & configuration: chart the series, making room by dropping the
+// series selected longest ago when the view already holds its 8.
 function plotMetric(id) {
   let replaced = null;
   if (!state.selected.has(id)) {
-    if (state.selected.size >= 8) {
+    if (state.selected.size >= MAX_CHART_SERIES) {
       replaced = state.selected.values().next().value;
       state.selected.delete(replaced);
     }
     state.selected.add(id);
     renderCatalog();
+    syncUrlState();
     reconfigure();
   }
-  selectTab("metrics", { focus: true });
+  $("learning-curves")?.scrollIntoView({ behavior: "smooth", block: "start" });
   if (replaced) {
     // Kept past the reload, which otherwise clears the notice.
     state.loadedNotice = `Showing ${id} in place of ${replaced}; a view charts at most 8 series.`;
     notice(state.loadedNotice);
   }
 }
-function metricDefinitions() { return state.catalog?.metrics || {}; }
-function trainingSelection() { return [...state.selected]; }
+
 // The manifest status is an internal word; the badge reads as the person's
 // view of the run. Unmapped values fall back to the raw word, capitalised.
 const RUN_STATUS_LABELS = {
@@ -196,8 +282,10 @@ const RUN_STATUS_LABELS = {
   running: "Training",
   training: "Training",
   complete: "Complete",
+  completed: "Complete",
   stopped: "Stopped",
   cancelled: "Stopped",
+  canceled: "Stopped",
   interrupted: "Interrupted",
   failed: "Failed",
 };
@@ -233,9 +321,141 @@ function duration(seconds) {
   if (total < 3600) return `${Math.floor(total / 60)}m ${pad(total % 60)}s`;
   return `${Math.floor(total / 3600)}h ${pad(Math.floor((total % 3600) / 60))}m`;
 }
+function isRunActive(run) {
+  if (!run || typeof run !== "object") return false;
+  if (typeof run.active === "boolean") return run.active;
+  return Boolean(
+    run.running ||
+      ["running", "training", "initializing", "starting"].includes(
+        String(run.status || "").toLowerCase(),
+      ),
+  );
+}
+function updateTotalStepsSubtext(run, active) {
+  const el = $("total-steps");
+  if (!el) return;
+  if (Number.isFinite(run.total_steps) && run.total_steps > 0) {
+    let pct = "";
+    if (Number.isFinite(run.steps) && run.steps >= 0) {
+      const rawPct = Math.min(100, Math.max(0, (run.steps / run.total_steps) * 100));
+      const formatted =
+        rawPct >= 100 || Number.isInteger(rawPct)
+          ? `${Math.round(rawPct)}%`
+          : `${rawPct.toFixed(1)}%`;
+      pct = ` (${formatted})`;
+    }
+    if (active && Number.isFinite(run.eta_seconds) && run.eta_seconds >= 0) {
+      el.textContent = `of ${fmt(run.total_steps)} steps${pct} · ETA ${duration(run.eta_seconds)}`;
+    } else {
+      el.textContent = `of ${fmt(run.total_steps)} configured steps${pct}`;
+    }
+  } else {
+    el.textContent = "Completed optimizer updates";
+  }
+}
+function renderFidCard(run) {
+  const bestEl = $("best-fid");
+  const detailEl = $("fid-detail");
+  if (!bestEl || !detailEl) return;
+  const observed =
+    state.observedFid && state.observedFid.runId === run?.run_id
+      ? state.observedFid
+      : null;
+  let bestFid = Number.isFinite(run?.best_fid) ? run.best_fid : null;
+  let bestStep = Number.isFinite(run?.best_step) ? run.best_step : null;
+  let latestFid = Number.isFinite(run?.latest_fid) ? run.latest_fid : null;
+  if (observed) {
+    if (bestFid === null || (Number.isFinite(observed.best_fid) && observed.best_fid < bestFid)) {
+      bestFid = observed.best_fid;
+      bestStep = observed.best_step;
+    }
+    if (latestFid === null && Number.isFinite(observed.latest_fid)) {
+      latestFid = observed.latest_fid;
+    }
+  }
+  bestEl.textContent = Number.isFinite(bestFid)
+    ? bestFid.toFixed(2)
+    : Number.isFinite(latestFid)
+      ? latestFid.toFixed(2)
+      : "—";
+  detailEl.textContent =
+    [
+      Number.isFinite(bestStep) ? `Step ${fmt(bestStep)}` : null,
+      Number.isFinite(latestFid) &&
+      Number.isFinite(bestFid) &&
+      Math.abs(latestFid - bestFid) > 0.01
+        ? `Latest ${latestFid.toFixed(2)}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "No FID evaluations yet";
+}
+function syncEvaluationsJumpAndFid() {
+  const evalSection = $("evaluations");
+  const jumpLink = $("jump-evaluations");
+  if (evalSection && jumpLink) {
+    jumpLink.hidden = evalSection.hidden;
+  }
+  const items = $("evaluation-items");
+  if (!items || !state.run) return;
+  const runId = state.run.run_id;
+  for (const li of items.querySelectorAll("li.evaluation-metric[data-metric]")) {
+    const metricId = li.dataset.metric || "";
+    if (!/(?:^|[/_.-])fid(?:\d|$|[/_.-])/i.test(metricId)) continue;
+    const valNode = li.querySelector(".evaluation-value");
+    if (!valNode) continue;
+    const parsed = Number.parseFloat(valNode.textContent);
+    if (!Number.isFinite(parsed)) continue;
+    const stepsAttr = (li.dataset.steps || "").split(",").filter(Boolean);
+    const lastStep = stepsAttr.length ? Number(stepsAttr[stepsAttr.length - 1]) : null;
+    const step = Number.isFinite(lastStep) ? lastStep : null;
+    if (!state.observedFid || state.observedFid.runId !== runId) {
+      state.observedFid = {
+        runId,
+        best_fid: parsed,
+        best_step: step,
+        latest_fid: parsed,
+      };
+    } else {
+      state.observedFid.latest_fid = parsed;
+      if (!Number.isFinite(state.observedFid.best_fid) || parsed < state.observedFid.best_fid) {
+        state.observedFid.best_fid = parsed;
+        state.observedFid.best_step = step;
+      }
+    }
+  }
+  renderFidCard(state.run);
+}
+function renderHealthAlerts(run) {
+  const container = $("health-alerts");
+  const list = $("health-alerts-list");
+  if (!container || !list) return;
+  const alerts = collectHealthAlerts(run);
+  state.currentAlerts = alerts;
+  const visible = alerts.filter((alert) => !state.dismissedAlerts.has(alert));
+  list.replaceChildren();
+  if (!visible.length) {
+    container.hidden = true;
+    return;
+  }
+  for (const alert of visible) {
+    const item = document.createElement("li");
+    item.textContent = alert;
+    list.append(item);
+  }
+  container.hidden = false;
+}
 function updateRun(run) {
+  if (state.run && state.run.run_id !== run.run_id) {
+    state.dismissedAlerts.clear();
+    state.observedFid = null;
+    clearReceiptPolls();
+    disarmStop();
+  }
   state.run = run;
+  const active = isRunActive(run);
   evaluations.update(state.catalog, run);
+  syncEvaluationsJumpAndFid();
   $("run-name").textContent =
     run.config?.name || run.name || "Training experiment";
   if ($("run-id").textContent !== run.run_id) {
@@ -244,9 +464,78 @@ function updateRun(run) {
   }
   $("run-status").textContent = statusLabel(run.status);
   $("run-status").dataset.status = run.status || "unknown";
+
+  const setPill = (id, text) => {
+    const el = $(id);
+    if (!el) return;
+    el.textContent = text;
+    el.hidden = !text;
+  };
+  setPill("run-topology-pill", formatTopologyPill(run.topology));
+  const batchText =
+    formatBatchPill(run) ||
+    (Number.isFinite(run.global_batch_size)
+      ? `Batch ${fmt(run.global_batch_size)}`
+      : "");
+  setPill("run-batch-pill", batchText);
+  setPill("run-host-pill", formatHostPill(run));
+
+  // 1. Completed step + % + active ETA
   $("step").textContent = fmt(run.steps);
-  $("steps-per-second").textContent = rate(run.steps_per_second);
-  $("training-time").textContent = duration(run.training_seconds);
+  updateTotalStepsSubtext(run, active);
+
+  // 2. Steps per second (active-gated)
+  if (active) {
+    $("steps-per-second").textContent = rate(run.steps_per_second);
+    if ($("steps-rate-note")) $("steps-rate-note").textContent = "Live update throughput";
+  } else {
+    $("steps-per-second").textContent = "—";
+    if ($("steps-rate-note")) {
+      $("steps-rate-note").textContent = Number.isFinite(run.steps_per_second)
+        ? `Last: ${rate(run.steps_per_second)} steps/s`
+        : "Run inactive";
+    }
+  }
+
+  // 3. Samples per second (active-gated)
+  const samplesRate = Number.isFinite(run.samples_per_second)
+    ? run.samples_per_second
+    : Number.isFinite(run.steps_per_second) && Number.isFinite(run.global_batch_size)
+      ? run.steps_per_second * run.global_batch_size
+      : null;
+  if ($("samples-per-second")) {
+    if (active) {
+      $("samples-per-second").textContent = rate(samplesRate);
+      if ($("samples-rate-note")) {
+        $("samples-rate-note").textContent = Number.isFinite(run.global_batch_size)
+          ? `Steps/s × batch ${fmt(run.global_batch_size)}`
+          : "Live sample throughput";
+      }
+    } else {
+      $("samples-per-second").textContent = "—";
+      if ($("samples-rate-note")) {
+        $("samples-rate-note").textContent = Number.isFinite(samplesRate)
+          ? `Last: ${rate(samplesRate)} samples/s`
+          : "Run inactive";
+      }
+    }
+  }
+
+  // 4. Batch & topology
+  if ($("batch-size")) {
+    $("batch-size").textContent = Number.isFinite(run.global_batch_size)
+      ? fmt(run.global_batch_size)
+      : run.topology?.label || "—";
+  }
+  if ($("batch-topology")) {
+    const topoParts = [
+      ...deduplicatedTopologyParts(run.topology),
+      run.batch_detail,
+    ].filter(Boolean);
+    $("batch-topology").textContent = topoParts.join(" · ") || "Global batch size";
+  }
+
+  // 5. Samples seen
   $("samples-seen").textContent = count(run.samples_seen);
   $("samples-seen").title = Number.isFinite(run.samples_seen)
     ? `${Number(run.samples_seen).toLocaleString()} samples`
@@ -254,26 +543,112 @@ function updateRun(run) {
   $("samples-batch").textContent = Number.isFinite(run.global_batch_size)
     ? `${fmt(run.global_batch_size)} per completed update`
     : "Updates × global batch";
+
+  // 6. Time training
+  $("training-time").textContent = duration(run.training_seconds);
+
+  // 7. Durable checkpoint + FoldliteDB metric projection consistency
   $("durable").textContent = fmt(run.last_durable_step);
   const consistency = run.metric_consistency;
   $("metric-consistency").textContent = !consistency ? "" :
     consistency.status === "caught_up" ? `Metrics committed through step ${fmt(consistency.committed_step)} · view caught up` :
     consistency.status === "pending" ? `Metrics committed through step ${fmt(consistency.committed_step)} · view catching up` :
     `Metric projection status unavailable${consistency.committed_step === undefined ? "" : ` · committed step ${fmt(consistency.committed_step)}`}`;
-  $("total-steps").textContent = run.total_steps
-    ? `of ${fmt(run.total_steps)} configured steps`
-    : "Completed optimizer updates";
+
+  // 10. Best FID
+  renderFidCard(run);
+
+  // Health & contention callouts
+  renderHealthAlerts(run);
+
   $("raw-events").href = `/api/v1${base()}/events`;
-  const active = Boolean(run.active || run.running || run.status === "running");
-  const sampleBtn = $("action-sample");
-  const checkpointBtn = $("action-checkpoint");
-  if (sampleBtn) sampleBtn.hidden = !active;
-  if (checkpointBtn) checkpointBtn.hidden = !active;
+  for (const id of ["action-sample", "action-checkpoint", "action-stop"]) {
+    const btn = $(id);
+    if (btn) btn.hidden = !active;
+  }
+  if (!active) disarmStop();
 }
+
+function pollRequestReceipt(action, requestId) {
+  if (typeof requestId !== "string" || !requestId || !state.run) return;
+  const runId = state.run.run_id;
+  const runBase = base();
+  const label =
+    action === "sample"
+      ? "Sample"
+      : action === "checkpoint"
+        ? "Checkpoint"
+        : "Stop";
+  let attempts = 0;
+
+  function scheduleNext() {
+    if (state.pageHidden || state.run?.run_id !== runId || attempts >= 15) return;
+    const timer = setTimeout(async () => {
+      state.receiptTimers.delete(timer);
+      if (state.pageHidden || state.run?.run_id !== runId) return;
+      attempts++;
+      try {
+        const response = await fetch(
+          `/api/v1${runBase}/requests/${encodeURIComponent(requestId)}`,
+          { credentials: "same-origin" },
+        );
+        if (state.pageHidden || state.run?.run_id !== runId) return;
+        if (response.status === 401) {
+          showLogin();
+          return;
+        }
+        if (response.status === 404 || !response.ok) return;
+        const payload = await response.json();
+        const rec =
+          payload?.receipt && typeof payload.receipt === "object"
+            ? payload.receipt
+            : payload;
+        const status = String(rec?.status || payload?.status || "").toLowerCase();
+        const completed =
+          status === "succeeded" ||
+          status === "completed" ||
+          rec?.completed === true ||
+          payload?.completed === true;
+        const rejected = status === "rejected" || status === "failed";
+        if (completed) {
+          const stepVal = Number.isFinite(rec?.step)
+            ? rec.step
+            : Number.isFinite(payload?.step)
+              ? payload.step
+              : null;
+          notice(
+            `${label} completed${stepVal !== null ? ` at step ${fmt(stepVal)}` : ""}.`,
+          );
+          if (action === "sample") {
+            refreshArtifacts().catch(() => {});
+          } else {
+            api(runBase)
+              .then((res) => {
+                if (state.run?.run_id === runId) updateRun(res.data);
+              })
+              .catch(() => {});
+          }
+          return;
+        }
+        if (rejected) {
+          notice(`${label} request rejected: ${rec?.error || payload?.error || "failed"}`);
+          return;
+        }
+        scheduleNext();
+      } catch {
+        // Ignore transient network hiccups during background receipt check.
+      }
+    }, 1000);
+    state.receiptTimers.add(timer);
+  }
+
+  scheduleNext();
+}
+
 async function refreshArtifacts() {
   if (!state.run) return;
   const runID = state.run.run_id;
-  const request = state.artifactRequest = (state.artifactRequest || 0) + 1;
+  const request = (state.artifactRequest = (state.artifactRequest || 0) + 1);
   const result = await api(`${base()}/artifacts`);
   if (state.run?.run_id !== runID || request !== state.artifactRequest) return;
   const artifacts = result.data.artifacts || {};
@@ -358,6 +733,85 @@ function sampleGroups(artifacts) {
       (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
   );
 }
+function syncPeerSampleGroups(sourceGroup, chosenIndex, { followLatest = false } = {}) {
+  if (!$("sync-samples")?.checked) return;
+  const chosenVersion = sourceGroup.versions[chosenIndex];
+  if (!chosenVersion) return;
+  const targetStep = provenanceStep(chosenVersion.artifact);
+  if (targetStep < 0) return;
+  for (const [key, controller] of state.sampleControllers) {
+    if (key === sourceGroup.key || controller.group.versions.length <= 1) continue;
+    let bestIdx = -1;
+    let bestDist = Infinity;
+    for (let i = 0; i < controller.group.versions.length; i++) {
+      const s = provenanceStep(controller.group.versions[i].artifact);
+      if (s < 0) continue;
+      const dist = Math.abs(s - targetStep);
+      if (dist <= bestDist) {
+        bestDist = dist;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx >= 0) {
+      controller.setIndex(bestIdx, {
+        fromSync: true,
+        followLatest:
+          followLatest && bestIdx === controller.group.versions.length - 1,
+      });
+    }
+  }
+}
+function refreshLightbox() {
+  const dialog = $("sample-lightbox");
+  if (!dialog?.open || !state.lightboxGroupKey) return;
+  const controller = state.sampleControllers.get(state.lightboxGroupKey);
+  if (!controller) {
+    dialog.close();
+    return;
+  }
+  const idx = controller.currentIndex();
+  const version = controller.group.versions[idx];
+  const path = version && gridImagePath(version);
+  if (!path) {
+    dialog.close();
+    return;
+  }
+  const { artifact } = version;
+  const step = artifact.provenance?.step;
+  const seq = artifact.provenance?.sample_sequence;
+  $("lightbox-name").textContent = controller.group.name;
+  $("lightbox-caption").textContent = [
+    `Step ${fmt(step)}`,
+    Number.isFinite(seq) ? `seq ${fmt(seq)}` : null,
+    `Version ${idx + 1} of ${controller.group.versions.length}`,
+    artifact.width && artifact.height ? `${artifact.width} × ${artifact.height} px` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const img = $("lightbox-image");
+  if (img.getAttribute("src") !== path) img.src = path;
+  img.alt = `Sample ${controller.group.name} full-scale preview at step ${fmt(step)}`;
+  $("lightbox-prev").disabled = idx <= 0;
+  $("lightbox-next").disabled = idx >= controller.group.versions.length - 1;
+}
+function openLightbox(groupKey) {
+  const dialog = $("sample-lightbox");
+  const controller = state.sampleControllers.get(groupKey);
+  if (!dialog || !controller) return;
+  const version = controller.group.versions[controller.currentIndex()];
+  if (!version || !gridImagePath(version)) return;
+  state.lightboxGroupKey = groupKey;
+  if (!dialog.open) dialog.showModal();
+  refreshLightbox();
+}
+function stepLightbox(delta) {
+  if (!state.lightboxGroupKey) return;
+  const controller = state.sampleControllers.get(state.lightboxGroupKey);
+  if (!controller) return;
+  const next = controller.currentIndex() + delta;
+  if (next < 0 || next >= controller.group.versions.length) return;
+  controller.userStepTo(next);
+}
 function renderArtifacts(artifacts) {
   // Each card keeps what it shows until its next picture is decoded, so a
   // re-render (a new sample arriving) never blanks an image on screen.
@@ -368,6 +822,7 @@ function renderArtifacts(artifacts) {
     ]),
   );
   $("artifact-items").replaceChildren();
+  state.sampleControllers.clear();
   const groups = sampleGroups(artifacts);
   const emptyGuide = $("sample-empty");
   if (emptyGuide) {
@@ -388,10 +843,14 @@ function renderArtifacts(artifacts) {
     }
   }
   $("artifacts").hidden = false;
-  for (const group of groups.slice(0, MAX_SAMPLE_GROUPS))
-    $("artifact-items").append(renderSampleGroup(group, shown.get(group.key)));
+  groups.slice(0, MAX_SAMPLE_GROUPS).forEach((group, groupIndex) => {
+    $("artifact-items").append(
+      renderSampleGroup(group, shown.get(group.key), groupIndex),
+    );
+  });
+  refreshLightbox();
 }
-function renderSampleGroup(group, shownBody) {
+function renderSampleGroup(group, shownBody, groupIndex = 0) {
   const li = document.createElement("li");
   li.dataset.key = group.key;
   li.dataset.sample = group.name;
@@ -416,16 +875,38 @@ function renderSampleGroup(group, shownBody) {
       : group.versions.findIndex((version) => versionKey(version) === pinned);
   if (pinned !== undefined && pinnedIndex < 0) state.sampleVersions.delete(group.key);
   let index = pinnedIndex < 0 ? group.versions.length - 1 : pinnedIndex;
+  let slider = null;
   let history = null;
   let position = null;
   let latestButton = null;
   // Requests count slider moves; `displayed` is the newest one on screen.
   let requested = 0;
   let displayed = 0;
+
+  function setIndex(
+    chosen,
+    { fromSync = false, followLatest = false, prefetchRadius = IMAGE_PREFETCH } = {},
+  ) {
+    if (slider) slider.value = String(chosen);
+    if (followLatest || chosen === group.versions.length - 1) {
+      state.sampleVersions.delete(group.key);
+    } else {
+      state.sampleVersions.set(group.key, versionKey(group.versions[chosen]));
+    }
+    show(chosen, fromSync ? 0 : prefetchRadius);
+    if (state.lightboxGroupKey === group.key) refreshLightbox();
+  }
+
+  function userStepTo(chosen) {
+    const isLatest = chosen === group.versions.length - 1;
+    setIndex(chosen, { followLatest: isLatest, prefetchRadius: IMAGE_PREFETCH });
+    syncPeerSampleGroups(group, chosen, { followLatest: isLatest });
+  }
+
   if (group.versions.length > 1) {
     history = document.createElement("div");
     history.className = "sample-history";
-    const slider = document.createElement("input");
+    slider = document.createElement("input");
     slider.type = "range";
     slider.min = "0";
     slider.max = String(group.versions.length - 1);
@@ -436,24 +917,15 @@ function renderSampleGroup(group, shownBody) {
     position = document.createElement("span");
     position.className = "sample-position";
     latestButton = document.createElement("button");
+    latestButton.type = "button";
     latestButton.className = "secondary sample-latest";
     latestButton.textContent = "Latest";
-    latestButton.onclick = () => {
-      slider.value = String(group.versions.length - 1);
-      state.sampleVersions.delete(group.key);
-      show(group.versions.length - 1);
-    };
-    slider.oninput = () => {
-      const chosen = Number(slider.value);
-      if (chosen === group.versions.length - 1)
-        state.sampleVersions.delete(group.key);
-      else state.sampleVersions.set(group.key, versionKey(group.versions[chosen]));
-      show(chosen);
-    };
+    latestButton.onclick = () => userStepTo(group.versions.length - 1);
+    slider.oninput = () => userStepTo(Number(slider.value));
     history.append(slider, position, latestButton);
     li.append(history);
   }
-  function show(chosen) {
+  function show(chosen, prefetchRadius = IMAGE_PREFETCH) {
     index = chosen;
     const version = group.versions[index];
     const { artifact } = version;
@@ -481,10 +953,10 @@ function renderSampleGroup(group, shownBody) {
     const path = gridImagePath(version);
     if (!path || cachedImage(path) || !body.hasChildNodes()) {
       display(request, version);
-      if (path) prefetchImages(group, index);
+      if (path && prefetchRadius > 0) prefetchImages(group, index, prefetchRadius);
       return;
     }
-    prefetchImages(group, index);
+    prefetchImages(group, index, prefetchRadius);
     body.setAttribute("aria-busy", "true");
     imageEntry(path).promise.then((loaded) => {
       // A load dropped or failed after the slider moved on shows nothing; a
@@ -501,7 +973,13 @@ function renderSampleGroup(group, shownBody) {
     body.replaceChildren();
     body.append(sampleVersion(group, version));
   }
-  show(index);
+  state.sampleControllers.set(group.key, {
+    group,
+    currentIndex: () => index,
+    setIndex,
+    userStepTo,
+  });
+  show(index, groupIndex === 0 ? IMAGE_PREFETCH : 2);
   return li;
 }
 // Decoded sample images by URL, least recently used first. Scrubbing swaps in
@@ -541,11 +1019,11 @@ function imageEntry(path, pixels = 0) {
   }
   return entry;
 }
-function prefetchImages(group, index) {
+function prefetchImages(group, index, radius = IMAGE_PREFETCH) {
   // The chosen picture first, then its neighbours nearest first. Queued loads
   // this card no longer wants are dropped before they start.
   const wanted = [];
-  for (let offset = 0; offset <= IMAGE_PREFETCH; offset++)
+  for (let offset = 0; offset <= radius; offset++)
     for (const at of offset ? [index + offset, index - offset] : [index]) {
       const version = group.versions[at];
       const path = version && gridImagePath(version);
@@ -661,6 +1139,7 @@ function sampleVersion(group, { id, artifact, tensor }) {
     image.decoding = "async";
     if (image.getAttribute("src") !== path) image.src = path;
     if (!cached) adoptImage(path, image, artifact.width * artifact.height);
+    image.onclick = () => openLightbox(group.key);
     image.onerror = () => {
       const error = document.createElement("p");
       error.textContent = "Image unavailable or removed by preview retention.";
@@ -668,6 +1147,12 @@ function sampleVersion(group, { id, artifact, tensor }) {
     };
     fragment.append(image);
     download.download = "grid.png";
+    const zoomBtn = document.createElement("button");
+    zoomBtn.type = "button";
+    zoomBtn.className = "text-button sample-zoom";
+    zoomBtn.textContent = "Zoom";
+    zoomBtn.addEventListener("click", () => openLightbox(group.key));
+    controls.append(zoomBtn);
     if (tensor) {
       controls.append(rawTensorLink(tensor));
       fragment.append(
@@ -702,6 +1187,7 @@ function sampleVersion(group, { id, artifact, tensor }) {
     );
   if (previewable) {
     const button = document.createElement("button");
+    button.type = "button";
     button.className = "secondary";
     button.textContent = "Preview numbers";
     const preview = document.createElement("pre");
@@ -799,25 +1285,14 @@ async function numericalPreview(path, shape) {
     throw new Error("Artifact values differ from its shape.");
   return `${flat.slice(0, 128).map(String).join(", ")}${flat.length > 128 ? `\nShowing 128 of ${flat.length} values.` : ""}`;
 }
-function defaults() {
-  const preferred = [
-    "loss/g_total",
-    "loss/d_total",
-    "loss/gradient_penalty",
-    "loss/prior_regularizer",
-    "diversity/generated_rms",
-    "diversity/ratio",
-    "diversity/pooled4_ratio",
-    "throughput/steps_per_second",
-  ];
-  return preferred.filter((id) => id in state.catalog.metrics).slice(0, 8);
-}
 function renderCatalog() {
   const search = $("search").value.toLowerCase();
-  $("metric-count").textContent = Object.values(metricDefinitions()).filter(d => d.scope !== "snapshot" && d.kind === "scalar").length;
+  $("metric-count").textContent = Object.values(metricDefinitions()).filter(
+    (d) => isScalarTrainingMetric(d),
+  ).length;
   $("metric-list").replaceChildren();
   for (const [id, definition] of Object.entries(metricDefinitions())) {
-    if (definition.scope === "snapshot" || definition.kind !== "scalar") continue;
+    if (!isScalarTrainingMetric(definition)) continue;
     if (!`${id} ${definition.label}`.toLowerCase().includes(search)) continue;
     const label = document.createElement("label");
     label.className = "metric-option";
@@ -828,12 +1303,14 @@ function renderCatalog() {
     input.value = id;
     input.setAttribute("aria-label", definition.label || id);
     input.addEventListener("change", () => {
-      if (input.checked && state.selected.size >= 8) {
+      if (input.checked && state.selected.size >= MAX_CHART_SERIES) {
         input.checked = false;
         notice("Choose at most 8 metrics for this view.");
         return;
       }
       input.checked ? state.selected.add(id) : state.selected.delete(id);
+      updatePresetButtons();
+      syncUrlState();
       reconfigure();
     });
     const text = document.createElement("span");
@@ -844,6 +1321,7 @@ function renderCatalog() {
     label.append(input, text);
     $("metric-list").append(label);
   }
+  updatePresetButtons();
 }
 async function metadata(expectedEpoch = state.epoch) {
   const [run, catalog, views] = await Promise.all([
@@ -855,16 +1333,20 @@ async function metadata(expectedEpoch = state.epoch) {
   updateRun(run.data);
   state.catalog = catalog.data;
   evaluations.update(state.catalog, state.run);
+  syncEvaluationsJumpAndFid();
   state.map = views.data.map_revision;
-  evaluations.refresh(views.data.streams || []).catch(error => notice(error.message));
+  evaluations
+    .refresh(views.data.streams || [])
+    .then(() => syncEvaluationsJumpAndFid())
+    .catch((error) => notice(error.message));
   if (views.data.discovery_error) notice(views.data.discovery_error);
   state.selected = new Set(
-    [...state.selected].filter((id) => metricDefinitions()[id]?.kind === "scalar" && metricDefinitions()[id]?.scope !== "snapshot"),
+    [...state.selected].filter((id) => isScalarTrainingMetric(metricDefinitions()[id])),
   );
   renderCatalog();
-  // A new attempt may carry a new configuration; reload only what is showing.
+  // Always populate the inline Model & configuration section eagerly.
   model.invalidate();
-  if (activeTab() === "model") model.load().catch((error) => notice(error.message));
+  model.load().catch((error) => notice(error.message));
   await refreshArtifacts();
 }
 function resolveRunId(fallbackRunId) {
@@ -882,14 +1364,31 @@ async function connect() {
     waitForRun();
     return;
   }
+  const initialSearch = location.search;
   const run = await api(`/runs/${encodeURIComponent(runId)}`);
   updateRun(run.data);
   await metadata();
-  state.selected = new Set(defaults());
+  const parsedView = parseViewQuery(initialSearch, metricDefinitions());
+  state.selected = new Set(parsedView.selected);
+  state.stepFrom = parsedView.stepFrom;
+  state.stepTo = parsedView.stepTo;
+  if ($("scale")) $("scale").value = parsedView.scale;
+  if ($("smoothing")) $("smoothing").value = parsedView.smooth;
+  if ($("step-from")) {
+    $("step-from").value = parsedView.stepFrom === null ? "" : String(parsedView.stepFrom);
+  }
+  if ($("step-to")) {
+    $("step-to").value = parsedView.stepTo === null ? "" : String(parsedView.stepTo);
+  }
+  state.urlSyncReady = true;
   renderCatalog();
   $("login").hidden = true;
   $("workspace").hidden = false;
-  if (location.hash === "#model") selectTab("model", { remember: false });
+  if (location.hash === "#model" || location.hash === "#model-section") {
+    requestAnimationFrame(() =>
+      $("model-section")?.scrollIntoView({ block: "start" }),
+    );
+  }
   state.bucket = initialBucket(state.run.steps);
   await reconfigure();
 }
@@ -919,7 +1418,7 @@ function waitForRun() {
 }
 function requestPath() {
   const params = new URLSearchParams({
-    series: trainingSelection().sort().join(","),
+    series: viewSelection().sort().join(","),
     bucket_steps: String(state.bucket),
   });
   if (state.stepFrom !== null) params.set("step_from", state.stepFrom);
@@ -949,7 +1448,7 @@ async function reconfigure({ coarser = false } = {}) {
   render();
   $("coverage").textContent = "Preparing bounded history…";
   connection("Loading history…");
-  if (!trainingSelection().length) {
+  if (!viewSelection().length) {
     $("coverage").textContent = "No metrics selected";
     openStream(epoch);
     return;
@@ -973,7 +1472,7 @@ async function loadBootstrap(epoch) {
     const result = await state.worker.call({
       op: "bootstrap",
       bootstrap,
-      selected: trainingSelection(),
+      selected: viewSelection(),
       stepFrom: state.stepFrom,
       stepTo: state.stepTo,
     });
@@ -1043,7 +1542,7 @@ function openStream(epoch) {
   const query = new URLSearchParams({ stream_id: `projection:${state.map}` });
   if (state.cursor) query.set("cursor", state.cursor);
   const stream = new EventSource(`/api/v1${base()}/stream?${query}`);
-  const controlsOnly = trainingSelection().length === 0;
+  const controlsOnly = viewSelection().length === 0;
   state.stream = stream;
   stream.onopen = () => {
     if (epoch === state.epoch && (state.ready || controlsOnly))
@@ -1060,10 +1559,15 @@ function openStream(epoch) {
       try {
         const data = parse(event);
         if (data.run) updateRun(data.run);
-        if (name === "ready") api(`${base()}/views`).then(result => evaluations.refresh(result.data.streams || [])).catch(error => notice(error.message));
+        if (name === "ready") {
+          api(`${base()}/views`)
+            .then((result) => evaluations.refresh(result.data.streams || []))
+            .then(() => syncEvaluationsJumpAndFid())
+            .catch((error) => notice(error.message));
+        }
         if (name === "ready") {
           state.retries = 0;
-          refreshArtifacts().catch(error => notice(error.message));
+          refreshArtifacts().catch((error) => notice(error.message));
         }
         if (state.ready || controlsOnly) connection("Live stream", "live");
         else if (name === "ready") loadBootstrap(epoch);
@@ -1078,10 +1582,21 @@ function openStream(epoch) {
   });
   stream.addEventListener("metadata", () => refreshMetadata(epoch));
   stream.addEventListener("stream_added", () => {
-    if (epoch === state.epoch) api(`${base()}/views`).then(result => evaluations.refresh(result.data.streams || [])).catch(error => notice(error.message));
+    if (epoch === state.epoch) {
+      api(`${base()}/views`)
+        .then((result) => evaluations.refresh(result.data.streams || []))
+        .then(() => syncEvaluationsJumpAndFid())
+        .catch((error) => notice(error.message));
+    }
   });
-  stream.addEventListener("discovery_error", event => {
-    if (epoch === state.epoch) { try { notice(parse(event).reason); } catch (error) { notice(error.message); } }
+  stream.addEventListener("discovery_error", (event) => {
+    if (epoch === state.epoch) {
+      try {
+        notice(parse(event).reason);
+      } catch (error) {
+        notice(error.message);
+      }
+    }
   });
   stream.addEventListener("artifacts", () => {
     if (epoch === state.epoch)
@@ -1140,7 +1655,9 @@ function openStream(epoch) {
         if (result.latestStep !== null && result.latestStep !== undefined) {
           state.run.steps = Math.max(state.run.steps || 0, result.latestStep);
           evaluations.update(state.catalog, state.run);
+          syncEvaluationsJumpAndFid();
           $("step").textContent = fmt(state.run.steps);
+          updateTotalStepsSubtext(state.run, isRunActive(state.run));
         }
         scheduleRender();
       })
@@ -1196,10 +1713,11 @@ function markViewUpdated() {
     `View updated ${new Date().toLocaleTimeString()}`;
 }
 function partitions() {
+  const allowed = new Set(viewSelection());
   const result = new Map();
   for (const group of state.groups.values()) {
     const [metric, definition, attempt] = group.key;
-    if (!state.selected.has(metric)) continue;
+    if (!allowed.has(metric)) continue;
     const id = JSON.stringify([metric, definition, attempt]);
     if (!result.has(id))
       result.set(id, { metric, definition, attempt, points: new Map() });
@@ -1283,7 +1801,7 @@ function render() {
       series.push({
         name,
         type: "line",
-        showSymbol: raw.filter(point => point[1] !== null).length === 1,
+        showSymbol: raw.filter((point) => point[1] !== null).length === 1,
         symbolSize: 6,
         connectNulls: false,
         data: raw,
@@ -1295,7 +1813,7 @@ function render() {
         series.push({
           name: `${name} · EMA`,
           type: "line",
-          showSymbol: smooth.filter(point => point[1] !== null).length === 1,
+          showSymbol: smooth.filter((point) => point[1] !== null).length === 1,
           symbolSize: 6,
           data: smooth,
           lineStyle: { width: 2 },
@@ -1326,9 +1844,11 @@ function render() {
     card.chart.setOption(chartOptions(series, $("scale").value === "symlog"), true);
   }
   const metricOrder = [...state.selected];
-  const rows = [...$("values-table").children].sort((a, b) =>
-    metricOrder.indexOf(a.dataset.metric) - metricOrder.indexOf(b.dataset.metric) ||
-    Number(a.dataset.step) - Number(b.dataset.step));
+  const rows = [...$("values-table").children].sort(
+    (a, b) =>
+      metricOrder.indexOf(a.dataset.metric) - metricOrder.indexOf(b.dataset.metric) ||
+      Number(a.dataset.step) - Number(b.dataset.step),
+  );
   $("values-table").replaceChildren(...rows);
   for (const [metric, card] of state.charts)
     if (!active.has(metric)) {
@@ -1336,7 +1856,9 @@ function render() {
       card.element.remove();
       state.charts.delete(metric);
     }
-  $("empty").hidden = parts.some((part) => part.points.length > 0);
+  $("empty").hidden = parts.some(
+    (part) => state.selected.has(part.metric) && part.points.length > 0,
+  );
   for (const [metric, prefix] of [
     ["loss/g_total", "g"],
     ["loss/d_total", "d"],
@@ -1353,9 +1875,18 @@ function render() {
       : "No published value";
   }
 }
+
 new ResizeObserver(() => {
   for (const card of state.charts.values()) card.chart.resize();
 }).observe($("charts"));
+
+if ($("evaluations")) {
+  new MutationObserver(() => syncEvaluationsJumpAndFid()).observe(
+    $("evaluations"),
+    { attributes: true, attributeFilter: ["hidden"], childList: true, subtree: true },
+  );
+}
+
 $("copy-run-id").addEventListener("click", async () => {
   const code = $("run-id");
   const value = code.textContent;
@@ -1375,14 +1906,29 @@ $("copy-run-id").addEventListener("click", async () => {
     $("run-id-status").textContent = "Selected — press Ctrl+C to copy";
   }
 });
-for (const tab of TABS) $(`tab-${tab}`).addEventListener("click", () => selectTab(tab));
-$("tab-metrics").parentElement.addEventListener("keydown", (event) => {
-  const index = TABS.indexOf(activeTab());
-  const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: TABS.length - 1 }[event.key];
-  if (next === undefined) return;
-  event.preventDefault();
-  selectTab(TABS[(next + TABS.length) % TABS.length], { focus: true });
-});
+
+if ($("section-nav")) {
+  $("section-nav").addEventListener("click", (event) => {
+    const link = event.target.closest("a[href^='#']");
+    if (!link) return;
+    const hash = link.getAttribute("href");
+    const target = $(hash.slice(1));
+    if (!target || target.hidden) return;
+    event.preventDefault();
+    try {
+      history.replaceState(null, "", `${location.pathname}${location.search}${hash}`);
+    } catch {}
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+if ($("dismiss-health-alerts")) {
+  $("dismiss-health-alerts").addEventListener("click", () => {
+    for (const alert of state.currentAlerts) state.dismissedAlerts.add(alert);
+    if ($("health-alerts")) $("health-alerts").hidden = true;
+  });
+}
+
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const token = $("token").value;
@@ -1402,30 +1948,48 @@ $("login-form").addEventListener("submit", async (event) => {
 $("search").addEventListener("input", () => {
   if (state.catalog) renderCatalog();
 });
-$("select-defaults").onclick = () => {
-  state.selected = new Set(defaults());
+
+function applyPreset(presetName) {
+  state.selected = new Set(presetMetrics(presetName, metricDefinitions()));
   renderCatalog();
+  syncUrlState();
   reconfigure();
-};
+}
+$("select-defaults").onclick = () => applyPreset("defaults");
+if ($("preset-losses")) $("preset-losses").onclick = () => applyPreset("losses");
+if ($("preset-health")) $("preset-health").onclick = () => applyPreset("health");
+if ($("preset-diversity")) $("preset-diversity").onclick = () => applyPreset("diversity");
 $("select-none").onclick = () => {
   state.selected.clear();
   renderCatalog();
+  syncUrlState();
   reconfigure();
 };
-$("scale").onchange = render;
-$("smoothing").onchange = render;
+
+$("scale").onchange = () => {
+  syncUrlState();
+  render();
+};
+$("smoothing").onchange = () => {
+  syncUrlState();
+  render();
+};
 $("reconnect").onclick = () =>
   state.run
     ? refreshMetadata(state.epoch)
     : connect().catch((error) => notice(error.message));
+
 if ($("action-sample")) {
   $("action-sample").onclick = async () => {
     const btn = $("action-sample");
     btn.disabled = true;
     btn.textContent = "Sample…";
     try {
-      await api(`${base()}/sample`, { method: "POST" });
+      const { data } = await api(`${base()}/sample`, { method: "POST" });
       notice("Sample requested at next update boundary.");
+      if (typeof data?.request_id === "string") {
+        pollRequestReceipt("sample", data.request_id);
+      }
       await refreshArtifacts();
     } catch (err) {
       notice(`Sample request failed: ${err.message}`);
@@ -1441,8 +2005,11 @@ if ($("action-checkpoint")) {
     btn.disabled = true;
     btn.textContent = "Checkpoint…";
     try {
-      await api(`${base()}/checkpoint`, { method: "POST" });
+      const { data } = await api(`${base()}/checkpoint`, { method: "POST" });
       notice("Checkpoint requested at next update boundary.");
+      if (typeof data?.request_id === "string") {
+        pollRequestReceipt("checkpoint", data.request_id);
+      }
     } catch (err) {
       notice(`Checkpoint request failed: ${err.message}`);
     } finally {
@@ -1451,6 +2018,72 @@ if ($("action-checkpoint")) {
     }
   };
 }
+if ($("action-stop-cancel")) {
+  $("action-stop-cancel").onclick = () => disarmStop();
+}
+if ($("action-stop")) {
+  $("action-stop").onclick = async () => {
+    const btn = $("action-stop");
+    if (btn.dataset.armed !== "true") {
+      armStop();
+      return;
+    }
+    disarmStop();
+    btn.disabled = true;
+    btn.textContent = "Stopping…";
+    try {
+      const { data } = await api(`${base()}/stop`, { method: "POST" });
+      notice("Stop requested at next update boundary…");
+      if (typeof data?.request_id === "string") {
+        pollRequestReceipt("stop", data.request_id);
+      }
+    } catch (err) {
+      notice(`Stop request failed: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+      if (!state.stopArmed) btn.textContent = "Stop";
+    }
+  };
+}
+
+if ($("toggle-pixelated")) {
+  $("toggle-pixelated").addEventListener("click", () => {
+    state.pixelated = !state.pixelated;
+    const btn = $("toggle-pixelated");
+    btn.setAttribute("aria-pressed", String(state.pixelated));
+    btn.textContent = state.pixelated ? "Pixels: Crisp" : "Pixels: Smooth";
+    $("artifacts")?.classList.toggle("pixelated", state.pixelated);
+    $("sample-lightbox")?.classList.toggle("pixelated", state.pixelated);
+  });
+}
+
+if ($("lightbox-prev")) {
+  $("lightbox-prev").addEventListener("click", () => stepLightbox(-1));
+}
+if ($("lightbox-next")) {
+  $("lightbox-next").addEventListener("click", () => stepLightbox(1));
+}
+if ($("lightbox-close")) {
+  $("lightbox-close").addEventListener("click", () =>
+    $("sample-lightbox")?.close(),
+  );
+}
+if ($("sample-lightbox")) {
+  const lightbox = $("sample-lightbox");
+  lightbox.addEventListener("click", (event) => {
+    if (event.target === lightbox) lightbox.close();
+  });
+  lightbox.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      stepLightbox(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      stepLightbox(1);
+    }
+  });
+}
+
 $("apply-range").onclick = () => {
   const from = $("step-from").value,
     to = $("step-to").value;
@@ -1466,9 +2099,13 @@ $("apply-range").onclick = () => {
     return;
   }
   [state.stepFrom, state.stepTo] = parsed;
+  syncUrlState();
   reconfigure();
 };
 window.addEventListener("pagehide", () => {
+  state.pageHidden = true;
+  clearReceiptPolls();
+  disarmStop();
   stopStream();
   state.worker?.close();
 });

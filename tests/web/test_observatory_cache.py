@@ -446,8 +446,8 @@ def test_api_runs_and_live_stop_checkpoint_endpoints_and_ui(tmp_path, monkeypatc
         assert '<script src="/assets/runs.js" defer></script>' in html_text
         assert client.get('/assets/runs.js').status_code == 200
 
-        # 6. GET /runs/<id> contains '← All Runs' link back to '/'
+        # 6. GET /runs/<id> uses the brand link back to '/' without redundant '← All Runs'
         detail_res = client.get("/runs/run_live")
         assert detail_res.status_code == 200
-        assert "← All Runs" in detail_res.text
+        assert "← All Runs" not in detail_res.text
         assert 'href="/"' in detail_res.text

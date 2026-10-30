@@ -16,7 +16,6 @@
         ><img class="brand-mark" src="/assets/logo.png" width="30" height="30" alt="" />HYPERGAN<span class="brand-separator"
           >/</span
         ><span class="brand-detail">EXPERIMENTS</span></a
-      ><a class="nav-all-runs text-link" href="/">← All Runs</a
       ><span id="connection" class="connection" role="status"
         ><i></i>Not connected</span
       >
@@ -52,6 +51,9 @@
           <h1 id="run-name">Experiment</h1>
           <p class="run-subtitle">
             <span id="run-status" class="badge" data-status="unknown">Loading</span>
+            <span id="run-topology-pill" class="meta-pill" hidden></span>
+            <span id="run-batch-pill" class="meta-pill" hidden></span>
+            <span id="run-host-pill" class="meta-pill" hidden></span>
           </p>
           <p class="run-identity">
             <span>Run id</span><code id="run-id"></code
@@ -64,13 +66,22 @@
         <div class="heading-actions">
           <button id="action-sample" class="secondary" type="button" hidden>Sample</button>
           <button id="action-checkpoint" class="secondary" type="button" hidden>Checkpoint</button>
-          <button id="reconnect" class="secondary">Reconnect</button
+          <button id="action-stop" class="secondary danger-button" type="button" hidden>Stop</button>
+          <button id="action-stop-cancel" class="text-button" type="button" hidden>Cancel</button>
+          <button id="reconnect" class="secondary" type="button">Reconnect</button
           ><a id="raw-events" class="text-link" target="_blank" rel="noopener"
             >Raw events ↗</a
           >
         </div>
       </section>
       <div id="notice" class="notice" role="status" hidden></div>
+      <section id="health-alerts" class="health-alerts" role="region" aria-label="Training health alerts" hidden>
+        <div class="health-alerts-header">
+          <strong>Training health &amp; runtime alerts</strong>
+          <button id="dismiss-health-alerts" class="text-button" type="button">Dismiss</button>
+        </div>
+        <ul id="health-alerts-list"></ul>
+      </section>
       <section class="stats" aria-label="Run summary">
         <article>
           <span>Completed step</span><strong id="step">—</strong
@@ -78,15 +89,23 @@
         </article>
         <article>
           <span>Steps per second</span><strong id="steps-per-second">—</strong
-          ><small>Average of recent updates</small>
+          ><small id="steps-rate-note">Average of recent updates</small>
         </article>
         <article>
-          <span>Time training</span><strong id="training-time">—</strong
-          ><small>Wall clock across attempts</small>
+          <span>Samples per second</span><strong id="samples-per-second">—</strong
+          ><small id="samples-rate-note">Steps/s × global batch</small>
+        </article>
+        <article>
+          <span>Batch &amp; topology</span><strong id="batch-size">—</strong
+          ><small id="batch-topology">Device &amp; per-rank split</small>
         </article>
         <article>
           <span>Samples seen</span><strong id="samples-seen">—</strong
           ><small id="samples-batch">Updates × global batch</small>
+        </article>
+        <article>
+          <span>Time training</span><strong id="training-time">—</strong
+          ><small>Wall clock across attempts</small>
         </article>
         <article>
           <span>Durable checkpoint</span><strong id="durable">—</strong
@@ -100,14 +119,18 @@
           <span>Discriminator loss</span><strong id="d-loss">—</strong
           ><small id="d-step">No published value</small>
         </article>
+        <article>
+          <span>Best FID</span><strong id="best-fid">—</strong
+          ><small id="fid-detail">Snapshot quality</small>
+        </article>
       </section>
-      <nav class="tabs" role="tablist" aria-label="Workspace views">
-        <button id="tab-metrics" class="tab" type="button" role="tab" aria-selected="true"
-          aria-controls="panel-metrics">Metrics</button
-        ><button id="tab-model" class="tab" type="button" role="tab" aria-selected="false"
-          aria-controls="panel-model" tabindex="-1">Model</button>
+      <nav id="section-nav" class="section-nav" aria-label="Experiment sections">
+        <a href="#learning-curves">Learning curves</a>
+        <a href="#evaluations" id="jump-evaluations" hidden>Snapshot evaluations</a>
+        <a href="#artifacts">Samples &amp; artifacts</a>
+        <a href="#model-section">Model &amp; configuration</a>
       </nav>
-      <div id="panel-metrics" class="workspace-grid" role="tabpanel" aria-labelledby="tab-metrics">
+      <div id="learning-curves" class="workspace-grid">
         <aside class="catalog">
           <div class="section-title">
             <h2>Metrics</h2>
@@ -121,9 +144,12 @@
               placeholder="Find a metric…"
               autocomplete="off"
           /></label>
-          <div class="catalog-actions">
-            <button id="select-defaults" class="text-button">Defaults</button
-            ><button id="select-none" class="text-button">Clear</button>
+          <div class="catalog-actions" role="group" aria-label="Metric presets">
+            <button id="select-defaults" class="preset-button" type="button" aria-pressed="false">Defaults</button
+            ><button id="preset-losses" class="preset-button" type="button" aria-pressed="false">Losses</button
+            ><button id="preset-health" class="preset-button" type="button" title="Health &amp; Gradients" aria-pressed="false">Health</button
+            ><button id="preset-diversity" class="preset-button" type="button" aria-pressed="false">Diversity</button
+            ><button id="select-none" class="preset-button preset-clear" type="button">Clear</button>
           </div>
           <div id="metric-list"></div>
           <p class="catalog-hint">
@@ -165,7 +191,7 @@
                 min="0"
                 step="1"
                 placeholder="Live" /></label
-            ><button id="apply-range" class="secondary">Apply range</button
+            ><button id="apply-range" class="secondary" type="button">Apply range</button
             ><span id="bucket-label">1 step / bucket</span>
           </div>
           <div id="charts" class="charts"></div>
@@ -197,31 +223,68 @@
               </table>
             </div>
           </details>
-          <section id="evaluations" class="evaluation-list" aria-label="Snapshot evaluations" hidden>
+        </section>
+      </div>
+      <section id="evaluations" class="evaluation-list full-section" aria-label="Snapshot evaluations" hidden>
+        <div class="section-toolbar">
+          <div>
             <h2>Snapshot evaluations</h2>
             <p>Independent measurements of a saved model. Each result retains its source step and protocol.</p>
-            <p id="evaluation-unscheduled" class="evaluation-unscheduled" role="status" hidden></p>
-            <ul id="evaluation-items" aria-label="Snapshot metrics"></ul>
-          </section>
-          <section id="artifacts" class="artifact-list">
-            <h2>Samples & artifacts</h2>
+          </div>
+        </div>
+        <p id="evaluation-unscheduled" class="evaluation-unscheduled" role="status" hidden></p>
+        <ul id="evaluation-items" aria-label="Snapshot metrics"></ul>
+      </section>
+      <section id="artifacts" class="artifact-list full-section pixelated" aria-label="Samples and artifacts">
+        <div class="section-toolbar">
+          <div>
+            <h2>Samples &amp; artifacts</h2>
             <p>Samples are grouped by name (<code>g</code> generated, <code>x</code> real). Each
               image name shows its most recent version; drag its history slider to step back.
               The raw generator output behind a grid is a download on that same card; runs
               without images keep it as a card of numbers.
               Artifacts are separate from metric measurements.</p>
-            <div id="sample-empty" class="empty-state" hidden>
-              <h3 id="sample-empty-title">No samples generated yet</h3>
-              <p id="sample-empty-description">Waiting for the first sample cadence, or click 'Sample' in the header to request an immediate preview.</p>
-            </div>
-            <ul id="artifact-items"></ul>
-          </section>
-        </section>
-      </div>
-      <section id="panel-model" class="model-panel" role="tabpanel" aria-labelledby="tab-model" tabindex="-1" hidden>
+          </div>
+          <div class="sample-workbench-controls">
+            <label class="toggle-pill"><input id="sync-samples" type="checkbox" checked /> Sync steps</label>
+            <button id="toggle-pixelated" class="secondary small-button" type="button" aria-pressed="true">Pixels: Crisp</button>
+          </div>
+        </div>
+        <div id="sample-empty" class="empty-state" hidden>
+          <h3 id="sample-empty-title">No samples generated yet</h3>
+          <p id="sample-empty-description">Waiting for the first sample cadence, or click 'Sample' in the header to request an immediate preview.</p>
+        </div>
+        <ul id="artifact-items"></ul>
+      </section>
+      <section id="model-section" class="model-panel full-section" aria-label="Model and configuration">
+        <span id="model" class="anchor-alias" aria-hidden="true"></span>
+        <div class="section-toolbar">
+          <div>
+            <h2>Model &amp; configuration</h2>
+            <p>Recorded ParticleGAN formulation, network graphs, loss terms, optimizers, and runtime configuration.</p>
+          </div>
+        </div>
         <p id="model-status" class="model-status" role="status" hidden></p>
         <div id="model-content"></div>
       </section>
+      <dialog id="sample-lightbox" class="sample-lightbox pixelated" aria-label="Sample preview zoom">
+        <div class="lightbox-frame">
+          <div class="lightbox-header">
+            <div class="lightbox-title">
+              <strong id="lightbox-name" class="sample-name"></strong>
+              <span id="lightbox-caption"></span>
+            </div>
+            <div class="lightbox-actions">
+              <button id="lightbox-prev" class="secondary small-button" type="button">← Prev</button>
+              <button id="lightbox-next" class="secondary small-button" type="button">Next →</button>
+              <button id="lightbox-close" class="secondary small-button" type="button">Close</button>
+            </div>
+          </div>
+          <div class="lightbox-stage">
+            <img id="lightbox-image" class="lightbox-image" alt="" />
+          </div>
+        </div>
+      </dialog>
       <footer>
         <span>HyperGAN · Local experiment workspace</span
         ><span id="stream-position">Waiting for stream</span>

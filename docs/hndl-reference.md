@@ -144,9 +144,10 @@ Transformer attention blocks, positional embeddings, and state-space layers.
 59. **`pool_tokens(mode='mean')`**: Reduces sequence length via mean, max, or attention pooling.
 60. **`pos_embed(dim, max_len=1024)`**: Learnable 1D additive positional embeddings.
 61. **`rope(dim)`**: Rotary Position Embedding applied to query/key tensors.
-62. **`sinusoidal_embed(dim, max_period=10000)`**: Fixed sinusoidal positional encodings.
-63. **`swiglu(dim)`**: Swish-Gated Linear Unit feed-forward block.
-64. **`transformer_block(heads=8, mlp_ratio=4.0)`**: Complete transformer layer (norm, attention, residual, FFN).
+62. **`rope_2d(dim, height=None, width=None)`**: 2D Rotary Position Embedding applying sinusoidal frequency rotations across spatial height and width axes in vision transformers.
+63. **`sinusoidal_embed(dim, max_period=10000)`**: Fixed sinusoidal positional encodings.
+64. **`swiglu(dim)`**: Swish-Gated Linear Unit feed-forward block ($x \cdot \text{sigmoid}(\beta x) \otimes W_g x$).
+65. **`transformer_block(heads=8, mlp_ratio=4.0)`**: Complete transformer layer (norm, attention, residual, FFN).
 
 ### 2.10 Shape & Layout Operators (10)
 
@@ -216,3 +217,82 @@ transformer_block(heads=4, mlp_ratio=2.0)
 pool_tokens(mode="mean")
 linear(1)
 ```
+
+### 3.3 Conditional U-Net Colorizer with RoPE + SwiGLU Attention
+```hndl
+# Input: ['B', 1, 64, 64] -> Output: ['B', 3, 64, 64]
+# Encoder
+c1 = conv(64, kernel=3, padding=1)
+h1 = relu(c1)
+c2 = conv(128, kernel=4, stride=2, padding=1, x=h1)
+h2 = group_norm(32, x=c2)
+
+# Bottleneck with SwiGLU & 2D RoPE
+b1 = swiglu(128, x=h2)
+b2 = rope_2d(128, height=32, width=32, x=b1)
+
+# Decoder with skip-connection
+u1 = deconv(64, kernel=4, stride=2, padding=1, x=b2)
+u1_cat = concat([u1, h1], dim=1)
+out = conv(3, kernel=3, padding=1, x=u1_cat)
+tanh(out)
+```
+
+---
+
+## 4. Formal Grammar & Shape Inference
+
+### 4.1 EBNF Grammar Specification
+
+HNDL programs follow a clean, pythonic grammar:
+
+```ebnf
+program         = { statement ( "\n" | ";" ) } ;
+statement       = [ assignment | loop | expr ] ;
+assignment      = IDENTIFIER "=" expr ;
+loop            = "for" IDENTIFIER "in" "range(" INTEGER ")" ":" NEWLINE INDENT { statement } DEDENT ;
+expr            = call | literal | IDENTIFIER ;
+call            = IDENTIFIER "(" [ arg_list ] ")" ;
+arg_list        = positional_args [ "," keyword_args ] | keyword_args ;
+positional_args = expr { "," expr } ;
+keyword_args    = IDENTIFIER "=" expr { "," IDENTIFIER "=" expr } ;
+literal         = NUMBER | STRING | shape_literal | list_literal ;
+shape_literal   = "[" ( "'B'" | IDENTIFIER | INTEGER ) { "," ( IDENTIFIER | INTEGER ) } "]" ;
+list_literal    = "[" [ expr { "," expr } ] "]" ;
+```
+
+Bounded loops (`for _ in range(N):`) are statically unrolled during AST compilation, suffixing operator node identifiers (`block_0`, `block_1`) to generate deterministic PyTorch module graphs.
+
+### 4.2 Symbolic Dimension Tracking & Shape Propagation
+
+The HNDL compiler propagates symbolic dimensions through graph AST nodes:
+- `'B'`: Dynamic batch size dimension.
+- `'H'`, `'W'`: Spatial height and width dimensions.
+- `'C'`: Channel depth dimension.
+- `'S'`: Sequence or token length dimension.
+- `'D'`: Embedding / hidden feature dimension.
+
+For spatial convolution and pooling operations, spatial dimensions propagate according to:
+$$O = \left\lfloor \frac{I - K + 2P}{S} \right\rfloor + 1$$
+For transposed convolutions (`deconv`):
+$$O = (I - 1) \cdot S - 2P + K + P_{\text{out}}$$
+For sub-pixel convolutions (`pixel_shuffle(r)`):
+$$(B, C \cdot r^2, H, W) \longrightarrow (B, C, H \cdot r, W \cdot r)$$
+
+Foundation backbone operators (`pretrained(...)`) query static provider shape registries, enabling full offline graph validation and dimension checking without downloading multi-gigabyte weight checkpoints.
+
+---
+
+## 5. Static Error Diagnostics & Code Reference
+
+The HNDL parser and AST resolver perform strict validation before graph instantiation. Errors provide line and column offsets, context snippets, and typo suggestions:
+
+| Error Code | Category | Cause & Resolution |
+| :--- | :--- | :--- |
+| **`E_SYNTAX_ERROR`** | Syntax | Malformed syntax, unmatched parentheses, or illegal tokens. |
+| **`E_UNKNOWN_OPERATOR`** | Lookup | Unregistered operator name. HyperGAN matches against the 85-operator catalog and suggests close spellings via `difflib`. |
+| **`E_SHAPE_MISMATCH`** | Tensor Shape | Operation received a tensor whose rank or dimension violates input constraints (e.g. 2D conv on 1D tensor). |
+| **`E_UNBOUND_INPUT`** | Binding | Graph references a named input port that was not bound in the model file's `inputs` table. |
+| **`E_DIMENSION_MISMATCH`** | Channels | Channel mismatch between adjacent layers (e.g. `linear(128)` followed by `conv(64)` without `reshape`). |
+| **`E_CYCLE_DETECTED`** | Graph AST | Directed cycle detected in named variable assignments. |
+

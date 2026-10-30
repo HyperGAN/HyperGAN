@@ -60,7 +60,7 @@ with torch.no_grad():
     # Returns Tensor [16, 3, 128, 128] normalized in [-1, 1]
     images = generator.sample(count=16, seed=42)
 
-# 2. Sample explicit latent coordinates
+# 2. Sample explicit latent coordinates (accepts seed=... or generator=torch.Generator())
 latents = generator.sample_latents(count=4, seed=123)
 with torch.no_grad():
     images = generator(z=latents)

@@ -24,7 +24,7 @@ checkpoint replay instead of upstream Python RNG.
 
 The configured HNDL operation is:
 
-```python
+```hndl
 x = diff_augment(x, transforms="translation,cutout,color",
     translation_ratio=0.2, cutout_probability=0.3)
 ```

@@ -112,9 +112,18 @@ You can extend HNDL's 85 built-in operators by registering custom operator class
 # my_project/ops.py
 import torch
 import torch.nn as nn
-from hypergan.hndl.registry import operator, registry
+from hndl import Arg, Registry, operator
 
-@operator("custom_squash", category="activation")
+@operator(
+    "custom_squash",
+    summary="Squash activation function.",
+    shape="x[B, ...] -> out[B, ...]",
+    args={
+        "dim": Arg(int, -1, help="Dimension along which to compute norm"),
+        "eps": Arg(float, 1e-8, help="Epsilon for numerical stability"),
+    },
+    category="activation",
+)
 class CustomSquash(nn.Module):
     def __init__(self, dim: int = -1, eps: float = 1e-8):
         super().__init__()
@@ -126,8 +135,8 @@ class CustomSquash(nn.Module):
         scale = (norm ** 2) / (1.0 + norm ** 2)
         return scale * (x / (norm + self.eps))
 
-# Register into the global HNDL operator registry
-registry.add(CustomSquash)
+# Register into the built-in HNDL operator registry
+Registry.builtins().add(CustomSquash)
 ```
 
 Once registered, the operator can be used directly inside any HNDL source or file:

@@ -197,7 +197,7 @@ source_commit = "6876159a11b4df116f30f667f8c9888617df0751"
 
 Inside the `.hndl` file, `pretrained(..., trainable=False)` freezes the backbone weights and keeps BatchNorm/dropout layers in evaluation mode while allowing autograd first and second derivatives to flow back to the candidate image and generator:
 
-```python
+```hndl
 # ResNet-18 single-depth or multiscale feature readout
 pretrained(${weights_path}, provider="torchvision_resnet18",
            sha256=${weights_sha256}, layer="layer3",

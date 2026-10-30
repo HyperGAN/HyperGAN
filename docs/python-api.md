@@ -22,7 +22,7 @@ HyperGAN represents configuration through the immutable `Model` object (wrapping
 ### `hg.load(path_or_str)`
 Loads and lowers a `hypergan-model/1` TOML file:
 ```python
-model = hg.load("configs/cifar.toml")
+model = hg.load("examples/cifar10-transgan.toml")
 ```
 
 ### `hg.packaged(name)` & `hg.packaged_list()`
@@ -53,7 +53,7 @@ hg.save(model, "tuned.toml")
 ## 3. Validation & Introspection
 
 ### `hg.validate(model) -> list[ValidationWarning]`
-Performs structural, shape, and dependency validation:
+Performs structural, shape, and dependency validation, returning a list of `ValidationWarning` objects (which subclass `str` for backward compatibility):
 ```python
 warnings = hg.validate(model)
 for w in warnings:
@@ -76,7 +76,7 @@ ops = hg.operators("norm")  # Finds rms_norm, group_norm, layer_norm, etc.
 
 ## 4. Training & Non-Blocking Execution
 
-### `hg.train(model, run_dir=None, steps=None, devices="cuda", on_event=None) -> TrainResult`
+### `hg.train(model, run_dir=None, steps=None, devices="cuda", on_event=None) -> Run`
 Synchronous training runner. Supports direct device routing (`devices="cuda:0"` or `devices="cpu"`) without altering global `CUDA_VISIBLE_DEVICES`:
 
 ```python
@@ -94,11 +94,12 @@ The `on_event` callback receives real-time event dictionaries. Return `False` or
 
 ```python
 def check_divergence(event):
-    if event.get("type") == "step":
-        d_loss = event.get("loss/d", 0.0)
+    if event.get("event") == "train":
+        metrics = event.get("metrics", {})
+        d_loss = metrics.get("loss_d", 0.0)
         if d_loss > 10.0:
             raise hg.StopTraining("Discriminator exploded")
-        if event.get("step") >= 5000:
+        if event.get("step", 0) >= 5000:
             return False  # Graceful early stop
     return True
 
@@ -112,10 +113,10 @@ Launches training asynchronously in a dedicated worker thread, returning a `RunH
 ```python
 handle = hg.launch(model, run_dir="runs/async_run", steps=20000)
 
-# Check execution status
+# Check execution status (both is_running() and is_alive() are supported)
 print("Running?", handle.is_running())
 
-# Wait with timeout or join
+# Wait with timeout or join (both join() and wait() are supported)
 result = handle.join(timeout=300.0)
 ```
 
@@ -133,7 +134,7 @@ print("Stop reason:", info.stop_reason)
 ```
 
 ### `hg.ps(all_runs=False) -> PsSnapshot`
-Lists active and past runs across the workspace (supports dict protocol and typed properties):
+Lists active and past runs across the workspace (returns `PsSnapshot` supporting both mapping and attribute access on `runs`):
 
 ```python
 ps = hg.ps()
@@ -152,24 +153,25 @@ hg.tag("runs/experiment_1", "baseline_v1")
 
 ## 6. Sampling & Deployment
 
-### `hg.sample(...) -> SampleResult`
+### `hg.sample(...) -> Sample`
 Generates samples from a checkpoint or run directory:
 ```python
-sample_res = hg.sample(
+sample = hg.sample(
     "runs/experiment_1",
     count=16,
     seed=42,
     output="samples/grid.png",
     device="cuda"
 )
+print("Saved sample to:", sample.path)
 ```
 
 ### `hg.export(...)`
 Exports a trained run to a standalone format:
 ```python
-hg.export("runs/experiment_1", "models/gen.pt", format="bundle")
-hg.export("runs/experiment_1", "models/gen.safetensors", format="safetensors")
-hg.export("runs/experiment_1", "models/gen.onnx", format="onnx")
+hg.export("runs/experiment_1", output="models/gen.pt", format="bundle")
+hg.export("runs/experiment_1", output="models/gen.safetensors", format="safetensors")
+hg.export("runs/experiment_1", output="models/gen.onnx", format="onnx")
 ```
 
 ### `hg.load_bundle(...) -> LoadedGenerator`
@@ -184,46 +186,109 @@ walk = generator.interpolate(seed_a=100, seed_b=200, steps=10, mode="slerp")
 
 ## 7. Typed Dataclass Reference
 
-### `TrainResult`
+### `Run`
 ```python
-@dataclass
-class TrainResult:
-    run_dir: str
+@dataclass(frozen=True)
+class Run:
+    path: Path
+    manifest: dict
+    status: Optional[str]
+    step: Optional[int]
+    stop_reason: Optional[str]
+    config: Optional[dict]
+    fingerprint: Optional[str]
     run_id: str
-    step: int
-    summary: dict[str, Any]
-    stop_reason: Optional[str] = None
+    short_id: str
+    name: str
+    slug: str
 ```
 
-### `SampleResult`
+### `RunHandle`
+```python
+class RunHandle:
+    run_dir: Path
+    run: Run
+    run_info: RunInfo
+
+    def is_alive(self) -> bool: ...
+    def is_running(self) -> bool: ...  # Alias for is_alive
+    def wait(self, timeout: Optional[float] = None) -> Run: ...
+    def join(self, timeout: Optional[float] = None) -> Run: ...  # Alias for wait
+    def stop(self, timeout: float = 15.0) -> None: ...
+```
+
+### `ValidationWarning`
 ```python
 @dataclass
-class SampleResult:
-    images: Any              # torch.Tensor or numpy.ndarray
-    output_path: Optional[str] = None
-    count: int = 16
-    seed: int = 42
+class ValidationWarning(str):
+    message: str
+    field: Optional[str] = None
+    level: str = "warning"
 ```
+*(Subclasses `str` for backward compatibility with string-based assertions and formatting).*
 
 ### `RunStatus`
 ```python
 @dataclass
-class RunStatus:
+class RunStatus(dict):
     run_id: str
     status: str              # "running", "completed", "stopped", "failed"
-    step: int
-    total_steps: int
-    duration_seconds: float
-    device: str
-    pid: Optional[int] = None
+    step: Optional[int] = None
+    total_steps: Optional[int] = None
+    percent: Optional[float] = None
+    steps_per_sec: Optional[float] = None
+    eta_seconds: Optional[float] = None
+    devices: str = "cpu"
+    best_metric: Optional[dict[str, Any]] = None
+    recent_checkpoints: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    slug: Optional[str] = None
 ```
+*(Subclasses `dict` with `__getattr__` attribute access for `slug`, `step`, `status`, `device`, `pid`, etc.).*
 
 ### `PsSnapshot`
 ```python
+@dataclass
 class PsSnapshot(dict):
     runs: list[RunStatus]
+    queued: list[dict[str, Any]]
     active_count: int
-    completed_count: int
-    total_count: int
+    total_known: int
 ```
-*(Implements both attribute access and mapping protocol for backward compatibility).*
+*(Implements dictionary mapping protocol, `__len__`, and property aliases `total_count` and `completed_count`).*
+
+### `TrainResult`
+```python
+@dataclass
+class TrainResult:
+    run: Any
+    step: int = 0
+    status: str = "completed"
+    metrics: dict[str, Any] = field(default_factory=dict)
+    checkpoint_path: Optional[Path] = None
+    stop_reason: Optional[str] = None
+    run_dir: str             # Property
+    run_id: str              # Property
+    summary: dict[str, Any]  # Property alias for metrics
+```
+
+### `Sample` & `SampleResult`
+```python
+@dataclass(frozen=True)
+class Sample:
+    step: int
+    name: str
+    data: Optional[Any]      # torch.Tensor
+    inputs: dict[str, Any]
+    path: Path
+    png: Optional[bytes] = None
+
+@dataclass
+class SampleResult:
+    path: Path
+    count: int = 0
+    step: int = 0
+    png: bytes | None = None
+    data: Optional[Any] = None
+    inputs: dict[str, Any] = field(default_factory=dict)
+```

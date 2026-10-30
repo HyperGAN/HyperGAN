@@ -406,89 +406,184 @@ def _render_run_row(r: dict) -> str:
     def escape(value):
         return html.escape(str(value))
 
+    def is_finite_num(value) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and abs(value) != float('inf')
+
+    def format_eta(seconds) -> str:
+        if not is_finite_num(seconds) or seconds <= 0:
+            return ''
+        total_sec = max(1, int(round(seconds)))
+        if total_sec < 60:
+            return f'ETA {total_sec}s'
+        if total_sec < 3600:
+            mins, secs = divmod(total_sec, 60)
+            return f'ETA {mins}m {secs:02d}s'
+        if total_sec < 86400:
+            hours, rem = divmod(total_sec, 3600)
+            mins = rem // 60
+            return f'ETA {hours}h {mins:02d}m'
+        days, rem = divmod(total_sec, 86400)
+        hours = rem // 3600
+        return f'ETA {days}d {hours:02d}h'
+
     run_id = str(r.get('run_id', 'unknown'))
     name = str(r.get('name') or run_id)
-    slug = r.get('slug') or _reg_mod.extract_or_derive_slug(run_id, name=name)
-    short_id = r.get('short_id') or run_id[:8]
+    slug = str(r.get('slug') or _reg_mod.extract_or_derive_slug(run_id, name=name))
+    short_id = str(r.get('short_id') or run_id[:8])
     status = str(r.get('status') or 'unknown').strip().lower()
-    active = bool(r.get('active') or r.get('running') or status == 'running')
-    step = r.get('step') or 0
-    total = r.get('total_steps') or r.get('max_steps') or 0
-    percent = min(100, max(0, int(step / total * 100))) if total > 0 else 0
+    if 'active' in r and r['active'] is not None:
+        active = bool(r['active'])
+    elif 'running' in r and r['running'] is not None:
+        active = bool(r['running'])
+    else:
+        active = status in ('running', 'training', 'initializing', 'starting')
+
+    step = max(0, int(r.get('step') or 0))
+    total = max(0, int(r.get('total_steps') or r.get('max_steps') or 0))
+    percent = min(100, max(0, int(round(step / total * 100)))) if total > 0 else 0
     progress = f'{step:,} / {total:,}' if total > 0 else f'{step:,}'
-    speed = r.get('steps_per_second')
-    speed_text = f'{speed:.1f} it/s' if isinstance(speed, (int, float)) else '—'
+    eta_text = format_eta(r.get('eta_seconds')) if active else ''
+
+    raw_speed = r.get('steps_per_second') if r.get('steps_per_second') is not None else r.get('speed_its')
+    has_active_speed = active and is_finite_num(raw_speed) and raw_speed >= 0
+    raw_samples = r.get('samples_per_second')
+    has_active_samples = has_active_speed and is_finite_num(raw_samples) and raw_samples >= 0
+    if has_active_speed:
+        speed_primary = f'<span class="speed-primary" data-field="speed-primary">{raw_speed:.1f} steps/s</span>'
+    else:
+        speed_primary = '<span class="muted" data-field="speed-primary">—</span>'
+    if has_active_samples:
+        speed_sub = f'<small class="cell-sub" data-field="speed-sub">{raw_samples:.0f} samples/s</small>'
+    else:
+        speed_sub = '<small class="cell-sub" data-field="speed-sub" hidden></small>'
+    speed_cell = f'<td data-label="Speed" data-field="speed">{speed_primary}{speed_sub}</td>'
+
     created = _created_at(r.get('created_at'))
     date_text = datetime.fromisoformat(created).strftime('%b %d, %Y · %H:%M UTC') if created else 'Unknown'
-    url = escape('/runs/' + quote(run_id, safe=''))
+    raw_url = str(r.get('url') or ('/runs/' + quote(run_id, safe='')))
+    url = escape(raw_url)
 
     thumb_url = r.get("thumbnail_url")
     if thumb_url:
-        preview_cell = f'<td data-label="Preview" class="thumbnail-cell"><a href="{url}"><img class="run-thumbnail" src="{escape(thumb_url)}" alt="Preview of {escape(name)}" loading="lazy" width="48" height="48" /></a></td>'
+        preview_cell = (
+            f'<td data-label="Preview" class="thumbnail-cell">'
+            f'<img class="run-thumbnail" src="{escape(thumb_url)}" alt="Preview of {escape(name)}" loading="lazy" width="48" height="48" /></td>'
+        )
     else:
         preview_cell = '<td data-label="Preview" class="thumbnail-cell"><span class="no-thumbnail" title="No previews yet">—</span></td>'
 
-    best_fid = r.get("best_fid") or r.get("fid_best")
-    latest_fid = r.get("latest_fid") or r.get("fid_latest")
-    if isinstance(best_fid, (int, float)):
-        if isinstance(latest_fid, (int, float)) and abs(latest_fid - best_fid) > 0.01:
-            fid_text = f'<span class="best-fid" title="Best FID">{best_fid:.2f}</span> <small class="latest-fid" title="Latest FID">({latest_fid:.2f})</small>'
-        else:
-            fid_text = f'<span class="best-fid" title="Best FID">{best_fid:.2f}</span>'
-    elif isinstance(latest_fid, (int, float)):
-        fid_text = f'<span class="latest-fid" title="Latest FID">{latest_fid:.2f}</span>'
+    topology = r.get('topology') if isinstance(r.get('topology'), dict) else {}
+    topo_primary = ' · '.join(str(p) for p in (topology.get('label'), r.get('batch_label')) if p)
+    topo_sub = ' · '.join(str(p) for p in (topology.get('detail'), r.get('batch_detail')) if p)
+    topo_primary_cls = 'topo-primary' if topo_primary else 'topo-primary muted'
+    topo_sub_hidden = '' if topo_sub else ' hidden'
+    topology_cell = (
+        f'<td data-label="Topology & Batch" data-field="topology">'
+        f'<span class="{topo_primary_cls}" data-field="topology-primary">{escape(topo_primary or "—")}</span>'
+        f'<small class="cell-sub" data-field="topology-sub"{topo_sub_hidden}>{escape(topo_sub)}</small></td>'
+    )
+
+    best_fid = r.get("best_fid") if r.get("best_fid") is not None else r.get("fid_best")
+    latest_fid = r.get("latest_fid") if r.get("latest_fid") is not None else r.get("fid_latest")
+    has_best_fid = is_finite_num(best_fid)
+    has_latest_fid = is_finite_num(latest_fid)
+    sort_fid = best_fid if has_best_fid else (latest_fid if has_latest_fid else None)
+    if has_best_fid:
+        show_latest_sub = has_latest_fid and abs(latest_fid - best_fid) > 0.01
+        sub_text = f'({latest_fid:.2f})' if show_latest_sub else ''
+        sub_hidden = '' if show_latest_sub else ' hidden'
+        fid_text = (
+            f'<span class="best-fid" data-field="fid-primary" title="Best FID">{best_fid:.2f}</span> '
+            f'<small class="latest-fid" data-field="fid-latest" title="Latest FID"{sub_hidden}>{sub_text}</small>'
+        )
+    elif has_latest_fid:
+        fid_text = (
+            f'<span class="latest-fid" data-field="fid-primary" title="Latest FID">{latest_fid:.2f}</span> '
+            '<small class="latest-fid" data-field="fid-latest" title="Latest FID" hidden></small>'
+        )
     else:
-        fid_text = '<span class="no-fid">—</span>'
+        fid_text = (
+            '<span class="no-fid muted" data-field="fid-primary">—</span> '
+            '<small class="latest-fid" data-field="fid-latest" title="Latest FID" hidden></small>'
+        )
     fid_cell = f'<td data-label="FID" data-field="fid">{fid_text}</td>'
 
-    return f'''<tr data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
-      data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}">
-      <td data-label="Run"><a class="run-link" href="{url}">{escape(name)}</a>
-        <div class="run-id-sub"><span class="slug-badge">{escape(slug)}</span>
-          <span class="id-badge" title="{escape(run_id)}">{escape(short_id)}</span></div></td>
+    disk_bytes = r.get('disk_bytes')
+    disk_attr = str(int(disk_bytes)) if (is_finite_num(disk_bytes) and disk_bytes >= 0) else ''
+    fid_attr = str(float(sort_fid)) if sort_fid is not None else ''
+    speed_attr = str(float(raw_speed)) if has_active_speed else ''
+
+    show_host = bool(r.get('remote') and r.get('hostname'))
+    host_name = str(r.get('hostname')) if show_host else ''
+    host_title = f' title="Remote host: {escape(host_name)}"' if show_host else ''
+    host_hidden = '' if show_host else ' hidden'
+    slug_hidden = '' if slug else ' hidden'
+    eta_hidden = '' if eta_text else ' hidden'
+
+    return f'''<tr class="run-row" data-url="{url}" data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
+      data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}"
+      data-fid="{escape(fid_attr)}" data-step="{step}" data-total-steps="{total}"
+      data-speed="{escape(speed_attr)}" data-disk-bytes="{escape(disk_attr)}">
+      <td data-label="Run / Name" class="run-name-cell"><a class="run-link" href="{url}">{escape(name)}</a>
+        <div class="run-id-sub"><span class="slug-badge"{slug_hidden}>{escape(slug)}</span>
+          <span class="id-badge" title="{escape(run_id)}">{escape(short_id)}</span>
+          <span class="host-badge" data-field="host"{host_title}{host_hidden}>{escape(host_name)}</span></div></td>
       {preview_cell}
       <td data-label="Status"><span class="badge" data-status="{escape(status)}">{escape(status)}</span></td>
+      {topology_cell}
       {fid_cell}
       <td data-label="Created at"><time data-field="created" datetime="{escape(created or '')}"
         title="{escape(created or 'Creation time was not recorded')}">{date_text}</time></td>
       <td data-label="Progress"><div class="progress-bar-container"><span data-field="steps">{progress}</span>
         <div class="progress-bar" aria-hidden="true"{'' if total > 0 else ' hidden'}>
-          <div class="progress-fill" style="width: {percent}%"></div></div></div></td>
-      <td data-label="Speed" data-field="speed">{speed_text}</td>
+          <div class="progress-fill" style="width: {percent}%"></div></div>
+        <small class="cell-sub" data-field="eta"{eta_hidden}>{escape(eta_text)}</small></div></td>
+      {speed_cell}
       <td data-label="Disk" data-field="disk">{escape(r.get('disk_formatted') or '—')}</td>
-      <td data-label="Actions"><div class="actions-cell"><a class="btn" href="{url}">Open run →</a>
-        <button type="button" class="btn btn-checkpoint" data-action="checkpoint"{'' if active else ' hidden'}>Checkpoint</button>
-        <button type="button" class="btn btn-sample" data-action="sample"{'' if active else ' hidden'}>Sample</button>
-        <button type="button" class="btn btn-stop" data-action="stop"{'' if active else ' hidden'}>Stop</button>
-      </div></td>
     </tr>'''
 
 
 def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = False) -> str:
     """Dashboard page; with `login` it carries no run data, only the sign-in form."""
-    runs = [] if login else sorted(runs, key=lambda r: (_created_at(r.get('created_at')) or '', str(r.get('run_id', ''))), reverse=True)
+    def _sort_key(r: dict):
+        created_iso = _created_at(r.get('created_at'))
+        ts = -datetime.fromisoformat(created_iso).timestamp() if created_iso else float('inf')
+        run_id_str = str(r.get('run_id', ''))
+        name_str = str(r.get('name') or run_id_str)
+        return (0 if created_iso else 1, ts, name_str, run_id_str)
+
+    runs = [] if login else sorted(runs, key=_sort_key)
     rows = "\n".join(_render_run_row(r) for r in runs)
     root = '' if login else html.escape(str(runs_root))
+    indicator_cls = 'connection' if login else 'connection live'
+    initial_status = 'Sign in to see runs' if login else 'Live · 3s'
     return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HyperGAN Runs — Dashboard</title>
+  <meta name="color-scheme" content="dark">
+  <title>HyperGAN Runs — Observatory</title>
   <link rel="icon" type="image/png" href="/assets/logo.png">
   <link rel="stylesheet" href="/assets/runs.css">
   <script src="/assets/runs.js" defer></script>
 </head>
 <body>
+  <header class="masthead">
+    <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="30" height="30" alt="" />HYPERGAN<span class="brand-separator">/</span><span class="brand-detail">EXPERIMENTS</span></a>
+    <span class="root-path" title="{root}">{root}</span>
+    <span id="live-indicator" class="{indicator_cls}" role="status"><i aria-hidden="true"></i><span id="refresh-status">{initial_status}</span></span>
+  </header>
   <main class="container">
-    <header class="header">
-      <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="28" height="28" alt=""> HYPERGAN</a>
-      <span class="root-path" title="{root}">{root}</span>
-    </header>
-    <div class="page-heading"><div><h1>Training runs</h1>
-      <p>Find an experiment and follow its progress.</p></div>
-      <div class="refresh-controls"><span id="refresh-status" role="status">Updates every 3 seconds</span>
-        <button id="refresh" type="button" class="btn">Refresh</button></div>
+    <div class="page-heading">
+      <div>
+        <span class="eyebrow">WORKSPACE OBSERVATORY</span>
+        <h1>Training runs</h1>
+        <p>Find an experiment and follow its progress.</p>
+      </div>
+      <div class="refresh-controls">
+        <button id="refresh" type="button" class="btn">Refresh</button>
+      </div>
     </div>
     <div class="controls" role="search" aria-label="Find training runs">
       <label class="search-control" for="search">Search runs
@@ -505,6 +600,10 @@ def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = Fa
         <option value="newest">Newest first</option>
         <option value="oldest">Oldest first</option>
         <option value="name">Name A–Z</option>
+        <option value="fid">Best FID (lowest)</option>
+        <option value="progress">Progress (highest)</option>
+        <option value="speed">Speed (fastest active)</option>
+        <option value="disk">Disk usage (largest)</option>
       </select></div>
       <button id="clear-filters" type="button" class="btn" hidden>Clear filters</button>
     </div>
@@ -517,14 +616,21 @@ def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = Fa
       <p id="login-error" role="alert"></p>
     </form>
     <p id="run-count" role="status">{len(runs)} run{'s' if len(runs) != 1 else ''}</p>
-    <p id="action-status" role="status" hidden></p>
     <noscript><p>Enable JavaScript to search, filter, and receive live updates.</p></noscript>
     <div class="table-container">
       <table class="run-table" id="runs-table">
-        <caption class="sr-only">Training runs with creation time, status, and progress</caption>
-        <thead><tr><th scope="col">Run / Name</th><th scope="col">Preview</th><th scope="col">Status</th><th scope="col">FID</th>
-          <th scope="col">Created at <span id="time-zone">(UTC)</span></th><th scope="col">Progress</th>
-          <th scope="col">Speed</th><th scope="col">Disk</th><th scope="col">Actions</th></tr></thead>
+        <caption class="sr-only">Training runs with topology, evaluation FID, creation time, status, and progress</caption>
+        <thead><tr>
+          <th scope="col" data-sort-key="name" aria-sort="none"><button type="button" class="th-sort" data-sort="name">Run / Name</button></th>
+          <th scope="col">Preview</th>
+          <th scope="col">Status</th>
+          <th scope="col">Topology & Batch</th>
+          <th scope="col" data-sort-key="fid" aria-sort="none"><button type="button" class="th-sort" data-sort="fid">FID</button></th>
+          <th scope="col" data-sort-key="newest" aria-sort="descending"><button type="button" class="th-sort" data-sort="newest">Created at <span id="time-zone">(UTC)</span></button></th>
+          <th scope="col" data-sort-key="progress" aria-sort="none"><button type="button" class="th-sort" data-sort="progress">Progress</button></th>
+          <th scope="col" data-sort-key="speed" aria-sort="none"><button type="button" class="th-sort" data-sort="speed">Speed</button></th>
+          <th scope="col" data-sort-key="disk" aria-sort="none"><button type="button" class="th-sort" data-sort="disk">Disk</button></th>
+        </tr></thead>
         <tbody id="runs-body">{rows}</tbody>
       </table>
       <div id="empty-state" class="empty-state"{ ' hidden' if runs else ''}>

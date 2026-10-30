@@ -68,9 +68,12 @@ class ImageFolder:
     names, sorted lexically; flat/recursive unlabelled datasets need no class folders.
     """
 
+    alpha: str = "error"
+    follow_symlinks: bool = False
+
     def __init__(self, root, *, height, width, mode="RGB", resize="none",
                  interpolation="bilinear", fill=0, recursive=True, labels=False,
-                 shuffle=True, alpha="composite_white", follow_symlinks=False,
+                 shuffle=True, alpha="error", follow_symlinks=False,
                  max_pixels=16_777_216, max_file_bytes=67_108_864,
                  workers=4, prefetch_batches=1, manifest_cache=None):
         # manifest_cache: None uses default_manifest_cache(), a path overrides
@@ -347,7 +350,7 @@ class ImageFolder:
     def _read_bytes(self, entry):
         path = self.root / entry["path"]
         try:
-            if not self.follow_symlinks:
+            if not getattr(self, "follow_symlinks", False):
                 # Recheck containment: files/directories may be replaced after preflight.
                 if not path.is_relative_to(self.root) or not path.resolve().is_relative_to(self.root):
                     raise ValueError("symlink or path escape since inventory")
@@ -386,9 +389,10 @@ class ImageFolder:
                 if getattr(image, "n_frames", 1) != 1:
                     raise ValueError("animated/multi-frame images are unsupported; extract one frame explicitly")
 
+                alpha_policy = getattr(self, "alpha", "error")
                 has_alpha = image.mode in {"RGBA", "LA", "PA"} or (image.mode == "P" and "transparency" in getattr(image, "info", {}))
-                if has_alpha and self.alpha == "error":
-                    raise ValueError(f"source mode {image.mode!r} contains alpha channel; alpha='error' is configured")
+                if has_alpha and alpha_policy == "error":
+                    raise ValueError(f"source mode {image.mode!r} contains alpha channel; explicitly convert to RGB or L (composite alpha before loading)")
 
                 image.load()  # Detect truncation during preflight, not deep in training.
                 source = {"source_width": image.width, "source_height": image.height, "source_mode": image.mode}
@@ -396,7 +400,7 @@ class ImageFolder:
                 transposed = self._ops.exif_transpose(image)
                 if has_alpha or transposed.mode in {"RGBA", "LA", "PA"}:
                     rgba = transposed.convert("RGBA")
-                    bg_color = (255, 255, 255, 255) if self.alpha == "composite_white" else (0, 0, 0, 255)
+                    bg_color = (255, 255, 255, 255) if alpha_policy == "composite_white" else (0, 0, 0, 255)
                     background = self._image.new("RGBA", rgba.size, bg_color)
                     result = self._image.alpha_composite(background, rgba).convert(self.mode)
                 elif transposed.mode in {"RGB", "L", "1", "CMYK", "P"}:

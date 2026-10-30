@@ -31,6 +31,8 @@ def _decoder(root, height, width):
     data.height, data.width, data.mode = height, width, 'RGB'
     data.resize, data.interpolation, data.fill = 'pad', 'lanczos', 255
     data.max_pixels, data.max_file_bytes = 16_777_216, 67_108_864
+    data.alpha = 'composite_white'
+    data.follow_symlinks = False
     return data
 
 
@@ -152,6 +154,9 @@ class ColorizationData(ImageFolder):
     ``shuffle=False`` is a finite sequential evaluation pass with no wrapping.
     ``shuffle=True`` traverses fresh permutations, wrapping between epochs.
     """
+    alpha: str = 'composite_white'
+    follow_symlinks: bool = False
+
     def __init__(self, root, manifest, manifest_sha256, split='train', shuffle=True, repeats=1,
                  workers=4, prefetch_batches=1, bad_image_policy='error',
                  max_bad_images=100, max_consecutive_bad_images=8, cache_dir=None):

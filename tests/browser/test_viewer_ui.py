@@ -647,6 +647,10 @@ def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts
             'label': '2 GPUs',
             'detail': '2× RTX A6000',
         },
+        'metric_consistency': {
+            'status': 'caught_up',
+            'committed_step': 2,
+        },
         'health_alerts': ['Evaluator shares cuda:0 with active training rank 0 (VRAM contention risk)'],
     }
     login(page)
@@ -663,8 +667,16 @@ def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts
     assert page.locator('#run-topology-pill').inner_text() == '2 GPUs · 2× RTX A6000'
     assert page.locator('#run-batch-pill').is_visible()
     assert page.locator('#run-batch-pill').inner_text() == 'Batch 256 · 128 / GPU'
-    assert page.locator('#steps-per-second').inner_text() == '1.5'
+    # Multi-GPU aggregate scaling (world_size=2): steps=2->4, total_steps=100->200, sps=1.5->3.0, durable=1->2.
+    assert page.locator('#step').inner_text() == '4'
+    assert page.locator('#total-steps').inner_text() == 'of 200 GPU steps (2%) · 2 sync updates · ETA 1m 05s'
+    assert page.locator('#steps-per-second').inner_text() == '3.0'
+    assert page.locator('#steps-rate-note').inner_text() == '1.5 sync updates/s × 2'
     assert page.locator('#samples-per-second').inner_text() == '384.0'
+    assert page.locator('#samples-rate-note').inner_text() == 'Steps/s × 128/GPU (batch 256)'
+    assert page.locator('#durable').inner_text() == '2'
+    assert page.locator('#durable-note').inner_text() == 'Sync update 1 · saved state'
+    assert page.locator('#metric-consistency').inner_text() == 'Metrics committed through step 4 (2 sync) · view caught up'
     assert page.locator('#batch-size').inner_text() == '256'
     assert page.locator('#batch-topology').inner_text() == '2 GPUs · 2× RTX A6000 · 128 / GPU'
     assert page.locator('#best-fid').inner_text() == '14.25'
@@ -672,6 +684,13 @@ def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts
     assert 'Latest 15.80' in page.locator('#fid-detail').inner_text()
     for action_id in ('#action-sample', '#action-checkpoint', '#action-stop'):
         assert page.locator(action_id).is_visible()
+
+    # Live FoldliteDB WASM frame at synchronized step 3 advances aggregate Completed step from 4 to 6.
+    with condition:
+        control['step'] = 3
+        condition.notify_all()
+    page.locator('#step', has_text='6').wait_for()
+    assert page.locator('#total-steps').inner_text() == 'of 200 GPU steps (3%) · 3 sync updates · ETA 1m 05s'
 
     assert page.locator('#health-alerts').is_visible()
     assert 'Evaluator shares cuda:0' in page.locator('#health-alerts-list').inner_text()
@@ -683,9 +702,11 @@ def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts
     control['run_extra'].update(active=False, running=False)
     page.locator('#reconnect').click()
     page.locator('#run-status[data-status="stopped"]').wait_for()
+    assert page.locator('#step').inner_text() == '6'
+    assert page.locator('#total-steps').inner_text() == 'of 200 GPU steps (3%) · 3 sync updates'
     assert page.locator('#steps-per-second').inner_text() == '—'
     assert page.locator('#samples-per-second').inner_text() == '—'
-    assert page.locator('#steps-rate-note').inner_text() == 'Last: 1.5 steps/s'
+    assert page.locator('#steps-rate-note').inner_text() == 'Last: 3.0 steps/s (1.5 sync/s)'
     assert page.locator('#samples-rate-note').inner_text() == 'Last: 384.0 samples/s'
     for action_id in ('#action-sample', '#action-checkpoint', '#action-stop'):
         assert page.locator(action_id).is_hidden()

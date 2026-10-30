@@ -220,13 +220,32 @@ function updateRow(row, run) {
         ? run.running
         : ['running', 'training', 'initializing', 'starting'].includes(status);
   const url = String(run.url || `/runs/${encodeURIComponent(id)}`);
-  const step = Math.max(0, Math.trunc(Number(run.step) || 0));
-  const total = Math.max(0, Math.trunc(Number(run.total_steps || run.max_steps) || 0));
+  const topo = run.topology && typeof run.topology === 'object' ? run.topology : {};
+  const rawMult = Math.trunc(
+    Number(run.step_multiplier) || Number(topo.world_size) || Number(run.world_size) || 1,
+  );
+  const mult = rawMult > 1 ? rawMult : 1;
+  const syncStep = Math.max(0, Math.trunc(Number(run.step) || 0));
+  const syncTotal = Math.max(0, Math.trunc(Number(run.total_steps || run.max_steps) || 0));
+  const step = isNonNegFinite(run.aggregate_steps)
+    ? Math.trunc(run.aggregate_steps)
+    : isNonNegFinite(run.aggregate_step)
+      ? Math.trunc(run.aggregate_step)
+      : syncStep * mult;
+  const total =
+    isFiniteNum(run.aggregate_total_steps) && run.aggregate_total_steps > 0
+      ? Math.trunc(run.aggregate_total_steps)
+      : syncTotal * mult;
   const bestFid = isFiniteNum(run.best_fid) ? run.best_fid : isFiniteNum(run.fid_best) ? run.fid_best : null;
   const latestFid = isFiniteNum(run.latest_fid) ? run.latest_fid : isFiniteNum(run.fid_latest) ? run.fid_latest : null;
   const sortFid = bestFid ?? latestFid;
   const rawSpeed = run.steps_per_second ?? run.speed_its;
-  const hasActiveSpeed = active && isNonNegFinite(rawSpeed);
+  const aggSpeed = isNonNegFinite(run.aggregate_steps_per_second)
+    ? run.aggregate_steps_per_second
+    : isNonNegFinite(rawSpeed)
+      ? rawSpeed * mult
+      : null;
+  const hasActiveSpeed = active && aggSpeed !== null;
   const hasActiveSamples = hasActiveSpeed && isNonNegFinite(run.samples_per_second);
   const diskBytes = isNonNegFinite(run.disk_bytes) ? Math.trunc(run.disk_bytes) : null;
 
@@ -241,7 +260,7 @@ function updateRow(row, run) {
   setDataAttr(row, 'data-fid', sortFid !== null ? String(sortFid) : '');
   setDataAttr(row, 'data-step', String(step));
   setDataAttr(row, 'data-total-steps', String(total));
-  setDataAttr(row, 'data-speed', hasActiveSpeed ? String(rawSpeed) : '');
+  setDataAttr(row, 'data-speed', hasActiveSpeed ? String(aggSpeed) : '');
   setDataAttr(row, 'data-disk-bytes', diskBytes !== null ? String(diskBytes) : '');
 
   const runLink = row.querySelector('.run-link');
@@ -302,7 +321,6 @@ function updateRow(row, run) {
   setDataAttr(badge, 'data-status', status);
   setText(badge, status);
 
-  const topo = run.topology && typeof run.topology === 'object' ? run.topology : {};
   const topoPrimary = [topo.label, run.batch_label].filter(Boolean).join(' · ');
   const topoSub = [topo.detail, run.batch_detail].filter(Boolean).join(' · ');
   const topoPrimaryEl = row.querySelector('[data-field="topology-primary"]');
@@ -348,7 +366,9 @@ function updateRow(row, run) {
   if (progressFill && progressFill.style.width !== widthStr) {
     progressFill.style.width = widthStr;
   }
-  const etaText = active ? formatEta(run.eta_seconds) : '';
+  const rawEtaText = active ? formatEta(run.eta_seconds) : '';
+  const syncNote = mult > 1 ? `${syncStep.toLocaleString()} sync updates` : '';
+  const etaText = [syncNote, rawEtaText].filter(Boolean).join(' · ');
   const etaEl = row.querySelector('[data-field="eta"]');
   setText(etaEl, etaText);
   setHidden(etaEl, !etaText);
@@ -358,7 +378,7 @@ function updateRow(row, run) {
   if (speedPrimaryEl) {
     const wantClass = hasActiveSpeed ? 'speed-primary' : 'muted';
     if (speedPrimaryEl.className !== wantClass) speedPrimaryEl.className = wantClass;
-    setText(speedPrimaryEl, hasActiveSpeed ? `${rawSpeed.toFixed(1)} steps/s` : '—');
+    setText(speedPrimaryEl, hasActiveSpeed ? `${aggSpeed.toFixed(1)} steps/s` : '—');
   }
   if (speedSubEl) {
     setText(speedSubEl, hasActiveSamples ? `${run.samples_per_second.toFixed(0)} samples/s` : '');

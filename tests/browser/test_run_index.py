@@ -209,6 +209,8 @@ def test_index_topology_column_and_multicolumn_sorting(dashboard):
     alpha_row = page.locator('#runs-body tr[data-id="alpha"]')
     expect(alpha_row.locator('[data-field="topology-primary"]')).to_have_text('2 GPUs · Batch 256')
     expect(alpha_row.locator('[data-field="topology-sub"]')).to_have_text('2× RTX A6000 · 128 / GPU')
+    expect(alpha_row.locator('[data-field="steps"]')).to_have_text('1,600 / 2,000')
+    expect(alpha_row.locator('[data-field="eta"]')).to_have_text('800 sync updates')
     expect(alpha_row.locator('[data-field="fid-primary"]')).to_have_text('18.40')
     expect(page.locator('#runs-body tr[data-id="beta"] [data-field="fid-primary"]')).to_have_text('9.75')
     expect(page.locator('#runs-body tr[data-id="gamma"] [data-field="fid-primary"]')).to_have_text('—')
@@ -292,6 +294,31 @@ def test_index_zero_blink_polling_preserves_thumbnail_dom_identity(dashboard):
 
     assert page.evaluate('window.__refreshDisabledSawTrue') is False
     assert page.evaluate('window.__sawRefreshingText') is False
+    assert page.evaluate("document.querySelector('img.run-thumbnail') === window.__thumbEl") is True
+
+    # Transition to 2-GPU active run via polling: Progress and Speed scale by world_size=2 without double-multiplying samples/s.
+    publish(
+        'live-run',
+        status='running',
+        steps=2303,
+        total_steps=200000,
+        steps_per_second=0.873,
+        global_batch_size=256,
+        execution={
+            'name': 'cuda-replicated-nccl',
+            'world_size': 2,
+            'nodes': 1,
+            'global_batch_size': 256,
+            'local_batch_size': 128,
+        },
+        runtime={'device': 'cuda', 'world_size': 2},
+    )
+    page.clock.fast_forward(3000)
+    live_row = page.locator('#runs-body tr[data-id="live-run"]')
+    expect(live_row.locator('[data-field="steps"]')).to_have_text('4,606 / 400,000')
+    expect(live_row.locator('[data-field="eta"]')).to_contain_text('2,303 sync updates · ETA')
+    expect(live_row.locator('[data-field="speed-primary"]')).to_have_text('1.7 steps/s')
+    expect(live_row.locator('[data-field="speed-sub"]')).to_have_text('223 samples/s')
     assert page.evaluate("document.querySelector('img.run-thumbnail') === window.__thumbEl") is True
 
 

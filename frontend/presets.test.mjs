@@ -10,6 +10,7 @@ import {
   parseViewQuery,
   presetMetrics,
   reducedSelection,
+  stepMultiplier,
 } from "./src/presets.js";
 
 const STANDARD_GAN_CATALOG = {
@@ -185,4 +186,14 @@ test("header pill and health alert helpers deduplicate topology and filter noisy
     "Mode collapse risk: diversity/ratio dropped to 0.12",
     "Snapshot evaluator fid50k_train is sharing device cuda:0 with training (GPU contention)",
   ]);
+});
+
+test("stepMultiplier scales multi-GPU/multi-rank runs by world_size and leaves single-GPU/CPU at 1", () => {
+  assert.equal(stepMultiplier(null), 1);
+  assert.equal(stepMultiplier({}), 1);
+  assert.equal(stepMultiplier({ topology: { device_kind: "cpu", world_size: 1 } }), 1);
+  assert.equal(stepMultiplier({ topology: { device_kind: "cuda", world_size: 1, gpu_count: 1 } }), 1);
+  assert.equal(stepMultiplier({ step_multiplier: 2, topology: { world_size: 2, gpu_count: 2 } }), 2);
+  assert.equal(stepMultiplier({ topology: { world_size: 8, gpu_count: 8 } }), 8);
+  assert.equal(stepMultiplier({ world_size: 4 }), 4);
 });

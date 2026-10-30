@@ -219,6 +219,22 @@ export function formatHostPill(run) {
   return `${run.remote ? "Remote · " : ""}${host}`;
 }
 
+export function stepMultiplier(run) {
+  if (!run || typeof run !== "object") return 1;
+  const candidates = [
+    run.step_multiplier,
+    run.topology?.world_size,
+    run.world_size,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      const n = Math.trunc(candidate);
+      if (n >= 1) return n;
+    }
+  }
+  return 1;
+}
+
 const ACTIONABLE_WARNING_RE =
   /contention|shar(?:e|es|ing)\s+.*(?:device|gpu|cuda)|same\s+(?:device|gpu|cuda)|evaluat.*(?:device|gpu|cuda)|collapse|\bnan\b|\binf\b|diverg|out of memory|\boom\b|memory/i;
 const NOISY_TRACEBACK_RE =

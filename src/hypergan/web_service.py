@@ -158,7 +158,12 @@ def extract_topology_and_batch(manifest: dict, summary: dict | None = None) -> d
         if device_kind is None and has_cuda_dict:
             device_kind = "cuda"
 
-    raw_world_size = _positive_int(execution.get("world_size")) or _positive_int(runtime.get("world_size"))
+    raw_world_size = (
+        _positive_int(execution.get("world_size"))
+        or _positive_int(runtime.get("world_size"))
+        or _positive_int(manifest.get("world_size"))
+        or _positive_int((summary or {}).get("world_size"))
+    )
     world_size = raw_world_size if raw_world_size is not None else (1 if device_kind is not None else None)
     raw_nodes = _positive_int(execution.get("nodes"))
     nodes = raw_nodes if raw_nodes is not None else (1 if world_size is not None else None)
@@ -322,6 +327,30 @@ def compute_throughput_and_eta(
         elif isinstance(summary, dict):
             eta_seconds = _finite_nonneg_float(summary.get("eta_seconds"))
     return samples_per_second, eta_seconds
+
+
+def compute_aggregate_steps(
+    *,
+    topology: dict | None,
+    step: object,
+    total_steps: object,
+    last_durable_step: object = None,
+    steps_per_second: object = None,
+) -> dict:
+    """Scale synchronized step counters and step rate by world_size for aggregate GPU-step reporting."""
+    raw_ws = _positive_int(topology.get("world_size")) if isinstance(topology, dict) else None
+    mult = raw_ws if (raw_ws is not None and raw_ws > 1) else 1
+    step_int = _nonneg_int(step)
+    total_int = _positive_int(total_steps)
+    durable_int = _nonneg_int(last_durable_step)
+    sps_val = _finite_nonneg_float(steps_per_second)
+    return {
+        "step_multiplier": mult,
+        "aggregate_steps": step_int * mult if step_int is not None else None,
+        "aggregate_total_steps": total_int * mult if total_int is not None else None,
+        "aggregate_last_durable_step": durable_int * mult if durable_int is not None else None,
+        "aggregate_steps_per_second": float(sps_val) * mult if sps_val is not None else None,
+    }
 
 
 def extract_fid_and_health(manifest: dict, summary: dict | None = None) -> dict:
@@ -586,6 +615,22 @@ class ObservationService:
         )
         result['samples_per_second'] = samples_per_second
         result['eta_seconds'] = eta_seconds
+
+        durable_val = self.manifest.get('last_durable_step')
+        if durable_val is None and summary:
+            durable_val = summary.get('last_durable_step')
+        agg = compute_aggregate_steps(
+            topology=topo_batch['topology'],
+            step=step_val,
+            total_steps=total_val,
+            last_durable_step=durable_val,
+            steps_per_second=sps,
+        )
+        result['step_multiplier'] = agg['step_multiplier']
+        result['aggregate_steps'] = agg['aggregate_steps']
+        result['aggregate_total_steps'] = agg['aggregate_total_steps']
+        result['aggregate_last_durable_step'] = agg['aggregate_last_durable_step']
+        result['aggregate_steps_per_second'] = agg['aggregate_steps_per_second']
 
         fid_health = extract_fid_and_health(self.manifest, summary)
         result['best_fid'] = fid_health['best_fid']

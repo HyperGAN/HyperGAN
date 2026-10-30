@@ -82,7 +82,7 @@ device, busy skips, sample count and protocol stay behind that tile's collapsed
 See [local web viewer](local-web.md). Manual `evaluate` remains available for an
 interval-configured metric while training is stopped.
 
-The extractor is pinned to torch-fidelity 0.3.0, Inception-v3-compatible 2048
+The extractor is pinned to torch-fidelity 0.4.0, Inception-v3-compatible 2048
 features, float32 with TF32 disabled. Generated and reference RGB tensors are
 clamped to `[-1,1]`, mapped with `(x+1)*127.5`, rounded and converted to uint8.
 The extractor supplies its TensorFlow-compatible resizing. Float64 centered

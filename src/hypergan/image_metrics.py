@@ -1,6 +1,6 @@
 """Explicit Inception FID for immutable image snapshots; never downloads weights.
 
-The first CIFAR protocol uses torch-fidelity 0.3.0, uint8 RGB, float32
+The first CIFAR protocol uses torch-fidelity 0.4.0, uint8 RGB, float32
 features with TF32 disabled and float64 sample statistics. The evaluation data
 factory and sample count determine the reference split: a small smoke score is
 not interchangeable with the 50,000-image training-reference protocol.
@@ -13,8 +13,8 @@ from .diversity_metrics import merge_moments
 
 
 INCEPTION_SHA256 = '6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2'
-# The only torch-fidelity release this protocol accepts; the fid extra pins it.
-TORCH_FIDELITY_VERSION = '0.3.0'
+# Pinned torch-fidelity release; fid extra pins torch-fidelity>=0.4.0,<0.5.
+TORCH_FIDELITY_VERSION = '0.4.0'
 
 
 def _checked_weights(path, expected):
@@ -79,7 +79,7 @@ class InceptionFID:
 
     def describe(self):
         return {'kind': 'scalar', 'label': 'Inception FID', 'unit': 'FID', 'direction': 'minimize',
-                'description': 'torch-fidelity 0.3.0 Inception-v3 compat 2048; pinned weights; RGB uint8 clamp/round; FP32 extractor without TF32; float64 unbiased covariance. Compare only matching reference splits and sample counts.'}
+                'description': 'torch-fidelity 0.4.0 Inception-v3 compat 2048; pinned weights; RGB uint8 clamp/round; FP32 extractor without TF32; float64 unbiased covariance. Compare only matching reference splits and sample counts.'}
 
     def evaluate(self, *, batches, context):
         import math

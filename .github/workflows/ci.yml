@@ -91,7 +91,10 @@ jobs:
           python -m pip install "build>=1,<2" "httpx>=0.28,<0.29"
           python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
           python -m build
-          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,web,test]'])"
+          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,fid,web,test]'])"
+      - name: Verify InceptionFID under Scipy and Torch-Fidelity
+        working-directory: ${{ runner.temp }}
+        run: python -I -c "from hypergan.image_metrics import InceptionFID; print('InceptionFID verified')"
       - name: Test numerical reference outside checkout
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest "${{ github.workspace }}/tests/reference" "${{ github.workspace }}/tests/unit" "${{ github.workspace }}/tests/playbooks" "${{ github.workspace }}/tests/e2e" --import-mode=importlib
@@ -155,10 +158,10 @@ jobs:
           python -m pip install "build>=1,<2"
           python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
           python -m build
-          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,test]'])"
+          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,fid,test]'])"
       - name: Run the gated heavy reference tests
         working-directory: ${{ runner.temp }}
-        run: python -I -m pytest "${{ github.workspace }}/tests/reference" "${{ github.workspace }}/tests/e2e" --import-mode=importlib -m heavy
+        run: python -I -m pytest "${{ github.workspace }}/tests/reference" "${{ github.workspace }}/tests/unit" "${{ github.workspace }}/tests/e2e" --import-mode=importlib -m heavy
 
   reducers:
     name: Shared reducer (${{ matrix.os }})
@@ -216,6 +219,11 @@ jobs:
         env:
           FOLDLITEDB_SOURCE: ${{ vars.FOLDLITEDB_SOURCE }}
         run: python .github/scripts/install_foldlitedb.py
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        if: runner.os == 'Linux'
+        with:
+          node-version: "22"
       - name: Verify reproducible offline chart bundle
         if: runner.os == 'Linux'
         run: |

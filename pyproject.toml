@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 # Keep the version classifiers equal to the CI lightweight matrix
 # (tests/foundation/test_repository_consistency.py checks both).
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
@@ -27,12 +27,29 @@ classifiers = [
 dependencies = ["foldlitedb>=0.1.2,<0.2"]
 
 [project.optional-dependencies]
-train = ["hndl>=0.10.0,<1", "particlegan>=0.9.2,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3"]
+train = ["hndl>=0.10.0,<1", "particlegan>=0.9.4,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3", "safetensors>=0.8,<1"]
 image = ["Pillow>=13.0.0,<14"]
 cifar = ["torchvision>=0.21,<1", "Pillow>=13.0.0,<14"]
-fid = ["torch-fidelity==0.3.0", "torchvision>=0.21,<1", "Pillow>=13.0.0,<14", "scipy>=1.10,<2.0"]
+fid = ["torch-fidelity>=0.4.0,<0.5", "torchvision>=0.21,<1", "Pillow>=13.0.0,<14", "scipy>=1.10,<2.0"]
 reducers = ["foldlitedb[reducers]>=0.1.2,<0.2"]
 web = ["foldlitedb[reducers]>=0.1.2,<0.2", "starlette>=1.6,<2.0", "uvicorn>=0.53,<1.0"]
+safetensors = ["safetensors>=0.8,<1"]
+onnx = ["onnx>=1.16,<2.0"]
+all = [
+    "foldlitedb[reducers]>=0.1.2,<0.2",
+    "hndl>=0.10.0,<1",
+    "numpy>=1.26,<3",
+    "onnx>=1.16,<2.0",
+    "particlegan>=0.9.4,<0.10",
+    "Pillow>=13.0.0,<14",
+    "safetensors>=0.8,<1",
+    "scipy>=1.10,<2.0",
+    "starlette>=1.6,<2.0",
+    "torch>=2.6,<3",
+    "torch-fidelity>=0.4.0,<0.5",
+    "torchvision>=0.21,<1",
+    "uvicorn>=0.53,<1.0",
+]
 test = ["pytest>=8,<10"]
 dev = ["build>=1,<2", "pytest>=8,<10"]
 
@@ -40,7 +57,11 @@ dev = ["build>=1,<2", "pytest>=8,<10"]
 hypergan = "hypergan.cli:main"
 
 [project.urls]
+Homepage = "https://github.com/HyperGAN/HyperGAN"
+Documentation = "https://github.com/HyperGAN/HyperGAN/tree/master/docs"
 Repository = "https://github.com/HyperGAN/HyperGAN"
+Changelog = "https://github.com/HyperGAN/HyperGAN/blob/master/changelog.md"
+Issues = "https://github.com/HyperGAN/HyperGAN/issues"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

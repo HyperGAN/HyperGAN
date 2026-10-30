@@ -1,0 +1,130 @@
+# TransGAN Pure Transformer on CIFAR-10
+# Reference: Jiang et al. (CVPR/NeurIPS 2021) "TransGAN: Two Pure Transformers Can Make One Strong GAN"
+format = "hypergan-model/1"
+name = "cifar10-transgan"
+
+[data]
+factory = "hypergan.image_data:CIFAR10Data"
+
+[data.args]
+root = "./data"
+split = "train"
+sampling = "random"
+horizontal_flip = true
+
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+hndl = "networks/transgan-generator-32.hndl"
+input_shape = ["B", 64]
+output_shape = ["B", 3, 32, 32]
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+hndl = "networks/transgan-discriminator-32.hndl"
+input_shape = ["B", 3, 32, 32]
+output_shape = ["B", 1]
+
+[networks.encoder]
+role = "encoder"
+inputs = { x = "batch.real", means = "prior.means", sigma = "prior.sigma" }
+module = "hypergan.image_components:CIFARRoutingEncoder"
+args = { z_dim = 64, width = 32, temperature = 0.125 }
+
+[networks.reconstruction]
+role = "auxiliary"
+inputs = { z = "components.encoder.latent" }
+freeze_parameters = true
+reuse = "generator"
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 24003
+fixed_sigma = 0.212616428732872
+num_particles = 16384
+z_dim = 64
+sigma_rel = 0.025
+
+[penalty]
+kappa = 1.0
+lazy_k = 8
+
+[train]
+steps = 200000
+batch_size = 64
+seed = 24002
+device = "cuda"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "independent"
+data_rng_device = "execution"
+data_seed_offset = 2
+prior_seed_offset = 3
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
+
+[train.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[sampling]
+count = 64
+seed = 34002
+
+[metrics]
+preset = "standard"
+every_steps = 10
+
+[evaluations.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+inputs = { generated = "generated", reference = "reference" }
+every = 10000
+timeout = 3600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda"
+samples = 50000
+batch_size = 128
+seed = 34002
+
+[evaluations.fid50k_train.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+
+[evaluations.fid50k_train.data]
+factory = "hypergan.image_data:CIFAR10Data"
+args = { root = "./data", split = "train", sampling = "sequential", horizontal_flip = false }
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "reconstruction"
+id = "reconstruction"
+fn = "mse"
+weight = 1.0
+detach = ["target"]
+
+[losses.inputs]
+input = "components.reconstruction"
+target = "batch.real"
+
+[[losses]]
+type = "prior"
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001

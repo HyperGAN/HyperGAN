@@ -1,0 +1,339 @@
+# HyperGAN Canonical Packaged Recipe: Pure Transformer TransGAN on CIFAR-10
+# 100% convolution-free pure transformer architecture for both generator and discriminator.
+# Reference: Jiang et al. (CVPR/NeurIPS 2021) "TransGAN: Two Pure Transformers Can Make One Strong GAN"
+# Generator: 32x32 multi-stage TransGAN generator (RMSNorm + spatial attention + pixel shuffle).
+# Critic: Scratch multi-scale TransGAN discriminator (multi-scale patches, RMSNorm, [CLS] token).
+# Dataset: CIFAR-10 via cached URL verification (never requires external weight files).
+format = "hypergan-model/1"
+name = "cifar10-transgan"
+
+[data]
+factory = "hypergan.image_data:CIFAR10Data"
+
+[data.args]
+root = "./data"
+split = "train"
+sampling = "random"
+horizontal_flip = true
+
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+input_shape = ["B", 64]
+output_shape = ["B", 3, 32, 32]
+source = """
+# Small TransGAN-style CIFAR generator: one [B,64] latent, no extra noise.
+# Stages 8/16/32px with widths 256/64/16 and two blocks per stage.
+# Pixel shuffle doubles resolution and quarters width; global attention at each stage.
+# Parameter-free PixelNorm, learned absolute and relative positions.
+# Same explicit Linear-default initialization as the corrected 128px generator.
+# RGB projection uses Xavier weights; this is a compact adaptation, not a paper reproduction.
+h = linear(x, 16384, name="input_projection", init={"weight": kaiming_uniform(a=2.23606797749979), "bias": uniform(a=-0.125, b=0.125)})
+h = reshape(h, 64, 256)
+h = pos_embed(h, 64, name="stage8_position", init={"weight": truncated_normal(std=0.02)})
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(8, 8), name="stage8_block0_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.0625, b=0.0625),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage8_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block0_norm2")
+branch = feed_forward(branch, 1024, activation="gelu", dropout=0.0, name="stage8_block0_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.0625, b=0.0625),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.03125, b=0.03125)})
+h = add(h, branch, name="stage8_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(8, 8), name="stage8_block1_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.0625, b=0.0625),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage8_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage8_block1_norm2")
+branch = feed_forward(branch, 1024, activation="gelu", dropout=0.0, name="stage8_block1_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.0625, b=0.0625),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.03125, b=0.03125)})
+h = add(h, branch, name="stage8_block1")
+
+# Pixel shuffle: 8px/256 channels -> 16px/64 channels.
+h = transpose(h, 1, 2)
+h = reshape(h, 256, 8, 8)
+h = pixel_shuffle(h, 2, name="stage16_upsample")
+h = reshape(h, 64, 256)
+h = transpose(h, 1, 2)
+h = pos_embed(h, 256, name="stage16_position", init={"weight": truncated_normal(std=0.02)})
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage16_block0_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.125, b=0.125),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage16_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block0_norm2")
+branch = feed_forward(branch, 256, activation="gelu", dropout=0.0, name="stage16_block0_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.125, b=0.125),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.0625, b=0.0625)})
+h = add(h, branch, name="stage16_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(16, 16), name="stage16_block1_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.125, b=0.125),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage16_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage16_block1_norm2")
+branch = feed_forward(branch, 256, activation="gelu", dropout=0.0, name="stage16_block1_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.125, b=0.125),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.0625, b=0.0625)})
+h = add(h, branch, name="stage16_block1")
+
+# Pixel shuffle: 16px/64 channels -> 32px/16 channels.
+h = transpose(h, 1, 2)
+h = reshape(h, 64, 16, 16)
+h = pixel_shuffle(h, 2, name="stage32_upsample")
+h = reshape(h, 16, 1024)
+h = transpose(h, 1, 2)
+h = pos_embed(h, 1024, name="stage32_position", init={"weight": truncated_normal(std=0.02)})
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block0_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(32, 32), name="stage32_block0_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.25, b=0.25),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage32_block0_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block0_norm2")
+branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage32_block0_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.25, b=0.25),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.125, b=0.125)})
+h = add(h, branch, name="stage32_block0")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block1_norm1")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=False, out_bias=True,
+    relative_position_bias=True, spatial_shape=(32, 32), name="stage32_block1_attention",
+    init={"q_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "k_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "v_proj.weight": kaiming_uniform(a=2.23606797749979),
+          "o_proj.weight": kaiming_uniform(a=2.23606797749979), "o_proj.bias": uniform(a=-0.25, b=0.25),
+          "relative_position_bias_table": truncated_normal(std=0.02)})
+h = add(h, branch, name="stage32_block1_attention_residual")
+branch = rms_norm(h, eps=1e-8, affine=False, name="stage32_block1_norm2")
+branch = feed_forward(branch, 64, activation="gelu", dropout=0.0, name="stage32_block1_ffn",
+    init={"up.weight": kaiming_uniform(a=2.23606797749979), "up.bias": uniform(a=-0.25, b=0.25),
+          "down.weight": kaiming_uniform(a=2.23606797749979), "down.bias": uniform(a=-0.125, b=0.125)})
+h = add(h, branch, name="stage32_block1")
+
+# Shared tokenwise RGB projection, then NCHW output.
+h = linear(h, 3, name="output_projection", init={"weight": xavier_uniform(), "bias": uniform(a=-0.25, b=0.25)})
+h = transpose(h, 1, 2)
+h = reshape(h, 3, 32, 32)
+out = tanh(h)
+"""
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 32, 32]
+output_shape = ["B", 1]
+source = """
+# Scratch Multi-Scale TransGAN Discriminator (32x32 CIFAR-10)
+# Reference: Jiang et al. (CVPR/NeurIPS 2021) "TransGAN: Two Pure Transformers Can Make One Strong GAN"
+# Pure transformer critic: multi-scale patch tokenization (P=2, 2P=4), parameter-free token-wise RMSNorm,
+# learned 2D relative position bias, prepended [CLS] token, and linear readout head.
+# Input: RGB candidate image x, shape [B, 3, 32, 32] in [-1, 1].
+# Output: Scalar real/fake score out, shape [B, 1].
+
+x = diff_augment(x, transforms="translation,cutout,color", translation_ratio=0.2, cutout_probability=0.3)
+
+# --- Stage 1: Fine-Scale (2x2 Patches -> 16x16 Grid, 256 Tokens, Width 288) ---
+x1 = patch_embed(x, 288, 2, name="stage1_patch")
+h1 = pos_embed(x1, 256, name="stage1_position", init={"weight": truncated_normal(std=0.02)})
+
+# Stage 1: Transformer Block 0
+b1_0_n1 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b0_norm1")
+b1_0_att = attention(b1_0_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(16, 16), name="stage1_b0_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h1 = add(h1, b1_0_att, name="stage1_b0_att_residual")
+b1_0_n2 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b0_norm2")
+b1_0_ffn = feed_forward(b1_0_n2, 1152, activation="gelu", dropout=0.0, name="stage1_b0_ffn")
+h1 = add(h1, b1_0_ffn, name="stage1_b0_residual")
+
+# Stage 1: Transformer Block 1
+b1_1_n1 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b1_norm1")
+b1_1_att = attention(b1_1_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(16, 16), name="stage1_b1_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h1 = add(h1, b1_1_att, name="stage1_b1_att_residual")
+b1_1_n2 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b1_norm2")
+b1_1_ffn = feed_forward(b1_1_n2, 1152, activation="gelu", dropout=0.0, name="stage1_b1_ffn")
+h1 = add(h1, b1_1_ffn, name="stage1_b1_residual")
+
+# Stage 1: Transformer Block 2
+b1_2_n1 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b2_norm1")
+b1_2_att = attention(b1_2_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(16, 16), name="stage1_b2_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h1 = add(h1, b1_2_att, name="stage1_b2_att_residual")
+b1_2_n2 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b2_norm2")
+b1_2_ffn = feed_forward(b1_2_n2, 1152, activation="gelu", dropout=0.0, name="stage1_b2_ffn")
+h1 = add(h1, b1_2_ffn, name="stage1_b2_residual")
+
+# --- Multi-Scale Downsampling (16x16 -> 8x8 Tokens via 2x2 Average Pool) ---
+h1_t = transpose(h1, 1, 2)
+h1_img = reshape(h1_t, 288, 16, 16)
+h1_down = avg_pool(h1_img, 2)
+h1_flat = reshape(h1_down, 288, 64)
+h1_tokens = transpose(h1_flat, 1, 2)
+
+# --- Stage 2: Coarse-Scale (4x4 Patches -> 8x8 Grid, 64 Tokens, Width 96) ---
+x2 = patch_embed(x, 96, 4, name="stage2_patch")
+
+# Multi-scale fusion: concatenate along feature axis (288 + 96 = 384 channels)
+h2 = concat(h1_tokens, x2, axis=2, name="multiscale_concat")
+h2 = pos_embed(h2, 64, name="stage2_position", init={"weight": truncated_normal(std=0.02)})
+
+# Stage 2: Transformer Block 0
+b2_0_n1 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b0_norm1")
+b2_0_att = attention(b2_0_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(8, 8), name="stage2_b0_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h2 = add(h2, b2_0_att, name="stage2_b0_att_residual")
+b2_0_n2 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b0_norm2")
+b2_0_ffn = feed_forward(b2_0_n2, 1536, activation="gelu", dropout=0.0, name="stage2_b0_ffn")
+h2 = add(h2, b2_0_ffn, name="stage2_b0_residual")
+
+# Stage 2: Transformer Block 1
+b2_1_n1 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b1_norm1")
+b2_1_att = attention(b2_1_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(8, 8), name="stage2_b1_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h2 = add(h2, b2_1_att, name="stage2_b1_att_residual")
+b2_1_n2 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b1_norm2")
+b2_1_ffn = feed_forward(b2_1_n2, 1536, activation="gelu", dropout=0.0, name="stage2_b1_ffn")
+h2 = add(h2, b2_1_ffn, name="stage2_b1_residual")
+
+# Stage 2: Transformer Block 2
+b2_2_n1 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b2_norm1")
+b2_2_att = attention(b2_2_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(8, 8), name="stage2_b2_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h2 = add(h2, b2_2_att, name="stage2_b2_att_residual")
+b2_2_n2 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b2_norm2")
+b2_2_ffn = feed_forward(b2_2_n2, 1536, activation="gelu", dropout=0.0, name="stage2_b2_ffn")
+h2 = add(h2, b2_2_ffn, name="stage2_b2_residual")
+
+# --- Classification Token [CLS] and Final Block ---
+h_cls = cls_token(h2, name="cls_token", init={"token": truncated_normal(std=0.02)})
+last_n1 = rms_norm(h_cls, eps=1e-8, affine=False, name="final_block_norm1")
+last_att = attention(last_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, name="final_block_att")
+h_cls = add(h_cls, last_att, name="final_block_att_residual")
+last_n2 = rms_norm(h_cls, eps=1e-8, affine=False, name="final_block_norm2")
+last_ffn = feed_forward(last_n2, 1536, activation="gelu", dropout=0.0, name="final_block_ffn")
+h_cls = add(h_cls, last_ffn, name="final_block_residual")
+
+# Readout: Token-wise normalization, extract [CLS], linear projection
+h_norm = rms_norm(h_cls, eps=1e-8, affine=False, name="final_norm")
+cls_out = pool_tokens(h_norm, "first", name="cls_pool")
+out = linear(cls_out, 1, name="critic_score")
+"""
+
+[networks.encoder]
+role = "encoder"
+inputs = { x = "batch.real", means = "prior.means", sigma = "prior.sigma" }
+module = "hypergan.image_components:CIFARRoutingEncoder"
+args = { z_dim = 64, width = 32, temperature = 0.125 }
+
+[networks.reconstruction]
+role = "auxiliary"
+inputs = { z = "components.encoder.latent" }
+freeze_parameters = true
+reuse = "generator"
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 24003
+fixed_sigma = 0.212616428732872
+num_particles = 16384
+z_dim = 64
+sigma_rel = 0.025
+
+[penalty]
+kappa = 1.0
+lazy_k = 8
+
+[train]
+steps = 200000
+batch_size = 64
+seed = 24002
+device = "cuda"
+ema = 0.995
+lr_anneal_start = 0.6
+lr_floor = 1.0
+phase_draws = "independent"
+data_rng_device = "execution"
+data_seed_offset = 2
+prior_seed_offset = 3
+implementation = "torch_fused_adam"
+lr = 0.0003
+d_lr_mult = 1.5
+prior_lr_mult = 10.0
+betas = [0.0, 0.999]
+prior_betas = [0.5, 0.999]
+
+[train.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[sampling]
+count = 64
+seed = 34002
+
+[metrics]
+preset = "standard"
+every_steps = 10
+
+[evaluations.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+inputs = { generated = "generated", reference = "reference" }
+every = 10000
+timeout = 3600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda"
+samples = 50000
+batch_size = 128
+seed = 34002
+
+[evaluations.fid50k_train.args]
+weights_path = "~/.cache/torch/hub/checkpoints/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+
+[evaluations.fid50k_train.data]
+factory = "hypergan.image_data:CIFAR10Data"
+args = { root = "./data", split = "train", sampling = "sequential", horizontal_flip = false }
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "reconstruction"
+id = "reconstruction"
+fn = "mse"
+weight = 1.0
+detach = ["target"]
+
+[losses.inputs]
+input = "components.reconstruction"
+target = "batch.real"
+
+[[losses]]
+type = "prior"
+rows = "full"
+weight = 1.0
+target_std = 1.0
+eps = 0.0001

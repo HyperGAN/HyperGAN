@@ -549,7 +549,12 @@ class ReplicatedTrainer(ReferenceTrainer):
         def penalty_fn(term, real_sample, fake_sample):
             critic_fn = ScoredCritic(term.module, lambda module, value: score_candidate(
                 term, value, context, self.graph, "critic", module=module, noise=(input_std, noise_stream)))
-            return term.penalty_fn(critic_fn, real_sample, fake_sample)
+            try:
+                from torch.nn.attention import SDPBackend, sdpa_kernel
+                with sdpa_kernel(SDPBackend.MATH):
+                    return term.penalty_fn(critic_fn, real_sample, fake_sample)
+            except Exception:
+                return term.penalty_fn(critic_fn, real_sample, fake_sample)
 
         def discriminator_forward():
             unweighted = []
@@ -813,7 +818,12 @@ class ReplicatedTrainer(ReferenceTrainer):
         def penalty_fn_acc(term, real_sample, fake_sample, micro_context):
             critic_fn = ScoredCritic(term.module, lambda module, value: score_candidate(
                 term, value, micro_context, self.graph, "critic", module=module, noise=(0, None)))
-            return term.penalty_fn(critic_fn, real_sample, fake_sample)
+            try:
+                from torch.nn.attention import SDPBackend, sdpa_kernel
+                with sdpa_kernel(SDPBackend.MATH):
+                    return term.penalty_fn(critic_fn, real_sample, fake_sample)
+            except Exception:
+                return term.penalty_fn(critic_fn, real_sample, fake_sample)
 
         def discriminator_micro(index, start):
             local_batch = self._microbatch(batch, start)

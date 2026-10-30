@@ -314,7 +314,12 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     def penalty(term, real, fake):
         critic = ScoredCritic(term.module, lambda module, value: score_candidate(
             term, value, context, trainer.graph, "critic", module=module, noise=(input_std, stream)))
-        return term.penalty_fn(critic, real, fake)
+        try:
+            from torch.nn.attention import SDPBackend, sdpa_kernel
+            with sdpa_kernel(SDPBackend.MATH):
+                return term.penalty_fn(critic, real, fake)
+        except Exception:
+            return term.penalty_fn(critic, real, fake)
     if independent:
         with torch.no_grad():
             batch, ids, context = trainer._draw(batch, latent_draw)

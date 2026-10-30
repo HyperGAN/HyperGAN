@@ -361,6 +361,11 @@ def load(path):
                 return _load_stored_run_model(resolved_run)
         except Exception:
             pass
+    if not path.exists():
+        from .config import resolve_packaged_model_path
+        packaged_file = resolve_packaged_model_path(raw)
+        if packaged_file is not None:
+            path = packaged_file
     if path.is_dir():
         if (path / 'model.toml').is_file():
             path = path / 'model.toml'
@@ -2194,6 +2199,11 @@ def describe(path=None, networks=False, write=False) -> ModelDescription:
                 resolved_path = Path(path)
         else:
             resolved_path = Path(path)
+        if path is not None and not resolved_path.exists():
+            from .config import resolve_packaged_model_path
+            packaged_file = resolve_packaged_model_path(path)
+            if packaged_file is not None:
+                resolved_path = packaged_file
         manifest, config = load_model_desc(resolved_path)
 
     if write and (resolved_path is None or not (resolved_path.is_dir() and manifest)):

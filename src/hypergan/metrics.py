@@ -398,6 +398,16 @@ def validate_update_scalars(row, objective_count):
     for name in ('d_loss', 'g_loss', 'd_adversarial', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'lr_scale', 'd_adversarial_weighted', 'g_adversarial_weighted'):
         if type(row.get(name)) not in (int, float) or not math.isfinite(row[name]):
             raise ValueError(f'Invalid finite global metric: {name}')
+    for name in (
+        'critic_real_mean', 'critic_fake_mean', 'critic_margin', 'critic_accuracy',
+        'grad_norm_critic', 'grad_norm_generator', 'grad_norm_prior',
+        'd_guard_ratio', 'particle_rms', 'diversity_ratio',
+        'critic/real_mean', 'critic/fake_mean', 'critic/margin', 'critic/accuracy',
+        'grad_norm/critic', 'grad_norm/generator', 'grad_norm/prior',
+        'optimizer/d_guard_ratio', 'prior/particle_rms', 'diversity/ratio',
+    ):
+        if name in row and (type(row[name]) not in (int, float) or not math.isfinite(row[name])):
+            raise ValueError(f'Invalid finite global metric: {name}')
     objectives = row.get('objectives')
     if (type(objectives) is not list or len(objectives) != objective_count
             or any(type(value) not in (int, float) or not math.isfinite(value) for value in objectives)):

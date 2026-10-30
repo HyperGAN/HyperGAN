@@ -511,25 +511,27 @@ def run_status(
             eval_by_step.setdefault(int(best_step), {}).setdefault(b_m, float(best["value"]))
 
     # Recent checkpoints
+    from .summary import collect_checkpoints
+
     raw_checkpoints = summary.get("checkpoints") if (summary and isinstance(summary.get("checkpoints"), list)) else None
-    if raw_checkpoints is None:
-        ckpt_root = resolved_dir / "checkpoints"
-        ckpts = []
-        if ckpt_root.is_dir():
-            for cm in ckpt_root.glob("*/manifest.json"):
-                try:
-                    cdata = json.loads(cm.read_text(encoding="utf-8"))
-                    if isinstance(cdata, dict):
-                        ckpts.append({
-                            "step": cdata.get("step", 0),
-                            "name": cm.parent.name,
-                            "path": f"checkpoints/{cm.parent.name}",
-                            "metrics": {},
-                        })
-                except Exception:
-                    continue
-        ckpts.sort(key=lambda c: c["step"])
-        raw_checkpoints = ckpts
+    disk_checkpoints = collect_checkpoints(resolved_dir, eval_by_step)
+    if disk_checkpoints:
+        if not raw_checkpoints:
+            raw_checkpoints = disk_checkpoints
+        else:
+            merged_ckpts = {
+                (int(c.get("step", 0) or 0), str(c.get("name") or c.get("path") or "")): c
+                for c in raw_checkpoints
+                if isinstance(c, dict)
+            }
+            for dc in disk_checkpoints:
+                merged_ckpts[(dc["step"], dc["name"])] = dc
+            raw_checkpoints = sorted(
+                merged_ckpts.values(),
+                key=lambda c: (int(c.get("step", 0) or 0), str(c.get("timestamp") or ""), str(c.get("name") or "")),
+            )
+    elif raw_checkpoints is None:
+        raw_checkpoints = []
 
     checkpoints = []
     for c in (raw_checkpoints or []):
@@ -1364,15 +1366,18 @@ def _compact_events_locked(run_dir: Path, stride: int, *, dry_run: bool = False)
 
     # Discover checkpoint and evaluation steps to preserve
     pinned_steps = {0}
-    ckpt_root = run_dir / "checkpoints"
-    if ckpt_root.is_dir():
-        for cm in ckpt_root.glob("*/manifest.json"):
-            try:
-                cdata = json.loads(cm.read_text(encoding="utf-8"))
-                if "step" in cdata:
-                    pinned_steps.add(int(cdata["step"]))
-            except Exception:
-                pass
+    for ckpt_subdir in ("checkpoints", "distributed-checkpoints"):
+        ckpt_root = run_dir / ckpt_subdir
+        if ckpt_root.is_dir():
+            for cm in ckpt_root.glob("*/manifest.json"):
+                if cm.parent.name.startswith("."):
+                    continue
+                try:
+                    cdata = json.loads(cm.read_text(encoding="utf-8"))
+                    if "step" in cdata:
+                        pinned_steps.add(int(cdata["step"]))
+                except Exception:
+                    pass
 
     eval_root = run_dir / "metrics" / "evaluations"
     if eval_root.is_dir():

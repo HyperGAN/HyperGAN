@@ -483,7 +483,12 @@ class ServiceRegistry:
         from .web_autostart import find_runs_root
         if find_runs_root(self.root) != self.root:
             return True
-        if (self.root / "events.jsonl").is_file() or (self.root / "launch").is_dir() or (self.root / "checkpoints").is_dir():
+        if (
+            (self.root / "events.jsonl").is_file()
+            or (self.root / "launch").is_dir()
+            or (self.root / "checkpoints").is_dir()
+            or (self.root / "distributed-checkpoints").is_dir()
+        ):
             return True
         try:
             if not self.root.exists():

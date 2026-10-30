@@ -1509,6 +1509,8 @@ def _dispatch(args, *, output=None):
                 if cand_tomls:
                     explain_path = cand_tomls[0]
             m = hg.load(explain_path)
+            if not Path(explain_path).exists() and getattr(m, "path", None) is not None:
+                explain_path = m.path
             e_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
             if e_sets:
                 e_sets = hg._expand_override_shorthand(m, e_sets)
@@ -1809,6 +1811,8 @@ def _dispatch(args, *, output=None):
                         return 0
 
                 m = hg.load(validate_path)
+                if not validate_path.exists() and getattr(m, "path", None) is not None:
+                    validate_path = m.path
                 v_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
                 if v_sets:
                     v_sets = hg._expand_override_shorthand(m, v_sets)
@@ -1905,6 +1909,11 @@ def _dispatch(args, *, output=None):
                             is_run_dir = True
                     except Exception:
                         pass
+                if not is_run_dir and target_arg is not None and not target_path.exists():
+                    from .config import resolve_packaged_model_path
+                    pkg_cand = resolve_packaged_model_path(target_arg)
+                    if pkg_cand is not None:
+                        target_path = pkg_cand
 
             if is_run_dir:
                 args.run_dir = target_path

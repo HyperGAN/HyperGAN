@@ -337,7 +337,7 @@ def test_format_preflight_report_contains_all_nine_sections():
         "wheel_url": "https://download.pytorch.org/whl/rocm6.2",
         "torch_version": "2.5.1+rocm6.2",
         "torchvision_version": "0.20.1+rocm6.2",
-        "hypergan_version": "2.0.0a1",
+        "hypergan_version": "2.0.0",
         "status": "OK",
     }
     sanity_res = helper.SanityCheckResult(

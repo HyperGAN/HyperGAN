@@ -673,7 +673,7 @@ def format_preflight_report(
         f"- **Wheel Index URL**: `{install_data.get('wheel_url', 'https://download.pytorch.org/whl/rocm6.2')}`",
         f"- **PyTorch ROCm Package**: `{install_data.get('torch_version', 'torch==2.5.1+rocm6.2')}`",
         f"- **Torchvision Package**: `{install_data.get('torchvision_version', 'torchvision==0.20.1+rocm6.2')}`",
-        f"- **HyperGAN Core**: `{install_data.get('hypergan_version', '2.0.0a1')} (editable with [train,image,cifar,fid,test])`",
+        f"- **HyperGAN Core**: `{install_data.get('hypergan_version', '2.0.0')} (editable with [train,image,cifar,fid,test])`",
         f"- **Install Status**: `{install_data.get('status', 'OK')}`",
         "",
         "## 3. Sanity Check",
@@ -830,7 +830,7 @@ def run_preflight_pipeline(
         "wheel_url": "https://download.pytorch.org/whl/rocm6.2",
         "torch_version": getattr(torch, "__version__", "unknown"),
         "torchvision_version": "available",
-        "hypergan_version": "2.0.0a1",
+        "hypergan_version": "2.0.0",
         "status": "OK",
     }
 

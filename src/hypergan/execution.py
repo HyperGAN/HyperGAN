@@ -314,6 +314,10 @@ def _apply_execution_options(
         sync_every = int(sync_every)
 
     # 6. devices
+    if device is not None and devices is None:
+        if isinstance(config, dict) and "training" in config:
+            config["training"]["device"] = device
+
     if devices is None:
         if isinstance(config, dict):
             devices = config.get("run", {}).get("devices")
@@ -338,15 +342,9 @@ def _apply_execution_options(
             if isinstance(config, dict) and "training" in config:
                 config["training"]["device"] = "cpu"
         else:
-            import sys
-            _torch = sys.modules.get("torch")
-            if _torch is not None and _torch.cuda.is_initialized():
-                if isinstance(config, dict) and "training" in config:
-                    config["training"]["device"] = f"cuda:{dev_list[0]}"
-            else:
-                _set_visible_devices(dev_list[0])
-                if isinstance(config, dict) and "training" in config:
-                    config["training"]["device"] = "cuda"
+            _set_visible_devices(dev_list[0])
+            if isinstance(config, dict) and "training" in config:
+                config["training"]["device"] = "cuda"
 
     # Determine runtime name
     is_cpu = (

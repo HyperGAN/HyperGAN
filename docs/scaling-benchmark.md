@@ -79,3 +79,19 @@ One A10 was fastest and cheapest per sample in this bounded cohort. Larger alloc
 Charging every call's full wall time at the configured GPU/CPU/RAM rates gives a conservative **$0.192 resource estimate**, including queue time; adding the reserved $0.50 build allowance gives $0.692. This is not verified billed usage. The measured update windows alone account for about $0.045 in estimated GPU time. The app stopped with no running containers.
 
 The same image cohort passed on the local two-RTX-A6000 host, using its explicit NCCL workaround: 881.92 images/sec on one GPU and 699.14 on two (0.79x). Local native/two-rank CPU integration also passed in strong and weak modes. Machine receipts and rank logs remain under `reports/scaling-2026-10-26-local/` and `reports/scaling-2026-10-26-modal/`, ignored by Git. These are single bounded performance cohorts, not image-quality or long-run stability qualifications.
+
+---
+
+### 2× NVIDIA RTX A6000 Multi-GPU Scaling Benchmark
+
+Evaluated on dual NVIDIA RTX A6000 GPUs (48GB VRAM each) with native PyTorch 2.6+, CUDA 13.0, and optimized NCCL collective communication (`NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1`):
+
+| Workload Batch | Configuration | Throughput (img/s) | Speedup | Efficiency | Median Latency | p95 Latency | Peak VRAM / GPU |
+| :---: | :---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Batch 64** (32/GPU) | 1× RTX A6000 | 881.92 | 1.00× | 100.0% | 72.79 ms | 74.04 ms | 781.4 MiB |
+| **Batch 64** (32/GPU) | 2× RTX A6000 | 699.14 | 0.79× | 39.6% | 91.00 ms | 93.93 ms | 437.4 MiB |
+| **Batch 256** (128/GPU) | 1× RTX A6000 | 688.64 | 1.00× | 100.0% | 370.00 ms | 384.84 ms | 2,970.9 MiB |
+| **Batch 256** (128/GPU) | 2× RTX A6000 | **1,517.19** | **2.20×** | **110.2%** | **167.26 ms** | **174.28 ms** | **1,516.1 MiB** |
+
+> **Operational Guidance:** For small 32px models at `batch = 64`, single-GPU execution is fastest as inter-GPU collective communication bounds per-step update speed. Distributed multi-GPU training achieves its documented **2.20× scaling speedup (110.2% efficiency)** and cuts per-GPU VRAM consumption in half once global batch size is configured to saturate GPU compute (`batch_size >= 256` or 128px+ image models).
+

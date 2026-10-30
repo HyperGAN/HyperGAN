@@ -20,6 +20,8 @@ Features covered:
 - Feature 58: Extended starter catalog (transgan, colorization, paired-image, conditional)
 """
 import argparse
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -36,14 +38,31 @@ from hypergan.artifacts import (
     sample,
     _coerce_conditioning_input,
 )
-from hypergan.cli import _build_parser, _port_number, _print_training_header
-from tests.e2e.harness_v2 import run_cli
+from hypergan.cli import _build_parser, _port_number, _print_training_header, main as cli_main
 from hypergan.data import ImageFolder
 from hypergan.recipe_generator import (
     STARTER_TEMPLATES,
     get_hndl_templates,
     generate_recipe,
 )
+
+
+def run_cli(*args: str) -> tuple[int, str, str]:
+    """Execute hypergan CLI in-process, capturing return code, stdout, and stderr."""
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    rc = 0
+    with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
+        try:
+            rc = cli_main([str(a) for a in args])
+            if rc is None:
+                rc = 0
+        except SystemExit as exc:
+            rc = int(exc.code) if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+        except Exception as exc:
+            stderr_buf.write(f"\nUnhandled Exception: {exc}\n")
+            rc = 1
+    return rc, stdout_buf.getvalue(), stderr_buf.getvalue()
 
 
 # ---------------------------------------------------------------------------

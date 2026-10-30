@@ -4,6 +4,7 @@ Recipes select the native device. Explicit profiles select fixed-topology
 replication; deadlines are attempt policy, never numerical checkpoint identity.
 Use a Python main guard when selecting a replicated profile.
 """
+from copy import deepcopy
 from dataclasses import dataclass
 import json
 import os
@@ -35,6 +36,20 @@ def _read_metadata(path):
 
 def _same(left, right):
     return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)
+
+
+def _same_topology(exec_a, exec_b):
+    if exec_a is None and exec_b is None:
+        return True
+    if exec_a is None or exec_b is None:
+        return False
+    keys = set(exec_a.keys()) | set(exec_b.keys())
+    for k in keys:
+        if k in ('node_rank', 'rendezvous'):
+            continue
+        if not _same(exec_a.get(k), exec_b.get(k)):
+            return False
+    return True
 
 
 def _differences(current, original):
@@ -145,11 +160,70 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps):
     return target
 
 
-def _apply_devices(devices, config, profile, context_path):
-    if devices is None:
-        if isinstance(config, dict):
-            devices = config.get("run", {}).get("devices")
+def detect_cluster_environment() -> dict:
+    """Auto-detect multi-node cluster settings from Slurm and torchrun environment variables."""
+    detected = {}
+    # Nodes: SLURM_NNODES, NNODES
+    nodes_raw = os.environ.get("SLURM_NNODES") or os.environ.get("NNODES")
+    if nodes_raw:
+        try:
+            val = int(nodes_raw)
+            if val >= 1:
+                detected["nodes"] = val
+        except ValueError:
+            pass
 
+    # Node Rank: SLURM_NODEID, NODE_RANK, GROUP_RANK
+    rank_raw = os.environ.get("SLURM_NODEID") or os.environ.get("NODE_RANK") or os.environ.get("GROUP_RANK")
+    if rank_raw:
+        try:
+            val = int(rank_raw)
+            if val >= 0:
+                detected["node_rank"] = val
+        except ValueError:
+            pass
+
+    # Rendezvous: MASTER_ADDR and MASTER_PORT
+    master_addr = os.environ.get("MASTER_ADDR")
+    if master_addr:
+        master_port = os.environ.get("MASTER_PORT", "29500")
+        detected["rendezvous"] = f"tcp://{master_addr}:{master_port}"
+
+    return detected
+
+
+def _is_follower(profile=None):
+    if isinstance(profile, dict):
+        exec_cfg = profile.get('execution', {})
+        if isinstance(exec_cfg, dict) and (exec_cfg.get('node_rank', 0) > 0 or exec_cfg.get('rank', 0) > 0):
+            return True
+    for env_key in ('NODE_RANK', 'GROUP_RANK', 'SLURM_NODEID'):
+        val = os.environ.get(env_key)
+        if val is not None:
+            try:
+                if int(val) > 0:
+                    return True
+            except ValueError:
+                pass
+    return False
+
+
+def _apply_execution_options(
+    devices=None,
+    nodes=None,
+    node_rank=None,
+    rendezvous=None,
+    strategy=None,
+    sync_every=None,
+    config=None,
+    profile=None,
+    context_path=None,
+):
+    cli_nodes = nodes
+    cli_node_rank = node_rank
+    cli_rendezvous = rendezvous
+    cli_strategy = strategy
+    cli_sync_every = sync_every
     from .workspace import find_workspace, load_workspace, resolve_device_aliases
     env_ws = os.environ.get("HYPERGAN_WORKSPACE")
     source_p = config.get("_source_path") if isinstance(config, dict) else None
@@ -168,37 +242,88 @@ def _apply_devices(devices, config, profile, context_path):
                 pass
     ws_data = load_workspace(ws_path) if ws_path else {}
 
+    # 4-tier precedence: CLI > Env > TOML > Defaults
+    cluster_env = detect_cluster_environment()
+
+    # 1. nodes
+    if nodes is None:
+        nodes = cluster_env.get("nodes")
+    if nodes is None and isinstance(config, dict):
+        nodes = config.get("run", {}).get("nodes")
+    if nodes is None and ws_data:
+        nodes = ws_data.get("run", {}).get("nodes")
+    if nodes is None:
+        nodes = 1
+    else:
+        nodes = int(nodes)
+
+    # 2. node_rank
+    if node_rank is None:
+        node_rank = cluster_env.get("node_rank")
+    if node_rank is None and isinstance(config, dict):
+        node_rank = config.get("run", {}).get("node_rank")
+    if node_rank is None and ws_data:
+        node_rank = ws_data.get("run", {}).get("node_rank")
+    if node_rank is None:
+        node_rank = 0
+    else:
+        node_rank = int(node_rank)
+
+    # 3. rendezvous
+    if rendezvous is None:
+        rendezvous = cluster_env.get("rendezvous")
+    if rendezvous is None and isinstance(config, dict):
+        rendezvous = config.get("run", {}).get("rendezvous")
+    if rendezvous is None and ws_data:
+        rendezvous = ws_data.get("run", {}).get("rendezvous")
+    if rendezvous is None and nodes == 1:
+        rendezvous = "file://"
+
+    # 4. strategy
+    if strategy is None and isinstance(config, dict):
+        strategy = config.get("aggregation", {}).get("strategy", config.get("run", {}).get("strategy"))
+    if strategy is None and ws_data:
+        strategy = ws_data.get("aggregation", {}).get("strategy", ws_data.get("run", {}).get("strategy"))
+    if strategy is None:
+        strategy = "gradient_allreduce"
+
+    # 5. sync_every
+    if sync_every is None and isinstance(config, dict):
+        sync_every = (
+            config.get("aggregation", {}).get("sync_every_steps")
+            or config.get("aggregation", {}).get("sync_every")
+            or config.get("run", {}).get("sync_every_steps")
+            or config.get("run", {}).get("sync_every")
+        )
+    if sync_every is None and ws_data:
+        sync_every = (
+            ws_data.get("aggregation", {}).get("sync_every_steps")
+            or ws_data.get("aggregation", {}).get("sync_every")
+            or ws_data.get("run", {}).get("sync_every_steps")
+            or ws_data.get("run", {}).get("sync_every")
+        )
+    if sync_every is None:
+        sync_every = 1
+    else:
+        sync_every = int(sync_every)
+
+    # 6. devices
+    if devices is None:
+        if isinstance(config, dict):
+            devices = config.get("run", {}).get("devices")
     if devices is None and ws_data:
         devices = ws_data.get("run", {}).get("devices")
 
-    if devices is None:
-        return profile, devices
+    dev_list = []
+    if devices is not None:
+        resolved = resolve_device_aliases(devices, ws_data)
+        dev_list = [d.strip() for d in (resolved if isinstance(resolved, list) else resolved.split(",")) if d.strip()]
+        dev_list = [d[5:] if d.lower().startswith("cuda:") else d for d in dev_list]
 
-    resolved = resolve_device_aliases(devices, ws_data)
+    local_ranks = len(dev_list) if dev_list else 1
 
-    dev_list = [d.strip() for d in (resolved if isinstance(resolved, list) else resolved.split(",")) if d.strip()]
-    # Note on Device Ordering (Phase 2C):
-    # Setting CUDA_DEVICE_ORDER=PCI_BUS_ID ensures that on NVIDIA GPUs, device indices
-    # deterministically correspond to PCI bus ID ordering rather than heuristic driver ordering.
-    # On AMD ROCm / HIP runtimes, CUDA_DEVICE_ORDER is not a native driver setting (ROCm uses
-    # PCIe bus ID ordering by default or respects HIP_DEVICE_ORDER / ROCR_VISIBLE_DEVICES).
-    # Setting CUDA_DEVICE_ORDER here is harmless on ROCm and strictly preserves existing
-    # NVIDIA behavior. PyTorch ROCm honors CUDA_VISIBLE_DEVICES as an alias.
-    # The exact alignment between PyTorch device index, PCI bus ID, and amd-smi / rocm-smi
-    # is verified empirically on AMD hardware via the preflight report (Section 4).
-    # "cuda:N" names physical GPU N here; the masked process then sees it as "cuda".
-    dev_list = [d[5:] if d.lower().startswith("cuda:") else d for d in dev_list]
     if len(dev_list) > 1:
         _set_visible_devices(",".join(dev_list))
-        if profile is None:
-            profile = {
-                "schema_version": 1,
-                "execution": {
-                    "name": "cuda-replicated-nccl",
-                    "world_size": len(dev_list),
-                    "accumulation_steps": 1,
-                }
-            }
         if isinstance(config, dict) and "training" in config:
             config["training"]["device"] = "cuda"
     elif len(dev_list) == 1:
@@ -210,7 +335,100 @@ def _apply_devices(devices, config, profile, context_path):
             _set_visible_devices(dev_list[0])
             if isinstance(config, dict) and "training" in config:
                 config["training"]["device"] = "cuda"
+
+    # Determine runtime name
+    is_cpu = (
+        (dev_list and dev_list[0].lower() == "cpu")
+        or (isinstance(config, dict) and config.get("training", {}).get("device") == "cpu")
+    )
+    name = "cpu-replicated-gloo" if is_cpu else "cuda-replicated-nccl"
+
+    # Dynamic profile synthesis if profile is None and multi-node or multi-GPU or DiLoCo is active
+    is_replicated_needed = (nodes > 1 or local_ranks > 1 or strategy != "gradient_allreduce" or sync_every > 1)
+
+    if profile is None and is_replicated_needed:
+        agg_dict = {
+            "strategy": strategy,
+            "sync_every_steps": sync_every,
+            "outer_lr": float(config.get("aggregation", {}).get("outer_lr", 1.0)) if isinstance(config, dict) else 1.0,
+            "outer_momentum": float(config.get("aggregation", {}).get("outer_momentum", 0.0)) if isinstance(config, dict) else 0.0,
+        }
+        exec_dict = {
+            "name": name,
+            "world_size": local_ranks * nodes,
+            "nodes": nodes,
+            "node_rank": node_rank,
+            "ranks_per_node": local_ranks,
+            "accumulation_steps": 1,
+            "aggregation": agg_dict,
+        }
+        if rendezvous is not None:
+            exec_dict["rendezvous"] = rendezvous
+        profile = {
+            "schema_version": 1,
+            "execution": exec_dict,
+            "aggregation": agg_dict,
+        }
+        if isinstance(config, dict) and "training" in config:
+            config["training"]["device"] = "cpu" if is_cpu else "cuda"
+    elif profile is not None:
+        has_cli_or_env_override = (
+            cli_nodes is not None
+            or cluster_env.get("nodes") is not None
+            or cli_node_rank is not None
+            or cluster_env.get("node_rank") is not None
+            or cli_rendezvous is not None
+            or cluster_env.get("rendezvous") is not None
+            or len(dev_list) > 1
+            or cli_strategy is not None
+            or cli_sync_every is not None
+        )
+        if has_cli_or_env_override:
+            if isinstance(profile, str) and profile in PROFILE_NAMES:
+                profile = {
+                    "schema_version": 1,
+                    "execution": {
+                        "name": profile,
+                        "world_size": local_ranks * nodes,
+                        "nodes": nodes,
+                        "node_rank": node_rank,
+                        "ranks_per_node": local_ranks,
+                        "accumulation_steps": 1,
+                        "aggregation": {
+                            "strategy": strategy,
+                            "sync_every_steps": sync_every,
+                            "outer_lr": float(config.get("aggregation", {}).get("outer_lr", 1.0)) if isinstance(config, dict) else 1.0,
+                            "outer_momentum": float(config.get("aggregation", {}).get("outer_momentum", 0.0)) if isinstance(config, dict) else 0.0,
+                        },
+                    },
+                }
+                if rendezvous is not None:
+                    profile["execution"]["rendezvous"] = rendezvous
+            elif isinstance(profile, dict) and "execution" in profile:
+                profile = deepcopy(profile)
+                if cli_nodes is not None or cluster_env.get("nodes") is not None:
+                    profile["execution"]["nodes"] = nodes
+                if cli_node_rank is not None or cluster_env.get("node_rank") is not None:
+                    profile["execution"]["node_rank"] = node_rank
+                if cli_rendezvous is not None or cluster_env.get("rendezvous") is not None:
+                    profile["execution"]["rendezvous"] = rendezvous
+                if cli_strategy is not None or cli_sync_every is not None:
+                    agg = profile.get("aggregation") or profile["execution"].get("aggregation") or {}
+                    agg = deepcopy(agg)
+                    if cli_strategy is not None:
+                        agg["strategy"] = cli_strategy
+                    if cli_sync_every is not None:
+                        agg["sync_every_steps"] = cli_sync_every
+                    if "aggregation" in profile:
+                        profile["aggregation"] = agg
+                    if "aggregation" in profile.get("execution", {}):
+                        profile["execution"]["aggregation"] = deepcopy(agg)
+
     return profile, devices
+
+
+def _apply_devices(devices, config, profile, context_path):
+    return _apply_execution_options(devices=devices, config=config, profile=profile, context_path=context_path)
 
 
 def _set_visible_devices(value, *, order=True):
@@ -241,17 +459,32 @@ class PreparedExecution:
     controls: dict
     repeat_train: bool = False
     devices: object = None
+    nodes: object = None
+    node_rank: object = None
+    rendezvous: object = None
+    strategy: object = None
+    sync_every: object = None
 
     def run(self, *, on_event=None):
+        exec_cfg = _execution(self.profile)
+        if exec_cfg is not None and exec_cfg.get('node_rank', 0) > 0:
+            from .replicated_execution import run_follower
+            return run_follower(self.config, self.run_dir, self.steps,
+                                profile=self.profile, service_policy=self.service_policy)
+
         # Revalidate files/options before dispatch: preparation is not a lock and
         # caller code may have changed the config while starting the viewer.
         if self.operation == 'train':
             current = prepare_train(self.config_path, self.run_dir, self.steps,
-                profile=self.profile, service_policy=self.service_policy, devices=self.devices, **self.controls)
+                profile=self.profile, service_policy=self.service_policy, devices=self.devices,
+                nodes=self.nodes, node_rank=self.node_rank, rendezvous=self.rendezvous,
+                strategy=self.strategy, sync_every=self.sync_every, **self.controls)
         else:
             current = prepare_resume(self.run_dir, self.checkpoint, self.config_path,
                 steps=self.steps, _repeat_train=self.repeat_train,
-                profile=self.profile, service_policy=self.service_policy, devices=self.devices, **self.controls)
+                profile=self.profile, service_policy=self.service_policy, devices=self.devices,
+                nodes=self.nodes, node_rank=self.node_rank, rendezvous=self.rendezvous,
+                strategy=self.strategy, sync_every=self.sync_every, **self.controls)
         if current.operation != self.operation:
             raise FileExistsError(f'Run directory appeared after training was prepared: {self.run_dir}')
         if fingerprint(current.config) != fingerprint(self.config) or not _same(_execution(current.profile), _execution(self.profile)):
@@ -316,16 +549,24 @@ def _is_run(run_dir):
 
 
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
-                  devices=None,
+                  devices=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                   preview_every=None, preview_keep=None, preview_keep_source=None,
                   preview_name=None):
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
-    run_dir = Path(run_dir).resolve()
-    if run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
+    run_dir = Path(run_dir).resolve() if run_dir is not None else None
+    config = _training_config(config_path, steps)
+    profile, devices = _apply_execution_options(
+        devices=devices, nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
+        strategy=strategy, sync_every=sync_every, config=config, profile=profile,
+        context_path=run_dir if run_dir else config_path
+    )
+    profile = _profile(profile, config)
+    if run_dir is not None and not _is_follower(profile) and run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=profile, service_policy=service_policy, devices=devices,
+            nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
             checkpoint_every=checkpoint_every, max_seconds=max_seconds,
             stop_after_steps=stop_after_steps, preview_every=preview_every,
             preview_keep=preview_keep, preview_keep_source=preview_keep_source,
@@ -335,9 +576,6 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     preview_keep, preview_keep_source = resolve_preview_keep({}, preview_keep, preview_keep_source)
     preview_name = sample_name(preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
-    config = _training_config(config_path, steps)
-    profile, devices = _apply_devices(devices, config, profile, run_dir if run_dir else config_path)
-    profile = _profile(profile, config)
     policy = _policy(profile, service_policy)
     if _execution(profile) is not None:
         from .replicated_execution import MAX_SAMPLE_COUNT
@@ -347,59 +585,83 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
                     preview_keep=preview_keep, preview_keep_source=preview_keep_source,
                     preview_name=preview_name)
-    return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls, False, devices)
+    return PreparedExecution('train', config, run_dir, config_path, None, steps, profile, policy, controls, False,
+                             devices, nodes, node_rank, rendezvous, strategy, sync_every)
 
 
 def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _repeat_train=False,
                    profile=None, service_policy=None, devices=None,
+                   nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, preview_keep=None, preview_keep_source=None,
                    preview_name=None):
     """Infer persisted numerical routing and pin an earlier/latest complete snapshot."""
     from .run_controller import _controls, resolve_preview_keep
-    run_dir = Path(run_dir).resolve()
-    if not run_dir.is_dir():
-        raise ValueError(f'Run directory does not exist or is not a directory: {run_dir}')
-    if not (run_dir / 'manifest.json').is_file():
-        raise ValueError(f'{run_dir} has no manifest.json, so it is not a resumable HyperGAN run '
-                         '(its first attempt never started); train into it again or choose another run directory')
-    manifest = _read_metadata(run_dir / 'manifest.json')
-    required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
-    if not required.issubset(manifest) or type(manifest['schema_version']) is not int or manifest['schema_version'] != 1:
-        raise ValueError('Run manifest has no supported full recovery contract')
-    config = _training_config(config_path, steps) if config_path is not None else resolve_config(manifest['config'])
-    if config_path is None and steps is not None:
-        raise ValueError('A training step override requires an explicit configuration')
-    saved = manifest.get('execution')
-    if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
-        raise ValueError('Run has no supported numerical execution identity')
-    if profile is None and saved is not None:
-        profile = profile_from_execution(saved)
-    # A device override is part of the configuration checked against the run below.
-    profile, devices = _apply_devices(devices, config, profile, run_dir)
-    if _repeat_train:
-        original = config_values(resolve_config(manifest['config']))
-        changed = _differences(config_values(config), original)
-        if changed and not resume_compatible(config, original, include_observation=True):
-            # Resolved defaults are part of the recorded configuration, so a default
-            # that changed between releases surfaces here instead of silently applying.
-            remedy = ('`hypergan resume RUN --config CONFIG` continues this run with changed '
-                      'observation settings' if set(changed) <= {'metrics', 'samplers'} else
-                      'use a new run directory for a different numerical configuration')
-            raise ConfigError('Training configuration differs from the original run in '
-                              + ', '.join(changed) + '; ' + remedy)
-    if fingerprint(config) != manifest['config_sha256']:
-        compat = resume_compatible(config, manifest['config'])
-        if (not compat
-                or fingerprint(manifest['config']) != manifest['config_sha256']):
-            diffs = getattr(compat, 'differences', ())
-            diff_str = f" in {', '.join(diffs)}" if diffs else ""
-            raise ConfigError(f'Resume configuration differs from the original run{diff_str}; only an increased '
-                              'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
-                              'pinned training-image skipping, or changing its pixel cache, is allowed')
+    run_dir = Path(run_dir).resolve() if run_dir is not None else None
+    is_follower = _is_follower(profile) or (node_rank is not None and node_rank > 0)
+    manifest = {}
+    saved = None
+    if not is_follower:
+        if run_dir is None or not run_dir.is_dir():
+            raise ValueError(f'Run directory does not exist or is not a directory: {run_dir}')
+        if not (run_dir / 'manifest.json').is_file():
+            raise ValueError(f'{run_dir} has no manifest.json, so it is not a resumable HyperGAN run '
+                             '(its first attempt never started); train into it again or choose another run directory')
+        manifest = _read_metadata(run_dir / 'manifest.json')
+        required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
+        if not required.issubset(manifest) or type(manifest['schema_version']) is not int or manifest['schema_version'] != 1:
+            raise ValueError('Run manifest has no supported full recovery contract')
+        config = _training_config(config_path, steps) if config_path is not None else resolve_config(manifest['config'])
+        if config_path is None and steps is not None:
+            raise ValueError('A training step override requires an explicit configuration')
+        saved = manifest.get('execution')
+        if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
+            raise ValueError('Run has no supported numerical execution identity')
+        if profile is None and saved is not None:
+            profile = profile_from_execution(saved)
+    else:
+        if config_path is not None:
+            config = _training_config(config_path, steps)
+        elif run_dir is not None and (run_dir / 'manifest.json').is_file():
+            manifest = _read_metadata(run_dir / 'manifest.json')
+            config = resolve_config(manifest['config'])
+            saved = manifest.get('execution')
+        elif run_dir is not None and (run_dir / 'recipe.toml').is_file():
+            config = _training_config(run_dir / 'recipe.toml', steps)
+        elif run_dir is not None and (run_dir / 'model.toml').is_file():
+            config = _training_config(run_dir / 'model.toml', steps)
+        else:
+            raise ValueError('Follower node resume without shared filesystem requires an explicit configuration (pass --config or recipe.toml)')
+
+    profile, devices = _apply_execution_options(
+        devices=devices, nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
+        strategy=strategy, sync_every=sync_every, config=config, profile=profile,
+        context_path=run_dir
+    )
+    if not is_follower:
+        if _repeat_train:
+            original = config_values(resolve_config(manifest['config']))
+            changed = _differences(config_values(config), original)
+            if changed and not resume_compatible(config, original, include_observation=True):
+                # Resolved defaults are part of the recorded configuration, so a default
+                # that changed between releases surfaces here instead of silently applying.
+                remedy = ('`hypergan resume RUN --config CONFIG` continues this run with changed '
+                          'observation settings' if set(changed) <= {'metrics', 'samplers'} else
+                          'use a new run directory for a different numerical configuration')
+                raise ConfigError('Training configuration differs from the original run in '
+                                  + ', '.join(changed) + '; ' + remedy)
+        if fingerprint(config) != manifest['config_sha256']:
+            compat = resume_compatible(config, manifest['config'])
+            if (not compat
+                    or fingerprint(manifest['config']) != manifest['config_sha256']):
+                diffs = getattr(compat, 'differences', ())
+                diff_str = f" in {', '.join(diffs)}" if diffs else ""
+                raise ConfigError(f'Resume configuration differs from the original run{diff_str}; only an increased '
+                                  'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
+                                  'pinned training-image skipping, or changing its pixel cache, is allowed')
     profile = _profile(profile, config)
     execution = _execution(profile)
-    if not _same(execution, saved):
+    if not _same_topology(execution, saved):
         raise ValueError('Resume numerical execution identity differs from the run manifest')
     policy = _policy(profile, service_policy)
     checkpoint_every = manifest.get('checkpoint_every', 1000) if checkpoint_every is None else checkpoint_every
@@ -407,12 +669,13 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     preview_keep, preview_keep_source = resolve_preview_keep(manifest, preview_keep, preview_keep_source)
     preview_name = sample_name(manifest.get('preview_name') if preview_name is None else preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
-    checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'])
+    checkpoint = _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps']) if not is_follower else None
     controls = dict(checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                     stop_after_steps=stop_after_steps, preview_every=preview_every,
                     preview_keep=preview_keep, preview_keep_source=preview_keep_source,
                     preview_name=preview_name)
-    return PreparedExecution('resume', config, run_dir, config_path, checkpoint, steps, profile, policy, controls, _repeat_train, devices)
+    return PreparedExecution('resume', config, run_dir, config_path, checkpoint, steps, profile, policy, controls, _repeat_train,
+                             devices, nodes, node_rank, rendezvous, strategy, sync_every)
 
 
 def train(config_path, run_dir, steps=None, *, on_event=None, **options):

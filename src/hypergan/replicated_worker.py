@@ -53,16 +53,10 @@ def _ready(state):
 
 
 def _node_0_context(trainer, context):
-    """Followers adopt node 0's run identity; checkpoints need one run_dir path."""
+    """Followers adopt node 0's run identity."""
     leader = trainer._exchange('multi-node run identity',
                                {'run_id': context.get('run_id'), 'run_dir': context.get('run_dir')})[0]
-
-    def check():
-        if leader['run_dir'] != context.get('run_dir'):
-            raise ValueError('Multi-node execution is experimental and needs the same run directory path on every '
-                             f"node (a shared filesystem): node 0 uses {leader['run_dir']}, this node {context.get('run_dir')}")
-    trainer._phase('multi-node run directory', check)
-    return context if leader['run_id'] == context.get('run_id') else dict(context, run_id=leader['run_id'])
+    return context if leader.get('run_id') == context.get('run_id') else dict(context, run_id=leader.get('run_id'))
 
 
 def create_worker(rank, world_size, config, execution, context):

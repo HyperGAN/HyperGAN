@@ -61,7 +61,7 @@ from .network_config import read_source
 
 FORMAT = 'hypergan-model/1'
 TOP_LEVEL = {'format', 'name', 'description', 'defaults', 'recipe', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
-             'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'extends'}
+             'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'aggregation', 'extends'}
 
 CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
 ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
@@ -76,8 +76,9 @@ TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'initialization', 'e
                    'network_lr_floor', 'network_lr_horizon_cap', 'input_noise_std', 'input_noise_anneal_end',
                    'output_noise_std', 'output_noise_warmup', 'phase_draws', 'data_rng_device',
                    'data_seed_offset', 'prior_seed_offset', 'backend', 'every_steps'}
+AGGREGATION_FIELDS = {'strategy', 'sync_every_steps', 'sync_every', 'outer_lr', 'outer_momentum'}
 RUN_CADENCE_FIELDS = {'checkpoint_every', 'preview_every', 'progress_every'}
-RUN_FIELDS = {'devices', 'env', 'viewer', 'cpu_threads', *RUN_CADENCE_FIELDS}
+RUN_FIELDS = {'devices', 'nodes', 'node_rank', 'rendezvous', 'ranks_per_node', 'strategy', 'sync_every', 'sync_every_steps', 'env', 'viewer', 'cpu_threads', *RUN_CADENCE_FIELDS}
 PENALTY_FIELDS = {'kappa', 'lazy_k', 'anchor_weight', 'anchor_decay'}
 _EVAL_FIELDS = {'fn', 'factory', 'args', 'inputs', 'every', 'every_steps', 'device', 'samples', 'batch_size',
                 'seed', 'data', 'output', 'target', 'timeout', 'on_error', 'on_busy', 'label', 'unit',
@@ -809,9 +810,24 @@ class _Lowering:
         if 'checkpoints' in raw:
             self.checkpoints(raw['checkpoints'])
             recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])
+        if 'aggregation' in raw:
+            _table(raw['aggregation'], 'aggregation', AGGREGATION_FIELDS)
+            agg = deepcopy(raw['aggregation'])
+            if 'sync_every' in agg and 'sync_every_steps' not in agg:
+                agg['sync_every_steps'] = agg.pop('sync_every')
+            recipe['aggregation'] = agg
         if 'run' in raw:
             _table(raw['run'], 'run', RUN_FIELDS)
-            recipe.setdefault('run', {}).update(deepcopy(raw['run']))
+            run_copy = deepcopy(raw['run'])
+            recipe.setdefault('run', {}).update(run_copy)
+            if ('strategy' in run_copy or 'sync_every' in run_copy or 'sync_every_steps' in run_copy) and 'aggregation' not in recipe:
+                agg = {}
+                if 'strategy' in run_copy:
+                    agg['strategy'] = run_copy['strategy']
+                sync_val = run_copy.get('sync_every_steps', run_copy.get('sync_every'))
+                if sync_val is not None:
+                    agg['sync_every_steps'] = sync_val
+                recipe['aggregation'] = agg
         recipe['format'] = FORMAT
 
         recipe['name_map'] = dict(self.names)

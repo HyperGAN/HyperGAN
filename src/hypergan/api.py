@@ -816,7 +816,7 @@ def _default_run_dir(model_obj, name=None):
 
 
 def prepare(model, run_dir=None, steps=None, *, name=None, profile=None, service_policy=None,
-            devices=None,
+            devices=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
             checkpoint_every=None, max_seconds=None, stop_after_steps=None,
             preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
             preview_name=None, **extra):
@@ -841,6 +841,8 @@ def prepare(model, run_dir=None, steps=None, *, name=None, profile=None, service
     def attempt(target):
         return _prepare_train(lowered, target, steps=steps, profile=profile,
                               service_policy=service_policy, devices=devices,
+                              nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
+                              strategy=strategy, sync_every=sync_every,
                               checkpoint_every=checkpoint_every,
                               max_seconds=max_seconds, stop_after_steps=stop_after_steps,
                               preview_every=pe, preview_keep=preview_keep,
@@ -899,6 +901,7 @@ def _load_stored_run_model(run_path: Path):
 
 def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
                    profile=None, service_policy=None, devices=None,
+                   nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
                    preview_name=None, sets=None, overrides=None, **extra):
@@ -932,6 +935,8 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
     pe = preview_every if preview_every is not None else previews
     return _prepare_resume(run_path, checkpoint=checkpoint, config_path=config_path, steps=steps,
                            profile=profile, service_policy=service_policy, devices=devices,
+                           nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
+                           strategy=strategy, sync_every=sync_every,
                            checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                            stop_after_steps=stop_after_steps, preview_every=pe,
                            preview_keep=preview_keep, preview_keep_source=preview_keep_source,
@@ -939,7 +944,8 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
 
 
 def train(model, run_dir=None, *, steps=None, name=None, previews=None, preview_every=None, checkpoint_every=None,
-          profile=None, devices=None, on_event=None, **controls):
+          profile=None, devices=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
+          on_event=None, **controls):
     """Train (or continue, if ``run_dir`` exists) and return the ``Run``.
 
     If ``run_dir`` is omitted or None, each call starts a fresh run directory
@@ -948,6 +954,7 @@ def train(model, run_dir=None, *, steps=None, name=None, previews=None, preview_
     """
     pe = preview_every if preview_every is not None else previews
     prep = prepare(model, run_dir, steps=steps, name=name, profile=profile, devices=devices,
+                   nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
                    checkpoint_every=checkpoint_every, preview_every=pe, **controls)
     prep.run(on_event=on_event)
     return open_run(prep.run_dir)

@@ -235,8 +235,8 @@ def test_followers_adopt_node_0_run_identity():
                               _phase=lambda name, function: phases.append(name) or function())
     follower = {'run_id': 'follower', 'run_dir': '/shared/run', 'attempt_id': 'a'}
     assert _node_0_context(trainer, follower) == dict(follower, run_id='leader-run')
-    with pytest.raises(ValueError, match='same run directory path on every node'):
-        _node_0_context(trainer, dict(follower, run_dir='/local/run'))
+    # Feature 21 NFS-Free: Followers adopt leader run_id without requiring identical run_dir
+    assert _node_0_context(trainer, dict(follower, run_dir='/local/run')) == dict(follower, run_id='leader-run', run_dir='/local/run')
 
 
 def test_follower_execution_only_mirrors_node_0(tmp_path):

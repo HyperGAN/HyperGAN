@@ -232,7 +232,7 @@ def _recipe_part(config):
 
 def resolve_config(raw):
     """Resolve omitted defaults without importing or executing custom constructors."""
-    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"}, "configuration")
+    _keys(raw, set(DEFAULT) | {"adversarial_terms", "defaults", "samplers", "format", "name_map", "checkpoints", "run", "aggregation", "_source_path"}, "configuration")
     raw = dict(raw)
     if "adversarial" in raw:
         raw["adversarial"] = _drop_removed_fields(raw["adversarial"], "adversarial")
@@ -261,7 +261,7 @@ def resolve_config(raw):
         elif key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
-        elif key in ("adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "_source_path"):
+        elif key in ("adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "aggregation", "_source_path"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
             extra = (
@@ -794,7 +794,7 @@ def load_config(path):
         if {"warnings", "qualification"} & raw.keys():
             # A resolved configuration: re-resolve its values, keeping the
             # retention, launch and provenance tables that config_values omits.
-            kept = {key: raw[key] for key in ("checkpoints", "run", "_source_path") if key in raw}
+            kept = {key: raw[key] for key in ("checkpoints", "run", "aggregation", "_source_path") if key in raw}
             raw = config_values(raw)
             raw.update(kept)
         if "extends" in raw:

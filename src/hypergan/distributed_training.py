@@ -6,6 +6,7 @@ The caller owns the default Gloo or NCCL group, finite timeouts and whole-job li
 import copy
 import hashlib
 import inspect
+import os
 import random
 import sys
 import warnings
@@ -19,6 +20,32 @@ from .distributed import Collectives
 from .recipes import detach, move_tensors
 from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, noise_levels, schedule_learning_rates, update_ema, with_noise
 from .objective_program import _bound_scores, _sum_tensors, score_candidate
+
+DEFAULT_BUCKET_CAP_BYTES = 25 * 1024 * 1024  # 25 MB default bucket size
+
+
+def _bucket_parameters(parameters, bucket_cap_bytes=DEFAULT_BUCKET_CAP_BYTES):
+    """Partition parameters into memory-contiguous buckets grouped by (device, dtype)."""
+    buckets = []
+    current_bucket = []
+    current_bytes = 0
+    current_key = None
+
+    for p in parameters:
+        key = (p.device, p.dtype)
+        p_bytes = p.numel() * p.element_size()
+        if current_bucket and (key != current_key or (current_bytes + p_bytes > bucket_cap_bytes and current_bytes > 0)):
+            buckets.append(current_bucket)
+            current_bucket = []
+            current_bytes = 0
+        current_key = key
+        current_bucket.append(p)
+        current_bytes += p_bytes
+
+    if current_bucket:
+        buckets.append(current_bucket)
+    return buckets
+
 
 class ReplicatedTrainer(ReferenceTrainer):
     """One complete D/G/prior/auxiliary/EMA update per global batch.
@@ -138,8 +165,20 @@ class ReplicatedTrainer(ReferenceTrainer):
         self.streams['noise'].manual_seed((rank_seed + NOISE_SEED_OFFSET) % (2 ** 63))
         self._phase('initial CUDA completion', self._synchronize)
         self.checkpoint_ready = True
+        self._handshake_complete = False
+        self._bucket_cap_bytes = DEFAULT_BUCKET_CAP_BYTES
 
-    def _synchronize(self):
+    @property
+    def _in_hot_path(self) -> bool:
+        if getattr(self, '_force_barriers', False):
+            return False
+        if os.environ.get('HYPERGAN_DISTRIBUTED_BARRIERS') == '1':
+            return False
+        return getattr(self, 'step', 0) >= 1 and getattr(self, '_handshake_complete', False)
+
+    def _synchronize(self, force=False):
+        if not force and self._in_hot_path:
+            return
         if self.device.type == 'cuda':
             torch.cuda.synchronize(self.device)
 
@@ -154,7 +193,9 @@ class ReplicatedTrainer(ReferenceTrainer):
             raise ValueError(f'Ranks entered different trainer operations: {operations}')
         return [peer['value'] for peer in peers]
 
-    def _phase(self, name, function):
+    def _phase(self, name, function, force=False):
+        if not force and self._in_hot_path:
+            return function()
         result, error = None, None
         try:
             result = function()
@@ -165,7 +206,9 @@ class ReplicatedTrainer(ReferenceTrainer):
             raise RuntimeError(f'{name} failed: ' + '; '.join(f'rank {rank}: {value}' for rank, value in enumerate(errors) if value))
         return result
 
-    def _agree(self, name, value):
+    def _agree(self, name, value, force=False):
+        if not force and self._in_hot_path:
+            return
         values = self._exchange('agreement:' + name, value)
         if any(item != values[0] for item in values):
             raise ValueError(f'Ranks disagree on {name}')
@@ -221,7 +264,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             restore_rng(rng)
 
     def _assert_replicas(self, name):
-        self._agree(name, self._phase(name + ' validation', self._replica_digest))
+        self._agree(name, self._phase(name + ' validation', self._replica_digest, force=True), force=True)
 
     def synchronize_replicas(self):
         """Force one local-SGD synchronization so a checkpoint has one replicated state.
@@ -237,14 +280,14 @@ class ReplicatedTrainer(ReferenceTrainer):
         def boundary():
             # A half/failed update is not synchronized here; the checkpoint itself rejects it.
             return bool(self._poisoned or not self.checkpoint_ready or strategy.is_synchronized(self.step))
-        synchronized = self._phase('aggregation state', boundary)
-        self._agree('aggregation state', synchronized)
+        synchronized = self._phase('aggregation state', boundary, force=True)
+        self._agree('aggregation state', synchronized, force=True)
         if synchronized:
             return False
         self.checkpoint_ready = False
         try:
-            self._phase('aggregation synchronization', strategy.synchronize)
-            self._phase('synchronized CUDA completion', self._synchronize)
+            self._phase('aggregation synchronization', strategy.synchronize, force=True)
+            self._phase('synchronized CUDA completion', lambda: self._synchronize(force=True), force=True)
             self._assert_replicas('synchronized replicated state')
         except BaseException:
             self._poisoned = True
@@ -360,13 +403,47 @@ class ReplicatedTrainer(ReferenceTrainer):
                 p.grad = None
             raise ValueError('Nonfinite or sparse gradient; optimizer step refused')
 
+        active_params = []
         for count, parameter in zip(status[1:], parameters):
             if count:
-                gradient = torch.zeros_like(parameter) if parameter.grad is None else parameter.grad.detach().contiguous()
-                dist.all_reduce(gradient)
-                parameter.grad = gradient / self.world_size
+                active_params.append(parameter)
             else:
                 parameter.grad = None
+
+        if active_params:
+            bucket_cap = getattr(self, '_bucket_cap_bytes', DEFAULT_BUCKET_CAP_BYTES)
+            buckets = _bucket_parameters(active_params, bucket_cap_bytes=bucket_cap)
+            for bucket in buckets:
+                total_numel = sum(p.numel() for p in bucket)
+                dtype = bucket[0].dtype
+                device = bucket[0].device
+                bucket_buffer = torch.empty(total_numel, dtype=dtype, device=device)
+
+                # Pack gradients into contiguous bucket
+                offset = 0
+                for p in bucket:
+                    numel = p.numel()
+                    dest_slice = bucket_buffer[offset : offset + numel].view(p.shape)
+                    if p.grad is None:
+                        dest_slice.zero_()
+                    else:
+                        dest_slice.copy_(p.grad)
+                    offset += numel
+
+                # Coalesced collective communication
+                dist.all_reduce(bucket_buffer, op=dist.ReduceOp.SUM)
+                bucket_buffer.div_(self.world_size)
+
+                # Unpack reduced gradients back to parameters
+                offset = 0
+                for p in bucket:
+                    numel = p.numel()
+                    dest_slice = bucket_buffer[offset : offset + numel].view(p.shape)
+                    if p.grad is None:
+                        p.grad = dest_slice.clone()
+                    else:
+                        p.grad.copy_(dest_slice)
+                    offset += numel
 
         # Finite local gradients can overflow in SUM before the world-size
         # division. Every replica receives the same reduction, so reject it
@@ -589,6 +666,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._phase('complete CUDA update', self._synchronize)
         self.step = step
         self.checkpoint_ready = True
+        self._handshake_complete = True
         values = values.tolist()
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
         row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,
@@ -930,6 +1008,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         values /= self.world_size
         self._phase('complete CUDA update', self._synchronize)
         self.step, self.checkpoint_ready = step, True
+        self._handshake_complete = True
         values = values.tolist()
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
         row.update(event='train', step=step, objectives=values[8:], lr_scale=scale,

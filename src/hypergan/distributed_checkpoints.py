@@ -349,7 +349,7 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
     try:
         error, descriptor, payload = None, None, None
         try:
-            root = _root(run_dir)
+            root = _root(run_dir) if rank == 0 else None
             sync_packet = [controller_id, command_sequence, metadata] if rank == 0 else [None, None, None]
             dist.broadcast_object_list(sync_packet, src=0)
             controller_id, command_sequence, metadata = sync_packet
@@ -365,7 +365,7 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
             state = _rank_state(trainer, last_batch)
             _digest(state)  # All rank-local tensors must follow the CPU state contract too.
             payload = _serialize(state)
-            descriptor = {'root': str(root), 'lineage': lineage, 'identity': identity,
+            descriptor = {'lineage': lineage, 'identity': identity,
                           'controller_id': controller_id, 'command_sequence': command_sequence,
                           'step': trainer.step, 'replicated_sha256': _shared_digest(state)}
             if len(json.dumps(descriptor, allow_nan=False).encode()) > MAX_METADATA_BYTES:
@@ -537,14 +537,14 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
     initial_rng = capture_rng()
     error, descriptor = None, None
     try:
-        root = _root(run_dir)
+        root = _root(run_dir) if rank == 0 else None
         if getattr(trainer, '_poisoned', False):
             raise ValueError('Restore requires a fresh trainer after a failed update; restart the whole worker group')
         if getattr(trainer, 'checkpoint_ready', False) is not True:
             raise ValueError('Restore requires a fresh or complete-boundary trainer, not an active/incomplete update')
         expected = _metadata(expected_metadata, restore=True)
         identity = distributed_checkpoint_identity(trainer)
-        descriptor = {'root': str(root), 'run_id': expected['run_id'], 'identity': identity,
+        descriptor = {'run_id': expected['run_id'], 'identity': identity,
                       'checkpoint': str(checkpoint) if checkpoint is not None else None}
     except Exception as exc:
         error = f'{type(exc).__name__}: {exc}'

@@ -19,6 +19,13 @@ def _positive_int(value):
     return number
 
 
+def _non_negative_int(value):
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return number
+
+
 def _preview_keep(value):
     """Bound the retained preview history; 'all' keeps every published sample."""
     from .previews import KEEP_ALL
@@ -366,6 +373,18 @@ def _parser():
         p.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
                        help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5; "
                             "VALUE null removes the key)")
+        p.add_argument("--nodes", type=_positive_int, default=None,
+                       help="number of distributed cluster nodes (default: 1, or auto-detected from cluster env)")
+        p.add_argument("--node-rank", type=_non_negative_int, default=None,
+                       help="rank index of this node from 0 to nodes-1 (default: 0, or auto-detected from cluster env)")
+        p.add_argument("--rendezvous", default=None,
+                       help="distributed rendezvous URI (e.g. tcp://<master_host>:<port>, or auto-detected)")
+        p.add_argument("--strategy", choices=("gradient_allreduce", "pseudo_gradient", "parameter_average"), default=None,
+                       help="distributed aggregation strategy (default: gradient_allreduce)")
+        p.add_argument("--sync-every", type=_positive_int, default=None,
+                       help="cadence in steps for replica synchronization in local-SGD strategies (default: 1)")
+        p.add_argument("--experimental", action="store_true", default=False,
+                       help=argparse.SUPPRESS)
         _run_options(p)
 
     train = commands.add_parser("train", help="Create a run or resume its latest checkpoint with the same configuration")
@@ -871,6 +890,20 @@ def _print_training_header(run_dir: Path, experiment_name: str, device: str, das
     elif device_str.lower() == "cpu":
         device_str = "cpu (CPU)"
     print(f"Devices:        {device_str}", file=sys.stderr)
+
+    if execution:
+        nodes = execution.get("nodes", 1)
+        node_rank = execution.get("node_rank", 0)
+        world_size = execution.get("world_size", 1)
+        ranks_per_node = execution.get("ranks_per_node", world_size)
+        if nodes > 1:
+            print(f"Cluster:        Node {node_rank}/{nodes} ({world_size} global ranks, {ranks_per_node} local)", file=sys.stderr)
+        agg = execution.get("aggregation", {})
+        if isinstance(agg, dict):
+            strategy = agg.get("strategy", "gradient_allreduce")
+            if strategy != "gradient_allreduce":
+                sync = agg.get("sync_every_steps", 1)
+                print(f"Strategy:       {strategy} (sync every {sync} steps)", file=sys.stderr)
 
     import platform
     print(f"Environment:    Python {platform.python_version()} ({sys.executable})", file=sys.stderr)
@@ -1620,6 +1653,11 @@ def _dispatch(args, *, output=None):
                            service_policy={name: getattr(args, name) for name in SERVICE_TIMEOUTS
                                            if getattr(args, name) is not None},
                            devices=getattr(args, "devices", None),
+                           nodes=getattr(args, "nodes", None),
+                           node_rank=getattr(args, "node_rank", None),
+                           rendezvous=getattr(args, "rendezvous", None),
+                           strategy=getattr(args, "strategy", None),
+                           sync_every=getattr(args, "sync_every", None),
                            checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
                            stop_after_steps=args.stop_after_steps,
                            preview_every=args.preview_every, preview_keep=args.preview_keep,

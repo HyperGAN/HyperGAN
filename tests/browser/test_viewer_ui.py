@@ -44,18 +44,27 @@ def viewer():
             self.send_response(status);self.send_header('Content-Type',mime)
             self.send_header('Content-Length',len(body));self.end_headers();self.wfile.write(body)
         def do_POST(self):
-            request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-            if self.path!='/api/v1/session' or request!={'token':'fixture-secret'}:
-                return self.send(401,{'error':'Invalid session token'})
-            body=b'{"ok":true}';self.send_response(200);self.send_header('Set-Cookie','session=valid; HttpOnly; SameSite=Strict; Path=/')
-            self.send_header('Content-Type','application/json');self.send_header('Content-Length',len(body));self.end_headers();self.wfile.write(body)
+            length=int(self.headers.get('Content-Length') or 0)
+            request=json.loads(self.rfile.read(length)) if length else {}
+            if self.path=='/api/v1/session':
+                if request!={'token':'fixture-secret'}:
+                    return self.send(401,{'error':'Invalid session token'})
+                body=b'{"ok":true}';self.send_response(200);self.send_header('Set-Cookie','session=valid; HttpOnly; SameSite=Strict; Path=/')
+                self.send_header('Content-Type','application/json');self.send_header('Content-Length',len(body));self.end_headers();self.wfile.write(body)
+                return
+            if 'session=valid' not in self.headers.get('Cookie',''):return self.send(401,{'error':'Session required'})
+            if self.path in (f'/api/v1/runs/{RUN}/stop',f'/api/v1/runs/{RUN}/checkpoint',f'/api/v1/runs/{RUN}/sample'):
+                action=self.path.rsplit('/',1)[-1]
+                control.setdefault('posts',[]).append(self.path)
+                return self.send(200,control.get(f'{action}_response',{'ok':True,'action':action,'run_id':RUN,'request_id':'req-1','status':'pending'}))
+            return self.send(404,{'error':'Not found'})
         def do_GET(self):
             parsed=urlparse(self.path);path=parsed.path;query=parse_qs(parsed.query,keep_blank_values=True)
             control['paths'].append(self.path)
-            if path=='/': return self.send(200,files('hypergan.web_assets').joinpath('index.html').read_bytes(),'text/html')
+            if path=='/' or path.startswith('/runs/'): return self.send(200,files('hypergan.web_assets').joinpath('index.html').read_bytes(),'text/html')
             if path.startswith('/assets/') or path.startswith('/reducers/'):
                 resource=(files('hypergan.web_assets') if path.startswith('/assets/') else assets()).joinpath(path.rsplit('/',1)[-1])
-                mime='text/javascript' if path.endswith('.js') else 'text/css' if path.endswith('.css') else 'application/wasm' if path.endswith('.wasm') else 'application/octet-stream'
+                mime='text/javascript' if path.endswith('.js') else 'text/css' if path.endswith('.css') else 'image/png' if path.endswith('.png') else 'application/wasm' if path.endswith('.wasm') else 'application/octet-stream'
                 return self.send(200,resource.read_bytes(),mime)
             if 'session=valid' not in self.headers.get('Cookie',''):return self.send(401,{'error':'Session required'})
             if path=='/api/v1/capabilities':return self.send(200,{'run_id':None if control.get('waiting') else RUN,'reducer':reducer.spec})
@@ -63,8 +72,15 @@ def viewer():
                 run={'run_id':RUN,'status':control['status'],'steps':control['step'],'last_durable_step':1,'total_steps':100,'config':{'name':'Color / reference study'}}
                 if control.get('progress',True):
                     run.update(steps_per_second=12.5,training_seconds=5025.4,samples_seen=control['step']*32,global_batch_size=32)
+                if control.get('run_extra'):
+                    run.update(control['run_extra'])
                 return self.send(200,run)
-            if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:{'label':label,'kind':'scalar','definition_hash':DEFINITION}for metric,label in control.get('catalog',METRICS).items()}})
+            if f'/api/v1/runs/{RUN}/requests/' in path:
+                req_id=path.rsplit('/',1)[-1]
+                control.setdefault('request_polls',[]).append(req_id)
+                receipt=control.get('requests',{}).get(req_id)
+                return self.send(404,{'error':'Not found'}) if receipt is None else self.send(200,receipt)
+            if path.endswith('/metrics/catalog'):return self.send(200,{'schema_version':1,'metrics':{metric:(label if isinstance(label,dict) else {'label':label,'kind':'scalar','definition_hash':DEFINITION})for metric,label in control.get('catalog',METRICS).items()}})
             if '/artifacts/' in path:
                 time.sleep(control.get('asset_delay',{}).get(path.rsplit('/',1)[-1],0))
                 asset=control['assets'].get(path.rsplit('/',1)[-1])
@@ -119,6 +135,7 @@ def viewer():
         with sync_playwright() as playwright:
             browser=playwright.chromium.launch();page=browser.new_page(viewport={'width':1440,'height':1000})
             errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+            page.on('console',lambda msg:errors.append(msg.text) if 'Content Security Policy' in msg.text else None)
             page.goto(f'http://127.0.0.1:{server.server_port}')
             yield page,control,condition,errors
             browser.close()
@@ -490,17 +507,41 @@ def model_document(metrics=METRICS):
     return model
 
 
-def test_model_tab_shows_formulation_losses_networks_and_plots_a_loss(viewer):
+def test_inline_model_section_shows_formulation_losses_networks_and_plots_a_loss(viewer):
     page, control, condition, errors = viewer
-    control['model'] = model_document()
+    control['catalog'] = {
+        **METRICS,
+        'fid50k': {
+            'label': 'FID 50k',
+            'kind': 'scalar',
+            'scope': 'snapshot',
+            'definition_hash': DEFINITION,
+            'specification': {'trigger': 'interval', 'every_steps': 5000},
+        },
+    }
+    control['model'] = model_document(METRICS)
     login(page)
-    assert page.locator('#tab-metrics').get_attribute('aria-selected') == 'true'
-    assert page.locator('#panel-model').is_hidden()
-    page.locator('#tab-model').click()
+
+    # Tabs and duplicate "← All Runs" nav are gone; inline section jump bar is present.
+    assert page.locator('nav.tabs, #tab-metrics, #tab-model, .nav-all-runs').count() == 0
+    assert page.get_by_text('← All Runs').count() == 0
+    for href in ('#learning-curves', '#evaluations', '#artifacts', '#model-section'):
+        assert page.locator(f'#section-nav a[href="{href}"]').is_visible()
+
+    # Inline model section loads eagerly on initial render without clicking any tab.
     page.locator('.model-network').first.wait_for()
-    assert page.locator('#tab-model').get_attribute('aria-selected') == 'true'
-    assert page.locator('#panel-metrics').is_hidden()
-    assert page.evaluate('location.hash') == '#model'
+    assert page.locator('#evaluations').is_visible()
+    assert page.locator('#artifacts').is_visible()
+    assert page.locator('#model-section').is_visible()
+
+    # Evaluations, Samples & artifacts, and Model & configuration span full workspace width.
+    catalog_box = page.locator('.catalog').bounding_box()
+    charts_box = page.locator('#charts').bounding_box()
+    min_full_width = catalog_box['width'] + charts_box['width'] * 0.9
+    for section_sel in ('#evaluations', '#artifacts', '#model-section'):
+        section_box = page.locator(section_sel).bounding_box()
+        assert section_box['width'] > min_full_width
+
     text = page.locator('#model-content').inner_text()
     for expected in ('ParticleGAN', 'Discriminator (critic)', 'critic_regularizer', 'adversarial_g',
                      'hypergan/networks/reference.hndl', 'gaussian_grid'):
@@ -513,28 +554,39 @@ def test_model_tab_shows_formulation_losses_networks_and_plots_a_loss(viewer):
     assert 'linear(64)' in generator.locator('.model-source code').inner_text()
     # The discriminator has no recorded detail and says why instead.
     assert 'Layer detail unavailable' in page.locator('.model-network').nth(1).inner_text()
-    # A loss row puts its series on the Metrics tab; a series outside the catalog is plain text.
+    # A loss row plots its series in Learning curves; a series outside the catalog is plain text.
     assert page.locator('.model-table code', has_text='loss/d_adversarial').count() == 1
+    page.locator('input[value="loss/gradient_penalty"]').uncheck()
+    assert not page.locator('input[value="loss/gradient_penalty"]').is_checked()
     page.locator('.model-table button', has_text='loss/gradient_penalty').click()
-    assert page.locator('#tab-metrics').get_attribute('aria-selected') == 'true'
-    assert page.locator('#panel-metrics').is_visible()
     assert page.locator('input[value="loss/gradient_penalty"]').is_checked()
-    # Charts hidden behind the Model tab are resized to the visible panel again.
     page.wait_for_function("document.querySelector('.chart-canvas canvas').getBoundingClientRect().width > 200")
     assert not errors
 
 
-def test_model_tab_plots_a_loss_when_the_view_already_holds_eight_series(viewer):
+def test_model_section_plots_a_loss_when_the_view_already_holds_eight_series(viewer):
     page, control, condition, errors = viewer
-    extra = ['loss/prior_regularizer', 'diversity/generated_rms', 'diversity/ratio', 'diversity/pooled4_ratio',
-             'throughput/steps_per_second', 'loss/d_adversarial']
+    extra = [
+        'loss/prior_regularizer',
+        'critic/accuracy',
+        'diversity/generated_rms',
+        'diversity/ratio',
+        'diversity/pooled4_ratio',
+        'throughput/steps_per_second',
+        'loss/d_adversarial',
+    ]
     control['catalog'] = {**METRICS, **{metric: metric for metric in extra}}
     control['model'] = model_document(control['catalog'])
     login(page)
+    # Default selection holds 8 learning metrics, includes critic/accuracy, and excludes throughput.
     assert page.locator('#metric-list input:checked').count() == 8
-    page.locator('#tab-model').click()
-    page.locator('.model-table button', has_text='loss/d_adversarial').click()
-    assert page.locator('#panel-metrics').is_visible()
+    assert page.locator('input[value="critic/accuracy"]').is_checked()
+    assert not page.locator('input[value="throughput/steps_per_second"]').is_checked()
+
+    btn = page.locator('.model-table button', has_text='loss/d_adversarial')
+    btn.wait_for()
+    btn.click()
+    assert page.locator('#learning-curves').is_visible()
     assert page.locator('input[value="loss/d_adversarial"]').is_checked()
     assert not page.locator('input[value="loss/g_total"]').is_checked()
     assert page.locator('#metric-list input:checked').count() == 8
@@ -547,15 +599,224 @@ def test_model_tab_plots_a_loss_when_the_view_already_holds_eight_series(viewer)
     assert not errors
 
 
-def test_model_tab_keyboard_and_missing_configuration(viewer):
+def test_model_section_missing_configuration_and_hash_deeplink(viewer):
     page, control, condition, errors = viewer
     login(page)
-    page.locator('#tab-metrics').focus()
-    page.keyboard.press('ArrowRight')
-    assert page.evaluate('document.activeElement.id') == 'tab-model'
     page.locator('#model-status', has_text='No model configuration is recorded').wait_for()
     assert page.locator('#model-content').inner_text() == ''
-    page.keyboard.press('ArrowLeft')
-    assert page.locator('#panel-metrics').is_visible() and page.locator('#panel-model').is_hidden()
     assert page.locator('.chart-canvas canvas').count() == 3
+
+    # Navigating directly to /runs/{id}#model scrolls/targets #model-section without JS errors.
+    control['model'] = model_document()
+    origin = page.url.split('#')[0].split('?')[0].rstrip('/')
+    page.goto(f'{origin}/runs/{RUN}#model')
+    page.locator('#stream-position[data-projection="2"]').wait_for()
+    page.locator('.model-network').first.wait_for()
+    assert page.evaluate('location.hash') == '#model'
+    page.wait_for_function("""() => {
+      const top = document.getElementById('model-section').getBoundingClientRect().top;
+      return window.scrollY > 0 && top < window.innerHeight * 0.6;
+    }""")
+    assert not errors
+
+
+def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts(viewer):
+    page, control, condition, errors = viewer
+    page.set_viewport_size({'width': 1280, 'height': 900})
+    control['run_extra'] = {
+        'active': True,
+        'running': True,
+        'global_batch_size': 256,
+        'local_batch_size': 128,
+        'batch_label': 'Batch 256',
+        'batch_detail': '128 / GPU',
+        'steps_per_second': 1.5,
+        'samples_per_second': 384.0,
+        'eta_seconds': 65.0,
+        'samples_seen': 512,
+        'best_fid': 14.25,
+        'best_step': 2,
+        'latest_fid': 15.80,
+        'topology': {
+            'device_kind': 'cuda',
+            'world_size': 2,
+            'nodes': 1,
+            'ranks_per_node': 2,
+            'gpu_count': 2,
+            'gpu_name': 'RTX A6000',
+            'label': '2 GPUs',
+            'detail': '2× RTX A6000',
+        },
+        'health_alerts': ['Evaluator shares cuda:0 with active training rank 0 (VRAM contention risk)'],
+    }
+    login(page)
+
+    # 10 summary cards arranged in 2 balanced rows of 5 on 1280x900 desktop.
+    cards = page.locator('.stats article')
+    assert cards.count() == 10
+    tops = cards.evaluate_all('els => els.map(el => Math.round(el.getBoundingClientRect().top))')
+    assert len(set(tops[:5])) == 1
+    assert len(set(tops[5:])) == 1
+    assert tops[5] > tops[0]
+
+    assert page.locator('#run-topology-pill').is_visible()
+    assert page.locator('#run-topology-pill').inner_text() == '2 GPUs · 2× RTX A6000'
+    assert page.locator('#run-batch-pill').is_visible()
+    assert page.locator('#run-batch-pill').inner_text() == 'Batch 256 · 128 / GPU'
+    assert page.locator('#steps-per-second').inner_text() == '1.5'
+    assert page.locator('#samples-per-second').inner_text() == '384.0'
+    assert page.locator('#batch-size').inner_text() == '256'
+    assert page.locator('#batch-topology').inner_text() == '2 GPUs · 2× RTX A6000 · 128 / GPU'
+    assert page.locator('#best-fid').inner_text() == '14.25'
+    assert 'Step 2' in page.locator('#fid-detail').inner_text()
+    assert 'Latest 15.80' in page.locator('#fid-detail').inner_text()
+    for action_id in ('#action-sample', '#action-checkpoint', '#action-stop'):
+        assert page.locator(action_id).is_visible()
+
+    assert page.locator('#health-alerts').is_visible()
+    assert 'Evaluator shares cuda:0' in page.locator('#health-alerts-list').inner_text()
+    page.locator('#dismiss-health-alerts').click()
+    assert page.locator('#health-alerts').is_hidden()
+
+    # Transition to stopped/inactive with historical throughput values retained.
+    control['status'] = 'stopped'
+    control['run_extra'].update(active=False, running=False)
+    page.locator('#reconnect').click()
+    page.locator('#run-status[data-status="stopped"]').wait_for()
+    assert page.locator('#steps-per-second').inner_text() == '—'
+    assert page.locator('#samples-per-second').inner_text() == '—'
+    assert page.locator('#steps-rate-note').inner_text() == 'Last: 1.5 steps/s'
+    assert page.locator('#samples-rate-note').inner_text() == 'Last: 384.0 samples/s'
+    for action_id in ('#action-sample', '#action-checkpoint', '#action-stop'):
+        assert page.locator(action_id).is_hidden()
+    assert not errors
+
+
+def test_two_click_confirm_stop_and_live_request_receipt_tracking(viewer):
+    page, control, condition, errors = viewer
+    control['requests'] = {'req-1': {'status': 'pending'}}
+    control['stop_response'] = {
+        'ok': True,
+        'action': 'stop',
+        'run_id': RUN,
+        'request_id': 'req-1',
+        'status': 'pending',
+    }
+    login(page)
+
+    stop_btn = page.locator('#action-stop')
+    cancel_btn = page.locator('#action-stop-cancel')
+    assert stop_btn.is_visible() and stop_btn.inner_text() == 'Stop'
+    assert cancel_btn.is_hidden()
+
+    # First click arms without posting.
+    stop_btn.click()
+    assert control.get('posts', []) == []
+    assert stop_btn.inner_text() == 'Confirm stop?'
+    assert cancel_btn.is_visible()
+
+    # Cancel disarms and resets to "Stop".
+    cancel_btn.click()
+    assert stop_btn.inner_text() == 'Stop'
+    assert cancel_btn.is_hidden()
+    assert control.get('posts', []) == []
+
+    # Two clicks confirm, post /stop, poll /requests/req-1, and announce completion.
+    stop_btn.click()
+    assert stop_btn.inner_text() == 'Confirm stop?'
+    stop_btn.click()
+    page.locator('#notice', has_text='Stop requested at next update boundary').wait_for()
+    assert control['posts'] == [f'/api/v1/runs/{RUN}/stop']
+
+    deadline = time.monotonic() + 5
+    while 'req-1' not in control.get('request_polls', []):
+        assert time.monotonic() < deadline, 'Did not poll /requests/req-1'
+        time.sleep(0.05)
+
+    control['status'] = 'stopped'
+    control['run_extra'] = {'active': False, 'running': False}
+    control['requests']['req-1'] = {'status': 'completed', 'completed': True, 'step': 2}
+    page.locator('#notice', has_text='Stop completed at step 2.').wait_for(timeout=5000)
+    page.locator('#run-status[data-status="stopped"]').wait_for(timeout=5000)
+    assert stop_btn.is_hidden()
+    assert not errors
+
+
+def test_samples_workbench_side_by_side_synced_sliders_pixel_toggle_and_lightbox(viewer):
+    from hypergan.image_grids import encode_png
+    page, control, condition, errors = viewer
+    page.set_viewport_size({'width': 1280, 'height': 900})
+
+    def image(identifier, name, step, pixel):
+        control['assets'][identifier] = encode_png(pixel, 1, 1, 3, {'step': step})
+        control['artifacts'][identifier] = {
+            'role': 'sample',
+            'modality': 'image',
+            'media_type': 'image/png',
+            'name': name,
+            'bytes': len(control['assets'][identifier]),
+            'width': 1,
+            'height': 1,
+            'provenance': {'step': step, 'sample_sequence': step // 10, 'name': name},
+        }
+
+    image('g-10', 'g', 10, bytes([255, 0, 0]))
+    image('g-20', 'g', 20, bytes([0, 255, 0]))
+    image('x-10', 'x', 10, bytes([0, 0, 255]))
+    image('x-20', 'x', 20, bytes([255, 255, 0]))
+    login(page)
+
+    g_card = page.locator('#artifact-items li[data-sample="g"]')
+    x_card = page.locator('#artifact-items li[data-sample="x"]')
+    g_card.locator('img[src$="/artifacts/g-20"]').wait_for()
+    x_card.locator('img[src$="/artifacts/x-20"]').wait_for()
+
+    # Side-by-side layout on 1280x900 desktop (same top Y coordinate).
+    g_box = g_card.bounding_box()
+    x_box = x_card.bounding_box()
+    assert abs(g_box['y'] - x_box['y']) <= 2
+    assert x_box['x'] > g_box['x']
+
+    # Dragging/stepping g's slider to step 10 syncs x's slider to step 10 when #sync-samples is checked.
+    assert page.locator('#sync-samples').is_checked()
+    g_slider = g_card.locator('input[type="range"]')
+    x_slider = x_card.locator('input[type="range"]')
+    g_slider.fill('0')
+    g_card.locator('.sample-position').filter(has_text='Version 1 of 2 · step 10').wait_for()
+    x_card.locator('.sample-position').filter(has_text='Version 1 of 2 · step 10').wait_for()
+    assert x_slider.input_value() == '0'
+    g_card.locator('img[src$="/artifacts/g-10"]').wait_for()
+    x_card.locator('img[src$="/artifacts/x-10"]').wait_for()
+
+    # Pixel rendering toggle switches between Pixels: Crisp and Pixels: Smooth.
+    pixel_btn = page.locator('#toggle-pixelated')
+    assert pixel_btn.inner_text() == 'Pixels: Crisp'
+    assert pixel_btn.get_attribute('aria-pressed') == 'true'
+    assert g_card.locator('img.image-grid').evaluate('el => getComputedStyle(el).imageRendering') == 'pixelated'
+    pixel_btn.click()
+    assert pixel_btn.inner_text() == 'Pixels: Smooth'
+    assert pixel_btn.get_attribute('aria-pressed') == 'false'
+    assert g_card.locator('img.image-grid').evaluate('el => getComputedStyle(el).imageRendering') == 'auto'
+    pixel_btn.click()
+    assert pixel_btn.inner_text() == 'Pixels: Crisp'
+
+    # Clicking sample image opens <dialog id="sample-lightbox">; ArrowRight/ArrowLeft scrubs, Escape closes.
+    g_card.locator('img.image-grid').click()
+    lightbox = page.locator('#sample-lightbox')
+    assert lightbox.is_visible()
+    assert lightbox.evaluate('d => d.open') is True
+    assert page.locator('#lightbox-name').inner_text() == 'g'
+    assert 'Step 10' in page.locator('#lightbox-caption').inner_text()
+    assert page.locator('#lightbox-image').get_attribute('src').endswith('/artifacts/g-10')
+
+    page.keyboard.press('ArrowRight')
+    page.locator('#lightbox-caption').filter(has_text='Step 20').wait_for()
+    assert page.locator('#lightbox-image').get_attribute('src').endswith('/artifacts/g-20')
+
+    page.keyboard.press('ArrowLeft')
+    page.locator('#lightbox-caption').filter(has_text='Step 10').wait_for()
+    assert page.locator('#lightbox-image').get_attribute('src').endswith('/artifacts/g-10')
+
+    page.keyboard.press('Escape')
+    assert lightbox.evaluate('d => d.open') is False
     assert not errors

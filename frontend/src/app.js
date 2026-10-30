@@ -793,6 +793,7 @@ function refreshLightbox() {
   img.alt = `Sample ${controller.group.name} full-scale preview at step ${fmt(step)}`;
   $("lightbox-prev").disabled = idx <= 0;
   $("lightbox-next").disabled = idx >= controller.group.versions.length - 1;
+  if (!dialog.contains(document.activeElement) || document.activeElement?.disabled) $("lightbox-close")?.focus();
 }
 function openLightbox(groupKey) {
   const dialog = $("sample-lightbox");

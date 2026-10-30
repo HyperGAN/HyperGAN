@@ -312,7 +312,7 @@ class ReferenceTrainer:
             self.critic = self.graph.models[names[0]]
         else:
             self.critic = torch.nn.ModuleDict({name: self.graph.models[name] for name in names})
-        ema_critic = copy.deepcopy(self.critic) if config["gradient_penalty"]["anchor_weight"] else None
+        ema_critic = copy.deepcopy(self.critic).eval() if config["gradient_penalty"]["anchor_weight"] else None
         self.opt_d = _skip_cpu_capture_guard(self.recipe.make_critic_optimizer(self.critic, ema_critic=ema_critic, **optimizer_options))
         if not config.get('recipe') and getattr(self.opt_d, 'anchor', None) is not None:
             self.opt_d.anchor.decay = config['gradient_penalty']['anchor_decay']

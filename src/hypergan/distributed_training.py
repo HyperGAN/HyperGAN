@@ -718,9 +718,21 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
         self._phase('discriminator backward', d_loss.backward)
         self._reduce_gradients(self.opt_d, 'discriminator')
-        critic_grad_norm_t = self._grad_norm_scalar(self._critic_checked_parameters(terms))
-        d_guard_ratio = float(getattr(self.opt_d, 'd_guard_ratio', 1.0) or 1.0)
+        critic_params = self._critic_checked_parameters(terms)
+        critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+        explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
         self._phase('discriminator optimizer', self.opt_d.step)
+        if explicit_guard is not None:
+            d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
+        elif getattr(self.opt_d, 'guard', None) is not None:
+            post_critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+            d_guard_ratio_t = torch.where(
+                critic_grad_norm_t > 0.0,
+                post_critic_grad_norm_t / critic_grad_norm_t.clamp_min(1e-30),
+                torch.ones_like(critic_grad_norm_t),
+            )
+        else:
+            d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
         self._average_critic_statistics()
 
@@ -816,8 +828,9 @@ class ReplicatedTrainer(ReferenceTrainer):
             critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
             particle_rms_t,
             fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
+            d_guard_ratio_t,
         ])
-        values = torch.tensor([*transferred, d_guard_ratio], dtype=torch.float64, device=self.device)
+        values = torch.tensor(transferred, dtype=torch.float64, device=self.device)
         dist.all_reduce(values)
         values /= self.world_size
         self._phase('complete CUDA update', self._synchronize)
@@ -1058,9 +1071,21 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
         record.calls = calls_before if logical_calls is None else logical_calls
         self._reduce_gradients(self.opt_d, 'discriminator')
-        critic_grad_norm_t = self._grad_norm_scalar(self._critic_checked_parameters(terms))
-        d_guard_ratio = float(getattr(self.opt_d, 'd_guard_ratio', 1.0) or 1.0)
+        critic_params = self._critic_checked_parameters(terms)
+        critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+        explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
         self._phase('discriminator optimizer', self.opt_d.step)
+        if explicit_guard is not None:
+            d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
+        elif getattr(self.opt_d, 'guard', None) is not None:
+            post_critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+            d_guard_ratio_t = torch.where(
+                critic_grad_norm_t > 0.0,
+                post_critic_grad_norm_t / critic_grad_norm_t.clamp_min(1e-30),
+                torch.ones_like(critic_grad_norm_t),
+            )
+        else:
+            d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
         self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
         self._average_critic_statistics()
         saved_flags = []
@@ -1203,8 +1228,9 @@ class ReplicatedTrainer(ReferenceTrainer):
             critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
             particle_rms_t,
             fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
+            d_guard_ratio_t,
         ])
-        values = torch.tensor([*transferred, d_guard_ratio], dtype=torch.float64, device=self.device)
+        values = torch.tensor(transferred, dtype=torch.float64, device=self.device)
         dist.all_reduce(values)
         values /= self.world_size
         self._phase('complete CUDA update', self._synchronize)

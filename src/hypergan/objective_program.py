@@ -5,6 +5,7 @@ executor reads sample bindings, detach policies, terms, and parameter
 sequences from that program.
 """
 from dataclasses import dataclass
+import math
 
 import torch
 
@@ -385,8 +386,18 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         critic_fake_mean = 0.0
         critic_margin = 0.0
         critic_accuracy = 0.5
-    d_guard_ratio = float(getattr(trainer.opt_d, 'd_guard_ratio', 1.0) or 1.0)
+    explicit_guard = getattr(trainer.opt_d, 'd_guard_ratio', None)
     trainer.opt_d.step()
+    if explicit_guard is not None:
+        d_guard_ratio = float(explicit_guard or 1.0)
+    elif getattr(trainer.opt_d, 'guard', None) is not None and critic_grad_norm > 0.0:
+        try:
+            post_critic_grad_norm = float(torch.sqrt(sum(p.grad.norm(2)**2 for p in critic_checked if p.grad is not None)).detach().cpu().item())
+            d_guard_ratio = post_critic_grad_norm / critic_grad_norm if math.isfinite(post_critic_grad_norm) else 1.0
+        except Exception:
+            d_guard_ratio = 1.0
+    else:
+        d_guard_ratio = 1.0
     saved_flags = []
     seen_modules = set()
     for term in terms:

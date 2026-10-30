@@ -13,23 +13,12 @@ share authorship. These source references remain for reproducibility; the existi
 [MIT license](../LICENSE) applies to the port. This permission covers the source
 components, not a redistribution or relicensing of pretrained weights or data.
 
-[The example](../examples/archive/cifar-pretrained-sagan.toml) configures a scratch
-encoder, a 16,384-row MoG prior in 64 dimensions, fixed sigma
-`0.212616428732872`, and encoder-only reconstruction through a shared generator.
-It is an initial HyperGAN image recipe, not a reproduced final FID result.
-The source's separate attention-depth intervention is not part of this recipe.
+HyperGAN packages canonical production CIFAR-10 recipes directly in the wheel:
+- `cifar10-transgan`: CIFAR-10 TransGAN generator paired with pure HNDL multi-scale discriminator, trained with ParticleGAN latent particle table.
+- `cifar10-tiny-transformer`: Lightweight transformer generator paired with frozen ResNet-18 feature critic.
+- [`cifar-pretrained-sagan.toml`](../examples/archive/cifar-pretrained-sagan.toml): Historical ablation recipe in the archive.
 
-Install `hypergan[train,cifar,web,fid]` from this checkout with a matching CUDA
-PyTorch/TorchVision installation.
-Set the example's data root and weight path to existing local files before
-running it. There are no automatic downloads. The ResNet18 weight file is
-`resnet18-f37072fd.pth`, SHA256
-`f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`.
-The native HNDL pretrained node verifies that artifact digest and loads the
-checkpoint into one frozen ResNet18. Missing files and changed bytes fail
-explicitly. The older Python adapter additionally checked a derived feature-state
-digest; the single-file recipe relies on the complete checkpoint's SHA256.
-Weights and dataset bytes are not included in the package.
+Install `hypergan[all]` or `hypergan[train,image,web,fid]` with a matching CUDA PyTorch/TorchVision installation. CIFAR-10 batches and pretrained ResNet-18 backbone weights (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand. Missing files or corrupt checksums fail explicitly.
 
 Both CIFAR examples define the complete discriminator in
 [`networks/cifar-discriminator-32.hndl`](../examples/networks/cifar-discriminator-32.hndl)
@@ -96,7 +85,7 @@ hypergan resume runs/cifar --stop-after-steps 10000 --checkpoint-every 1000 --pr
 
 Periodic previews publish the generated grid as sample `g` and the comparable
 real batch as `x`; the viewer shows each name's newest image with a slider over
-the retained history (`--preview-keep`, default: keep everything).
+the retained history (`--preview-keep`, default: 128).
 
 The example automatically evaluates FID at steps 10,000, 20,000 and so on.
 A stopped run can also be evaluated explicitly with

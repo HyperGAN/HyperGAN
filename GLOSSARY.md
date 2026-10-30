@@ -107,3 +107,80 @@ outer_momentum = 0.0
 | **`collective_timeout`** | `preflight.collective_timeout` | `15` | Seconds allowed for one distributed collective before the process group is aborted. |
 | **qualification** | `hypergan qualify` | — | A bounded smoke suite of single-device, replicated, aggregation and multi-node checks that writes a receipt. |
 | **receipt** | `--output` (default `qualification-receipt.json`) | — | Machine-readable JSON result of `hypergan qualify`: environment, suite outcomes, timings and parity numbers, plus `receipt_sha256`. That hash is an unkeyed self-hash: it catches accidental edits, not deliberate ones, and the receipt is not signed. |
+
+---
+
+## 5. HNDL Architecture & Operators
+
+Hyper Network Description Language (HNDL) is HyperGAN's declarative neural network DSL. HNDL graphs compile directly into high-performance `torch.nn.Module` execution graphs without boilerplate.
+
+| Term | Context | Definition |
+| :--- | :--- | :--- |
+| **`diff_augment`** | Critic regularization | Differentiable augmentation layer applying stochastic spatial transforms (translation, cutout, color jitter) to both real and fake images during discriminator scoring. |
+| **`rms_norm`** | Layer normalization | Root Mean Square Normalization across feature dimensions, invariant to scaling without mean centering ($y = \frac{x}{\sqrt{\text{mean}(x^2) + \epsilon}} \cdot \gamma$). |
+| **`group_norm`** | Normalization layer | Channel grouping normalization dividing channels into $G$ groups, independent of batch size and GPU rank topologies. |
+| **`swiglu`** | Activation function | Swish-Gated Linear Unit activation ($x \cdot \text{sigmoid}(\beta x) \otimes W_g x$), delivering enhanced expressivity in transformer and feedforward blocks. |
+| **`pixel_shuffle`** | Upsampling operator | Efficient sub-pixel convolution upsampling rearranging depth elements into spatial blocks ($r \times r$). |
+| **`rope_2d`** | Positional encoding | 2D Rotary Position Embedding applying sinusoidal frequency rotations across height and width spatial axes in vision transformers. |
+| **AST / Shape Inference** | Graph compilation | Abstract Syntax Tree shape propagation tracking symbolic dimensions: `'B'` (batch size), `'H'` (height), `'W'` (width), `'C'` (channels), `'S'` (sequence length), and `'D'` (embedding/feature dimension). |
+
+---
+
+## 6. Run Directory Artifacts
+
+Every training run produces an isolated run directory containing durable metadata, telemetry, and checkpoint state.
+
+| Term | File / Artifact | Definition |
+| :--- | :--- | :--- |
+| **`manifest.json`** | Run root | Complete immutable record of the lowered recipe, dependency fingerprints, hardware environment, CLI invocation, and recovery lineage. |
+| **`events.jsonl`** | Run root | Append-only newline-delimited JSON stream of scalar metric values, step timings, and health indicators recorded every `[metrics] every_steps`. |
+| **`summary.json`** | Run root | Machine-readable JSON snapshot containing final step counts, total duration, stop reason, and latest metric measurements. |
+| **`tag.json`** | Run root | User-assigned human-readable label or metadata dictionary written by `hypergan tag <run> <name>`. |
+
+---
+
+## 7. GAN Health Telemetry
+
+HyperGAN automatically tracks GAN dynamics and numerical stability scalars during training.
+
+| Metric | Source | Definition |
+| :--- | :--- | :--- |
+| **`critic/real_mean`** | Adversarial loss | Mean scalar score assigned by the discriminator to real batch samples. |
+| **`critic/fake_mean`** | Adversarial loss | Mean scalar score assigned by the discriminator to generated samples. |
+| **`critic/margin`** | Adversarial loss | Score separation $D(\text{real}) - D(\text{fake})$; indicates discriminator discriminative confidence. |
+| **`critic/accuracy`** | Adversarial loss | Binary classification accuracy of the discriminator across real and fake batch distributions. |
+| **`grad_norm/critic`** | Backpropagation | L2 gradient norm across all discriminator/critic trainable parameters. |
+| **`grad_norm/generator`** | Backpropagation | L2 gradient norm across all generator trainable parameters. |
+| **`grad_norm/prior`** | Backpropagation | L2 gradient norm across latent particle coordinates. |
+| **`optimizer/d_guard_ratio`** | Optimizer | Dynamically throttled discriminator step frequency ratio under discriminator guard protection. |
+| **`prior/particle_rms`** | Prior | Root-mean-square coordinate magnitude of the active ParticleGAN latent particle table. |
+| **`diversity/ratio`** | Metric suite | Pairwise sample-to-latent distance ratio measuring generator diversity and alerting against mode collapse. |
+| **`health_alerts`** | Telemetry monitor | Discrete integer counter tracking detected pathological states (exploding gradients, mode collapse, discriminator runaway). |
+
+---
+
+## 8. Multi-Node & Zero-TOML CLI Flags
+
+Distributed runs can be launched across nodes directly from the CLI without authoring an execution profile TOML file.
+
+| Flag | Argument | Definition |
+| :--- | :--- | :--- |
+| **`--nodes`** | Integer ($N \ge 1$) | Total number of physical host machines (nodes) participating in distributed training. |
+| **`--node-rank`** | Integer ($0 \le r < N$) | Zero-based index identifying the current host within the multi-node cluster. |
+| **`--rendezvous`** | URL string | Process group rendezvous URI (e.g. `tcp://10.0.0.1:29500` or `file:///shared/sync`). |
+| **`--strategy`** | String identifier | Learning aggregation strategy: `"gradient_allreduce"`, `"parameter_average"`, or `"pseudo_gradient"`. |
+| **`--sync-every`** | Integer ($k \ge 1$) | Step interval between inter-node parameter or gradient synchronization rounds. |
+
+---
+
+## 9. Model Export & Inference
+
+Trained generators can be exported into standalone formats for zero-dependency deployment.
+
+| Format / Class | Command / File | Definition |
+| :--- | :--- | :--- |
+| **`bundle`** | `hypergan export --format bundle` | Self-contained PyTorch `.pt` bundle embedding generator weights, baked latent particle buffers, and configuration with zero ParticleGAN or HNDL runtime dependency. |
+| **`safetensors`** | `hypergan export --format safetensors` | Memory-mapped, zero-copy tensor archive for high-throughput Rust, WebAssembly, and Hugging Face inference. |
+| **`pt2`** | `hypergan export --format pt2` | PyTorch 2.0 / TorchScript export format for embedded and C++ LibTorch production runtimes. |
+| **`onnx`** | `hypergan export --format onnx` | Open Neural Network Exchange model format for deployment with ONNX Runtime, TensorRT, or CoreML. |
+| **`LoadedGenerator`** | `hg.load_bundle(...)` | Subclass of `torch.nn.Module` wrapping an exported bundle, exposing `.sample(count, seed)` and `.interpolate(seed_a, seed_b, steps, mode)`. |

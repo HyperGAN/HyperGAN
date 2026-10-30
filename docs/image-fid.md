@@ -1,26 +1,30 @@
 # Image FID evaluation
 
-Install `hypergan[train,cifar,fid]` with matching PyTorch/TorchVision wheels for
-your CUDA runtime. `hypergan.image_metrics:InceptionFID` is an ordinary Python
-snapshot metric. It never downloads weights: provide the local
-`weights-inception-2015-12-05-6726825d.pth` file, whose SHA256 must be
-`6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`.
-Missing or incorrect files fail metric preflight before training starts.
+Install `hypergan[all]` or `hypergan[train,image,web,fid]` with matching PyTorch/TorchVision wheels for your CUDA runtime.
 
-Bind `generated = "evaluation.generated"` and
-`reference = "evaluation.reference"`, use `mode = "snapshot"` and pass the local
-weight file in `args.weights_path`. The evaluation configuration must explicitly
-name the data factory and its arguments, sample count, batch size, seed and
-device. The data factory owns reference ordering and preprocessing; use
-unaugmented references for CIFAR FID.
+`hypergan.image_metrics:InceptionFID` evaluates Fréchet Inception Distance on immutable EMA snapshots against reference datasets. By default, HyperGAN automatically downloads and SHA-256 verifies the official Inception-v3 weights (`weights-inception-2015-12-05-6726825d.pth`) on demand into `~/.hypergan/cache/` with multi-rank file locking. You may optionally supply a custom local weight path via `[evaluations.<id>.args] weights_path = "/path/to/weights.pth"`.
 
-A snapshot metric that omits `trigger` is evaluated on an interval: the resolved
-recipe records `trigger = "interval"`, `every_steps = 10000` and `on_busy =
-"skip"`, so a declared FID metric produces periodic values without extra fields.
-Interval evaluation has no device fallback, so `evaluation.device` must be named
-explicitly; omitting it fails validation with that instruction. Set `trigger =
-"manual"` to opt a metric out and evaluate it only on request, as `fid_smoke`
-does in the CIFAR example.
+Declare the evaluation metric under `[evaluations.<id>]`. Input bindings default automatically to generated and reference samples. Configure `samples`, `batch_size`, `seed`, `device`, and `[evaluations.<id>.data]`:
+
+```toml
+[evaluations.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+every = 10000                     # interval in steps; omit for manual-only evaluation
+device = "cuda:0"
+samples = 50000
+batch_size = 128
+seed = 10000
+on_busy = "skip"
+
+[evaluations.fid50k_train.data]
+builtin = "cifar10"
+split = "train"
+sampling = "sequential"
+horizontal_flip = false
+```
+
+- **Cadence**: Specify `every = 10000` to evaluate periodically during training. Omit `every` to configure the metric as manual-only (evaluated on demand via `hypergan eval <run> --metric <id>`). (Do not write `mode = "snapshot"` or `trigger = ...`; in `hypergan-model/1` all entries under `[evaluations]` are automatically snapshot evaluations, and `trigger` is inferred from `every`).
+- **SciPy 1.18+ Compatibility**: HyperGAN pins `torch-fidelity>=0.4.0,<0.5` alongside `scipy>=1.10`. In torch-fidelity 0.4.0, matrix square roots use `np.linalg.eigvals` instead of scipy's deprecated `sqrtm(..., disp=False)`, fully supporting modern SciPy 1.18+ installations without crashes.
 
 After a bounded training segment has stopped, run a manual metric with:
 
@@ -61,9 +65,9 @@ warning when an interval metric's `evaluation.device` may be the training device
 select an available separate device such as `cuda:1` when one exists. Device
 indices refer to `CUDA_VISIBLE_DEVICES`.
 
-When every configured snapshot metric sets `trigger = "manual"`, the run records
-an empty `evaluation_schedule` and no FID is ever published. That is reported as
-a startup warning on stderr, and the viewer's status line for each such metric
+When every configured snapshot metric omits `every` (manual-only), the run records
+an empty `evaluation_schedule` and no periodic FID is published. That is reported as
+a startup notice on stderr, and the viewer's status line for each such metric
 reads `Manual`, with no next evaluation step.
 
 Normal completion and step/time budget stops drain accepted evaluations within

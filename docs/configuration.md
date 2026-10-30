@@ -52,16 +52,13 @@ Inside a workspace, path fields may use the workspace's variables: `root = "${pa
 ### Supported Data Modes
 
 1. **Built-in Datasets (`builtin`)**:
-   - `"image_folder"`: Recursively scans an image directory (`root = "./data/images"`), validating extensions and applying `width`, `height`, `channels` / `mode` (`"RGB"` or `"L"`), and `resize` (`"center_crop"`, `"aspect_fit"`, etc.).
+   - `"image_folder"`: Recursively scans an image directory (`root = "./data/images"`), validating extensions and applying `width`, `height`, `channels` / `mode` (`"RGB"` or `"L"`), and `resize` (`"center_crop"`, `"pad"`, `"stretch"`, or `"none"`). For aspect-fitting with letterboxing/pillarboxing, use `resize = "pad"` alongside optional `fill = 0` (or `[0..255]`).
    - `"cifar10"`: CIFAR-10 dataset loader (`root = "./data/cifar10"`, `split = "train"`, `sampling = "random" | "sequential"`, `horizontal_flip = true`).
    - `"gaussian_grid"`: 2D mixture-of-Gaussians synthetic reference grid (`side = 10`, `noise = 0.015`).
    - `"paired_linear"`: Synthetic paired-input fixture yielding `batch.condition` and `batch.real` (`dimensions = 2`, `scale = 2.0`, `offset = 0.25`).
 
-2. **Dataset Presets & Item-Level Datasets (`dataset`)**:
-   - `"image_folder"`: Unconditional image folder dataset (`root = "./data/images"`).
-   - `"paired_images"`: Paired image translation dataset (`manifest = "./data/pairs.jsonl"` or `root = "./data/pairs"`).
-   - `"foldlitedb"`: Embedded FoldLiteDB stream/document dataset.
-   - `"pkg.module:DatasetClass"`: Any importable Python map-style/iterable dataset returning a sample dictionary (e.g., `{"real": tensor}`), wrapped automatically with `shuffle` and `workers`.
+2. **Custom Item-Level Datasets (`dataset`)**:
+   - `"pkg.module:DatasetClass"`: Any importable Python map-style or iterable dataset class implementing `__len__` and `__getitem__(index)` (or `load(index)`), returning a dictionary of tensors or primitives (e.g., `{"real": tensor}` or `{"condition": cond, "real": target}`). Wrapped automatically with background multi-threaded worker prefetching and epoch shuffling via `shuffle = true` and `workers = 4`. (Note: string presets like `"image_folder"` and `"cifar10"` belong under `builtin`, not `dataset`).
 
 3. **Batch-Level Factories (`factory`)**:
    - `"pkg.module:BatchCallable"`: Importable callable invoked as `factory(batch_size, *, generator)` returning a dictionary of batched tensors (e.g., `hypergan.colorization_data:ColorizationData` or `hypergan.image_data:CIFAR10Data`).
@@ -69,7 +66,7 @@ Inside a workspace, path fields may use the workspace's variables: `root = "${pa
 | Field | Type | Description |
 | --- | --- | --- |
 | `builtin` | `string` | Built-in dataset name (`"gaussian_grid"`, `"cifar10"`, `"image_folder"`, `"paired_linear"`). |
-| `dataset` | `string` | Dataset preset (`"image_folder"`, `"paired_images"`, `"foldlitedb"`) or import path (`"module:Class"`). |
+| `dataset` | `string` | Python import path to custom item dataset class (`"module:Class"`). |
 | `factory` | `string` | Batch-level callable import path (`"module:callable"`). |
 | `batch_size` | `int` | Global batch size per training step (can be set in `[data]` or `[train]`). |
 | `width`, `height` | `int` | Target spatial width and height in pixels. |
@@ -274,7 +271,7 @@ anchor_decay = 0.999
 
 3. **`type = "reconstruction"` / `type = "objective"`**:
    - `id`: Required unique identifier (`[a-zA-Z0-9_.-]+`); publishes scalar metric `loss/objectives/<id>`.
-   - `fn` / `kind`: Built-in loss (`"mse"`, `"l1"`, `"l2"`, `"perceptual"`) or importable Python callable (`"pkg.mod:loss_fn"`).
+   - `fn`: Loss function identifier. Built-in functions are `"mse"` (Mean Squared Error) and `"l1"` (Mean Absolute Error). For perceptual, L2, or custom losses, supply an importable Python callable path: `fn = "pkg.mod:custom_loss_fn"` or `fn = "torch.nn.functional.smooth_l1_loss"`. Note: the key is `fn` (the field `kind` is not accepted).
    - `input` and `target` (or `inputs = { ... }`): Graph bindings passed to the loss function.
    - `weight`: Scalar loss weight (default `1.0`).
    - `detach`: List of input port names to detach before computing gradients (defaults to `["target"]` when `target` is bound).
@@ -348,6 +345,16 @@ cublas_workspace_config = ":4096:8"
 | `d_guard_ratio`, `d_guard_min_steps` | `float`, `int` | Critic spike guard threshold (`5.0`) and warmup step count (`200`). |
 | `latent_damping_max_rate` | `float` | Maximum latent damping rate (`[0, 1]`). |
 | `checkpoint_every`, `preview_every`, `progress_every` | `int` | Default cadences for durable checkpoints (`1000`), EMA preview snapshots (`0` / off unless set), and console progress lines (`100`). |
+
+In `hypergan-model/1`, the `[train]` section unifies all training loop, optimizer, and cadence settings into a single canonical table. Optimizer settings (`lr`, `betas`, `d_lr_mult`, `prior_lr_mult`, `ema`, `implementation`) are defined directly under `[train]` (do not create a top-level `[optimizer]` table, which is rejected by the schema validator). When overriding parameters via CLI flags (`-s / --set`), you may use either `train.<key>` (canonical), `training.<key>`, or `optimizer.<key>` (e.g. `-s train.lr=0.0002` or `-s optimizer.lr=0.0002`).
+
+Global batch size may be specified in either `[train] batch_size = 64` or `[data] batch_size = 64` (both resolve to `training.batch_size`).
+
+Cadence defaults:
+- `[metrics] every_steps = 10`: Writes scalar metrics (`events.jsonl`, `summary.json`) every 10 steps.
+- `[train] progress_every = 100`: Prints console progress lines (with real-time `D=` and `G=` losses) every 100 steps.
+- `[train] checkpoint_every = 1000`: Saves a durable training checkpoint every 1,000 steps.
+- `[train] preview_every = 500`: Renders and archives visual sample grids every 500 steps (default `0` / off for non-image templates).
 
 ---
 
@@ -785,5 +792,5 @@ hypergan validate configs/dcgan-fast.toml -s train.batch_size=16 -s losses.discr
 hypergan train configs/dcgan-fast.toml -n exp-lr1e4 -s train.lr=0.0001 -s losses.0.weight=1.0
 ```
 
-- `[train]` fields can be addressed as `train.<field>`, `training.<field>`, `trainer.<field>`, or `optimizer.<field>`.
+- In CLI overrides (`-s / --set`), `[train]` fields can be addressed as `train.<field>` (canonical), `training.<field>`, or `optimizer.<field>`.
 - `[[losses]]` entries can be addressed by list index (`losses.0.weight=0.5`), `id` (`losses.reconstruction.weight=0.5`), or `critic` name (`losses.discriminator.penalty=2.0`).

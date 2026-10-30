@@ -1,0 +1,88 @@
+# Scratch Multi-Scale TransGAN Discriminator (32x32 CIFAR-10)
+# Reference: Jiang et al. (CVPR/NeurIPS 2021) "TransGAN: Two Pure Transformers Can Make One Strong GAN"
+# Pure transformer critic: multi-scale patch tokenization (P=2, 2P=4), parameter-free token-wise RMSNorm,
+# learned 2D relative position bias, prepended [CLS] token, and linear readout head.
+# Input: RGB candidate image x, shape [B, 3, 32, 32] in [-1, 1].
+# Output: Scalar real/fake score out, shape [B, 1].
+
+x = diff_augment(x, transforms="translation,cutout,color", translation_ratio=0.2, cutout_probability=0.3)
+
+# --- Stage 1: Fine-Scale (2x2 Patches -> 16x16 Grid, 256 Tokens, Width 288) ---
+x1 = patch_embed(x, 288, 2, name="stage1_patch")
+h1 = pos_embed(x1, 256, name="stage1_position", init={"weight": truncated_normal(std=0.02)})
+
+# Stage 1: Transformer Block 0
+b1_0_n1 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b0_norm1")
+b1_0_att = attention(b1_0_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(16, 16), name="stage1_b0_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h1 = add(h1, b1_0_att, name="stage1_b0_att_residual")
+b1_0_n2 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b0_norm2")
+b1_0_ffn = feed_forward(b1_0_n2, 1152, activation="gelu", dropout=0.0, name="stage1_b0_ffn")
+h1 = add(h1, b1_0_ffn, name="stage1_b0_residual")
+
+# Stage 1: Transformer Block 1
+b1_1_n1 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b1_norm1")
+b1_1_att = attention(b1_1_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(16, 16), name="stage1_b1_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h1 = add(h1, b1_1_att, name="stage1_b1_att_residual")
+b1_1_n2 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b1_norm2")
+b1_1_ffn = feed_forward(b1_1_n2, 1152, activation="gelu", dropout=0.0, name="stage1_b1_ffn")
+h1 = add(h1, b1_1_ffn, name="stage1_b1_residual")
+
+# Stage 1: Transformer Block 2
+b1_2_n1 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b2_norm1")
+b1_2_att = attention(b1_2_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(16, 16), name="stage1_b2_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h1 = add(h1, b1_2_att, name="stage1_b2_att_residual")
+b1_2_n2 = rms_norm(h1, eps=1e-8, affine=False, name="stage1_b2_norm2")
+b1_2_ffn = feed_forward(b1_2_n2, 1152, activation="gelu", dropout=0.0, name="stage1_b2_ffn")
+h1 = add(h1, b1_2_ffn, name="stage1_b2_residual")
+
+# --- Multi-Scale Downsampling (16x16 -> 8x8 Tokens via 2x2 Average Pool) ---
+h1_t = transpose(h1, 1, 2)
+h1_img = reshape(h1_t, 288, 16, 16)
+h1_down = avg_pool(h1_img, 2)
+h1_flat = reshape(h1_down, 288, 64)
+h1_tokens = transpose(h1_flat, 1, 2)
+
+# --- Stage 2: Coarse-Scale (4x4 Patches -> 8x8 Grid, 64 Tokens, Width 96) ---
+x2 = patch_embed(x, 96, 4, name="stage2_patch")
+
+# Multi-scale fusion: concatenate along feature axis (288 + 96 = 384 channels)
+h2 = concat(h1_tokens, x2, axis=2, name="multiscale_concat")
+h2 = pos_embed(h2, 64, name="stage2_position", init={"weight": truncated_normal(std=0.02)})
+
+# Stage 2: Transformer Block 0
+b2_0_n1 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b0_norm1")
+b2_0_att = attention(b2_0_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(8, 8), name="stage2_b0_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h2 = add(h2, b2_0_att, name="stage2_b0_att_residual")
+b2_0_n2 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b0_norm2")
+b2_0_ffn = feed_forward(b2_0_n2, 1536, activation="gelu", dropout=0.0, name="stage2_b0_ffn")
+h2 = add(h2, b2_0_ffn, name="stage2_b0_residual")
+
+# Stage 2: Transformer Block 1
+b2_1_n1 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b1_norm1")
+b2_1_att = attention(b2_1_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(8, 8), name="stage2_b1_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h2 = add(h2, b2_1_att, name="stage2_b1_att_residual")
+b2_1_n2 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b1_norm2")
+b2_1_ffn = feed_forward(b2_1_n2, 1536, activation="gelu", dropout=0.0, name="stage2_b1_ffn")
+h2 = add(h2, b2_1_ffn, name="stage2_b1_residual")
+
+# Stage 2: Transformer Block 2
+b2_2_n1 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b2_norm1")
+b2_2_att = attention(b2_2_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, relative_position_bias=True, spatial_shape=(8, 8), name="stage2_b2_att", init={"relative_position_bias_table": truncated_normal(std=0.02)})
+h2 = add(h2, b2_2_att, name="stage2_b2_att_residual")
+b2_2_n2 = rms_norm(h2, eps=1e-8, affine=False, name="stage2_b2_norm2")
+b2_2_ffn = feed_forward(b2_2_n2, 1536, activation="gelu", dropout=0.0, name="stage2_b2_ffn")
+h2 = add(h2, b2_2_ffn, name="stage2_b2_residual")
+
+# --- Classification Token [CLS] and Final Block ---
+h_cls = cls_token(h2, name="cls_token", init={"token": truncated_normal(std=0.02)})
+last_n1 = rms_norm(h_cls, eps=1e-8, affine=False, name="final_block_norm1")
+last_att = attention(last_n1, 4, dropout=0.0, qkv_bias=False, out_bias=True, name="final_block_att")
+h_cls = add(h_cls, last_att, name="final_block_att_residual")
+last_n2 = rms_norm(h_cls, eps=1e-8, affine=False, name="final_block_norm2")
+last_ffn = feed_forward(last_n2, 1536, activation="gelu", dropout=0.0, name="final_block_ffn")
+h_cls = add(h_cls, last_ffn, name="final_block_residual")
+
+# Readout: Token-wise normalization, extract [CLS], linear projection
+h_norm = rms_norm(h_cls, eps=1e-8, affine=False, name="final_norm")
+cls_out = pool_tokens(h_norm, "first", name="cls_pool")
+out = linear(cls_out, 1, name="critic_score")

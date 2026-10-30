@@ -739,9 +739,9 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
         gen_source, disc_source = get_hndl_templates(preset_res, preset_res, c, template=template)
 
         if template == "colorization":
-            gen_inputs = {"z": "latent", "gray": "batch.gray"}
+            gen_inputs = {"z": "latent", "gray": "components.luma"}
             gen_input_shape = {"z": ["B", 128], "gray": ["B", 1, preset_res, preset_res]}
-            disc_inputs = {"x": "candidate", "gray": "batch.gray"}
+            disc_inputs = {"x": "candidate", "gray": "components.luma"}
             disc_input_shape = {"x": ["B", 3, preset_res, preset_res], "gray": ["B", 1, preset_res, preset_res]}
         elif template in ("paired-image", "conditional"):
             gen_inputs = {"z": "latent", "condition": "batch.condition"}
@@ -772,6 +772,31 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
                 "fn": "l1",
             })
 
+        networks_dict = {
+            "generator": {
+                "role": "generator",
+                "inputs": gen_inputs,
+                "input_shape": gen_input_shape,
+                "output_shape": ["B", c, preset_res, preset_res],
+                "source": gen_source,
+            },
+            "discriminator": {
+                "role": "critic",
+                "inputs": disc_inputs,
+                "input_shape": disc_input_shape,
+                "output_shape": ["B", 1],
+                "source": disc_source,
+            },
+        }
+        if template == "colorization":
+            networks_dict["luma"] = {
+                "role": "auxiliary",
+                "inputs": {"x": "batch.real"},
+                "input_shape": ["B", 3, preset_res, preset_res],
+                "output_shape": ["B", 1, preset_res, preset_res],
+                "source": "r, gb = split(x, 1)\ng, b = split(gb, 1)\nout = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))\n",
+            }
+
         spec = {
             "format": "hypergan-model/1",
             "name": name,
@@ -793,22 +818,7 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
                 "z_dim": 128,
                 "num_particles": 10000,
             },
-            "networks": {
-                "generator": {
-                    "role": "generator",
-                    "inputs": gen_inputs,
-                    "input_shape": gen_input_shape,
-                    "output_shape": ["B", c, preset_res, preset_res],
-                    "source": gen_source,
-                },
-                "discriminator": {
-                    "role": "critic",
-                    "inputs": disc_inputs,
-                    "input_shape": disc_input_shape,
-                    "output_shape": ["B", 1],
-                    "source": disc_source,
-                },
-            },
+            "networks": networks_dict,
             "losses": recipe_losses,
             "train": {
                 "steps": 200000,

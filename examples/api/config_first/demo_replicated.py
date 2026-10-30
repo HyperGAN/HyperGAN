@@ -19,7 +19,7 @@ HERE = Path(__file__).resolve().parent
 def main(run_dir):
     model = hg.override(hg.load(HERE / 'simple.toml'), {
         'data': {'dataset': 'toy_project:GridPoints', 'args': {'side': 5, 'size': 2048}},
-        'train.steps': 6,
+        'train.steps': 10,
     })
     run = hg.train(model, run_dir, profile='cpu-replicated-gloo')
     print(f'status={run.status} steps={run.step} execution={run.manifest.get("execution")}')

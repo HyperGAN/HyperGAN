@@ -112,6 +112,8 @@ def load(path):
         return _load_stored_run_model(path.path)
     raw = str(path)
     path = Path(path)
+    if not path.exists() and path.parent.name == "examples" and (path.parent / "archive" / path.name).is_file():
+        path = path.parent / "archive" / path.name
     if path.suffix.lower() == '.pt':
         return load_bundle(path)
     if not path.exists() and path.suffix.lower() not in ('.toml', '.pt'):

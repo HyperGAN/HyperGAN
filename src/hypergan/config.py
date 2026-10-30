@@ -805,6 +805,8 @@ def load_config(path):
             return resolve_config(lower(raw))
         return resolve_config(raw)
     path = Path(path)
+    if not path.exists() and path.parent.name == "examples" and (path.parent / "archive" / path.name).is_file():
+        path = path.parent / "archive" / path.name
     if path.is_dir():
         path = path / "model.toml" if (path / "model.toml").is_file() else path / "config.toml"
     with path.open("rb") as stream:

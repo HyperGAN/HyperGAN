@@ -4,9 +4,9 @@
 
 _Assets: [128×128 grayscale HG input (`assets/hg-bw-128.png`)](assets/hg-bw-128.png) · [128×128 single colorized badge (`assets/hypergan-logo.png`)](assets/hypergan-logo.png) · [512×512 4×4 colorized grid (`assets/hypergan-logo-grid.png`)](assets/hypergan-logo-grid.png) · [736×512 workflow banner (`assets/hypergan-colorizer-banner.png`)](assets/hypergan-colorizer-banner.png)._
 
-## 128×128 conditional colorization (`examples/logos-colorization-128.toml`)
+## 128×128 conditional colorization (`examples/image-folder-colorization.toml`)
 
-`examples/logos-colorization-128.toml` is a declarative `hypergan-model/1` model
+`examples/image-folder-colorization.toml` (archived research ablation: `examples/archive/logos-colorization-128.toml`) is a declarative `hypergan-model/1` model
 file (`defaults = "particlegan"`) that pairs a multi-input HNDL conditional
 colorization generator (`examples/networks/colorization-generator-128.hndl`)
 with the 128×128 multidepth DINOv3 projected critic
@@ -19,7 +19,7 @@ multidepth ViT-S/16 critic are declared directly in HNDL and `hypergan-model/1`.
 
 ### Why the earlier 256×256 particle-routing recipe collapsed
 
-The earlier 256×256 experiment (`examples/logos-colorization-256.toml`) had four
+The earlier 256×256 experiment (`examples/archive/logos-colorization-256.toml`) had four
 structural bottlenecks:
 
 1. **No spatial conditioning in `G`**: `ColorizationGenerator(z)` took only a
@@ -85,9 +85,9 @@ while showcasing HNDL and HyperGAN's declarative capabilities:
 
 ---
 
-## Historical 256×256 particle-routing experiment (`examples/logos-colorization-256.toml`)
+## Historical 256×256 particle-routing experiment (`examples/archive/logos-colorization-256.toml`)
 
-`examples/logos-colorization-256.toml` is an experimental conditional particle
+`examples/archive/logos-colorization-256.toml` is an experimental conditional particle
 VAEGAN. It takes grayscale logos through a learned encoder, hard-routes each
 query to one of 4,096 learned 128-dimensional particle centers, adds Gaussian
 noise, and decodes an RGB image. There are no spatial skip connections. Changing
@@ -231,7 +231,7 @@ not a quality score. Do not select checkpoints solely by one color statistic.
 Run the 128×128 colorization recipe with a dedicated run directory:
 
 ```sh
-hypergan train examples/logos-colorization-128.toml \
+hypergan train examples/image-folder-colorization.toml \
     --run-dir ./runs/train-logos-colorization-128 -d 0
 ```
 

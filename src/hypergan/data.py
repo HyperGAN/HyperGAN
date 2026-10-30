@@ -566,9 +566,6 @@ class ImageFolder:
             tensor = torch.frombuffer(bytearray(b"".join(pixels for _, pixels in accepted)), dtype=torch.uint8)
             tensor = tensor.reshape(len(accepted), self.height, self.width, channels).permute(0, 3, 1, 2)
             batch = {"real": tensor.to(torch.float32).div_(127.5).sub_(1).contiguous()}
-            if self.mode == "RGB":
-                from .colorspace import luma
-                batch["gray"] = luma(batch["real"])
             if self.labels:
                 batch["labels"] = torch.tensor([self.class_map[self.entries[index]["class"]]
                                                 for index, _ in accepted], dtype=torch.int64)

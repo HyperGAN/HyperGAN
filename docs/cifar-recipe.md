@@ -13,7 +13,7 @@ share authorship. These source references remain for reproducibility; the existi
 [MIT license](../LICENSE) applies to the port. This permission covers the source
 components, not a redistribution or relicensing of pretrained weights or data.
 
-[The example](../examples/cifar-pretrained-sagan.toml) configures a scratch
+[The example](../examples/archive/cifar-pretrained-sagan.toml) configures a scratch
 encoder, a 16,384-row MoG prior in 64 dimensions, fixed sigma
 `0.212616428732872`, and encoder-only reconstruction through a shared generator.
 It is an initial HyperGAN image recipe, not a reproduced final FID result.
@@ -235,7 +235,7 @@ variant changes the pinned pretrained weights.
 
 ## Compact TransGAN generator comparison
 
-[The CIFAR TransGAN recipe](../examples/cifar-transgan.toml) replaces only the
+[The CIFAR TransGAN recipe](../examples/archive/cifar-transgan.toml) replaces only the
 baseline generator and run name. It retains the multiscale frozen ResNet18 plus
 pixel discriminator, routing encoder, encoder-only reconstruction, 16,384
 particles in 64 dimensions, fixed sigma, batch 64, optimizer settings, and FID

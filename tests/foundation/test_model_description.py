@@ -13,7 +13,9 @@ from hypergan.metrics import objective_id
 from hypergan.model_description import (MAX_NODES, _merge_recorded, describe_config, describe_run, redact,
                                         redact_text)
 
-EXAMPLES = [path for path in sorted(Path(__file__).resolve().parents[2].joinpath('examples').glob('*.toml'))
+_examples_dir = Path(__file__).resolve().parents[2] / 'examples'
+_all_example_files = list(_examples_dir.glob('*.toml')) + list((_examples_dir / 'archive').glob('*.toml'))
+EXAMPLES = [path for path in sorted(_all_example_files)
             if tomllib.loads(path.read_text()).get('defaults') != 'particlegan']
 LOCAL_PATH = re.compile(r'"(?:/home|/mnt|/root|/Users|~/)')
 

@@ -1,0 +1,68 @@
+# Canonical 128x128 Tiny Transformer Generator for ImageFolder Datasets
+# Pairs a 2-block transformer generator with multi-scale ResNet-18 critic
+format = "hypergan-model/1"
+name = "image-folder-tiny-transformer"
+defaults = "particlegan"
+
+# [data] Dataset source, resolution, and preprocessing
+[data]
+builtin = "image_folder"
+args = { root = "./data", height = 128, width = 128, mode = "RGB", resize = "center_crop", alpha = "composite_white", follow_symlinks = true }
+
+# [prior] Latent particle distribution
+[prior]
+kind = "particles"
+initialization_seed = 2
+z_dim = 128
+num_particles = 10000
+
+# [networks] Generator and critic network definitions
+[networks.generator]
+role = "generator"
+inputs = { x = "latent" }
+hndl = "networks/tiny-transformer-generator-128.hndl"
+input_shape = ["B", 128]
+output_shape = ["B", 3, 128, 128]
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+hndl = "networks/resnet18-multiscale-discriminator-128.hndl"
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 1]
+
+[networks.discriminator.args.parameters]
+weights_path = "https://download.pytorch.org/models/resnet18-f37072fd.pth"
+weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+
+# [losses] Adversarial and prior regularization objectives
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+
+# [train] Training steps, batch size, device, and initialization
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda:0"
+initialization = "deterministic_orthogonal"
+
+[metrics]
+every_steps = 10
+
+# [checkpoints] Checkpoint retention and EMA export policy
+[checkpoints]
+keep_last = 3
+keep_every = 50000
+export_bundle = "on_eval"
+
+# [sampling] Periodic sample grid preview configuration
+[sampling]
+count = 16
+seed = 123

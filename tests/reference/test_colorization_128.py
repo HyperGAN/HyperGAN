@@ -84,9 +84,14 @@ def _build_initialized_generator(seed=0):
     return model
 
 
+def _recipe_path(root):
+    p = root / "examples/logos-colorization-128.toml"
+    return p if p.exists() else root / "examples/archive/logos-colorization-128.toml"
+
+
 def test_colorization_128_model_file_lowers_with_particlegan_defaults():
     root = Path(__file__).parents[2]
-    resolved = load_config(root / "examples/logos-colorization-128.toml")
+    resolved = load_config(_recipe_path(root))
     assert resolved["format"] == "hypergan-model/1"
     assert resolved["name_map"] == {"colorizer": "generator", "critic": "discriminator"}
     assert resolved["training"]["initialization"] == "deterministic_orthogonal"
@@ -229,7 +234,7 @@ def test_colorization_128_backend_policy_applies_after_cuda_initialization(monke
     from hypergan.numerical_policy import apply_backend_policy
 
     root = Path(__file__).parents[2]
-    config = load_config(root / "examples/logos-colorization-128.toml")
+    config = load_config(_recipe_path(root))
     config["training"]["device"] = "cpu"
     config["training"]["backend"]["deterministic_algorithms"] = False
     isolated_backend_policy(config)
@@ -243,7 +248,7 @@ def test_colorization_128_trainer_step_and_comparison_preview(monkeypatch, tmp_p
         monkeypatch, tmp_path, lambda: _UpstreamDINOFixture(128)
     )
     root = Path(__file__).parents[2]
-    config = load_config(root / "examples/logos-colorization-128.toml")
+    config = load_config(_recipe_path(root))
     config["training"]["device"] = "cpu"
     config["training"]["batch_size"] = 2
     config["training"]["steps"] = 1

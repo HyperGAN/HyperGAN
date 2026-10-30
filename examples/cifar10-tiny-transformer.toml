@@ -1,0 +1,131 @@
+# Canonical CIFAR-10 32x32 Generative Transformer Recipe
+# Uses 64 spatial tokens with learned position projections, 2 Transformer blocks, and nearest upsampling.
+# External dataset archive is verified and cached in ~/.hypergan/cache/
+format = "hypergan-model/1"
+name = "cifar10-tiny-transformer"
+defaults = "particlegan"
+
+# [data] Dataset source, resolution, and preprocessing
+# Pinned external archive:
+#   URL: https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz
+#   SHA-256: 6d958be074577803d12ecdefd02955f39262c83c16fe9348329d7fe0b5c001ce
+#   Size: 170,498,071 bytes
+# Download command:
+#   hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10
+[data]
+builtin = "cifar10"
+args = { root = "~/.hypergan/cache/cifar10", split = "train", sampling = "random", horizontal_flip = true }
+
+# [prior] Latent particle distribution
+[prior]
+kind = "particles"
+initialization_seed = 2
+z_dim = 128
+num_particles = 10000
+
+# [networks] Generator and critic network definitions
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+input_shape = { z = ["B", 128] }
+output_shape = ["B", 3, 32, 32]
+source = """
+# CIFAR-10 32x32 Generative Transformer
+# 64 spatial tokens with learned position projections, 2 Transformer blocks, nearest upsampling
+h = linear(z, 16384, name="input_projection")
+h = reshape(h, 64, 256)
+
+branch = layer_norm(h, name="block0_attention_norm")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=True, out_bias=True, name="block0_attention")
+h = add(h, branch)
+branch = layer_norm(h, name="block0_ffn_norm")
+branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block0_ffn")
+h = add(h, branch)
+
+branch = layer_norm(h, name="block1_attention_norm")
+branch = attention(branch, 4, dropout=0.0, qkv_bias=True, out_bias=True, name="block1_attention")
+h = add(h, branch)
+branch = layer_norm(h, name="block1_ffn_norm")
+branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block1_ffn")
+h = add(h, branch)
+
+h = permute(h, 2, 1)
+h = reshape(h, 256, 8, 8)
+h = upsample(h, 2, mode="nearest")
+h = conv(h, 128, kernel_size=3, padding=1, name="conv16")
+h = leaky_relu(h, 0.2)
+h = upsample(h, 2, mode="nearest")
+h = conv(h, 64, kernel_size=3, padding=1, name="conv32")
+h = leaky_relu(h, 0.2)
+h = conv(h, 3, kernel_size=3, padding=1, name="rgb")
+out = tanh(h)
+"""
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 32, 32]
+output_shape = ["B", 1]
+source = """
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+"""
+
+# [losses] Adversarial and prior regularization objectives
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+
+# [train] Training steps, batch size, device, and initialization
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda:0"
+initialization = "deterministic_orthogonal"
+
+[metrics]
+every_steps = 10
+
+# [checkpoints] Checkpoint retention and EMA export policy
+[checkpoints]
+keep_last = 3
+keep_every = 50000
+export_bundle = "on_eval"
+
+# [sampling] Periodic sample grid preview configuration
+[sampling]
+count = 64
+seed = 10000
+
+# [evaluations.fid50k_train] Periodic FID evaluation against sequential reference distribution
+[evaluations.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+inputs = { generated = "generated", reference = "reference" }
+every = 10000
+timeout = 3600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda:0"
+samples = 50000
+batch_size = 128
+seed = 34002
+
+[evaluations.fid50k_train.args]
+weights_path = "https://github.com/toshas/torch-fidelity/releases/download/v0.2.0/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+
+[evaluations.fid50k_train.data]
+builtin = "cifar10"
+args = { root = "~/.hypergan/cache/cifar10", split = "train", sampling = "sequential", horizontal_flip = false }

@@ -24,7 +24,7 @@ Writing a model file, preparing data, training, watching and recovering runs.
 
 ## Recipes
 
-Measured or exploratory model recipes, each with its example file under `examples/`.
+Measured, production, or exploratory model recipes under `examples/` (canonical runnable set) and `examples/archive/` (historical research ablations).
 
 - [CIFAR with a frozen pretrained critic](cifar-recipe.md): the first measured image recipe.
 - [CIFAR tiny transformer with a feature-only critic](cifar-tiny-transformer.md)

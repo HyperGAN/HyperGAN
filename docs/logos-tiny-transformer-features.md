@@ -1,6 +1,6 @@
 # 128px logos with the CIFAR feature-only recipe
 
-The [single-file configuration](../examples/logos-tiny-transformer-resnet-features-128.toml)
+The [single-file configuration](../examples/archive/logos-tiny-transformer-resnet-features-128.toml)
 embeds both complete G/D HNDL definitions inline in `source`. It adapts the
 working [CIFAR experiment](cifar-tiny-transformer.md) to logos while retaining
 its latent, prior, optimizer, adversarial objective, and regularization.

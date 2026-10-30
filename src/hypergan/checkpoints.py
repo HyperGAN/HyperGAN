@@ -1,5 +1,6 @@
 """Full trusted training checkpoints, separate from inference bundles."""
 from collections import defaultdict
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -10,7 +11,8 @@ import re
 import shutil
 import uuid
 
-from .run_state import atomic_json, sync_directory, validate_event_boundary
+from ._file_lock import lock_file, retry_lock, unlock_file
+from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 
 SCHEMA = 1
 
@@ -673,6 +675,20 @@ def _prune_report(run_dir, dry_run, retained=(), deleted=()):
     }
 
 
+@contextmanager
+def _prune_lock(ckpt_root: Path):
+    lock_path = ckpt_root / '.prune.lock'
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o666)
+    try:
+        lock_file(fd, blocking=True)
+        try:
+            yield
+        finally:
+            unlock_file(fd)
+    finally:
+        os.close(fd)
+
+
 def prune_checkpoints(
     run_dir: Path | str,
     policy: dict | None = None,
@@ -686,153 +702,159 @@ def prune_checkpoints(
     its other checkpoints keep only milestone, best, step-zero and
     active-evaluation protection.
     """
-    run_dir = Path(run_dir).resolve()
+    try:
+        from .registry import resolve_destructive_target
+        run_dir = resolve_destructive_target(run_dir)
+    except (ValueError, FileNotFoundError):
+        run_dir = Path(run_dir).resolve()
+
     if not run_dir.is_dir():
         return _prune_report(run_dir, dry_run)
 
     ckpt_root = run_dir / 'checkpoints'
     if not ckpt_root.is_dir():
-        child_runs = [d for d in run_dir.iterdir() if d.is_dir() and (d / 'checkpoints').is_dir()]
-        total_retained, total_deleted = [], []
-        for crun in sorted(child_runs, key=lambda p: p.name):
-            sub_res = prune_checkpoints(crun, policy=policy, dry_run=dry_run)
-            total_retained.extend(sub_res.get('retained', []))
-            total_deleted.extend(sub_res.get('deleted', []))
-        return _prune_report(run_dir, dry_run, total_retained, total_deleted)
+        return _prune_report(run_dir, dry_run)
 
-    # 1. Resolve Policy
-    if policy is None:
-        policy = _run_policy(run_dir)
-    policy = normalize_checkpoint_policy(policy)
+    with _prune_lock(ckpt_root):
+        # 1. Resolve Policy
+        if policy is None:
+            policy = _run_policy(run_dir)
+        policy = normalize_checkpoint_policy(policy)
 
-    # 2. Discover durable checkpoints
-    checkpoints = _durable_checkpoints(ckpt_root)
-    for c in checkpoints:
-        size = 0
-        try:
-            for item in c['path'].rglob('*'):
-                if item.is_file():
-                    size += item.stat().st_size
-        except OSError:
-            pass
-        c['size'] = size
-
-    if len(checkpoints) <= 1:
-        retained = [{'step': c['step'], 'name': c['name'], 'reasons': ['single_checkpoint']} for c in checkpoints]
-        return _prune_report(run_dir, dry_run, retained)
-
-    # 3. Retain map: name -> set of reasons
-    retained_reasons = defaultdict(set)
-
-    # S1: Never delete latest. Without a pointer, the highest step stands in
-    # and the branch is unknown, so every checkpoint counts as live.
-    latest_name = (_read_json(ckpt_root / 'latest.json') or {}).get('checkpoint')
-    tip = next((c for c in checkpoints if c['name'] == latest_name), None)
-    branch = _live_branch(run_dir, checkpoints, tip)
-    max_step = max(c['step'] for c in checkpoints)
-    for c in checkpoints:
-        if c is tip or (tip is None and c['step'] == max_step):
-            retained_reasons[c['name']].add('latest')
-    live = [c for c in checkpoints if branch is None or c['name'] in branch]
-    live_names = {c['name'] for c in live}
-
-    # S2: Pin active interval evaluations
-    pinned_steps = set()
-    m_data = _read_json(run_dir / 'manifest.json') or {}
-    schedule = m_data.get('evaluation_schedule')
-    for item in (schedule.values() if isinstance(schedule, dict) else []):
-        if isinstance(item, dict) and item.get('status') == 'running' and type(item.get('source_step')) is int:
-            pinned_steps.add(item['source_step'])
-
-    eval_root = run_dir / 'metrics' / 'evaluations'
-    if eval_root.is_dir():
-        for r_file in eval_root.glob('*/receipt.json'):
-            receipt = _read_json(r_file) or {}
-            if receipt.get('status') == 'running':
-                s = receipt.get('source_step') if receipt.get('source_step') is not None else receipt.get('step')
-                if type(s) is int:
-                    pinned_steps.add(s)
-
-    for c in checkpoints:
-        if c['step'] in pinned_steps:
-            retained_reasons[c['name']].add('active_evaluation')
-
-    # S3: Retain step 0 (initial state)
-    for c in checkpoints:
-        if c['step'] == 0:
-            retained_reasons[c['name']].add('step_zero')
-
-    # S4: Keep milestones (keep_every)
-    keep_every = policy.get('keep_every')
-    if keep_every and keep_every > 0:
+        # 2. Discover durable checkpoints
+        checkpoints = _durable_checkpoints(ckpt_root)
         for c in checkpoints:
-            if c['step'] % keep_every == 0:
-                retained_reasons[c['name']].add(f'milestone(step={c["step"]})')
+            size = 0
+            try:
+                for item in c['path'].rglob('*'):
+                    if item.is_file():
+                        size += item.stat().st_size
+            except OSError:
+                pass
+            c['size'] = size
 
-    # S5: Keep the best checkpoints of the run's one primary metric, ranked
-    # exactly as summary "best" and resolve_checkpoint('best') rank them.
-    keep_best = policy.get('keep_best')
-    if isinstance(keep_best, dict) and keep_best.get('count', 0) > 0:
-        from .summary import collect_evaluations
-        metric, _, ranked = _rank_best(run_dir, collect_evaluations(run_dir), policy)
-        matches = _checkpoints_for_records(checkpoints, ranked)
-        remaining = keep_best['count']
-        for record in ranked:
-            names = [c['name'] for c in matches[id(record)] if f'best({metric})' not in retained_reasons[c['name']]]
-            if not names:
+        if len(checkpoints) <= 1:
+            retained = [{'step': c['step'], 'name': c['name'], 'reasons': ['single_checkpoint']} for c in checkpoints]
+            return _prune_report(run_dir, dry_run, retained)
+
+        # 3. Retain map: name -> set of reasons
+        retained_reasons = defaultdict(set)
+
+        # S1: Never delete latest. Without a pointer, the highest step stands in
+        # and the branch is unknown, so every checkpoint counts as live.
+        latest_name = (_read_json(ckpt_root / 'latest.json') or {}).get('checkpoint')
+        tip = next((c for c in checkpoints if c['name'] == latest_name), None)
+        branch = _live_branch(run_dir, checkpoints, tip)
+        max_step = max(c['step'] for c in checkpoints)
+        for c in checkpoints:
+            if c is tip or (tip is None and c['step'] == max_step):
+                retained_reasons[c['name']].add('latest')
+        live = [c for c in checkpoints if branch is None or c['name'] in branch]
+        live_names = {c['name'] for c in live}
+
+        # S2: Pin active interval evaluations
+        pinned_steps = set()
+        m_data = _read_json(run_dir / 'manifest.json') or {}
+        schedule = m_data.get('evaluation_schedule')
+        for item in (schedule.values() if isinstance(schedule, dict) else []):
+            if isinstance(item, dict) and item.get('status') == 'running' and type(item.get('source_step')) is int:
+                pinned_steps.add(item['source_step'])
+
+        eval_root = run_dir / 'metrics' / 'evaluations'
+        if eval_root.is_dir():
+            for r_file in eval_root.glob('*/receipt.json'):
+                receipt = _read_json(r_file) or {}
+                if receipt.get('status') == 'running':
+                    s = receipt.get('source_step') if receipt.get('source_step') is not None else receipt.get('step')
+                    if type(s) is int:
+                        pinned_steps.add(s)
+
+        for c in checkpoints:
+            if c['step'] in pinned_steps:
+                retained_reasons[c['name']].add('active_evaluation')
+
+        # S3: Retain step 0 (initial state)
+        for c in checkpoints:
+            if c['step'] == 0:
+                retained_reasons[c['name']].add('step_zero')
+
+        # S4: Keep milestones (keep_every)
+        keep_every = policy.get('keep_every')
+        if keep_every and keep_every > 0:
+            for c in checkpoints:
+                if c['step'] % keep_every == 0:
+                    retained_reasons[c['name']].add(f'milestone(step={c["step"]})')
+
+        # S5: Keep the best checkpoints of the run's one primary metric, ranked
+        # exactly as summary "best" and resolve_checkpoint('best') rank them.
+        keep_best = policy.get('keep_best')
+        if isinstance(keep_best, dict) and keep_best.get('count', 0) > 0:
+            from .summary import collect_evaluations
+            metric, _, ranked = _rank_best(run_dir, collect_evaluations(run_dir), policy)
+            matches = _checkpoints_for_records(checkpoints, ranked)
+            remaining = keep_best['count']
+            for record in ranked:
+                names = [c['name'] for c in matches[id(record)] if f'best({metric})' not in retained_reasons[c['name']]]
+                if not names:
+                    continue
+                for name in names:
+                    retained_reasons[name].add(f'best({metric})')
+                remaining -= 1
+                if remaining == 0:
+                    break
+
+        # Keep last N checkpoints of the live branch
+        keep_last = policy.get('keep_last', 3)
+        if keep_last > 0:
+            last_steps = set(sorted({c['step'] for c in live})[-keep_last:])
+            recovery_ckpt = (m_data.get('recovery_parent') or {}).get('checkpoint_id')
+            for c in checkpoints:
+                if (c['name'] in live_names and c['step'] in last_steps) or (recovery_ckpt and c['name'] == recovery_ckpt):
+                    retained_reasons[c['name']].add('keep_last')
+
+        # The newest checkpoint of each attempt off the live branch stays as that
+        # abandoned branch's tip; it no longer counts toward keep_last.
+        abandoned = {}
+        for c in checkpoints:
+            if c['name'] not in live_names:
+                abandoned[c['attempt_id']] = c
+        for c in abandoned.values():
+            retained_reasons[c['name']].add('abandoned_tip')
+
+        # S3: Require a newer durable checkpoint before deleting older. Off the
+        # live branch, the retained live tip is that newer durable checkpoint.
+        deleted_candidates = []
+        for c in checkpoints:
+            if c['name'] in retained_reasons:
                 continue
-            for name in names:
-                retained_reasons[name].add(f'best({metric})')
-            remaining -= 1
-            if remaining == 0:
-                break
+            has_newer = c['name'] not in live_names or any(other['step'] > c['step'] for other in live)
+            if not has_newer:
+                retained_reasons[c['name']].add('s3_no_newer_durable')
+            else:
+                deleted_candidates.append(c)
 
-    # Keep last N checkpoints of the live branch
-    keep_last = policy.get('keep_last', 3)
-    if keep_last > 0:
-        last_steps = set(sorted({c['step'] for c in live})[-keep_last:])
-        recovery_ckpt = (m_data.get('recovery_parent') or {}).get('checkpoint_id')
-        for c in checkpoints:
-            if (c['name'] in live_names and c['step'] in last_steps) or (recovery_ckpt and c['name'] == recovery_ckpt):
-                retained_reasons[c['name']].add('keep_last')
-
-    # The newest checkpoint of each attempt off the live branch stays as that
-    # abandoned branch's tip; it no longer counts toward keep_last.
-    abandoned = {}
-    for c in checkpoints:
-        if c['name'] not in live_names:
-            abandoned[c['attempt_id']] = c
-    for c in abandoned.values():
-        retained_reasons[c['name']].add('abandoned_tip')
-
-    # S3: Require a newer durable checkpoint before deleting older. Off the
-    # live branch, the retained live tip is that newer durable checkpoint.
-    deleted_candidates = []
-    for c in checkpoints:
-        if c['name'] in retained_reasons:
-            continue
-        has_newer = c['name'] not in live_names or any(other['step'] > c['step'] for other in live)
-        if not has_newer:
-            retained_reasons[c['name']].add('s3_no_newer_durable')
+        # Execute deletion if not dry_run
+        deleted = []
+        if not dry_run:
+            for c in deleted_candidates:
+                target_dir = c['path']
+                try:
+                    (target_dir / 'state.pt').unlink(missing_ok=True)
+                    (target_dir / 'manifest.json').unlink(missing_ok=True)
+                    shutil.rmtree(target_dir)
+                    deleted.append({'step': c['step'], 'name': c['name'], 'size': c['size']})
+                except OSError:
+                    pass
+            if deleted:
+                sync_directory(ckpt_root)
         else:
-            deleted_candidates.append(c)
+            deleted = [
+                {'step': c['step'], 'name': c['name'], 'size': c['size']}
+                for c in deleted_candidates
+            ]
 
-    # Execute deletion if not dry_run
-    if not dry_run:
-        for c in deleted_candidates:
-            target_dir = c['path']
-            (target_dir / 'state.pt').unlink(missing_ok=True)
-            (target_dir / 'manifest.json').unlink(missing_ok=True)
-            shutil.rmtree(target_dir, ignore_errors=True)
-        if deleted_candidates:
-            sync_directory(ckpt_root)
-
-    retained = [
-        {'step': c['step'], 'name': c['name'], 'reasons': sorted(list(retained_reasons[c['name']]))}
-        for c in checkpoints if c['name'] in retained_reasons
-    ]
-    deleted = [
-        {'step': c['step'], 'name': c['name'], 'size': c['size']}
-        for c in deleted_candidates
-    ]
-    return _prune_report(run_dir, dry_run, retained, deleted)
+        retained = [
+            {'step': c['step'], 'name': c['name'], 'reasons': sorted(list(retained_reasons[c['name']]))}
+            for c in checkpoints if c['name'] in retained_reasons
+        ]
+        return _prune_report(run_dir, dry_run, retained, deleted)

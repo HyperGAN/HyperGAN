@@ -27,6 +27,9 @@ def test_device_override_is_the_configuration_that_trains_and_resumes(tmp_path, 
     assert (run / 'config-source').is_dir()  # provenance still snapshots the source file
     again = prepare_train(path, run, devices='cpu')
     assert again.operation == 'resume' and again.config['training']['device'] == 'cpu'
+    import torch
+    if hasattr(torch, "cuda"):
+        monkeypatch.setattr(torch.cuda, "is_initialized", lambda: False)
     with pytest.raises(ValueError, match='training.device'):
         prepare_resume(run, devices='0')
 

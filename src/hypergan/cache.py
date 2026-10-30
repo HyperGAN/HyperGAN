@@ -91,7 +91,7 @@ def cache_file_lock(lock_path: Path):
 
 def _validate_local_file(path: Path, expected_sha256: str | None = None, expected_size: int | None = None) -> Path:
     if not path.is_file():
-        raise FileNotFoundError(f"Required local artifact is missing: {path}")
+        raise FileNotFoundError(f"Required local artifact is missing: {path}; no automatic downloads")
     if expected_sha256 is not None or expected_size is not None:
         actual_size, actual_sha = _hash_file(path)
         if expected_size is not None and actual_size != expected_size:

@@ -26,6 +26,8 @@ def _checked_weights(path=None, expected=INCEPTION_SHA256):
         return resolve_or_cache(target, expected_sha256=expected)
     except FileNotFoundError as exc:
         raise ValueError(f'Inception weights are missing: {target}; supply the pinned local file explicitly') from exc
+    except ValueError as exc:
+        raise ValueError(f'Inception weight SHA256 does not match the pinned file: {exc}') from exc
 
 
 class _Moments:

@@ -292,19 +292,6 @@ def _is_isolated_test_env(cwd: Optional[Union[Path, str]] = None) -> Optional[Pa
         cached = _LAST_PYTEST_ROOT.get(cur_test)
         if cached is not None and cached.exists():
             return cached
-        # Inspect call stack frames for pytest tmp_path
-        for depth in range(1, 16):
-            try:
-                frame = sys._getframe(depth)
-            except ValueError:
-                break
-            for val in frame.f_locals.values():
-                if isinstance(val, Path):
-                    m = _PYTEST_PATH_RE.match(str(val))
-                    if m:
-                        root = Path(m.group(1))
-                        _LAST_PYTEST_ROOT[cur_test] = root
-                        return root
     return None
 
 

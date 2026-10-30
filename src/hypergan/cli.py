@@ -1385,7 +1385,12 @@ def _dispatch(args, *, output=None):
                 _print_json(hg.request_checkpoint(args.run_dir, attempt_id=args.attempt_id, request_id=args.request_id))
         elif args.command == "checkpoints":
             if getattr(args, "checkpoints_command", None) == "prune":
-                _print_json(hg.prune_checkpoints(args.run_dir, dry_run=args.dry_run))
+                try:
+                    from .registry import resolve_destructive_target
+                    target = resolve_destructive_target(args.run_dir)
+                except (ValueError, FileNotFoundError):
+                    target = args.run_dir
+                _print_json(hg.prune_checkpoints(target, dry_run=args.dry_run))
         elif args.command == "export":
             out = hg.export(args.run_dir, checkpoint=args.checkpoint, output=args.output)
             if getattr(args, "json", False):

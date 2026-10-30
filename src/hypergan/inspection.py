@@ -1176,6 +1176,32 @@ def compare_runs(run_dirs: List[Union[Path, str]],
             "evals": evals_by_step,
         })
 
+    # Determine metric direction ("minimize" vs "maximize")
+    metric_direction = "minimize"
+    for r in runs_data:
+        r_dir = Path(r["dir"])
+        summary = read_summary_json(r_dir)
+        if summary and summary.get("evaluations"):
+            for ev in summary["evaluations"]:
+                if isinstance(ev, dict) and str(ev.get("metric") or "").lower() in cand_keys_lower:
+                    if ev.get("direction") in ("minimize", "maximize"):
+                        metric_direction = ev["direction"]
+                        break
+        metrics_dir = r_dir / "metrics"
+        if metrics_dir.is_dir():
+            for cat_path in metrics_dir.glob("catalog-*.json"):
+                try:
+                    cat = json.loads(cat_path.read_text(encoding="utf-8"))
+                    for m_name, m_spec in cat.get("metrics", {}).items():
+                        if m_name.lower() in cand_keys_lower:
+                            if isinstance(m_spec, dict) and m_spec.get("direction") in ("minimize", "maximize"):
+                                metric_direction = m_spec["direction"]
+                                break
+                except Exception:
+                    continue
+        if metric_direction != "minimize":
+            break
+
     # Build matrix
     matrix: Dict[str, Dict[str, Any]] = {}
     for st in steps:
@@ -1188,8 +1214,10 @@ def compare_runs(run_dirs: List[Union[Path, str]],
                 continue
 
             if st == "best":
-                # Find min value (for FID/loss)
-                best_step = min(evals.keys(), key=lambda s: (evals[s], -s))
+                if metric_direction == "maximize":
+                    best_step = max(evals.keys(), key=lambda s: (evals[s], s))
+                else:
+                    best_step = min(evals.keys(), key=lambda s: (evals[s], -s))
                 matrix[st_key][r["run_id"]] = {"value": evals[best_step], "step": best_step}
             elif st == "latest":
                 latest_step = max(evals.keys())

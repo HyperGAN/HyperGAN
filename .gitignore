@@ -15,3 +15,8 @@ dist/
 reports/
 # Qualification receipts are per-machine run outputs, never committed.
 *qualification-receipt*.json
+.hypergan/
+_build_provenance.json
+rebuilt/
+.venv-rocm/
+

@@ -978,7 +978,20 @@ def queue_run(
                         _update_job(qpath, job_id, run_dir=detected_run_dir)
 
             if exit_code is None:
-                exit_code = proc.wait()
+                if stop_requested and not signalled:
+                    signalled = True
+                    _signal_once()
+                try:
+                    exit_code = proc.wait(timeout=10.0)
+                except (subprocess.TimeoutExpired, TypeError):
+                    try:
+                        proc.kill()
+                    except (OSError, ProcessLookupError, AttributeError):
+                        pass
+                    try:
+                        exit_code = proc.wait(timeout=5.0)
+                    except (subprocess.TimeoutExpired, TypeError):
+                        exit_code = proc.poll()
 
             if not detected_run_dir:
                 detected_run_dir = (

@@ -23,6 +23,7 @@ from .run_state import atomic_json, run_lock, sync_directory, validate_event_bou
 from .observation_io import ObservationIO
 from .background_poll import BackgroundPoll
 from .run_signals import GracefulStop
+from .summary import write_summary_json
 
 # How many published preview records the run manifest repeats. Preview
 # retention holds far more than this (DEFAULT_KEEP, thinned); the manifest
@@ -729,11 +730,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 prune_checkpoints(run_dir, policy=retention_policy, dry_run=False)
             except Exception as exc:
                 warnings.warn(f'Automatic checkpoint pruning failed: {exc}', RuntimeWarning)
-            try:
-                from .summary import write_summary_json
-                write_summary_json(run_dir, manifest)
-            except Exception:
-                pass
+            write_summary_json(run_dir, manifest)
             return path, None
 
         def observer_error(source, error, *, step=None):
@@ -990,11 +987,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         publish()
         poll_requests(force=True)
         custom_metrics.start()
-        try:
-            from .summary import write_summary_json
-            write_summary_json(run_dir, manifest)
-        except Exception:
-            pass
+        write_summary_json(run_dir, manifest)
         attempt_steps = 0
         while manifest['steps'] < config['training']['steps']:
             if stop is not None and stop.reason:
@@ -1043,11 +1036,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                  **{key: row[key] for key in ('global_batch_size', 'local_batch_size', 'world_size',
                                              'accumulation_steps', 'microbatch_size') if key in row})
             if publication == 'sampled':
-                try:
-                    from .summary import write_summary_json
-                    write_summary_json(run_dir, manifest, metrics=metrics)
-                except Exception:
-                    pass
+                write_summary_json(run_dir, manifest, metrics=metrics)
             periodic_checkpoint = manifest['steps'] % checkpoint_every == 0
             if periodic_checkpoint:
                 checkpoint_now()
@@ -1087,11 +1076,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         manifest['status'] = 'complete' if manifest['steps'] == config['training']['steps'] else 'stopped'
         publish()
         emit(manifest['status'], stop_reason=manifest['stop_reason'], checkpoint_path=manifest['checkpoint_path'])
-        try:
-            from .summary import write_summary_json
-            write_summary_json(run_dir, manifest, status=manifest['status'])
-        except Exception:
-            pass
+        write_summary_json(run_dir, manifest, status=manifest['status'])
         request_reader.close(wait=True)
         journal.close()
         return manifest
@@ -1127,11 +1112,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 # without asking that failed worker to publish again.
                 atomic_json(run_dir / 'manifest.json', manifest)
                 atomic_json(attempt_dir / 'manifest.json', manifest)
-            try:
-                from .summary import write_summary_json
-                write_summary_json(run_dir, manifest, status=manifest['status'])
-            except Exception:
-                pass
+            write_summary_json(run_dir, manifest, status=manifest['status'])
         finally:
             journal.close()
         raise

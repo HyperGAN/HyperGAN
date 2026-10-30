@@ -18,7 +18,8 @@ def test_distribution_contains_only_supported_package():
     assert "hypergan/__main__.py" in files
     assert not any("needs_pytorch" in path for path in files)
     assert not any(path.startswith(("hypergan/configurations/", "hypergan/backends/", "worktrees/")) for path in files)
-    assert distribution.version == "2.0.0a1"
+    import hypergan
+    assert distribution.version == hypergan.__version__
 
 
 def test_base_requirements_do_not_pull_training_stack():

@@ -253,7 +253,7 @@ sigma_rel = 0.025
 
 [penalty]
 kappa = 1.0
-lazy_k = 8
+lazy_k = 1
 
 [train]
 steps = 200000
@@ -273,6 +273,8 @@ d_lr_mult = 1.5
 prior_lr_mult = 10.0
 betas = [0.0, 0.999]
 prior_betas = [0.5, 0.999]
+d_guard_ratio = 5.0
+d_guard_min_steps = 200
 
 [train.backend]
 deterministic_algorithms = false

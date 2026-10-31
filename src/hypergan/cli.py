@@ -1903,7 +1903,18 @@ def _dispatch(args, *, output=None):
                 is_run_dir = bool(target_path and target_path.is_dir() and (
                     (target_path / "manifest.json").is_file() or (target_path / "recipe.toml").is_file() or (target_path / "summary.json").is_file()
                 ))
-                if not is_run_dir and target_arg is not None and not target_path.exists() and not str(target_arg).endswith(".toml"):
+                if not is_run_dir and target_arg is not None and not target_path.exists():
+                    from .config import resolve_packaged_model_path
+                    pkg_cand = resolve_packaged_model_path(target_arg)
+                    if pkg_cand is not None:
+                        target_path = pkg_cand
+                if (
+                    not is_run_dir
+                    and not explicit_run_dir
+                    and target_arg is not None
+                    and not target_path.exists()
+                    and not str(target_arg).endswith(".toml")
+                ):
                     try:
                         cand_resolved = hg.resolve_run_target(target_arg)
                         if _is_valid_run_dir(cand_resolved):
@@ -1911,11 +1922,6 @@ def _dispatch(args, *, output=None):
                             is_run_dir = True
                     except Exception:
                         pass
-                if not is_run_dir and target_arg is not None and not target_path.exists():
-                    from .config import resolve_packaged_model_path
-                    pkg_cand = resolve_packaged_model_path(target_arg)
-                    if pkg_cand is not None:
-                        target_path = pkg_cand
 
             if is_run_dir:
                 args.run_dir = target_path

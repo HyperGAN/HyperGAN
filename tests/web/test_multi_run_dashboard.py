@@ -81,7 +81,7 @@ def test_root_index_renders_html_table(tmp_path):
     runs_root = tmp_path / "runs"
     runs_root.mkdir()
     create_mock_run(runs_root, "run_alpha", status="running", step=120, speed=14.2, fid_latest=19.5, fid_best=17.1)
-    create_mock_run(runs_root, "run_beta", status="complete", step=250, with_summary=False)
+    create_mock_run(runs_root, "run_beta", status="complete", step=250, speed=19.8, with_summary=True)
 
     session = LocalSession(8765)
     app = create_app(runs_root, session=session)
@@ -95,16 +95,27 @@ def test_root_index_renders_html_table(tmp_path):
 
         html = res.text
         assert "HyperGAN Runs" in html
+        assert "WORKSPACE OBSERVATORY" in html
+        assert '<header class="masthead">' in html
+        assert "EXPERIMENTS" in html
         assert "run_alpha" in html
         assert "run_beta" in html
         assert "/runs/run_alpha" in html
         assert "/runs/run_beta" in html
-        assert "14.2 it/s" in html
+        assert 'class="run-row"' in html
+        assert 'data-url="/runs/run_alpha"' in html
+        assert 'data-url="/runs/run_beta"' in html
+        assert "14.2 steps/s" in html
+        assert "19.8" not in html
+        assert "it/s" not in html
+        assert "Topology & Batch" in html
         assert "Created at" in html
         assert "2026-10-17T12:30:00+00:00" in html
         assert "FID" in html
         assert "Preview" in html
         assert "120 / 240" in html
+        assert 'data-action=' not in html
+        assert 'Actions</th>' not in html
         assert '<script src="/assets/runs.js" defer></script>' in html
         assert 'onchange=' not in html
         assert 'onclick=' not in html
@@ -272,10 +283,19 @@ def test_render_run_index_step_formatting_and_escaping(tmp_path):
          "best_fid": 15.2, "best_step": 120},
         {"run_id": "r2", "name": "Run 2", "status": "running", "step": 50000, "total_steps": 100000,
          "best_fid": 12.4, "best_step": 50000},
+        {"run_id": "r_2gpu", "name": "Run 2GPU", "status": "running", "active": True,
+         "step": 2303, "total_steps": 200000, "steps_per_second": 0.873, "samples_per_second": 223.488,
+         "eta_seconds": 120.0, "topology": {"world_size": 2, "gpu_count": 2, "label": "2 GPUs"}},
     ]
     html_out = render_run_index_html(runs, tmp_path)
     assert "120 / 500" in html_out
     assert "50,000 / 100,000" in html_out
+    assert "4,606 / 400,000" in html_out
+    assert "2,303 sync updates · ETA 2m 00s" in html_out
+    assert "1.7 steps/s" in html_out
+    assert "223 samples/s" in html_out
+    assert 'data-step="4606"' in html_out
+    assert 'data-total-steps="400000"' in html_out
     assert "FID" in html_out
     assert "15.20" in html_out
     assert "12.40" in html_out
@@ -653,4 +673,138 @@ class TestThumbnailEndpointHardening:
         with TestClient(app, base_url=session.origin) as client:
             res = client.get("/api/v1/runs/run_non_png/thumbnail")
             assert res.status_code == 404
+
+
+def test_index_active_vs_inactive_speed_eta_and_topology_rendering(tmp_path):
+    import re
+    from hypergan.web_server import render_run_index_html
+
+    runs = [
+        {
+            "run_id": "run_2gpu_live",
+            "name": "TransGAN CIFAR-10",
+            "slug": "golden-lynx",
+            "status": "running",
+            "active": True,
+            "running": True,
+            "remote": True,
+            "hostname": "gpu-node-02",
+            "topology": {
+                "device_kind": "cuda",
+                "world_size": 2,
+                "nodes": 1,
+                "ranks_per_node": 2,
+                "gpu_count": 2,
+                "gpu_name": "RTX A6000",
+                "label": "2 GPUs",
+                "detail": "2× RTX A6000",
+            },
+            "batch_label": "Batch 256",
+            "batch_detail": "128 / GPU",
+            "step": 120,
+            "total_steps": 10400,
+            "steps_per_second": 14.2,
+            "samples_per_second": 3635.2,
+            "eta_seconds": 725.0,
+            "best_fid": 17.1,
+            "latest_fid": 19.5,
+            "disk_bytes": 104857600,
+            "disk_formatted": "100.0 MB",
+            "created_at": "2026-10-18T10:00:00Z",
+        },
+        {
+            "run_id": "run_stopped_stale_speed",
+            "name": "Stopped Run",
+            "slug": "silent-owl",
+            "status": "stopped",
+            "active": False,
+            "running": False,
+            "topology": {"label": "CPU", "detail": None},
+            "batch_label": "Batch 16",
+            "batch_detail": None,
+            "step": 400,
+            "total_steps": 1000,
+            "steps_per_second": 21.6,
+            "samples_per_second": 345.6,
+            "eta_seconds": 27.7,
+            "best_fid": None,
+            "latest_fid": None,
+            "disk_bytes": 4096,
+            "disk_formatted": "4.0 KB",
+            "created_at": "2026-10-17T10:00:00Z",
+        },
+        {
+            "run_id": "run_unrecorded",
+            "name": "Bare Run",
+            "slug": "plain-fox",
+            "status": "complete",
+            "active": False,
+            "running": False,
+            "topology": {"label": None, "detail": None},
+            "batch_label": None,
+            "batch_detail": None,
+            "step": 500,
+            "total_steps": 500,
+            "steps_per_second": 33.9,
+            "created_at": "2026-10-16T10:00:00Z",
+        },
+    ]
+
+    html_out = render_run_index_html(runs, tmp_path)
+
+    # Row action buttons and Actions column are completely absent
+    assert "data-action=" not in html_out
+    assert "Open run" not in html_out
+    assert "Actions" not in html_out
+
+    # Multi-column sorting options & sortable column headers are present
+    for sort_opt in ("newest", "oldest", "name", "fid", "progress", "speed", "disk"):
+        assert f'<option value="{sort_opt}">' in html_out
+    for sort_col in ("name", "fid", "newest", "progress", "speed", "disk"):
+        assert f'data-sort="{sort_col}"' in html_out
+
+    tbody = html_out.split('<tbody id="runs-body">', 1)[1].split("</tbody>", 1)[0]
+    row_blocks = {
+        m.group(1): m.group(0)
+        for m in re.finditer(r'<tr class="run-row"[^>]*data-id="([^"]+)"[^>]*>.*?</tr>', tbody, re.DOTALL)
+    }
+    assert set(row_blocks) == {"run_2gpu_live", "run_stopped_stale_speed", "run_unrecorded"}
+
+    # 1. Active 2-GPU run renders aggregate GPU steps/speed, topology, batch, samples/s, ETA, and remote host
+    live_html = row_blocks["run_2gpu_live"]
+    assert 'data-url="/runs/run_2gpu_live"' in live_html
+    assert 'data-active="true"' in live_html
+    assert 'data-step="240"' in live_html
+    assert 'data-total-steps="20800"' in live_html
+    assert 'data-speed="28.4"' in live_html
+    assert 'data-fid="17.1"' in live_html
+    assert 'data-disk-bytes="104857600"' in live_html
+    assert "gpu-node-02" in live_html
+    assert "2 GPUs · Batch 256" in live_html
+    assert "2× RTX A6000 · 128 / GPU" in live_html
+    assert "240 / 20,800" in live_html
+    assert "120 sync updates · ETA 12m 05s" in live_html
+    assert "28.4 steps/s" in live_html
+    assert "3635 samples/s" in live_html
+
+    # 2. Stopped run with historical speed suppresses speed & ETA and renders CPU topology
+    stopped_html = row_blocks["run_stopped_stale_speed"]
+    assert 'data-url="/runs/run_stopped_stale_speed"' in stopped_html
+    assert 'data-active="false"' in stopped_html
+    assert 'data-speed=""' in stopped_html
+    assert "CPU · Batch 16" in stopped_html
+    assert "21.6" not in stopped_html
+    assert "346 samples/s" not in stopped_html
+    assert "steps/s" not in stopped_html
+    assert "ETA" not in stopped_html
+    assert '<span class="muted" data-field="speed-primary">—</span>' in stopped_html
+
+    # 3. Complete run without recorded topology/batch renders — in Topology & Batch and Speed
+    bare_html = row_blocks["run_unrecorded"]
+    assert 'data-url="/runs/run_unrecorded"' in bare_html
+    assert 'data-speed=""' in bare_html
+    assert "33.9" not in bare_html
+    assert '<span class="topo-primary muted" data-field="topology-primary">—</span>' in bare_html
+    assert '<span class="muted" data-field="speed-primary">—</span>' in bare_html
+
 

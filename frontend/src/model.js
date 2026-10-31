@@ -123,7 +123,7 @@ export function modelPanel(api, base, { catalog, onPlot }) {
     if (known) {
       const button = node("button", metric, "text-button");
       button.type = "button";
-      button.title = "Show this series under Metrics";
+      button.title = "Plot this series in Learning curves";
       button.addEventListener("click", () => onPlot(metric));
       cell.append(button);
     } else cell.append(node("code", metric));
@@ -325,7 +325,7 @@ export function modelPanel(api, base, { catalog, onPlot }) {
       link.href = `#${heading.id}`;
       link.addEventListener("click", (event) => {
         event.preventDefault();
-        heading.scrollIntoView({ block: "start" });
+        heading.scrollIntoView({ behavior: "smooth", block: "start" });
       });
       nav.append(link);
     }

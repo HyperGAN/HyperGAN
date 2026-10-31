@@ -3,19 +3,37 @@ import asyncio
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import hashlib
 import html
 import json
 import logging
 from pathlib import Path
+import re
 import time
 from urllib.parse import quote
 
 from . import inspection as _insp_mod
 from . import registry as _reg_mod
 from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
-from .web_files import read_artifact, read_json, _open
-from .web_service import (MAX_GROUPS, MAX_QUEUE_BYTES, MAX_STREAMS, MAX_SUBSCRIBERS, ObservationService, MapSpec,
-                          ViewSpec, cursor_offset)
+from .web_files import read_artifact, read_bytes, read_json, _open
+from .web_service import (
+    MAX_GROUPS,
+    MAX_QUEUE_BYTES,
+    MAX_STREAMS,
+    MAX_SUBSCRIBERS,
+    PREVIEW_INDEX_BYTES,
+    MapSpec,
+    ObservationService,
+    ViewSpec,
+    _finite_nonneg_float,
+    _positive_int,
+    compute_aggregate_steps,
+    compute_throughput_and_eta,
+    cursor_offset,
+    extract_fid_and_health,
+    extract_topology_and_batch,
+    sse,
+)
 from .web_session import LocalSession
 
 STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'runs.js', 'runs.css', 'logo.png'}
@@ -98,25 +116,17 @@ def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int, int], ...]:
         _stat_watermark(run_dir / "manifest.json"),
         _stat_watermark(run_dir / ".run.lock"),
         _stat_watermark(run_dir / "launch" / "0001.json"),
+        _stat_watermark(run_dir / "previews" / "index.json"),
     )
 
 
 def _disk_run_id(run_dir: Path) -> str | None:
-    manifest_path = run_dir / "manifest.json"
-    if manifest_path.is_file():
+    for relative in ("manifest.json", "summary.json"):
         try:
-            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            loaded = read_json(run_dir, relative)
             if isinstance(loaded, dict) and loaded.get("run_id"):
                 return str(loaded["run_id"])
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            pass
-    summary_path = run_dir / "summary.json"
-    if summary_path.is_file():
-        try:
-            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict) and loaded.get("run_id"):
-                return str(loaded["run_id"])
-        except (OSError, json.JSONDecodeError, UnicodeError):
+        except (OSError, ValueError):
             pass
     return None
 
@@ -143,9 +153,9 @@ def _run_created_at(run_dir: Path, manifest: dict, summary: dict | None) -> str 
             return date
     # The first launch survives resumes; later launch timestamps describe attempts.
     try:
-        launch = json.loads((run_dir / 'launch' / '0001.json').read_text(encoding='utf-8'))
+        launch = read_json(run_dir, 'launch/0001.json')
         return _created_at(launch.get('timestamp')) if isinstance(launch, dict) else None
-    except (OSError, ValueError, UnicodeError):
+    except (OSError, ValueError):
         return None
 
 
@@ -164,26 +174,22 @@ def _is_stale_unmodified_run(run_dir: Path, max_idle_seconds: float = 3600.0) ->
 
 def read_run_summary(run_dir: Path) -> dict:
     run_dir = Path(run_dir).resolve()
-    summary_path = run_dir / "summary.json"
-    manifest_path = run_dir / "manifest.json"
 
     summary = None
-    if summary_path.is_file():
-        try:
-            loaded_summary = json.loads(summary_path.read_text(encoding="utf-8"))
-            if isinstance(loaded_summary, dict):
-                summary = loaded_summary
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            summary = None
+    try:
+        loaded_summary = read_json(run_dir, "summary.json")
+        if isinstance(loaded_summary, dict):
+            summary = loaded_summary
+    except (OSError, ValueError):
+        summary = None
 
     manifest = {}
-    if manifest_path.is_file():
-        try:
-            loaded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if isinstance(loaded_manifest, dict):
-                manifest = loaded_manifest
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            manifest = {}
+    try:
+        loaded_manifest = read_json(run_dir, "manifest.json")
+        if isinstance(loaded_manifest, dict):
+            manifest = loaded_manifest
+    except (OSError, ValueError):
+        manifest = {}
 
     host_info = _insp_mod.inspect_run_host(run_dir)
     try:
@@ -217,20 +223,24 @@ def read_run_summary(run_dir: Path) -> dict:
     raw_status = (summary.get("status") if summary else None) or manifest.get("status") or "unknown"
     if is_active:
         status = "running"
+        active = True
     elif (
         str(raw_status).strip().lower() in ("running", "initializing")
         and ((run_dir / ".run.lock").exists() or _is_stale_unmodified_run(run_dir))
     ):
         status = "stopped"
+        active = False
     else:
         status = raw_status
-    active = bool(is_active or status == "running" or (summary and (summary.get("active") or summary.get("running")) and status == "running"))
+        active = str(status).strip().lower() in ("running", "training", "initializing", "starting")
     running = bool(is_active)
 
     step = (summary.get("step") if summary and "step" in summary else None)
     if step is None:
         step = manifest.get("steps", 0)
 
+    cfg = manifest.get("config") if isinstance(manifest.get("config"), dict) else {}
+    training_cfg = cfg.get("training") if isinstance(cfg.get("training"), dict) else {}
     total_steps = (
         (summary.get("total_steps") if summary else None)
         or manifest.get("total_steps")
@@ -238,6 +248,7 @@ def read_run_summary(run_dir: Path) -> dict:
         or manifest.get("max_steps")
         or (summary.get("target_steps") if summary else None)
         or manifest.get("target_steps")
+        or _positive_int(training_cfg.get("steps"))
     )
     max_steps = (
         (summary.get("max_steps") if summary else None)
@@ -246,21 +257,41 @@ def read_run_summary(run_dir: Path) -> dict:
         or (summary.get("target_steps") if summary else None)
         or manifest.get("target_steps")
     )
-    steps_per_second = (
-        ((summary.get("steps_per_second") or summary.get("speed_its") or summary.get("steps_per_sec")) if summary else None)
-        or manifest.get("steps_per_second")
-        or manifest.get("speed_its")
+    steps_per_second = _finite_nonneg_float(
+        summary.get("steps_per_second") if summary else None,
+        summary.get("speed_its") if summary else None,
+        summary.get("steps_per_sec") if summary else None,
+        manifest.get("steps_per_second"),
+        manifest.get("speed_its"),
     )
 
-    latest_fid = None
-    if summary:
-        latest_fid = summary.get("latest_fid") or summary.get("fid_latest")
-        if latest_fid is None and isinstance(summary.get("metrics"), dict):
-            latest_fid = summary["metrics"].get("fid50k_train") or summary["metrics"].get("fid")
+    topo_batch = extract_topology_and_batch(manifest, summary)
+    samples_per_second, eta_seconds = compute_throughput_and_eta(
+        active=active,
+        step=step,
+        total_steps=total_steps,
+        steps_per_second=steps_per_second,
+        global_batch_size=topo_batch["global_batch_size"],
+        summary=summary,
+    )
+    last_durable_step = summary.get("last_durable_step") if (summary and "last_durable_step" in summary) else None
+    if last_durable_step is None:
+        last_durable_step = manifest.get("last_durable_step")
+    agg = compute_aggregate_steps(
+        topology=topo_batch["topology"],
+        step=step,
+        total_steps=total_steps,
+        last_durable_step=last_durable_step,
+        steps_per_second=steps_per_second,
+    )
 
-    best = summary.get("best") if summary and isinstance(summary.get("best"), dict) else None
-    best_fid = (best.get("value") if best else None) or (summary.get("best_fid") if summary else None) or (summary.get("fid_best") if summary else None)
-    best_step = (best.get("step") if best else None) or (summary.get("best_step") if summary else None)
+    fid_health = extract_fid_and_health(manifest, summary)
+    latest_fid = fid_health["latest_fid"]
+    best_fid = fid_health["best_fid"]
+    best_step = fid_health["best_step"]
+    best_metric = fid_health["best_metric"]
+    health_alerts = fid_health["health_alerts"]
+    warnings = fid_health["warnings"]
 
     updated_at = (summary.get("updated_at") if summary else None) or manifest.get("updated_at")
 
@@ -268,21 +299,71 @@ def read_run_summary(run_dir: Path) -> dict:
     disk_formatted = format_disk_bytes(disk_bytes)
 
     has_preview = False
-    previews_index = run_dir / "previews" / "index.json"
-    if previews_index.is_file():
+    thumbnail_revision: str | None = None
+    try:
+        pdata = read_json(run_dir, "previews/index.json", max_bytes=PREVIEW_INDEX_BYTES)
+        previews_list = pdata.get("previews") if isinstance(pdata, dict) else None
+        if isinstance(previews_list, list) and previews_list:
+            has_preview = True
+            chosen = None
+            for entry in reversed(previews_list):
+                if isinstance(entry, dict) and isinstance(entry.get("image_grid"), dict):
+                    chosen = entry
+                    break
+            if chosen is None:
+                for entry in reversed(previews_list):
+                    if isinstance(entry, dict):
+                        chosen = entry
+                        break
+            if chosen is not None:
+                grid = chosen.get("image_grid") if isinstance(chosen.get("image_grid"), dict) else {}
+                raw_rev = None
+                for candidate_hash in (grid.get("sha256"), chosen.get("sha256")):
+                    if isinstance(candidate_hash, str):
+                        cleaned_rev = re.sub(r"[^A-Za-z0-9]", "", candidate_hash)[:12]
+                        if cleaned_rev:
+                            raw_rev = cleaned_rev
+                            break
+                if not raw_rev:
+                    fallback_token = json.dumps(
+                        [
+                            chosen.get("sample_sequence"),
+                            chosen.get("step"),
+                            grid.get("path") or chosen.get("path"),
+                            len(previews_list),
+                        ],
+                        sort_keys=True,
+                        default=str,
+                    )
+                    raw_rev = hashlib.sha256(fallback_token.encode("utf-8")).hexdigest()[:12]
+                thumbnail_revision = raw_rev
+    except (OSError, ValueError):
+        pass
+    if not has_preview and (run_dir / "previews").is_dir():
         try:
-            pdata = json.loads(previews_index.read_text(encoding="utf-8"))
-            if isinstance(pdata, dict) and pdata.get("previews"):
+            newest_sig: tuple[int, int, str] | None = None
+            for png_path in (run_dir / "previews").rglob("*.png"):
+                try:
+                    if png_path.is_file() and not png_path.is_symlink():
+                        st = png_path.stat()
+                        sig = (st.st_mtime_ns, st.st_size, png_path.name)
+                        if newest_sig is None or sig > newest_sig:
+                            newest_sig = sig
+                except OSError:
+                    continue
+            if newest_sig is not None:
                 has_preview = True
-        except Exception:
-            pass
-    elif (run_dir / "previews").is_dir():
-        try:
-            has_preview = any((run_dir / "previews").rglob("*.png"))
+                thumbnail_revision = hashlib.sha256(
+                    f"{newest_sig[0]}:{newest_sig[1]}".encode("utf-8")
+                ).hexdigest()[:12]
         except Exception:
             pass
 
-    thumbnail_url = f"/api/v1/runs/{quote(str(run_id), safe='')}/thumbnail" if has_preview else None
+    if has_preview:
+        base_thumb = f"/api/v1/runs/{quote(str(run_id), safe='')}/thumbnail"
+        thumbnail_url = f"{base_thumb}?rev={thumbnail_revision}" if thumbnail_revision else base_thumb
+    else:
+        thumbnail_url = None
 
     return {
         "run_id": run_id,
@@ -295,20 +376,40 @@ def read_run_summary(run_dir: Path) -> dict:
         "pid": pid,
         "hostname": host_info.get("hostname"),
         "remote": host_info.get("remote", False),
+        "topology": topo_batch["topology"],
+        "global_batch_size": topo_batch["global_batch_size"],
+        "local_batch_size": topo_batch["local_batch_size"],
+        "microbatch_size": topo_batch["microbatch_size"],
+        "accumulation_steps": topo_batch["accumulation_steps"],
+        "batch_label": topo_batch["batch_label"],
+        "batch_detail": topo_batch["batch_detail"],
         "step": step,
         "total_steps": total_steps,
         "max_steps": max_steps,
+        "last_durable_step": last_durable_step,
+        "step_multiplier": agg["step_multiplier"],
+        "aggregate_step": agg["aggregate_steps"],
+        "aggregate_steps": agg["aggregate_steps"],
+        "aggregate_total_steps": agg["aggregate_total_steps"],
+        "aggregate_last_durable_step": agg["aggregate_last_durable_step"],
         "steps_per_second": steps_per_second,
+        "aggregate_steps_per_second": agg["aggregate_steps_per_second"],
         "speed_its": steps_per_second,
+        "samples_per_second": samples_per_second,
+        "eta_seconds": eta_seconds,
         "latest_fid": latest_fid,
         "fid_latest": latest_fid,
         "best_fid": best_fid,
         "fid_best": best_fid,
         "best_step": best_step,
+        "best_metric": best_metric,
+        "health_alerts": health_alerts,
+        "warnings": warnings,
         "created_at": _run_created_at(run_dir, manifest, summary),
         "updated_at": updated_at,
         "disk_bytes": disk_bytes,
         "disk_formatted": disk_formatted,
+        "thumbnail_revision": thumbnail_revision,
         "thumbnail_url": thumbnail_url,
         "run_dir": str(run_dir),
         "url": f"/runs/{quote(str(run_id), safe='')}",
@@ -323,89 +424,212 @@ def _render_run_row(r: dict) -> str:
     def escape(value):
         return html.escape(str(value))
 
+    def is_finite_num(value) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and abs(value) != float('inf')
+
+    def format_eta(seconds) -> str:
+        if not is_finite_num(seconds) or seconds <= 0:
+            return ''
+        total_sec = max(1, int(round(seconds)))
+        if total_sec < 60:
+            return f'ETA {total_sec}s'
+        if total_sec < 3600:
+            mins, secs = divmod(total_sec, 60)
+            return f'ETA {mins}m {secs:02d}s'
+        if total_sec < 86400:
+            hours, rem = divmod(total_sec, 3600)
+            mins = rem // 60
+            return f'ETA {hours}h {mins:02d}m'
+        days, rem = divmod(total_sec, 86400)
+        hours = rem // 3600
+        return f'ETA {days}d {hours:02d}h'
+
     run_id = str(r.get('run_id', 'unknown'))
     name = str(r.get('name') or run_id)
-    slug = r.get('slug') or _reg_mod.extract_or_derive_slug(run_id, name=name)
-    short_id = r.get('short_id') or run_id[:8]
+    slug = str(r.get('slug') or _reg_mod.extract_or_derive_slug(run_id, name=name))
+    short_id = str(r.get('short_id') or run_id[:8])
     status = str(r.get('status') or 'unknown').strip().lower()
-    active = bool(r.get('active') or r.get('running') or status == 'running')
-    step = r.get('step') or 0
-    total = r.get('total_steps') or r.get('max_steps') or 0
-    percent = min(100, max(0, int(step / total * 100))) if total > 0 else 0
-    progress = f'{step:,} / {total:,}' if total > 0 else f'{step:,}'
-    speed = r.get('steps_per_second')
-    speed_text = f'{speed:.1f} it/s' if isinstance(speed, (int, float)) else '—'
+    if 'active' in r and r['active'] is not None:
+        active = bool(r['active'])
+    elif 'running' in r and r['running'] is not None:
+        active = bool(r['running'])
+    else:
+        active = status in ('running', 'training', 'initializing', 'starting')
+
+    topology = r.get('topology') if isinstance(r.get('topology'), dict) else {}
+    raw_mult = r.get('step_multiplier')
+    if not (isinstance(raw_mult, int) and not isinstance(raw_mult, bool) and raw_mult >= 1):
+        ws_candidate = topology.get('world_size')
+        if not (isinstance(ws_candidate, int) and not isinstance(ws_candidate, bool)):
+            ws_candidate = r.get('world_size')
+        raw_mult = ws_candidate if (isinstance(ws_candidate, int) and not isinstance(ws_candidate, bool) and ws_candidate >= 1) else 1
+    mult = max(1, int(raw_mult))
+
+    sync_step = max(0, int(r.get('step') or 0))
+    sync_total = max(0, int(r.get('total_steps') or r.get('max_steps') or 0))
+    if is_finite_num(r.get('aggregate_steps')) and r['aggregate_steps'] >= 0:
+        agg_step = int(r['aggregate_steps'])
+    elif is_finite_num(r.get('aggregate_step')) and r['aggregate_step'] >= 0:
+        agg_step = int(r['aggregate_step'])
+    else:
+        agg_step = sync_step * mult
+
+    if is_finite_num(r.get('aggregate_total_steps')) and r['aggregate_total_steps'] > 0:
+        agg_total = int(r['aggregate_total_steps'])
+    else:
+        agg_total = sync_total * mult
+
+    percent = min(100, max(0, int(round(agg_step / agg_total * 100)))) if agg_total > 0 else 0
+    progress = f'{agg_step:,} / {agg_total:,}' if agg_total > 0 else f'{agg_step:,}'
+    raw_eta_text = format_eta(r.get('eta_seconds')) if active else ''
+    sync_note = f'{sync_step:,} sync updates' if mult > 1 else ''
+    eta_text = ' · '.join(p for p in (sync_note, raw_eta_text) if p)
+
+    raw_speed = r.get('steps_per_second') if r.get('steps_per_second') is not None else r.get('speed_its')
+    if is_finite_num(r.get('aggregate_steps_per_second')) and r['aggregate_steps_per_second'] >= 0:
+        agg_speed: float | None = float(r['aggregate_steps_per_second'])
+    elif is_finite_num(raw_speed) and raw_speed >= 0:
+        agg_speed = float(raw_speed) * mult
+    else:
+        agg_speed = None
+    has_active_speed = active and agg_speed is not None
+    raw_samples = r.get('samples_per_second')
+    has_active_samples = has_active_speed and is_finite_num(raw_samples) and raw_samples >= 0
+    if has_active_speed and agg_speed is not None:
+        speed_primary = f'<span class="speed-primary" data-field="speed-primary">{agg_speed:.1f} steps/s</span>'
+    else:
+        speed_primary = '<span class="muted" data-field="speed-primary">—</span>'
+    if has_active_samples:
+        speed_sub = f'<small class="cell-sub" data-field="speed-sub">{raw_samples:.0f} samples/s</small>'
+    else:
+        speed_sub = '<small class="cell-sub" data-field="speed-sub" hidden></small>'
+    speed_cell = f'<td data-label="Speed" data-field="speed">{speed_primary}{speed_sub}</td>'
+
     created = _created_at(r.get('created_at'))
     date_text = datetime.fromisoformat(created).strftime('%b %d, %Y · %H:%M UTC') if created else 'Unknown'
-    url = escape('/runs/' + quote(run_id, safe=''))
+    raw_url = str(r.get('url') or ('/runs/' + quote(run_id, safe='')))
+    url = escape(raw_url)
 
     thumb_url = r.get("thumbnail_url")
     if thumb_url:
-        preview_cell = f'<td data-label="Preview" class="thumbnail-cell"><a href="{url}"><img class="run-thumbnail" src="{escape(thumb_url)}" alt="Preview of {escape(name)}" loading="lazy" width="48" height="48" /></a></td>'
+        preview_cell = (
+            f'<td data-label="Preview" class="thumbnail-cell">'
+            f'<img class="run-thumbnail" src="{escape(thumb_url)}" alt="Preview of {escape(name)}" loading="lazy" width="48" height="48" /></td>'
+        )
     else:
         preview_cell = '<td data-label="Preview" class="thumbnail-cell"><span class="no-thumbnail" title="No previews yet">—</span></td>'
 
-    best_fid = r.get("best_fid") or r.get("fid_best")
-    latest_fid = r.get("latest_fid") or r.get("fid_latest")
-    if isinstance(best_fid, (int, float)):
-        if isinstance(latest_fid, (int, float)) and abs(latest_fid - best_fid) > 0.01:
-            fid_text = f'<span class="best-fid" title="Best FID">{best_fid:.2f}</span> <small class="latest-fid" title="Latest FID">({latest_fid:.2f})</small>'
-        else:
-            fid_text = f'<span class="best-fid" title="Best FID">{best_fid:.2f}</span>'
-    elif isinstance(latest_fid, (int, float)):
-        fid_text = f'<span class="latest-fid" title="Latest FID">{latest_fid:.2f}</span>'
+    topo_primary = ' · '.join(str(p) for p in (topology.get('label'), r.get('batch_label')) if p)
+    topo_sub = ' · '.join(str(p) for p in (topology.get('detail'), r.get('batch_detail')) if p)
+    topo_primary_cls = 'topo-primary' if topo_primary else 'topo-primary muted'
+    topo_sub_hidden = '' if topo_sub else ' hidden'
+    topology_cell = (
+        f'<td data-label="Topology & Batch" data-field="topology">'
+        f'<span class="{topo_primary_cls}" data-field="topology-primary">{escape(topo_primary or "—")}</span>'
+        f'<small class="cell-sub" data-field="topology-sub"{topo_sub_hidden}>{escape(topo_sub)}</small></td>'
+    )
+
+    best_fid = r.get("best_fid") if r.get("best_fid") is not None else r.get("fid_best")
+    latest_fid = r.get("latest_fid") if r.get("latest_fid") is not None else r.get("fid_latest")
+    has_best_fid = is_finite_num(best_fid)
+    has_latest_fid = is_finite_num(latest_fid)
+    sort_fid = best_fid if has_best_fid else (latest_fid if has_latest_fid else None)
+    if has_best_fid:
+        show_latest_sub = has_latest_fid and abs(latest_fid - best_fid) > 0.01
+        sub_text = f'({latest_fid:.2f})' if show_latest_sub else ''
+        sub_hidden = '' if show_latest_sub else ' hidden'
+        fid_text = (
+            f'<span class="best-fid" data-field="fid-primary" title="Best FID">{best_fid:.2f}</span> '
+            f'<small class="latest-fid" data-field="fid-latest" title="Latest FID"{sub_hidden}>{sub_text}</small>'
+        )
+    elif has_latest_fid:
+        fid_text = (
+            f'<span class="latest-fid" data-field="fid-primary" title="Latest FID">{latest_fid:.2f}</span> '
+            '<small class="latest-fid" data-field="fid-latest" title="Latest FID" hidden></small>'
+        )
     else:
-        fid_text = '<span class="no-fid">—</span>'
+        fid_text = (
+            '<span class="no-fid muted" data-field="fid-primary">—</span> '
+            '<small class="latest-fid" data-field="fid-latest" title="Latest FID" hidden></small>'
+        )
     fid_cell = f'<td data-label="FID" data-field="fid">{fid_text}</td>'
 
-    return f'''<tr data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
-      data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}">
-      <td data-label="Run"><a class="run-link" href="{url}">{escape(name)}</a>
-        <div class="run-id-sub"><span class="slug-badge">{escape(slug)}</span>
-          <span class="id-badge" title="{escape(run_id)}">{escape(short_id)}</span></div></td>
+    disk_bytes = r.get('disk_bytes')
+    disk_attr = str(int(disk_bytes)) if (is_finite_num(disk_bytes) and disk_bytes >= 0) else ''
+    fid_attr = str(float(sort_fid)) if sort_fid is not None else ''
+    speed_attr = str(float(agg_speed)) if (has_active_speed and agg_speed is not None) else ''
+
+    show_host = bool(r.get('remote') and r.get('hostname'))
+    host_name = str(r.get('hostname')) if show_host else ''
+    host_title = f' title="Remote host: {escape(host_name)}"' if show_host else ''
+    host_hidden = '' if show_host else ' hidden'
+    slug_hidden = '' if slug else ' hidden'
+    eta_hidden = '' if eta_text else ' hidden'
+
+    return f'''<tr class="run-row" data-url="{url}" data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
+      data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}"
+      data-fid="{escape(fid_attr)}" data-step="{agg_step}" data-total-steps="{agg_total}"
+      data-speed="{escape(speed_attr)}" data-disk-bytes="{escape(disk_attr)}">
+      <td data-label="Run / Name" class="run-name-cell"><a class="run-link" href="{url}">{escape(name)}</a>
+        <div class="run-id-sub"><span class="slug-badge"{slug_hidden}>{escape(slug)}</span>
+          <span class="id-badge" title="{escape(run_id)}">{escape(short_id)}</span>
+          <span class="host-badge" data-field="host"{host_title}{host_hidden}>{escape(host_name)}</span></div></td>
       {preview_cell}
       <td data-label="Status"><span class="badge" data-status="{escape(status)}">{escape(status)}</span></td>
+      {topology_cell}
       {fid_cell}
       <td data-label="Created at"><time data-field="created" datetime="{escape(created or '')}"
         title="{escape(created or 'Creation time was not recorded')}">{date_text}</time></td>
       <td data-label="Progress"><div class="progress-bar-container"><span data-field="steps">{progress}</span>
-        <div class="progress-bar" aria-hidden="true"{'' if total > 0 else ' hidden'}>
-          <div class="progress-fill" style="width: {percent}%"></div></div></div></td>
-      <td data-label="Speed" data-field="speed">{speed_text}</td>
+        <div class="progress-bar" aria-hidden="true"{'' if agg_total > 0 else ' hidden'}>
+          <div class="progress-fill" style="width: {percent}%"></div></div>
+        <small class="cell-sub" data-field="eta"{eta_hidden}>{escape(eta_text)}</small></div></td>
+      {speed_cell}
       <td data-label="Disk" data-field="disk">{escape(r.get('disk_formatted') or '—')}</td>
-      <td data-label="Actions"><div class="actions-cell"><a class="btn" href="{url}">Open run →</a>
-        <button type="button" class="btn btn-checkpoint" data-action="checkpoint"{'' if active else ' hidden'}>Checkpoint</button>
-        <button type="button" class="btn btn-sample" data-action="sample"{'' if active else ' hidden'}>Sample</button>
-        <button type="button" class="btn btn-stop" data-action="stop"{'' if active else ' hidden'}>Stop</button>
-      </div></td>
     </tr>'''
 
 
 def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = False) -> str:
     """Dashboard page; with `login` it carries no run data, only the sign-in form."""
-    runs = [] if login else sorted(runs, key=lambda r: (_created_at(r.get('created_at')) or '', str(r.get('run_id', ''))), reverse=True)
+    def _sort_key(r: dict):
+        created_iso = _created_at(r.get('created_at'))
+        ts = -datetime.fromisoformat(created_iso).timestamp() if created_iso else float('inf')
+        run_id_str = str(r.get('run_id', ''))
+        name_str = str(r.get('name') or run_id_str)
+        return (0 if created_iso else 1, ts, name_str, run_id_str)
+
+    runs = [] if login else sorted(runs, key=_sort_key)
     rows = "\n".join(_render_run_row(r) for r in runs)
     root = '' if login else html.escape(str(runs_root))
+    indicator_cls = 'connection' if login else 'connection live'
+    initial_status = 'Sign in to see runs' if login else 'Live · 3s'
     return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HyperGAN Runs — Dashboard</title>
+  <meta name="color-scheme" content="dark">
+  <title>HyperGAN Runs — Observatory</title>
   <link rel="icon" type="image/png" href="/assets/logo.png">
   <link rel="stylesheet" href="/assets/runs.css">
   <script src="/assets/runs.js" defer></script>
 </head>
 <body>
+  <header class="masthead">
+    <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="30" height="30" alt="" />HYPERGAN<span class="brand-separator">/</span><span class="brand-detail">EXPERIMENTS</span></a>
+    <span class="root-path" title="{root}">{root}</span>
+    <span id="live-indicator" class="{indicator_cls}" role="status"><i aria-hidden="true"></i><span id="refresh-status">{initial_status}</span></span>
+  </header>
   <main class="container">
-    <header class="header">
-      <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="28" height="28" alt=""> HYPERGAN</a>
-      <span class="root-path" title="{root}">{root}</span>
-    </header>
-    <div class="page-heading"><div><h1>Training runs</h1>
-      <p>Find an experiment and follow its progress.</p></div>
-      <div class="refresh-controls"><span id="refresh-status" role="status">Updates every 3 seconds</span>
-        <button id="refresh" type="button" class="btn">Refresh</button></div>
+    <div class="page-heading">
+      <div>
+        <span class="eyebrow">WORKSPACE OBSERVATORY</span>
+        <h1>Training runs</h1>
+        <p>Find an experiment and follow its progress.</p>
+      </div>
+      <div class="refresh-controls">
+        <button id="refresh" type="button" class="btn">Refresh</button>
+      </div>
     </div>
     <div class="controls" role="search" aria-label="Find training runs">
       <label class="search-control" for="search">Search runs
@@ -422,6 +646,10 @@ def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = Fa
         <option value="newest">Newest first</option>
         <option value="oldest">Oldest first</option>
         <option value="name">Name A–Z</option>
+        <option value="fid">Best FID (lowest)</option>
+        <option value="progress">Progress (highest)</option>
+        <option value="speed">Speed (fastest active)</option>
+        <option value="disk">Disk usage (largest)</option>
       </select></div>
       <button id="clear-filters" type="button" class="btn" hidden>Clear filters</button>
     </div>
@@ -434,14 +662,21 @@ def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = Fa
       <p id="login-error" role="alert"></p>
     </form>
     <p id="run-count" role="status">{len(runs)} run{'s' if len(runs) != 1 else ''}</p>
-    <p id="action-status" role="status" hidden></p>
     <noscript><p>Enable JavaScript to search, filter, and receive live updates.</p></noscript>
     <div class="table-container">
       <table class="run-table" id="runs-table">
-        <caption class="sr-only">Training runs with creation time, status, and progress</caption>
-        <thead><tr><th scope="col">Run / Name</th><th scope="col">Preview</th><th scope="col">Status</th><th scope="col">FID</th>
-          <th scope="col">Created at <span id="time-zone">(UTC)</span></th><th scope="col">Progress</th>
-          <th scope="col">Speed</th><th scope="col">Disk</th><th scope="col">Actions</th></tr></thead>
+        <caption class="sr-only">Training runs with topology, evaluation FID, creation time, status, and progress</caption>
+        <thead><tr>
+          <th scope="col" data-sort-key="name" aria-sort="none"><button type="button" class="th-sort" data-sort="name">Run / Name</button></th>
+          <th scope="col">Preview</th>
+          <th scope="col">Status</th>
+          <th scope="col">Topology & Batch</th>
+          <th scope="col" data-sort-key="fid" aria-sort="none"><button type="button" class="th-sort" data-sort="fid">FID</button></th>
+          <th scope="col" data-sort-key="newest" aria-sort="descending"><button type="button" class="th-sort" data-sort="newest">Created at <span id="time-zone">(UTC)</span></button></th>
+          <th scope="col" data-sort-key="progress" aria-sort="none"><button type="button" class="th-sort" data-sort="progress">Progress</button></th>
+          <th scope="col" data-sort-key="speed" aria-sort="none"><button type="button" class="th-sort" data-sort="speed">Speed</button></th>
+          <th scope="col" data-sort-key="disk" aria-sort="none"><button type="button" class="th-sort" data-sort="disk">Disk</button></th>
+        </tr></thead>
         <tbody id="runs-body">{rows}</tbody>
       </table>
       <div id="empty-state" class="empty-state"{ ' hidden' if runs else ''}>
@@ -1176,10 +1411,10 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             svc = single_service
         else:
             async def root_events():
-                yield 'event: ready\ndata: {"status": "ready"}\n\n'.encode('utf-8')
+                yield sse('ready', {'status': 'ready'})
                 while True:
                     await asyncio.sleep(15.0)
-                    yield 'event: ping\ndata: {}\n\n'.encode('utf-8')
+                    yield sse('ping', {})
             return ClosingStream(root_events(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
@@ -1226,39 +1461,31 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
 
         def find_png_bytes() -> bytes | None:
             from .image_grids import inspect_png
-            idx = target_root / "previews" / "index.json"
-            if idx.is_file():
-                try:
-                    data = json.loads(idx.read_text(encoding="utf-8"))
-                    for prev in reversed(data.get("previews", [])):
-                        grid_info = prev.get("image_grid")
-                        if isinstance(grid_info, dict) and grid_info.get("path"):
-                            raw_path = grid_info["path"]
-                            if not isinstance(raw_path, str) or Path(raw_path).is_absolute() or raw_path.startswith("/"):
-                                continue
-                            cand = (target_root / raw_path).resolve()
-                            if cand.is_file() and cand.is_relative_to(target_root):
-                                try:
-                                    raw_bytes = cand.read_bytes()
-                                    inspect_png(raw_bytes)
-                                    return raw_bytes
-                                except Exception:
-                                    continue
-                except Exception:
-                    pass
+            try:
+                data = read_json(target_root, "previews/index.json", max_bytes=PREVIEW_INDEX_BYTES)
+                for prev in reversed(data.get("previews", [])):
+                    grid_info = prev.get("image_grid")
+                    if isinstance(grid_info, dict) and isinstance(grid_info.get("path"), str):
+                        try:
+                            raw_bytes = read_bytes(target_root, grid_info["path"], max_bytes=16 * 1048576)
+                            inspect_png(raw_bytes)
+                            return raw_bytes
+                        except Exception:
+                            continue
+            except (OSError, ValueError):
+                pass
             previews_dir = (target_root / "previews").resolve()
             if previews_dir.is_dir() and previews_dir.is_relative_to(target_root):
                 try:
                     pngs = sorted(previews_dir.rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
                     for p in pngs:
-                        cand = p.resolve()
-                        if cand.is_file() and cand.is_relative_to(target_root):
-                            try:
-                                raw_bytes = cand.read_bytes()
-                                inspect_png(raw_bytes)
-                                return raw_bytes
-                            except Exception:
-                                continue
+                        try:
+                            rel = p.relative_to(target_root).as_posix()
+                            raw_bytes = read_bytes(target_root, rel, max_bytes=16 * 1048576)
+                            inspect_png(raw_bytes)
+                            return raw_bytes
+                        except Exception:
+                            continue
                 except Exception:
                     pass
             return None
@@ -1266,7 +1493,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         png_data = await asyncio.to_thread(find_png_bytes)
         if png_data is None:
             raise FileNotFoundError("No preview thumbnail available for this run")
-        return Response(png_data, media_type="image/png", headers={"Cache-Control": "no-cache"})
+        rev = (request.query_params.get("rev") or "").strip()
+        cache_control = "private, max-age=3600" if rev else "no-cache"
+        return Response(png_data, media_type="image/png", headers={"Cache-Control": cache_control})
 
     async def static(request, asset_override=None):
         asset = asset_override or request.path_params.get('asset', 'index.html')

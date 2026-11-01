@@ -1,193 +1,140 @@
-# Sprite-Sheet Animation Generation with MisGAN: Research & Demo Plan
+# Sprite-Sheet Animation Generation with MisGAN, Blender & DCSS: Research & Demo Plan
 
 - **Branch / Worktree:** `research/sprite-sheet-animation` (`worktrees/sprite-sheet-animation`, branched off `origin/develop` @ `5f368a37`)
-- **Goal:** Generate complete pixel-art sprite animations given **Frame 0** of a sprite — and **"sometimes not even that"** (zero-frame unconditional generation, keyframe in-betweening, or partial-sheet completion) — trained via **MisGAN** (*Learning from Incomplete Data with Generative Adversarial Networks*, Li et al., ICLR 2019) inside HyperGAN 2.0 (`hypergan-model/1` + HNDL 0.10 + ParticleGAN).
+- **Goal:** Generate complete pixel-art sprite animations given **Frame 0** of a sprite — including animating **static *Dungeon Crawl Stone Soup* (DCSS) sprites** and **"sometimes not even that"** (zero-frame unconditional generation or keyframe in-betweening) — using **MisGAN** (Li et al., ICLR 2019), a **headless Blender 3D-to-Pixel-Art synthetic motion pipeline** (including NVIDIA's open 3D/4D synthetic datasets), and a **low-res-first progressive scaling ladder (`16×16` $\to$ `32×32` native DCSS $\to$ `64×64`)** inside HyperGAN 2.0 (`hypergan-model/1` + HNDL 0.10 + ParticleGAN).
 
 ---
 
-## 1. Why MisGAN Is the Right Formulation for Sprite Sheets
+## 1. Core Thesis: MisGAN Bridges Static DCSS Sprites + Animated Blender / 2D Sheets
 
-Sprite animation generation has two coupled missing-data problems—one at **inference time** and one at **dataset curation time**:
+*Dungeon Crawl Stone Soup* (`crawl/crawl` `rltiles`) contains **3,000+ iconic `32×32` roguelike monster, demon, and player sprites**, almost all of which are **static single-frame tiles** ($\bar{m}_{\text{obs}} = [1, 0, \dots, 0]$). Meanwhile, 3D animated assets rendered through a pixel-art Blender pipeline (plus wild 2D animated sprite datasets) give unlimited **complete multi-frame motion sequences** ($\bar{m}_{\text{obs}} = [1, 1, \dots, 1]$ or partial masks).
 
-1. **Variable Conditioning at Inference ("First Frame, or Sometimes Not Even That"):**
-   Representing a character's animation clip (or multi-action sheet) as a canonical $R \times K$ grid of $T = R \cdot K$ tiles $x \in [-1, 1]^{C \times (R H) \times (K W)}$ paired with a tile-structured binary mask $m \in \{0, 1\}^{1 \times (R H) \times (K W)}$ unifies every generation mode under a single MisGAN imputer $G_i(x_{\text{obs}}, m_q, \omega)$:
-   - **First-Frame-to-Animation:** $\bar{m}_q = [1, 0, \dots, 0]$. Tile 0 is hard-preserved via $\hat{x} = m_q \odot x + (1 - m_q) \odot \tilde{G}_i(\tilde{f}(x, m_q), \omega)$, while the learned ParticleGAN latent particle $\omega$ drives sharp, multi-modal motion variations across tiles $1 \dots T-1$.
-   - **"Sometimes Not Even That" (Unconditional):** $\bar{m}_q = [0, 0, \dots, 0]$. Either sample the Stage-1 complete-sheet generator $G_x(z)$ directly, or pass $m_q = \mathbf{0}$ into $G_i(\mathbf{0}, \mathbf{0}, \omega)$, synthesizing a brand-new character *and* its full animation sheet from scratch.
-   - **Bonus Modes Included for Free:** Keyframe in-betweening (e.g., $\bar{m}_q = [1, 0, 0, 0, 1, 0, 0, 0]$) and cross-action sheet completion (observe an `Idle` row $\to$ impute `Walk` and `Attack` rows).
+**MisGAN** (*Learning from Incomplete Data with Generative Adversarial Networks*, ICLR 2019) connects these two worlds cleanly:
 
-2. **Learning Directly From Incomplete / Ragged Wild Sprite Datasets:**
-   Real open-source sprite assets rarely share uniform frame counts or complete action sets:
-   - Some packs provide `8` walk frames; others provide only `4` idle + `4` run frames and omit `attack`.
-   - *Battle for Wesnoth* units have `1–6` standing frames, `3–7` attack frames, and `1–2` defend frames.
-   - Large static pixel-art corpora (`azyg0s/pixelart-172k`) provide **172,000+ Frame-0-only sprites** ($\bar{m}_{\text{obs}} = [1, 0, \dots, 0]$) with zero animation frames.
-   - Standard video/sheet models must discard incomplete characters or distort timing via frame duplication. **MisGAN learns directly from `(x_obs, m_obs)` pairs**: its complete-data generator $G_x(z)$ learns the full $T$-frame joint distribution even when individual training sheets are partially observed.
+1. **Unified Inference ("First Frame, or Sometimes Not Even That"):**
+   Packing $T = R \cdot K$ frames into a canonical 2D RGBA sprite sheet $x \in [-1, 1]^{4 \times (R H) \times (K W)}$ with a tile-level binary mask $\bar{m}_q \in \{0, 1\}^{R \times K}$ (upsampled via $m_q = \bar{m}_q \otimes \mathbf{1}_{H \times W}$) turns every demo mode into an imputation query on $G_i(x_{\text{obs}}, m_q, \omega)$:
+   - **Animate Any Static DCSS Sprite (First-Frame Mode):** $\bar{m}_q = [1, 0, \dots, 0]$. Output $\hat{x} = m_q \odot x + (1 - m_q) \odot \tilde{G}_i(\tilde{f}(x, m_q), \omega)$ locks Tile 0 **bit-for-bit** to the input DCSS sprite while ParticleGAN latent particle $\omega$ generates diverse multi-modal idle/walk/attack animations across tiles $1 \dots T-1$.
+   - **"Sometimes Not Even That" (Zero-Frame Unconditional):** $\bar{m}_q = [0, \dots, 0]$ (or sampling Stage-1 $G_x(z)$ directly) invents a brand-new roguelike monster/character *and* its full animation sheet purely from a latent particle.
+   - **Keyframe In-Betweening & Multi-Row Action Completion:** Set $\bar{m}_q = [1, 0, 0, 0, 1, 0, 0, 0]$ (or observe a 2-variant DCSS monster like active/resting poses!) and impute the full animation cycle.
 
-### 1.1 Mathematical Formulation Adapted to Tile-Structured Sprite Sheets
-
-Let $\bar{m} \in \{0, 1\}^{R \times K}$ be the tile-level observation mask, upsampled via nearest-neighbor Kronecker product $m = \bar{m} \otimes \mathbf{1}_{H \times W}$ to full sheet resolution.
-
-- **Injective Bounded Masking Operator $\tilde{f}(x, m)$:**
-  In original MisGAN, $f_\tau(x, m) = m \odot x + (1 - m)\tau$ can collide with legitimate sprite pixels if $\tau \in [-1, 1]$ (e.g., black outlines at $-1$, mid-gray at $0$, white highlights at $+1$), while $\tau \notin [-1, 1]$ distorts critic Lipschitz gradient-penalty scaling. Instead, we define:
-  $$\tilde{f}(x, m) = \operatorname{concat}\!\big(m \odot x,\; 2m - 1\big) \in [-1, 1]^{(C+1) \times (R H) \times (K W)}$$
-  This mapping is **strictly injective** over all $x \in [-1, 1]^C$, keeps every coordinate bounded in $[-1, 1]$, and zeroes gradients to unobserved tiles ($\frac{\partial (m \odot x)}{\partial x} = m$).
-
-- **Stage 1 — Complete Sprite-Sheet Generator $(G_x, D_x)$ (+ Optional Tile-Mask Model $(G_m, D_m)$):**
-  - $G_x(z_x)$ outputs complete unmasked sprite sheets $\tilde{x} \in [-1, 1]^{C \times (R H) \times (K W)}$ from a ParticleGAN latent table $z_x$.
-  - When missingness is MCAR or stratified by known source distribution, $\tilde{m}$ is drawn from the empirical dataset tile-mask buffer. When missingness correlates strongly with character sub-type (MAR/MNAR, e.g., mixing 1-frame static monsters with 8-frame humanoids), a lightweight MLP tile-mask generator $G_m(z_m) \in [0, 1]^{R \times K}$ (temperature-annealed sigmoid $\sigma(\ell / \lambda)$) is coupled via $\min_{G_m}\max_{D_m} \mathcal{L}_m(D_m, G_m) + \alpha \mathcal{L}_x(D_x, G_x, G_m)$ ($\alpha = 0.2$).
-  - $D_x$ scores $\tilde{f}(x_{\text{real}}, m_{\text{real}})$ vs. $\tilde{f}(G_x(z_x), \tilde{m})$.
-
-- **Stage 2 — Multi-Modal Sprite Imputer $(G_i, D_i)$:**
-  - During training, for each real item $(x_{\text{real}}, m_{\text{real}})$, sample a **query sub-mask** $m_q = m_{\text{real}} \odot b$ ($m_q \le m_{\text{real}}$, so $x_{\text{real}} \odot m_q$ never reads an unobserved pixel!), where $b$ is drawn from our target inference mixture:
-    - **`60%` First-Frame Only:** $\bar{b} = [1, 0, \dots, 0]$
-    - **`20%` Unconditional ("Not Even That"):** $\bar{b} = [0, 0, \dots, 0]$
-    - **`10%` Keyframes / Partial Action Row:** $\bar{b} \in \{\text{frames } \{0, 4\}, \text{row } 0\}$
-    - **`10%` Empirical Completion:** $\bar{b} = \mathbf{1}$ ($m_q = m_{\text{real}}$)
-  - The imputer produces a complete sprite sheet with exact hard-locking on observed tiles:
-    $$\hat{x}_{\text{imp}} = m_q \odot x_{\text{real}} + (1 - m_q) \odot \tilde{G}_i\!\big(\tilde{f}(x_{\text{real}}, m_q),\; \omega\big)$$
-    where $\omega$ is drawn from Stage 2's ParticleGAN latent table.
-  - $D_i$ discriminates **complete reference sheets** ($G_x(z_x)$ from frozen Stage-1 $G_x$, mixed with complete real sheets where $m_{\text{real}} = \mathbf{1}$) against **imputed complete sheets** $\hat{x}_{\text{imp}}$.
-  - *Why adversarial MisGAN imputation beats L1 pixel regression on future frames:* Given only Frame 0, future motion is inherently **multi-modal** (different attack arcs, stride phases, idle breaths). Pixel L1 on frames $1 \dots T-1$ averages distinct motions into blurry ghosts and collapses $\omega$; $D_i$ enforces sharp pixel-art frames that stay identity- and palette-consistent with the hard-locked Frame 0.
+2. **Training Directly on Static (`m = [1,0,...]`), Ragged, and Complete (`m = [1,1,...]`) Sheets Together:**
+   - **Injective Bounded Masking Operator $\tilde{f}(x, m)$:**
+     $$\tilde{f}(x, m) = \operatorname{concat}\!\big(m \odot x,\; 2m - 1\big) \in [-1, 1]^{5 \times (R H) \times (K W)}$$
+     Strictly injective over $[-1, 1]^4$, preserves $[-1, 1]$ Lipschitz scaling for critic gradient penalties, and zeroes gradients on unobserved tiles.
+   - **Preventing Domain-Mask Shortcutting Between Static DCSS (`m = [1,0,...]`) and Complete Blender/2D Sheets (`m = [1,1,...]`):**
+     Because DCSS tiles are predominantly 1-frame while Blender sheets are $T$-frame (MAR/MNAR missingness), a naive independent mask $\tilde{m}$ would let $D_x$ detect a shortcut ("DCSS texture never appears with all 8 tiles unmasked"). We prevent this via three mechanisms:
+     1. **Coupled Tile-Mask MisGAN / Overlapping Mask Dropout:** Apply synthetic Frame-0-only masking ($\bar{m} = [1, 0, \dots, 0]$) to `30%` of complete animated sheets so single-frame masks overlap both domains, optionally paired with MisGAN's coupled $T$-bit tile-mask generator $G_m(z_m)$ ($\mathcal{L}_m + \alpha \mathcal{L}_x$, $\alpha = 0.2$).
+     2. **DCSS-Matched Blender Pixel Shader:** Match Blender's orthographic camera angle (3/4 roguelike elevation), `1px` dark outline, hard binary alpha, and DCSS color-palette quantization so synthetic renders share low-level pixel statistics with `rltiles`.
+     3. **Silhouette / Alpha Motion Critic Branch:** Include a texture-invariant alpha-silhouette temporal-difference branch in $D_x$ and $D_i$ so motion dynamics transfer cleanly across textures.
 
 ---
 
-## 2. Architecture Comparison: Conv3D vs. NeRF / Splatting vs. Tile-Factorized `(2+1)D`
+## 2. Progressive Low-Res-First Scaling Ladder (`16px` $\to$ `32px` DCSS $\to$ `64px`)
 
-Recent literature—including *Sprite Sheet Diffusion* (Hsieh et al., `arXiv:2412.03685`), *Neural Controlled Directional Frame Generation for Sprite Animation* (Alonso et al., `arXiv:2610.27253`), and *Gaussian Billboards* (`arXiv:2412.03430`)—highlights sharp domain constraints of pixel-art sprites: **hard binary alpha**, **1px dark outlines**, **small discrete color palettes (8–16 colors)**, and **large inter-frame pixel jumps (8–24px/frame at 6–12 FPS)**.
+Starting at low resolution lets us validate MisGAN dynamics, motion transfer onto DCSS sprites, and metric gates in **minutes per run** on `2× RTX A6000`, while scaling cleanly via `extends` and one additional HNDL `pixel_shuffle(2)` + `resblock` stage per octave:
 
-| Architecture Candidate | How It Works | Pros | Cons / Failure Modes on Sprites | Verdict |
-| :--- | :--- | :--- | :--- | :--- |
-| **1. Pure `Conv3D`** (`[B, C, T, H, W]`) | $3 \times 3 \times 3$ spatiotemporal convolutions & transposed convolutions across $(T, H, W)$. | Detects local $\pm 1\text{px}$ inter-frame flicker and static copying naturally; translation-equivariant. | 1) Small temporal-spatial receptive field blurs 8–24px snappy limb/weapon jumps.<br>2) $3\times$ parameter/FLOP cost vs. factorized `(2+1)D`.<br>3) Not native in HNDL 0.10 (`conv`/`conv1d` exist, not `conv3d`). | **Reject as primary**; replace with strictly stronger factorized `(2+1)D` (`2D spatial + 1D conv1d / temporal RoPE`). |
-| **2A. 3D NeRF / Dynamic 3DGS Projected** | Predict 3D Gaussians $\{\mu_k \in \mathbb{R}^3, \Sigma_k, c_k, \alpha_k\}$ + SE(3) motion $\Delta \mu_k(t)$ and orthographically splat to $32\times 32$ / $64\times 64$. | Strong multi-view 3D turntable consistency when trained on multi-camera 3D renders. | 1) 2D sprites use cheated 2.5D perspectives, non-rigid redraws, and **topological birth/death** (slash arcs, projectiles, dust puffs absent in Frame 0).<br>2) Collapses to flat $z \approx 0$ plane without multi-view supervision.<br>3) Gaussian falloff produces blurry anti-aliased fringes that clash with crisp pixel art and MisGAN's exact Frame-0 lock. | **Reject for 2D wild sprites** (only useful for synthetic 3D-turntable sub-tasks). |
-| **2B. 2D Gaussian Part-Splats (`2DGS` Latent Bottleneck)** | Decompose Frame 0 into $K \approx 64$ 2D feature splats $(\mu_k(t), \Sigma_k(t), \alpha_k(t))$ rasterized at $16\times 16$ / $32\times 32$ before a pixel-art decoder. | Handles 20px part jumps effortlessly; interpretable part trajectories; dynamic $\alpha_k(t)$ allows VFX splats to appear/vanish. | Direct RGB splatting still blurs 1px outlines; requires a downstream sub-pixel + palette decoder anyway, and needs a custom PyTorch `nn.Module` / HNDL operator. | **Keep as Phase-2 Ablation** (latent motion bottleneck vs. `grid_sample` flow warp). |
-| **3. Naive 2D Sheet CNN/ViT** (`[B, C, R*H, K*W]`) | Treat tiled PNG sheet as a single flat 2D image with standard 2D `conv` / `deconv`. | Zero-friction compatibility with `ImageFolder`, `previews.py`, `SampleDiversity`, and `InceptionFID`. | Standard $3\times 3$ / $4\times 4$ convolutions **bleed across adjacent tile borders** (Frame 0's right edge leaks into Frame 1's left edge). | **Reject unfactorized convolutions**, **KEEP the external 2D sheet tensor contract!** |
-| **4. Tile-Factorized `(2+1)D` Flow-Warp + Shared Palette** *(Recommended)* | External `[B, C, R*H, K*W]` 2D sheet; unpacks internally via HNDL `chunk`+`concat(axis=0)` to `[T*B, C, H, W]` for 2D spatial ops, `[HW*B, T, D]` for temporal `conv1d` + `RoPE` attention, Frame-0 `grid_sample` warp, and shared 16-color bilinear palette head. | 1) **Zero cross-tile bleeding**.<br>2) **100% native HNDL 0.10**.<br>3) Crisp transport via `grid_sample` + crisp discrete colors via shared character palette.<br>4) Full compatibility with HyperGAN previews, checkpoints, and evaluators. | Slightly longer `.hndl` graph due to explicit tile unpack/repack (already proven in `transgan-generator-128.hndl`). | **Primary Architecture for Demo v1.** |
+| Scale Stage | Per-Frame Tile | Canonical Sheet Layout (`2×4` = 8f / `4×4` = 16f) | Speed & Purpose | Native Datasets at This Scale |
+| :--- | :---: | :---: | :--- | :--- |
+| **Scale 0 (Start Here)** | **`16×16`** | **`32×64`** (8f single clip) or **`64×64`** (16f multi-action) | `>500 sheets/s`; sub-15-min ablations on `cuda:0`. Proves MisGAN Frame-0 + zero-frame + DCSS motion transfer fast. | Native `0x72 DungeonTileset II` (`16×16`), `Kenney` (`16×16`), 2×-downsampled **DCSS `rltiles`**, `16×16` **Blender** renders, downsampled Pokémon/Wesnoth. |
+| **Scale 1 (Native DCSS)** | **`32×32`** | **`64×128`** (8f) or **`128×128`** (16f: `Idle/Walk/Attack/Hit`) | **1:1 Native DCSS `rltiles` resolution** (zero resampling!). Adds 1 `pixel_shuffle(2)` + `resblock` stage to Scale 0. | **1:1 DCSS `rltiles` (`32×32`)**, `32×32` **Blender** renders, LPC (`2×` downsampled), Pokémon Gen-5 sprites, `spraix_1024`. |
+| **Scale 2 (High Detail)** | **`64×64`** | **`128×256`** (8f) or **`256×256`** (16f) | Full high-detail sprite sheets; adds 1 more `pixel_shuffle(2)` + `resblock` stage (plus windowed attention as in `transgan-generator-128.hndl`). | Native **LPC (`64×64`)**, **Battle for Wesnoth** (`54–72px`), **Pokémon Gen-5 BW** (`64–96px`), `64×64` **Blender** renders. |
 
-### 2.1 Recommended Network Topology (Pure HNDL 0.10)
+---
+
+## 3. Architecture Comparison (`Conv3D` vs. `NeRF/Splatting` vs. Tile-Factorized `(2+1)D`)
+
+| Architecture Candidate | Strengths | Limitations on Pixel-Art Sprites | Verdict |
+| :--- | :--- | :--- | :--- |
+| **Pure `Conv3D`** (`[B, C, T, H, W]`) | Local $\pm 1\text{px}$ flicker & static-copy detection. | At 6–10 FPS roguelike frame rates, limbs/weapons jump **4–16px per frame**; $3\times 3\times 3$ kernels blur snappy jumps, cost $3\times$ params vs. `(2+1)D`, and aren't native in HNDL 0.10. | **Skip** in favor of factorized `(2+1)D` + explicit warp. |
+| **3D NeRF / Dynamic 3DGS Projected** | True 3D turntable consistency when supervised by multi-view cameras. | 2D sprites (DCSS, Wesnoth, Pokémon) cheat 2.5D perspective, spawn/destroy topology mid-clip (slash arcs, spell bursts, breath fire absent in Frame 0), collapse to $z \approx 0$ on 2D data, and produce blurry anti-aliased Gaussian fringes vs. crisp binary alpha. | **Skip as neural representation** — **USE explicit 3D in Blender offline** to render crisp quantized training sheets instead! |
+| **2D Gaussian Part-Splats (`2DGS` Latent Bottleneck)** | Explicit $K \approx 32\text{–}64$ 2D part trajectories $(\mu_k(t), \Sigma_k(t), \alpha_k(t))$ transport body parts across large jumps; dynamic $\alpha_k(t)$ spawns VFX. | Direct RGB splatting blurs `1px` outlines next to MisGAN's exact Frame-0 lock; still needs a pixel-art palette decoder. | **Optional Scale-1/2 Ablation** against HNDL `grid_sample` flow warp. |
+| **Tile-Factorized `(2+1)D` Flow-Warp + Shared Palette** *(Recommended)* | External `[B, 4, R*H, K*W]` 2D RGBA sheet; HNDL `chunk`+`concat(axis=0)` unpacks tiles to `[T*B, ...]` (**zero cross-tile convolution bleeding**); combines 2D `resblock`, 1D temporal `conv1d` + `RoPE`, Frame-0 `grid_sample` warp, and a character-shared 16-color bilinear palette head. | Slightly more verbose `.hndl` unpack/repack block (already proven in `transgan-generator-128.hndl`). | **Primary Architecture across Scales 0 $\to$ 1 $\to$ 2 (100% Native HNDL 0.10).** |
+
+> **Note on "3D Projected to Sprites":** Moving the 3D projection step into **offline headless Blender rendering with a crisp roguelike pixel-art shader** captures 100% of the geometric & motion richness of 3D rigs without forcing the runtime neural generator to fight blurry Gaussian anti-aliasing or rigid-topology limits on 2D DCSS sprites!
 
 ```mermaid
 flowchart LR
-    subgraph Inputs["MisGAN Imputer Inputs"]
-        X["Observed Sheet x_obs<br/>[B, 4, R*H, K*W]"]
-        M["Query Tile Mask m_q<br/>[B, 1, R*H, K*W]"]
-        W["ParticleGAN Latent ω<br/>[B, 128]"]
+    subgraph Data["Hybrid Complete + Incomplete Dataset"]
+        BL["Headless Blender Pixel Factory<br/>(NVIDIA GRAIL/SimReady, Objaverse,<br/>Quaternius -> 16px/32px RGBA + Flow)<br/>m_obs = [1, 1, ..., 1]"]
+        W2D["2D Animated Sprite Corpora<br/>(0x72, Pokémon BW, Wesnoth, LPC)<br/>m_obs = ragged / complete"]
+        DCSS["Dungeon Crawl Stone Soup (rltiles)<br/>(3,000+ Monsters, Demons, Players)<br/>m_obs = [1, 0, ..., 0] (or 2-state)"]
     end
 
-    FM["Injective Masking f̃(x, m_q)<br/>concat(m_q * x_obs, 2*m_q - 1)"]
-    UNPACK["Tile Unpack (chunk + concat axis=0)<br/>[T*B, 5, H, W] — Zero Tile Bleeding"]
-    ENC["Shared 2D Spatial Encoder<br/>resblock(64 -> 32 -> 16 -> 8)"]
-    TEMP["Factorized (2+1)D Temporal Core<br/>Spatial RoPE-2D + Temporal conv1d & RoPE-1D<br/>+ Cross-Attention to ω Motion Tokens"]
-    WARP["Multi-Scale Frame-0 Flow Warp<br/>coordinate_grid + grid_sample(e_frame0, flow_t)<br/>gated by m_q[frame 0] + Residual Synthesis"]
-    DEC["Sub-Pixel Decoder (pixel_shuffle + AdaIN)<br/>+ Shared 16-Color Character Palette matmul<br/>+ Crisp Alpha Head"]
-    REPACK["Tile Repack -> [B, 4, R*H, K*W]<br/>Hard Lock: m_q * x_obs + (1 - m_q) * x̃"]
+    subgraph Stage1["MisGAN Stage 1 (Complete Sheet Prior)"]
+        GX["G_x(z) -> Complete Sheet"]
+        DX["Masked Critic D_x(f̃(x, m))<br/>Spatial + Silhouette Δ_t"]
+    end
 
-    X --> FM
-    M --> FM
-    FM --> UNPACK --> ENC --> TEMP --> WARP --> DEC --> REPACK
-    W --> TEMP
-    W --> DEC
-    X --> REPACK
-    M --> REPACK
+    subgraph Stage2["MisGAN Stage 2 (Unified Sprite Animator)"]
+        GI["Tile-Factorized (2+1)D Imputer G_i<br/>grid_sample Warp + Shared 16-Color Palette<br/>Hard Lock: m_q*x + (1-m_q)*x̃"]
+        DI["Spatiotemporal Critic D_i<br/>(No [CLS] Sink; Frame-0 ID + conv1d Δ_t)"]
+    end
+
+    BL & W2D & DCSS --> Stage1
+    BL & W2D & DCSS --> Stage2
+    GX -. "Frozen Complete Reference" .-> DI
+    GI --> DI
 ```
 
-### 2.2 Critic Topology ($D_x$ & $D_i$) — Incorporating `qa-2026-10-30.md` Lessons
+---
 
-Per `reports/qa-2026-10-30.md` (Finding P3), **we explicitly avoid `[CLS]`-token pure-transformer critics**, which can collapse into a constant `[CLS] -> [CLS]` self-attention sink under gradient penalties, and we always declare `defaults = "particlegan"`.
+## 4. Blender Synthetic Pixel-Art Pipeline & Dataset Stack
 
-Both $D_x$ and $D_i$ use a **single multi-head HNDL critic network** (matching ParticleGAN's single-critic contract) combining three heads summed with variance-preserving weights:
-1. **Per-Frame Multiscale Spatial Head (`[T*B, C, H, W]`):** Unpacks tiles and applies `diff_augment("translation,cutout")` + convolutional `resblock` downsampling stages + `global_avg_pool` (plus frozen `torchvision_resnet18` multiscale features on alpha-composited RGB frames).
-2. **Cross-Frame Identity Alignment Head:** Compares frame-$t$ pooled embeddings against frame-$0$'s embedding (`mul` / inner-product + `sub` L1 difference across $t = 0 \dots T-1$), immediately penalizing character/palette drift away from Frame 0.
-3. **Explicit Temporal-Difference Motion Head ($\Delta_t = f_{t+1} - f_t$):** Applies HNDL `sub` between consecutive unpacked frame feature maps and runs 1D temporal `conv1d` across $t$ followed by `mean` pooling. **This directly prevents the "copy Frame 0 eight times" static collapse** while penalizing erratic high-frequency flicker.
+Since fair-use research training removes license bottlenecks, we combine **NVIDIA & open 3D/4D Blender pipelines**, **Dungeon Crawl Stone Soup (`rltiles`)**, and **top 2D animated creature/character datasets**:
+
+### 4.1 Headless Blender Orthographic Roguelike Renderer (`scripts/blender_sprite_renderer.py`)
+- **Install / Execution:** Headless Blender 4.x (`blender --background --python scripts/blender_sprite_renderer.py`) running EEVEE-Next / Workbench on our local RTX A6000s (renders thousands of `16×16` and `32×32` 8-frame RGBA sheets per minute!).
+- **Roguelike Pixel-Art Shader Recipe (Matched to DCSS `rltiles`):**
+  1. **Camera:** Orthographic projection at `~30°–35°` top-down roguelike pitch, rendered across 4 or 8 azimuth angles, auto-framed tightly to character bounding box with 2px margin.
+  2. **Crisp Pixel Sampling:** `film_transparent = True`, `filter_size = 0.01` (disables anti-aliased Gaussian pixel filtering for crisp binary alpha), stepped 3-band cel/toon shading + specular highlight dot.
+  3. **1px Dark Roguelike Outline & Palette Quantization:** Post-pass 1px exterior/crease dark-outline morphological pass + k-means / LUT quantization onto 12–16 colors (optionally matched to DCSS monster palettes!).
+  4. **Snappy Sprite Timing & Ground-Truth Sidecars:** Subsample animation keyframes at `6–8 FPS` (walk, idle, attack, hit, cast) simultaneously at **`16×16`, `32×32`, and `64×64`**, plus optional 2D optical-flow (`Vector` pass) for evaluating our flow-warp module.
+
+### 4.2 Datasets to Ingest
+
+| Category | Source | Format & Scale | Observed Mask $\bar{m}_{\text{obs}}$ | Role |
+| :--- | :--- | :--- | :---: | :--- |
+| **Target Roguelike Anchor** | **1. Dungeon Crawl Stone Soup (`crawl/crawl` `rltiles` & `crawl/tiles`)** | `~3,000–4,000` native `32×32` RGBA PNGs (`dc-mon.txt`, `dc-demon.txt`, `dc-player.txt`); monsters, demons, uniques, paperdolls. | **`[1, 0, ..., 0]`** *(plus 2-tile masks for resting/active/variant pairs)* | **Primary Demo Target:** teaches exact DCSS pixel aesthetic, creature silhouettes, and palettes; primary testbed for animating static sprites! |
+| **NVIDIA 3D / Blender Datasets** | **2A. `nvidia/PhysicalAI-Robotics-Locomanipulation-GRAIL` (`NVlabs/GRAIL`)**<br>**2B. `nvidia/PhysicalAI-SDG-SynHuman`**<br>**2C. `nvidia/simready-assets` (OpenUSD)**<br>**2D. `nv-tlabs/LLaMA-Mesh` / TRELLIS meshes** | Blender-native 4D rigged SMPL-X humanoid loco-manipulation trajectories (`GRAIL`), synthetic human action clips, and OpenUSD 3D assets imported via `bpy.ops.wm.usd_import()` with procedural idle/bob/attack/turntable rigs. | **`[1, 1, ..., 1]`** *(Complete at `16px`, `32px`, `64px`)* | Rich articulated 3D motion trajectories (walk, swing, reach, turn) rendered directly through our DCSS-style Blender pixel shader. *(Confirm if another specific NVIDIA Blender release is also desired!)* |
+| **3D Animated Monsters & Fantasy Rigs (Blender)** | **3. Objaverse-XL Animated Subset (`~40k` animated `.glb`/`.blend`) + `Seed3D/Articulation-XL2.0` + Quaternius Animated Monsters** | Thousands of rigged non-humanoid 3D monsters (dragons, spiders, slimes, skeletons, golems, elementals) rendered through `blender_sprite_renderer.py`. | **`[1, 1, ..., 1]`** *(Complete at `16px`, `32px`, `64px`)* | **Crucial non-humanoid 3D motion bridge** matching DCSS's diverse monster anatomy (quadrupeds, flyers, blobs, multi-limbed creatures). |
+| **2D Hand-Drawn Animated Creatures** | **4. Pokémon Gen-5 (Black/White / Showdown) Animated Sprites + Battle for Wesnoth (`wesnoth/wesnoth`)** | `~800+` animated creature loops (Pokémon BW) + `~2,000+` fantasy unit clips (Wesnoth: undead, dragons, mages, wolves, dwarves). | **Complete & Ragged** (`2–8` frames per clip) | Authentic 2D pixel-art creature motion (wing flaps, squash-and-stretch, breath/spell VFX, 1px outline preservation) that pure 3D rigs lack. |
+| **2D Low-Res Roguelike & Modular Sheets** | **5. `0x72 16x16 DungeonTileset II` + `Kenney` + Universal LPC + `pawkanarek/spraix_1024`** | `~500+` native `16×16` roguelike heroes/monsters (`0x72`) + `10k+` layered `64×64` $\to$ `16/32px` LPC action sheets. | **Partial (`0x72` 4f idle/run) & Complete (`LPC` 8f)** | Native `16×16` pixel-grid anchor for **Scale 0** plus controlled oracle holdout benchmark. |
 
 ---
 
-## 3. HyperGAN 2.0 Integration Audit & Surgical Enablers
+## 5. HyperGAN 2.0 Surgical Enablers (Unchanged, Minimal Footprint)
 
-Auditing `origin/develop` (`5f368a37`) revealed that `hypergan-model/1` and HNDL 0.10 already provide ~95% of what Sprite-Sheet MisGAN needs, with **three small, clean engineering items** to address in this worktree:
-
-1. **Enabler E1 — Honor `real` and `fake` Bindings on Primary `[[losses]]` Adversarial Term (`src/hypergan/objective_program.py:134`):**
-   - `src/hypergan/model_file.py:485-488` *already* parses and binds custom `real = "..."` and `fake = "..."` on the primary adversarial loss into `recipe["adversarial"]`.
-   - However, `compile_legacy_program` in `src/hypergan/objective_program.py:134` currently calls `_legacy_phases()` (hardcoding `"batch.real"` and `"generated"`) instead of reading `config["adversarial"].get("real", "batch.real")` and `config["adversarial"].get("fake", "generated")`.
-   - **Why this matters for MisGAN:** Fixing those 2 lines (with unit tests) lets `networks.generator` output the **clean, unmasked complete sprite sheet** $G_x(z)$ (so `hypergan sample`, `hypergan export`, Web Observatory previews, and `SampleDiversity` all see complete sheets!) while `[[losses]]` scores `real = "masked_real"` vs. `fake = "masked_fake"` in Stage 1, and `real = "gx_complete"` vs. `fake = "generator"` in Stage 2—**all under `defaults = "particlegan"`**!
-
-2. **Enabler E2 — Two-Stage ParticleGAN Execution (Matching Li et al., ICLR 2019 Sec. 3.2):**
-   - `src/hypergan/training.py:308` currently requires one critic network when `defaults = "particlegan"` is active.
-   - Li et al. (2019) explicitly show that **Two-Stage MisGAN**—training Stage 1 $(G_x, D_x)$ on incomplete data, freezing $G_x$, and training Stage 2 $(G_i, D_i)$ against frozen $G_x$—achieves imputation quality equal to or better than joint 6-network training while cutting per-run VRAM in half and isolating Stage-1 vs. Stage-2 diagnostics.
-   - *(Optional Phase-2 engine extension)*: Allow `ModuleDict` multi-critic wrapping in `training.py:308` if single-run joint $(G_x, D_x, G_m, D_m, G_i, D_i)$ training is desired later.
-
-3. **Enabler E3 — Native 4-Channel Premultiplied RGBA Support in `image_grids.py` & `previews.py` (~15 lines):**
-   - Pixel-art sprites almost universally contain **both** `1px` black `(0,0,0)` outlines and white `(255,255,255)` specular highlights. Compositing onto black destroys outlines; compositing onto white destroys highlights.
-   - Extending channel validation in `src/hypergan/previews.py:97` and `src/hypergan/image_grids.py:22,37,68` from `(1, 3)` to `(1, 3, 4)` (PNG `IHDR` color type `6` = 8-bit RGBA) enables native transparent RGBA sprite sheets `(R*α, G*α, B*α, α)` end-to-end in training, Web Observatory previews, and exported PNGs.
+1. **`src/hypergan/objective_program.py:134` (2-line fix + unit test):** Honor `config["adversarial"].get("real", "batch.real")` and `config["adversarial"].get("fake", "generated")` in `compile_legacy_program` so Stage-1 (`real = "masked_real"`, `fake = "masked_fake"`) and Stage-2 (`real = "gx_complete"`, `fake = "generator"`) run natively under `defaults = "particlegan"` while `networks.generator` outputs clean unmasked complete sheets.
+2. **`src/hypergan/image_grids.py` & `src/hypergan/previews.py` (~15 lines + unit test):** Allow 4-channel RGBA (`channels in (1, 3, 4)`, PNG `IHDR` color type `6`) so transparent sprite sheets preserve both `1px` black DCSS outlines and white highlights in Web Observatory previews and PNG exports.
+3. **Critic Guardrail (`reports/qa-2026-10-30.md` Finding P3):** No `[CLS]`-token pure-transformer critics; use `defaults = "particlegan"` with a single multi-head HNDL critic combining unpacked per-frame convolutional `resblock`s, Frame-0 identity alignment, and explicit `sub` + `conv1d` temporal differences $\Delta_t = f_{t+1} - f_t$ (plus silhouette $\Delta_t^\alpha$).
 
 ---
 
-## 4. Datasets We Can Learn From (Curated & Tiered for MisGAN)
+## 6. Metrics-First Evaluation Suite (`cuda:0` Train / `cuda:1` Eval on `2× RTX A6000`)
 
-Because MisGAN natively ingests heterogeneous observation masks $m_{\text{obs}}$, we can combine **complete canonical sheets**, **partially populated wild indie sprite sheets**, and **single-frame static pixel-art corpora** into one unified canonical layout:
-- **Demo v1 Canonical Sheet Geometry:**
-  - **Fast Iteration Profile (`32×32` per frame):** $2 \times 4 = 8$-frame single-action sheet (`64×128` RGBA) **or** $4 \times 4 = 16$-frame multi-action sheet (`128×128` RGBA: Row 0 = `Idle` 4f, Row 1 = `Walk/Run` 4f, Row 2 = `Attack/Slash` 4f, Row 3 = `Hurt/Cast` 4f).
-  - **High-Detail Profile (`64×64` per frame):** $2 \times 4 = 8$-frame sheet (`128×256` RGBA).
+Per `AGENTS.md` (**metrics over viewing images when possible**; **never run duplicate multi-seed experiments**):
 
-| Tier | Dataset Source | License | Scale & Native Resolution | Typical Missingness Mask $\bar{m}_{\text{obs}}$ | Role in MisGAN Pipeline |
-| :---: | :--- | :--- | :--- | :--- | :--- |
-| **Tier 1**<br>*(Controlled Oracle)* | **1. Reed Sprites + Procedural Universal LPC Generator** (`Universal-LPC-Spritesheet-Character-Generator`) | `GPL-3.0` / `CC-BY-SA-3.0` | `1,296` (Reed) up to **`15,000–25,000`** procedurally layered characters (`64×64`, nearest-downsampled to `32×32` for fast profile); `Idle`, `Walk`, `Slash`, `Spellcast`, `Hurt` across 4 views. | **100% Complete** ($\bar{m}_{\text{obs}} = \mathbf{1}$); lets us impose **synthetic missingness** (e.g., drop 50% of tiles/rows) and score against exact held-out ground truth! | **Phase-1 Benchmark & Quantitative Proof** that MisGAN recovers complete animations from incomplete sheets + Frame-0 / zero-frame queries. |
-| **Tier 2**<br>*(Wild Open Animated Sprites)* | **2. CC0 Indie Pixel Packs** (`0x72 16x16 DungeonTileset II`, `Kenney Pixel Platformer` via `shorepine/kenney`, OGA CC0 Monsters/Heroes) | **`CC0-1.0`** *(Public Domain)* | `~500–1,500` diverse non-LPC creatures, slimes, skeletons, knights, platformer characters (`16×16`–`32×32`, padded/2× integer-scaled to `32×32`). | **Partially Observed Rows/Frames** (typically `4f Idle` + `4f Run`, `Attack`/`Hurt` rows missing $\to$ $m_{\text{obs}} = 50\%$). | Breaks humanoid LPC bias; tests MisGAN cross-action completion on real incomplete CC0 game assets. |
-| **Tier 2**<br>*(Wild Rich Fantasy Motion)* | **3. The Battle for Wesnoth Units** (`github.com/wesnoth/wesnoth`, `data/core/images/units/` + WML `.cfg` parser) | `GPL-2.0+` | `~350+` distinct units (`~2,000+` multi-frame clips: dragons, undead, cavalry, dwarves, elves, wolves; `54×54`–`72×72` centered into `64×64`). | **Ragged Frame Counts** (`1–6f` standing, `3–7f` attack, `1–2f` defend $\to$ trailing tiles masked $m_{\text{obs}} = 0$). | High-craft hand-drawn pixel motion (wing flaps, slash smears, magic VFX) with natural ragged missingness. |
-| **Tier 2**<br>*(HF Pre-Sliced Clips)* | **4. HuggingFace Sprite Animation Sets** (`pawkanarek/spraix_1024`, `carlosuperb/lpc-action-pixel-art-diffusion`) | `GPL-3.0` / `CC-BY-SA` | `~1,000–5,000` pre-sliced sequential animation strips with action/text metadata. | `4–9` frames observed per action. | Ready-to-load pre-sliced frame sequences with action tags. |
-| **Tier 3**<br>*(Frame-0-Only Scale-Up)* | **5. Static Pixel-Art Character Subset** (`azyg0s/pixelart-172k` / `unstonio/pixelgpt-24x24-20k`) | Check per-subset HF card (research) | Curated `10,000–20,000` single-frame character/monster sprites (`24×24`–`64×64`). | **Frame-0 Only!** ($\bar{m}_{\text{obs}} = [1, 0, \dots, 0]$, `6.25%–12.5%` observed). | **MisGAN Semi-Supervised Superpower:** expands palette & character appearance vocabulary $10\times$ without requiring ground-truth animation frames. |
-| **Tier 3**<br>*(CC0 Synthetic 3D $\to$ Pixel Bridge)* | **6. Quaternius CC0 Rigged 3D Monsters & Characters** (`quaternius.com` `.gltf`/`.blend` $\to$ headless Blender orthographic pixel shader) | **`CC0-1.0`** *(Public Domain)* | `~150+` rigged monsters/animals/mechs $\times$ 4 angles $\times$ palette swaps = **`10,000+`** clean RGBA clips (`32×32` & `64×64`). | 100% Complete + optional ground-truth optical flow & depth. | 100% permissive CC0 commercial-safe non-humanoid corpus; ideal testbed if we run the Phase-2 `2DGS` splat ablation. |
-
-> **Dataset Hygiene Rule:** Following HyperGAN's `ImageFolder` / `ColorizationData` contract, no network downloads occur inside training. A deterministic offline builder script (`scripts/prepare_sprite_sheets.py`) slices/normalizes raw sources into SHA256-manifested canonical RGBA PNG sheets + a sidecar `masks.jsonl` recording each sheet's exact observed tile bitmask $\bar{m}_{\text{obs}}$, character ID (for strict character-disjoint train/val splits!), and action label.
+1. **`eval/frame0_lock_mae` (`< 1e-6`):** Verifies exact pixel preservation of input DCSS / test Frame 0.
+2. **`eval/motion_energy_ratio` (`0.75 – 1.25`, split across holdout animated & DCSS-conditioned sets):** Ratio of mean inter-frame foreground L1 displacement $\frac{1}{T-1}\sum_t \|\hat{x}_{t+1} - \hat{x}_t\|_1$ vs. real animated sheets. Immediately catches **"static DCSS Frame-0 copy collapse"** (`ratio < 0.25`) or **"temporal noise flicker"** (`ratio > 1.60`) *specifically on held-out static DCSS test monsters*!
+3. **`eval/dcss_identity_palette_l1` (`< 0.12`):** Foreground RGB histogram L1 divergence between input DCSS Frame 0 and imputed Frames $1 \dots T-1$ (verifies monsters don't drift into Blender/LPC colors after Frame 0).
+4. **`eval/alpha_crispness` (`> 0.92`):** Fraction of alpha pixels with $|\alpha| > 0.85$ (catches blurry anti-aliased ghosting).
+5. **`eval/conditional_omega_diversity` (`> 0.15` foreground RMS across $K=8$ particles $\omega$):** Verifies that one static DCSS monster sprite produces multiple distinct animations across different latent particles $\omega_1 \dots \omega_8$.
+6. **`eval/uncond_sheet_fid` & `eval/dcss_imputed_frame_fid`:** `InceptionFID` on composited RGB sheets (zero-frame unconditional mode) and unpacked imputed frames ($t \ge 1$ conditioned on held-out DCSS monsters, scored against real DCSS + animated sprite frame distribution).
+7. **`eval/oracle_best_of_8_l1`:** Best-of-8 masked foreground L1 against true unseen frames $1 \dots T-1$ on held-out complete Blender + 2D animated test clips.
 
 ---
 
-## 5. Metrics-First Evaluation & Gate Criteria
+## 7. Phased Execution Roadmap (Low-Res First $\to$ Scale Up)
 
-Per repository rules (**use metrics over viewing images when possible**; **never run multi-seed duplicate experiments**), every stage is gated on deterministic quantitative evaluators plugged into `[evaluations.<id>]` on `cuda:1` while `cuda:0` trains (using our `2× NVIDIA RTX A6000` setup):
-
-1. **`eval/frame0_lock_mae` (Target: `< 1e-6`):**
-   Mean absolute error on observed query tiles $\|m_q \odot (\hat{x} - x)\|_1 / \|m_q\|_1$. Verifies exact Frame-0 preservation by construction.
-2. **`eval/motion_energy_ratio` (Target: `0.75 – 1.25`):**
-   Ratio of mean inter-frame foreground L1 difference $\frac{1}{T-1}\sum_{t=0}^{T-2}\|\hat{x}_{t+1} - \hat{x}_t\|_1$ on imputed animations vs. held-out real animations.
-   - `ratio < 0.25` diagnoses **static Frame-0 copy collapse**.
-   - `ratio > 1.60` diagnoses **temporal flicker / noise instability**.
-3. **`eval/identity_palette_l1` (Target: `< 0.12`):**
-   Foreground RGB 64-bin color-histogram L1 divergence between Tile 0 and imputed Tiles $1 \dots T-1$ (over pixels with $\alpha > 0$). Directly measures whether the character's colors drift across the animation.
-4. **`eval/alpha_crispness` (Target: `> 0.92`):**
-   Fraction of predicted alpha channel values satisfying $|\alpha| > 0.85$ (near binary transparent `-1` or opaque `+1`). Diagnoses blurry anti-aliased ghosting.
-5. **`eval/conditional_omega_diversity` (Target: `> 0.15` foreground RMS across $K=8$ particles):**
-   Pairwise RMS spread (`DiversityMoments`) across $K = 8$ distinct ParticleGAN latent draws $\omega_1 \dots \omega_8$ conditioned on the **exact same** Frame 0. Proves the imputer uses $\omega$ for multi-modal motion rather than collapsing to a deterministic map.
-6. **`eval/uncond_sheet_fid` & `eval/imputed_frame_fid` (`InceptionFID` on composited RGB):**
-   Distributional fidelity of both zero-frame unconditional sheets ($m_q = \mathbf{0}$) and first-frame-imputed sheets ($m_q = \mathbb{1}_{\text{tile } 0}$) against held-out character-disjoint test sheets.
-7. **`eval/oracle_best_of_8_l1` (Tier-1 Controlled Missingness Benchmark):**
-   On held-out complete test sheets where 50% of training tiles were artificially masked during Stage-1/Stage-2 training, best-of-$8$ ($\min_{k \in 1..8}$) foreground L1 & ResNet-18 perceptual distance against the true unseen frames $1 \dots T-1$.
-
----
-
-## 6. Phased Demo Implementation Plan
-
-### Phase 0 — Surgical HyperGAN Enablers & Unit Tests (0.5 day)
-- Fix `src/hypergan/objective_program.py:134` so `compile_legacy_program` respects `config["adversarial"].get("real", "batch.real")` and `config["adversarial"].get("fake", "generated")` under `defaults = "particlegan"`.
-- Extend `src/hypergan/image_grids.py` and `src/hypergan/previews.py` to support 4-channel RGBA (`channels in (1, 3, 4)`, PNG color type `6`).
-- Add fast CPU unit tests verifying custom `real`/`fake` gradient routing and 4-channel RGBA PNG round-trip encoding/inspection.
-
-### Phase 1 — Canonical Dataset Builder & `SpriteSheetMisGANDataset` (1 day)
-- Implement `scripts/prepare_sprite_sheets.py` + `SpriteSheetMisGANDataset` yielding `{"real": sheet_rgba, "obs_mask": m_obs, "fake_mask": m_emp, "query_mask": m_query}` in deterministic SHA256-verified format.
-- Start with **Tier 1 (LPC/Reed `32×32` $4\times 4$ `128×128` 16-tile multi-action sheets + controlled 40% missing-row/frame masking)** + **Tier 2 (`0x72` & `Kenney` CC0 packs)** so we have both exact oracle holdout metrics and genuine wild incomplete sheets from day one.
-
-### Phase 2 — Stage-1 & Stage-2 Declarative HNDL MisGAN Training on `2× RTX A6000` (1.5 days)
-- Author declarative `hypergan-model/1` configs and `.hndl` networks:
-  - `examples/sprites/misgan-stage1-complete-128.toml` ($G_x$ complete sheet generator + injective masked critic $D_x$, `defaults = "particlegan"`).
-  - `examples/sprites/misgan-stage2-imputer-128.toml` (frozen $G_x$ + flow-warped shared-palette imputer $G_i$ + spatiotemporal difference critic $D_i$, trained on the `60% Frame-0 / 20% Zero-Frame / 10% Keyframe / 10% Empirical` mask mixture).
-- Implement `sprite_metrics.py` (`Frame0LockMAE`, `MotionEnergyRatio`, `IdentityPaletteDivergence`, `AlphaCrispness`, `ConditionalOmegaDiversity`) wired into `[evaluations.*]` on `cuda:1`.
-- Train Stage 1 $\to$ export frozen $G_x$ $\to$ train Stage 2 on `cuda:0`, tracking live telemetry and metric gates.
-
-### Phase 3 — Interactive Sprite-Sheet Demo CLI & Web Preview (1 day)
-- Export standalone Stage-2 imputer bundle (`hypergan export`).
-- Build a lightweight demo script / local endpoint (`scripts/demo_sprite_animator.py`) supporting three instant workflows from one checkpoint:
-  1. **`--first-frame hero.png` (`--variations 4`):** Takes a single static sprite PNG and outputs 4 distinct animated sprite sheets + animated `.gif` / `.webp` loops (varying $\omega_1 \dots \omega_4$).
-  2. **`--unconditional` (`--count 8`):** "Not even a first frame" — passes $m_q = \mathbf{0}$ to generate brand-new animated characters and their full sheets from scratch.
-  3. **`--keyframes frame0.png:0 frame4.png:4`:** Imputes all intermediate frames cleanly.
-
-### Phase 4 — Scale-Up & Optional Ablations (Follow-Up)
-- Add **Tier 2 Wesnoth (`64×64` tiles, `128×256` sheets)** + **Tier 3 (`azyg0s/pixelart-172k` Frame-0-only static sprites + coupled tile-mask $G_m$)**.
-- Run single head-to-head metric ablation comparing **HNDL `grid_sample` dense flow warp** vs. **2D Gaussian Part-Splat (`2DGS`) latent motion bottleneck** on large-displacement weapon/monster attacks (`eval/motion_energy_ratio`, `eval/alpha_crispness`, `eval/imputed_frame_fid`).
+- **Phase 0 — Engine Enablers (`0.5 day`):**
+  Land the 2-line `objective_program.py` `real`/`fake` fix + 4-channel RGBA PNG preview support + fast CPU unit tests.
+- **Phase 1 — Headless Blender Pixel Factory + DCSS `rltiles` Ingestion at Scale 0 (`16×16` tiles, `32×64` 8-frame sheets) (`1 day`):**
+  1. Set up portable headless Blender 4.x CLI and `scripts/blender_sprite_renderer.py` (orthographic roguelike camera, 1px dark outline, quantized palette, simultaneous `16×16` & `32×32` output).
+  2. Pull **DCSS `rltiles` (`crawl/tiles` / `crawl/crawl`)**, **`0x72 16x16 DungeonTileset II`**, **Pokémon BW / Wesnoth**, and initial **Blenderanimated 3D monsters + NVIDIA `GRAIL`/USD rigs** into `scripts/prepare_sprite_sheets.py` producing SHA256-verified canonical sheets + tile masks.
+- **Phase 2 — Scale-0 (`16×16` tile / `32×64` sheet) MisGAN Proof & Iteration (`1 day`):**
+  Train declarative HNDL `misgan-stage1-16px.toml` and `misgan-stage2-imputer-16px.toml` on `2× RTX A6000`. Verify all 7 quantitative metric gates—especially `eval/motion_energy_ratio` and `eval/dcss_identity_palette_l1` on held-out DCSS monsters AND unconditional ($m_q = \mathbf{0}$) generation.
+- **Phase 3 — Scale-1 (`32×32` Native DCSS Resolution / `64×128` & `128×128` Sheets) + Interactive Demo (`1–1.5 days`):**
+  Add one HNDL `pixel_shuffle(2)` + `resblock` octave to hit **1:1 native `32×32` DCSS resolution**, train Stage 1 & Stage 2, export standalone generator bundles, and ship `scripts/demo_sprite_animator.py`:
+  - `python scripts/demo_sprite_animator.py --first-frame dcss_sigmund_32.png --variations 4` $\to$ animated `.gif`/`.webp` + `64×128` RGBA sprite sheet
+  - `python scripts/demo_sprite_animator.py --unconditional --count 8` $\to$ brand-new animated roguelike monsters from scratch
+  - *(Ready to scale to Scale 2 `64×64` tiles via one further octave extension).*

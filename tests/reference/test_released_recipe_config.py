@@ -57,6 +57,22 @@ assert 'defaults' not in config
         resolve_config({"defaults": "other"})
 
 
+def test_saved_recipe_does_not_reselect_installed_defaults(monkeypatch):
+    from hypergan.particlegan_integration import particlegan_recipe
+
+    config = resolve_config({'defaults': 'particlegan'})
+    expected = particlegan_recipe(config).to_dict()
+
+    def changed_release_defaults():
+        raise AssertionError('restoring a saved recipe must not select a new preset')
+
+    monkeypatch.setattr('hypergan.config.particlegan_recipe_fields', changed_release_defaults)
+    monkeypatch.setattr('hypergan.config.particlegan_defaults', changed_release_defaults)
+    restored = resolve_config(config_values(config))
+    assert restored['recipe'] == config['recipe']
+    assert particlegan_recipe(restored).to_dict() == expected
+
+
 def test_all_examples_load_with_load_config():
     examples_dir = Path(__file__).resolve().parents[2] / "examples"
     for example in sorted(examples_dir.glob("*.toml")):

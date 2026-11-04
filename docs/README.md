@@ -11,6 +11,7 @@ Writing a model file, preparing data, training, watching and recovering runs.
 - [HNDL Architecture Reference](hndl-reference.md): syntax, operators and configuration of neural networks in HNDL.
 - [Train on your own images](custom-images.md): image folders, alpha compositing, and dataset checks.
 - [Custom PyTorch modules & datasets](custom-pytorch.md): integrating custom modules, losses, and datasets.
+- [Particle LoRAs and frozen-model hosts](particle-sliders.md): routed shared banks, training ownership, checkpoints and inference.
 - [Deploying exported models](deployment.md): standalone bundles, ONNX, and inference serving with LoadedGenerator.
 - [Image-folder data](image-data.md): image folders, preprocessing and dataset checks.
 - [Image previews and samples](image-previews.md): preview grids during training and `hypergan sample`.

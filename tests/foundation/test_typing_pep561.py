@@ -1,5 +1,6 @@
 """Tests for PEP 561 compliance, static typing, and Python API ergonomics (Features 64, 65, 66)."""
 from dataclasses import is_dataclass
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -132,6 +133,18 @@ def test_typed_dataclasses_and_mapping_protocol():
     assert md.name == "test_model"
     assert md["name"] == "test_model"
     assert md["extra"] == 123
+
+
+def test_empty_ps_snapshot_preserves_json_fields(monkeypatch, capsys):
+    """An empty run listing still serializes its status and registry metadata."""
+    from hypergan.cli import main
+
+    snapshot = PsSnapshot(runs=[], queued=[], active_count=0, total_known=5)
+    monkeypatch.setattr("hypergan.api.ps", lambda **kwargs: snapshot)
+    assert main(["ps", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "runs": [], "queued": [], "active_count": 0, "total_known": 5,
+    }
 
 
 def test_device_routing_without_cuda_visible_devices_mutation(tmp_path, monkeypatch):

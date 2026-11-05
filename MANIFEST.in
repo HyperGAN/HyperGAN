@@ -10,6 +10,7 @@ prune examples
 recursive-include examples *.toml *.hndl *.py *.md *.json
 prune worktrees
 prune tests
+include tests/__init__.py
 include tests/hndl_fixtures.py
 include tests/dinov3_fixtures.py
 include tests/distributed_fixtures.py

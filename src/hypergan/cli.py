@@ -1412,7 +1412,7 @@ def _dispatch(args, *, output=None):
         elif args.command == "ps":
             ps_data = hg.ps(all_runs=args.all_runs)
             if args.json:
-                _print_json(ps_data)
+                _print_json(dict(ps_data))
             else:
                 from .inspection import format_ps_table
                 out_str = format_ps_table(ps_data, all_runs=args.all_runs, quiet=args.quiet)

@@ -1,6 +1,6 @@
 # Native HNDL integration
 
-HyperGAN now requires `hndl>=0.10.0,<1` (the `train` extra). This page records
+HyperGAN now requires `hndl>=0.11.0,<1` (the `train` extra). This page records
 the native operators the image recipes rely on; they arrived in HNDL 0.4.0, and
 the version numbers below say when each one landed.
 
@@ -61,7 +61,7 @@ custom HNDL operators or runtime patches are needed.
 
 ## Runtime and plan compatibility
 
-Current validation uses the released HNDL 0.4.0 PyPI wheel. Native HNDL owns network
+Current validation uses the released HNDL 0.11.0 PyPI wheel. Native HNDL owns network
 construction, execution, copying, and dtype checks. `.double()` and `.to(dtype=...)`
 now retarget floating runtime checks; integer embedding inputs keep their dtype.
 Casting a deep copy does not change the original network.

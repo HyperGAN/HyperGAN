@@ -36,6 +36,8 @@ from hypergan.checkpoints import (
     prune_checkpoints,
 )
 from hypergan.queue import (
+    _identity_alive,
+    _process_identity,
     queue_add,
     queue_run,
     queue_status,
@@ -523,7 +525,7 @@ def test_cache_local_path_strict_no_copy_or_modify(tmp_path):
     assert list(cache_dir.iterdir()) == []
 
     # 3. file:// URI
-    file_uri = f"file://{local_model.resolve()}"
+    file_uri = local_model.resolve().as_uri()
     res_uri = resolve_or_cache(file_uri, expected_sha256=local_sha, cache_dir=cache_dir)
     assert res_uri == local_model.resolve()
     assert list(cache_dir.iterdir()) == []
@@ -559,8 +561,34 @@ def test_cache_missing_local_file_raises_filenotfound(tmp_path):
 # 5. Queue SIGTERM Forwarding
 # ===========================================================================
 
+def _request_runner_stop(proc, queue_file):
+    # Windows TerminateProcess cannot deliver a catchable SIGTERM. Ask the
+    # runner to raise it internally there; use OS signal delivery on POSIX.
+    if os.name == "nt":
+        queue_file.with_name(queue_file.name + ".signal").touch()
+    else:
+        proc.send_signal(signal.SIGTERM)
+
+
+def _runner_signal_source(queue_file):
+    if os.name != "nt":
+        return ""
+    marker = queue_file.with_name(queue_file.name + ".signal")
+    return f'''
+import signal, threading, time
+from pathlib import Path
+
+def deliver_signal():
+    while not Path({str(marker)!r}).exists() or signal.getsignal(signal.SIGTERM) == signal.SIG_DFL:
+        time.sleep(0.01)
+    signal.raise_signal(signal.SIGTERM)
+
+threading.Thread(target=deliver_signal, daemon=True).start()
+'''
+
+
 def test_queue_sigterm_forwards_to_child_and_terminates(tmp_path):
-    """SIGTERM sent to queue_run process forwards SIGINT to child and cleanly exits."""
+    """Runner stop interrupts its child using the platform's supported mechanism."""
     q_dir = tmp_path / ".hypergan"
     q_dir.mkdir(parents=True)
     q_file = q_dir / "queue.json"
@@ -574,6 +602,7 @@ def test_queue_sigterm_forwards_to_child_and_terminates(tmp_path):
     runner_code = f"""
 import sys, time, subprocess, signal
 import hypergan.queue as qmod
+{_runner_signal_source(q_file)}
 
 orig_popen = subprocess.Popen
 def mock_popen(cmd, **kwargs):
@@ -586,7 +615,7 @@ def mock_popen(cmd, **kwargs):
 
 qmod.subprocess.Popen = mock_popen
 
-ret = qmod.queue_run(queue_file="{q_file}", once=True)
+ret = qmod.queue_run(queue_file={str(q_file)!r}, once=True)
 sys.exit(ret)
 """
 
@@ -606,24 +635,24 @@ sys.exit(ret)
             break
 
     assert child_pid is not None, "Child process failed to start"
-    os.kill(child_pid, 0)  # Verify alive
+    child_identity = _process_identity(child_pid)
+    assert _identity_alive(child_identity) is True
 
     # Deliver SIGTERM to queue runner
-    runner_proc.send_signal(signal.SIGTERM)
+    _request_runner_stop(runner_proc, q_file)
 
     runner_proc.wait(timeout=6.0)
     assert runner_proc.returncode == 0
 
     # Verify child process terminated
     time.sleep(0.2)
-    with pytest.raises(ProcessLookupError):
-        os.kill(child_pid, 0)
+    assert _identity_alive(child_identity) is False
 
     # Verify queue status updated
     final_st = queue_status(queue_file=q_file)
     final_job = final_st.get("active_job")
     assert final_job["pid"] is None
-    assert final_job["exit_code"] == 42
+    assert final_job["exit_code"] == (1 if os.name == "nt" else 42)
     assert final_job["status"] == "failed"
 
 
@@ -639,8 +668,9 @@ def test_queue_sigterm_kills_unresponsive_child_via_fallback(tmp_path):
     queue_add(model_file, queue_file=q_file)
 
     runner_code = f"""
-import sys, time, subprocess, signal
+import os, sys, time, subprocess, signal
 import hypergan.queue as qmod
+{_runner_signal_source(q_file)}
 
 orig_popen = subprocess.Popen
 def mock_popen(cmd, **kwargs):
@@ -651,6 +681,9 @@ def mock_popen(cmd, **kwargs):
         "import time, signal; signal.signal(signal.SIGINT, signal.SIG_IGN); time.sleep(60)"
     ]
     proc = orig_popen(sub_cmd, **kwargs)
+    if os.name == "nt":
+        # Simulate an unresponsive first termination attempt on Windows too.
+        proc.terminate = lambda: None
     # Monkeypatch the 10.0s wait timeout to 1.0s for test speed
     orig_wait = proc.wait
     def fast_wait(timeout=None):
@@ -662,7 +695,7 @@ def mock_popen(cmd, **kwargs):
 
 qmod.subprocess.Popen = mock_popen
 
-ret = qmod.queue_run(queue_file="{q_file}", once=True)
+ret = qmod.queue_run(queue_file={str(q_file)!r}, once=True)
 sys.exit(ret)
 """
 
@@ -681,24 +714,24 @@ sys.exit(ret)
             break
 
     assert child_pid is not None
-    os.kill(child_pid, 0)
+    child_identity = _process_identity(child_pid)
+    assert _identity_alive(child_identity) is True
 
     # Send SIGTERM to runner
-    runner_proc.send_signal(signal.SIGTERM)
+    _request_runner_stop(runner_proc, q_file)
 
     runner_proc.wait(timeout=6.0)
     assert runner_proc.returncode == 0
 
     # Verify unresponsive child was slain with SIGKILL
     time.sleep(0.2)
-    with pytest.raises(ProcessLookupError):
-        os.kill(child_pid, 0)
+    assert _identity_alive(child_identity) is False
 
     final_st = queue_status(queue_file=q_file)
     final_job = final_st.get("active_job")
     assert final_job["pid"] is None
     assert final_job["status"] == "failed"
-    assert final_job["exit_code"] in (-9, 137, -signal.SIGKILL)
+    assert final_job["exit_code"] == (1 if os.name == "nt" else -signal.SIGKILL)
 
 
 def test_queue_sigterm_during_idle_poll(tmp_path):
@@ -710,8 +743,9 @@ def test_queue_sigterm_during_idle_poll(tmp_path):
     runner_code = f"""
 import sys
 import hypergan.queue as qmod
+{_runner_signal_source(q_file)}
 
-ret = qmod.queue_run(queue_file="{q_file}", poll_interval=1.0)
+ret = qmod.queue_run(queue_file={str(q_file)!r}, poll_interval=1.0)
 sys.exit(ret)
 """
     runner_script = tmp_path / "runner_idle.py"
@@ -722,7 +756,7 @@ sys.exit(ret)
 
     # Deliver SIGTERM
     start_time = time.monotonic()
-    proc.send_signal(signal.SIGTERM)
+    _request_runner_stop(proc, q_file)
     proc.wait(timeout=3.0)
     elapsed = time.monotonic() - start_time
 

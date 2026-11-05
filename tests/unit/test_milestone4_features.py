@@ -22,6 +22,7 @@ Features covered:
 import argparse
 import contextlib
 import io
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -124,15 +125,15 @@ class TestWebObservatoryFlagsAndLifecycle:
 # ---------------------------------------------------------------------------
 class TestWebAssetsAndElements:
     def test_runs_html_and_css_fid_and_thumbnail_support(self):
-        runs_css = Path("src/hypergan/web_assets/runs.css").read_text(encoding="utf-8")
+        runs_css = files("hypergan").joinpath("web_assets/runs.css").read_text(encoding="utf-8")
         assert "run-thumb" in runs_css
 
-        runs_js = Path("src/hypergan/web_assets/runs.js").read_text(encoding="utf-8")
+        runs_js = files("hypergan").joinpath("web_assets/runs.js").read_text(encoding="utf-8")
         assert "thumbnail" in runs_js.lower()
         assert "fid" in runs_js.lower()
 
     def test_index_html_action_buttons_and_empty_guidance(self):
-        index_html = Path("src/hypergan/web_assets/index.html").read_text(encoding="utf-8")
+        index_html = files("hypergan").joinpath("web_assets/index.html").read_text(encoding="utf-8")
         assert "action-sample" in index_html
         assert "action-checkpoint" in index_html
         assert "sample-empty" in index_html

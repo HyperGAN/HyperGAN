@@ -562,12 +562,29 @@ def test_cache_missing_local_file_raises_filenotfound(tmp_path):
 # ===========================================================================
 
 def _request_runner_stop(proc, queue_file):
-    # Windows TerminateProcess cannot deliver a catchable SIGTERM. Exercise the
-    # supported stop-file path there, and actual signal delivery on POSIX.
+    # Windows TerminateProcess cannot deliver a catchable SIGTERM. Ask the
+    # runner to raise it internally there; use OS signal delivery on POSIX.
     if os.name == "nt":
-        queue_file.with_name(queue_file.name + ".stop").touch()
+        queue_file.with_name(queue_file.name + ".signal").touch()
     else:
         proc.send_signal(signal.SIGTERM)
+
+
+def _runner_signal_source(queue_file):
+    if os.name != "nt":
+        return ""
+    marker = queue_file.with_name(queue_file.name + ".signal")
+    return f'''
+import signal, threading, time
+from pathlib import Path
+
+def deliver_signal():
+    while not Path({str(marker)!r}).exists() or signal.getsignal(signal.SIGTERM) == signal.SIG_DFL:
+        time.sleep(0.01)
+    signal.raise_signal(signal.SIGTERM)
+
+threading.Thread(target=deliver_signal, daemon=True).start()
+'''
 
 
 def test_queue_sigterm_forwards_to_child_and_terminates(tmp_path):
@@ -585,6 +602,7 @@ def test_queue_sigterm_forwards_to_child_and_terminates(tmp_path):
     runner_code = f"""
 import sys, time, subprocess, signal
 import hypergan.queue as qmod
+{_runner_signal_source(q_file)}
 
 orig_popen = subprocess.Popen
 def mock_popen(cmd, **kwargs):
@@ -652,6 +670,7 @@ def test_queue_sigterm_kills_unresponsive_child_via_fallback(tmp_path):
     runner_code = f"""
 import os, sys, time, subprocess, signal
 import hypergan.queue as qmod
+{_runner_signal_source(q_file)}
 
 orig_popen = subprocess.Popen
 def mock_popen(cmd, **kwargs):
@@ -724,6 +743,7 @@ def test_queue_sigterm_during_idle_poll(tmp_path):
     runner_code = f"""
 import sys
 import hypergan.queue as qmod
+{_runner_signal_source(q_file)}
 
 ret = qmod.queue_run(queue_file={str(q_file)!r}, poll_interval=1.0)
 sys.exit(ret)

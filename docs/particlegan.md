@@ -53,6 +53,9 @@ loss, optimizer, rates, penalty and prior regularization instead of the old
 model-specific overrides. Architecture, reconstruction objective and prior
 dimensions are still declared by the model. Use a new run directory to test
 the corrected preset; installing a newer library does not migrate a saved run.
+The learned CLS token uses a one-row position table on a zero token, preserving
+its forward value and gradients while giving DualNorm a supported matrix
+parameter instead of the `cls_token` operator's rank-three broadcast tensor.
 
 ParticleGAN 0.9.5 adds `Recipe.from_dict(saved_fields)` and rejects partial
 `Recipe(...)` construction. HyperGAN uses the restoration API when available

@@ -4,6 +4,11 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- Restore saved ParticleGAN recipe fields through `Recipe.from_dict` when available,
+  retaining the constructor fallback for ParticleGAN 0.9.4. This keeps compact
+  snapshots, legacy host configurations and strict prior restoration compatible
+  with ParticleGAN 0.9.5 without changing their saved training settings.
+
 ## 2.0.0 — 2026-10-30
 
 HyperGAN 2.0.0 is the official General Availability (GA) production release. It is a ground-up architectural rebuild centering on configurable ParticleGAN (`>=0.9.4,<0.10`) primitives, declarative `hypergan-model/1` TOML model files, HNDL (`>=0.10.0,<1`) networks, reproducible training lifecycles, an asynchronous Web Observatory, distributed multi-GPU & multi-node training, standalone privacy-preserving model export, and a fully typed Python API (`import hypergan as hg`).

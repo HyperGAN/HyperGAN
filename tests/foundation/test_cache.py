@@ -153,7 +153,7 @@ def test_cache_local_path_passthrough_no_copy(tmp_path):
     assert list(cache_dir.iterdir()) == []
 
     # 2. file:// URI
-    file_uri = f"file://{local_file.resolve()}"
+    file_uri = local_file.resolve().as_uri()
     result_uri = resolve_or_cache(file_uri, expected_sha256=sha, cache_dir=cache_dir)
     assert result_uri == local_file.resolve()
     assert list(cache_dir.iterdir()) == []

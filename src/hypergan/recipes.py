@@ -140,8 +140,8 @@ def make_prior(spec, *, device=None, recipe=None):
     if recipe:
         # Inference workers must reconstruct persistent recipe-owned buffers
         # before strict loading, including initial prior reference buffers.
-        from particlegan import Recipe
-        Recipe(**recipe).apply_prior_policy(prior)
+        from .particlegan_integration import restore_particlegan_recipe
+        restore_particlegan_recipe(recipe).apply_prior_policy(prior)
     return prior
 
 

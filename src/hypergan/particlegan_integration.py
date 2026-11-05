@@ -72,6 +72,17 @@ def particlegan_defaults():
             for key, field in PARTICLEGAN_DEFAULT_FIELDS.items() if field in recipe}
 
 
+def restore_particlegan_recipe(fields):
+    """Restore recorded host fields with the dependency's explicit saved-state API.
+
+    ParticleGAN 0.9.5 rejects partial direct constructors. The older constructor
+    remains the restoration path for supported 0.9.4 installations.
+    """
+    from particlegan import Recipe
+    restore = getattr(Recipe, 'from_dict', None)
+    return restore(fields) if restore is not None else Recipe(**fields)
+
+
 def particlegan_recipe(config):
     """The ParticleGAN recipe holding this configuration's training formulation.
 
@@ -79,8 +90,6 @@ def particlegan_recipe(config):
     sections supply explicit overrides; unsnapshotted configurations use the
     dependency's public restoration defaults.
     """
-    from particlegan import Recipe
-
     opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
     fields = dict(config.get('recipe') or {})
     fields.update(
@@ -98,7 +107,7 @@ def particlegan_recipe(config):
         network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
         input_noise_std=training['input_noise_std'], input_noise_anneal_end=training['input_noise_anneal_end'],
         output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'])
-    recipe = Recipe(**fields)
+    recipe = restore_particlegan_recipe(fields)
     unsupported = {
         'continuous_policy': recipe.continuous_policy is not None,
         'particle_birth_death': recipe.particle_birth_death,

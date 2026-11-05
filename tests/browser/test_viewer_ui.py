@@ -142,10 +142,10 @@ def viewer():
     finally:server.shutdown();thread.join(timeout=5);server.server_close()
 
 
-def login(page):
+def login(page, *, projection=2):
     page.get_by_label('Session token',exact=True).fill('fixture-secret')
     page.get_by_role('button',name='Open workspace').click()
-    page.locator('#stream-position[data-projection="2"]').wait_for()
+    page.locator(f'#stream-position[data-projection="{projection}"]').wait_for()
 
 
 def test_login_plots_live_ack_reconnect_and_exact_table(viewer,tmp_path):
@@ -632,6 +632,11 @@ def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts
         'batch_detail': '128 / GPU',
         'steps_per_second': 1.5,
         'samples_per_second': 384.0,
+        'step_multiplier': 2,
+        'aggregate_steps': 4,
+        'aggregate_total_steps': 200,
+        'aggregate_steps_per_second': 3.0,
+        'aggregate_last_durable_step': 2,
         'eta_seconds': 65.0,
         'samples_seen': 512,
         'best_fid': 14.25,
@@ -667,16 +672,16 @@ def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts
     assert page.locator('#run-topology-pill').inner_text() == '2 GPUs · 2× RTX A6000'
     assert page.locator('#run-batch-pill').is_visible()
     assert page.locator('#run-batch-pill').inner_text() == 'Batch 256 · 128 / GPU'
-    # Multi-GPU aggregate scaling (world_size=2): steps=2->4, total_steps=100->200, sps=1.5->3.0, durable=1->2.
-    assert page.locator('#step').inner_text() == '4'
-    assert page.locator('#total-steps').inner_text() == 'of 200 GPU steps (2%) · 2 sync updates · ETA 1m 05s'
-    assert page.locator('#steps-per-second').inner_text() == '3.0'
-    assert page.locator('#steps-rate-note').inner_text() == '1.5 sync updates/s × 2'
+    # One complete D/G update is one global training step on every rank.
+    assert page.locator('#step').inner_text() == '2'
+    assert page.locator('#total-steps').inner_text() == 'of 100 steps (2%) · ETA 1m 05s'
+    assert page.locator('#steps-per-second').inner_text() == '1.5'
+    assert page.locator('#steps-rate-note').inner_text() == 'Completed global training updates/s'
     assert page.locator('#samples-per-second').inner_text() == '384.0'
-    assert page.locator('#samples-rate-note').inner_text() == 'Steps/s × 128/GPU (batch 256)'
-    assert page.locator('#durable').inner_text() == '2'
-    assert page.locator('#durable-note').inner_text() == 'Sync update 1 · saved state'
-    assert page.locator('#metric-consistency').inner_text() == 'Metrics committed through step 4 (2 sync) · view caught up'
+    assert page.locator('#samples-rate-note').inner_text() == 'Steps/s × global batch 256'
+    assert page.locator('#durable').inner_text() == '1'
+    assert page.locator('#durable-note').inner_text() == 'Last saved training step'
+    assert page.locator('#metric-consistency').inner_text() == 'Metrics committed through step 2 · view caught up'
     assert page.locator('#batch-size').inner_text() == '256'
     assert page.locator('#batch-topology').inner_text() == '2 GPUs · 2× RTX A6000 · 128 / GPU'
     assert page.locator('#best-fid').inner_text() == '14.25'
@@ -685,12 +690,12 @@ def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts
     for action_id in ('#action-sample', '#action-checkpoint', '#action-stop'):
         assert page.locator(action_id).is_visible()
 
-    # Live FoldliteDB WASM frame at synchronized step 3 advances aggregate Completed step from 4 to 6.
+    # A live metric frame at global step 3 advances the summary from 2 to 3.
     with condition:
         control['step'] = 3
         condition.notify_all()
-    page.locator('#step', has_text='6').wait_for()
-    assert page.locator('#total-steps').inner_text() == 'of 200 GPU steps (3%) · 3 sync updates · ETA 1m 05s'
+    page.locator('#step', has_text='3').wait_for()
+    assert page.locator('#total-steps').inner_text() == 'of 100 steps (3%) · ETA 1m 05s'
 
     assert page.locator('#health-alerts').is_visible()
     assert 'Evaluator shares cuda:0' in page.locator('#health-alerts-list').inner_text()
@@ -702,14 +707,60 @@ def test_summary_grid_5x2_active_gated_throughput_header_pills_and_health_alerts
     control['run_extra'].update(active=False, running=False)
     page.locator('#reconnect').click()
     page.locator('#run-status[data-status="stopped"]').wait_for()
-    assert page.locator('#step').inner_text() == '6'
-    assert page.locator('#total-steps').inner_text() == 'of 200 GPU steps (3%) · 3 sync updates'
+    assert page.locator('#step').inner_text() == '3'
+    assert page.locator('#total-steps').inner_text() == 'of 100 configured steps (3%)'
     assert page.locator('#steps-per-second').inner_text() == '—'
     assert page.locator('#samples-per-second').inner_text() == '—'
-    assert page.locator('#steps-rate-note').inner_text() == 'Last: 3.0 steps/s (1.5 sync/s)'
+    assert page.locator('#steps-rate-note').inner_text() == 'Last: 1.5 steps/s'
     assert page.locator('#samples-rate-note').inner_text() == 'Last: 384.0 samples/s'
     for action_id in ('#action-sample', '#action-checkpoint', '#action-stop'):
         assert page.locator(action_id).is_hidden()
+    assert not errors
+
+
+@pytest.mark.parametrize('world_size', [2, 8])
+def test_preview_fid_and_checkpoint_source_steps_match_multi_rank_progress(viewer, world_size):
+    from hypergan.image_grids import encode_png
+    page, control, condition, errors = viewer
+    control['step'] = 250
+    control['run_extra'] = {
+        'topology': {'device_kind': 'cuda', 'world_size': world_size, 'gpu_count': world_size},
+        'total_steps': 1000,
+        'last_durable_step': 250,
+        'preview_every': 250,
+        'best_fid': 14.25,
+        'best_step': 250,
+        'steps_per_second': 2.0,
+        'global_batch_size': 256,
+        # A cached response from the older viewer must not change the unit.
+        'step_multiplier': world_size,
+        'aggregate_steps': 250 * world_size,
+        'aggregate_total_steps': 1000 * world_size,
+        'aggregate_last_durable_step': 250 * world_size,
+        'aggregate_steps_per_second': 2.0 * world_size,
+    }
+    for step in (125, 250):
+        identifier = f'g-{step}'
+        image = encode_png(bytes([0, 255, 0]), 1, 1, 3, {'step': step})
+        control['assets'][identifier] = image
+        control['artifacts'][identifier] = {
+            'role': 'sample', 'modality': 'image', 'media_type': 'image/png',
+            'name': 'g', 'bytes': len(image), 'width': 1, 'height': 1,
+            'provenance': {'step': step, 'sample_sequence': step // 125},
+        }
+    login(page, projection=250)
+    assert page.locator('#step').inner_text() == '250'
+    assert page.locator('#total-steps').inner_text() == 'of 1,000 configured steps (25%)'
+    assert page.locator('#steps-per-second').inner_text() == '2.0'
+    assert page.locator('#samples-per-second').inner_text() == '512.0'
+    assert page.locator('#durable').inner_text() == '250'
+    assert 'Step 250' in page.locator('#fid-detail').inner_text()
+    sample = page.locator('#artifact-items li[data-sample="g"]')
+    assert 'Step 250' in sample.locator(':scope > div').first.inner_text()
+    assert 'step 250' in sample.locator('.sample-position').inner_text()
+    sample.locator('input[type="range"]').fill('0')
+    assert 'Step 125' in sample.locator(':scope > div').first.inner_text()
+    assert page.locator('#step').inner_text() == '250'
     assert not errors
 
 

@@ -285,17 +285,18 @@ def test_render_run_index_step_formatting_and_escaping(tmp_path):
          "best_fid": 12.4, "best_step": 50000},
         {"run_id": "r_2gpu", "name": "Run 2GPU", "status": "running", "active": True,
          "step": 2303, "total_steps": 200000, "steps_per_second": 0.873, "samples_per_second": 223.488,
-         "eta_seconds": 120.0, "topology": {"world_size": 2, "gpu_count": 2, "label": "2 GPUs"}},
+         "eta_seconds": 120.0, "step_multiplier": 2, "aggregate_steps": 4606,
+         "aggregate_total_steps": 400000, "aggregate_steps_per_second": 1.746, "topology": {"world_size": 2, "gpu_count": 2, "label": "2 GPUs"}},
     ]
     html_out = render_run_index_html(runs, tmp_path)
     assert "120 / 500" in html_out
     assert "50,000 / 100,000" in html_out
-    assert "4,606 / 400,000" in html_out
-    assert "2,303 sync updates · ETA 2m 00s" in html_out
-    assert "1.7 steps/s" in html_out
+    assert "2,303 / 200,000" in html_out
+    assert "ETA 2m 00s" in html_out
+    assert "0.9 steps/s" in html_out
     assert "223 samples/s" in html_out
-    assert 'data-step="4606"' in html_out
-    assert 'data-total-steps="400000"' in html_out
+    assert 'data-step="2303"' in html_out
+    assert 'data-total-steps="200000"' in html_out
     assert "FID" in html_out
     assert "15.20" in html_out
     assert "12.40" in html_out
@@ -770,21 +771,21 @@ def test_index_active_vs_inactive_speed_eta_and_topology_rendering(tmp_path):
     }
     assert set(row_blocks) == {"run_2gpu_live", "run_stopped_stale_speed", "run_unrecorded"}
 
-    # 1. Active 2-GPU run renders aggregate GPU steps/speed, topology, batch, samples/s, ETA, and remote host
+    # 1. Active 2-GPU run keeps global training steps/rate, batch, samples/s and ETA.
     live_html = row_blocks["run_2gpu_live"]
     assert 'data-url="/runs/run_2gpu_live"' in live_html
     assert 'data-active="true"' in live_html
-    assert 'data-step="240"' in live_html
-    assert 'data-total-steps="20800"' in live_html
-    assert 'data-speed="28.4"' in live_html
+    assert 'data-step="120"' in live_html
+    assert 'data-total-steps="10400"' in live_html
+    assert 'data-speed="14.2"' in live_html
     assert 'data-fid="17.1"' in live_html
     assert 'data-disk-bytes="104857600"' in live_html
     assert "gpu-node-02" in live_html
     assert "2 GPUs · Batch 256" in live_html
     assert "2× RTX A6000 · 128 / GPU" in live_html
-    assert "240 / 20,800" in live_html
-    assert "120 sync updates · ETA 12m 05s" in live_html
-    assert "28.4 steps/s" in live_html
+    assert "120 / 10,400" in live_html
+    assert "ETA 12m 05s" in live_html
+    assert "14.2 steps/s" in live_html
     assert "3635 samples/s" in live_html
 
     # 2. Stopped run with historical speed suppresses speed & ETA and renders CPU topology

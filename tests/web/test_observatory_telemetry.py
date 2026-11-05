@@ -20,7 +20,6 @@ from hypergan.web_server import (
 )
 from hypergan.web_service import (
     ObservationService,
-    compute_aggregate_steps,
     extract_topology_and_batch,
 )
 from hypergan.web_session import LocalSession
@@ -635,114 +634,76 @@ def test_non_fid_primary_metric_does_not_masquerade_as_fid(tmp_path):
     assert summary["best_metric"] == "eval/inception_score"
 
 
-def test_aggregate_gpu_steps_and_throughput_without_double_multiplying_samples_or_eta(tmp_path, monkeypatch):
-    # Direct helper checks across 1-GPU, 2-GPU, 8-GPU, and unrecorded topology
-    assert compute_aggregate_steps(
-        topology={"world_size": 1},
-        step=500,
-        total_steps=2000,
-        last_durable_step=400,
-        steps_per_second=1.25,
-    ) == {
-        "step_multiplier": 1,
-        "aggregate_steps": 500,
-        "aggregate_total_steps": 2000,
-        "aggregate_last_durable_step": 400,
-        "aggregate_steps_per_second": pytest.approx(1.25),
-    }
-    assert compute_aggregate_steps(
-        topology=None,
-        step=500,
-        total_steps=None,
-        last_durable_step=None,
-        steps_per_second=None,
-    ) == {
-        "step_multiplier": 1,
-        "aggregate_steps": 500,
-        "aggregate_total_steps": None,
-        "aggregate_last_durable_step": None,
-        "aggregate_steps_per_second": None,
-    }
-    assert compute_aggregate_steps(
-        topology={"world_size": 8, "gpu_count": 8},
-        step=2500,
-        total_steps=100000,
-        last_durable_step=2000,
-        steps_per_second=0.9,
-    ) == {
-        "step_multiplier": 8,
-        "aggregate_steps": 20000,
-        "aggregate_total_steps": 800000,
-        "aggregate_last_durable_step": 16000,
-        "aggregate_steps_per_second": pytest.approx(7.2),
-    }
-
-    # End-to-end 2-GPU active run through both read_run_summary and ObservationService.public_manifest
-    run_dir = tmp_path / "live_2gpu"
+@pytest.mark.parametrize('world_size', [1, 2, 8])
+@pytest.mark.parametrize('progress_source', ['manifest', 'summary'])
+def test_training_steps_and_rates_are_global_across_all_ranks(tmp_path, monkeypatch, world_size, progress_source):
+    # Preview, FID and checkpoint source steps share the completed D/G update.
+    run_dir = tmp_path / "live_global_steps"
     run_dir.mkdir()
     rev = _write_minimal_catalog(run_dir)
     atomic_json(
         run_dir / "manifest.json",
         {
             "schema_version": 1,
-            "run_id": "live_2gpu",
+            "run_id": "live_global_steps",
             "status": "running",
-            "steps": 2303,
+            "steps": 250,
             "total_steps": 200000,
-            "last_durable_step": 2000,
+            "last_durable_step": 200,
             "global_batch_size": 256,
             "steps_per_second": 0.873,
             "metrics_catalog": rev,
+            "preview_every": 250,
+            "best_checkpoint": {"metric": "fid50k_train", "value": 14.0, "step": 250},
             "execution": {
                 "name": "cuda-replicated-nccl",
-                "world_size": 2,
+                "world_size": world_size,
                 "nodes": 1,
-                "ranks_per_node": 2,
+                "ranks_per_node": world_size,
                 "global_batch_size": 256,
-                "local_batch_size": 128,
+                "local_batch_size": 256 // world_size,
             },
             "runtime": {
                 "device": "cuda:0",
-                "world_size": 2,
+                "world_size": world_size,
                 "cuda": {
                     "rank_devices": [
-                        {"rank": 0, "name": "NVIDIA RTX A6000"},
-                        {"rank": 1, "name": "NVIDIA RTX A6000"},
+                        {"rank": rank, "name": "NVIDIA RTX A6000"}
+                        for rank in range(world_size)
                     ]
                 },
             },
         },
     )
+    if progress_source == 'summary':
+        manifest = json.loads((run_dir / 'manifest.json').read_text())
+        summary = {key: manifest.pop(key) for key in (
+            'steps', 'total_steps', 'last_durable_step', 'steps_per_second')}
+        summary['step'] = summary.pop('steps')
+        atomic_json(run_dir / 'manifest.json', manifest)
+        atomic_json(run_dir / 'summary.json', summary)
     monkeypatch.setattr(inspection, "check_run_active", lambda p: (Path(p).resolve() == run_dir.resolve(), 7777))
 
     summary_payload = read_run_summary(run_dir)
-    assert summary_payload["step"] == 2303
+    assert summary_payload["step"] == 250
     assert summary_payload["total_steps"] == 200000
-    assert summary_payload["last_durable_step"] == 2000
-    assert summary_payload["step_multiplier"] == 2
-    assert summary_payload["aggregate_step"] == 4606
-    assert summary_payload["aggregate_steps"] == 4606
-    assert summary_payload["aggregate_total_steps"] == 400000
-    assert summary_payload["aggregate_last_durable_step"] == 4000
+    assert summary_payload["last_durable_step"] == 200
     assert summary_payload["steps_per_second"] == pytest.approx(0.873)
-    assert summary_payload["aggregate_steps_per_second"] == pytest.approx(1.746)
-    # samples_per_second and eta_seconds MUST NOT double-multiply world_size
+    assert summary_payload["best_step"] == 250
+    assert not any(key.startswith("aggregate_") or key == "step_multiplier" for key in summary_payload)
+    # The global batch already includes every rank.
     assert summary_payload["samples_per_second"] == pytest.approx(0.873 * 256)
-    assert summary_payload["eta_seconds"] == pytest.approx(round((200000 - 2303) / 0.873, 2))
+    assert summary_payload["eta_seconds"] == pytest.approx(round((200000 - 250) / 0.873, 2))
 
     service = ObservationService(run_dir)
     asyncio.run(service._activate())
     pub = service.public_manifest()
-    assert pub["steps"] == 2303
+    assert pub["steps"] == 250
     assert pub["total_steps"] == 200000
-    assert pub["last_durable_step"] == 2000
-    assert pub["step_multiplier"] == 2
-    assert pub["aggregate_steps"] == 4606
-    assert pub["aggregate_total_steps"] == 400000
-    assert pub["aggregate_last_durable_step"] == 4000
+    assert pub["last_durable_step"] == 200
+    assert pub["preview_every"] == 250
+    assert pub["best_step"] == 250
+    assert not any(key.startswith("aggregate_") or key == "step_multiplier" for key in pub)
     assert pub["steps_per_second"] == pytest.approx(0.873)
-    assert pub["aggregate_steps_per_second"] == pytest.approx(1.746)
     assert pub["samples_per_second"] == pytest.approx(0.873 * 256)
-    assert pub["eta_seconds"] == pytest.approx(round((200000 - 2303) / 0.873, 2))
-
-
+    assert pub["eta_seconds"] == pytest.approx(round((200000 - 250) / 0.873, 2))

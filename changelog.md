@@ -4,6 +4,11 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- Report one complete global discriminator/generator update as one training
+  step throughout the viewer. Multi-GPU progress, throughput and saved-state
+  counters now use the same steps as preview cadence, FID and metric charts,
+  rather than multiplying them by the number of ranks.
+
 - Require the published ParticleGAN 0.9.5 release in the `train` and `all` extras.
 
 - Fresh `cifar10-transgan` runs inherit ParticleGAN's released `bispf_optimized`

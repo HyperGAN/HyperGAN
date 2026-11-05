@@ -27,7 +27,6 @@ from .web_service import (
     ViewSpec,
     _finite_nonneg_float,
     _positive_int,
-    compute_aggregate_steps,
     compute_throughput_and_eta,
     cursor_offset,
     extract_fid_and_health,
@@ -277,14 +276,6 @@ def read_run_summary(run_dir: Path) -> dict:
     last_durable_step = summary.get("last_durable_step") if (summary and "last_durable_step" in summary) else None
     if last_durable_step is None:
         last_durable_step = manifest.get("last_durable_step")
-    agg = compute_aggregate_steps(
-        topology=topo_batch["topology"],
-        step=step,
-        total_steps=total_steps,
-        last_durable_step=last_durable_step,
-        steps_per_second=steps_per_second,
-    )
-
     fid_health = extract_fid_and_health(manifest, summary)
     latest_fid = fid_health["latest_fid"]
     best_fid = fid_health["best_fid"]
@@ -387,13 +378,7 @@ def read_run_summary(run_dir: Path) -> dict:
         "total_steps": total_steps,
         "max_steps": max_steps,
         "last_durable_step": last_durable_step,
-        "step_multiplier": agg["step_multiplier"],
-        "aggregate_step": agg["aggregate_steps"],
-        "aggregate_steps": agg["aggregate_steps"],
-        "aggregate_total_steps": agg["aggregate_total_steps"],
-        "aggregate_last_durable_step": agg["aggregate_last_durable_step"],
         "steps_per_second": steps_per_second,
-        "aggregate_steps_per_second": agg["aggregate_steps_per_second"],
         "speed_its": steps_per_second,
         "samples_per_second": samples_per_second,
         "eta_seconds": eta_seconds,
@@ -457,46 +442,20 @@ def _render_run_row(r: dict) -> str:
         active = status in ('running', 'training', 'initializing', 'starting')
 
     topology = r.get('topology') if isinstance(r.get('topology'), dict) else {}
-    raw_mult = r.get('step_multiplier')
-    if not (isinstance(raw_mult, int) and not isinstance(raw_mult, bool) and raw_mult >= 1):
-        ws_candidate = topology.get('world_size')
-        if not (isinstance(ws_candidate, int) and not isinstance(ws_candidate, bool)):
-            ws_candidate = r.get('world_size')
-        raw_mult = ws_candidate if (isinstance(ws_candidate, int) and not isinstance(ws_candidate, bool) and ws_candidate >= 1) else 1
-    mult = max(1, int(raw_mult))
-
-    sync_step = max(0, int(r.get('step') or 0))
-    sync_total = max(0, int(r.get('total_steps') or r.get('max_steps') or 0))
-    if is_finite_num(r.get('aggregate_steps')) and r['aggregate_steps'] >= 0:
-        agg_step = int(r['aggregate_steps'])
-    elif is_finite_num(r.get('aggregate_step')) and r['aggregate_step'] >= 0:
-        agg_step = int(r['aggregate_step'])
-    else:
-        agg_step = sync_step * mult
-
-    if is_finite_num(r.get('aggregate_total_steps')) and r['aggregate_total_steps'] > 0:
-        agg_total = int(r['aggregate_total_steps'])
-    else:
-        agg_total = sync_total * mult
-
-    percent = min(100, max(0, int(round(agg_step / agg_total * 100)))) if agg_total > 0 else 0
-    progress = f'{agg_step:,} / {agg_total:,}' if agg_total > 0 else f'{agg_step:,}'
-    raw_eta_text = format_eta(r.get('eta_seconds')) if active else ''
-    sync_note = f'{sync_step:,} sync updates' if mult > 1 else ''
-    eta_text = ' · '.join(p for p in (sync_note, raw_eta_text) if p)
+    # A step is one completed global training update, shared by all ranks.
+    step = max(0, int(r.get('step') or 0))
+    total = max(0, int(r.get('total_steps') or r.get('max_steps') or 0))
+    percent = min(100, max(0, int(round(step / total * 100)))) if total > 0 else 0
+    progress = f'{step:,} / {total:,}' if total > 0 else f'{step:,}'
+    eta_text = format_eta(r.get('eta_seconds')) if active else ''
 
     raw_speed = r.get('steps_per_second') if r.get('steps_per_second') is not None else r.get('speed_its')
-    if is_finite_num(r.get('aggregate_steps_per_second')) and r['aggregate_steps_per_second'] >= 0:
-        agg_speed: float | None = float(r['aggregate_steps_per_second'])
-    elif is_finite_num(raw_speed) and raw_speed >= 0:
-        agg_speed = float(raw_speed) * mult
-    else:
-        agg_speed = None
-    has_active_speed = active and agg_speed is not None
+    speed = float(raw_speed) if is_finite_num(raw_speed) and raw_speed >= 0 else None
+    has_active_speed = active and speed is not None
     raw_samples = r.get('samples_per_second')
     has_active_samples = has_active_speed and is_finite_num(raw_samples) and raw_samples >= 0
-    if has_active_speed and agg_speed is not None:
-        speed_primary = f'<span class="speed-primary" data-field="speed-primary">{agg_speed:.1f} steps/s</span>'
+    if has_active_speed and speed is not None:
+        speed_primary = f'<span class="speed-primary" data-field="speed-primary">{speed:.1f} steps/s</span>'
     else:
         speed_primary = '<span class="muted" data-field="speed-primary">—</span>'
     if has_active_samples:
@@ -557,7 +516,7 @@ def _render_run_row(r: dict) -> str:
     disk_bytes = r.get('disk_bytes')
     disk_attr = str(int(disk_bytes)) if (is_finite_num(disk_bytes) and disk_bytes >= 0) else ''
     fid_attr = str(float(sort_fid)) if sort_fid is not None else ''
-    speed_attr = str(float(agg_speed)) if (has_active_speed and agg_speed is not None) else ''
+    speed_attr = str(float(speed)) if (has_active_speed and speed is not None) else ''
 
     show_host = bool(r.get('remote') and r.get('hostname'))
     host_name = str(r.get('hostname')) if show_host else ''
@@ -568,7 +527,7 @@ def _render_run_row(r: dict) -> str:
 
     return f'''<tr class="run-row" data-url="{url}" data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
       data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}"
-      data-fid="{escape(fid_attr)}" data-step="{agg_step}" data-total-steps="{agg_total}"
+      data-fid="{escape(fid_attr)}" data-step="{step}" data-total-steps="{total}"
       data-speed="{escape(speed_attr)}" data-disk-bytes="{escape(disk_attr)}">
       <td data-label="Run / Name" class="run-name-cell"><a class="run-link" href="{url}">{escape(name)}</a>
         <div class="run-id-sub"><span class="slug-badge"{slug_hidden}>{escape(slug)}</span>
@@ -581,7 +540,7 @@ def _render_run_row(r: dict) -> str:
       <td data-label="Created at"><time data-field="created" datetime="{escape(created or '')}"
         title="{escape(created or 'Creation time was not recorded')}">{date_text}</time></td>
       <td data-label="Progress"><div class="progress-bar-container"><span data-field="steps">{progress}</span>
-        <div class="progress-bar" aria-hidden="true"{'' if agg_total > 0 else ' hidden'}>
+        <div class="progress-bar" aria-hidden="true"{'' if total > 0 else ' hidden'}>
           <div class="progress-fill" style="width: {percent}%"></div></div>
         <small class="cell-sub" data-field="eta"{eta_hidden}>{escape(eta_text)}</small></div></td>
       {speed_cell}

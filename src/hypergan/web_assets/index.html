@@ -84,11 +84,11 @@
       </section>
       <section class="stats" aria-label="Run summary">
         <article>
-          <span>Completed step</span><strong id="step">—</strong
+          <span title="One complete discriminator/generator training update. All ranks share the same step.">Completed training step</span><strong id="step">—</strong
           ><small id="total-steps">Waiting for run state</small>
         </article>
         <article>
-          <span>Steps per second</span><strong id="steps-per-second">—</strong
+          <span>Training steps per second</span><strong id="steps-per-second">—</strong
           ><small id="steps-rate-note">Average of recent updates</small>
         </article>
         <article>
@@ -246,7 +246,7 @@
               Artifacts are separate from metric measurements.</p>
           </div>
           <div class="sample-workbench-controls">
-            <label class="toggle-pill"><input id="sync-samples" type="checkbox" checked /> Sync steps</label>
+            <label class="toggle-pill" title="Keep sample histories at matching training steps."><input id="sync-samples" type="checkbox" checked /> Align sample histories</label>
             <button id="toggle-pixelated" class="secondary small-button" type="button" aria-pressed="true">Pixels: Crisp</button>
           </div>
         </div>

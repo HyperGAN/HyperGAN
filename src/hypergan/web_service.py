@@ -329,30 +329,6 @@ def compute_throughput_and_eta(
     return samples_per_second, eta_seconds
 
 
-def compute_aggregate_steps(
-    *,
-    topology: dict | None,
-    step: object,
-    total_steps: object,
-    last_durable_step: object = None,
-    steps_per_second: object = None,
-) -> dict:
-    """Scale synchronized step counters and step rate by world_size for aggregate GPU-step reporting."""
-    raw_ws = _positive_int(topology.get("world_size")) if isinstance(topology, dict) else None
-    mult = raw_ws if (raw_ws is not None and raw_ws > 1) else 1
-    step_int = _nonneg_int(step)
-    total_int = _positive_int(total_steps)
-    durable_int = _nonneg_int(last_durable_step)
-    sps_val = _finite_nonneg_float(steps_per_second)
-    return {
-        "step_multiplier": mult,
-        "aggregate_steps": step_int * mult if step_int is not None else None,
-        "aggregate_total_steps": total_int * mult if total_int is not None else None,
-        "aggregate_last_durable_step": durable_int * mult if durable_int is not None else None,
-        "aggregate_steps_per_second": float(sps_val) * mult if sps_val is not None else None,
-    }
-
-
 def extract_fid_and_health(manifest: dict, summary: dict | None = None) -> dict:
     """Extract canonical FID, best metric/step, health_alerts, and warnings."""
     manifest = manifest if isinstance(manifest, dict) else {}
@@ -513,7 +489,7 @@ class ObservationService:
         summary = self._read_cached_summary()
         fields = ('schema_version', 'run_id', 'attempt_id', 'attempt_index', 'status', 'steps',
                   'total_steps', 'last_durable_step', 'seconds', 'metrics_catalog',
-                  'observation_sha256', 'checkpoint_every', 'stop_reason', 'possible_lost_steps',
+                  'observation_sha256', 'checkpoint_every', 'preview_every', 'stop_reason', 'possible_lost_steps',
                   'evaluation_schedule', 'training_seconds', 'steps_per_second', 'samples_seen',
                   'global_batch_size', 'hostname', 'remote')
         result = {key: self.manifest[key] for key in fields if key in self.manifest}
@@ -592,6 +568,12 @@ class ObservationService:
         step_val = self.manifest.get('steps')
         if step_val is None and summary:
             step_val = summary.get('step')
+        if step_val is not None and 'steps' not in result:
+            result['steps'] = step_val
+        if 'last_durable_step' not in result and summary:
+            durable_step = _nonneg_int(summary.get('last_durable_step'))
+            if durable_step is not None:
+                result['last_durable_step'] = durable_step
         training_cfg = cfg.get('training') if isinstance(cfg.get('training'), dict) else {}
         total_val = (
             self.manifest.get('total_steps')
@@ -615,22 +597,6 @@ class ObservationService:
         )
         result['samples_per_second'] = samples_per_second
         result['eta_seconds'] = eta_seconds
-
-        durable_val = self.manifest.get('last_durable_step')
-        if durable_val is None and summary:
-            durable_val = summary.get('last_durable_step')
-        agg = compute_aggregate_steps(
-            topology=topo_batch['topology'],
-            step=step_val,
-            total_steps=total_val,
-            last_durable_step=durable_val,
-            steps_per_second=sps,
-        )
-        result['step_multiplier'] = agg['step_multiplier']
-        result['aggregate_steps'] = agg['aggregate_steps']
-        result['aggregate_total_steps'] = agg['aggregate_total_steps']
-        result['aggregate_last_durable_step'] = agg['aggregate_last_durable_step']
-        result['aggregate_steps_per_second'] = agg['aggregate_steps_per_second']
 
         fid_health = extract_fid_and_health(self.manifest, summary)
         result['best_fid'] = fid_health['best_fid']

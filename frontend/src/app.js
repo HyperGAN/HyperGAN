@@ -21,7 +21,6 @@ import {
   presetMetrics,
   reducedSelection,
   sameMetricSet,
-  stepMultiplier,
 } from "./presets.js";
 
 const $ = (id) => document.getElementById(id);
@@ -337,7 +336,6 @@ function isRunActive(run) {
 function updateTotalStepsSubtext(run, active) {
   const el = $("total-steps");
   if (!el) return;
-  const mult = stepMultiplier(run);
   if (Number.isFinite(run.total_steps) && run.total_steps > 0) {
     let pct = "";
     if (Number.isFinite(run.steps) && run.steps >= 0) {
@@ -352,22 +350,13 @@ function updateTotalStepsSubtext(run, active) {
       active && Number.isFinite(run.eta_seconds) && run.eta_seconds >= 0
         ? ` · ETA ${duration(run.eta_seconds)}`
         : "";
-    if (mult > 1) {
-      const unitLabel =
-        Number(run?.topology?.gpu_count) > 1 ? "GPU steps" : "rank steps";
-      const syncPart = Number.isFinite(run.steps)
-        ? ` · ${fmtInt(run.steps)} sync updates`
-        : "";
-      el.textContent = `of ${fmtInt(run.total_steps * mult)} ${unitLabel}${pct}${syncPart}${etaPart}`;
-    } else if (etaPart) {
+    if (etaPart) {
       el.textContent = `of ${fmtInt(run.total_steps)} steps${pct}${etaPart}`;
     } else {
       el.textContent = `of ${fmtInt(run.total_steps)} configured steps${pct}`;
     }
-  } else if (mult > 1 && Number.isFinite(run.steps)) {
-    el.textContent = `${fmtInt(run.steps)} sync updates × ${mult}`;
   } else {
-    el.textContent = "Completed optimizer updates";
+    el.textContent = "Completed global training updates";
   }
 }
 function renderFidCard(run) {
@@ -497,39 +486,27 @@ function updateRun(run) {
   setPill("run-batch-pill", batchText);
   setPill("run-host-pill", formatHostPill(run));
 
-  const mult = stepMultiplier(run);
-
-  // 1. Completed step + % + active ETA (scaled by world_size for multi-GPU / multi-rank runs)
+  // 1. One step is a completed global training update, shared by all ranks.
   $("step").textContent = Number.isFinite(run.steps)
-    ? fmtInt(run.steps * mult)
+    ? fmtInt(run.steps)
     : "—";
   updateTotalStepsSubtext(run, active);
 
-  // 2. Steps per second (active-gated, aggregate GPU/rank steps/s)
+  // 2. Completed global training updates per second.
   const rawSps = Number.isFinite(run.steps_per_second)
     ? run.steps_per_second
     : null;
-  const aggSps = Number.isFinite(run.aggregate_steps_per_second)
-    ? run.aggregate_steps_per_second
-    : rawSps !== null
-      ? rawSps * mult
-      : null;
   if (active) {
-    $("steps-per-second").textContent = rate(aggSps);
+    $("steps-per-second").textContent = rate(rawSps);
     if ($("steps-rate-note")) {
-      $("steps-rate-note").textContent =
-        mult > 1 && rawSps !== null
-          ? `${rate(rawSps)} sync updates/s × ${mult}`
-          : "Live update throughput";
+      $("steps-rate-note").textContent = "Completed global training updates/s";
     }
   } else {
     $("steps-per-second").textContent = "—";
     if ($("steps-rate-note")) {
       $("steps-rate-note").textContent =
-        aggSps !== null
-          ? mult > 1 && rawSps !== null
-            ? `Last: ${rate(aggSps)} steps/s (${rate(rawSps)} sync/s)`
-            : `Last: ${rate(aggSps)} steps/s`
+        rawSps !== null
+          ? `Last: ${rate(rawSps)} steps/s`
           : "Run inactive";
     }
   }
@@ -544,20 +521,9 @@ function updateRun(run) {
     if (active) {
       $("samples-per-second").textContent = rate(samplesRate);
       if ($("samples-rate-note")) {
-        if (
-          mult > 1 &&
-          Number.isFinite(run.local_batch_size) &&
-          Number.isFinite(run.global_batch_size)
-        ) {
-          const perUnit = Number(run?.topology?.gpu_count) > 1 ? "GPU" : "rank";
-          $("samples-rate-note").textContent = `Steps/s × ${fmtInt(run.local_batch_size)}/${perUnit} (batch ${fmtInt(run.global_batch_size)})`;
-        } else {
-          $("samples-rate-note").textContent = Number.isFinite(
-            run.global_batch_size,
-          )
-            ? `Steps/s × batch ${fmtInt(run.global_batch_size)}`
-            : "Live sample throughput";
-        }
+        $("samples-rate-note").textContent = Number.isFinite(run.global_batch_size)
+          ? `Steps/s × global batch ${fmtInt(run.global_batch_size)}`
+          : "Live sample throughput";
       }
     } else {
       $("samples-per-second").textContent = "—";
@@ -596,24 +562,17 @@ function updateRun(run) {
   $("training-time").textContent = duration(run.training_seconds);
 
   // 7. Durable checkpoint + FoldliteDB metric projection consistency
-  const aggDurable = Number.isFinite(run.aggregate_last_durable_step)
-    ? run.aggregate_last_durable_step
-    : Number.isFinite(run.last_durable_step)
-      ? run.last_durable_step * mult
-      : null;
-  $("durable").textContent = aggDurable !== null ? fmtInt(aggDurable) : "—";
+  const durable = Number.isFinite(run.last_durable_step)
+    ? run.last_durable_step
+    : null;
+  $("durable").textContent = durable !== null ? fmtInt(durable) : "—";
   if ($("durable-note")) {
-    $("durable-note").textContent =
-      mult > 1 && Number.isFinite(run.last_durable_step)
-        ? `Sync update ${fmtInt(run.last_durable_step)} · saved state`
-        : "Last saved training state";
+    $("durable-note").textContent = "Last saved training step";
   }
   const consistency = run.metric_consistency;
   const committedStepText =
     consistency && Number.isFinite(consistency.committed_step)
-      ? mult > 1
-        ? `${fmtInt(consistency.committed_step * mult)} (${fmtInt(consistency.committed_step)} sync)`
-        : fmtInt(consistency.committed_step)
+      ? fmtInt(consistency.committed_step)
       : null;
   $("metric-consistency").textContent = !consistency
     ? ""
@@ -1725,9 +1684,7 @@ function openStream(epoch) {
           state.run.steps = Math.max(state.run.steps || 0, result.latestStep);
           evaluations.update(state.catalog, state.run);
           syncEvaluationsJumpAndFid();
-          $("step").textContent = fmtInt(
-            state.run.steps * stepMultiplier(state.run),
-          );
+          $("step").textContent = fmtInt(state.run.steps);
           updateTotalStepsSubtext(state.run, isRunActive(state.run));
         }
         scheduleRender();

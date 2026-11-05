@@ -43,6 +43,28 @@ formulation. Historical checkpoints require their recorded dependency and source
 compatibility. The packaged `gaussian-grid` model is the concrete reference
 fixture; fresh image projects use the released ParticleGAN preset.
 
+The packaged `cifar10-transgan` model also inherits that complete preset. It
+previously omitted `defaults = "particlegan"`, so the Round 1 CIFAR runs
+(`amber-heron`, `marble-anchor`, `coral-crest`) used KA2 despite installing
+ParticleGAN 0.9.3/0.9.4. Their saved critic optimizer records explicitly contain
+`formulation = "ka2"`; their results do not evaluate BISPF. See the
+[QA report](../reports/qa-2026-10-30.md). Fresh runs now inherit the dependency's
+loss, optimizer, rates, penalty and prior regularization instead of the old
+model-specific overrides. Architecture, reconstruction objective and prior
+dimensions are still declared by the model. Use a new run directory to test
+the corrected preset; installing a newer library does not migrate a saved run.
+
+ParticleGAN 0.9.5 adds `Recipe.from_dict(saved_fields)` and rejects partial
+`Recipe(...)` construction. HyperGAN uses the restoration API when available
+and retains compatibility with 0.9.4. At verification, 0.9.5 is tagged on
+GitHub while PyPI still serves 0.9.4, so the supported package requirement
+remains `>=0.9.4,<0.10`. To install the exact 0.9.5 release before PyPI catches up:
+
+```sh
+python -m pip install --upgrade \
+  'particlegan @ git+https://github.com/255BITS/ParticleGAN.git@1b8355b184b21bb7d81104ee590813c262f6df0a'
+```
+
 Fresh parameter initialization uses ParticleGAN's public initializer when
 `training.initialization = "deterministic_orthogonal"`. Loaded pretrained
 subtrees retain their weights. Effective `requires_grad` determines optimizer

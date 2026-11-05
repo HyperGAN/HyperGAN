@@ -79,3 +79,41 @@ def test_all_examples_load_with_load_config():
         resolved = load_config(example)
         assert isinstance(resolved, dict)
         assert "components" in resolved
+
+
+def test_packaged_cifar_transgan_inherits_the_complete_released_formulation():
+    from particlegan import get_recipe
+    from hypergan.particlegan_integration import particlegan_recipe
+
+    path = Path(__file__).resolve().parents[2] / 'src/hypergan/models/cifar10-transgan.toml'
+    config = load_config(path)
+    expected = get_recipe()
+    actual = particlegan_recipe(config)
+    assert actual.name == expected.name == 'bispf_optimized'
+    assert actual.critic_formulation == 'bispf'
+    assert config['optimizer']['implementation'] == 'recipe'
+    for field in PARTICLEGAN_DEFAULT_FIELDS.values():
+        value = getattr(expected, field)
+        if field == 'prior_betas' and value is None:
+            value = expected.betas
+        assert getattr(actual, field) == value, field
+    for field in ('loss', 'optimizer_family', 'optimizer_momentum', 'lr_schedule',
+                  'prior_regularizer', 'constraint_geometry_mode', 'training_precision'):
+        assert getattr(actual, field) == getattr(expected, field), field
+    assert config['objectives'][0]['id'] == 'reconstruction'
+    assert config['prior']['kind'] == 'mog'
+    assert config['prior']['args']['num_particles'] == 16384
+    assert config['training']['seed'] == 24002
+    # Exported runs keep their resolved settings even when public defaults change.
+    saved = config_values(config)
+    assert particlegan_recipe(resolve_config(saved)).to_dict() == actual.to_dict()
+
+
+def test_legacy_unsnapshotted_host_config_keeps_ka2():
+    from hypergan.particlegan_integration import particlegan_recipe
+
+    legacy = resolve_config({'optimizer': {'lr': 0.0003}})
+    assert not legacy['recipe']
+    restored = particlegan_recipe(legacy)
+    assert restored.critic_formulation == 'ka2'
+    assert restored.lr == 0.0003

@@ -6,6 +6,7 @@
 # Dataset: CIFAR-10 via cached URL verification (never requires external weight files).
 format = "hypergan-model/1"
 name = "cifar10-transgan"
+defaults = "particlegan"
 
 [data]
 builtin = "cifar10"
@@ -251,30 +252,15 @@ num_particles = 16384
 z_dim = 64
 sigma_rel = 0.025
 
-[penalty]
-kappa = 1.0
-lazy_k = 1
-
 [train]
 steps = 200000
 batch_size = 64
 seed = 24002
 device = "cuda"
-ema = 0.995
-lr_anneal_start = 0.6
-lr_floor = 1.0
 phase_draws = "independent"
 data_rng_device = "execution"
 data_seed_offset = 2
 prior_seed_offset = 3
-implementation = "torch_fused_adam"
-lr = 0.0003
-d_lr_mult = 1.5
-prior_lr_mult = 10.0
-betas = [0.0, 0.999]
-prior_betas = [0.5, 0.999]
-d_guard_ratio = 5.0
-d_guard_min_steps = 200
 
 [train.backend]
 deterministic_algorithms = false
@@ -331,6 +317,3 @@ target = "batch.real"
 [[losses]]
 type = "prior"
 rows = "full"
-weight = 1.0
-target_std = 1.0
-eps = 0.0001

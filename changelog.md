@@ -4,6 +4,12 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- Fresh `cifar10-transgan` runs inherit ParticleGAN's released `bispf_optimized`
+  preset, including its optimizer, rates and prior regularization. The packaged
+  model previously omitted `defaults = "particlegan"` and silently used KA2;
+  the Round 1 CIFAR QA runs therefore did not evaluate BISPF. Existing saved
+  runs keep their recorded formulation.
+
 - Restore saved ParticleGAN recipe fields through `Recipe.from_dict` when available,
   retaining the constructor fallback for ParticleGAN 0.9.4. This keeps compact
   snapshots, legacy host configurations and strict prior restoration compatible

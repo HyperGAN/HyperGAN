@@ -30,7 +30,7 @@ if modal.is_local():
     WHEEL_SHA256 = hashlib.sha256(WHEEL.read_bytes()).hexdigest()
     REMOTE_WHEEL = f'/opt/wheels/{WHEEL.name}'
     image = (modal.Image.debian_slim(python_version='3.12')
-             .pip_install('torch==2.14.1', 'numpy==2.5.4', 'hndl==0.10.0',
+             .pip_install('torch==2.14.1', 'numpy==2.5.4', 'hndl==0.11.0',
                           'particlegan==0.9.3', 'foldlitedb==0.1.2')
              .add_local_file(WHEEL, remote_path=REMOTE_WHEEL, copy=True)
              .run_commands(f'python -m pip install --no-deps {REMOTE_WHEEL}')

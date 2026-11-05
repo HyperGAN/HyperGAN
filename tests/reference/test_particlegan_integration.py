@@ -81,6 +81,39 @@ def test_generated_image_project_uses_the_released_global_recipe(tmp_path):
     assert resolved['training']['seed'] == 0
 
 
+def test_packaged_cifar_critic_accepts_the_released_optimizer():
+    from pathlib import Path
+    from hypergan.recipes import construct
+
+    path = Path(__file__).resolve().parents[2] / 'src/hypergan/models/cifar10-transgan.toml'
+    resolved = load_config(path)
+    critic = construct(resolved['components']['discriminator'])
+    optimizer = particlegan_recipe(resolved).make_critic_optimizer(critic)
+    assert {id(p) for group in optimizer.param_groups for p in group['params']} == {
+        id(p) for p in critic.parameters() if p.requires_grad}
+
+
+def test_cifar_cls_matrix_preserves_the_learned_token_and_input_gradients():
+    from hndl.operators.cls_token import ClsToken
+    from hndl.operators.pos_embed import PosEmbed
+
+    original = ClsToken(D=4)
+    table = PosEmbed(1, D=4)
+    with torch.no_grad():
+        table.weight.copy_(original.token.reshape(1, 4))
+    left = torch.randn(3, 5, 4, requires_grad=True)
+    right = left.detach().clone().requires_grad_()
+    expected = original(left)
+    zero = right[:, 0].mul(0).reshape(-1, 1, 4)
+    actual = torch.cat((table(zero), right), dim=1)
+    assert torch.equal(actual, expected)
+    gradient = torch.randn_like(actual)
+    actual.backward(gradient)
+    expected.backward(gradient)
+    assert torch.equal(left.grad, right.grad)
+    assert torch.equal(table.weight.grad, original.token.grad.reshape(1, 4))
+
+
 def test_implementation_fingerprint_covers_the_dependency_package():
     import particlegan
     from pathlib import Path

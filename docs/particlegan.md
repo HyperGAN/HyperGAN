@@ -1,7 +1,9 @@
 # ParticleGAN integration
 
 HyperGAN consumes ParticleGAN's released GAN recipe through
-`defaults = "particlegan"` (ParticleGAN 0.9.2 or later). ParticleGAN owns the formulation and its selected
+`defaults = "particlegan"`. The `train` and `all` extras require ParticleGAN
+`>=0.9.5,<0.10`; 0.9.5 is the current released compatibility baseline.
+ParticleGAN owns the formulation and its selected
 loss, learning rates, hyperparameters, normalization, regularizers and optimizer
 implementations. HyperGAN owns networks and bindings, datasets, task objectives,
 execution, checkpoints, sampling and metrics. Formulation research and technique
@@ -40,6 +42,29 @@ settings. Without a recipe snapshot, construction uses ParticleGAN's public
 formulation. Historical checkpoints require their recorded dependency and source
 compatibility. The packaged `gaussian-grid` model is the concrete reference
 fixture; fresh image projects use the released ParticleGAN preset.
+
+The packaged `cifar10-transgan` model also inherits that complete preset. It
+previously omitted `defaults = "particlegan"`, so the Round 1 CIFAR runs
+(`amber-heron`, `marble-anchor`, `coral-crest`) used KA2 despite installing
+ParticleGAN 0.9.3/0.9.4. Their saved critic optimizer records explicitly contain
+`formulation = "ka2"`; their results do not evaluate BISPF. See the
+[QA report](../reports/qa-2026-10-30.md). Fresh runs now inherit the dependency's
+loss, optimizer, rates, penalty and prior regularization instead of the old
+model-specific overrides. Architecture, reconstruction objective and prior
+dimensions are still declared by the model. Use a new run directory to test
+the corrected preset; installing a newer library does not migrate a saved run.
+The learned CLS token uses a one-row position table on a zero token, preserving
+its forward value and gradients while giving DualNorm a supported matrix
+parameter instead of the `cls_token` operator's rank-three broadcast tensor.
+
+ParticleGAN 0.9.5 adds `Recipe.from_dict(saved_fields)` and rejects partial
+`Recipe(...)` construction. HyperGAN uses the restoration API when available
+and retains the legacy restoration fallback for 0.9.4. Install the current
+release from PyPI:
+
+```sh
+python -m pip install --upgrade 'particlegan>=0.9.5,<0.10'
+```
 
 Fresh parameter initialization uses ParticleGAN's public initializer when
 `training.initialization = "deterministic_orthogonal"`. Loaded pretrained

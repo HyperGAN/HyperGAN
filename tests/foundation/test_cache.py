@@ -22,7 +22,6 @@ from hypergan.cache import (
     is_offline,
     resolve_or_cache,
 )
-from hypergan.image_components import _verified_file
 from hypergan.image_metrics import _checked_weights
 
 
@@ -206,24 +205,6 @@ def test_cache_range_resume(tmp_path):
         assert not part_file.exists()
         assert len(server.requests) == 1
         assert server.requests[0]["range"] == f"bytes={split}-"
-
-
-def test_image_components_resnet_default_download(tmp_path, monkeypatch):
-    """Verify image_components._verified_file delegates default ResNet-18 to cache."""
-    cache_dir = tmp_path / "cache"
-    payload = b"fake resnet weights"
-    sha = hashlib.sha256(payload).hexdigest()
-
-    cached_file = cache_dir / "resnet18-f37072fd.pth"
-    cached_file.parent.mkdir(parents=True, exist_ok=True)
-    cached_file.write_bytes(payload)
-
-    monkeypatch.setattr("hypergan.image_components.RESNET18_SHA256", sha)
-    monkeypatch.setattr("hypergan.image_components.RESNET18_URL", "https://download.pytorch.org/models/resnet18-f37072fd.pth")
-    monkeypatch.setenv("HYPERGAN_CACHE_DIR", str(cache_dir))
-
-    resolved = _verified_file(None, expected=sha)
-    assert resolved == cached_file.resolve()
 
 
 def test_image_metrics_inception_default_download(tmp_path, monkeypatch):

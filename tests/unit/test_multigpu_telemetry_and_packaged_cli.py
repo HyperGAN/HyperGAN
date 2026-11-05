@@ -523,12 +523,15 @@ def test_cifar10_transgan_uses_self_contained_hypergan_cache_paths(tmp_path, mon
     assert isinstance(warnings, list)
 
 
-def test_cifar10_transgan_uses_lazy_k_1_and_particlegan_spike_guard_settings():
-    """cifar10-transgan uses lazy_k=1 and ParticleGAN spike guard defaults (5.0 / 200)."""
+def test_cifar10_transgan_uses_lazy_k_1_and_released_particlegan_guard_settings():
+    """CIFAR TransGAN inherits guard settings from the released ParticleGAN preset."""
+    from particlegan import get_recipe
+
     cfg = load_config("cifar10-transgan")
+    recipe = get_recipe()
     assert cfg["gradient_penalty"]["lazy_k"] == 1
-    assert cfg["optimizer"]["d_guard_ratio"] == 5.0
-    assert cfg["optimizer"]["d_guard_min_steps"] == 200
+    assert cfg["optimizer"]["d_guard_ratio"] == recipe.d_guard_ratio
+    assert cfg["optimizer"]["d_guard_min_steps"] == recipe.d_guard_min_steps
 
 
 def test_ema_critic_is_initialized_in_eval_mode_and_d_guard_ratio_tracks_spike_clipping():

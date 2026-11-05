@@ -4,6 +4,8 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- Require the published ParticleGAN 0.9.5 release in the `train` and `all` extras.
+
 - Fresh `cifar10-transgan` runs inherit ParticleGAN's released `bispf_optimized`
   preset, including its optimizer, rates and prior regularization. The packaged
   model previously omitted `defaults = "particlegan"` and silently used KA2;

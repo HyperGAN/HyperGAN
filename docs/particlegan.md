@@ -2,7 +2,7 @@
 
 HyperGAN consumes ParticleGAN's released GAN recipe through
 `defaults = "particlegan"`. The `train` and `all` extras require ParticleGAN
-`>=0.9.4,<0.10`; 0.9.4 is the current released compatibility baseline.
+`>=0.9.5,<0.10`; 0.9.5 is the current released compatibility baseline.
 ParticleGAN owns the formulation and its selected
 loss, learning rates, hyperparameters, normalization, regularizers and optimizer
 implementations. HyperGAN owns networks and bindings, datasets, task objectives,
@@ -59,13 +59,11 @@ parameter instead of the `cls_token` operator's rank-three broadcast tensor.
 
 ParticleGAN 0.9.5 adds `Recipe.from_dict(saved_fields)` and rejects partial
 `Recipe(...)` construction. HyperGAN uses the restoration API when available
-and retains compatibility with 0.9.4. At verification, 0.9.5 is tagged on
-GitHub while PyPI still serves 0.9.4, so the supported package requirement
-remains `>=0.9.4,<0.10`. To install the exact 0.9.5 release before PyPI catches up:
+and retains the legacy restoration fallback for 0.9.4. Install the current
+release from PyPI:
 
 ```sh
-python -m pip install --upgrade \
-  'particlegan @ git+https://github.com/255BITS/ParticleGAN.git@1b8355b184b21bb7d81104ee590813c262f6df0a'
+python -m pip install --upgrade 'particlegan>=0.9.5,<0.10'
 ```
 
 Fresh parameter initialization uses ParticleGAN's public initializer when

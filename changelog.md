@@ -40,7 +40,7 @@ HyperGAN 2.0.0a2 is the second alpha of HG 2. It combines declarative `hypergan-
 
 ### Added
 - **Core Engine & Dependency Modernization**:
-  - Python 3.11–3.14 support with updated stable dependencies: `particlegan>=0.9.4,<0.10`, `torch-fidelity>=0.4.0,<0.5`, `safetensors>=0.8,<1`, `torch>=2.6,<3`, and `Pillow>=13.0.0,<14`.
+  - Python 3.11–3.14 support with updated dependencies: `particlegan>=0.9.5,<0.10`, `torch-fidelity>=0.4.0,<0.5`, `safetensors>=0.8,<1`, `torch>=2.6,<3`, and `Pillow>=13.0.0,<14`.
   - Added optional dependency extras: `[fid]`, `[onnx]`, `[all]`, `[safetensors]`.
   - On-demand external URL cache engine (`~/.hypergan/cache/`) with SHA-256 integrity verification, multi-rank file locking (`fcntl.flock`), and `HYPERGAN_OFFLINE=1` support without caching local paths.
   - Automatic download and caching of pretrained backbones (ResNet-18 `f37072fd` and Inception-v3 `6726825d`).

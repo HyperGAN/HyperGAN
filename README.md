@@ -214,7 +214,7 @@ hypergan view --stop
 In non-interactive environments (CI, background jobs, AI coding agent sandboxes), viewer autostart is automatically suppressed (can also be disabled via `HYPERGAN_NO_SERVER=1` or `--no-server`).
 
 The Web Observatory provides:
-- **Global Runs Dashboard (`GET /` and `GET /api/runs`)**: Live-updating table of all runs with search/status filtering, progress bars, throughput (`it/s`), latest/best FID, disk usage, and one-click **Checkpoint** (`POST /api/runs/<id>/checkpoint`) and **Stop** (`POST /api/runs/<id>/stop`) controls for active runs.
+- **Global Runs Dashboard (`GET /` and `GET /api/runs`)**: Live-updating table of all runs with search/status filtering, sortable columns, progress bars, active throughput (`steps/s` and `samples/s`), latest/best FID, hardware topology, batch size, and disk usage. Click a row to open its Observatory and use the per-run controls.
 - **Per-Run Observatory (`GET /runs/<id_or_slug_or_tag>`)**: Real-time learning curves backed by a WebAssembly streaming reducer, retained EMA sample history sliders, snapshot evaluation charts, and an inline **Model** section showing the ParticleGAN integration, loss metrics, and per-layer HNDL network tables.
 
 See [Local browser and streaming API](docs/local-web.md) for authentication (`--auth token`), TLS proxy setup (`--public-origin`), and the full `/api/runs/*` and `/api/v1/runs/*` REST/SSE contract.

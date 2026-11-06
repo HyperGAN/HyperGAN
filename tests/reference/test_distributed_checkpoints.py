@@ -214,6 +214,9 @@ def worker(mode, rank, rendezvous, root, run, output):
             elif mode == 'identity-type':
                 trainer.data.resume_identity = lambda: {'marker': True if rank else 1}
             elif mode == 'build-disagreement':
+                # Provenance is immutable for a live trainer. Invalidate its
+                # cache to inject distinct worker builds at the next snapshot.
+                del trainer._checkpoint_provenance
                 actual = checkpoints._implementation
                 checkpoints._implementation = lambda value: dict(actual(value),
                     **{'hypergan.training': str(rank) * 64})

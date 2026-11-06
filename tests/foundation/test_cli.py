@@ -125,7 +125,7 @@ raise SystemExit(main(sys.argv[1:]))
     )
     assert result.returncode != 0
     assert "hypergan[train]" in result.stderr
-    assert "unqualified" in result.stderr
+    assert "training dependencies are missing" in result.stderr
     assert "Traceback" not in result.stderr
 
 

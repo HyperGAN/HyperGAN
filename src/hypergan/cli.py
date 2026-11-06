@@ -19,6 +19,23 @@ def _positive_int(value):
     return number
 
 
+def _port_number(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"must be an integer port number, got {value!r}")
+    if not (0 <= number <= 65535):
+        raise argparse.ArgumentTypeError(f"port number out of range (0..65535): {number}")
+    return number
+
+
+def _non_negative_int(value):
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return number
+
+
 def _preview_keep(value):
     """Bound the retained preview history; 'all' keeps every published sample."""
     from .previews import KEEP_ALL
@@ -53,7 +70,8 @@ def _positive_seconds(value):
 
 def _run_options(parser):
     from .ports import DEFAULT_VIEWER_PORT
-    parser.add_argument("--profile", help="execution profile name or TOML path; new runs default to native device, existing runs inherit")
+    parser.add_argument("--profile", help="execution profile name or TOML path; new runs default to native device, existing runs inherit "
+                                          "(multi-node profiles and the parameter_average/pseudo_gradient aggregation strategies are experimental)")
     from .execution import SERVICE_TIMEOUTS
     for name in SERVICE_TIMEOUTS:
         parser.add_argument("--" + name.replace("_", "-"), type=_positive_seconds,
@@ -62,10 +80,11 @@ def _run_options(parser):
     server.add_argument("--server", action="store_true", help="require the local viewer before training starts")
     server.add_argument("--no-server", "--no-web", dest="no_server", action="store_true",
                         help="train without web imports or listening sockets")
-    parser.add_argument("--port", "--server-port", dest="server_port", type=int,
-                        help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}, "
-                             "or the next free port above it; 0 selects any free port)")
-    parser.add_argument("--host", "--server-host", dest="server_host", default=None, help="listen address (default: 0.0.0.0)")
+    parser.add_argument("--port", "--server-port", dest="server_port", type=_port_number,
+                        help=f"require a specific viewer port (default: {DEFAULT_VIEWER_PORT}; an occupied "
+                             "port is an error, never a search; 0 selects any free port)")
+    parser.add_argument("-b", "--bind", "--host", "--server-host", dest="server_host", default=None,
+                        help="listen address (default: 127.0.0.1; e.g. -b 0.0.0.0)")
     parser.add_argument("--auth", choices=("none", "token"), help="viewer authentication (default: none)")
     parser.add_argument("--public-origin", type=_public_origin, metavar="URL",
                         help="absolute origin of a TLS proxy in front of the viewer, "
@@ -104,9 +123,12 @@ _add_run_options = _run_options
 
 
 class _CustomParser(argparse.ArgumentParser):
+    _active_argv: list[str] = []
+
     def parse_args(self, args=None, namespace=None):
         if args is None:
             args = sys.argv[1:]
+        _CustomParser._active_argv = list(args)
         if len(args) >= 2 and args[0] == "checkpoint" and args[1] == "prune":
             args = ["checkpoints", *args[1:]]
         return super().parse_args(args, namespace)
@@ -114,9 +136,73 @@ class _CustomParser(argparse.ArgumentParser):
     def parse_known_args(self, args=None, namespace=None):
         if args is None:
             args = sys.argv[1:]
+        _CustomParser._active_argv = list(args)
         if len(args) >= 2 and args[0] == "checkpoint" and args[1] == "prune":
             args = ["checkpoints", *args[1:]]
         return super().parse_known_args(args, namespace)
+
+    def error(self, message):
+        is_json = "--json" in (_CustomParser._active_argv or sys.argv[1:])
+        if is_json:
+            envelope = {
+                "ok": False,
+                "error": {
+                    "type": "ArgumentError",
+                    "message": message,
+                    "details": {},
+                },
+            }
+            print(json.dumps(envelope, indent=2), file=sys.stdout)
+            sys.exit(2)
+        super().error(message)
+
+
+def _format_error_envelope(exc: BaseException) -> dict:
+    err_type = type(exc).__name__
+    message = str(exc)
+    details = {}
+    if hasattr(exc, "details") and isinstance(exc.details, dict):
+        details.update(exc.details)
+    if isinstance(exc, ModuleNotFoundError) and exc.name:
+        details["module"] = exc.name
+        if exc.name.split(".")[0] in {"torch", "particlegan", "numpy"}:
+            message = "training dependencies are missing; install 'hypergan[train]' in this environment"
+    elif isinstance(exc, OSError):
+        if getattr(exc, "filename", None):
+            details["filename"] = str(exc.filename)
+        if getattr(exc, "errno", None):
+            details["errno"] = exc.errno
+    return {
+        "ok": False,
+        "error": {
+            "type": err_type,
+            "message": message,
+            "details": details,
+        },
+    }
+
+
+def _attach_global_flags(top_parser: argparse.ArgumentParser) -> None:
+    """Recursively ensure every subparser and nested subparser accepts --json and -q/--quiet."""
+    def _walk(p: argparse.ArgumentParser) -> None:
+        for action in p._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for choice_parser in action.choices.values():
+                    existing = set()
+                    for act in choice_parser._actions:
+                        existing.update(act.option_strings)
+                    if "--json" not in existing:
+                        choice_parser.add_argument(
+                            "--json", action="store_true", help="output results as JSON"
+                        )
+                    if not ({"-q", "--quiet"} & existing):
+                        choice_parser.add_argument(
+                            "-q", "--quiet", action="store_true",
+                            help="suppress non-essential output, banners, and progress",
+                        )
+                    _walk(choice_parser)
+
+    _walk(top_parser)
 
 
 def _parser():
@@ -125,21 +211,31 @@ def _parser():
     )
     parser.add_argument("--version", action="version", version=f"hypergan {__version__}")
     parser.add_argument("--json", action="store_true", dest="global_json", help="output results as JSON")
-    commands = parser.add_subparsers(
-        dest="command",
-        required=True,
-        metavar="{new,train,resume,ps,status,logs,stop,runs,sample,evaluate,eval,export,view,queue,model,explain,validate,recipes,tag,rm,gc,prune,checkpoint,inspect,compare,diff,doctor,report}",
-    )
-    commands.add_parser("version")
-    recipes_cmd = commands.add_parser("recipes", help="List available recipes and qualification status")
-    recipes_cmd.add_argument("--json", action="store_true", help="output recipes catalog as JSON")
+    parser.add_argument("-q", "--quiet", action="store_true", dest="global_quiet",
+                        help="suppress non-essential output, banners, and progress")
+    parser.add_argument("--debug", action="store_true",
+                        help="print the full traceback when a command fails (same as HYPERGAN_DEBUG=1)")
+    commands = parser.add_subparsers(dest="command", required=True, parser_class=_CustomParser)
+    commands.add_parser("version", help="Print the HyperGAN version")
+    recipes_cmd = commands.add_parser("recipes", help="List the packaged model recipes (JSON)")
+    recipes_cmd.add_argument("--json", action="store_true", help="accepted for consistency; the list is always JSON")
+    schema_cmd = commands.add_parser("schema", help="Introspect hypergan-model/1 specification and section schemas")
+    schema_cmd.add_argument("--section", default=None, help="specific schema section to inspect (e.g. train, data, networks)")
+    schema_cmd.add_argument("--json", action="store_true", help="output full schema JSON")
+    ops_cmd = commands.add_parser("ops", help="Introspect HNDL neural network operators and signatures")
+    ops_cmd.add_argument("query", nargs="?", default=None, help="search query filtering operator name, category, or summary")
+    ops_cmd.add_argument("--json", action="store_true", help="output operators catalog as JSON")
     new = commands.add_parser("new", help="Create a starter project or model .toml configuration (does not start training)")
     new.add_argument("path", nargs="?", type=Path, default=None, help="destination .toml file, project directory, or dataset directory (when -o is given)")
     new.add_argument("-l", "--list", dest="list_templates", action="store_true", help="list available starter templates and examples")
-    new.add_argument("-t", "--template", default=None, choices=("dcgan", "tiny-transformer", "resnet", "gaussian-grid"),
+    new.add_argument("-t", "--template", default=None,
+                     choices=("dcgan", "tiny-transformer", "resnet", "transgan", "colorization", "paired-image", "conditional", "gaussian-grid"),
                      help="starter architecture template (default: dcgan with --dataset/--resolution, else gaussian-grid)")
-    new.add_argument("-r", "--resolution", type=int, default=None, choices=(32, 64, 128, 256),
-                     help="target image resolution (32, 64, 128, 256)")
+    new.add_argument("-r", "--resolution", type=int, default=None,
+                     choices=(32, 64, 128, 256, 512, 1024),
+                     help="target image resolution (32, 64, 128, 256, 512, 1024)")
+    new.add_argument("--conditional", action="store_true",
+                     help="generate conditional architecture template with condition input")
     new.add_argument("-o", "--output", type=Path, default=None, help="output .toml file path")
     new.add_argument("-p", "--project", type=Path, default=None, help="initialize a full HyperGAN project directory with hypergan.toml, runs/, and configs/")
     new.add_argument("--device", default="cuda", help="training device: cuda (default), cuda:N, or explicit cpu")
@@ -156,18 +252,32 @@ def _parser():
     validate.add_argument("--output", type=Path, default=None,
                           help="write the data manifest to a new file (when --data is passed)")
     validate.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                          help="override configuration value before validation (e.g. --set train.steps=500)")
+                          help="override configuration value before validation (e.g. --set train.steps=500; VALUE null removes the key)")
     validate.add_argument("--json", action="store_true", help="output validation result as JSON")
-    preflight = commands.add_parser("preflight")
+    preflight = commands.add_parser("preflight", help="Check a configuration against an execution profile before training")
     preflight.add_argument("config", type=Path)
     preflight.add_argument("--profile", type=Path,
                            help="execution-profile TOML file; omitted uses the configured native device")
     preflight.add_argument("--runtime", action="store_true",
                            help="also construct the recipe in bounded CPU/CUDA workers (requires train extra)")
     preflight.add_argument("--json", action="store_true", help="output preflight check as JSON")
-    data_check = commands.add_parser("data-check")
+    data_check = commands.add_parser("data-check", help="Verify a configuration's image dataset and write its inventory manifest")
     data_check.add_argument("config", type=Path)
     data_check.add_argument("--output", type=Path, help="write the data manifest to a new file")
+    download_data = commands.add_parser(
+        "download-data",
+        help="Opt-in acquisition, checksum verification, and manifest preparation for qualified datasets",
+    )
+    download_data.add_argument("dataset", nargs="?", default="cifar10", help="qualified dataset identifier (default: cifar10)")
+    download_data.add_argument("-o", "--output", type=Path, default=None, help="destination directory for extracted dataset and dataset-manifest.json")
+    download_data.add_argument("--cache-dir", type=Path, default=None, help="archive download cache directory (default: <output>/.cache)")
+    download_data.add_argument("--info", action="store_true", help="show source URL, version, expected bytes, checksums, and usage notice without downloading")
+    download_data.add_argument("--list", dest="list_datasets", action="store_true", help="list qualified datasets available for download")
+    download_data.add_argument("--verify-only", action="store_true", help="verify existing archive/extracted files without downloading")
+    download_data.add_argument("--source-archive", type=Path, default=None, help="verify and extract an already-downloaded local archive file")
+    download_data.add_argument("--url", default=None, help="override download URL (archive must still pass pinned size and SHA256 verification)")
+    download_data.add_argument("--timeout", type=_positive_seconds, default=60.0, help="network timeout in seconds (default: 60)")
+    download_data.add_argument("--json", action="store_true", help="output result as JSON")
     inspect = commands.add_parser("inspect", help="Inspect raw run manifest JSON")
     inspect.add_argument("path", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or manifest path")
     inspect.add_argument("--json", action="store_true", help="output manifest JSON")
@@ -181,12 +291,12 @@ def _parser():
     logs_cmd = commands.add_parser("logs", help="View or follow (-f) live formatted training logs for a run")
     logs_cmd.add_argument("run_dir", nargs="?", type=str, default=None, help="run directory, slug, short ID, or name (default: active or latest run)")
     logs_cmd.add_argument("-f", "--follow", action="store_true", help="follow live log output (Ctrl+C detaches without stopping training)")
-    logs_cmd.add_argument("-n", "--tail", type=int, default=50, help="number of recent log lines to show (default: 50)")
+    logs_cmd.add_argument("-n", "--tail", type=_positive_int, default=50, help="number of recent log lines to show (default: 50)")
     logs_cmd.add_argument("--json", action="store_true", help="output raw JSON lines")
     stop_cmd = commands.add_parser("stop", help="Gracefully stop an active training run (saves checkpoint and halts)")
     stop_cmd.add_argument("run_dir", nargs="?", type=Path, default=None, help="active run directory, slug, short ID, or name (default: active run)")
     stop_cmd.add_argument("--all", action="store_true", help="gracefully stop all active training runs")
-    stop_cmd.add_argument("--timeout", type=float, default=15.0, help="seconds to wait for graceful checkpoint shutdown (default: 15)")
+    stop_cmd.add_argument("--timeout", type=_positive_seconds, default=15.0, help="seconds to wait for graceful checkpoint shutdown (default: 15)")
     stop_cmd.add_argument("--json", action="store_true", help="output structured JSON")
     tag_cmd = commands.add_parser("tag", help="Rename or tag a training run in its manifest and global registry")
     tag_cmd.add_argument("run_dir", type=Path, help="run directory, slug, short ID, or name")
@@ -200,7 +310,7 @@ def _parser():
     runs.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
     runs.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
     runs.add_argument("--json", action="store_true", default=False, help="output runs table as JSON array")
-    runs_subs = runs.add_subparsers(dest="runs_command", required=False)
+    runs_subs = runs.add_subparsers(dest="runs_command", required=False, parser_class=_CustomParser)
     runs_ls = runs_subs.add_parser("ls", help="List runs under root directory")
     runs_ls.add_argument("root", nargs="?", type=Path, default=None, help="runs root directory")
     runs_ls.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
@@ -224,13 +334,13 @@ def _parser():
     diff_cmd.add_argument("target_a", type=str, help="first recipe TOML, run directory/slug/tag, or checkpoint")
     diff_cmd.add_argument("target_b", nargs="?", default=None, type=str, help="second recipe TOML, run directory/slug/tag, or checkpoint (optional when -s/--set is passed)")
     diff_cmd.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                          help="override configuration value on the target before comparing")
+                          help="override configuration value on the target before comparing (VALUE null removes the key)")
     diff_cmd.add_argument("--json", action="store_true", help="output diff as JSON")
 
     explain_cmd = commands.add_parser("explain", help="Explain each network's role, inputs, optimizer group, and gradient sources")
     explain_cmd.add_argument("path", nargs="?", type=Path, default=None, help="model .toml, project directory, or run directory/slug/tag")
     explain_cmd.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                             help="override configuration value before explaining (e.g. --set train.lr=0.0005)")
+                             help="override configuration value before explaining (e.g. --set train.lr=0.0005; VALUE null removes the key)")
     explain_cmd.add_argument("--json", action="store_true", help="output explanation as JSON")
 
     doctor_cmd = commands.add_parser("doctor", help="Inspect Python, PyTorch, CUDA devices, workspace, and runner health")
@@ -253,23 +363,23 @@ def _parser():
     model.add_argument("--write", action="store_true",
                        help="record the per-layer detail as RUN/model.json for the viewer (implies --networks)")
     model.add_argument("--json", action="store_true", help="output model description JSON")
-    events = commands.add_parser("events")
+    events = commands.add_parser("events", help="Page through a run's recorded events as JSON")
     events.add_argument("run_dir", nargs="?", type=Path, default=None)
     events.add_argument("--cursor", help="opaque cursor returned by the previous page")
     events.add_argument("--limit", type=_positive_int, default=100)
     events.add_argument("--max-bytes", type=_positive_int, default=1048576)
     events.add_argument("--json", action="store_true", help="output events as JSON")
-    metrics = commands.add_parser("metrics")
+    metrics = commands.add_parser("metrics", help="Show a run's published metrics catalog")
     metrics.add_argument("run_dir", nargs="?", type=Path, default=None)
     metrics.add_argument("--revision", help="historical catalog SHA256 (default: active catalog)")
     metrics.add_argument("--json", action="store_true", help="output metrics catalog as JSON")
-    project = commands.add_parser("project")
+    project = commands.add_parser("project", help="Project a run's completed events into metric views")
     project.add_argument("run_dir", nargs="?", type=Path, default=None)
     project.add_argument("--map-spec", type=Path, help="JSON MapSpec; default selects published scalar metrics")
     project.add_argument("--follow", action="store_true", help="continue projecting newly completed events")
     project.add_argument("--limit", type=_positive_int, default=100, help="documents per bounded work page")
     project.add_argument("--json", action="store_true", help="output projection as JSON")
-    contributions = commands.add_parser("contributions")
+    contributions = commands.add_parser("contributions", help="Page through a run's projected metric contributions")
     contributions.add_argument("run_dir", nargs="?", type=Path, default=None)
     contributions.add_argument("--map-revision", help="map SHA256 (default: built-in scalar map)")
     contributions.add_argument("--cursor", help="last applied projection cursor")
@@ -278,10 +388,11 @@ def _parser():
     serve = commands.add_parser("serve")
     serve.add_argument("run_dir", nargs="?", type=Path, default=None)
     from .ports import DEFAULT_VIEWER_PORT
-    serve.add_argument("--port", "--server-port", dest="port", type=int,
-                       help=f"listen port (default: {DEFAULT_VIEWER_PORT}, or the next free port "
-                            "above it; 0 selects any free port)")
-    serve.add_argument("--host", "--server-host", dest="host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    serve.add_argument("--port", "--server-port", dest="port", type=_port_number,
+                       help=f"listen port (default: {DEFAULT_VIEWER_PORT}; an occupied port is an "
+                            "error, never a search; 0 selects any free port)")
+    serve.add_argument("-b", "--bind", "--host", "--server-host", dest="host", default="127.0.0.1",
+                       help="listen address (default: 127.0.0.1; e.g. -b 0.0.0.0)")
     serve.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     serve.add_argument("--public-origin", type=_public_origin, metavar="URL",
                        help="absolute origin of a TLS proxy in front of the viewer, "
@@ -299,8 +410,9 @@ def _parser():
     view_mode = view.add_mutually_exclusive_group()
     view_mode.add_argument("--status", action="store_true", help="report dashboard status, URL, version, and PID")
     view_mode.add_argument("--stop", action="store_true", help="cleanly stop the running dashboard")
-    view.add_argument("--port", "--server-port", dest="port", type=int, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
-    view.add_argument("--host", "--server-host", dest="host", default="0.0.0.0", help="listen address (default: 0.0.0.0)")
+    view.add_argument("--port", "--server-port", dest="port", type=_port_number, default=DEFAULT_VIEWER_PORT, help="port to bind (default: 8765)")
+    view.add_argument("-b", "--bind", "--host", "--server-host", dest="host", default="127.0.0.1",
+                      help="listen address (default: 127.0.0.1; e.g. -b 0.0.0.0)")
     view.add_argument("--auth", choices=("none", "token"), default="none", help="authentication mode (default: none)")
     view_browser = view.add_mutually_exclusive_group()
     view_browser.add_argument("--open", action="store_true", help="open the local viewer in a browser")
@@ -322,8 +434,8 @@ def _parser():
     operation.add_argument("--request-id", help="reuse this ID to retry the same request safely")
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
     checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
-    checkpoints = commands.add_parser("checkpoints")
-    checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True)
+    checkpoints = commands.add_parser("checkpoints", help="Manage a run's saved checkpoints (prune)")
+    checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True, parser_class=_CustomParser)
     prune = checkpoints_subs.add_parser("prune", help="Prune obsolete checkpoints under the retention policy")
     prune.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
     prune.add_argument("--dry-run", action="store_true", help="evaluate retention without deleting any files")
@@ -332,8 +444,13 @@ def _parser():
     export.add_argument("run_dir", nargs="?", type=Path, default=None, help="run directory, slug, short ID, or name")
     export.add_argument("--checkpoint", default="latest", help="target checkpoint: best, latest, step number, or path")
     export.add_argument("-o", "--output", type=Path, help="output file or directory (default: <run_dir>/model.pt)")
+    export.add_argument("--format", choices=["bundle", "safetensors", "pt2", "onnx"], default="bundle",
+                        help="export format: bundle (.pt), safetensors, pt2, or onnx (default: bundle)")
+    export.add_argument("--include-example-inputs", action="store_true", default=False,
+                        help="retain raw training images in example_inputs instead of privacy spec")
+    export.add_argument("-d", "--device", default="cpu", help="device for baking/tracing export (default: cpu)")
     export.add_argument("--json", action="store_true", help="output export info as JSON")
-    convert = commands.add_parser("convert")
+    convert = commands.add_parser("convert", help="Convert a legacy recipe TOML into a model file")
     convert.add_argument("recipe", type=Path, help="path to legacy recipe TOML")
     convert.add_argument("--output", type=Path, required=True, help="output model.toml destination")
     def _add_train_and_resume_arguments(p, *, is_resume=False):
@@ -351,7 +468,20 @@ def _parser():
         p.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
         p.add_argument("--steps", type=_positive_int, help="total target steps; may increase on resume when lr_floor=1 (constant learning rate)")
         p.add_argument("-s", "--set", dest="sets", action="append", default=[], metavar="KEY=VALUE",
-                       help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5)")
+                       help="override configuration value (e.g. --set train.device=cuda:1 or --set losses.reconstruction.weight=0.5; "
+                            "VALUE null removes the key)")
+        p.add_argument("--nodes", type=_positive_int, default=None,
+                       help="number of distributed cluster nodes (default: 1, or auto-detected from cluster env)")
+        p.add_argument("--node-rank", type=_non_negative_int, default=None,
+                       help="rank index of this node from 0 to nodes-1 (default: 0, or auto-detected from cluster env)")
+        p.add_argument("--rendezvous", default=None,
+                       help="distributed rendezvous URI (e.g. tcp://<master_host>:<port>, or auto-detected)")
+        p.add_argument("--strategy", choices=("gradient_allreduce", "pseudo_gradient", "parameter_average"), default=None,
+                       help="distributed aggregation strategy (default: gradient_allreduce)")
+        p.add_argument("--sync-every", type=_positive_int, default=None,
+                       help="cadence in steps for replica synchronization in local-SGD strategies (default: 1)")
+        p.add_argument("--experimental", action="store_true", default=False,
+                       help=argparse.SUPPRESS)
         _run_options(p)
 
     train = commands.add_parser("train", help="Create a run or resume its latest checkpoint with the same configuration")
@@ -364,6 +494,8 @@ def _parser():
     sample.add_argument("--count", type=_positive_int, default=16, help="number of samples to generate (default: 16)")
     sample.add_argument("--seed", type=int, default=None, help="random seed for sampling (default: [sampling].seed in config, or 42)")
     sample.add_argument("--output", type=Path, default=None, help="output file path for samples (e.g. sample.png or sample.json)")
+    sample.add_argument("-d", "--device", default=None, help="device for inference (e.g. cpu, cuda)")
+    sample.add_argument("--output-dir", type=Path, default=None, help="directory for batch sample PNG outputs")
     sample.add_argument("-i", "--input", dest="inputs", action="append", default=[], metavar="PATH_OR_KEY=PATH", help="conditioning input image file path or KEY=PATH binding for conditional models")
     sample.add_argument("--sampler", help="sampler name declared in [samplers], or module:function import path")
     sample.add_argument("--checkpoint", default=None, help="target checkpoint: best, latest, step number, or path")
@@ -372,7 +504,7 @@ def _parser():
     queue_cmd = commands.add_parser("queue", help="Multi-GPU job queue scheduler, runner daemon, and service generator")
     queue_cmd.add_argument("--json", action="store_true", default=False, help="output JSON format")
     queue_cmd.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
-    queue_subs = queue_cmd.add_subparsers(dest="queue_command", required=False)
+    queue_subs = queue_cmd.add_subparsers(dest="queue_command", required=False, parser_class=_CustomParser)
 
     q_add = queue_subs.add_parser("add", help="Enqueue a training experiment or wait directive")
     q_add.add_argument("model_file", type=Path, help="path to experiment model TOML (or run directory if --wait)")
@@ -389,13 +521,13 @@ def _parser():
     q_add.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_ls = queue_subs.add_parser("ls", help="List jobs from the queue")
-    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled"), default=None, help="filter by status")
+    q_ls.add_argument("--status", choices=("queued", "running", "completed", "failed", "cancelled", "interrupted"), default=None, help="filter by status")
     q_ls.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
     q_ls.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
     q_status = queue_subs.add_parser("status", help="Inspect job details, progress, and live log tail")
     q_status.add_argument("job_id", nargs="?", default=None, help="job ID to inspect (default: active/latest job)")
-    q_status.add_argument("--lines", type=int, default=20, help="number of log tail lines (default: 20)")
+    q_status.add_argument("--lines", type=_positive_int, default=20, help="number of log tail lines (default: 20)")
     q_status.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
     q_status.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
@@ -411,19 +543,71 @@ def _parser():
 
     q_run = queue_subs.add_parser("run", help="Start the sequential queue daemon runner")
     q_run.add_argument("-d", "--devices", default=None, help="restrict runner to specific device(s)")
-    q_run.add_argument("--poll-interval", type=float, default=5.0, help="seconds between queue checks (default: 5.0)")
+    q_run.add_argument("--poll-interval", type=_positive_seconds, default=5.0, help="seconds between queue checks (default: 5.0)")
     q_run.add_argument("--once", action="store_true", help="execute available jobs and exit instead of continuous loop")
     q_run.add_argument("--no-web", "--no-server", dest="no_web", action="store_true", default=False,
                        help="execute jobs without web server / dashboard")
     q_run.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="output JSON format")
     q_run.add_argument("--queue-file", type=Path, default=argparse.SUPPRESS, help="override queue file destination")
 
-    q_svc = queue_subs.add_parser("install-service", help="Generate systemd user service unit")
-    q_svc.add_argument("--user", action="store_true", default=True, help="install as user service in ~/.config/systemd/user (default: true)")
+    q_svc = queue_subs.add_parser("install-service", help="Generate a systemd user service unit in ~/.config/systemd/user")
+    # Units are always user units; --user is still accepted for existing scripts.
+    q_svc.add_argument("--user", action="store_true", help=argparse.SUPPRESS)
     q_svc.add_argument("-d", "--devices", default=None, help="bind service runner to specific device(s)")
     q_svc.add_argument("--name", default=None, help="custom service name")
     q_svc.add_argument("--dry-run", action="store_true", help="print generated unit file without writing to disk")
 
+    def _validate_qualify_timeout(val: str) -> float:
+        try:
+            t = float(val)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"Invalid timeout value: {val}")
+        if not math.isfinite(t) or t < 1.0 or t > 180.0:
+            raise argparse.ArgumentTypeError(f"Qualification timeout must be between 1 and 180s, got {t}")
+        return t
+
+    qualify_cmd = commands.add_parser(
+        "qualify",
+        help="Run hardware and distributed qualification smoke suite and emit JSON verification receipt",
+    )
+    qualify_cmd.add_argument(
+        "-o", "--output",
+        type=Path,
+        default=None,
+        help="destination path for JSON verification receipt (default: a per-run file under the HyperGAN state directory, qualification/)",
+    )
+    qualify_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="emit a receipt whose suites report dry_run without running any of them",
+    )
+    qualify_cmd.add_argument(
+        "--suite",
+        default=None,
+        help="filter to a specific qualification suite (e.g. single_device, cpu_replicated_gloo, cuda_replicated_nccl, aggregation, multinode, checkpoint_compatibility)",
+    )
+    qualify_cmd.add_argument(
+        "--cuda-world-size", type=int, default=2,
+        help="number of GPUs to exercise in cuda_replicated_nccl (2–64; default: 2)",
+    )
+    qualify_cmd.add_argument(
+        "--timeout",
+        type=_validate_qualify_timeout,
+        default=180.0,
+        help="hard wall-clock execution timeout in seconds (maximum 180s; default: 180.0)",
+    )
+    qualify_cmd.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="show real-time test progress and intermediate diagnostics",
+    )
+    qualify_cmd.add_argument(
+        "--json",
+        action="store_true",
+        help="print receipt JSON to stdout in addition to saving to disk",
+    )
+
+    _attach_global_flags(parser)
     return parser
 
 
@@ -436,15 +620,29 @@ def _parse_set_value(raw: str) -> object:
         return True
     if val.lower() == "false":
         return False
-    if val.lower() in ("null", "none"):
+    if val.lower() == "null":
         return None
     try:
-        return json.loads(val)
+        parsed = json.loads(val)
     except (json.JSONDecodeError, ValueError):
         pass
+    else:
+        if not _all_finite(parsed):
+            raise ValueError(f"--set value {raw!r} is not finite")
+        return parsed
     if (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
         return val[1:-1]
     return val
+
+
+def _all_finite(value) -> bool:
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, list):
+        return all(_all_finite(item) for item in value)
+    if isinstance(value, dict):
+        return all(_all_finite(item) for item in value.values())
+    return True
 
 
 def _normalize_set_key(key: str) -> str:
@@ -462,31 +660,6 @@ def _parse_set_overrides(items):
         val = _parse_set_value(raw_val)
         overrides[norm_key] = val
     return overrides
-
-
-def _expand_set_overrides_for_model(m, overrides: dict) -> dict:
-    """Expand shorthand overrides like optimizer.lr -> train.lr (or optimizers.<component>.lr) on hypergan-model/1 specs."""
-    if not overrides or m is None:
-        return dict(overrides or {})
-    spec = getattr(m, "spec", {}) if hasattr(m, "spec") else (m if isinstance(m, dict) else {})
-    optimizers = spec.get("optimizers") if isinstance(spec, dict) else None
-    has_singular_opt = isinstance(spec, dict) and "optimizer" in spec
-    has_training = isinstance(spec, dict) and "training" in spec
-    expanded = {}
-    for k, v in overrides.items():
-        if k.startswith("optimizer.") and not has_singular_opt:
-            subkey = k[len("optimizer."):]
-            if isinstance(optimizers, dict) and optimizers:
-                for opt_name in optimizers:
-                    expanded[f"optimizers.{opt_name}.{subkey}"] = v
-            else:
-                expanded[f"train.{subkey}"] = v
-        elif k.startswith("training.") and not has_training:
-            subkey = k[len("training."):]
-            expanded[f"train.{subkey}"] = v
-        else:
-            expanded[k] = v
-    return expanded
 
 
 def _load_stored_run_model(run_dir: Path):
@@ -576,27 +749,66 @@ def _check_reexec(run_spec, ws_data):
     if "env" in run_spec and isinstance(run_spec["env"], dict):
         target_env_vars.update({k: str(v) for k, v in run_spec["env"].items()})
 
-    needs_reexec = False
+    needs_reexec = bool(_reexec_unsatisfied(target_python, target_src_paths, target_env_vars))
+    return needs_reexec, target_python, target_src_paths, target_env_vars
+
+
+def _reexec_unsatisfied(target_python, target_src_paths, target_env_vars):
+    """Describe each way this process differs from the requested interpreter, sources and environment."""
+    unsatisfied = []
     if target_python:
         tp = Path(target_python)
-        venv_cfg = tp.parent.parent / "pyvenv.cfg"
-        if venv_cfg.is_file():
+        if (tp.parent.parent / "pyvenv.cfg").is_file():
             if Path(sys.prefix).resolve() != tp.parent.parent.resolve():
-                needs_reexec = True
-        else:
-            if Path(sys.executable).resolve() != tp.resolve():
-                needs_reexec = True
+                unsatisfied.append(f"python venv (current: {sys.prefix}, target: {tp.parent.parent})")
+        elif Path(sys.executable).resolve() != tp.resolve():
+            unsatisfied.append(f"python (current: {sys.executable}, target: {target_python})")
+    for k, v in target_env_vars.items():
+        if os.environ.get(k) != str(v):
+            unsatisfied.append(f"env var {k} (current: {os.environ.get(k)!r}, target: {v!r})")
     resolved_head = [str(Path(x).resolve()) for x in sys.path[:len(target_src_paths) + 3] if x]
     for p in target_src_paths:
         if str(Path(p).resolve()) not in resolved_head:
-            needs_reexec = True
-            break
-    for k, v in target_env_vars.items():
-        if os.environ.get(k) != str(v):
-            needs_reexec = True
-            break
+            unsatisfied.append(f"src path {p} not in sys.path")
+    return unsatisfied
 
-    return needs_reexec, target_python, target_src_paths, target_env_vars
+
+def _cli_argv(args):
+    """The arguments this command was invoked with, without the program name."""
+    return list(getattr(args, "_argv", None) or sys.argv[1:])
+
+
+def _maybe_reexec(run_spec, ws_path, ws_data, run_dir, argv, *, prepare=None):
+    """Re-execute as ``python -m hypergan ARGV`` when the run asks for another interpreter or environment.
+
+    ``prepare(attempt, python, src_paths, env)`` runs first and may return
+    replacement arguments. Returns only when no re-exec is needed.
+    """
+    needs_reexec, target_py, target_srcs, target_envs = _check_reexec(run_spec, ws_data)
+    if not needs_reexec:
+        return
+    if os.environ.get("_HYPERGAN_REEXEC") == "1":
+        unsatisfied = _reexec_unsatisfied(target_py, target_srcs, target_envs)
+        raise RuntimeError(
+            f"Re-exec loop detected: process was already re-executed with _HYPERGAN_REEXEC=1, "
+            f"but target environment conditions remain unsatisfied: {', '.join(unsatisfied)}"
+        )
+    attempt = _determine_attempt(run_dir)
+    if prepare is not None:
+        argv = prepare(attempt, target_py, target_srcs, target_envs)
+    new_env = os.environ.copy()
+    new_env["_HYPERGAN_REEXEC"] = "1"
+    new_env["_HYPERGAN_REEXEC_ATTEMPT"] = f"{attempt:04d}"
+    if ws_path:
+        new_env["HYPERGAN_WORKSPACE"] = str(ws_path)
+    for k, v in target_envs.items():
+        new_env[k] = str(v)
+    if target_srcs:
+        cur_pp = new_env.get("PYTHONPATH", "")
+        prefix = ":".join(target_srcs)
+        new_env["PYTHONPATH"] = f"{prefix}:{cur_pp}" if cur_pp else prefix
+    target_executable = target_py or sys.executable
+    os.execve(target_executable, [target_executable, "-m", "hypergan", *argv], new_env)
 
 
 def _determine_attempt(run_dir: Path) -> int:
@@ -665,6 +877,26 @@ def _reconstruct_argv_for_reexec(argv, old_config_str, new_config_str, run_dir_s
 
 
 
+def _project_recipes(configs_dir):
+    """The project's configs/*.toml recipe as a list of at most one.
+
+    Several recipes are ambiguous, so a command given only the project refuses to pick one.
+    """
+    recipes = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
+    if len(recipes) > 1:
+        recipe_list = "\n".join(f"  - {p}" for p in recipes)
+        raise ValueError(f"Multiple recipes found in {configs_dir}. Specify which recipe to use:\n{recipe_list}")
+    return recipes
+
+
+def _sampler_output_path(sample_path, sampler, view):
+    """Where ``sample --sampler`` saves the sampler's result: next to the sample, never over it."""
+    sample_path = Path(sample_path)
+    label = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(sampler)).strip("-.") or "view"
+    suffix = {"Image": ".png", "Audio": ".wav"}.get(type(view).__name__, sample_path.suffix)
+    return sample_path.with_name(f"{sample_path.stem}-{label}{suffix}")
+
+
 def _print_json(value):
     print(json.dumps(value, indent=2, sort_keys=True))
 
@@ -686,6 +918,27 @@ def _warnings(config):
 
 
 def _training_viewer(args, *, config=None):
+    if getattr(args, "node_rank", None) is not None and args.node_rank > 0:
+        from contextlib import nullcontext
+        return nullcontext()
+    for k in ("NODE_RANK", "GROUP_RANK", "SLURM_NODEID"):
+        val = os.environ.get(k)
+        if val is not None:
+            try:
+                if int(val) > 0:
+                    from contextlib import nullcontext
+                    return nullcontext()
+            except ValueError:
+                pass
+    if config and isinstance(config, dict):
+        cand_rank = config.get('run', {}).get('node_rank')
+        if cand_rank is not None:
+            try:
+                if int(cand_rank) > 0:
+                    from contextlib import nullcontext
+                    return nullcontext()
+            except ValueError:
+                pass
     if args.no_server:
         if (args.open or args.server_port is not None or args.server_host is not None
                 or args.auth is not None or args.public_origin is not None or args.viewer_dev):
@@ -696,6 +949,40 @@ def _training_viewer(args, *, config=None):
     if config and isinstance(config, dict) and config.get('run', {}).get('viewer') is False:
         from contextlib import nullcontext
         return nullcontext()
+
+    # TTY-gated viewer autostart: autostart viewer only on interactive TTY
+    # unless explicitly forced, respecting HYPERGAN_NO_SERVER=1 and CI=1.
+    forced = bool(getattr(args, "server", False) or getattr(args, "open", False))
+    has_explicit_viewer_args = bool(
+        forced
+        or getattr(args, "server_port", None) is not None
+        or getattr(args, "server_host", None) is not None
+        or getattr(args, "auth", None) is not None
+        or getattr(args, "public_origin", None) is not None
+        or getattr(args, "viewer_dev", False)
+    )
+
+    if os.environ.get("HYPERGAN_NO_SERVER") == "1":
+        if not forced:
+            from contextlib import nullcontext
+            return nullcontext()
+
+    if not has_explicit_viewer_args:
+        ci_val = os.environ.get("CI", "").strip().lower()
+        if ci_val in ("1", "true", "yes"):
+            from contextlib import nullcontext
+            return nullcontext()
+
+        is_interactive = (
+            hasattr(sys.stdin, "isatty")
+            and sys.stdin.isatty()
+            and hasattr(sys.stdout, "isatty")
+            and sys.stdout.isatty()
+        )
+        if not is_interactive:
+            from contextlib import nullcontext
+            return nullcontext()
+
     # The supervisor is a detached subprocess; the environment is what reaches it.
     if args.viewer_dev:
         from .web_dev import enable
@@ -711,7 +998,7 @@ def _training_viewer(args, *, config=None):
                     or args.public_origin is not None)
     try:
         url = ensure_dashboard_running(runs_root, port=args.server_port or DEFAULT_VIEWER_PORT,
-                                       host=args.server_host or '0.0.0.0',
+                                       host=args.server_host or '127.0.0.1',
                                        auth=args.auth or 'none',
                                        public_origin=args.public_origin,
                                        check_version=True,
@@ -730,13 +1017,19 @@ def _training_viewer(args, *, config=None):
                            config=config)
 
 
-def _print_training_header(run_dir: Path, experiment_name: str, device: str, dashboard_url: str | None = None):
+def _print_training_header(run_dir: Path, experiment_name: str, device: str, dashboard_url: str | None = None,
+                           *, execution=None, host: str | None = None):
     print("=== HyperGAN ===", file=sys.stderr)
     print(f"Run directory:  {run_dir}", file=sys.stderr)
     print(f"Experiment:     {experiment_name}", file=sys.stderr)
 
     device_str = str(device)
-    if "cuda" in device_str.lower():
+    if execution and execution.get('name') == 'cuda-replicated-nccl':
+        # The coordinator must stay Torch-free. Worker construction owns CUDA;
+        # describe the resolved local rank mapping without probing a GPU here.
+        count = execution.get('ranks_per_node', execution['world_size'])
+        device_str = ', '.join(f'gpu{rank}' for rank in range(count)) + ' (CUDA, NCCL)'
+    elif "cuda" in device_str.lower():
         try:
             import torch
             dev_idx = 0
@@ -753,21 +1046,38 @@ def _print_training_header(run_dir: Path, experiment_name: str, device: str, das
         device_str = "cpu (CPU)"
     print(f"Devices:        {device_str}", file=sys.stderr)
 
+    if execution:
+        nodes = execution.get("nodes", 1)
+        node_rank = execution.get("node_rank", 0)
+        world_size = execution.get("world_size", 1)
+        ranks_per_node = execution.get("ranks_per_node", world_size)
+        if nodes > 1:
+            print(f"Cluster:        Node {node_rank}/{nodes} ({world_size} global ranks, {ranks_per_node} local)", file=sys.stderr)
+        agg = execution.get("aggregation", {})
+        if isinstance(agg, dict):
+            strategy = agg.get("strategy", "gradient_allreduce")
+            if strategy != "gradient_allreduce":
+                sync = agg.get("sync_every_steps", 1)
+                print(f"Strategy:       {strategy} (sync every {sync} steps)", file=sys.stderr)
+
     import platform
     print(f"Environment:    Python {platform.python_version()} ({sys.executable})", file=sys.stderr)
 
     if dashboard_url:
         lan_url = None
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            lan_ip = s.getsockname()[0]
-            s.close()
-            if lan_ip and lan_ip != "127.0.0.1" and "localhost" in dashboard_url:
-                lan_url = dashboard_url.replace("localhost", lan_ip).replace("127.0.0.1", lan_ip)
-        except Exception:
-            pass
+        # Skip external 8.8.8.8:80 UDP probe when listening on loopback (default 127.0.0.1)
+        is_wildcard = host in ("0.0.0.0", "")
+        if is_wildcard:
+            try:
+                import socket
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                lan_ip = s.getsockname()[0]
+                s.close()
+                if lan_ip and lan_ip != "127.0.0.1" and "localhost" in dashboard_url:
+                    lan_url = dashboard_url.replace("localhost", lan_ip).replace("127.0.0.1", lan_ip)
+            except Exception:
+                pass
         if lan_url:
             print(f"Dashboard:      {dashboard_url} (or {lan_url})", file=sys.stderr)
         else:
@@ -777,121 +1087,21 @@ def _print_training_header(run_dir: Path, experiment_name: str, device: str, das
 
 
 
-def _flatten_dict(d, prefix=""):
-    items = {}
-    if not isinstance(d, dict):
-        return {prefix: d}
-    for k, v in d.items():
-        new_key = f"{prefix}.{k}" if prefix else str(k)
-        if isinstance(v, dict) and v:
-            items.update(_flatten_dict(v, new_key))
-        else:
-            items[new_key] = v
-    return items
-
-
-def _extract_diffable_config(target, hg):
-    from .api import _clean_diff_dict
-    target_str = str(target)
-    target_p = Path(target_str)
-
-    if target_str.endswith(".toml") or (target_p.is_file() and target_p.suffix == ".toml"):
-        if not target_p.is_file():
-            raise FileNotFoundError(f"Run or recipe target '{target_str}' not found")
-        m = hg.load(target_p)
-        return _clean_diff_dict(dict(hg.resolve(m)))
-
-    if target_str.endswith(".pt") or (target_p.is_file() and target_p.suffix == ".pt"):
-        if not target_p.is_file():
-            raise FileNotFoundError(f"Checkpoint file '{target_str}' not found")
-        try:
-            import torch
-            state = torch.load(target_p, map_location="cpu", weights_only=True)
-            if isinstance(state, dict):
-                if "config" in state and isinstance(state["config"], dict):
-                    return _clean_diff_dict(state["config"])
-                if "model_state_dict" in state:
-                    return {k: list(v.shape) for k, v in state["model_state_dict"].items() if hasattr(v, "shape")}
-            return {}
-        except Exception as exc:
-            raise ValueError(f"Could not load checkpoint '{target_str}': {exc}") from exc
-
-    try:
-        resolved = hg.resolve_run_target(target_str)
-    except Exception as exc:
-        raise FileNotFoundError(f"Run or recipe target '{target_str}' not found") from exc
-
-    manifest_p = resolved / "manifest.json"
-    if manifest_p.is_file():
-        try:
-            m_data = json.loads(manifest_p.read_text(encoding="utf-8"))
-            if "config" in m_data and isinstance(m_data["config"], dict):
-                return _clean_diff_dict(m_data["config"])
-        except Exception:
-            pass
-
-    for fname in ("model.toml", "recipe.toml", "config.toml"):
-        recipe_p = resolved / fname
-        if recipe_p.is_file():
-            m = hg.load(recipe_p)
-            return _clean_diff_dict(dict(hg.resolve(m)))
-
-    raise FileNotFoundError(f"Run or recipe target '{target_str}' not found or contains no configuration")
-
-
 def _run_diff(target_a, target_b=None, sets=None, is_json=False):
     from . import api as hg
-    from .api import _clean_diff_dict
-    if target_b is None and not sets:
-        raise ValueError("diff requires a second target (target_b) or at least one -s/--set override")
-    cfg_a = _extract_diffable_config(target_a, hg)
-    if target_b is None:
-        m_a = hg.load(target_a)
-        expanded = _expand_set_overrides_for_model(m_a, sets)
-        m_b = hg.override(m_a, expanded)
-        cfg_b = _clean_diff_dict(dict(hg.resolve(m_b)))
-        target_b_display = f"{target_a} (with overrides)"
-    elif sets:
-        m_b = hg.load(target_b)
-        expanded = _expand_set_overrides_for_model(m_b, sets)
-        m_b = hg.override(m_b, expanded)
-        cfg_b = _clean_diff_dict(dict(hg.resolve(m_b)))
-        target_b_display = f"{target_b} (with overrides)"
-    else:
-        cfg_b = _extract_diffable_config(target_b, hg)
-        target_b_display = str(target_b)
-
-    flat_a = _flatten_dict(cfg_a)
-    flat_b = _flatten_dict(cfg_b)
-    all_keys = sorted(set(flat_a.keys()) | set(flat_b.keys()))
-
-    differences = {}
-    for k in all_keys:
-        val_a = flat_a.get(k)
-        val_b = flat_b.get(k)
-        if val_a != val_b:
-            differences[k] = {"a": val_a, "b": val_b}
-
-    identical = len(differences) == 0
-    res = {
-        "target_a": str(target_a),
-        "target_b": target_b_display,
-        "identical": identical,
-        "differences": differences,
-    }
+    res = hg.diff(target_a, target_b, sets=sets)
     if is_json:
         _print_json(res)
+    elif res["identical"]:
+        print(f"No differences found between {res['target_a']} and {res['target_b']}.")
     else:
-        if identical:
-            print(f"No differences found between {target_a} and {target_b_display}.")
-        else:
-            print(f"Differences between {target_a} and {target_b_display}:")
-            print(f"{'Key':<35} {'Target A':<25} {'Target B':<25}")
-            print("-" * 87)
-            for k, diff in differences.items():
-                str_a = str(diff["a"]) if diff["a"] is not None else "(none)"
-                str_b = str(diff["b"]) if diff["b"] is not None else "(none)"
-                print(f"{k:<35} {str_a:<25} {str_b:<25}")
+        print(f"Differences between {res['target_a']} and {res['target_b']}:")
+        print(f"{'Key':<35} {'Target A':<25} {'Target B':<25}")
+        print("-" * 87)
+        for k, diff in res["differences"].items():
+            str_a = str(diff["a"]) if diff["a"] is not None else "(none)"
+            str_b = str(diff["b"]) if diff["b"] is not None else "(none)"
+            print(f"{k:<35} {str_a:<25} {str_b:<25}")
     return 0
 
 
@@ -931,7 +1141,8 @@ def _run_doctor(is_json=False):
     except Exception:
         pass
 
-    state_dir = os.environ.get("HYPERGAN_STATE_DIR") or os.environ.get("HYPERGAN_HOME") or str(Path.home() / ".hypergan")
+    from .registry import get_registry_dir
+    state_dir = str(get_registry_dir())
 
     check_dir = Path(runs_root) if runs_root else Path.cwd()
     total_bytes = 0
@@ -1084,6 +1295,8 @@ def _run_report(run_targets=None, is_json=False):
                 artifacts.append(cand)
         if (r_dir / "checkpoints").is_dir():
             artifacts.append("checkpoints/")
+        if (r_dir / "distributed-checkpoints").is_dir():
+            artifacts.append("distributed-checkpoints/")
 
         records.append({
             "run_id": run_id,
@@ -1127,12 +1340,21 @@ def main(argv=None):
     if not argv:
         _parser().print_help()
         return 0
+    _CustomParser._active_argv = list(argv)
     args = _parser().parse_args(argv)
+    args._argv = list(argv)
     if getattr(args, "global_json", False):
         setattr(args, "json", True)
+    if not hasattr(args, "json"):
+        setattr(args, "json", False)
+    if getattr(args, "global_quiet", False):
+        setattr(args, "quiet", True)
+    if not hasattr(args, "quiet"):
+        setattr(args, "quiet", False)
+
     if args.command in {"train", "resume"}:
         from .bounded_cli_output import training_output
-        with training_output(progress_json=args.progress_json) as output:
+        with training_output(progress_json=args.progress_json or args.json, quiet=args.quiet) as output:
             return _dispatch(args, output=output)
     return _dispatch(args)
 
@@ -1142,7 +1364,47 @@ def _dispatch(args, *, output=None):
         from . import api as hg
 
         if args.command == "version":
-            print(f"hypergan {__version__}")
+            if getattr(args, "json", False):
+                _print_json({"version": __version__})
+            elif getattr(args, "quiet", False):
+                print(__version__)
+            else:
+                print(f"hypergan {__version__}")
+        elif args.command == "schema":
+            section = getattr(args, "section", None)
+            from .schema_info import get_schema
+            try:
+                res = get_schema(section)
+            except KeyError as exc:
+                if getattr(args, "json", False):
+                    print(json.dumps(_format_error_envelope(exc), indent=2), file=sys.stdout)
+                else:
+                    print(f"error: {exc}", file=sys.stderr)
+                return 1
+            if getattr(args, "json", False):
+                print(json.dumps(res, indent=2), file=sys.stdout)
+            else:
+                if section:
+                    print(f"HyperGAN Schema Section: [{section}]")
+                    for k, v in res.items():
+                        if k not in ("format", "section"):
+                            print(f"  {k}: {v}")
+                else:
+                    print(f"HyperGAN Model Specification ({res.get('format', 'hypergan-model/1')})")
+                    print("Available sections:")
+                    for s in sorted(res.get("sections", {}).keys()):
+                        desc = res["sections"][s].get("description", "")
+                        print(f"  [{s}] - {desc}")
+        elif args.command == "ops":
+            from .ops_info import get_operators
+            ops_list = get_operators(getattr(args, "query", None))
+            if getattr(args, "json", False):
+                print(json.dumps(ops_list, indent=2), file=sys.stdout)
+            else:
+                q_label = f" matching '{args.query}'" if getattr(args, "query", None) else ""
+                print(f"HyperGAN HNDL Operators ({len(ops_list)}{q_label}):")
+                for op in ops_list:
+                    print(f"  {op['name']:<20} [{op['category']:<14}] {op['summary']}")
         elif args.command == "inspect":
             target_p = hg.resolve_run_target(None) if args.path is None else args.path
             run = hg.open_run(target_p)
@@ -1150,7 +1412,7 @@ def _dispatch(args, *, output=None):
         elif args.command == "ps":
             ps_data = hg.ps(all_runs=args.all_runs)
             if args.json:
-                _print_json(ps_data)
+                _print_json(dict(ps_data))
             else:
                 from .inspection import format_ps_table
                 out_str = format_ps_table(ps_data, all_runs=args.all_runs, quiet=args.quiet)
@@ -1167,51 +1429,8 @@ def _dispatch(args, *, output=None):
             target = hg.resolve_run_target(args.run_dir) if args.run_dir is not None else hg.resolve_run_target(None)
             if not target.exists():
                 raise FileNotFoundError(f"Run directory does not exist: {target}")
-            if getattr(args, "json", False):
-                events_file = target / "events.jsonl"
-                offset = 0
-                if events_file.is_file():
-                    with events_file.open("rb") as f:
-                        raw_bytes = f.read()
-                        offset = len(raw_bytes)
-                    lines = [ln for ln in raw_bytes.decode("utf-8", errors="replace").splitlines() if ln.strip()]
-                    if args.tail and args.tail > 0:
-                        lines = lines[-args.tail:]
-                    for ln in lines:
-                        sys.stdout.write(ln + "\n")
-                    sys.stdout.flush()
-                if args.follow:
-                    import time
-                    try:
-                        while True:
-                            if events_file.is_file():
-                                try:
-                                    with events_file.open("rb") as f:
-                                        f.seek(offset)
-                                        chunk = f.read()
-                                        if chunk:
-                                            offset += len(chunk)
-                                            for ln in chunk.decode("utf-8", errors="replace").splitlines():
-                                                if ln.strip():
-                                                    sys.stdout.write(ln + "\n")
-                                                    sys.stdout.flush()
-                                                    try:
-                                                        ev = json.loads(ln)
-                                                        if ev.get("event") in ("complete", "completed", "stopped", "failed"):
-                                                            return 0
-                                                    except Exception:
-                                                        pass
-                                except OSError:
-                                    pass
-                            from .inspection import check_run_active
-                            is_active, _ = check_run_active(target)
-                            if not is_active:
-                                break
-                            time.sleep(0.25)
-                    except KeyboardInterrupt:
-                        pass
-            else:
-                hg.logs(target, tail=args.tail, follow=args.follow, stream=sys.stdout)
+            # One follow loop for both formats; it never splits a record that is still being written.
+            hg.logs(target, tail=args.tail, follow=args.follow, raw=bool(getattr(args, "json", False)), stream=sys.stdout)
         elif args.command == "stop":
             res = hg.stop(args.run_dir, stop_all=args.all, timeout=args.timeout)
             if args.json:
@@ -1219,35 +1438,17 @@ def _dispatch(args, *, output=None):
             else:
                 print(res.get("message", f"Stopped {res.get('short_id', '')}"))
         elif args.command == "tag":
-            from . import inspection
-            if hasattr(inspection, "tag_run"):
-                res = dict(inspection.tag_run(args.run_dir, args.name))
-            else:
-                res = hg.tag(args.run_dir, args.name)
-            run_id_short = str(res.get("short_id") or res.get("run_id", ""))[:8]
-            r_name = res.get("name", args.name)
-            r_dir = res.get("run_dir", str(args.run_dir))
-            res.setdefault("short_id", run_id_short)
-            res.setdefault("message", f"Tagged {run_id_short} as '{r_name}' ({r_dir})")
+            res = hg.tag(args.run_dir, args.name)
             if getattr(args, "json", False) or not sys.stdout.isatty():
                 _print_json(res)
             else:
-                print(f"Tagged {run_id_short} as '{r_name}' ({r_dir})")
+                print(res["message"])
         elif args.command == "rm":
-            from . import inspection
-            if hasattr(inspection, "remove_run"):
-                res = dict(inspection.remove_run(args.run_dir, force=args.force))
-            else:
-                res = hg.rm(args.run_dir, force=args.force)
-            run_id_short = str(res.get("short_id") or res.get("run_id", ""))[:8]
-            r_dir = res.get("run_dir", str(args.run_dir))
-            r_name = res.get("name", Path(r_dir).name if r_dir else "")
-            res.setdefault("short_id", run_id_short)
-            res.setdefault("message", f"Removed run '{r_name}' ({run_id_short}) at {r_dir}")
+            res = hg.rm(args.run_dir, force=args.force)
             if getattr(args, "json", False) or not sys.stdout.isatty():
                 _print_json(res)
             else:
-                print(f"Removed run '{r_name}' ({run_id_short}) at {r_dir}")
+                print(res["message"])
         elif args.command == "runs":
             if getattr(args, "runs_command", None) is None:
                 args.runs_command = "ls"
@@ -1306,13 +1507,15 @@ def _dispatch(args, *, output=None):
                 explain_path = hg.resolve_run_target(None)
             elif explain_path.is_dir() and not (explain_path / "model.toml").is_file():
                 configs_dir = explain_path / "configs"
-                cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
+                cand_tomls = _project_recipes(configs_dir)
                 if cand_tomls:
                     explain_path = cand_tomls[0]
             m = hg.load(explain_path)
+            if not Path(explain_path).exists() and getattr(m, "path", None) is not None:
+                explain_path = m.path
             e_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
             if e_sets:
-                e_sets = _expand_set_overrides_for_model(m, e_sets)
+                e_sets = hg._expand_override_shorthand(m, e_sets)
                 m = hg.override(m, e_sets)
             text = hg.explain(m)
             if getattr(args, "json", False):
@@ -1324,6 +1527,9 @@ def _dispatch(args, *, output=None):
             return _run_doctor(is_json=getattr(args, "json", False))
         elif args.command == "report":
             return _run_report(run_targets=args.runs, is_json=getattr(args, "json", False))
+        elif args.command == "qualify":
+            from .qualify import run_qualification_cli
+            return run_qualification_cli(args)
         elif args.command in {"gc", "prune"}:
             if args.all:
                 res = hg.gc_all(root=args.run_dir, dry_run=args.dry_run, stride=args.stride)
@@ -1347,8 +1553,8 @@ def _dispatch(args, *, output=None):
                     if skipped_count:
                         print(f"  Skipped:  {skipped_count} active runs")
             else:
-                target_run = hg.resolve_run_target(args.run_dir)
-                res = hg.gc(target_run, dry_run=args.dry_run, stride=args.stride)
+                # gc resolves strictly itself; the fuzzy read-only resolver must not pick its target.
+                res = hg.gc(args.run_dir, dry_run=args.dry_run, stride=args.stride)
                 if getattr(args, "json", False):
                     _print_json(res)
                 else:
@@ -1357,7 +1563,7 @@ def _dispatch(args, *, output=None):
                     events_str = format_bytes(res.get("events_reclaimed_bytes", 0))
                     total_str = format_bytes(res.get("reclaimed_bytes", 0))
                     prefix = "Would clean" if args.dry_run else "Cleaned"
-                    print(f"{prefix} run: {res.get('run_dir', target_run)}")
+                    print(f"{prefix} run: {res.get('run_dir', args.run_dir)}")
                     print(f"  Views removed:     {views_str}")
                     print(f"  Events compacted:  {events_str}")
                     print(f"  Total reclaimed:   {total_str}")
@@ -1422,15 +1628,72 @@ def _dispatch(args, *, output=None):
                 _print_json(hg.request_checkpoint(args.run_dir, attempt_id=args.attempt_id, request_id=args.request_id))
         elif args.command == "checkpoints":
             if getattr(args, "checkpoints_command", None) == "prune":
-                _print_json(hg.prune_checkpoints(args.run_dir, dry_run=args.dry_run))
+                try:
+                    from .registry import resolve_destructive_target
+                    target = resolve_destructive_target(args.run_dir)
+                except (ValueError, FileNotFoundError):
+                    target = args.run_dir
+                _print_json(hg.prune_checkpoints(target, dry_run=args.dry_run))
         elif args.command == "export":
-            out = hg.export(args.run_dir, checkpoint=args.checkpoint, output=args.output)
+            fmt = getattr(args, "format", "bundle")
+            inc_inputs = getattr(args, "include_example_inputs", False)
+            dev = getattr(args, "device", "cpu")
+            out = hg.export_generator(args.run_dir, output_path=args.output, format=fmt, include_example_inputs=inc_inputs, checkpoint=args.checkpoint, device=dev)
             if getattr(args, "json", False):
                 _print_json({"exported": str(out)})
             else:
                 print(out)
         elif args.command == "data-check":
             _print_json(hg.data_check(args.config, output=args.output))
+        elif args.command == "download-data":
+            if getattr(args, "list_datasets", False):
+                datasets = hg.list_datasets()
+                if getattr(args, "json", False):
+                    _print_json({"datasets": datasets})
+                else:
+                    for ds in datasets:
+                        mib = ds["expected_bytes"] / (1024 * 1024)
+                        print(f"{ds['name']} ({ds['version']}) - {ds['expected_bytes']} bytes ({mib:.2f} MiB) - {ds['url']}")
+                        print(f"  {ds['usage_notice']}")
+            elif getattr(args, "info", False):
+                info = hg.dataset_info(args.dataset)
+                if getattr(args, "json", False):
+                    _print_json(info)
+                else:
+                    mib = info["expected_bytes"] / (1024 * 1024)
+                    print(f"Dataset:         {info['name']} ({info['title']})")
+                    print(f"Version:         {info['version']}")
+                    print(f"Source URL:      {info['url']}")
+                    print(f"Archive:         {info['archive_filename']} ({info['expected_bytes']} bytes, {mib:.2f} MiB)")
+                    print(f"Archive SHA256:  {info['archive_sha256']}")
+                    print(f"Extracted dir:   {info['extracted_dir']}")
+                    print(f"Data factory:    {info['factory']}")
+                    print("Pinned files:")
+                    for fname, fsha in info["files_sha256"].items():
+                        print(f"  {fname}: {fsha}")
+                    print(f"Citation:        {info['citation']}")
+                    print(f"Usage notice:    {info['usage_notice']}")
+            else:
+                hg.dataset_info(args.dataset)
+                if args.output is None:
+                    raise ValueError("hypergan download-data requires --output DIR (or pass --info / --list)")
+                res = hg.download_dataset(
+                    args.dataset,
+                    args.output,
+                    cache_dir=args.cache_dir,
+                    url=args.url,
+                    source_archive=args.source_archive,
+                    verify_only=args.verify_only,
+                    timeout=args.timeout,
+                )
+                if getattr(args, "json", False):
+                    _print_json(res)
+                else:
+                    print(f"Prepared dataset: {res['dataset']} ({res['version']})")
+                    print(f"Root directory:   {res['root']}")
+                    print(f"Manifest:         {res['manifest_path']}")
+                    print(f"Usage notice:     {res['usage_notice']}")
+                    print("\nConfiguration snippet:\n" + res["config_snippet"].rstrip())
         elif args.command == "preflight":
             cfg = hg.load(args.config)
             _warnings(hg.resolve(cfg))
@@ -1443,13 +1706,15 @@ def _dispatch(args, *, output=None):
                     return 0
                 proj_dir = getattr(args, "project", None)
                 tmpl = getattr(args, "template", None)
+                if getattr(args, "conditional", False) and tmpl is None:
+                    tmpl = "conditional"
                 res_opt = getattr(args, "resolution", None)
                 out_opt = getattr(args, "output", None)
                 if proj_dir is not None:
                     dataset_arg = args.dataset if args.dataset is not None else args.path
                     info = hg.init_project(
                         proj_dir,
-                        template=tmpl or "dcgan",
+                        template=tmpl,
                         resolution=res_opt,
                         data_dir=dataset_arg,
                         output_config=out_opt,
@@ -1514,7 +1779,7 @@ def _dispatch(args, *, output=None):
                 validate_path = args.path
                 if validate_path.is_dir() and not (validate_path / "model.toml").is_file():
                     configs_dir = validate_path / "configs"
-                    cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
+                    cand_tomls = _project_recipes(configs_dir)
                     if cand_tomls:
                         validate_path = cand_tomls[0]
                     elif (validate_path / "hypergan.toml").is_file():
@@ -1530,7 +1795,7 @@ def _dispatch(args, *, output=None):
                 elif validate_path.is_file() and validate_path.name == "hypergan.toml":
                     ws_info = hg.load_workspace(validate_path)
                     configs_dir = validate_path.parent / "configs"
-                    cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
+                    cand_tomls = _project_recipes(configs_dir)
                     if cand_tomls:
                         print(
                             f"note: {validate_path} is a workspace config; validating project recipe {cand_tomls[0]}",
@@ -1548,9 +1813,11 @@ def _dispatch(args, *, output=None):
                         return 0
 
                 m = hg.load(validate_path)
+                if not validate_path.exists() and getattr(m, "path", None) is not None:
+                    validate_path = m.path
                 v_sets = _parse_set_overrides(args.sets) if getattr(args, "sets", None) else {}
                 if v_sets:
-                    v_sets = _expand_set_overrides_for_model(m, v_sets)
+                    v_sets = hg._expand_override_shorthand(m, v_sets)
                     m = hg.override(m, v_sets)
                 warnings = hg.validate(m)
                 for warning in warnings:
@@ -1603,6 +1870,11 @@ def _dispatch(args, *, output=None):
                            service_policy={name: getattr(args, name) for name in SERVICE_TIMEOUTS
                                            if getattr(args, name) is not None},
                            devices=getattr(args, "devices", None),
+                           nodes=getattr(args, "nodes", None),
+                           node_rank=getattr(args, "node_rank", None),
+                           rendezvous=getattr(args, "rendezvous", None),
+                           strategy=getattr(args, "strategy", None),
+                           sync_every=getattr(args, "sync_every", None),
                            checkpoint_every=args.checkpoint_every, max_seconds=args.max_seconds,
                            stop_after_steps=args.stop_after_steps,
                            preview_every=args.preview_every, preview_keep=args.preview_keep,
@@ -1631,7 +1903,18 @@ def _dispatch(args, *, output=None):
                 is_run_dir = bool(target_path and target_path.is_dir() and (
                     (target_path / "manifest.json").is_file() or (target_path / "recipe.toml").is_file() or (target_path / "summary.json").is_file()
                 ))
-                if not is_run_dir and target_arg is not None and not target_path.exists() and not str(target_arg).endswith(".toml"):
+                if not is_run_dir and target_arg is not None and not target_path.exists():
+                    from .config import resolve_packaged_model_path
+                    pkg_cand = resolve_packaged_model_path(target_arg)
+                    if pkg_cand is not None:
+                        target_path = pkg_cand
+                if (
+                    not is_run_dir
+                    and not explicit_run_dir
+                    and target_arg is not None
+                    and not target_path.exists()
+                    and not str(target_arg).endswith(".toml")
+                ):
                     try:
                         cand_resolved = hg.resolve_run_target(target_arg)
                         if _is_valid_run_dir(cand_resolved):
@@ -1682,7 +1965,7 @@ def _dispatch(args, *, output=None):
                     except Exception:
                         m = None
                 if m and sets:
-                    sets = _expand_set_overrides_for_model(m, sets)
+                    sets = hg._expand_override_shorthand(m, sets)
                     m = hg.override(m, sets)
                 if is_cpu_override:
                     if m:
@@ -1737,53 +2020,7 @@ def _dispatch(args, *, output=None):
                     ws_path = Path(os.environ["HYPERGAN_WORKSPACE"])
                 ws_data = hg.load_workspace(ws_path) if ws_path else {}
 
-                needs_reexec, target_py, target_srcs, target_envs = _check_reexec(run_spec, ws_data)
-                if needs_reexec:
-                    if os.environ.get("_HYPERGAN_REEXEC") == "1":
-                        unsatisfied = []
-                        if target_py:
-                            tp = Path(target_py)
-                            venv_cfg = tp.parent.parent / "pyvenv.cfg"
-                            if venv_cfg.is_file():
-                                if Path(sys.prefix).resolve() != tp.parent.parent.resolve():
-                                    unsatisfied.append(f"python venv (current: {sys.prefix}, target: {tp.parent.parent})")
-                            else:
-                                if Path(sys.executable).resolve() != tp.resolve():
-                                    unsatisfied.append(f"python (current: {sys.executable}, target: {target_py})")
-                        for k, v in target_envs.items():
-                            if os.environ.get(k) != str(v):
-                                unsatisfied.append(f"env var {k} (current: {os.environ.get(k)!r}, target: {v!r})")
-                        resolved_head = [str(Path(x).resolve()) for x in sys.path[:len(target_srcs) + 3] if x]
-                        for p in target_srcs:
-                            if str(Path(p).resolve()) not in resolved_head:
-                                unsatisfied.append(f"src path {p} not in sys.path")
-                        raise RuntimeError(
-                            f"Re-exec loop detected: process was already re-executed with _HYPERGAN_REEXEC=1, "
-                            f"but target environment conditions remain unsatisfied: {', '.join(unsatisfied)}"
-                        )
-
-                    attempt = _determine_attempt(args.run_dir)
-                    new_env = os.environ.copy()
-                    new_env["_HYPERGAN_REEXEC"] = "1"
-                    new_env["_HYPERGAN_REEXEC_ATTEMPT"] = f"{attempt:04d}"
-                    if ws_path:
-                        new_env["HYPERGAN_WORKSPACE"] = str(ws_path)
-                    for k, v in target_envs.items():
-                        new_env[k] = str(v)
-                    if target_srcs:
-                        cur_pp = new_env.get("PYTHONPATH", "")
-                        prefix = ":".join(target_srcs)
-                        new_env["PYTHONPATH"] = f"{prefix}:{cur_pp}" if cur_pp else prefix
-
-                    target_executable = target_py or sys.executable
-                    raw_args = list(sys.argv)
-                    if len(raw_args) >= 3 and raw_args[1] == "-m" and raw_args[2] == "hypergan":
-                        exec_argv = [target_executable, "-m", "hypergan", *raw_args[3:]]
-                    elif "hypergan" in Path(raw_args[0]).name:
-                        exec_argv = [target_executable, "-m", "hypergan", *raw_args[1:]]
-                    else:
-                        exec_argv = [target_executable, *raw_args[1:]]
-                    os.execve(target_executable, exec_argv, new_env)
+                _maybe_reexec(run_spec, ws_path, ws_data, args.run_dir, _cli_argv(args))
 
                 resume_model = m if (config_override or sets) else None
                 prepared = hg.prepare_resume(args.run_dir, getattr(args, "checkpoint", None), resume_model, steps=getattr(args, "steps", None), sets=sets, **options)
@@ -1792,60 +2029,33 @@ def _dispatch(args, *, output=None):
                 if config_path is not None:
                     if config_path.is_dir() and not (config_path / "model.toml").is_file():
                         configs_dir = config_path / "configs"
-                        cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
-                        if len(cand_tomls) == 1:
+                        cand_tomls = _project_recipes(configs_dir)
+                        if cand_tomls:
                             print(
                                 f"note: '{config_path}' is a project directory; selected recipe '{cand_tomls[0]}'",
                                 file=sys.stderr,
                             )
                             config_path = cand_tomls[0]
-                        elif len(cand_tomls) > 1:
-                            recipe_list = "\n".join(f"  - {p}" for p in cand_tomls)
-                            raise ValueError(
-                                f"Multiple recipes found in {configs_dir}. Specify which recipe to train:\n{recipe_list}"
-                            )
                         elif (config_path / "hypergan.toml").is_file():
                             raise ValueError(
                                 f"No recipes found in {configs_dir}. Place a model recipe in {configs_dir}/*.toml or specify a recipe file directly."
                             )
                     elif config_path.is_file() and config_path.name == "hypergan.toml":
                         configs_dir = config_path.parent / "configs"
-                        cand_tomls = sorted(configs_dir.glob("*.toml")) if configs_dir.is_dir() else []
-                        if len(cand_tomls) == 1:
+                        cand_tomls = _project_recipes(configs_dir)
+                        if cand_tomls:
                             print(
                                 f"note: '{config_path}' is a workspace config; selected recipe '{cand_tomls[0]}'",
                                 file=sys.stderr,
                             )
                             config_path = cand_tomls[0]
-                        elif len(cand_tomls) > 1:
-                            recipe_list = "\n".join(f"  - {p}" for p in cand_tomls)
-                            raise ValueError(
-                                f"Multiple recipes found in {configs_dir}. Specify which recipe to train:\n{recipe_list}"
-                            )
                         else:
                             raise ValueError(
                                 f"No recipes found in {configs_dir}. Place a model recipe in {configs_dir}/*.toml or specify a recipe file directly."
                             )
                 custom_name = getattr(args, "name", None)
                 if args.run_dir is None:
-                    ws_path = hg.find_workspace(config_path)
-                    if ws_path:
-                        ws_data = hg.load_workspace(ws_path)
-                        ws_sec = ws_data.get("workspace", {})
-                        runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else Path.cwd().resolve()
-                        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else hg.generate_run_slug(config_path.stem, parent_dir=runs_root)
-                        if "run_dir" in ws_sec:
-                            run_dir_str = hg.interpolate_variables(
-                                ws_sec["run_dir"],
-                                ws_data,
-                                {"stem": custom_name or config_path.stem, "name": slug_dir_name, "slug": short_slug},
-                            )
-                            args.run_dir = Path(run_dir_str).resolve()
-                        else:
-                            args.run_dir = (runs_root / slug_dir_name).resolve()
-                    else:
-                        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else hg.generate_run_slug(config_path.stem, parent_dir=Path.cwd())
-                        args.run_dir = (Path.cwd() / slug_dir_name).resolve()
+                    args.run_dir = hg._default_run_dir(config_path, name=custom_name)
                 else:
                     args.run_dir = args.run_dir.resolve()
 
@@ -1853,7 +2063,7 @@ def _dispatch(args, *, output=None):
                 if custom_name:
                     m = hg.override(m, {"name": custom_name})
                 if sets:
-                    sets = _expand_set_overrides_for_model(m, sets)
+                    sets = hg._expand_override_shorthand(m, sets)
                     m = hg.override(m, sets)
                 if is_cpu_override:
                     m = hg.override(m, {"train.device": "cpu"})
@@ -1862,7 +2072,7 @@ def _dispatch(args, *, output=None):
                     try:
                         hg.prepare(m, args.run_dir, args.steps, **options)
                     except ValueError as exc:
-                        if "differs from the original run" in str(exc) or "differs from the run manifest" in str(exc):
+                        if hg._config_differs(exc):
                             old_run_dir = args.run_dir
                             branch_stem = custom_name or config_path.stem
                             full_name, _ = hg.generate_run_slug(branch_stem, parent_dir=old_run_dir.parent)
@@ -1876,39 +2086,14 @@ def _dispatch(args, *, output=None):
                 ws_path = hg.find_workspace(config_path)
                 ws_data = hg.load_workspace(ws_path) if ws_path else {}
 
-                needs_reexec, target_py, target_srcs, target_envs = _check_reexec(run_spec, ws_data)
-                if needs_reexec:
-                    if os.environ.get("_HYPERGAN_REEXEC") == "1":
-                        unsatisfied = []
-                        if target_py:
-                            tp = Path(target_py)
-                            venv_cfg = tp.parent.parent / "pyvenv.cfg"
-                            if venv_cfg.is_file():
-                                if Path(sys.prefix).resolve() != tp.parent.parent.resolve():
-                                    unsatisfied.append(f"python venv (current: {sys.prefix}, target: {tp.parent.parent})")
-                            else:
-                                if Path(sys.executable).resolve() != tp.resolve():
-                                    unsatisfied.append(f"python (current: {sys.executable}, target: {target_py})")
-                        for k, v in target_envs.items():
-                            if os.environ.get(k) != str(v):
-                                unsatisfied.append(f"env var {k} (current: {os.environ.get(k)!r}, target: {v!r})")
-                        resolved_head = [str(Path(x).resolve()) for x in sys.path[:len(target_srcs) + 3] if x]
-                        for p in target_srcs:
-                            if str(Path(p).resolve()) not in resolved_head:
-                                unsatisfied.append(f"src path {p} not in sys.path")
-                        raise RuntimeError(
-                            f"Re-exec loop detected: process was already re-executed with _HYPERGAN_REEXEC=1, "
-                            f"but target environment conditions remain unsatisfied: {', '.join(unsatisfied)}"
-                        )
-
+                def _record_launch(attempt, target_py, target_srcs, target_envs):
+                    # The re-executed process trains from the lowered recipe written here.
                     args.run_dir.mkdir(parents=True, exist_ok=True)
                     from .provenance import write_launch_provenance, snapshot_config_sources
                     from .model_file import collect_source_files
 
                     sources = collect_source_files(config_path, ws_path.parent if ws_path else None)
                     snapshot_config_sources(args.run_dir, sources)
-
-                    attempt = _determine_attempt(args.run_dir)
                     meta = {
                         "argv": list(sys.argv),
                         "executable": target_py or sys.executable,
@@ -1920,26 +2105,13 @@ def _dispatch(args, *, output=None):
                         meta["worktree"] = target_srcs[0]
                     write_launch_provenance(args.run_dir, attempt=attempt, metadata=meta)
 
-                    lowered = hg.lower(m)
                     from .toml_writer import dumps as _dumps
-                    recipe_text = _dumps(lowered, table_depth=3)
+                    recipe_text = _dumps(hg.lower(m), table_depth=3)
                     (args.run_dir / "recipe.toml").write_text(recipe_text, encoding="utf-8")
+                    return _reconstruct_argv_for_reexec(["hypergan", *_cli_argv(args)], str(config_path),
+                                                        str(args.run_dir / "recipe.toml"), str(args.run_dir))
 
-                    new_env = os.environ.copy()
-                    new_env["_HYPERGAN_REEXEC"] = "1"
-                    new_env["_HYPERGAN_REEXEC_ATTEMPT"] = f"{attempt:04d}"
-                    if ws_path:
-                        new_env["HYPERGAN_WORKSPACE"] = str(ws_path)
-                    for k, v in target_envs.items():
-                        new_env[k] = str(v)
-                    if target_srcs:
-                        cur_pp = new_env.get("PYTHONPATH", "")
-                        prefix = ":".join(target_srcs)
-                        new_env["PYTHONPATH"] = f"{prefix}:{cur_pp}" if cur_pp else prefix
-
-                    target_executable = target_py or sys.executable
-                    new_argv = _reconstruct_argv_for_reexec(sys.argv, str(config_path), str(args.run_dir / "recipe.toml"), str(args.run_dir))
-                    os.execve(target_executable, [target_executable, "-m", "hypergan", *new_argv], new_env)
+                _maybe_reexec(run_spec, ws_path, ws_data, args.run_dir, _cli_argv(args), prepare=_record_launch)
 
                 prepared = hg.prepare(m, args.run_dir, args.steps, **options)
 
@@ -1951,44 +2123,69 @@ def _dispatch(args, *, output=None):
             hint = manual_evaluation_hint(prepared.config, **labels)
             if hint:
                 print(f"hint: {hint}", file=sys.stderr)
-            output.configure(args.run_dir, progress_every=args.progress_every,
-                             evaluation_reminder=manual_evaluation_reminder(prepared.config, **labels))
             config_dict = getattr(prepared.config, 'spec', prepared.config)
+            prog_every = args.progress_every if args.progress_every is not None else ((config_dict.get('run', {}) or {}).get('progress_every') if isinstance(config_dict, dict) else None)
+            output.configure(args.run_dir, progress_every=prog_every,
+                             evaluation_reminder=manual_evaluation_reminder(prepared.config, **labels))
             with _training_viewer(args, config=config_dict):
-                if not getattr(args, "progress_json", False):
+                if not getattr(args, "progress_json", False) and not getattr(args, "json", False) and not getattr(args, "quiet", False):
                     exp_name = config_dict.get("name") if isinstance(config_dict, dict) else (target_path.stem if target_path else args.run_dir.name)
                     train_sec = (config_dict.get("training") or config_dict.get("train") or {}) if isinstance(config_dict, dict) else {}
                     dev = "cpu" if is_cpu_override else train_sec.get("device", "cuda")
                     dashboard_url = getattr(args, "_dashboard_url", None)
-                    _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url)
+                    execution = (getattr(prepared, 'profile', None) or {}).get('execution')
+                    _print_training_header(args.run_dir, exp_name or str(args.run_dir.name), dev, dashboard_url,
+                                           execution=execution, host=getattr(args, 'server_host', None))
                 is_tty = bool(getattr(output.stdout.original, "isatty", lambda: False)()) if output and hasattr(output, "stdout") else False
                 is_profiled = getattr(prepared, "profile", None) is not None
-                human_footer = (not is_resume_cmd and not is_profiled or is_tty) and not getattr(args, "progress_json", False)
+                human_footer = (not is_resume_cmd and not is_profiled or is_tty) and not getattr(args, "progress_json", False) and not getattr(args, "json", False) and not getattr(args, "quiet", False)
                 run_manifest = prepared.run(on_event=output.progress)
                 dash_footer = getattr(args, "_dashboard_url", None) or ("headless (viewer disabled)" if args.no_server else None)
-                try:
-                    output.result(run_manifest, run_dir=args.run_dir, human=human_footer, dashboard_url=dash_footer)
-                except TypeError:
-                    output.result(run_manifest, run_dir=args.run_dir, human=human_footer)
+                output.result(run_manifest, run_dir=args.run_dir, human=human_footer, dashboard_url=dash_footer)
         elif args.command == "sample":
             raw_inputs = getattr(args, "inputs", None) or []
             parsed_inputs = None
             if raw_inputs:
                 if len(raw_inputs) == 1 and "=" not in raw_inputs[0]:
-                    parsed_inputs = Path(raw_inputs[0])
+                    val = raw_inputs[0].strip()
+                    if val.startswith(("{", "[")):
+                        try:
+                            parsed_inputs = json.loads(val)
+                        except Exception:
+                            parsed_inputs = val
+                    elif Path(val).is_file() and Path(val).suffix.lower() == ".json":
+                        try:
+                            parsed_inputs = json.loads(Path(val).read_text(encoding="utf-8"))
+                        except Exception:
+                            parsed_inputs = Path(val)
+                    else:
+                        parsed_inputs = Path(val) if Path(val).is_file() else val
                 else:
                     parsed_inputs = {}
                     for item in raw_inputs:
                         if "=" not in item:
                             raise ValueError(
-                                f"Invalid --input '{item}'; expected KEY=PATH when multiple --input flags are given"
+                                f"Invalid --input '{item}'; expected KEY=PATH or KEY=JSON when multiple --input flags are given"
                             )
                         k, v = item.split("=", 1)
                         k = k.strip()
                         v = v.strip()
                         if not k or not v:
                             raise ValueError(f"Invalid --input '{item}'; expected non-empty KEY=PATH")
-                        parsed_inputs[k] = Path(v)
+                        if v.startswith(("{", "[")):
+                            try:
+                                parsed_inputs[k] = json.loads(v)
+                            except Exception:
+                                parsed_inputs[k] = v
+                        elif Path(v).is_file() and Path(v).suffix.lower() == ".json":
+                            try:
+                                parsed_inputs[k] = json.loads(Path(v).read_text(encoding="utf-8"))
+                            except Exception:
+                                parsed_inputs[k] = Path(v)
+                        elif Path(v).is_file():
+                            parsed_inputs[k] = Path(v)
+                        else:
+                            parsed_inputs[k] = v
 
             target_raw = args.run_dir
             target_p = Path(target_raw) if target_raw is not None else None
@@ -2019,6 +2216,8 @@ def _dispatch(args, *, output=None):
                     inputs=parsed_inputs,
                     checkpoint=getattr(args, "checkpoint", None),
                     default_image_png=True,
+                    device=getattr(args, "device", None),
+                    output_dir=getattr(args, "output_dir", None),
                 )
                 if getattr(args, "json", False):
                     _print_json({"sample": str(out_path), "path": str(out_path)})
@@ -2058,15 +2257,27 @@ def _dispatch(args, *, output=None):
                     output=args.output,
                     checkpoint=getattr(args, "checkpoint", None),
                     default_image_png=True,
+                    device=getattr(args, "device", None),
+                    output_dir=getattr(args, "output_dir", None),
                 )
+                view_path = None
                 if getattr(args, "sampler", None):
                     view_obj = hg.view(s, args.sampler, run=resolved_run)
-                    if hasattr(view_obj, "save") and args.output:
-                        view_obj.save(args.output)
+                    if not hasattr(view_obj, "save"):
+                        raise TypeError(f"sampler {args.sampler!r} returned {type(view_obj).__name__}, "
+                                        "which has no save(path) to write it with")
+                    view_out = _sampler_output_path(s.path, args.sampler, view_obj)
+                    # A custom save() may return None; the file is still at view_out.
+                    view_path = view_obj.save(view_out) or view_out
                 if getattr(args, "json", False):
-                    _print_json({"sample": str(s.path), "path": str(s.path)})
+                    result = {"sample": str(s.path), "path": str(s.path)}
+                    if view_path is not None:
+                        result["view"] = str(view_path)
+                    _print_json(result)
                 else:
                     print(s.path)
+                    if view_path is not None:
+                        print(view_path)
         elif args.command == "queue":
             from .queue import (
                 queue_add,
@@ -2140,25 +2351,43 @@ def _dispatch(args, *, output=None):
                 )
             elif args.queue_command == "install-service":
                 path, instructions = queue_install_service(
-                    user=args.user,
                     devices=args.devices,
                     name=args.name,
                     dry_run=args.dry_run,
                 )
                 print(instructions)
     except KeyboardInterrupt:
-        print("error: interrupted", file=sys.stderr)
-        return 130
-    except ModuleNotFoundError as exc:
-        if exc.name and exc.name.split(".")[0] in {"torch", "particlegan", "numpy"}:
-            print("error: training dependencies are missing; install 'hypergan[train]' in this environment", file=sys.stderr)
+        if getattr(args, "json", False):
+            envelope = {
+                "ok": False,
+                "error": {
+                    "type": "KeyboardInterrupt",
+                    "message": "interrupted",
+                    "details": {},
+                },
+            }
+            print(json.dumps(envelope, indent=2), file=sys.stdout)
         else:
-            print(f"error: {exc}", file=sys.stderr)
-        return 1
+            print("error: interrupted", file=sys.stderr)
+        return 130
     except (OSError, ValueError, TypeError, RuntimeError, ImportError, KeyError, argparse.ArgumentTypeError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        if _debug(args):
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+        if getattr(args, "json", False):
+            envelope = _format_error_envelope(exc)
+            print(json.dumps(envelope, indent=2), file=sys.stdout)
+        else:
+            if isinstance(exc, ModuleNotFoundError) and exc.name and exc.name.split(".")[0] in {"torch", "particlegan", "numpy"}:
+                print("error: training dependencies are missing; install 'hypergan[train]' in this environment", file=sys.stderr)
+            else:
+                print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def _debug(args):
+    return bool(getattr(args, "debug", False)) or os.environ.get("HYPERGAN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 if __name__ == "__main__":

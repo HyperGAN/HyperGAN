@@ -1,11 +1,14 @@
 """Explicit cuda:1 and ambient device isolation on the authorized two-GPU host."""
 import copy
+import pytest
 import torch
 from hypergan.artifacts import sample
 from hypergan.checkpoints import capture_rng
 from hypergan.config import DEFAULT,resolve_config
 from hypergan.single_execution import SingleProcessExecution
 from hypergan.previews import render_preview
+
+pytestmark = pytest.mark.multi_gpu
 
 
 def _switch_device(module,args):

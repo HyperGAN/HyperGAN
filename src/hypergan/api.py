@@ -5,10 +5,14 @@ loads one, lets a script change values, trains it and reads the run back::
 
     import hypergan.api as hg
 
-    model = hg.load("model.toml")
-    model = hg.override(model, {"train.steps": 200, "losses.reconstruction.weight": 0.5})
-    run = hg.train(model, "runs/demo", previews=50)
-    hg.metrics(run)["loss/d_total"]        # [(step, value), ...]
+    if __name__ == "__main__":
+        model = hg.load("model.toml")
+        model = hg.override(model, {"train.steps": 200, "losses.reconstruction.weight": 0.5})
+        run = hg.train(model, "runs/demo", previews=50)
+        hg.metrics(run)["loss/d_total"]        # [(step, value), ...]
+
+Training starts worker processes that re-import the calling script, so a
+script that trains keeps its top-level code under a ``__main__`` guard.
 
 Everything here is a plain function over two data objects, ``Model`` (the
 model file as a dictionary plus the directory its relative paths use) and
@@ -16,6 +20,7 @@ model file as a dictionary plus the directory its relative paths use) and
 directory: the run records the lowered recipe, and user code stays where the
 model file's import paths point.
 """
+from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 import hashlib
@@ -23,6 +28,9 @@ import inspect as _py_inspect
 import json
 from pathlib import Path
 import re
+import sys
+import threading
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 from .model_file import FORMAT, ConfigError, ModelFileError, is_model_file, lower as _lower, model_warnings, upstream, producer
 from .toml_writer import dumps as _dumps
@@ -32,28 +40,276 @@ try:
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
-from .workspace import find_workspace, load_workspace, interpolate_variables, resolve_device_aliases
-from .model_file import resolve_inheritance, collect_source_files
+from .workspace import find_workspace, load_workspace, interpolate_model_paths, interpolate_variables, resolve_device_aliases
+from .model_file import resolve_inheritance, collect_source_files, require_networks
+from .cache import get_cache_dir, ensure_cached_url, resolve_or_cache, OfflineError
 
 PACKAGED = Path(__file__).with_name('models')
 
 __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'ConfigError',
+           'StopTraining', 'TrainResult', 'SampleResult', 'ModelDescription', 'ValidationWarning', 'RunStatus', 'PsSnapshot', 'RunHandle',
            'model', 'load', 'load_bundle', 'packaged', 'packaged_list', 'from_dict', 'override', 'save', 'dumps', 'lower', 'resolve', 'validate',
            'validate_config', 'init_project', 'new', 'list_templates',
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
-           'train', 'resume', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
+           'train', 'resume', 'launch', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
            'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
-           'lift', 'load_recipe', 'describe', 'describe_model', 'data_check', 'check_data', 'preflight', 'preflight_check', 'serve', 'viewer_status',
+           'lift', 'load_recipe', 'describe', 'describe_model', 'data_check', 'check_data',
+           'download_dataset', 'dataset_info', 'list_datasets',
+           'get_cache_dir', 'ensure_cached_url', 'resolve_or_cache', 'OfflineError',
+           'preflight', 'preflight_check', 'serve', 'viewer_status',
            'stop_viewer', 'contributions', 'project', 'checkpoint_status', 'request_checkpoint',
-           'export', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
+           'request_status', 'request_sample', 'request_stop',
+           'export', 'export_generator', 'interpolate', 'LoadedGenerator', 'prune_checkpoints', 'resolve_checkpoint', 'extract_ema_bundle',
            'ensure_dashboard_running', 'stop_all_servers', 'dashboard_status', 'stop_dashboard',
            'find_runs_root', 'stop_projector',
            'find_workspace', 'load_workspace', 'interpolate_variables', 'resolve_device_aliases',
            'resolve_inheritance', 'collect_source_files',
            'status', 'ps', 'stop', 'logs', 'tag', 'rm', 'list_runs', 'runs', 'runs_ls', 'runs_compare', 'compare', 'diff', 'gc', 'prune', 'gc_all', 'compact_events',
            'resolve_run_target', 'register_run', 'sync_registry', 'generate_run_slug',
-           'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service', 'queue_clear']
+           'queue_add', 'queue_ls', 'queue_status', 'queue_stop', 'queue_run', 'queue_install_service', 'queue_clear',
+           'schema', 'operators', 'ops', 'RunInfo', 'read_run_info']
+
+
+def __getattr__(name: str):
+    if name == "LoadedGenerator":
+        from .artifacts import LoadedGenerator
+        return LoadedGenerator
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# --------------------------------------------------------------------------- core exceptions & typed results
+
+class StopTraining(Exception):
+    """Raised to request immediate graceful training termination."""
+    pass
+
+
+@dataclass
+class TrainResult:
+    """Encapsulates training execution results."""
+    run: Any
+    step: int = 0
+    status: str = "completed"
+    metrics: dict[str, Any] = field(default_factory=dict)
+    checkpoint_path: Path | None = None
+    stop_reason: str | None = None
+
+    @property
+    def run_dir(self) -> str:
+        return str(getattr(self.run, "path", self.run))
+
+    @property
+    def run_id(self) -> str:
+        return str(getattr(self.run, "run_id", getattr(self.run, "name", "")))
+
+    @property
+    def summary(self) -> dict[str, Any]:
+        return self.metrics
+
+
+@dataclass
+class SampleResult:
+    """Encapsulates batch sampling output."""
+    path: Path
+    count: int = 0
+    step: int = 0
+    png: bytes | None = None
+    data: Any = None
+    inputs: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def images(self) -> Any:
+        return self.data
+
+    @property
+    def output_path(self) -> Path:
+        return self.path
+
+
+@dataclass
+class ModelDescription(dict):
+    """Encapsulates structured model description from describe()."""
+    name: str = ""
+    family: str = ""
+    components: dict[str, Any] = field(default_factory=dict)
+    losses: dict[str, Any] = field(default_factory=dict)
+    optimizers: dict[str, Any] = field(default_factory=dict)
+    prior: dict[str, Any] = field(default_factory=dict)
+    training: dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self):
+        d = dict(self.raw) if self.raw else {}
+        d.update({
+            "name": self.name,
+            "family": self.family,
+            "components": self.components,
+            "losses": self.losses,
+            "optimizers": self.optimizers,
+            "prior": self.prior,
+            "training": self.training,
+        })
+        dict.__init__(self, d)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self:
+            return self[name]
+        raise AttributeError(f"'ModelDescription' object has no attribute {name!r}")
+
+
+@dataclass
+class ValidationWarning(str):
+    """Encapsulates diagnostic validation entries."""
+    message: str
+    field: str | None = None
+    level: str = "warning"
+
+    def __new__(cls, message: str, field: str | None = None, level: str = "warning"):
+        return str.__new__(cls, message)
+
+
+@dataclass
+class RunStatus(dict):
+    """Encapsulates status() inspection summary."""
+    run_id: str
+    status: str
+    step: int | None = None
+    total_steps: int | None = None
+    percent: float | None = None
+    steps_per_sec: float | None = None
+    eta_seconds: float | None = None
+    devices: str = "cpu"
+    best_metric: dict[str, Any] | None = None
+    recent_checkpoints: list[dict[str, Any]] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    slug: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self):
+        d = dict(self.raw) if self.raw else {}
+        if self.slug is None and "slug" in d:
+            object.__setattr__(self, "slug", d["slug"])
+        elif self.slug is not None:
+            d["slug"] = self.slug
+        d.update({
+            "run_id": self.run_id,
+            "status": self.status,
+            "step": self.step,
+            "total_steps": self.total_steps,
+            "percent": self.percent,
+            "steps_per_sec": self.steps_per_sec,
+            "eta_seconds": self.eta_seconds,
+            "devices": self.devices,
+            "best_metric": self.best_metric,
+            "recent_checkpoints": self.recent_checkpoints,
+            "warnings": self.warnings,
+            "slug": self.slug,
+        })
+        dict.__init__(self, d)
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self:
+            return self[name]
+        raise AttributeError(f"'RunStatus' object has no attribute {name!r}")
+
+    @property
+    def device(self) -> str:
+        return str(self.get("device") or self.devices)
+
+    @property
+    def pid(self) -> int | None:
+        return self.get("pid")
+
+
+@dataclass
+class PsSnapshot(dict):
+    """Encapsulates ps() listing enriched with process metrics."""
+    runs: list[RunStatus] = field(default_factory=list)
+    queued: list[dict[str, Any]] = field(default_factory=list)
+    active_count: int = 0
+    total_known: int = 0
+
+    def __post_init__(self):
+        normalized_runs = [
+            r if isinstance(r, RunStatus) else RunStatus(
+                run_id=str(r.get("run_id", "")),
+                status=str(r.get("status", "unknown")),
+                step=r.get("step"),
+                total_steps=r.get("total_steps") or r.get("max_steps"),
+                percent=r.get("percent"),
+                steps_per_sec=r.get("steps_per_sec"),
+                eta_seconds=r.get("eta_seconds"),
+                devices=str(r.get("device") or r.get("devices", "cpu")),
+                slug=r.get("slug"),
+                raw=r,
+            ) if isinstance(r, dict) else r
+            for r in self.runs
+        ]
+        object.__setattr__(self, "runs", normalized_runs)
+        dict.__init__(self, runs=self.runs, queued=self.queued, active_count=self.active_count, total_known=self.total_known)
+
+    def __len__(self) -> int:
+        return len(self.runs)
+
+    @property
+    def total_count(self) -> int:
+        return self.total_known
+
+    @property
+    def completed_count(self) -> int:
+        return sum(1 for r in self.runs if (getattr(r, "status", None) or r.get("status")) in ("completed", "complete"))
+
+    def __iter__(self):
+        return iter(super().keys())
+
+
+class RunHandle:
+    """Handle to a training run launched asynchronously in a background thread."""
+
+    def __init__(self, run_dir: Path, thread: threading.Thread | None, run: Run | None = None):
+        self.run_dir = Path(run_dir)
+        self._thread = thread
+        self._run = run
+        self._exc: Exception | None = None
+
+    @property
+    def run(self) -> Run:
+        """The Run instance for this execution (loaded once available)."""
+        if self._run is None:
+            self._run = open_run(self.run_dir)
+        return self._run
+
+    def is_alive(self) -> bool:
+        """Check if the training thread/process is active."""
+        if self._thread is None:
+            return False
+        return self._thread.is_alive()
+
+    is_running = is_alive
+
+    def wait(self, timeout: float | None = None) -> Run:
+        """Wait for training to complete and return the final Run object."""
+        if self._thread is not None:
+            self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                raise TimeoutError(f"Training did not complete within {timeout}s")
+        if self._exc is not None:
+            raise self._exc
+        self._run = open_run(self.run_dir)
+        return self._run
+
+    join = wait
+
+    def stop(self, timeout: float = 15.0) -> None:
+        """Request graceful stop of the training run."""
+        stop(self.run_dir, timeout=timeout)
+
+    @property
+    def run_info(self) -> RunInfo:
+        """Load current RunInfo for the active run."""
+        return read_run_info(self.run_dir)
+
 
 
 
@@ -62,10 +318,16 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
 
 @dataclass(frozen=True)
 class Model:
-    """A model file's contents. ``base`` resolves relative ``hndl`` paths."""
+    """A model file's contents. ``base`` resolves relative ``hndl`` paths.
+
+    ``path`` is the file the spec was read from unchanged; ``origin`` is the
+    file it came from even after ``override``, so a fresh run is placed and
+    named as ``hypergan train <file>`` would.
+    """
     spec: dict
     base: Path | None = None
     path: Path | None = None
+    origin: Path | None = field(default=None, compare=False, repr=False)
 
     @property
     def name(self):
@@ -88,6 +350,8 @@ def load(path):
         return _load_stored_run_model(path.path)
     raw = str(path)
     path = Path(path)
+    if not path.exists() and path.parent.name == "examples" and (path.parent / "archive" / path.name).is_file():
+        path = path.parent / "archive" / path.name
     if path.suffix.lower() == '.pt':
         return load_bundle(path)
     if not path.exists() and path.suffix.lower() not in ('.toml', '.pt'):
@@ -97,6 +361,11 @@ def load(path):
                 return _load_stored_run_model(resolved_run)
         except Exception:
             pass
+    if not path.exists():
+        from .config import resolve_packaged_model_path
+        packaged_file = resolve_packaged_model_path(raw)
+        if packaged_file is not None:
+            path = packaged_file
     if path.is_dir():
         if (path / 'model.toml').is_file():
             path = path / 'model.toml'
@@ -123,9 +392,9 @@ def load(path):
             spec['name'] = path.stem
 
         if ws_dict is not None:
-            spec = interpolate_variables(spec, ws_dict)
+            spec = interpolate_model_paths(spec, ws_dict)
 
-    return Model(spec, base=path.parent.resolve(), path=path.resolve())
+    return Model(spec, base=path.parent.resolve(), path=path.resolve(), origin=path.resolve())
 
 
 
@@ -278,7 +547,7 @@ def override(model, changes=None, /, **sections):
             else:
                 into[key] = deepcopy(value)
     merge(spec, norm_sections)
-    return Model(spec, base=model.base, path=None)
+    return Model(spec, base=model.base, path=None, origin=model.path or model.origin)
 
 
 def _relocated(spec, base, destination):
@@ -365,6 +634,8 @@ def lower(model):
     model = _model(model)
     if is_model_file(model.spec):
         return _lower(model.spec, model.base)
+    if model.path is not None:
+        require_networks(model.spec)  # A file that declares no model never means the packaged default.
     if model.base is not None:
         from .config import inline_network_sources
         return inline_network_sources(model.spec, model.base)
@@ -382,13 +653,17 @@ def validate(model):
     model = _model(model)
     resolved = resolve(model)
     extra = model_warnings(model.spec) if is_model_file(model.spec) else []
-    return extra + list(resolved['warnings'])
+    raw = extra + list(resolved['warnings'])
+    return [
+        w if isinstance(w, ValidationWarning) else ValidationWarning(message=str(w))
+        for w in raw
+    ]
 
 
 validate_config = validate
 
 
-def init_project(project_dir, *, template="dcgan", resolution=None, data_dir=None, output_config=None, device="cuda", overwrite=False):
+def init_project(project_dir, *, template=None, resolution=None, data_dir=None, output_config=None, device="cuda", overwrite=False):
     """Initialize a HyperGAN project directory with hypergan.toml, runs/, and configs/<template>.toml."""
     from .recipe_generator import init_project as _init_project
     return _init_project(project_dir, template=template, resolution=resolution, data_dir=data_dir,
@@ -396,12 +671,19 @@ def init_project(project_dir, *, template="dcgan", resolution=None, data_dir=Non
 
 
 def new(data_dir=None, output_path=None, *, template=None, resolution=None, device="cuda",
-        project=None, overwrite=False, **kwargs):
-    """Scaffold a new HyperGAN model file (or initialize a project directory when project is set)."""
+        project=None, overwrite=False, name=None, dataset=None):
+    """Scaffold a new HyperGAN model file (or initialize a project directory when project is set).
+
+    ``dataset`` is another name for ``data_dir``, the directory of training images.
+    """
+    if dataset is not None:
+        if data_dir is not None:
+            raise TypeError("new() takes data_dir or dataset, not both")
+        data_dir = dataset
     if project is not None:
         return init_project(
             project,
-            template=template or "dcgan",
+            template=template,
             resolution=resolution,
             data_dir=data_dir,
             output_config=output_path,
@@ -416,7 +698,7 @@ def new(data_dir=None, output_path=None, *, template=None, resolution=None, devi
         if p.suffix.lower() == ".toml" or not p.is_dir():
             out_p = ds_dir
             ds_dir = None
-    name_arg = str(out_p) if out_p is not None else kwargs.pop("name", None)
+    name_arg = str(out_p) if out_p is not None else name
     return _generate_recipe(
         name=name_arg,
         template=template or "dcgan",
@@ -424,7 +706,6 @@ def new(data_dir=None, output_path=None, *, template=None, resolution=None, devi
         dataset_dir=ds_dir,
         device=device,
         overwrite=overwrite,
-        **kwargs,
     )
 
 
@@ -485,10 +766,8 @@ def explain(model):
             elif 'reuse' in net_spec or 'reuse' in spec:
                 reuse_target = net_spec.get('reuse') or spec.get('reuse')
                 group = f'parameters of {reuse_target}'
-            elif net_spec.get('trainable') is False or spec.get('trainable') is False or net_spec.get('freeze_parameters') or spec.get('freeze_parameters') or role == 'frozen':
+            elif net_spec.get('trainable') is False or spec.get('trainable') is False or net_spec.get('freeze_parameters') or spec.get('freeze_parameters'):
                 group = 'none (frozen)'
-            elif role == 'shared':
-                group = f'parameters of {spec.get("reuse")}'
             else:
                 group = f'generator-side Adam, lr = {g_lr_str}'
             lines.append(f'{orig_name} [{role}] {factory}')
@@ -499,10 +778,13 @@ def explain(model):
                 received = sorted(set(reach.get(comp_name, [])))
                 lines.append('  gradient from: ' + (', '.join(received) or '-'))
     else:
+        from .model_description import roles
+        inferred = roles({'components': components, 'adversarial_terms': recipe.get('adversarial_terms', [])},
+                         aliases=False)
         for name, spec in components.items():
             orig_name = inv_name_map.get(name, name)
             factory = spec.get('factory', 'reuse')
-            role = 'critic' if name == 'discriminator' or any(t.get('component') == name for t in recipe.get('adversarial_terms', [])) else 'generator'
+            role = inferred[name]
             if role == 'critic':
                 group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
             else:
@@ -663,6 +945,22 @@ class Run:
         return self.manifest.get('steps')
 
     @property
+    def stop_reason(self) -> str | None:
+        """Reason why training stopped (e.g. early_stop, max_seconds), if any."""
+        sr = (self.manifest or {}).get('stop_reason')
+        if sr is not None:
+            return str(sr)
+        summary_p = self.path / 'summary.json'
+        if summary_p.is_file():
+            try:
+                data = json.loads(summary_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict) and data.get('stop_reason'):
+                    return str(data['stop_reason'])
+            except Exception:
+                pass
+        return None
+
+    @property
     def config(self):
         """Resolved configuration recorded in the run manifest."""
         return self.manifest.get('config')
@@ -672,92 +970,52 @@ class Run:
         """Numerical recipe fingerprint (config_sha256)."""
         return self.manifest.get('config_sha256')
 
-    @property
-    def run_id(self) -> str:
-        """Unique 32-character hexadecimal run identifier."""
-        rid = self.manifest.get('run_id')
-        if rid:
-            return str(rid)
+    def _identity(self, key, *, registry=True):
+        """``key`` from the manifest, else summary.json, else the global registry entry."""
+        value = self.manifest.get(key)
+        if value:
+            return str(value)
         summary_p = self.path / 'summary.json'
         if summary_p.is_file():
             try:
                 data = json.loads(summary_p.read_text(encoding='utf-8'))
-                if isinstance(data, dict) and data.get('run_id'):
-                    return str(data['run_id'])
+                if isinstance(data, dict) and data.get(key):
+                    return str(data[key])
             except Exception:
                 pass
-        try:
-            from .registry import _read_registry_unlocked, get_registry_dir
-            reg_data = _read_registry_unlocked(get_registry_dir(self.path))
-            entry = reg_data.get('runs', {}).get(str(self.path.resolve()))
-            if entry and entry.get('run_id'):
-                return str(entry['run_id'])
-        except Exception:
-            pass
-        return self.path.name
+        if registry:
+            try:
+                from .registry import _read_registry_unlocked, get_registry_dir
+                reg_data = _read_registry_unlocked(get_registry_dir(self.path))
+                entry = reg_data.get('runs', {}).get(str(self.path.resolve()))
+                if entry and entry.get(key):
+                    return str(entry[key])
+            except Exception:
+                pass
+        return None
+
+    @property
+    def run_id(self) -> str:
+        """Unique 32-character hexadecimal run identifier."""
+        return self._identity('run_id') or self.path.name
 
     @property
     def short_id(self) -> str:
         """First 8 characters of the run identifier."""
-        sid = self.manifest.get('short_id')
-        if sid:
-            return str(sid)
-        summary_p = self.path / 'summary.json'
-        if summary_p.is_file():
-            try:
-                data = json.loads(summary_p.read_text(encoding='utf-8'))
-                if isinstance(data, dict) and data.get('short_id'):
-                    return str(data['short_id'])
-            except Exception:
-                pass
-        return str(self.run_id)[:8]
+        return self._identity('short_id', registry=False) or str(self.run_id)[:8]
 
     @property
     def name(self) -> str:
         """Human-readable experiment name or custom tag."""
         nm = self.manifest.get('name') or (self.manifest.get('config') or {}).get('name')
-        if nm:
-            return str(nm)
-        summary_p = self.path / 'summary.json'
-        if summary_p.is_file():
-            try:
-                data = json.loads(summary_p.read_text(encoding='utf-8'))
-                if isinstance(data, dict) and data.get('name'):
-                    return str(data['name'])
-            except Exception:
-                pass
-        try:
-            from .registry import _read_registry_unlocked, get_registry_dir
-            reg_data = _read_registry_unlocked(get_registry_dir(self.path))
-            entry = reg_data.get('runs', {}).get(str(self.path.resolve()))
-            if entry and entry.get('name'):
-                return str(entry['name'])
-        except Exception:
-            pass
-        return self.path.name
+        return str(nm) if nm else (self._identity('name') or self.path.name)
 
     @property
     def slug(self) -> str:
         """Memorable '<adj>-<noun>' run slug."""
-        sl = self.manifest.get('slug')
-        if sl:
-            return str(sl)
-        summary_p = self.path / 'summary.json'
-        if summary_p.is_file():
-            try:
-                data = json.loads(summary_p.read_text(encoding='utf-8'))
-                if isinstance(data, dict) and data.get('slug'):
-                    return str(data['slug'])
-            except Exception:
-                pass
-        try:
-            from .registry import _read_registry_unlocked, get_registry_dir
-            reg_data = _read_registry_unlocked(get_registry_dir(self.path))
-            entry = reg_data.get('runs', {}).get(str(self.path.resolve()))
-            if entry and entry.get('slug'):
-                return str(entry['slug'])
-        except Exception:
-            pass
+        found = self._identity('slug')
+        if found:
+            return found
         from .registry import extract_or_derive_slug
         return extract_or_derive_slug(str(self.run_id), name=str(self.name), run_dir_name=self.path.name)
 
@@ -792,56 +1050,91 @@ def _run_path(value=None):
     return resolve_run_target(value)
 
 
-def _default_run_dir(model_obj):
-    """Determine default run directory <runs_root>/<slug> for a Model or path."""
-    cfg_path = getattr(model_obj, "path", None)
-    ws_path = find_workspace(cfg_path or Path.cwd())
-    if ws_path:
-        ws_data = load_workspace(ws_path)
-        ws_sec = ws_data.get("workspace", {})
-        runs_root = Path(ws_sec["runs_root"]).resolve() if "runs_root" in ws_sec else (ws_path.parent / "runs").resolve()
-        stem = cfg_path.stem if cfg_path else (model_obj.name.split("/")[-1] if model_obj.name else "run")
-        custom_name = model_obj.spec.get("name") if (model_obj.spec.get("name") and model_obj.spec.get("name") != "custom/model") else None
-        slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else generate_run_slug(stem, parent_dir=runs_root)
-        if "run_dir" in ws_sec:
-            run_dir_str = interpolate_variables(
-                ws_sec["run_dir"],
-                ws_data,
-                {"stem": custom_name or stem, "name": slug_dir_name, "slug": short_slug},
-            )
-            return Path(run_dir_str).resolve()
-        return (runs_root / slug_dir_name).resolve()
-    from .web_autostart import find_runs_root as autostart_find
-    runs_root = autostart_find(Path.cwd())
-    if not runs_root.name == "runs" and (runs_root / "runs").is_dir():
-        runs_root = (runs_root / "runs").resolve()
-    stem = cfg_path.stem if cfg_path else (model_obj.name.split("/")[-1] if model_obj.name else "run")
-    custom_name = model_obj.spec.get("name") if (model_obj.spec.get("name") and model_obj.spec.get("name") != "custom/model") else None
-    slug_dir_name, short_slug = (custom_name, custom_name) if custom_name else generate_run_slug(stem, parent_dir=runs_root)
-    return (runs_root / slug_dir_name).resolve()
+# A run directory holding a different configuration refuses to continue with one of these.
+_CONFIG_DIFFERS = ("differs from the original run", "differs from the run manifest")
 
 
-def prepare(model, run_dir=None, steps=None, *, profile=None, service_policy=None,
-            devices=None,
+def _config_differs(error):
+    return any(text in str(error) for text in _CONFIG_DIFFERS)
+
+
+def _source_file(model_obj):
+    """The model file behind ``model_obj`` (a path, or a Model loaded and maybe overridden)."""
+    if isinstance(model_obj, (str, Path)):
+        return model_obj
+    return getattr(model_obj, "path", None) or getattr(model_obj, "origin", None)
+
+
+def _run_stem(model_obj):
+    """The config file stem a fresh run is named after (the model name for in-memory models)."""
+    cfg_path = _source_file(model_obj)
+    if cfg_path is not None:
+        return Path(cfg_path).stem
+    return (getattr(model_obj, "name", None) or "run").split("/")[-1] or "run"
+
+
+def _default_run_dir(model_obj, name=None):
+    """The fresh run directory ``hypergan train`` and ``hg.train`` use when none is given.
+
+    ``model_obj`` is a Model or a model file path. The workspace is found from
+    the model file, including the file an overridden Model came from (from the
+    working directory for packaged and in-memory models); the rule itself is
+    ``hypergan.workspace.default_run_dir``.
+    """
+    from .workspace import default_run_dir
+    cfg_path = _source_file(model_obj)
+    in_package = cfg_path is not None and PACKAGED.resolve() in Path(cfg_path).resolve().parents
+    start = None if cfg_path is None or in_package else cfg_path
+    return default_run_dir(_run_stem(model_obj), name=name or None, start=start)
+
+
+def prepare(model, run_dir=None, steps=None, *, name=None, profile=None, service_policy=None,
+            devices=None, device=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
             checkpoint_every=None, max_seconds=None, stop_after_steps=None,
             preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
             preview_name=None, **extra):
-    """Validate and prepare a training run, returning a PreparedExecution."""
+    """Validate and prepare a training run, returning a PreparedExecution.
+
+    Without ``run_dir`` the run gets a fresh directory as ``hypergan train``
+    gives it (see ``_default_run_dir``); ``name`` names that directory and the
+    run instead of a generated slug.
+    """
     from .execution import prepare_train as _prepare_train
     model = _model(model)
-    if run_dir is None:
-        run_dir = _default_run_dir(model)
+    if name:
+        model = override(model, {"name": name})
+    defaulted = run_dir is None
+    if defaulted:
+        run_dir = _default_run_dir(model, name=name)
     pe = preview_every if preview_every is not None else previews
     lowered = lower(model)
     if getattr(model, 'path', None):
         lowered['_source_path'] = str(model.path)
-    return _prepare_train(lowered, run_dir, steps=steps, profile=profile,
-                          service_policy=service_policy, devices=devices,
-                          checkpoint_every=checkpoint_every,
-                          max_seconds=max_seconds, stop_after_steps=stop_after_steps,
-                          preview_every=pe, preview_keep=preview_keep,
-                          preview_keep_source=preview_keep_source, preview_name=preview_name,
-                          **extra)
+    if device is not None:
+        if isinstance(lowered, dict) and "training" in lowered:
+            lowered["training"]["device"] = device
+        elif isinstance(lowered, dict):
+            lowered.setdefault("training", {})["device"] = device
+
+    def attempt(target):
+        return _prepare_train(lowered, target, steps=steps, profile=profile,
+                              service_policy=service_policy, devices=devices, device=device,
+                              nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
+                              strategy=strategy, sync_every=sync_every,
+                              checkpoint_every=checkpoint_every,
+                              max_seconds=max_seconds, stop_after_steps=stop_after_steps,
+                              preview_every=pe, preview_keep=preview_keep,
+                              preview_keep_source=preview_keep_source, preview_name=preview_name,
+                              **extra)
+    try:
+        return attempt(run_dir)
+    except ValueError as error:
+        # A named default directory that holds another configuration starts a
+        # sibling run, as the CLI does, instead of refusing.
+        if not (defaulted and _config_differs(error)):
+            raise
+        sibling, _ = generate_run_slug(name or _run_stem(model), parent_dir=Path(run_dir).parent)
+        return attempt(Path(run_dir).parent / sibling)
 
 
 def _load_stored_run_model(run_path: Path):
@@ -885,7 +1178,8 @@ def _load_stored_run_model(run_path: Path):
 
 
 def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
-                   profile=None, service_policy=None, devices=None,
+                   profile=None, service_policy=None, devices=None, device=None,
+                   nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                    checkpoint_every=None, max_seconds=None, stop_after_steps=None,
                    preview_every=None, previews=None, preview_keep=None, preview_keep_source=None,
                    preview_name=None, sets=None, overrides=None, **extra):
@@ -898,6 +1192,8 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
     sets = merged_sets or None
     if model is None and (sets or steps is not None):
         model = _load_stored_run_model(run_path)
+    allow_batch_size_change = bool(extra.pop('_allow_batch_size_change', False))
+    allow_device_change = bool(extra.pop('_allow_device_change', False))
     if sets:
         normalized_sets = {}
         for k, v in sets.items():
@@ -914,37 +1210,77 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
             step_val = normalized_sets.get('train.steps', normalized_sets.get('training.steps'))
             if step_val is not None:
                 steps = int(step_val)
+        if 'train.batch_size' in normalized_sets or 'training.batch_size' in normalized_sets:
+            allow_batch_size_change = True
+        dev_val = normalized_sets.get('train.device', normalized_sets.get('training.device'))
+        if dev_val is not None:
+            allow_device_change = True
+            if device is None and devices is None:
+                device = str(dev_val)
 
     config_path = lower(model) if model is not None else None
+    if device is not None:
+        if isinstance(config_path, dict) and "training" in config_path:
+            config_path["training"]["device"] = device
+        elif isinstance(config_path, dict):
+            config_path.setdefault("training", {})["device"] = device
     pe = preview_every if preview_every is not None else previews
     return _prepare_resume(run_path, checkpoint=checkpoint, config_path=config_path, steps=steps,
-                           profile=profile, service_policy=service_policy, devices=devices,
+                           _allow_device_change=allow_device_change,
+                           _allow_batch_size_change=allow_batch_size_change,
+                           profile=profile, service_policy=service_policy, devices=devices, device=device,
+                           nodes=nodes, node_rank=node_rank, rendezvous=rendezvous,
+                           strategy=strategy, sync_every=sync_every,
                            checkpoint_every=checkpoint_every, max_seconds=max_seconds,
                            stop_after_steps=stop_after_steps, preview_every=pe,
                            preview_keep=preview_keep, preview_keep_source=preview_keep_source,
                            preview_name=preview_name, **extra)
 
 
-def train(model, run_dir=None, *, steps=None, previews=None, preview_every=None, checkpoint_every=None, profile=None,
-          devices=None, on_event=None, **controls):
+def train(model, run_dir=None, *, steps=None, name=None, previews=None, preview_every=None, checkpoint_every=None,
+          profile=None, devices=None, device=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
+          on_event=None, **controls) -> Run:
     """Train (or continue, if ``run_dir`` exists) and return the ``Run``.
 
-    If ``run_dir`` is omitted or None, automatically creates `<runs_root>/<slug>`.
+    If ``run_dir`` is omitted or None, each call starts a fresh run directory
+    the way ``hypergan train`` does: ``<runs_root>/<stem>-<adj>-<noun>``, or
+    ``<runs_root>/<name>`` when ``name`` is given.
     """
-    model_obj = _model(model)
-    if run_dir is None:
-        run_dir = _default_run_dir(model_obj)
     pe = preview_every if preview_every is not None else previews
-    prep = prepare(model_obj, run_dir, steps=steps, profile=profile, devices=devices,
+    prep = prepare(model, run_dir, steps=steps, name=name, profile=profile, devices=devices, device=device,
+                   nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
                    checkpoint_every=checkpoint_every, preview_every=pe, **controls)
     prep.run(on_event=on_event)
-    return open_run(run_dir)
+    return open_run(prep.run_dir)
 
 
-def resume(run, model=None, *, steps=None, devices=None, on_event=None, **controls):
+def launch(model, run_dir=None, *, steps=None, name=None, previews=None, preview_every=None, checkpoint_every=None,
+           profile=None, devices=None, device=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
+           on_event=None, **controls) -> RunHandle:
+    """Launch a training run asynchronously in a background thread and return a RunHandle."""
+    pe = preview_every if preview_every is not None else previews
+    prep = prepare(model, run_dir, steps=steps, name=name, profile=profile, devices=devices, device=device,
+                   nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
+                   checkpoint_every=checkpoint_every, preview_every=pe, **controls)
+    handle = RunHandle(run_dir=prep.run_dir, thread=None)
+
+    def _worker():
+        try:
+            prep.run(on_event=on_event)
+        except Exception as exc:
+            handle._exc = exc
+
+    run_name = getattr(model, "name", "run")
+    thread = threading.Thread(target=_worker, name=f"hypergan-train-{run_name}", daemon=True)
+    handle._thread = thread
+    thread.start()
+    return handle
+
+
+def resume(run, model=None, *, steps=None, devices=None, device=None, on_event=None, **controls) -> Run:
     """Continue a run from its latest checkpoint (optionally with changed observation settings)."""
     run = _run(run)
-    prep = prepare_resume(run.path, model=model, steps=steps, devices=devices, **controls)
+    prep = prepare_resume(run.path, model=model, steps=steps, devices=devices, device=device, **controls)
     prep.run(on_event=on_event)
     return open_run(run.path)
 
@@ -1148,6 +1484,7 @@ def _tensor(value):
 def samples(run, *, name=None):
     """Periodic EMA previews, oldest first (enable with ``train(..., previews=N)``)."""
     import base64
+    from .previews import index_path
     run = _run(run)
     index = run.path / 'previews' / 'index.json'
     if not index.is_file():
@@ -1156,7 +1493,7 @@ def samples(run, *, name=None):
     for entry in json.loads(index.read_text())['previews']:
         if name is not None and entry.get('name') != name:
             continue
-        path = Path(entry['path'])
+        path = index_path(run.path, entry['path'])
         payload = json.loads(path.read_text())
         grid = payload.get('image_grid')
         result.append(Sample(step=payload['step'], name=payload['name'], data=_tensor(payload.get('samples')),
@@ -1167,7 +1504,7 @@ def samples(run, *, name=None):
     return sorted(result, key=lambda item: item.step)
 
 
-def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoint=None, default_image_png=False):
+def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoint=None, default_image_png=False, device=None, output_dir=None):
     """Fresh samples from the run's final EMA model (or target checkpoint or .pt bundle)."""
     from .artifacts import sample as draw
     if isinstance(run, (str, Path)) and (str(run).endswith('.pt') or (Path(run).is_file() and Path(run).suffix.lower() == '.pt')):
@@ -1187,7 +1524,9 @@ def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoin
         seed = (cfg or {}).get("sampling", {}).get("seed", 42) if isinstance(cfg, dict) else 42
 
     path = Path(draw(target_path, count=count, seed=seed, inputs=inputs, output=output,
-                     checkpoint=checkpoint, default_image_png=default_image_png))
+                     checkpoint=checkpoint, default_image_png=default_image_png, device=device, output_dir=output_dir))
+    if path.is_dir():
+        return Sample(step=0, name='sample', data=None, inputs={}, particle_ids=None, source='inference', path=path)
     if path.suffix.lower() == '.png':
         from PIL import Image
         with Image.open(path, formats=["PNG"]) as img:
@@ -1252,13 +1591,27 @@ def generate_run_slug(stem, parent_dir=None):
     return _gen_slug(stem, parent_dir=parent_dir)
 
 
-def export(run=None, checkpoint="latest", output=None):
+def export(run=None, checkpoint="latest", output=None, format="bundle", include_example_inputs=False, device="cpu"):
     """Export a standalone EMA inference model bundle from a run checkpoint."""
-    from .checkpoints import resolve_checkpoint as _resolve, export_checkpoint_bundle as _export
-    run_dir = _run_path(run)
-    ckpt_dir = _resolve(run_dir, target=checkpoint)
-    dest, _ = _export(ckpt_dir, output_dir=output or run_dir)
-    return dest
+    if output is None and isinstance(checkpoint, (str, Path)):
+        ckpt_str = str(checkpoint).lower()
+        if ckpt_str.endswith(('.pt', '.safetensors', '.onnx', '.pt2', '.bin')):
+            output = checkpoint
+            checkpoint = "latest"
+    from .artifacts import export_generator as _export
+    return _export(run, output_path=output, format=format, include_example_inputs=include_example_inputs, checkpoint=checkpoint, device=device)
+
+
+def export_generator(run_dir=None, output_path=None, format="bundle", include_example_inputs=False, checkpoint="latest", device="cpu"):
+    """Export standalone generator across bundle, safetensors, pt2, or onnx formats."""
+    from .artifacts import export_generator as _export
+    return _export(run_dir, output_path=output_path, format=format, include_example_inputs=include_example_inputs, checkpoint=checkpoint, device=device)
+
+
+def interpolate(v0, v1, steps=10, *, mode="slerp", t=None):
+    """Perform linear or spherical linear interpolation between two latent vectors."""
+    from .artifacts import interpolate as _interpolate
+    return _interpolate(v0, v1, steps=steps, mode=mode, t=t)
 
 
 def prune_checkpoints(run=None, policy=None, dry_run=False):
@@ -1281,22 +1634,22 @@ def extract_ema_bundle(checkpoint_dir, manifest=None):
 
 def load_bundle(path_or_run, *, checkpoint="latest", device="cpu"):
     """Load an exported .pt bundle file or extract the EMA bundle from a run checkpoint."""
+    from .artifacts import LoadedGenerator
     if isinstance(path_or_run, Run):
         run_dir = path_or_run.path
     else:
         p = Path(path_or_run)
         if p.suffix.lower() == ".pt" or (p.is_file() and p.name.endswith(".pt")):
-            import torch
-            return torch.load(p, map_location=device, weights_only=True)
+            return LoadedGenerator(p, device=device)
         run_dir = _run_path(path_or_run)
     try:
         ckpt_dir = resolve_checkpoint(run_dir, target=checkpoint)
-        return extract_ema_bundle(ckpt_dir)
+        bundle_dict = extract_ema_bundle(ckpt_dir)
+        return LoadedGenerator(bundle_dict, device=device)
     except FileNotFoundError:
         model_pt = run_dir / "model.pt"
         if model_pt.is_file():
-            import torch
-            return torch.load(model_pt, map_location=device, weights_only=True)
+            return LoadedGenerator(model_pt, device=device)
         raise
 
 
@@ -1344,19 +1697,59 @@ def inspect(run=None):
     return data
 
 
-def status(run=None):
+def status(run=None) -> RunStatus:
     """Compile human-friendly status summary for a run."""
     from .inspection import run_status as _status
-    return _status(_run_path(run))
+    res = _status(_run_path(run))
+    if isinstance(res, RunStatus):
+        return res
+    return RunStatus(
+        run_id=str(res.get("run_id", "")),
+        status=str(res.get("status", "unknown")),
+        step=res.get("step"),
+        total_steps=res.get("total_steps"),
+        percent=res.get("percent"),
+        steps_per_sec=res.get("steps_per_sec"),
+        eta_seconds=res.get("eta_seconds"),
+        devices=str(res.get("devices", "cpu")),
+        best_metric=res.get("best"),
+        recent_checkpoints=list(res.get("recent_checkpoints", [])),
+        warnings=list(res.get("warnings", [])),
+        raw=res,
+    )
 
 
-def ps(all_runs=False, cwd=None, *, all=None, root=None):
+def ps(all_runs=False, cwd=None, *, all=None, root=None) -> PsSnapshot:
     """List active training runs (or all runs if all_runs=True) enriched with GPU VRAM and queue status."""
     if all is not None:
         all_runs = bool(all)
     target_cwd = root if root is not None else cwd
     from .inspection import ps_runs as _ps
-    return _ps(all_runs=all_runs, cwd=target_cwd)
+    res = _ps(all_runs=all_runs, cwd=target_cwd)
+    if isinstance(res, PsSnapshot):
+        return res
+    raw_runs = res.get("runs", [])
+    runs = [
+        r if isinstance(r, RunStatus) else RunStatus(
+            run_id=str(r.get("run_id", "")),
+            status=str(r.get("status", "unknown")),
+            step=r.get("step"),
+            total_steps=r.get("total_steps") or r.get("max_steps"),
+            percent=r.get("percent"),
+            steps_per_sec=r.get("steps_per_sec"),
+            eta_seconds=r.get("eta_seconds"),
+            devices=str(r.get("device") or r.get("devices", "cpu")),
+            slug=r.get("slug"),
+            raw=r,
+        ) if isinstance(r, dict) else r
+        for r in raw_runs
+    ]
+    return PsSnapshot(
+        runs=runs,
+        queued=list(res.get("queued", [])),
+        active_count=int(res.get("active_count", 0)),
+        total_known=int(res.get("total_known", 0)),
+    )
 
 
 def stop(run=None, *, stop_all=False, timeout=15.0):
@@ -1366,126 +1759,96 @@ def stop(run=None, *, stop_all=False, timeout=15.0):
 
 
 def logs(run=None, *, tail=50, follow=False, raw=False, stream=None):
-    """Read or follow formatted training events from a run."""
+    """Read or follow a run's training log and return its lines.
+
+    Without ``follow`` the last ``tail`` lines are returned, and written only
+    when ``stream`` is given. With ``follow`` they are also written as they
+    arrive, to ``stream`` or stdout, until the run ends or Ctrl+C. ``raw``
+    gives the events.jsonl lines instead of formatted ones.
+    """
     import io
-    from .inspection import read_run_logs as _logs
-    if stream is None and not follow:
-        frame = _py_inspect.currentframe()
-        caller = frame.f_back if frame is not None else None
-        caller_mod = caller.f_globals.get("__name__", "") if caller is not None else ""
-        target_stream = None if caller_mod.endswith(".cli") or caller_mod == "hypergan.cli" else io.StringIO()
-    else:
-        target_stream = stream
+    target_stream = stream if stream is not None or follow else io.StringIO()
     if raw:
-        sig = _py_inspect.signature(_logs)
-        if "raw" in sig.parameters:
-            return _logs(run, tail=tail, follow=follow, raw=raw, stream=target_stream)
-        run_dir = _run_path(run)
-        events_file = run_dir / "events.jsonl"
-        if not events_file.is_file():
-            return []
-        raw_lines = [ln for ln in events_file.read_text(encoding="utf-8", errors="replace").splitlines() if ln.strip()]
-        if tail and tail > 0:
-            raw_lines = raw_lines[-tail:]
-        out = target_stream or sys.stdout
-        for ln in raw_lines:
-            out.write(ln + "\n")
-        if hasattr(out, "flush"):
-            out.flush()
-        return raw_lines
+        return _raw_logs(_run_path(run), tail=tail, follow=follow, stream=target_stream or sys.stdout)
+    from .inspection import read_run_logs as _logs
     return _logs(run, tail=tail, follow=follow, stream=target_stream)
+
+
+_TERMINAL_EVENTS = ("complete", "completed", "stopped", "failed")
+
+
+def _raw_logs(run_dir, *, tail, follow, stream):
+    import time
+    from .inspection import check_run_active
+    events_file = run_dir / "events.jsonl"
+    lines, offset = [], 0
+    if events_file.is_file():
+        raw_bytes = events_file.read_bytes()
+        if follow:
+            # Hold back a partly written last line; the follow loop prints it whole.
+            raw_bytes = raw_bytes[:raw_bytes.rfind(b"\n") + 1]
+        offset = len(raw_bytes)
+        lines = [ln for ln in raw_bytes.decode("utf-8", errors="replace").splitlines() if ln.strip()]
+        if tail and tail > 0:
+            lines = lines[-tail:]
+        for ln in lines:
+            stream.write(ln + "\n")
+        stream.flush()
+    if not follow:
+        return lines
+    try:
+        while True:
+            chunk = b""
+            if events_file.is_file():
+                try:
+                    with events_file.open("rb") as f:
+                        f.seek(offset)
+                        chunk = f.read()
+                except OSError:
+                    pass
+            # Only whole lines: a writer may be part way through the last one.
+            complete = chunk[:chunk.rfind(b"\n") + 1]
+            offset += len(complete)
+            for ln in complete.decode("utf-8", errors="replace").splitlines():
+                if not ln.strip():
+                    continue
+                stream.write(ln + "\n")
+                stream.flush()
+                lines.append(ln)
+                try:
+                    if json.loads(ln).get("event") in _TERMINAL_EVENTS:
+                        return lines
+                except (ValueError, AttributeError):
+                    pass
+            if not check_run_active(run_dir)[0]:
+                return lines
+            time.sleep(0.25)
+    except KeyboardInterrupt:
+        return lines
 
 
 def tag(run, name):
     """Rename or tag a training run in its manifest, summary, and global registry."""
-    from . import inspection
-    if hasattr(inspection, "tag_run"):
-        res = dict(inspection.tag_run(run, name))
-        run_id = str(res.get("run_id") or res.get("short_id") or "")
-        r_dir = res.get("run_dir", "")
-        r_name = res.get("name", name)
-        res.setdefault("short_id", run_id[:8])
-        res.setdefault("message", f"Tagged {run_id[:8]} as '{r_name}' ({r_dir})")
-        return res
-
-    from .summary import atomic_write_json, read_summary_json
-    run_dir = _run_path(run)
-    if not run_dir.is_dir():
-        raise FileNotFoundError(f"Run directory not found: {run_dir}")
-    new_name = str(name).strip()
-    if not new_name:
-        raise ValueError("Tag name must be a non-empty string")
-    manifest_p = run_dir / "manifest.json"
-    manifest = {}
-    if manifest_p.is_file():
-        try:
-            manifest = json.loads(manifest_p.read_text(encoding="utf-8"))
-        except Exception:
-            manifest = {}
-        manifest["name"] = new_name
-        if isinstance(manifest.get("config"), dict):
-            manifest["config"]["name"] = new_name
-        atomic_write_json(manifest_p, manifest)
-    summary_p = run_dir / "summary.json"
-    summary = read_summary_json(run_dir) or {}
-    if summary_p.is_file() or summary:
-        summary["name"] = new_name
-        atomic_write_json(summary_p, summary)
-    run_id = str(summary.get("run_id") or manifest.get("run_id") or run_dir.name)
-    register_run(run_dir, name=new_name)
-    return {
-        "run_id": run_id,
-        "short_id": run_id[:8],
-        "name": new_name,
-        "run_dir": str(run_dir),
-        "message": f"Tagged {run_id[:8]} as '{new_name}' ({run_dir})",
-    }
+    from .inspection import tag_run
+    res = dict(tag_run(run, name))
+    run_id = str(res.get("run_id") or res.get("short_id") or "")
+    r_dir = res.get("run_dir", "")
+    r_name = res.get("name", name)
+    res.setdefault("short_id", run_id[:8])
+    res.setdefault("message", f"Tagged {run_id[:8]} as '{r_name}' ({r_dir})")
+    return res
 
 
 def rm(run, *, force=False):
     """Remove a run directory and its registry entry (stops active run if force=True)."""
-    from . import inspection
-    if hasattr(inspection, "remove_run"):
-        res = dict(inspection.remove_run(run, force=force))
-        run_id = str(res.get("run_id") or res.get("short_id") or "")
-        r_dir = res.get("run_dir", "")
-        r_name = res.get("name", Path(r_dir).name if r_dir else "")
-        res.setdefault("short_id", run_id[:8])
-        res.setdefault("message", f"Removed run '{r_name}' ({run_id[:8]}) at {r_dir}")
-        return res
-
-    import shutil
-    from .summary import read_summary_json
-    run_dir = _run_path(run)
-    if not run_dir.exists():
-        raise FileNotFoundError(f"Run directory not found: {run_dir}")
-    is_active, _ = inspection.check_run_active(run_dir)
-    if is_active:
-        if not force:
-            raise RuntimeError(f"Cannot remove active run '{run_dir.name}' without --force")
-        try:
-            stop(run_dir, timeout=10.0)
-        except Exception:
-            pass
-    summary = read_summary_json(run_dir) or {}
-    manifest = {}
-    if (run_dir / "manifest.json").is_file():
-        try:
-            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    run_id = str(summary.get("run_id") or manifest.get("run_id") or run_dir.name)
-    r_name = str(summary.get("name") or manifest.get("name") or manifest.get("config", {}).get("name") or run_dir.name)
-    shutil.rmtree(run_dir)
-    sync_registry(cwd=run_dir.parent)
-    return {
-        "run_id": run_id,
-        "short_id": run_id[:8],
-        "name": r_name,
-        "run_dir": str(run_dir),
-        "removed": True,
-        "message": f"Removed run '{r_name}' ({run_id[:8]}) at {run_dir}",
-    }
+    from .inspection import remove_run
+    res = dict(remove_run(run, force=force))
+    run_id = str(res.get("run_id") or res.get("short_id") or "")
+    r_dir = res.get("run_dir", "")
+    r_name = res.get("name", Path(r_dir).name if r_dir else "")
+    res.setdefault("short_id", run_id[:8])
+    res.setdefault("message", f"Removed run '{r_name}' ({run_id[:8]}) at {r_dir}")
+    return res
 
 
 def list_runs(root=None, *, sort="updated", status=None, status_filter=None, cwd=None):
@@ -1498,12 +1861,12 @@ def list_runs(root=None, *, sort="updated", status=None, status_filter=None, cwd
 runs = list_runs
 
 
-def runs_ls(root=None, sort="fid", status_filter=None, *, status=None, cwd=None):
+def runs_ls(root=None, sort="updated", status_filter=None, *, status=None, cwd=None):
     """Discover and list all runs under root with filtering and sorting."""
     return list_runs(root, sort=sort, status=status, status_filter=status_filter, cwd=cwd)
 
 
-def runs_compare(runs, metric="fid50k_train", at_steps=None):
+def runs_compare(runs, metric="loss/g_total", at_steps=None):
     """Compare multiple runs for a given metric across step milestones."""
     from .inspection import compare_runs as _compare_runs
     return _compare_runs(runs, metric=metric, at_steps=at_steps)
@@ -1516,7 +1879,7 @@ def gc(run=None, dry_run=False, stride=10, *, all_runs=False, all=None):
     if all_runs:
         return gc_all(root=run, dry_run=dry_run, stride=stride)
     from .inspection import gc_run as _gc_run
-    return _gc_run(_run_path(run), dry_run=dry_run, stride=stride)
+    return _gc_run(run.path if isinstance(run, Run) else run, dry_run=dry_run, stride=stride)
 
 
 prune = gc
@@ -1531,7 +1894,7 @@ def gc_all(root=None, dry_run=False, stride=10):
 def compact_events(run, stride=10):
     """Compact redundant train events in events.jsonl, returning reclaimed bytes."""
     from .inspection import compact_events as _compact
-    return _compact(_run_path(run), stride=stride)
+    return _compact(run.path if isinstance(run, Run) else run, stride=stride)
 
 
 # --------------------------------------------------------------------------- viewables
@@ -1615,21 +1978,11 @@ def lift(raw, *, base=None):
     networks = {}
     losses = []
 
-    critics_in_terms = {term.get('component') for term in raw.get('adversarial_terms', [])}
-    if 'discriminator' in components:
-        critics_in_terms.add('discriminator')
+    from .model_description import roles
+    inferred = roles({'components': components, 'adversarial_terms': raw.get('adversarial_terms', [])}, aliases=False)
 
     for name, spec in components.items():
-        if name == 'discriminator' or name in critics_in_terms:
-            role = 'critic'
-        elif name == 'generator':
-            role = 'generator'
-        elif 'encoder' in name or spec.get('factory', '').endswith('Encoder'):
-            role = 'encoder'
-        else:
-            role = 'auxiliary'
-
-        net = {'role': role, 'inputs': dict(spec.get('inputs', {}))}
+        net = {'role': inferred[name], 'inputs': dict(spec.get('inputs', {}))}
         if 'trainable' in spec:
             net['trainable'] = spec['trainable']
         if 'freeze_parameters' in spec:
@@ -1827,7 +2180,7 @@ def lift(raw, *, base=None):
     return Model(model_spec, base=base)
 
 
-def describe(path=None, networks=False, write=False):
+def describe(path=None, networks=False, write=False) -> ModelDescription:
     """Describe a model's formulation, losses, optimizers, and network architectures."""
     from .model_description import MODEL_FILE, build_networks, describe_run, load as load_model_desc
     manifest = {}
@@ -1857,6 +2210,11 @@ def describe(path=None, networks=False, write=False):
                 resolved_path = Path(path)
         else:
             resolved_path = Path(path)
+        if path is not None and not resolved_path.exists():
+            from .config import resolve_packaged_model_path
+            packaged_file = resolve_packaged_model_path(path)
+            if packaged_file is not None:
+                resolved_path = packaged_file
         manifest, config = load_model_desc(resolved_path)
 
     if write and (resolved_path is None or not (resolved_path.is_dir() and manifest)):
@@ -1869,7 +2227,19 @@ def describe(path=None, networks=False, write=False):
     if write and resolved_path is not None:
         from .run_state import atomic_json
         atomic_json(resolved_path / MODEL_FILE, recorded)
-    return describe_run(manifest if manifest else {"config": config}, recorded=recorded)
+    res = describe_run(manifest if manifest else {"config": config}, recorded=recorded)
+    if isinstance(res, ModelDescription):
+        return res
+    return ModelDescription(
+        name=str(res.get("name", "")),
+        family=str(res.get("family", "")),
+        components=dict(res.get("components", {})),
+        losses=dict(res.get("losses", {})),
+        optimizers=dict(res.get("optimizers", {})),
+        prior=dict(res.get("prior", {})),
+        training=dict(res.get("training", {})),
+        raw=res,
+    )
 
 
 describe_model = describe
@@ -1895,6 +2265,34 @@ def data_check(config, output=None):
 check_data = data_check
 
 
+def dataset_info(name="cifar10"):
+    """Return source URL, version, expected bytes, checksums, and usage notice for a qualified dataset."""
+    from .dataset_download import dataset_info as _dataset_info
+    return _dataset_info(name)
+
+
+def list_datasets():
+    """Return metadata for all qualified datasets available via explicit opt-in download."""
+    from .dataset_download import list_datasets as _list_datasets
+    return _list_datasets()
+
+
+def download_dataset(name="cifar10", destination=None, *, cache_dir=None, url=None,
+                     source_archive=None, verify_only=False, timeout=60.0):
+    """Acquire, verify, and extract a qualified dataset into destination, writing dataset-manifest.json."""
+    from .dataset_download import download_dataset as _download_dataset
+    return _download_dataset(
+        name,
+        destination,
+        cache_dir=cache_dir,
+        url=url,
+        source_archive=source_archive,
+        verify_only=verify_only,
+        timeout=timeout,
+    )
+
+
+
 def preflight(config, profile=None, runtime=False):
     """Validate execution environment, hardware, and configuration compatibility."""
     from .execution_profiles import load_execution_profile
@@ -1913,8 +2311,10 @@ def preflight_check(config, profile=None, runtime=True):
     return preflight(config, profile=profile, runtime=runtime)
 
 
-def serve(run_dir=None, port=None, host="0.0.0.0", auth="none", session_file=None, open_browser=False, public_origin=None, dev=False):
+def serve(run_dir=None, port=None, host="127.0.0.1", auth="none", session_file=None, open_browser=False, public_origin=None, dev=False, bind=None):
     """Launch the Web Observatory server for a runs root or run directory."""
+    if bind is not None:
+        host = bind
     if dev:
         from .web_dev import enable
         enable()
@@ -1976,44 +2376,73 @@ def project(run_dir=None, map_spec=None, follow=False, limit=100, on_progress=No
     return last_progress
 
 
-def checkpoint_status(run_dir=None, request_id=None):
-    """Check the status of an asynchronous checkpoint request."""
-    from .run_requests import checkpoint_request_status
-    return checkpoint_request_status(_run_path(run_dir), request_id)
+def request_status(run_dir=None, request_id=None):
+    """Check the status of an asynchronous control request (checkpoint, stop, or sample)."""
+    from .run_requests import request_status as _req_status
+    return _req_status(_run_path(run_dir), request_id)
 
 
-def request_checkpoint(run_dir=None, attempt_id=None, request_id=None):
-    """Submit an asynchronous request for the training process to save a checkpoint."""
-    from .run_requests import submit_checkpoint_request
+checkpoint_status = request_status
+
+
+def _submit_control_request(run_dir=None, *, action="checkpoint", attempt_id=None, request_id=None):
+    from .run_requests import submit_request
     run_dir = _run_path(run_dir)
     manifest_path = run_dir / "manifest.json"
     if not manifest_path.is_file():
         from .inspection import check_run_active
         if check_run_active(run_dir)[0]:
-            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
+            raise ValueError(f"Run is still initializing step 0; {action} will be available once step 1 starts")
         raise FileNotFoundError(f"Run manifest not found: {manifest_path}")
     with manifest_path.open(encoding="utf-8") as stream:
         manifest = json.load(stream)
     if not isinstance(manifest, dict) or not manifest.get("run_id") or not manifest.get("attempt_id"):
         from .inspection import check_run_active
         if check_run_active(run_dir)[0] or (isinstance(manifest, dict) and manifest.get("status") == "initializing"):
-            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
-        raise ValueError("Run manifest has no run/attempt identity for a checkpoint request")
+            raise ValueError(f"Run is still initializing step 0; {action} will be available once step 1 starts")
+        raise ValueError(f"Run manifest has no run/attempt identity for a {action} request")
     if manifest.get("status") == "initializing":
-        raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
+        raise ValueError(f"Run is still initializing step 0; {action} will be available once step 1 starts")
     if manifest.get("status") != "running":
         from .inspection import check_run_active
         if check_run_active(run_dir)[0] and int(manifest.get("steps", 0) or 0) == 0:
-            raise ValueError("Run is still initializing step 0; checkpoint will be available once step 1 starts")
+            raise ValueError(f"Run is still initializing step 0; {action} will be available once step 1 starts")
         if request_id is None:
             raise ValueError("Run is not running; use resume to continue a stopped run")
         try:
-            return checkpoint_status(run_dir, request_id)
+            existing = request_status(run_dir, request_id)
         except FileNotFoundError as exc:
             raise ValueError("Run is not running; use resume to continue a stopped run") from exc
-    return submit_checkpoint_request(run_dir, run_id=manifest["run_id"],
-                                     attempt_id=attempt_id or manifest["attempt_id"],
-                                     request_id=request_id)
+        target_attempt = attempt_id or existing["request"]["attempt_id"]
+        if (
+            existing["request"]["run_id"] != manifest["run_id"]
+            or existing["request"]["attempt_id"] != target_attempt
+            or existing["request"]["action"] != action
+        ):
+            raise ValueError("Conflicting control request ID: reuse requires the same run, attempt and action")
+        return existing
+    return submit_request(
+        run_dir,
+        action=action,
+        run_id=manifest["run_id"],
+        attempt_id=attempt_id or manifest["attempt_id"],
+        request_id=request_id,
+    )
+
+
+def request_checkpoint(run_dir=None, attempt_id=None, request_id=None):
+    """Submit an asynchronous request for the training process to save a checkpoint."""
+    return _submit_control_request(run_dir, action="checkpoint", attempt_id=attempt_id, request_id=request_id)
+
+
+def request_sample(run_dir=None, attempt_id=None, request_id=None):
+    """Submit an asynchronous request for the training process to emit a preview/sample."""
+    return _submit_control_request(run_dir, action="sample", attempt_id=attempt_id, request_id=request_id)
+
+
+def request_stop(run_dir=None, attempt_id=None, request_id=None):
+    """Submit an asynchronous request for the training process to stop cleanly at a boundary."""
+    return _submit_control_request(run_dir, action="stop", attempt_id=attempt_id, request_id=request_id)
 
 
 def ensure_dashboard_running(runs_root=None, check_version=True, run_id=None):
@@ -2101,7 +2530,7 @@ def queue_clear(queue_file=None):
 
 # --------------------------------------------------------------------------- convenience exports
 
-def compare(runs, metric="fid50k_train", at_steps=None):
+def compare(runs, metric="loss/g_total", at_steps=None):
     """Compare multiple runs for a given metric across step milestones."""
     return runs_compare(runs, metric=metric, at_steps=at_steps)
 
@@ -2140,15 +2569,23 @@ def _extract_diff_config(target):
     if target_str.endswith(".pt") or (target_p.is_file() and target_p.suffix == ".pt"):
         if not target_p.is_file():
             raise FileNotFoundError(f"Checkpoint file '{target_str}' not found")
-        import torch
-        state = torch.load(target_p, map_location="cpu", weights_only=True)
+        try:
+            import torch
+            state = torch.load(target_p, map_location="cpu", weights_only=True)
+        except ModuleNotFoundError:
+            raise
+        except Exception as exc:
+            raise ValueError(f"Could not load checkpoint '{target_str}': {exc}") from exc
         if isinstance(state, dict):
             if "config" in state and isinstance(state["config"], dict):
                 return _clean_diff_dict(state["config"])
             if "model_state_dict" in state:
                 return {k: list(v.shape) for k, v in state["model_state_dict"].items() if hasattr(v, "shape")}
         return {}
-    resolved = resolve_run_target(target_str)
+    try:
+        resolved = resolve_run_target(target_str)
+    except Exception as exc:
+        raise FileNotFoundError(f"Run or recipe target '{target_str}' not found") from exc
     manifest_p = resolved / "manifest.json"
     if manifest_p.is_file():
         try:
@@ -2179,20 +2616,54 @@ def _flatten_diff_dict(d, prefix=""):
     return flat
 
 
+def _expand_override_shorthand(model, overrides):
+    """Expand ``optimizer.x`` and ``training.x`` override keys for a hypergan-model/1 spec.
+
+    ``optimizer.lr`` becomes ``optimizers.<each>.lr`` (or ``train.lr`` when the
+    model has no ``[optimizers]``), and ``training.x`` becomes ``train.x``,
+    unless the model itself uses those section names.
+    """
+    if not overrides or model is None:
+        return dict(overrides or {})
+    spec = getattr(model, "spec", model)
+    spec = spec if isinstance(spec, dict) else {}
+    optimizers = spec.get("optimizers")
+    expanded = {}
+    for k, v in overrides.items():
+        if k.startswith("optimizer.") and "optimizer" not in spec:
+            subkey = k[len("optimizer."):]
+            if isinstance(optimizers, dict) and optimizers:
+                for opt_name in optimizers:
+                    expanded[f"optimizers.{opt_name}.{subkey}"] = v
+            else:
+                expanded[f"train.{subkey}"] = v
+        elif k.startswith("training.") and "training" not in spec:
+            expanded[f"train.{k[len('training.'):]}"] = v
+        else:
+            expanded[k] = v
+    return expanded
+
+
 def diff(target_a, target_b=None, *, sets=None, overrides=None):
-    """Compare two configurations, models, runs, or checkpoints, returning differences."""
+    """Compare two configurations, models, runs, or checkpoints, returning differences.
+
+    ``sets`` (or ``overrides``) are applied to ``target_b``, or to a copy of
+    ``target_a`` when ``target_b`` is omitted, as ``hypergan diff -s`` does.
+    """
     merged_sets = dict(sets or {})
     if overrides:
         merged_sets.update(overrides)
     if target_b is None:
         if not merged_sets:
-            raise ValueError("diff requires target_b or overrides/sets")
-        m_b = override(_model(target_a), merged_sets)
+            raise ValueError("diff requires a second target (target_b) or at least one -s/--set override")
+        m_a = _model(target_a)
+        m_b = override(m_a, _expand_override_shorthand(m_a, merged_sets))
         target_b_label = f"{getattr(target_a, 'path', target_a)} (with overrides)"
         cfg_b = _extract_diff_config(m_b)
     elif merged_sets:
-        m_b = override(_model(target_b), merged_sets)
-        target_b_label = str(getattr(target_b, "path", target_b))
+        m_b = _model(target_b)
+        m_b = override(m_b, _expand_override_shorthand(m_b, merged_sets))
+        target_b_label = f"{getattr(target_b, 'path', target_b)} (with overrides)"
         cfg_b = _extract_diff_config(m_b)
     else:
         target_b_label = str(getattr(target_b, "path", target_b))
@@ -2219,3 +2690,20 @@ def list_templates():
     """List available starter templates (e.g. gaussian-grid, dcgan, resnet, tiny-transformer)."""
     from .recipe_generator import list_starter_templates
     return list_starter_templates()
+
+
+def schema(section=None):
+    """Return the hypergan-model/1 specification, optionally filtered to a section."""
+    from .schema_info import get_schema
+    return get_schema(section)
+
+
+def operators(query=None):
+    """Return catalog of all 85 HNDL operators, optionally filtered by search query."""
+    from .ops_info import get_operators
+    return get_operators(query)
+
+
+ops = operators
+
+from .run_info import RunInfo, read_run_info

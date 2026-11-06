@@ -11,6 +11,8 @@ import sys
 import pytest
 import torch
 
+pytestmark = pytest.mark.multi_gpu
+
 
 _spec = importlib.util.spec_from_file_location(
     '_cpu_job_fixtures', Path(__file__).parents[1] / 'reference/test_replicated_job_acceptance.py')

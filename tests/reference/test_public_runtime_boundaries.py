@@ -16,7 +16,7 @@ def project_on_path(monkeypatch):
     monkeypatch.syspath_prepend(str(EXAMPLES))
 
 def small(model, steps=3):
-    return hg.override(model, {'train.steps': steps})
+    return hg.override(model, {'train.steps': steps, 'metrics.every_steps': 1})
 
 def run_cli(tmp_path, *args, isolated=True):
     cmd = [sys.executable]
@@ -27,7 +27,7 @@ def run_cli(tmp_path, *args, isolated=True):
 
 
 def test_lift_all_examples():
-    example_files = list((ROOT / 'examples').glob('*.toml'))
+    example_files = list((ROOT / 'examples').glob('*.toml')) + list((ROOT / 'examples' / 'archive').glob('*.toml'))
     assert len(example_files) >= 20
     for path in example_files:
         recipe = hg.load_recipe(path)

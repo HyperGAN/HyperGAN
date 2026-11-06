@@ -36,7 +36,7 @@ distance and the effective sigma.
 
 `training.data_rng_device` is `"cpu"` by default, or `"execution"` for a data
 factory that draws on the execution device. `data_seed_offset` and
-`prior_seed_offset` default to 1 and 2, added to `training.seed`. The source image
+`prior_seed_offset` default to 1 and 2, added to `train.seed`. The source image
 recipe uses execution-device data with offsets 2 and 3 and CPU prior seed+1.
 Factories must support the requested generator device; there is no implicit
 fallback. The separate penalty RNG remains seed+3.

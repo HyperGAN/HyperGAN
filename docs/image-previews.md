@@ -105,7 +105,10 @@ bound when grids are large or the disk is small.
 `previews/index.json` lists every retained generation, records the requested
 `keep` (`0` meaning every preview) and a `retention` of `all` or `thinned`, and
 is rewritten on each publication from the records it already holds, so a long
-history does not reread every generation manifest. The run manifest repeats only
+history does not reread every generation manifest. Its file paths are relative
+to the run directory (`previews/<generation>/grid.png`), so a moved or copied run
+still resolves them; indexes from older releases hold absolute paths, which
+readers map onto the run directory the same way. The run manifest repeats only
 the most recent 16 records plus a `preview_count`; the index is the whole
 history. The viewer accepts an index of up to 4,096 generations.
 

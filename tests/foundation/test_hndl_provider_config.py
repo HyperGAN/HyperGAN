@@ -12,7 +12,8 @@ from hypergan.network_config import validate_network_args
 
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / 'examples' / 'sagan-adain-dinov3-multidepth-128.toml'
+_CANDIDATE = ROOT / 'examples' / 'sagan-adain-dinov3-multidepth-128.toml'
+EXAMPLE = _CANDIDATE if _CANDIDATE.exists() else (ROOT / 'examples' / 'archive' / 'sagan-adain-dinov3-multidepth-128.toml')
 PROVIDER = {'source_path': '/unavailable/dinov3-source', 'source_commit': 'a' * 40}
 
 

@@ -77,9 +77,9 @@ def test_queue_status_with_summary(temp_queue, tmp_path):
         "run_id": "test-run-123",
         "step": 450,
         "total_steps": 1000,
-        "speed_it_per_sec": 12.5,
+        "steps_per_sec": 12.5,
         "eta_seconds": 44.0,
-        "latest_metrics": {"fid50k_train": 18.25, "loss_g": 0.42},
+        "latest": {"fid50k_train": 18.25, "loss_g": 0.42},
     }
     (run_dir / "summary.json").write_text(json.dumps(summary_data), encoding="utf-8")
 
@@ -89,7 +89,7 @@ def test_queue_status_with_summary(temp_queue, tmp_path):
     assert status_info["jobs_total"] == 1
     assert status_info["active_job"]["id"] == job["id"]
     assert status_info["summary"]["step"] == 450
-    assert status_info["summary"]["speed_it_per_sec"] == 12.5
+    assert status_info["summary"]["steps_per_sec"] == 12.5
 
     formatted = format_queue_status(status_info)
     assert "Step 450/1000 (12.50 it/s)" in formatted
@@ -126,8 +126,10 @@ def test_queue_stop_all(temp_queue):
     assert res["stopped_all"] is True
     assert res["cancelled_count"] == 2
 
-    stop_file = temp_queue.with_name(temp_queue.name + ".stop")
-    assert stop_file.is_file()
+    # Runners halt on the generation bump; no stop file is left behind for later runners.
+    assert res["stop_generation"] == 1
+    assert load_queue(temp_queue)["stop_generation"] == 1
+    assert not temp_queue.with_name(temp_queue.name + ".stop").exists()
 
     jobs = queue_ls(queue_file=temp_queue)
     assert all(j["status"] == "cancelled" for j in jobs)
@@ -200,6 +202,8 @@ def test_queue_runner_stop_file(temp_queue):
 
     code = queue_run(queue_file=temp_queue)
     assert code == 0
+    # The stop file is consumed so it does not halt every later runner.
+    assert not stop_file.exists()
 
 
 def test_hardware_preflight_busy_check(monkeypatch):

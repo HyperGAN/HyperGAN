@@ -1,8 +1,11 @@
-"""Run inspection, discovery, comparison, and garbage collection.
+"""Run inspection, discovery, comparison, and run maintenance (gc, tag, stop, rm).
 
-Operates strictly on run metadata (manifest.json, summary.json, events.jsonl).
+Reads run metadata (manifest.json, summary.json, events.jsonl). The destructive
+commands resolve targets with registry.resolve_destructive_target and act only
+on real run directories, under the run's writer lock.
 Never imports torch, particlegan, or training execution dependencies.
 """
+from contextlib import ExitStack, contextmanager
 import csv
 from datetime import datetime, timezone
 import hashlib
@@ -52,8 +55,94 @@ def format_duration(seconds: Optional[Union[int, float]]) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def inspect_run_host(run_dir: Union[Path, str]) -> Dict[str, Any]:
+    """Extract recorded hostname, PID, and whether the run belongs to a remote/cluster host."""
+    import socket
+
+    run_dir = Path(run_dir).resolve()
+    local_hostname = socket.gethostname()
+    hostname: Optional[str] = None
+    pid: Optional[int] = None
+
+    lock_file = run_dir / ".run.lock"
+    if lock_file.is_file():
+        try:
+            raw_lock = lock_file.read_bytes()[:4096].decode("utf-8", errors="ignore").strip()
+            if raw_lock.startswith("{"):
+                lock_data = json.loads(raw_lock)
+                if isinstance(lock_data, dict):
+                    h = lock_data.get("hostname") or lock_data.get("host") or lock_data.get("node")
+                    if isinstance(h, str) and h.strip():
+                        hostname = h.strip()
+                    p = lock_data.get("pid")
+                    if isinstance(p, int):
+                        pid = p
+        except Exception:
+            pass
+
+    launch_dir = run_dir / "launch"
+    if launch_dir.is_dir():
+        attempts = sorted(launch_dir.glob("*.json"), key=lambda p: p.name, reverse=True)
+        for att_file in attempts:
+            try:
+                data = json.loads(att_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    if hostname is None:
+                        h = data.get("hostname") or data.get("host") or data.get("node")
+                        if isinstance(h, str) and h.strip():
+                            hostname = h.strip()
+                    if pid is None:
+                        p = data.get("pid") or data.get("supervisor_pid")
+                        if isinstance(p, int):
+                            pid = p
+                    if hostname is not None or pid is not None:
+                        break
+            except Exception:
+                pass
+
+    manifest = _read_manifest_safe(run_dir)
+    if hostname is None and manifest:
+        runtime_dict = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
+        cluster_dict = manifest.get("cluster") if isinstance(manifest.get("cluster"), dict) else {}
+        h = (
+            manifest.get("hostname")
+            or manifest.get("host")
+            or runtime_dict.get("hostname")
+            or cluster_dict.get("hostname")
+        )
+        if isinstance(h, str) and h.strip():
+            hostname = h.strip()
+    if pid is None and isinstance(manifest.get("pid"), int):
+        pid = manifest["pid"]
+
+    remote = bool(hostname and hostname != local_hostname)
+    return {
+        "hostname": hostname,
+        "pid": pid,
+        "remote": remote,
+        "local_hostname": local_hostname,
+    }
+
+
+def _is_stale_unlocked_remote_run(run_dir: Path, lock_file: Path, max_idle_seconds: float = 3600.0) -> bool:
+    """Return True if a run with an unlocked .run.lock file has had no file activity within max_idle_seconds."""
+    if not lock_file.exists():
+        return False
+    import time
+    latest_mtime = 0.0
+    for candidate in (lock_file, run_dir / "summary.json", run_dir / "manifest.json", run_dir / "events.jsonl"):
+        try:
+            if candidate.exists():
+                latest_mtime = max(latest_mtime, candidate.stat().st_mtime)
+        except OSError:
+            pass
+    if latest_mtime <= 0.0:
+        return False
+    return (time.time() - latest_mtime) > max_idle_seconds
+
+
 def check_run_active(run_dir: Union[Path, str]) -> Tuple[bool, Optional[int]]:
-    """Test non-blocking flock on .run.lock to check if training process is active."""
+    """Test non-blocking flock on .run.lock (or remote cluster run state) to check if training is active."""
     run_dir = Path(run_dir).resolve()
     lock_file = run_dir / ".run.lock"
     is_active = False
@@ -77,6 +166,16 @@ def check_run_active(run_dir: Union[Path, str]) -> Tuple[bool, Optional[int]]:
             pass
 
     if not is_active:
+        host_info = inspect_run_host(run_dir)
+        if host_info["remote"] and not _is_stale_unlocked_remote_run(run_dir, lock_file):
+            manifest = _read_manifest_safe(run_dir)
+            m_status = str(manifest.get("status") or "").strip().lower() if manifest else ""
+            summary = read_summary_json(run_dir) if not m_status else None
+            s_status = str(summary.get("status") or "").strip().lower() if isinstance(summary, dict) else ""
+            terminal = {"complete", "completed", "stopped", "failed", "interrupted", "cancelled", "canceled"}
+            if m_status in ("running", "initializing") or (not m_status and s_status in ("running", "initializing")):
+                if m_status not in terminal and s_status not in terminal:
+                    return True, host_info["pid"]
         return False, None
 
     pid = None
@@ -220,7 +319,9 @@ def _resolve_valid_status(
 
     if raw is None:
         return "incomplete"
-    if raw in ("running", "initializing") and (run_dir / ".run.lock").exists():
+    if raw in ("running", "initializing"):
+        # Not active (check_run_active covers local locks and remote hosts), so it
+        # stopped without recording it; the registry reports the same.
         return "stopped"
     if raw == "complete":
         return "completed"
@@ -410,25 +511,27 @@ def run_status(
             eval_by_step.setdefault(int(best_step), {}).setdefault(b_m, float(best["value"]))
 
     # Recent checkpoints
+    from .summary import collect_checkpoints
+
     raw_checkpoints = summary.get("checkpoints") if (summary and isinstance(summary.get("checkpoints"), list)) else None
-    if raw_checkpoints is None:
-        ckpt_root = resolved_dir / "checkpoints"
-        ckpts = []
-        if ckpt_root.is_dir():
-            for cm in ckpt_root.glob("*/manifest.json"):
-                try:
-                    cdata = json.loads(cm.read_text(encoding="utf-8"))
-                    if isinstance(cdata, dict):
-                        ckpts.append({
-                            "step": cdata.get("step", 0),
-                            "name": cm.parent.name,
-                            "path": f"checkpoints/{cm.parent.name}",
-                            "metrics": {},
-                        })
-                except Exception:
-                    continue
-        ckpts.sort(key=lambda c: c["step"])
-        raw_checkpoints = ckpts
+    disk_checkpoints = collect_checkpoints(resolved_dir, eval_by_step)
+    if disk_checkpoints:
+        if not raw_checkpoints:
+            raw_checkpoints = disk_checkpoints
+        else:
+            merged_ckpts = {
+                (int(c.get("step", 0) or 0), str(c.get("name") or c.get("path") or "")): c
+                for c in raw_checkpoints
+                if isinstance(c, dict)
+            }
+            for dc in disk_checkpoints:
+                merged_ckpts[(dc["step"], dc["name"])] = dc
+            raw_checkpoints = sorted(
+                merged_ckpts.values(),
+                key=lambda c: (int(c.get("step", 0) or 0), str(c.get("timestamp") or ""), str(c.get("name") or "")),
+            )
+    elif raw_checkpoints is None:
+        raw_checkpoints = []
 
     checkpoints = []
     for c in (raw_checkpoints or []):
@@ -457,6 +560,8 @@ def run_status(
         if corrupt_warn not in warnings:
             warnings.append(corrupt_warn)
 
+    host_info = inspect_run_host(resolved_dir)
+
     return {
         "run_id": run_id,
         "short_id": str(run_id)[:8],
@@ -466,6 +571,8 @@ def run_status(
         "status": status_str,
         "active": is_active,
         "pid": pid if is_active else None,
+        "hostname": host_info["hostname"],
+        "remote": host_info["remote"],
         "devices": devices_str,
         "step": step,
         "total_steps": total_steps,
@@ -474,6 +581,8 @@ def run_status(
         "elapsed": elapsed_seconds,
         "eta_seconds": eta_seconds,
         "latest_metrics": latest_metrics,
+        "telemetry_trends": (summary.get("telemetry_trends", {}) if summary else {}),
+        "health_alerts": (summary.get("health_alerts", []) if summary else []),
         "best": best,
         "best_fid": best_fid,
         "best_step": best_step,
@@ -521,6 +630,13 @@ def format_run_status(info: Dict[str, Any]) -> str:
         lines.append("  " + "    ".join(metric_pairs[:4]))
     else:
         lines.append("  (No intermediate scalar metrics logged)")
+
+    alerts = info.get("health_alerts", [])
+    if alerts:
+        lines.append("")
+        lines.append("Health Alerts:")
+        for alert in alerts:
+            lines.append(f"  ! {alert}")
 
     best_obj = info.get("best")
     if isinstance(best_obj, dict) and isinstance(best_obj.get("value"), (int, float)):
@@ -584,7 +700,7 @@ def _collect_ps_row(
     cached_entry: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Collect a single run row for list_runs / ps_runs using Tier 1 mtime cache or safe metadata fallback."""
-    from .registry import _read_registry_unlocked, extract_or_derive_slug, get_registry_dir
+    from .registry import _read_registry_unlocked, canonical_slug, extract_or_derive_slug, get_registry_dir, read_run_tag
 
     run_path = Path(run_dir).resolve()
     is_active, pid = check_run_active(run_path)
@@ -631,6 +747,7 @@ def _collect_ps_row(
             "slug": cached_entry.get("slug") or extract_or_derive_slug(rid, name=str(cached_entry.get("name", "")), run_dir_name=run_path.name),
             "run_dir": str(run_path),
             "name": str(cached_entry.get("name") or run_path.name),
+            "tag": cached_entry.get("tag"),
             "status": str(cached_entry.get("status") or "completed"),
             "active": False,
             "pid": None,
@@ -658,23 +775,21 @@ def _collect_ps_row(
         or (cached_entry.get("run_id") if cached_entry else None)
         or run_path.name
     )
+    tag = read_run_tag(run_path)
     raw_name = (
-        (summary.get("name") if summary else None)
+        tag
+        or (summary.get("name") if summary else None)
         or manifest.get("name")
         or config.get("name")
         or (cached_entry.get("name") if cached_entry else None)
         or run_id
     )
-    if cached_entry and cached_entry.get("_old_dir_name") and str(raw_name) == str(cached_entry["_old_dir_name"]):
+    if not tag and cached_entry and cached_entry.get("_old_dir_name") and str(raw_name) == str(cached_entry["_old_dir_name"]):
         raw_name = cached_entry.get("name") or run_path.name
     name = str(raw_name)
 
-    slug = (
-        (summary.get("slug") if summary else None)
-        or manifest.get("slug")
-        or (cached_entry.get("slug") if cached_entry else None)
-        or extract_or_derive_slug(str(run_id), name=name, run_dir_name=run_path.name)
-    )
+    # Same derivation as the registry (and so the strict resolver): ps and rm agree.
+    slug = canonical_slug(run_path, str(run_id), name=name, manifest=manifest, summary=summary, existing=cached_entry)
 
     status_val = _resolve_valid_status(summary, manifest, is_active=is_active, run_dir=run_path)
 
@@ -768,6 +883,7 @@ def _collect_ps_row(
         "slug": slug,
         "run_dir": str(run_path),
         "name": name,
+        "tag": tag,
         "status": status_val,
         "active": is_active,
         "pid": pid if is_active else None,
@@ -793,7 +909,6 @@ def list_runs(
 ) -> List[Dict[str, Any]]:
     """Discover and list all runs under root (or globally via registry when root is None)."""
     from .registry import (
-        _ensure_unique_slug,
         _is_isolated_test_env,
         find_workspace_runs_root,
         is_run_dir,
@@ -869,9 +984,7 @@ def list_runs(
     runs: List[Dict[str, Any]] = []
     for run_dir in candidates:
         try:
-            row = _collect_ps_row(run_dir, cached_entry=cached_by_dir.get(str(run_dir.resolve())))
-            row["slug"] = _ensure_unique_slug(str(row.get("slug") or ""), str(row.get("run_id") or ""), runs)
-            runs.append(row)
+            runs.append(_collect_ps_row(run_dir, cached_entry=cached_by_dir.get(str(run_dir.resolve()))))
         except Exception:
             continue
 
@@ -1074,6 +1187,32 @@ def compare_runs(run_dirs: List[Union[Path, str]],
             "evals": evals_by_step,
         })
 
+    # Determine metric direction ("minimize" vs "maximize")
+    metric_direction = "minimize"
+    for r in runs_data:
+        r_dir = Path(r["dir"])
+        summary = read_summary_json(r_dir)
+        if summary and summary.get("evaluations"):
+            for ev in summary["evaluations"]:
+                if isinstance(ev, dict) and str(ev.get("metric") or "").lower() in cand_keys_lower:
+                    if ev.get("direction") in ("minimize", "maximize"):
+                        metric_direction = ev["direction"]
+                        break
+        metrics_dir = r_dir / "metrics"
+        if metrics_dir.is_dir():
+            for cat_path in metrics_dir.glob("catalog-*.json"):
+                try:
+                    cat = json.loads(cat_path.read_text(encoding="utf-8"))
+                    for m_name, m_spec in cat.get("metrics", {}).items():
+                        if m_name.lower() in cand_keys_lower:
+                            if isinstance(m_spec, dict) and m_spec.get("direction") in ("minimize", "maximize"):
+                                metric_direction = m_spec["direction"]
+                                break
+                except Exception:
+                    continue
+        if metric_direction != "minimize":
+            break
+
     # Build matrix
     matrix: Dict[str, Dict[str, Any]] = {}
     for st in steps:
@@ -1086,8 +1225,10 @@ def compare_runs(run_dirs: List[Union[Path, str]],
                 continue
 
             if st == "best":
-                # Find min value (for FID/loss)
-                best_step = min(evals.keys(), key=lambda s: (evals[s], -s))
+                if metric_direction == "maximize":
+                    best_step = max(evals.keys(), key=lambda s: (evals[s], s))
+                else:
+                    best_step = min(evals.keys(), key=lambda s: (evals[s], -s))
                 matrix[st_key][r["run_id"]] = {"value": evals[best_step], "step": best_step}
             elif st == "latest":
                 latest_step = max(evals.keys())
@@ -1176,37 +1317,67 @@ def format_comparison_csv(comparison: Dict[str, Any]) -> str:
     return output.getvalue()
 
 
-def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
-    """Compact redundant train events in events.jsonl, returning reclaimed bytes."""
-    if not isinstance(stride, int) or stride < 1:
-        raise ValueError("stride must be a positive integer")
-    run_dir = Path(run_dir).resolve()
+@contextmanager
+def _maintenance_lock(run_dir: Path, action: str):
+    """Hold the run's writer lock (.run.lock) for a maintenance action.
+
+    A trainer, resume or queue job cannot start while this is held, so it can
+    never append to an events.jsonl inode that compaction is replacing.
+    """
+    from ._file_lock import retry_lock
+    from .run_state import run_lock
+
     is_active, _ = check_run_active(run_dir)
     if is_active:
-        raise RuntimeError(f"Cannot compact events on active training run: {run_dir}")
+        raise RuntimeError(f"Cannot {action} on active training run: {run_dir}")
+    stack = ExitStack()
+    try:
+        stack.enter_context(retry_lock(lambda: run_lock(run_dir), seconds=0.5))
+    except RuntimeError as exc:
+        raise RuntimeError(f"Cannot {action} on active training run: {run_dir}") from exc
+    with stack:
+        yield
 
+
+def _compact_events_locked(run_dir: Path, stride: int, *, dry_run: bool = False) -> int:
+    """Compact events.jsonl (caller holds the run lock), or with dry_run only measure the saving."""
     events_path = run_dir / "events.jsonl"
     if not events_path.is_file():
         return 0
 
-    from .run_state import repair_event_tail
-    repair_event_tail(events_path)
+    if not dry_run:
+        from .run_state import repair_event_tail
+        repair_event_tail(events_path)
 
     before_size = events_path.stat().st_size
     if before_size == 0:
         return 0
 
+    # Read the manifest first: compaction is only safe if its boundary can be updated afterwards.
+    manifest_path = run_dir / "manifest.json"
+    manifest_data: Dict[str, Any] = {}
+    if manifest_path.is_file():
+        try:
+            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(f"Cannot compact events: manifest.json is unreadable ({exc}): {run_dir}") from exc
+        if not isinstance(manifest_data, dict):
+            raise RuntimeError(f"Cannot compact events: manifest.json is not an object: {run_dir}")
+
     # Discover checkpoint and evaluation steps to preserve
     pinned_steps = {0}
-    ckpt_root = run_dir / "checkpoints"
-    if ckpt_root.is_dir():
-        for cm in ckpt_root.glob("*/manifest.json"):
-            try:
-                cdata = json.loads(cm.read_text(encoding="utf-8"))
-                if "step" in cdata:
-                    pinned_steps.add(int(cdata["step"]))
-            except Exception:
-                pass
+    for ckpt_subdir in ("checkpoints", "distributed-checkpoints"):
+        ckpt_root = run_dir / ckpt_subdir
+        if ckpt_root.is_dir():
+            for cm in ckpt_root.glob("*/manifest.json"):
+                if cm.parent.name.startswith("."):
+                    continue
+                try:
+                    cdata = json.loads(cm.read_text(encoding="utf-8"))
+                    if "step" in cdata:
+                        pinned_steps.add(int(cdata["step"]))
+                except Exception:
+                    pass
 
     eval_root = run_dir / "metrics" / "evaluations"
     if eval_root.is_dir():
@@ -1237,15 +1408,6 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
     if last_train_step is not None:
         pinned_steps.add(last_train_step)
 
-    # Read manifest for default run_id / attempt_id if needed
-    manifest_path = run_dir / "manifest.json"
-    manifest_data = {}
-    if manifest_path.is_file():
-        try:
-            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            manifest_data = {}
-
     temp_path = run_dir / f".events.jsonl.compact.{os.getpid()}.tmp"
     digest = hashlib.sha256()
     new_size = 0
@@ -1255,7 +1417,7 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
     current_sequence = 0
 
     try:
-        with events_path.open("rb") as src, temp_path.open("wb") as dst:
+        with events_path.open("rb") as src, (open(os.devnull, "wb") if dry_run else temp_path.open("wb")) as dst:
             for line in src:
                 if not line.strip():
                     continue
@@ -1269,7 +1431,8 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
 
                 if ev.get("event") == "train":
                     step = ev.get("step")
-                    if step not in pinned_steps and (step % stride != 0):
+                    # A train event without an integer step is kept rather than crashing the pass.
+                    if isinstance(step, int) and step not in pinned_steps and step % stride != 0:
                         continue
 
                 # Renumber sequence contiguously per attempt_id
@@ -1295,39 +1458,75 @@ def compact_events(run_dir: Union[Path, str], stride: int = 10) -> int:
                 new_size += len(serialized)
                 last_event = ev
 
-            dst.flush()
-            os.fsync(dst.fileno())
+            if not dry_run:
+                dst.flush()
+                os.fsync(dst.fileno())
 
+        if dry_run:
+            return max(0, before_size - new_size)
         os.replace(temp_path, events_path)
     finally:
         temp_path.unlink(missing_ok=True)
 
     # Invalidate stale views to prevent cursor mismatch
-    views_dir = run_dir / "views"
-    if views_dir.is_dir():
-        shutil.rmtree(views_dir, ignore_errors=True)
+    _remove_views(run_dir)
 
-    # Update manifest with boundary and envelope SHA256
+    # Update manifest with boundary and envelope SHA256. A failure here must be
+    # visible: resume validation needs events_compacted to accept the new log.
     if manifest_path.is_file():
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            manifest["events_compacted"] = True
-            manifest["envelope_sha256"] = digest.hexdigest()
-            if last_event and isinstance(last_event, dict):
-                manifest["durable_event_boundary"] = {
-                    "schema_version": 1,
-                    "offset": new_size,
-                    "sha256": digest.hexdigest(),
-                    "run_id": manifest.get("run_id") or last_event.get("run_id"),
-                    "attempt_id": last_event.get("attempt_id"),
-                    "step": last_event.get("step", 0),
-                    "sequence": last_event.get("sequence", 1),
-                }
-            atomic_write_json(manifest_path, manifest)
-        except Exception:
-            pass
+        manifest = dict(manifest_data)
+        manifest["events_compacted"] = True
+        manifest["envelope_sha256"] = digest.hexdigest()
+        if last_event and isinstance(last_event, dict):
+            manifest["durable_event_boundary"] = {
+                "schema_version": 1,
+                "offset": new_size,
+                "sha256": digest.hexdigest(),
+                "run_id": manifest.get("run_id") or last_event.get("run_id"),
+                "attempt_id": last_event.get("attempt_id"),
+                "step": last_event.get("step", 0),
+                "sequence": last_event.get("sequence", 1),
+            }
+        atomic_write_json(manifest_path, manifest)
 
     return max(0, before_size - new_size)
+
+
+def _views_size(views_dir: Path) -> int:
+    if views_dir.is_symlink() or not views_dir.is_dir():
+        return 0
+    total = 0
+    for p in views_dir.rglob("*"):
+        if p.is_file() and not p.is_symlink():
+            try:
+                total += p.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _remove_views(run_dir: Path) -> None:
+    views_dir = run_dir / "views"
+    if views_dir.is_symlink():
+        views_dir.unlink()  # never follow a link out of the run directory
+    elif views_dir.is_dir():
+        shutil.rmtree(views_dir, ignore_errors=True)
+
+
+def compact_events(
+    run_dir: Union[Path, str],
+    stride: int = 10,
+    *,
+    cwd: Optional[Union[Path, str]] = None,
+) -> int:
+    """Compact redundant train events in events.jsonl, returning reclaimed bytes."""
+    from .registry import resolve_destructive_target
+
+    if not isinstance(stride, int) or stride < 1:
+        raise ValueError("stride must be a positive integer")
+    run_dir = resolve_destructive_target(run_dir, cwd=cwd)
+    with _maintenance_lock(run_dir, "compact events"):
+        return _compact_events_locked(run_dir, stride)
 
 
 def gc_run(
@@ -1337,35 +1536,29 @@ def gc_run(
     *,
     cwd: Optional[Union[Path, str]] = None,
 ) -> Dict[str, Any]:
-    """Clean rebuildable views and compact events on a finished run."""
-    run_dir = _resolve_run_dir(run_dir, cwd=cwd)
-    is_active, _ = check_run_active(run_dir)
-    if is_active:
-        raise RuntimeError(f"Cannot perform GC on active training run: {run_dir}")
+    """Clean rebuildable views and compact events on a finished run.
 
-    # 1. Views directory
+    The target goes through the strict resolver: only a real run directory
+    (manifest.json or summary.json with a run_id) is ever touched. The dry run
+    reports the bytes the compaction pass would actually reclaim.
+    """
+    from .registry import resolve_destructive_target
+
+    if not isinstance(stride, int) or stride < 1:
+        raise ValueError("stride must be a positive integer")
+    run_dir = resolve_destructive_target(run_dir, cwd=cwd)
     views_dir = run_dir / "views"
-    views_reclaimed = 0
-    if views_dir.is_dir():
-        for p in views_dir.rglob("*"):
-            if p.is_file():
-                try:
-                    views_reclaimed += p.stat().st_size
-                except OSError:
-                    pass
-        if not dry_run:
-            shutil.rmtree(views_dir, ignore_errors=True)
-
-    # 2. Events compaction
-    events_reclaimed = 0
-    events_file = run_dir / "events.jsonl"
-    if events_file.is_file():
-        if dry_run:
-            # Estimate compaction size
-            before_size = events_file.stat().st_size
-            events_reclaimed = int(before_size * 0.85)  # conservative dry-run estimate
-        else:
-            events_reclaimed = compact_events(run_dir, stride=stride)
+    if dry_run:
+        is_active, _ = check_run_active(run_dir)
+        if is_active:
+            raise RuntimeError(f"Cannot perform GC on active training run: {run_dir}")
+        views_reclaimed = _views_size(views_dir)
+        events_reclaimed = _compact_events_locked(run_dir, stride, dry_run=True)
+    else:
+        with _maintenance_lock(run_dir, "perform GC"):
+            views_reclaimed = _views_size(views_dir)
+            _remove_views(run_dir)
+            events_reclaimed = _compact_events_locked(run_dir, stride)
 
     total_reclaimed = views_reclaimed + events_reclaimed
     return {
@@ -1388,52 +1581,48 @@ def gc_all(
     *,
     cwd: Optional[Union[Path, str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Clean all finished runs under root (or across workspace runs_root + registered runs when root is None)."""
-    from .registry import _is_isolated_test_env, find_workspace_runs_root, is_run_dir, list_registered_runs
+    """Clean all finished runs under root, or under the current workspace when root is None.
+
+    Compaction is lossy, so this never reaches beyond that root or workspace:
+    without a workspace an explicit root is required, and runs the registry
+    learned about elsewhere (other projects, /proc, viewer state) are ignored.
+    """
+    from .registry import _is_isolated_test_env, find_workspace_runs_root, list_registered_runs, run_identity
 
     base_cwd = Path(cwd).resolve() if cwd is not None else (_is_isolated_test_env() or Path.cwd().resolve())
 
+    def _children(parent: Path) -> List[Path]:
+        try:
+            return [c.resolve() for c in sorted(parent.iterdir())
+                    if not c.name.startswith(".") and not c.is_symlink() and c.is_dir() and run_identity(c)]
+        except OSError:
+            return []
+
     if root is None:
-        candidates: List[Path] = []
-        seen: set[str] = set()
         ws_file = find_workspace(base_cwd)
-        ws_dir = ws_file.parent.resolve() if ws_file is not None else None
+        if ws_file is None:
+            raise ValueError(
+                "gc --all needs a workspace (a hypergan.toml in this directory or above) "
+                "or an explicit runs root: hypergan gc --all <runs-root>"
+            )
+        ws_dir = ws_file.parent.resolve()
         ws_root = find_workspace_runs_root(base_cwd)
-        if ws_root and ws_root.is_dir():
-            for c in sorted(ws_root.iterdir()):
-                if c.is_dir() and not c.name.startswith(".") and is_run_dir(c):
-                    rp = c.resolve()
-                    if str(rp) not in seen:
-                        seen.add(str(rp))
-                        candidates.append(rp)
+        candidates: List[Path] = []
+        if ws_root is not None and ws_root.is_dir():
+            candidates.extend(_children(ws_root))
         for e in list_registered_runs(cwd=base_cwd):
             rdir = e.get("run_dir")
-            if rdir:
-                rp = Path(rdir).resolve()
-                if rp.is_dir() and is_run_dir(rp) and str(rp) not in seen:
-                    if ws_dir is not None:
-                        in_ws = (
-                            (ws_root is not None and rp.is_relative_to(ws_root))
-                            or rp.is_relative_to(ws_dir)
-                            or e.get("workspace") == str(ws_dir)
-                            or e.get("workspace_root") == str(ws_dir)
-                        )
-                        if not in_ws:
-                            continue
-                    seen.add(str(rp))
-                    candidates.append(rp)
+            if not rdir:
+                continue
+            rp = Path(rdir).resolve()
+            in_ws = rp.is_relative_to(ws_dir) or (ws_root is not None and rp.is_relative_to(ws_root))
+            if in_ws and rp not in candidates and rp.is_dir() and run_identity(rp):
+                candidates.append(rp)
     else:
         target_root = Path(root).resolve()
         if not target_root.exists():
             return []
-        if is_run_dir(target_root):
-            candidates = [target_root]
-        else:
-            candidates = [
-                c.resolve()
-                for c in target_root.iterdir()
-                if c.is_dir() and not c.name.startswith(".") and is_run_dir(c)
-            ]
+        candidates = [target_root] if run_identity(target_root) else _children(target_root)
 
     results = []
     for cand in candidates:
@@ -1448,7 +1637,7 @@ def gc_all(
             })
             continue
         try:
-            res = gc_run(cand, dry_run=dry_run, stride=stride)
+            res = gc_run(cand, dry_run=dry_run, stride=stride, cwd=base_cwd)
             results.append(res)
         except Exception as exc:
             results.append({
@@ -1488,13 +1677,14 @@ def ps_runs(*, all_runs: bool = False, cwd: Optional[Union[Path, str]] = None) -
         if r.get("active"):
             pid = r.get("pid")
             r_dir_str = str(r_dir)
-            r_name = r_dir.name
             vram_total = 0.0
             matched_gpus = []
             for gp in gpu_procs:
                 gp_pid = gp.get("pid")
-                gp_cmd = gp.get("cmdline", "")
-                if (pid and gp_pid == pid) or (r_dir_str in gp_cmd) or (r_name and r_name in gp_cmd):
+                gp_cmd = str(gp.get("cmdline", ""))
+                # Whole-argument match only: a substring or basename test credits
+                # runs/cifar with the VRAM of a runs/cifar-v2 trainer.
+                if (pid and gp_pid == pid) or r_dir_str in gp_cmd.split():
                     vram_total += float(gp.get("used_memory") or 0.0)
                     uuid_str = str(gp.get("gpu_uuid", ""))
                     if uuid_str in gpu_hw:
@@ -1602,18 +1792,53 @@ def format_ps_table(ps_data: Dict[str, Any], *, all_runs: bool = False, quiet: b
     return "\n".join(lines)
 
 
+def _pid_alive(pid: int) -> bool:
+    stat = Path(f"/proc/{pid}/stat")
+    if stat.parent.parent.is_dir():
+        try:
+            # Field 3 is the state; a zombie has exited and released its locks.
+            return stat.read_text(encoding="utf-8", errors="ignore").rsplit(")", 1)[1].split()[0] != "Z"
+        except (OSError, IndexError):
+            return False
+    if os.name == "nt":
+        return False  # os.kill(pid, 0) sends CTRL_C_EVENT there; rely on the run lock alone.
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_exit(pid: int, run_dir: Path, *, timeout: float) -> bool:
+    """Wait until pid has exited and run_dir's lock is free; False on timeout."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while True:
+        if not _pid_alive(pid) and not check_run_active(run_dir)[0]:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
 def stop_run(
     target: Optional[Union[Path, str]] = None,
     *,
     stop_all: bool = False,
     force: bool = False,
     timeout: float = 15.0,
+    request_id: Optional[str] = None,
+    attempt_id: Optional[str] = None,
     cwd: Optional[Union[Path, str]] = None,
 ) -> Dict[str, Any]:
-    """Gracefully stop an active training run (or all active runs) via SIGINT so it checkpoints and halts."""
+    """Gracefully stop an active training run (or all active runs) via file request and/or SIGINT."""
     import signal
     import time
-    from .registry import find_live_pid_for_run, resolve_run_target, sync_registry
+    from .registry import find_live_pid_for_run, pid_has_file_open, resolve_destructive_target, sync_registry
+    from .run_requests import request_status as _req_status, submit_stop_request
 
     if stop_all:
         entries = sync_registry(cwd=cwd)
@@ -1630,21 +1855,60 @@ def stop_run(
             "message": f"Stopped {len(stopped_list)} active training run(s).",
         }
 
-    run_dir = resolve_run_target(target, cwd=cwd, allow_latest=False, require_active=(target is None))
+    run_dir = resolve_destructive_target(target, cwd=cwd, require_active=True)
     if not run_dir.exists():
         raise FileNotFoundError(f"Run directory not found: {run_dir}")
 
-    is_active, pid = check_run_active(run_dir)
-    if not is_active and not force:
-        raise ValueError(f"Run '{run_dir.name}' is not currently running.")
-
-    if pid is None:
-        pid = find_live_pid_for_run(run_dir)
-    if pid is None and not force:
-        raise RuntimeError(f"Run '{run_dir.name}' holds .run.lock, but its live process PID could not be resolved.")
-
     summary = read_summary_json(run_dir)
     manifest = _read_manifest_safe(run_dir)
+    host_info = inspect_run_host(run_dir)
+    is_active, pid = check_run_active(run_dir)
+
+    if not is_active and not force:
+        if request_id is not None:
+            try:
+                existing_receipt = _req_status(run_dir, request_id)
+                target_attempt = attempt_id or existing_receipt["request"]["attempt_id"]
+                if (
+                    existing_receipt["request"].get("action") == "stop"
+                    and existing_receipt["request"].get("attempt_id") == target_attempt
+                ):
+                    run_id_val = manifest.get("run_id") or run_dir.name
+                    return {
+                        "status": "stopped",
+                        "run_id": str(run_id_val),
+                        "short_id": str(run_id_val)[:8],
+                        "slug": str(manifest.get("slug") or ""),
+                        "name": str(manifest.get("name") or run_dir.name),
+                        "run_dir": str(run_dir),
+                        "pid": pid,
+                        "hostname": host_info["hostname"],
+                        "remote": host_info["remote"],
+                        "request_id": existing_receipt["request"]["request_id"],
+                        "receipt": existing_receipt,
+                        "message": f"Run {str(run_id_val)[:8]} is already stopped.",
+                    }
+            except FileNotFoundError:
+                pass
+        raise ValueError(f"Run '{run_dir.name}' is not currently running.")
+
+    receipt = None
+    if manifest.get("run_id") and (attempt_id or manifest.get("attempt_id")):
+        try:
+            receipt = submit_stop_request(
+                run_dir,
+                run_id=str(manifest["run_id"]),
+                attempt_id=str(attempt_id or manifest["attempt_id"]),
+                request_id=request_id,
+            )
+        except RuntimeError:
+            pass
+
+    if pid is None and not host_info["remote"]:
+        pid = find_live_pid_for_run(run_dir)
+    if pid is None and not force and receipt is None and not host_info["remote"]:
+        raise RuntimeError(f"Run '{run_dir.name}' holds .run.lock, but its live process PID could not be resolved.")
+
     run_id = (summary.get("run_id") if summary else None) or manifest.get("run_id") or run_dir.name
     slug = (summary.get("slug") if summary else None) or manifest.get("slug") or ""
     name = (
@@ -1655,22 +1919,31 @@ def stop_run(
     )
 
     stopped_cleanly = not is_active
-    if pid is not None and int(pid) != os.getpid():
+    signaled = False
+    if not host_info["remote"] and pid is not None and int(pid) != os.getpid():
         can_signal = True
-        proc_cmd = Path(f"/proc/{int(pid)}/cmdline")
-        if Path("/proc").is_dir():
-            if not proc_cmd.is_file():
-                can_signal = False
+        lock_path = run_dir / ".run.lock"
+        holds_lock = pid_has_file_open(int(pid), lock_path) if lock_path.exists() else None
+        if holds_lock is False:
+            # A recorded PID that does not hold this run's lock is stale (or reused
+            # by another process); only the actual lock holder may be signalled.
+            live_pid = find_live_pid_for_run(run_dir)
+            if live_pid is not None and pid_has_file_open(live_pid, lock_path):
+                pid = live_pid
             else:
-                try:
-                    raw_cmd = proc_cmd.read_bytes().decode("utf-8", errors="ignore")
-                    if "hypergan" not in raw_cmd and "python" not in raw_cmd:
-                        can_signal = False
-                except OSError:
+                can_signal = False
+        elif holds_lock is None and Path("/proc").is_dir():
+            proc_cmd = Path(f"/proc/{int(pid)}/cmdline")
+            try:
+                raw_cmd = proc_cmd.read_bytes().decode("utf-8", errors="ignore")
+                if "hypergan" not in raw_cmd and "python" not in raw_cmd:
                     can_signal = False
+            except OSError:
+                can_signal = False
         if can_signal:
             try:
                 os.kill(int(pid), signal.SIGINT)
+                signaled = True
             except (ProcessLookupError, PermissionError):
                 pass
 
@@ -1686,23 +1959,30 @@ def stop_run(
             if force and not stopped_cleanly:
                 try:
                     os.kill(int(pid), getattr(signal, "SIGKILL", signal.SIGTERM))
+                    signaled = True
                 except (ProcessLookupError, PermissionError):
                     pass
-                stopped_cleanly = True
-        elif force:
-            stopped_cleanly = True
-    elif force:
-        stopped_cleanly = True
+                # SIGKILL is asynchronous: report stopped only once the process
+                # is gone and its run lock has been released.
+                stopped_cleanly = _wait_for_exit(int(pid), run_dir, timeout=max(5.0, float(timeout)))
+        elif receipt is None:
+            raise RuntimeError(
+                f"Run '{run_dir.name}' holds .run.lock, but PID {pid} is not the process holding it; "
+                "refusing to signal it."
+            )
+    if force and not stopped_cleanly and not host_info["remote"]:
+        stopped_cleanly = not check_run_active(run_dir)[0]
 
     # Refresh summary and registry state
     sync_registry(cwd=cwd or run_dir)
     state_str = "stopped" if stopped_cleanly else "stopping"
-    msg = (
-        f"Stopped {str(run_id)[:8]} ({slug or name}) [PID {pid}] cleanly."
-        if stopped_cleanly
-        else f"Sent graceful stop signal (SIGINT) to {str(run_id)[:8]} ({slug or name}) [PID {pid}]; waiting for checkpoint to finish."
-    )
-    return {
+    if stopped_cleanly:
+        msg = f"Stopped {str(run_id)[:8]} ({slug or name}) [PID {pid}] cleanly."
+    elif host_info["remote"]:
+        msg = f"Submitted durable stop request for remote run {str(run_id)[:8]} on {host_info['hostname']}."
+    else:
+        msg = f"Sent graceful stop signal (SIGINT) to {str(run_id)[:8]} ({slug or name}) [PID {pid}]; waiting for checkpoint to finish."
+    result: Dict[str, Any] = {
         "status": state_str,
         "run_id": str(run_id),
         "short_id": str(run_id)[:8],
@@ -1710,8 +1990,15 @@ def stop_run(
         "name": str(name),
         "run_dir": str(run_dir),
         "pid": int(pid) if pid is not None else None,
+        "hostname": host_info["hostname"],
+        "remote": host_info["remote"],
+        "signaled": signaled,
         "message": msg,
     }
+    if receipt is not None:
+        result["request_id"] = receipt["request"]["request_id"]
+        result["receipt"] = receipt
+    return result
 
 
 def tag_run(
@@ -1720,38 +2007,48 @@ def tag_run(
     *,
     cwd: Optional[Union[Path, str]] = None,
 ) -> Dict[str, Any]:
-    """Rename/re-tag a run in summary.json, manifest.json, and the run registry."""
-    from .registry import extract_or_derive_slug, register_run
+    """Rename/re-tag a run: tag.json, plus summary.json, manifest.json and the registry when inactive.
+
+    An active trainer republishes its in-memory manifest several times a
+    second, so a tag written there would be reverted (and a read-modify-write
+    of it could briefly publish a stale manifest). tag.json is never written by
+    the trainer, and every reader (summary, registry, ps) prefers it.
+    """
+    from ._file_lock import retry_lock
+    from .registry import canonical_slug, register_run, resolve_destructive_target, write_run_tag
+    from .run_state import run_lock
 
     clean_name = str(new_name).strip()
     if not clean_name:
         raise ValueError("New run name must not be empty.")
 
-    run_dir = _resolve_run_dir(target, cwd=cwd)
-    if not run_dir.is_dir():
-        raise FileNotFoundError(f"Run directory not found: {target}")
+    run_dir = resolve_destructive_target(target, cwd=cwd)
+    write_run_tag(run_dir, clean_name)
 
     summary = read_summary_json(run_dir)
-    if isinstance(summary, dict):
-        summary["name"] = clean_name
-        atomic_write_json(run_dir / "summary.json", summary)
-
-    manifest_path = run_dir / "manifest.json"
     manifest = _read_manifest_safe(run_dir)
-    if manifest_path.is_file() and manifest:
-        manifest["name"] = clean_name
-        if isinstance(manifest.get("config"), dict):
-            manifest["config"]["name"] = clean_name
-        atomic_write_json(manifest_path, manifest)
+    if not check_run_active(run_dir)[0]:
+        stack = ExitStack()
+        try:
+            stack.enter_context(retry_lock(lambda: run_lock(run_dir), seconds=0.5))
+        except RuntimeError:
+            stack = None  # A trainer started meanwhile; it picks the tag up from tag.json.
+        if stack is not None:
+            with stack:
+                summary = read_summary_json(run_dir)
+                if isinstance(summary, dict):
+                    summary["name"] = clean_name
+                    atomic_write_json(run_dir / "summary.json", summary)
+                manifest = _read_manifest_safe(run_dir)
+                if (run_dir / "manifest.json").is_file() and manifest:
+                    manifest["name"] = clean_name
+                    if isinstance(manifest.get("config"), dict):
+                        manifest["config"]["name"] = clean_name
+                    atomic_write_json(run_dir / "manifest.json", manifest)
 
     entry = register_run(run_dir, name=clean_name)
     run_id = str(entry.get("run_id") or (summary.get("run_id") if summary else None) or manifest.get("run_id") or run_dir.name)
-    slug = str(
-        entry.get("slug")
-        or (summary.get("slug") if summary else None)
-        or manifest.get("slug")
-        or extract_or_derive_slug(run_id, name=clean_name, run_dir_name=run_dir.name)
-    )
+    slug = str(entry.get("slug") or canonical_slug(run_dir, run_id, name=clean_name, manifest=manifest, summary=summary))
     return {
         "run_id": run_id,
         "slug": slug,
@@ -1760,18 +2057,49 @@ def tag_run(
     }
 
 
+def _delete_run_dir(run_dir: Path) -> None:
+    """Delete run_dir while no trainer can start in it.
+
+    The directory is renamed to a hidden sibling under the run lock (so a
+    resume or queue job that starts now finds nothing), then removed.
+    """
+    import secrets
+    from ._file_lock import retry_lock
+    from .run_state import run_lock
+
+    trash = run_dir.parent / f".{run_dir.name}.removing-{os.getpid()}-{secrets.token_hex(4)}"
+    renamed = False
+    stack = ExitStack()
+    try:
+        stack.enter_context(retry_lock(lambda: run_lock(run_dir), seconds=1.0))
+    except RuntimeError as exc:
+        raise RuntimeError(f"Run '{run_dir.name}' became active; not removing it.") from exc
+    with stack:
+        try:
+            os.rename(run_dir, trash)
+            renamed = True
+        except OSError:
+            if os.name != "nt":
+                raise
+            # Windows cannot rename a directory holding an open file (the lock).
+    shutil.rmtree(trash if renamed else run_dir)
+
+
 def remove_run(
     target: Union[Path, str],
     *,
     force: bool = False,
     cwd: Optional[Union[Path, str]] = None,
 ) -> Dict[str, Any]:
-    """Remove a run directory and unregister it from runs.json, refusing active runs unless force=True."""
-    from .registry import _read_registry_unlocked, extract_or_derive_slug, get_registry_dir, unregister_run
+    """Remove a run directory and unregister it from runs.json, refusing active runs unless force=True.
 
-    run_dir = _resolve_run_dir(target, cwd=cwd)
-    if not run_dir.exists():
-        raise FileNotFoundError(f"Run directory not found: {target}")
+    The target must resolve strictly (exact ID, slug, tag, run directory name
+    or run path) to a directory with a run identity; anything else, including
+    workspace roots, runs roots and $HOME, is refused before anything is deleted.
+    """
+    from .registry import _read_registry_unlocked, canonical_slug, get_registry_dir, resolve_destructive_target, unregister_run
+
+    run_dir = resolve_destructive_target(target, cwd=cwd)
 
     active, pid = check_run_active(run_dir)
     if active and not force:
@@ -1799,18 +2127,21 @@ def remove_run(
         or (reg_entry.get("name") if reg_entry else None)
         or run_dir.name
     )
-    slug = str(
-        (summary.get("slug") if summary else None)
-        or manifest.get("slug")
-        or (reg_entry.get("slug") if reg_entry else None)
-        or extract_or_derive_slug(run_id, name=name, run_dir_name=run_dir.name)
-    )
+    slug = canonical_slug(run_dir, run_id, name=name, manifest=manifest, summary=summary, existing=reg_entry)
 
     if active and force:
+        host_info = inspect_run_host(run_dir)
+        if host_info["remote"]:
+            raise RuntimeError(
+                f"Run '{run_dir.name}' is active on {host_info['hostname']}. Stop it there "
+                "(`hypergan stop`), wait for it to exit, then remove it."
+            )
         stop_run(run_dir, force=True, cwd=cwd)
+        if check_run_active(run_dir)[0]:
+            raise RuntimeError(f"Run '{run_dir.name}' is still running after a forced stop; not removing it.")
 
+    _delete_run_dir(run_dir)
     unregister_run(run_dir, cwd=cwd)
-    shutil.rmtree(run_dir)
 
     return {
         "removed": True,
@@ -1862,15 +2193,41 @@ def _format_event_log_line(ev: Dict[str, Any], total_steps: Optional[int] = None
     return None
 
 
+_TERMINAL_EVENTS = ("complete", "completed", "stopped", "failed")
+
+
+def _split_complete_lines(buf: bytes) -> Tuple[List[str], bytes]:
+    """Split off the newline-terminated records; return them and the unterminated remainder.
+
+    A writer appends a record and its newline together, so bytes after the
+    last newline are a record still being written: they are carried over to
+    the next poll, never parsed (and dropped) as a broken line.
+    """
+    end = buf.rfind(b"\n")
+    if end < 0:
+        return [], buf
+    lines = buf[:end].decode("utf-8", errors="replace").split("\n")
+    return [ln for ln in lines if ln.strip()], buf[end + 1:]
+
+
+def _parse_event(raw_line: str) -> Optional[Dict[str, Any]]:
+    try:
+        ev = json.loads(raw_line)
+    except ValueError:
+        return None
+    return ev if isinstance(ev, dict) else None
+
+
 def read_run_logs(
     target: Optional[Union[Path, str]] = None,
     *,
     tail: int = 50,
     follow: bool = False,
+    raw: bool = False,
     stream=None,
     cwd: Optional[Union[Path, str]] = None,
 ) -> List[str]:
-    """Read or follow formatted training events from a run's events.jsonl."""
+    """Read or follow training events from a run's events.jsonl (formatted, or raw JSON lines)."""
     import time
 
     out = stream or sys.stdout
@@ -1889,26 +2246,31 @@ def read_run_logs(
         or manifest.get("total_steps")
     )
 
+    def render(raw_line: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        ev = _parse_event(raw_line)
+        if raw:
+            return raw_line, ev
+        return (_format_event_log_line(ev, total_steps=total_steps) if ev is not None else None), ev
+
     events_file = resolved_dir / "events.jsonl"
     formatted_lines: List[str] = []
     offset = 0
+    pending = b""
 
     if events_file.is_file():
         try:
             with events_file.open("rb") as f:
                 raw_bytes = f.read()
-                offset = len(raw_bytes)
-            for raw_line in raw_bytes.decode("utf-8", errors="ignore").splitlines():
-                if not raw_line.strip():
-                    continue
-                try:
-                    ev = json.loads(raw_line)
-                    if isinstance(ev, dict):
-                        line = _format_event_log_line(ev, total_steps=total_steps)
-                        if line:
-                            formatted_lines.append(line)
-                except Exception:
-                    continue
+            offset = len(raw_bytes)
+            lines, pending = _split_complete_lines(raw_bytes)
+            if not follow and pending.strip():
+                # Reading once: a final record without a newline is still shown if it is complete.
+                lines.append(pending.decode("utf-8", errors="replace"))
+                pending = b""
+            for raw_line in lines:
+                line, _ = render(raw_line)
+                if line:
+                    formatted_lines.append(line)
         except OSError:
             pass
 
@@ -1921,33 +2283,39 @@ def read_run_logs(
     if not follow:
         return formatted_lines
 
+    def read_new_events() -> bool:
+        """Print events appended since the last read; True once a terminal event is seen."""
+        nonlocal offset, pending
+        if not events_file.is_file():
+            return False
+        try:
+            with events_file.open("rb") as f:
+                f.seek(offset)
+                chunk = f.read()
+        except OSError:
+            return False
+        if not chunk:
+            return False
+        offset += len(chunk)
+        lines, pending = _split_complete_lines(pending + chunk)
+        for raw_line in lines:
+            line, ev = render(raw_line)
+            if line:
+                formatted_lines.append(line)
+                print(line, file=out, flush=True)
+            if ev is not None and ev.get("event") in _TERMINAL_EVENTS:
+                return True
+        return False
+
     try:
         while True:
-            if events_file.is_file():
-                try:
-                    with events_file.open("rb") as f:
-                        f.seek(offset)
-                        chunk = f.read()
-                        if chunk:
-                            offset += len(chunk)
-                            for raw_line in chunk.decode("utf-8", errors="ignore").splitlines():
-                                if not raw_line.strip():
-                                    continue
-                                try:
-                                    ev = json.loads(raw_line)
-                                    if isinstance(ev, dict):
-                                        line = _format_event_log_line(ev, total_steps=total_steps)
-                                        if line:
-                                            formatted_lines.append(line)
-                                            print(line, file=out, flush=True)
-                                        if ev.get("event") in ("complete", "completed", "stopped", "failed"):
-                                            return formatted_lines
-                                except Exception:
-                                    continue
-                except OSError:
-                    pass
+            if read_new_events():
+                return formatted_lines
             is_active, _ = check_run_active(resolved_dir)
             if not is_active:
+                # The trainer writes its final event just before it releases the lock:
+                # read once more so an event appended since the last read is not dropped.
+                read_new_events()
                 break
             time.sleep(0.25)
     except KeyboardInterrupt:

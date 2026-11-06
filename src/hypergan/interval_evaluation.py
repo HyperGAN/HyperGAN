@@ -125,7 +125,9 @@ class IntervalEvaluations:
                       if value['mode'] == 'snapshot' and value['trigger'] == 'interval'}
         self.worker = EvaluationWorker()
         self.disabled = set()
-        self.rotation = 0
+        # Due metrics waiting for the evaluator, mapped to the step they fell due.
+        self.pending = {}
+        self.last_run = {}
 
     def start(self):
         _recover_abandoned(self.root, self.manifest['run_id'])
@@ -186,25 +188,38 @@ class IntervalEvaluations:
             pass
 
     def schedule(self):
+        """Queue due metrics and submit the one that has waited longest.
+
+        A due metric that finds the evaluator busy stays pending and runs on the
+        first boundary after the evaluator frees up, so a short cadence cannot
+        starve a longer one. Repeated due points of a still-pending metric are
+        coalesced into one evaluation and counted as skipped_busy.
+        """
         step = self.manifest['steps']
         keys = list(self.specs)
         if not keys:
             return
         self.poll()
-        ordered = keys[self.rotation:] + keys[:self.rotation]
-        for key in ordered:
+        for key in keys:
             spec = self.specs[key]
             record = self.manifest['evaluation_schedule'][key]
             if key in self.disabled or step % spec['every_steps']:
                 continue
             record['next_step'] = step + spec['every_steps']
-            if self.worker.busy:
+            if key in self.pending:
                 record['skipped_busy'] += 1
                 record.update(last_skipped_step=step, reason='worker_busy')
-                if record['status'] != 'running':
-                    record['status'] = 'skipped'
                 self._event(key, 'skipped', step, reason='worker_busy')
+            else:
+                self.pending[key] = step
+        while self.pending and not self.worker.busy:
+            # Oldest due point first; ties go to the metric that ran least recently.
+            key = min(self.pending, key=lambda name: (self.pending[name], self.last_run.get(name, -1), keys.index(name)))
+            del self.pending[key]
+            if key in self.disabled:
                 continue
+            spec = self.specs[key]
+            record = self.manifest['evaluation_schedule'][key]
             identity = {name: self.manifest[name] for name in ('run_id', 'attempt_id', 'attempt_index')}
             clean_key = re.sub(r'[^A-Za-z0-9_-]', '_', key)
             short_uuid = uuid.uuid4().hex[:8]
@@ -226,8 +241,13 @@ class IntervalEvaluations:
                     raise
                 self._failure(key, identity, error)
                 continue
-            self.rotation = (keys.index(key) + 1) % len(keys)
+            self.last_run[key] = step
             self._event(key, 'scheduled', step, evaluation_id=identity['evaluation_id'])
+        for key in self.pending:
+            record = self.manifest['evaluation_schedule'][key]
+            if record['status'] != 'running':
+                record['status'] = 'pending'
+            record['reason'] = 'worker_busy'
 
     def _cancelled(self, key, source):
         self.manifest['evaluation_schedule'][key].update(status='cancelled', reason='attempt_stopped')

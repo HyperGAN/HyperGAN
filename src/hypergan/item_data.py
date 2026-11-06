@@ -24,9 +24,10 @@ to load only its slice of it without changing a model file, the order, or the
 resume state.
 """
 from concurrent.futures import ThreadPoolExecutor
-import hashlib
 import importlib
 import json
+
+from .data import _digest
 
 
 def import_object(reference):
@@ -38,10 +39,6 @@ def import_object(reference):
     for part in attribute.split('.'):
         value = getattr(value, part)
     return value
-
-
-def _digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
 
 
 def collate(items):
@@ -86,12 +83,18 @@ class ItemData:
         self._identity_sha256 = _digest(self._identity)
         self._epoch, self._cursor, self._epoch_seed = 0, self.length, 0
         self._pool = None
+        self._order_cache = None
 
     def _order(self):
         import torch
         if not self.shuffle:
             return None
-        return torch.randperm(self.length, generator=torch.Generator().manual_seed(self._epoch_seed))
+        # The permutation is a pure function of the epoch seed: build it once
+        # per epoch, not once per batch (randperm of 1M items costs ~5 ms).
+        if self._order_cache is None or self._order_cache[0] != self._epoch_seed:
+            order = torch.randperm(self.length, generator=torch.Generator().manual_seed(self._epoch_seed))
+            self._order_cache = (self._epoch_seed, order)
+        return self._order_cache[1]
 
     def indices(self, batch_size, generator):
         """Global dataset indices for the next batch; advances the sampler."""
@@ -161,5 +164,6 @@ class ItemData:
 
     def __getstate__(self):
         state = dict(self.__dict__)
-        state['_pool'] = None
+        # Derived from the epoch seed; checkpoint candidates need not copy it.
+        state['_pool'], state['_order_cache'] = None, None
         return state

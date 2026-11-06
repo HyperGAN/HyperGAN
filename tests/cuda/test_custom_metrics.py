@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
 import torch
 
 
@@ -71,6 +72,7 @@ def test_cuda_histogram_uses_cpu_aggregation_under_strict_determinism(monkeypatc
         torch.use_deterministic_algorithms(enabled, warn_only=warn_only)
 
 
+@pytest.mark.multi_gpu
 def test_two_gpu_custom_scalar_complete_state_parity(tmp_path):
     assert torch.cuda.device_count() >= 2, 'This acceptance requires two local GPUs'
     fixture=module('test_custom_metrics.py')

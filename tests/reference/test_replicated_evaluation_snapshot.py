@@ -134,7 +134,7 @@ def test_worker_rejects_invalid_evaluation_snapshot_and_poisons_boundary(tmp_pat
         elif failure == 'existing':
             path.write_bytes(b'preserved')
         trainer = SimpleNamespace(checkpoint_ready=True, _poisoned=False, device=torch.device('cpu'), step=1,
-                                  _phase=lambda name, function: function())
+                                  _phase=lambda name, function, **kwargs: function())
         state = {'rank': 0, 'trainer': trainer, 'batch': {}, 'context': context}
         with pytest.raises(ValueError, match='destination or identity'):
             handle_command(state, 'evaluation-snapshot', {'identity': identity, 'path': str(path)})

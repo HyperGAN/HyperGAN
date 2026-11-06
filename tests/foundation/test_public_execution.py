@@ -5,7 +5,8 @@ import builtins
 
 import pytest
 
-from hypergan.config import config_values, fingerprint, load_config, write_default
+from hypergan.config import config_values, fingerprint, load_config
+from tests.config_fixtures import write_default
 from hypergan.execution import prepare_resume, prepare_train
 from hypergan.execution_profiles import resolve_execution_profile
 from hypergan.run_state import EventJournal
@@ -15,7 +16,7 @@ def project(tmp_path, device='cpu'):
     return write_default(tmp_path / 'project', device=device, defaults='hypergan')
 
 
-def stopped(tmp_path, *, replicated=True):
+def stopped(tmp_path, *, replicated=True, execution_options=None):
     path = project(tmp_path)
     config = load_config(path)
     run = tmp_path / 'run'
@@ -26,9 +27,12 @@ def stopped(tmp_path, *, replicated=True):
     identity = {'config_sha256': fingerprint(config), 'hypergan_checkpoint_version': 2}
     if replicated:
         execution = resolve_execution_profile({'schema_version': 1, 'execution': {
-            'name': 'cpu-replicated-gloo', 'accumulation_steps': 2}}, config)['execution']
+            'name': 'cpu-replicated-gloo', 'accumulation_steps': 2, **(execution_options or {})}}, config)['execution']
         manifest['execution'] = execution
-        identity['topology'] = execution
+        # Match the real checkpoint writer: launch-specific fields are not
+        # shared numerical state across ranks or fresh worker groups.
+        identity['topology'] = {key: value for key, value in execution.items()
+                                if key not in ('node_rank', 'rendezvous')}
     root = run / ('distributed-checkpoints' if replicated else 'checkpoints')
     checkpoint = root / 'snapshot'
     checkpoint.mkdir(parents=True)
@@ -89,12 +93,40 @@ def test_resume_infers_numerical_identity_and_accepts_deadlines(tmp_path):
     assert not (run / 'attempts').exists()
 
 
+@pytest.mark.parametrize('options', [
+    {'aggregation': {'strategy': 'parameter_average', 'sync_every_steps': 7}},
+    {'aggregation': {'strategy': 'pseudo_gradient', 'sync_every_steps': 7,
+                     'outer_lr': .5, 'outer_momentum': .8}},
+    {'world_size': 4, 'nodes': 2, 'node_rank': 0, 'ranks_per_node': 2,
+     'rendezvous': 'tcp://leader:29500'},
+])
+def test_resume_infers_saved_aggregation_and_multinode_fields(tmp_path, options):
+    _, run, checkpoint, manifest = stopped(tmp_path, execution_options=options)
+    prepared = prepare_resume(run)
+    assert prepared.profile['execution'] == manifest['execution']
+    assert prepared.checkpoint == checkpoint
+
+
+def test_internal_resume_also_preserves_saved_aggregation(tmp_path, monkeypatch):
+    from hypergan import replicated_execution, run_controller
+
+    _, run, _, manifest = stopped(tmp_path, execution_options={
+        'aggregation': {'strategy': 'parameter_average', 'sync_every_steps': 7}})
+    monkeypatch.setattr(run_controller, 'run_resume',
+                        lambda *args, **kwargs: kwargs['execution_factory'].profile['execution'])
+    with pytest.warns(RuntimeWarning, match='experimental'):
+        execution = replicated_execution.run_resume(run)
+    assert execution == manifest['execution']
+
+
 def test_resume_native_and_explicit_cpu_identity(tmp_path):
     _, run, checkpoint, _ = stopped(tmp_path, replicated=False)
     assert prepare_resume(run).profile is None
     assert prepare_resume(run, profile='cpu-single').checkpoint == checkpoint
-    with pytest.raises(ValueError, match='execution identity differs'):
-        prepare_resume(run, profile='cpu-replicated-gloo')
+    scaled = prepare_resume(run, profile='cpu-replicated-gloo')
+    assert scaled.checkpoint == checkpoint
+    assert scaled.profile['execution']['name'] == 'cpu-replicated-gloo'
+    assert scaled.profile['execution']['world_size'] == 2
 
 
 @pytest.mark.parametrize('execution', [None, {}, {'name': 'unknown'}, [], 'cpu-single'])
@@ -108,8 +140,11 @@ def test_unknown_saved_execution_never_falls_back_to_native(tmp_path, execution)
 
 def test_resume_rejects_topology_schedule_checkpoint_conflicts(tmp_path, monkeypatch):
     path, run, checkpoint, _ = stopped(tmp_path)
-    with pytest.raises(ValueError, match='execution identity differs'):
-        prepare_resume(run, profile='cpu-replicated-gloo')  # saved accumulation is 2
+    # Elastic cross-topology resume permits changing accumulation_steps / profile, while device-incompatible profiles fail.
+    rescaled = prepare_resume(run, profile='cpu-replicated-gloo')
+    assert rescaled.profile['execution']['accumulation_steps'] == 1
+    with pytest.raises(ValueError, match='training.device=cuda'):
+        prepare_resume(run, profile='cuda-replicated-nccl')
     config = load_config(path)
     changed = deepcopy(config_values(config))
     changed['training']['steps'] += 1
@@ -321,11 +356,11 @@ def test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports(
     elif conflict == 'schedule':
         extra = ['--steps', '6']
     elif conflict == 'profile':
-        extra = ['--profile', 'cpu-single']
+        extra = ['--profile', 'cuda-replicated-nccl']
     else:
         (run / 'distributed-checkpoints' / 'latest.json').unlink()
     before = {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
-    monkeypatch.setattr(cli, '_training_viewer', lambda _: pytest.fail('viewer started on conflict'))
+    monkeypatch.setattr(cli, '_training_viewer', lambda *a, **kw: pytest.fail('viewer started on conflict'))
     original_import = builtins.__import__
     def guarded(name, *args, **kwargs):
         assert name.split('.')[0] not in {'torch', 'particlegan'}
@@ -336,7 +371,7 @@ def test_repeated_train_conflicts_precede_viewer_output_and_numerical_imports(
     error = capsys.readouterr().err
     assert 'error:' in error
     assert ('configuration differs' if conflict in {'config', 'metrics', 'schedule'} else
-            'execution identity differs' if conflict == 'profile' else
+            'training.device=cuda' if conflict == 'profile' else
             'No full training checkpoint') in error
     assert before == {p.relative_to(run): p.read_bytes() for p in run.rglob('*') if p.is_file()}
 
@@ -475,3 +510,55 @@ def test_checkpoint_compatibility_accepts_supported_version(tmp_path, explicit, 
         metadata_path.write_text(json.dumps(metadata))
     assert prepare_resume(run).checkpoint == checkpoint
     assert prepare_train(path, run).checkpoint == checkpoint
+
+
+def test_device_override_reaches_the_prepared_configuration(tmp_path, monkeypatch):
+    # Preparation only; tests/reference/test_execution_launch.py trains with the override.
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    path, run = project(tmp_path, 'cuda'), tmp_path / 'run'
+    prepared = prepare_train(path, run, devices='cpu', stop_after_steps=1)
+    assert prepared.config['training']['device'] == 'cpu'
+    assert prepared.controls['stop_after_steps'] == 1
+    monkeypatch.delenv('CUDA_DEVICE_ORDER', raising=False)
+    _, stopped_run, _, _ = stopped(tmp_path / 'stopped', replicated=False)  # recorded on cpu
+    migrated = prepare_resume(stopped_run, devices='0')
+    assert migrated.config['training']['device'] == 'cuda'
+    with pytest.raises(ValueError, match='training.device'):
+        prepare_resume(stopped_run, config_path=path)
+
+
+def test_step_override_keeps_the_retention_policy(tmp_path, monkeypatch):
+    import hypergan.api as hg
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    model = hg.save(hg.override(hg.packaged('gaussian-grid'), {'train.device': 'cpu'}), tmp_path / 'model.toml')
+    model.write_text(model.read_text() + '\n[checkpoints]\nkeep_last = 1\n')
+    prepared = prepare_train(model, tmp_path / 'run', steps=4, devices='cpu')
+    assert prepared.config['training']['steps'] == 4
+    assert prepared.config['checkpoints']['keep_last'] == 1
+
+
+@pytest.mark.parametrize('device', ['0', 'cuda:1', '0,1'])
+def test_cuda_device_selection_masks_physical_gpus(tmp_path, monkeypatch, device):
+    import os
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    monkeypatch.delenv('CUDA_DEVICE_ORDER', raising=False)  # restored after the test
+    prepared = prepare_train(project(tmp_path, 'cuda:1'), tmp_path / 'run', devices=device)
+    assert os.environ['CUDA_VISIBLE_DEVICES'] == {'0': '0', 'cuda:1': '1', '0,1': '0,1'}[device]
+    assert prepared.config['training']['device'] == 'cuda'
+
+
+def test_run_directory_without_manifest_has_a_clear_error_or_restarts_its_launch(tmp_path):
+    path = project(tmp_path)
+    unrelated = tmp_path / 'photos'
+    unrelated.mkdir()
+    (unrelated / 'cat.png').write_bytes(b'not a run')
+    with pytest.raises(ValueError, match='not a HyperGAN run .*cat.png'):
+        prepare_train(path, unrelated)
+    with pytest.raises(ValueError, match='has no manifest.json'):
+        prepare_resume(unrelated)
+    assert (unrelated / 'cat.png').read_bytes() == b'not a run'
+    # A launch that stopped before writing its first manifest is started again.
+    launched = tmp_path / 'launched'
+    (launched / 'launch').mkdir(parents=True)
+    (launched / 'launch' / '0001.json').write_text('{}')
+    assert prepare_train(path, launched).operation == 'train'

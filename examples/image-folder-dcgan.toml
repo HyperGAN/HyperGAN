@@ -1,0 +1,99 @@
+# Canonical 128x128 DCGAN Template for ImageFolder Datasets
+# Multi-GPU safe: uses GroupNorm (never BatchNorm) throughout generator deconv stages
+# Real-world ImageFolder: supports alpha compositing onto white and symlink traversal
+format = "hypergan-model/1"
+name = "image-folder-dcgan"
+defaults = "particlegan"
+
+# [data] Dataset source, resolution, and preprocessing
+[data]
+builtin = "image_folder"
+args = { root = "./data", height = 128, width = 128, mode = "RGB", resize = "center_crop", alpha = "composite_white", follow_symlinks = true }
+
+# [prior] Latent particle distribution
+[prior]
+kind = "particles"
+initialization_seed = 2
+z_dim = 128
+num_particles = 10000
+
+# [networks] Generator and critic network definitions
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+input_shape = ["B", 128]
+output_shape = ["B", 3, 128, 128]
+source = """
+# 128x128 Deconvolutional Generator with GroupNorm(8) (no BatchNorm)
+reshape(128, 1, 1)
+deconv(512, kernel_size=4, stride=1, padding=0, bias=False)
+group_norm(8)
+relu()
+deconv(512, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(256, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(128, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(64, kernel_size=4, stride=2, padding=1, bias=False)
+group_norm(8)
+relu()
+deconv(3, kernel_size=4, stride=2, padding=1)
+tanh()
+"""
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 1]
+source = """
+# 128x128 Convolutional Critic (5 stride-2 downsampling stages to 1x1 scalar)
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+"""
+
+# [losses] Adversarial and prior regularization objectives
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+
+# [train] Training steps, batch size, device, and initialization
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda:0"
+initialization = "deterministic_orthogonal"
+
+[metrics]
+every_steps = 10
+
+# [checkpoints] Checkpoint retention and EMA export policy
+[checkpoints]
+keep_last = 3
+keep_every = 50000
+export_bundle = "on_eval"
+
+# [sampling] Periodic sample grid preview configuration
+[sampling]
+count = 16
+seed = 123

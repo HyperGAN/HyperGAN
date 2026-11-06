@@ -147,7 +147,7 @@ def test_resolve_checkpoint_targets(tmp_path):
     assert resolve_checkpoint(run_dir, str(c100 / "state.pt")) == c100
     assert resolve_checkpoint(run_dir, c200.name) == c200
 
-    # 7. Test metric direction: discriminator_loss contains "is", must minimize (lower is better)
+    # 7. A metric with no declared direction and no keep_best entry defines no best
     eval_dir_loss = tmp_path / "run_loss" / "metrics" / "evaluations"
     ckpt_dir_loss = tmp_path / "run_loss" / "checkpoints"
     ckpt_dir_loss.mkdir(parents=True)
@@ -161,7 +161,8 @@ def test_resolve_checkpoint_targets(tmp_path):
     el2.mkdir(parents=True)
     (el1 / "receipt.json").write_text(json.dumps({"status": "complete", "metric_id": "discriminator_loss", "source_step": 100, "result": {"value": 0.3, "step": 100}}), encoding="utf-8")
     (el2 / "receipt.json").write_text(json.dumps({"status": "complete", "metric_id": "discriminator_loss", "source_step": 200, "result": {"value": 0.8, "step": 200}}), encoding="utf-8")
-    assert resolve_checkpoint(tmp_path / "run_loss", "best") == c1_l  # 0.3 < 0.8
+    with pytest.raises(ValueError, match="No primary metric"):
+        resolve_checkpoint(tmp_path / "run_loss", "best")
 
     # 8. Test manifest.json keep_best config override
     manifest = {

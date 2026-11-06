@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from hypergan.checkpoints import read_checkpoint
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.run_state import validate_event_boundary
 from hypergan.training import train, resume
 

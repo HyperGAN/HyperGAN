@@ -1,6 +1,6 @@
 # RGB logo AE-GAN at 256×256
 
-`examples/logos-ae-gan-256.toml` separates the ordinary autoencoder task from
+`examples/archive/logos-ae-gan-256.toml` separates the ordinary autoencoder task from
 colorization. It uses the same 256px generator, 4,096 particles and logo inventory,
 with the existing DINOv3 projected convolutional discriminator plus RGB stem.
 This is a new run: do not resume a colorization checkpoint with this configuration.
@@ -65,7 +65,7 @@ RGB reconstruction loss directly.
 To launch training in a dedicated run directory:
 
 ```sh
-hypergan train examples/logos-ae-gan-256.toml \
+hypergan train examples/archive/logos-ae-gan-256.toml \
     --run-dir ./runs/train-ae-dino -d 1
 ```
 

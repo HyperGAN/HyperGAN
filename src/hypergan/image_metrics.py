@@ -1,6 +1,6 @@
 """Explicit Inception FID for immutable image snapshots; never downloads weights.
 
-The first CIFAR protocol uses torch-fidelity 0.3.0, uint8 RGB, float32
+The first CIFAR protocol uses torch-fidelity 0.4.0, uint8 RGB, float32
 features with TF32 disabled and float64 sample statistics. The evaluation data
 factory and sample count determine the reference split: a small smoke score is
 not interchangeable with the 50,000-image training-reference protocol.
@@ -9,23 +9,25 @@ import hashlib
 import importlib.metadata
 from pathlib import Path
 
+from .cache import INCEPTION_V3_SHA256, INCEPTION_V3_URL, resolve_or_cache
+from .diversity_metrics import merge_moments
 
-INCEPTION_SHA256 = '6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2'
+
+INCEPTION_SHA256 = INCEPTION_V3_SHA256
+# Pinned torch-fidelity release; fid extra pins torch-fidelity>=0.4.0,<0.5.
+TORCH_FIDELITY_VERSION = '0.4.0'
 
 
-def _checked_weights(path, expected):
-    path = Path(path).expanduser().resolve()
+def _checked_weights(path=None, expected=INCEPTION_SHA256):
     if expected != INCEPTION_SHA256:
         raise ValueError('InceptionFID requires the pinned torch-fidelity Inception weight SHA256')
-    if not path.is_file():
-        raise ValueError(f'Inception weights are missing: {path}; supply the pinned local file explicitly')
-    digest = hashlib.sha256()
-    with path.open('rb') as source:
-        for block in iter(lambda: source.read(1024 * 1024), b''):
-            digest.update(block)
-    if digest.hexdigest() != expected:
-        raise ValueError('Inception weight SHA256 does not match the pinned file')
-    return path
+    target = path if path is not None else INCEPTION_V3_URL
+    try:
+        return resolve_or_cache(target, expected_sha256=expected)
+    except FileNotFoundError as exc:
+        raise ValueError(f'Inception weights are missing: {target}; supply the pinned local file explicitly') from exc
+    except ValueError as exc:
+        raise ValueError(f'Inception weight SHA256 does not match the pinned file: {exc}') from exc
 
 
 class _Moments:
@@ -40,18 +42,12 @@ class _Moments:
         if value.ndim != 2 or not len(value) or not np.isfinite(value).all():
             raise ValueError('FID features must be a finite nonempty matrix')
         mean = value.mean(axis=0)
+        if self.count and mean.shape != self.mean.shape:
+            raise ValueError('FID feature dimensions changed')
         residual = value - mean
-        centered = residual.T @ residual
-        if self.count == 0:
-            self.mean, self.centered = mean, centered
-        else:
-            if mean.shape != self.mean.shape:
-                raise ValueError('FID feature dimensions changed')
-            delta = mean - self.mean
-            total = self.count + len(value)
-            self.centered += centered + np.outer(delta, delta) * (self.count * len(value) / total)
-            self.mean += delta * (len(value) / total)
-        self.count += len(value)
+        self.count, self.mean, self.centered = merge_moments(
+            self.count, self.mean, self.centered, len(value), mean, residual.T @ residual,
+            lambda delta: np.outer(delta, delta))
 
     def statistics(self):
         if self.count < 2:
@@ -69,19 +65,19 @@ def _uint8_rgb(value):
 
 class InceptionFID:
     """Manual snapshot metric with paired generated/reference input bindings."""
-    def __init__(self, weights_path, weights_sha256=INCEPTION_SHA256):
+    def __init__(self, weights_path=None, weights_sha256=INCEPTION_SHA256):
         self.weights_path = _checked_weights(weights_path, weights_sha256)
         self.weights_sha256 = weights_sha256
         try:
             version = importlib.metadata.version('torch-fidelity')
         except importlib.metadata.PackageNotFoundError as exc:
             raise ValueError("FID requires the 'hypergan[fid]' optional dependencies") from exc
-        if version != '0.3.0':
-            raise ValueError('This FID protocol requires torch-fidelity==0.3.0')
+        if version != TORCH_FIDELITY_VERSION:
+            raise ValueError(f'This FID protocol requires torch-fidelity=={TORCH_FIDELITY_VERSION}, found {version}')
 
     def describe(self):
         return {'kind': 'scalar', 'label': 'Inception FID', 'unit': 'FID', 'direction': 'minimize',
-                'description': 'torch-fidelity 0.3.0 Inception-v3 compat 2048; pinned weights; RGB uint8 clamp/round; FP32 extractor without TF32; float64 unbiased covariance. Compare only matching reference splits and sample counts.'}
+                'description': 'torch-fidelity 0.4.0 Inception-v3 compat 2048; pinned weights; RGB uint8 clamp/round; FP32 extractor without TF32; float64 unbiased covariance. Compare only matching reference splits and sample counts.'}
 
     def evaluate(self, *, batches, context):
         import math

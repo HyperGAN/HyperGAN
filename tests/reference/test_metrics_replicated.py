@@ -8,7 +8,7 @@ import sys
 import pytest
 import torch
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 
 
 # Heavy: every test here starts real subprocesses or multi-rank jobs and
@@ -57,10 +57,11 @@ def same(left, right):
 
 def verify_replicated_metrics(tmp_path, device):
     config = write_default(tmp_path / 'on.toml', device=device, defaults='hypergan')
-    config.write_text(config.read_text().replace('steps = 5', 'steps = 3')
+    base = (config.read_text().replace('steps = 5', 'steps = 3')
                       .replace('num_particles = 20000', 'num_particles = 32')
                       .replace('count = 256', 'count = 8').replace('lazy_k = 1', 'lazy_k = 2'))
-    (tmp_path / 'off.toml').write_text(config.read_text() + '\n[metrics]\npreset = "none"\n')
+    config.write_text(base + '\n[metrics]\nevery_steps = 1\n')
+    (tmp_path / 'off.toml').write_text(base + '\n[metrics]\npreset = "none"\n')
     driver = tmp_path / 'metrics_driver.py'
     driver.write_text(DRIVER)
     env = dict(os.environ, CUBLAS_WORKSPACE_CONFIG=':4096:8')
@@ -79,11 +80,16 @@ def verify_replicated_metrics(tmp_path, device):
         for row in events:
             if row['event'] != 'train':
                 continue
-            assert 'd_loss' not in row and 'g_loss' not in row
+            if row['metric_publication'] == 'disabled':
+                assert 'd_loss' not in row and 'g_loss' not in row
+            if name == 'on':
+                assert row['metrics']
             if name == 'off':
                 assert row['metrics'] == {}
             if row['metrics']:
                 m = row['metrics']
+                assert row['d_loss'] == m['loss/d_total']
+                assert row['g_loss'] == m['loss/g_total']
                 assert abs(m['loss/d_total'] - m['loss/d_adversarial'] - m['loss/gradient_penalty']) < 1e-6
                 assert abs(m['loss/g_total'] - m['loss/g_adversarial'] - m['loss/prior_regularizer']) < 1e-6
                 assert row['world_size'] == 2 and row['accumulation_steps'] == 2

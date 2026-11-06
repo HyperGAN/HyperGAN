@@ -2,6 +2,16 @@
 
 `image_folder` loads local images into CPU batches with an explicit shape and preprocessing policy. It supports flat folders, recursive folders and named class directories. It does not download data or qualify image quality.
 
+For the qualified CIFAR-10 dataset (`hypergan.datasets:CIFAR10Data`), HyperGAN provides an explicit opt-in acquisition and verification command (`hypergan download-data`). Training itself never performs implicit network downloads:
+
+```sh
+hypergan download-data --list
+hypergan download-data cifar10 --info
+hypergan download-data cifar10 --output ./data
+```
+
+`hypergan download-data cifar10 --output ./data` verifies the archive size (`170,498,071` bytes) and SHA256 (`6d958be074577803d12ecdefd02955f39262c83c16fe9348329d7fe0b5c001ce`), safely extracts `cifar-10-batches-py/`, verifies each batch file's SHA256 digest, and writes `./data/dataset-manifest.json` with a ready-to-use `[data]` configuration snippet. Unqualified datasets (such as MNIST, CelebA, ImageNet, and COCO) are not advertised by `download-data`; prepare local image directories with `image_folder` instead.
+
 Install the optional decoder in your active Python environment:
 
 ```sh
@@ -149,6 +159,8 @@ With `recursive=true` (default), all ordinary image files beneath the root are i
 With `labels=true`, every accepted image must sit beneath a named top-level class directory, such as `cats/a.png` and `zebras/nested/b.jpg`. Class directory names need not be numeric. Recursive discovery is required, and root-level images fail with layout guidance. The vocabulary is the sorted set of class names containing accepted images; empty directories do not create classes. Output adds `labels`, an int64 tensor shaped `[N]`; bind it explicitly as `batch.labels` in a compatible conditional recipe. Classification losses and multi-attribute labels are separate recipe concerns.
 
 Preflight reads, hashes, fully decodes and validates every accepted image. A zero-byte, unreadable, truncated or incompatible image stops preflight with its relative path and corrective guidance. Nothing is silently skipped or retried. An empty dataset reports supported extensions and discovered/ignored counts. There is no quarantine mode.
+
+Preflight results are cached per file, so later constructions (resume, every distributed rank, every evaluation worker) only list and `stat` the folder. A file is inspected again unless its size, mtime, ctime and inode all match the cached record, and records written within a few seconds of a file's last change are never trusted. The cache cannot change the identity or the pixels: every training read still checks the file against its inventory SHA-256. The cache lives in `$HYPERGAN_CACHE_DIR/image-folder` (default `$XDG_CACHE_HOME/hypergan`, else `~/.cache/hypergan`) and is safe to delete. `manifest_cache = "path"` in `[data.args]` moves it; `manifest_cache = false` inspects every file on every construction.
 
 ## Background loading
 

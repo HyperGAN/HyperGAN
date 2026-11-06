@@ -3,6 +3,8 @@
 The execution interface is internal. Public training commands remain separate
 from adapters that configure a fenced attempt before constructing workers.
 """
+from contextlib import nullcontext
+import copy
 from dataclasses import dataclass
 import json
 import math
@@ -17,10 +19,12 @@ from .config import config_values, fingerprint, load_config, resolve_config, obs
 from .metrics import digest, metric_catalog, publish_catalog, select_metrics, select_preview_metrics, Throughput
 from .previews import DEFAULT_KEEP, DEFAULT_NAME, KEEP_ALL, sample_name
 from .metric_plugins import prepare_custom, ScalarMetrics
+from ._file_lock import retry_lock
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 from .observation_io import ObservationIO
 from .background_poll import BackgroundPoll
 from .run_signals import GracefulStop
+from .summary import write_summary_json
 
 # How many published preview records the run manifest repeats. Preview
 # retention holds far more than this (DEFAULT_KEEP, thinned); the manifest
@@ -206,13 +210,33 @@ def _configure_attempt(execution, context, preview_every, on_event):
     return _json_value(value)
 
 
-def _apply_execution(manifest, descriptor):
+def _canonical_execution_topology(exec_dict):
+    if not isinstance(exec_dict, dict):
+        return None
+    return {k: v for k, v in exec_dict.items() if k not in ('node_rank', 'rendezvous')}
+
+
+def _apply_execution(manifest, descriptor, config=None):
     if descriptor is not None:
         manifest.update(descriptor)
         if descriptor['execution'].get('name') != 'cpu-single':
             manifest['qualification']['status'] = 'unqualified'
             # The native stream summary cannot describe rank-specific streams.
             manifest.pop('rng_streams', None)
+    else:
+        manifest.pop('execution', None)
+        manifest.pop('service_policy', None)
+        if config is not None and 'rng_streams' not in manifest:
+            manifest['rng_streams'] = {
+                name: config['training']['seed'] + offset
+                for name, offset in [
+                    ('data', config['training']['data_seed_offset']),
+                    ('prior', config['training']['prior_seed_offset']),
+                    ('penalty', 3),
+                    ('noise', 5),
+                ]
+            }
+            manifest['rng_streams']['sampling'] = config['sampling']['seed']
 
 
 def _cleanup_validation_failure(execution):
@@ -227,6 +251,39 @@ def _cleanup_validation_failure(execution):
                 cleanup()
             except BaseException:
                 pass
+
+
+def _resume_point_is_current(manifest):
+    """Whether the restored checkpoint is already the run's default recovery point.
+
+    True only when `latest.json` names the restored checkpoint and that
+    checkpoint was written for the configuration and topology this attempt runs.
+    Anything unreadable answers False, so the caller writes a fresh checkpoint.
+    """
+    try:
+        restored = Path(manifest['resumed_from'])
+        if restored.parent.name in ('checkpoints', 'distributed-checkpoints'):
+            expected_root = 'distributed-checkpoints' if manifest.get('execution') else 'checkpoints'
+            if restored.parent.name != expected_root:
+                return False
+        pointer = json.loads((restored.parent / 'latest.json').read_text(encoding='utf-8'))
+        saved = json.loads((restored / 'manifest.json').read_text(encoding='utf-8'))
+        if not (isinstance(pointer, dict) and pointer.get('checkpoint') == restored.name and isinstance(saved, dict)):
+            return False
+        saved_sha = saved.get('config_sha256')
+        if saved_sha is None and isinstance(saved.get('identity'), dict):
+            saved_sha = saved['identity'].get('config_sha256')
+            saved_topo = saved['identity'].get('topology')
+            curr_exec = manifest.get('execution')
+            if isinstance(saved_topo, dict) and isinstance(curr_exec, dict):
+                if (
+                    saved_topo.get('world_size') != curr_exec.get('world_size')
+                    or saved_topo.get('name') != curr_exec.get('name')
+                ):
+                    return False
+        return saved_sha == manifest['config_sha256']
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
 
 
 def _record_model(run_dir, model):
@@ -274,7 +331,13 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
         environment = execution.environment()
         run_dir.mkdir(parents=True, exist_ok=True)
         sync_directory(run_dir.parent)
-        with run_lock(run_dir):
+        node_rank = execution.profile['execution'].get('node_rank', 0) if hasattr(execution, 'profile') else 0
+        lock_ctx = retry_lock(lambda: run_lock(run_dir)) if node_rank == 0 else nullcontext()
+        with lock_ctx:
+            # The check above is only an early answer; another train may have
+            # created this run while this one was being prepared.
+            if node_rank == 0 and (run_dir / 'manifest.json').exists():
+                raise FileExistsError(f'Run directory already exists: {run_dir}')
             managed = True
             try:
                 from .provenance import write_launch_provenance, snapshot_config_sources, determine_attempt
@@ -315,7 +378,10 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
             if os.environ.get("_HYPERGAN_REEXEC") == "1":
                 os.environ.pop("_HYPERGAN_REEXEC", None)
             os.environ.pop("_HYPERGAN_REEXEC_ATTEMPT", None)
-            manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id,
+            from .registry import extract_or_derive_slug, reserve_run_slug
+            # Assigned once, unique in the registry; readers never re-derive it.
+            slug = reserve_run_slug(run_dir, run_id) if node_rank == 0 else extract_or_derive_slug(run_id, run_dir_name=run_dir.name)
+            manifest = {'schema_version': 1, 'status': 'initializing', 'run_id': run_id, 'slug': slug,
                     'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
                     'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
                     'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
@@ -340,14 +406,17 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
 def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=None,
                max_seconds=None, stop_after_steps=None, on_event=None, preview_every=None,
                preview_keep=None, preview_keep_source=None, preview_name=None,
-               execution_factory=None, steps=None, require_same_config=False):
+               execution_factory=None, steps=None, require_same_config=False,
+               allow_device_change=False, allow_batch_size_change=False):
     """Bind an in-memory candidate, then restore before publishing that attempt."""
     if execution_factory is None:
         raise TypeError('run_resume requires an execution_factory')
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
         raise ValueError(f'Run directory does not exist: {run_dir}')
-    with run_lock(run_dir):
+    node_rank = execution_factory.profile['execution'].get('node_rank', 0) if hasattr(execution_factory, 'profile') else 0
+    lock_ctx = retry_lock(lambda: run_lock(run_dir)) if node_rank == 0 else nullcontext()
+    with lock_ctx:
         manifest = json.loads((run_dir / 'manifest.json').read_text())
         required = {'schema_version', 'run_id', 'config', 'config_sha256', 'next_sample_sequence'}
         if not isinstance(manifest, dict) or not required.issubset(manifest) or manifest['schema_version'] != 1:
@@ -369,11 +438,24 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             config = resolve_config(raw)
         if require_same_config:
             original = resolve_config(manifest['config'])
-            if not resume_compatible(config, original, include_observation=True):
+            if not resume_compatible(
+                config,
+                original,
+                include_observation=True,
+                allow_device_change=allow_device_change,
+                allow_batch_size_change=allow_batch_size_change,
+            ):
                 raise ValueError('Training configuration differs from the original run; use a new run directory for a different configuration')
         if fingerprint(config) != manifest['config_sha256']:
-            if (not resume_compatible(config, manifest['config'])
-                    or fingerprint(manifest['config']) != manifest['config_sha256']):
+            if (
+                not resume_compatible(
+                    config,
+                    manifest['config'],
+                    allow_device_change=allow_device_change,
+                    allow_batch_size_change=allow_batch_size_change,
+                )
+                or fingerprint(manifest['config']) != manifest['config_sha256']
+            ):
                 raise ValueError('Resume configuration differs from the original run; only an increased '
                                  'training.steps with unchanged constant learning rate (lr_floor=1), or enabling '
                                  'pinned training-image skipping, or changing its pixel cache, is allowed')
@@ -383,10 +465,29 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
         try:
             descriptor = _configure_attempt(execution, context, preview_every, on_event)
             requested = descriptor['execution'] if descriptor is not None else None
-            if json.dumps(requested, sort_keys=True, allow_nan=False) != json.dumps(manifest.get('execution'), sort_keys=True, allow_nan=False):
+            if (
+                not getattr(execution, 'supports_elastic_resume', False)
+                and json.dumps(requested, sort_keys=True, allow_nan=False)
+                != json.dumps(manifest.get('execution'), sort_keys=True, allow_nan=False)
+            ):
                 raise ValueError('Resume numerical execution identity differs from the run manifest')
             restored = execution.restore(run_dir, checkpoint, manifest['run_id'], manifest['config_sha256'])
-            _apply_execution(manifest, descriptor)
+            previous_execution = copy.deepcopy(manifest.get('execution'))
+            previous_device = manifest.get('config', {}).get('training', {}).get('device')
+            if (
+                _canonical_execution_topology(previous_execution) != _canonical_execution_topology(requested)
+                or (previous_device or '').split(':')[0] != config['training']['device'].split(':')[0]
+            ):
+                manifest.setdefault('topology_history', []).append({
+                    'step': restored.step,
+                    'attempt_id': context.attempt_id,
+                    'from_execution': previous_execution,
+                    'to_execution': copy.deepcopy(requested),
+                    'from_device': previous_device,
+                    'to_device': config['training']['device'],
+                })
+                manifest.setdefault('qualification', {})['status'] = 'unqualified'
+            _apply_execution(manifest, descriptor, config=config)
             # A resume condition the adapter qualified rather than rejected. The
             # adapter already warned; keep it durable on the run as well.
             recorded = manifest.setdefault('warnings', [])
@@ -406,6 +507,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             manifest['config'] = config_values(config)
             manifest['config_sha256'] = fingerprint(config)
             manifest['total_steps'] = config['training']['steps']
+            manifest['global_batch_size'] = config['training']['batch_size']
             _preserve_initial_source(run_dir, manifest)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
                             preview_keep_source=preview_keep_source, preview_name=preview_name,
@@ -527,6 +629,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     checkpoint_custom_publications = 0
     preview_publications = 0
     checkpoint_preview_publications = 0
+    last_preview_record = None
+    control_stop_requested = False
 
     def emit(event, *, _observe=True, _step=None, **values):
         nonlocal sequence, dropped, last_event_step
@@ -537,6 +641,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         if dropped is not None:
             row['observation_gap'] = dict(dropped)
         boundary_event = event in {'start', 'resume', 'checkpoint', 'checkpoint_request',
+                                   'sample_request', 'stop_request',
                                    'checkpoint_boundary', 'observation_gap', 'complete',
                                    'stopped', 'failed', 'interrupted'}
         if not journal.append(row, wait=boundary_event):
@@ -557,15 +662,28 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         last_event_step = row['step']
         if on_event is not None and _observe:
             def notify(value):
+                nonlocal control_stop_requested
                 try:
-                    on_event(value)
+                    from .api import StopTraining
+                except ImportError:
+                    StopTraining = None
+
+                try:
+                    res = on_event(value)
+                    if res is False:
+                        control_stop_requested = True
+                        manifest['stop_reason'] = manifest.get('stop_reason') or 'early_stop'
                 except FatalExecutionError:
                     raise
                 except Exception as exc:
-                    try:
-                        warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
-                    except Warning:
-                        pass
+                    if StopTraining is not None and isinstance(exc, StopTraining):
+                        control_stop_requested = True
+                        manifest['stop_reason'] = str(exc) or 'early_stop'
+                    else:
+                        try:
+                            warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
+                        except Warning:
+                            pass
             try:
                 from .bounded_cli_output import CLIProgress
                 execution.observe(on_event if type(on_event) is CLIProgress else notify, dict(row))
@@ -697,11 +815,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 prune_checkpoints(run_dir, policy=retention_policy, dry_run=False)
             except Exception as exc:
                 warnings.warn(f'Automatic checkpoint pruning failed: {exc}', RuntimeWarning)
-            try:
-                from .summary import write_summary_json
-                write_summary_json(run_dir, manifest)
-            except Exception:
-                pass
+            write_summary_json(run_dir, manifest)
             return path, None
 
         def observer_error(source, error, *, step=None):
@@ -714,10 +828,11 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                  **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
 
         def publish_preview_result(preview):
-            nonlocal preview_publications
+            nonlocal preview_publications, last_preview_record
             if preview is None:
                 return
             record, preview_index, errors = preview.record, preview.index, preview.errors
+            last_preview_record = record
             # The manifest is rewritten and fsynced on every publication, so it
             # carries a recent tail; previews/index.json is the whole history.
             manifest['previews'] = preview_index['previews'][-MANIFEST_PREVIEWS:]
@@ -734,9 +849,14 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 observer_error('preview_retention', RuntimeError(error), step=record['step'])
 
         def collect_preview(*, final=False):
+            """Publish a finished preview; return why an outstanding one did not publish.
+
+            Failures stay optional observations here. The return value lets a
+            caller waiting on one particular preview report that failure too.
+            """
             hook = getattr(execution, 'close_previews' if final else 'poll_preview', None)
             if hook is None:
-                return
+                return None
             try:
                 if final and hasattr(execution, 'preview_busy'):
                     while execution.preview_busy:
@@ -745,17 +865,20 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                             if execution.abort_previews():
                                 manifest['cancelled_previews'] = manifest.get('cancelled_previews', 0) + 1
                                 emit('preview_cancelled', reason=stop.reason)
-                            return
+                                return RuntimeError(f'Preview cancelled: {stop.reason}')
+                            return None
                         if execution.preview_busy:
                             # Only terminal draining waits. Poll so a signal
                             # received during that wait can cancel immediately.
                             time.sleep(.01)
-                    return
+                    return None
                 publish_preview_result(hook())
             except FatalExecutionError:
                 raise
             except Exception as exc:
                 observer_error('preview', exc, step=getattr(exc, 'preview_context', {}).get('step'))
+                return exc
+            return None
 
         def preview_now():
             if getattr(execution, 'preview_busy', False):
@@ -775,10 +898,52 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 observer_error('preview', exc)
                 return
 
+        def sample_now():
+            """Render one preview for a sample request; return (path, error).
+
+            Success names only the preview published for the sequence reserved
+            here, never an earlier periodic preview.
+            """
+            try:
+                if getattr(execution, 'preview_busy', False):
+                    collect_preview(final=True)
+                if getattr(execution, 'preview_busy', False):
+                    return None, RuntimeError('Preview worker is busy')
+                sequence = manifest['next_sample_sequence']
+                identity = {'run_id': manifest['run_id'], 'attempt_id': attempt_id,
+                            'attempt_index': index, 'sample_sequence': sequence,
+                            'name': sample_name(manifest.get('preview_name'))}
+                manifest['next_sample_sequence'] += 1
+                publish()
+                failure = None
+                preview_res = execution.preview(run_dir, identity, keep=manifest['preview_keep'])
+                if preview_res is not None:
+                    publish_preview_result(preview_res)
+                elif getattr(execution, 'preview_busy', False):
+                    failure = collect_preview(final=True)
+                record = last_preview_record
+                if (record is None or not isinstance(record.get('identity'), dict)
+                        or record['identity'].get('attempt_id') != attempt_id
+                        or record['identity'].get('sample_sequence') != sequence):
+                    if failure is not None:
+                        return None, failure
+                    return None, RuntimeError(f'Preview for sample sequence {sequence} was not published')
+                if not record.get('path'):
+                    return None, RuntimeError('Preview generation produced no artifact path')
+                return record['path'], None
+            except FatalExecutionError:
+                raise
+            except Exception as exc:
+                return None, exc
+
         from .run_requests import pending_requests, acknowledge_request
         request_reader = BackgroundPoll(lambda: pending_requests(run_dir))
 
+        def is_stopping():
+            return bool(control_stop_requested or (stop is not None and stop.reason))
+
         def poll_requests(*, force=False):
+            nonlocal control_stop_requested
             try:
                 if force:
                     pending = request_reader.read_now()
@@ -789,25 +954,50 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             except RuntimeError:
                 return  # A producer holds the short queue lock; retry next boundary.
             except Exception as exc:
-                observer_error('checkpoint_requests', exc)
+                observer_error('control_requests', exc)
                 return
             matching = []
-            def acknowledge(request, status, path=None, error=None, saved_step=None):
+            matching_sample = []
+            matching_stop = []
+
+            def acknowledge(request, status, path=None, error=None, saved_step=None, *, sample_path=None):
+                action = request.get('action', 'checkpoint')
+                event_name = (
+                    'sample_request' if action == 'sample'
+                    else 'stop_request' if action == 'stop'
+                    else 'checkpoint_request'
+                )
+                step_val = (manifest['steps'] if saved_step is None else saved_step) if status == 'succeeded' else None
                 try:
-                    receipt = acknowledge_request(run_dir, request['request_id'], status=status,
-                                                  attempt_id=attempt_id, checkpoint_path=str(path) if path else None,
-                                                  step=(manifest['steps'] if saved_step is None else saved_step) if path else None, error=error)
+                    receipt = acknowledge_request(
+                        run_dir,
+                        request['request_id'],
+                        status=status,
+                        attempt_id=attempt_id,
+                        checkpoint_path=str(path) if path else None,
+                        artifact_path=str(sample_path) if sample_path else None,
+                        preview_path=str(sample_path) if sample_path else None,
+                        step=step_val,
+                        error=error,
+                    )
                 except Exception as exc:
-                    observer_error('checkpoint_acknowledgement', exc)
+                    observer_error('control_acknowledgement', exc)
                     return
-                emit('checkpoint_request', receipt=receipt)
+                emit(event_name, receipt=receipt)
+
             for request in pending:
+                action = request.get('action', 'checkpoint')
                 if request['run_id'] != manifest['run_id'] or request['attempt_id'] != attempt_id:
                     acknowledge(request, 'rejected', error='Request targets a different run or attempt; it cannot be applied after resume')
-                elif not manifest['resume_supported']:
-                    acknowledge(request, 'rejected', error='Full training checkpoints are unsupported for this configuration')
-                else:
-                    matching.append(request)
+                elif action == 'checkpoint':
+                    if not manifest['resume_supported']:
+                        acknowledge(request, 'rejected', error='Full training checkpoints are unsupported for this configuration')
+                    else:
+                        matching.append(request)
+                elif action == 'sample':
+                    matching_sample.append(request)
+                elif action == 'stop':
+                    matching_stop.append(request)
             if matching and manifest.get('checkpoint_path'):
                 # A lost acknowledgement must not repeat a still-identifiable save.
                 try:
@@ -831,6 +1021,36 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                                 error=f'{type(error).__name__}: {error}'[:1000] if error else None)
                 if error:
                     observer_error('manual_checkpoint', error)
+            if matching_sample:
+                sample_path, sample_err = sample_now()
+                for request in matching_sample:
+                    acknowledge(
+                        request,
+                        'succeeded' if sample_path else 'rejected',
+                        sample_path=sample_path,
+                        error=f'{type(sample_err).__name__}: {sample_err}'[:1000] if sample_err else None,
+                    )
+                if sample_err:
+                    observer_error('manual_sample', sample_err)
+            if matching_stop:
+                control_stop_requested = True
+                if not manifest.get('stop_reason'):
+                    manifest['stop_reason'] = 'stop_request'
+                stop_path, stop_err = None, None
+                if manifest['resume_supported']:
+                    if manifest['last_durable_step'] != manifest['steps'] or not manifest.get('checkpoint_path'):
+                        stop_path, stop_err = checkpoint_now([r['request_id'] for r in matching_stop], observer=True)
+                    else:
+                        stop_path = manifest.get('checkpoint_path')
+                for request in matching_stop:
+                    acknowledge(
+                        request,
+                        'succeeded' if stop_err is None else 'rejected',
+                        path=stop_path if stop_err is None else None,
+                        error=f'{type(stop_err).__name__}: {stop_err}'[:1000] if stop_err else None,
+                    )
+                if stop_err:
+                    observer_error('manual_stop', stop_err)
 
         publish()  # A start/resume observer can immediately submit an attempt-bound request.
         parent = manifest.get('recovery_parent')
@@ -841,22 +1061,24 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
              restored_step=parent['step'] if parent else 0,
              checkpoint_id=parent['checkpoint_id'] if parent else None,
              checkpoint_sha256=parent['checkpoint_sha256'] if parent else None)
-        if manifest['last_durable_step'] is None or manifest.get('resumed_from'):
+        if manifest['last_durable_step'] is None or (
+                manifest.get('resumed_from') and not _resume_point_is_current(manifest)):
             # Accepting an older recovery point must also move the default pointer,
-            # even if this attempt stops before another update.
+            # even if this attempt stops before another update. Resuming the
+            # checkpoint the pointer already names, with its configuration,
+            # would only write an identical copy.
             checkpoint_now()
         publish()
         poll_requests(force=True)
         custom_metrics.start()
-        try:
-            from .summary import write_summary_json
-            write_summary_json(run_dir, manifest)
-        except Exception:
-            pass
+        write_summary_json(run_dir, manifest)
         attempt_steps = 0
         while manifest['steps'] < config['training']['steps']:
             if stop is not None and stop.reason:
                 manifest['stop_reason'] = stop.reason
+                break
+            if control_stop_requested:
+                manifest['stop_reason'] = manifest.get('stop_reason') or 'stop_request'
                 break
             if max_seconds is not None and time.monotonic() - started >= max_seconds:
                 manifest['stop_reason'] = 'max_seconds'
@@ -892,27 +1114,25 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             statuses.update(custom_statuses)
             if custom_values:
                 publication = 'sampled'
+            loss_kwargs = {"d_loss": row.get("d_loss"), "g_loss": row.get("g_loss")} if publication != "disabled" else {}
             emit('train', metrics=metrics, measurement_status=statuses, metric_publication=publication,
                  total_steps=config['training']['steps'],
+                 **loss_kwargs,
                  **progress,
                  **{key: row[key] for key in ('global_batch_size', 'local_batch_size', 'world_size',
                                              'accumulation_steps', 'microbatch_size') if key in row})
             if publication == 'sampled':
-                try:
-                    from .summary import write_summary_json
-                    write_summary_json(run_dir, manifest, metrics=metrics)
-                except Exception:
-                    pass
+                write_summary_json(run_dir, manifest, metrics=metrics)
             periodic_checkpoint = manifest['steps'] % checkpoint_every == 0
             if periodic_checkpoint:
                 checkpoint_now()
             poll_requests(force=periodic_checkpoint)
-            if not (stop is not None and stop.reason):
+            if not is_stopping():
                 evaluations.schedule()
-            if not (stop is not None and stop.reason) and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
+            if not is_stopping() and manifest['preview_every'] and manifest['steps'] % manifest['preview_every'] == 0:
                 preview_now()
             publish(wait=False)
-        evaluations.close(stop_requested=lambda: stop is not None and bool(stop.reason))
+        evaluations.close(stop_requested=is_stopping)
         collect_custom(final=True)
         collect_preview(final=True)
         poll_requests(force=True)
@@ -925,7 +1145,9 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             checkpoint_now()
         if stop is not None and stop.reason:
             manifest['stop_reason'] = stop.reason
-        if execution.inference_available and not (stop is not None and stop.reason):
+        elif control_stop_requested and not manifest.get('stop_reason'):
+            manifest['stop_reason'] = 'stop_request'
+        if execution.inference_available and not is_stopping():
             bundle_dir = attempt_dir / 'inference'
             bundle_dir.mkdir()
             sync_directory(attempt_dir)
@@ -940,11 +1162,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         manifest['status'] = 'complete' if manifest['steps'] == config['training']['steps'] else 'stopped'
         publish()
         emit(manifest['status'], stop_reason=manifest['stop_reason'], checkpoint_path=manifest['checkpoint_path'])
-        try:
-            from .summary import write_summary_json
-            write_summary_json(run_dir, manifest, status=manifest['status'])
-        except Exception:
-            pass
+        write_summary_json(run_dir, manifest, status=manifest['status'])
         request_reader.close(wait=True)
         journal.close()
         return manifest
@@ -980,11 +1198,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 # without asking that failed worker to publish again.
                 atomic_json(run_dir / 'manifest.json', manifest)
                 atomic_json(attempt_dir / 'manifest.json', manifest)
-            try:
-                from .summary import write_summary_json
-                write_summary_json(run_dir, manifest, status=manifest['status'])
-            except Exception:
-                pass
+            write_summary_json(run_dir, manifest, status=manifest['status'])
         finally:
             journal.close()
         raise

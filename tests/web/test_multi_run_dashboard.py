@@ -81,7 +81,7 @@ def test_root_index_renders_html_table(tmp_path):
     runs_root = tmp_path / "runs"
     runs_root.mkdir()
     create_mock_run(runs_root, "run_alpha", status="running", step=120, speed=14.2, fid_latest=19.5, fid_best=17.1)
-    create_mock_run(runs_root, "run_beta", status="complete", step=250, with_summary=False)
+    create_mock_run(runs_root, "run_beta", status="complete", step=250, speed=19.8, with_summary=True)
 
     session = LocalSession(8765)
     app = create_app(runs_root, session=session)
@@ -95,15 +95,27 @@ def test_root_index_renders_html_table(tmp_path):
 
         html = res.text
         assert "HyperGAN Runs" in html
+        assert "WORKSPACE OBSERVATORY" in html
+        assert '<header class="masthead">' in html
+        assert "EXPERIMENTS" in html
         assert "run_alpha" in html
         assert "run_beta" in html
         assert "/runs/run_alpha" in html
         assert "/runs/run_beta" in html
-        assert "14.2 it/s" in html
+        assert 'class="run-row"' in html
+        assert 'data-url="/runs/run_alpha"' in html
+        assert 'data-url="/runs/run_beta"' in html
+        assert "14.2 steps/s" in html
+        assert "19.8" not in html
+        assert "it/s" not in html
+        assert "Topology & Batch" in html
         assert "Created at" in html
         assert "2026-10-17T12:30:00+00:00" in html
-        assert "FID" not in html
+        assert "FID" in html
+        assert "Preview" in html
         assert "120 / 240" in html
+        assert 'data-action=' not in html
+        assert 'Actions</th>' not in html
         assert '<script src="/assets/runs.js" defer></script>' in html
         assert 'onchange=' not in html
         assert 'onclick=' not in html
@@ -271,11 +283,23 @@ def test_render_run_index_step_formatting_and_escaping(tmp_path):
          "best_fid": 15.2, "best_step": 120},
         {"run_id": "r2", "name": "Run 2", "status": "running", "step": 50000, "total_steps": 100000,
          "best_fid": 12.4, "best_step": 50000},
+        {"run_id": "r_2gpu", "name": "Run 2GPU", "status": "running", "active": True,
+         "step": 2303, "total_steps": 200000, "steps_per_second": 0.873, "samples_per_second": 223.488,
+         "eta_seconds": 120.0, "step_multiplier": 2, "aggregate_steps": 4606,
+         "aggregate_total_steps": 400000, "aggregate_steps_per_second": 1.746, "topology": {"world_size": 2, "gpu_count": 2, "label": "2 GPUs"}},
     ]
     html_out = render_run_index_html(runs, tmp_path)
     assert "120 / 500" in html_out
     assert "50,000 / 100,000" in html_out
-    assert "FID" not in html_out
+    assert "2,303 / 200,000" in html_out
+    assert "ETA 2m 00s" in html_out
+    assert "0.9 steps/s" in html_out
+    assert "223 samples/s" in html_out
+    assert 'data-step="2303"' in html_out
+    assert 'data-total-steps="200000"' in html_out
+    assert "FID" in html_out
+    assert "15.20" in html_out
+    assert "12.40" in html_out
     assert '<script>alert' not in html_out
     assert '&lt;script&gt;' in html_out
     assert '/runs/r1%22' in html_out
@@ -406,3 +430,380 @@ def test_replaced_run_directory_evicts_stale_service_and_resolves_new_run_id(tmp
         res_stale = client.get(f"/api/v1/runs/{old_run_id}/status")
         assert res_stale.status_code == 404
         assert f"Unknown run identity: {old_run_id}" in res_stale.json()["error"]
+
+
+def test_workspace_runs_subdir_discovery_and_projection(tmp_path):
+    from hypergan.web_autostart import Projector as BgProjector, _manifest_roots
+    from hypergan.web_server import ServiceRegistry
+
+    workspace = tmp_path / "training-runs"
+    workspace.mkdir()
+    (workspace / "hypergan.toml").write_text('[workspace]\nruns_root = "runs"\n', encoding="utf-8")
+    nested_runs = workspace / "runs"
+    nested_runs.mkdir()
+
+    # Create one top-level run and one nested run inside <workspace>/runs/
+    create_mock_run(
+        workspace,
+        "top_run_01",
+        dir_name="top-run",
+        status="complete",
+        step=100,
+    )
+    nested_dir = create_mock_run(
+        nested_runs,
+        "nested_run_02",
+        dir_name="imajev-apples-joint-64-bispf-600",
+        status="running",
+        step=50,
+    )
+
+    registry = ServiceRegistry(workspace)
+    assert registry.is_single() is False
+
+    discovered = registry._discover_runs()
+    run_ids = [r["run_id"] for r in discovered]
+    assert run_ids == ["nested_run_02", "top_run_01"]
+
+    # Resolve by run_id and by directory name inside <workspace>/runs/
+    assert registry.resolve_run_dir("nested_run_02") == nested_dir.resolve()
+    assert registry.resolve_run_dir("imajev-apples-joint-64-bispf-600") == nested_dir.resolve()
+
+    # Projector and _manifest_roots also include <workspace>/runs/
+    projector = BgProjector(workspace)
+    cand_paths = projector._candidate_runs()
+    assert nested_dir.resolve() in cand_paths
+    assert nested_dir.resolve() in {p.resolve() for p in _manifest_roots(workspace)}
+
+    session = LocalSession(8765, auth="none")
+    app = create_app(workspace, session=session)
+    with TestClient(app, base_url=session.origin) as client:
+        res_runs = client.get("/api/runs")
+        assert res_runs.status_code == 200
+        api_ids = [r["run_id"] for r in res_runs.json()]
+        assert api_ids == ["nested_run_02", "top_run_01"]
+
+        res_detail = client.get("/runs/nested_run_02")
+        assert res_detail.status_code == 200
+
+        res_status = client.get("/api/v1/runs/nested_run_02/status")
+        assert res_status.status_code == 200
+        assert res_status.json()["run_id"] == "nested_run_02"
+
+
+def test_crashed_unlocked_run_lock_resolves_to_stopped_in_dashboard(tmp_path):
+    import os
+    from hypergan.inspection import check_run_active
+
+    runs_root = tmp_path / "runs"
+    runs_root.mkdir()
+
+    # Run with unlocked .run.lock file and raw status='running' (crashed run)
+    crashed_dir = create_mock_run(
+        runs_root,
+        "crashed_run_01",
+        dir_name="crashed-run",
+        status="running",
+        step=42,
+    )
+    lock_file = crashed_dir / ".run.lock"
+    lock_file.write_text(json.dumps({"pid": 999999, "hostname": "old-hostname"}), encoding="utf-8")
+    stale_time = time.time() - 7200
+    for f in (lock_file, crashed_dir / "summary.json", crashed_dir / "manifest.json", crashed_dir / "events.jsonl"):
+        if f.exists():
+            os.utime(f, (stale_time, stale_time))
+
+    is_active, pid = check_run_active(crashed_dir)
+    assert is_active is False
+    assert pid is None
+
+    summary = read_run_summary(crashed_dir)
+    assert summary["status"] == "stopped"
+    assert summary["active"] is False
+    assert summary["running"] is False
+
+
+class TestThumbnailEndpointHardening:
+    """Tests for thumbnail_endpoint path containment, fallback, and inspect_png validation."""
+
+    def test_thumbnail_success(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_thumb_ok")
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        img_bytes = encode_png(b"\xff\x00\x00", 1, 1, 3)
+        img_file = previews_dir / "preview_001.png"
+        img_file.write_bytes(img_bytes)
+
+        idx = {
+            "previews": [
+                {"image_grid": {"path": "previews/preview_001.png"}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_thumb_ok/thumbnail")
+            assert res.status_code == 200
+            assert res.headers["content-type"] == "image/png"
+            assert res.content == img_bytes
+
+    def test_thumbnail_fallback_png(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_fallback")
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        img_bytes = encode_png(b"\x00\xff\x00", 1, 1, 3)
+        img_file = previews_dir / "preview_standalone.png"
+        img_file.write_bytes(img_bytes)
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_fallback/thumbnail")
+            assert res.status_code == 200
+            assert res.headers["content-type"] == "image/png"
+            assert res.content == img_bytes
+
+    def test_thumbnail_missing(self, tmp_path):
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        create_mock_run(runs_root, "run_empty")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_empty/thumbnail")
+            assert res.status_code == 404
+            assert "No preview thumbnail available" in res.json().get("error", "")
+
+    def test_thumbnail_path_traversal_dotdot_blocked(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_escape")
+        secret_bytes = encode_png(b"\x00\x00\xff", 1, 1, 3)
+        external_file = runs_root / "secret.png"
+        external_file.write_bytes(secret_bytes)
+
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        idx = {
+            "previews": [
+                {"image_grid": {"path": "../secret.png"}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_escape/thumbnail")
+            assert res.status_code == 404
+
+    def test_thumbnail_absolute_path_blocked(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_abs")
+        external_file = tmp_path / "external.png"
+        external_file.write_bytes(encode_png(b"\x11\x22\x33", 1, 1, 3))
+
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        idx = {
+            "previews": [
+                {"image_grid": {"path": str(external_file.resolve())}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_abs/thumbnail")
+            assert res.status_code == 404
+
+    def test_thumbnail_symlink_escape_blocked(self, tmp_path):
+        from hypergan.image_grids import encode_png
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_symlink")
+        external_target = tmp_path / "outside_target.png"
+        external_target.write_bytes(encode_png(b"\x44\x55\x66", 1, 1, 3))
+
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        link = previews_dir / "symlink_escape.png"
+        link.symlink_to(external_target)
+
+        idx = {
+            "previews": [
+                {"image_grid": {"path": "previews/symlink_escape.png"}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_symlink/thumbnail")
+            assert res.status_code == 404
+
+    def test_thumbnail_non_png_blocked(self, tmp_path):
+        runs_root = tmp_path / "runs"
+        runs_root.mkdir()
+        run_dir = create_mock_run(runs_root, "run_non_png")
+        previews_dir = run_dir / "previews"
+        previews_dir.mkdir(parents=True, exist_ok=True)
+        idx = {
+            "previews": [
+                {"image_grid": {"path": "manifest.json"}}
+            ]
+        }
+        (previews_dir / "index.json").write_text(json.dumps(idx), encoding="utf-8")
+
+        session = LocalSession(8765)
+        app = create_app(runs_root, session=session)
+        with TestClient(app, base_url=session.origin) as client:
+            res = client.get("/api/v1/runs/run_non_png/thumbnail")
+            assert res.status_code == 404
+
+
+def test_index_active_vs_inactive_speed_eta_and_topology_rendering(tmp_path):
+    import re
+    from hypergan.web_server import render_run_index_html
+
+    runs = [
+        {
+            "run_id": "run_2gpu_live",
+            "name": "TransGAN CIFAR-10",
+            "slug": "golden-lynx",
+            "status": "running",
+            "active": True,
+            "running": True,
+            "remote": True,
+            "hostname": "gpu-node-02",
+            "topology": {
+                "device_kind": "cuda",
+                "world_size": 2,
+                "nodes": 1,
+                "ranks_per_node": 2,
+                "gpu_count": 2,
+                "gpu_name": "RTX A6000",
+                "label": "2 GPUs",
+                "detail": "2× RTX A6000",
+            },
+            "batch_label": "Batch 256",
+            "batch_detail": "128 / GPU",
+            "step": 120,
+            "total_steps": 10400,
+            "steps_per_second": 14.2,
+            "samples_per_second": 3635.2,
+            "eta_seconds": 725.0,
+            "best_fid": 17.1,
+            "latest_fid": 19.5,
+            "disk_bytes": 104857600,
+            "disk_formatted": "100.0 MB",
+            "created_at": "2026-10-18T10:00:00Z",
+        },
+        {
+            "run_id": "run_stopped_stale_speed",
+            "name": "Stopped Run",
+            "slug": "silent-owl",
+            "status": "stopped",
+            "active": False,
+            "running": False,
+            "topology": {"label": "CPU", "detail": None},
+            "batch_label": "Batch 16",
+            "batch_detail": None,
+            "step": 400,
+            "total_steps": 1000,
+            "steps_per_second": 21.6,
+            "samples_per_second": 345.6,
+            "eta_seconds": 27.7,
+            "best_fid": None,
+            "latest_fid": None,
+            "disk_bytes": 4096,
+            "disk_formatted": "4.0 KB",
+            "created_at": "2026-10-17T10:00:00Z",
+        },
+        {
+            "run_id": "run_unrecorded",
+            "name": "Bare Run",
+            "slug": "plain-fox",
+            "status": "complete",
+            "active": False,
+            "running": False,
+            "topology": {"label": None, "detail": None},
+            "batch_label": None,
+            "batch_detail": None,
+            "step": 500,
+            "total_steps": 500,
+            "steps_per_second": 33.9,
+            "created_at": "2026-10-16T10:00:00Z",
+        },
+    ]
+
+    html_out = render_run_index_html(runs, tmp_path)
+
+    # Row action buttons and Actions column are completely absent
+    assert "data-action=" not in html_out
+    assert "Open run" not in html_out
+    assert "Actions" not in html_out
+
+    # Multi-column sorting options & sortable column headers are present
+    for sort_opt in ("newest", "oldest", "name", "fid", "progress", "speed", "disk"):
+        assert f'<option value="{sort_opt}">' in html_out
+    for sort_col in ("name", "fid", "newest", "progress", "speed", "disk"):
+        assert f'data-sort="{sort_col}"' in html_out
+
+    tbody = html_out.split('<tbody id="runs-body">', 1)[1].split("</tbody>", 1)[0]
+    row_blocks = {
+        m.group(1): m.group(0)
+        for m in re.finditer(r'<tr class="run-row"[^>]*data-id="([^"]+)"[^>]*>.*?</tr>', tbody, re.DOTALL)
+    }
+    assert set(row_blocks) == {"run_2gpu_live", "run_stopped_stale_speed", "run_unrecorded"}
+
+    # 1. Active 2-GPU run keeps global training steps/rate, batch, samples/s and ETA.
+    live_html = row_blocks["run_2gpu_live"]
+    assert 'data-url="/runs/run_2gpu_live"' in live_html
+    assert 'data-active="true"' in live_html
+    assert 'data-step="120"' in live_html
+    assert 'data-total-steps="10400"' in live_html
+    assert 'data-speed="14.2"' in live_html
+    assert 'data-fid="17.1"' in live_html
+    assert 'data-disk-bytes="104857600"' in live_html
+    assert "gpu-node-02" in live_html
+    assert "2 GPUs · Batch 256" in live_html
+    assert "2× RTX A6000 · 128 / GPU" in live_html
+    assert "120 / 10,400" in live_html
+    assert "ETA 12m 05s" in live_html
+    assert "14.2 steps/s" in live_html
+    assert "3635 samples/s" in live_html
+
+    # 2. Stopped run with historical speed suppresses speed & ETA and renders CPU topology
+    stopped_html = row_blocks["run_stopped_stale_speed"]
+    assert 'data-url="/runs/run_stopped_stale_speed"' in stopped_html
+    assert 'data-active="false"' in stopped_html
+    assert 'data-speed=""' in stopped_html
+    assert "CPU · Batch 16" in stopped_html
+    assert "21.6" not in stopped_html
+    assert "346 samples/s" not in stopped_html
+    assert "steps/s" not in stopped_html
+    assert "ETA" not in stopped_html
+    assert '<span class="muted" data-field="speed-primary">—</span>' in stopped_html
+
+    # 3. Complete run without recorded topology/batch renders — in Topology & Batch and Speed
+    bare_html = row_blocks["run_unrecorded"]
+    assert 'data-url="/runs/run_unrecorded"' in bare_html
+    assert 'data-speed=""' in bare_html
+    assert "33.9" not in bare_html
+    assert '<span class="topo-primary muted" data-field="topology-primary">—</span>' in bare_html
+    assert '<span class="muted" data-field="speed-primary">—</span>' in bare_html

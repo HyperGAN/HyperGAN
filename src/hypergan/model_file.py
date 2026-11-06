@@ -50,6 +50,7 @@ Bindings name a value: ``latent``, ``batch.<field>``, ``generated``,
 """
 from copy import deepcopy
 from pathlib import Path
+import difflib
 import re
 
 try:
@@ -61,7 +62,7 @@ from .network_config import read_source
 
 FORMAT = 'hypergan-model/1'
 TOP_LEVEL = {'format', 'name', 'description', 'defaults', 'recipe', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
-             'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'extends'}
+             'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'aggregation', 'extends'}
 
 CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
 ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
@@ -76,8 +77,9 @@ TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'initialization', 'e
                    'network_lr_floor', 'network_lr_horizon_cap', 'input_noise_std', 'input_noise_anneal_end',
                    'output_noise_std', 'output_noise_warmup', 'phase_draws', 'data_rng_device',
                    'data_seed_offset', 'prior_seed_offset', 'backend', 'every_steps'}
+AGGREGATION_FIELDS = {'strategy', 'sync_every_steps', 'sync_every', 'outer_lr', 'outer_momentum'}
 RUN_CADENCE_FIELDS = {'checkpoint_every', 'preview_every', 'progress_every'}
-RUN_FIELDS = {'devices', 'env', 'viewer', 'cpu_threads', *RUN_CADENCE_FIELDS}
+RUN_FIELDS = {'devices', 'nodes', 'node_rank', 'rendezvous', 'ranks_per_node', 'strategy', 'sync_every', 'sync_every_steps', 'env', 'viewer', 'cpu_threads', *RUN_CADENCE_FIELDS}
 PENALTY_FIELDS = {'kappa', 'lazy_k', 'anchor_weight', 'anchor_decay'}
 _EVAL_FIELDS = {'fn', 'factory', 'args', 'inputs', 'every', 'every_steps', 'device', 'samples', 'batch_size',
                 'seed', 'data', 'output', 'target', 'timeout', 'on_error', 'on_busy', 'label', 'unit',
@@ -166,6 +168,33 @@ def is_model_file(raw):
     return isinstance(raw, dict) and 'networks' in raw and 'components' not in raw
 
 
+def require_networks(raw):
+    """Reject a file that declares no model, so it never silently trains the built-in default.
+
+    Without ``[networks]`` (model file) or ``[components]`` (engine recipe) every
+    other table, such as the internal resolved ``[training]``, would only adjust
+    the packaged 2-D reference recipe.
+    """
+    if isinstance(raw, dict) and 'networks' not in raw and 'components' not in raw:
+        internal = sorted(key for key in raw if key not in TOP_LEVEL)
+        hint = ''
+        if internal:
+            candidates = list(TOP_LEVEL) + ['training', 'network']
+            suggestions = []
+            for k in internal:
+                m = difflib.get_close_matches(k, candidates, n=1, cutoff=0.5)
+                if m:
+                    target = "train" if m[0] == "training" else m[0]
+                    suggestions.append(f"did you mean '[{target}]'?")
+            sugg_text = f" ({'; '.join(suggestions)})" if suggestions else ""
+            tables = ', '.join(f'[{key}]' for key in internal)
+            hint = (f'; {tables} is an internal resolved-recipe table, not a model-file table{sugg_text}' if len(internal) == 1
+                    else f'; {tables} are internal resolved-recipe tables, not model-file tables{sugg_text}')
+        raise ModelFileError(f'No [networks] declared{hint}. A {FORMAT} file declares [networks.<name>] with a role '
+                             'and [[losses]], and [train] for training settings (see docs/configuration.md), '
+                             'or extends a packaged model such as extends = "gaussian-grid".')
+
+
 def producer(path):
     """The network whose output a binding reads directly, if any."""
     parts = path.split('.')
@@ -197,7 +226,13 @@ def _table(value, location, allowed=None):
     if allowed is not None:
         unknown = sorted(set(value) - set(allowed))
         if unknown:
-            raise ModelFileError(f'Unknown {location} field(s): {", ".join(unknown)}; expected one of {", ".join(sorted(allowed))}')
+            suggestions = []
+            for u in unknown:
+                m = difflib.get_close_matches(u, allowed, n=1, cutoff=0.6)
+                if m:
+                    suggestions.append(f"did you mean '{m[0]}'?")
+            sugg_str = f" ({'; '.join(suggestions)})" if suggestions else ""
+            raise ModelFileError(f'Unknown {location} field(s): {", ".join(unknown)}{sugg_str}; expected one of {", ".join(sorted(allowed))}')
     return value
 
 
@@ -756,13 +791,13 @@ class _Lowering:
             recipe['defaults'] = raw['defaults']
         if 'recipe' in raw:
             recipe['recipe'] = deepcopy(_table(raw['recipe'], 'recipe'))
-        if 'data' not in raw and 'dataset' in raw:
-            raw['data'] = raw['dataset']
-        if 'data' not in raw:
+        # [dataset] is an alias for [data]; read it without writing into the caller's spec.
+        data = raw['data'] if 'data' in raw else raw.get('dataset')
+        if data is None:
             raise ModelFileError('data is required (builtin, factory or dataset)')
-        recipe['data'] = self.data(raw['data'], 'data')
-        if isinstance(raw['data'], dict) and 'batch_size' in raw['data']:
-            recipe.setdefault('training', {}).setdefault('batch_size', raw['data']['batch_size'])
+        recipe['data'] = self.data(data, 'data')
+        if isinstance(data, dict) and 'batch_size' in data:
+            recipe.setdefault('training', {}).setdefault('batch_size', data['batch_size'])
         if 'prior' in raw:
             recipe['prior'] = self.prior(raw['prior'])
         recipe['components'] = {self.names[name]: self.component(name, spec) for name, spec in self.networks.items()}
@@ -786,13 +821,28 @@ class _Lowering:
         if metrics:
             recipe['metrics'] = metrics
         if 'every_steps' not in recipe.get('metrics', {}):
-            recipe.setdefault('metrics', {})['every_steps'] = 1
+            recipe.setdefault('metrics', {})['every_steps'] = 10
         if 'checkpoints' in raw:
             self.checkpoints(raw['checkpoints'])
             recipe['checkpoints'] = normalize_checkpoint_policy(raw['checkpoints'])
+        if 'aggregation' in raw:
+            _table(raw['aggregation'], 'aggregation', AGGREGATION_FIELDS)
+            agg = deepcopy(raw['aggregation'])
+            if 'sync_every' in agg and 'sync_every_steps' not in agg:
+                agg['sync_every_steps'] = agg.pop('sync_every')
+            recipe['aggregation'] = agg
         if 'run' in raw:
             _table(raw['run'], 'run', RUN_FIELDS)
-            recipe.setdefault('run', {}).update(deepcopy(raw['run']))
+            run_copy = deepcopy(raw['run'])
+            recipe.setdefault('run', {}).update(run_copy)
+            if ('strategy' in run_copy or 'sync_every' in run_copy or 'sync_every_steps' in run_copy) and 'aggregation' not in recipe:
+                agg = {}
+                if 'strategy' in run_copy:
+                    agg['strategy'] = run_copy['strategy']
+                sync_val = run_copy.get('sync_every_steps', run_copy.get('sync_every'))
+                if sync_val is not None:
+                    agg['sync_every_steps'] = sync_val
+                recipe['aggregation'] = agg
         recipe['format'] = FORMAT
 
         recipe['name_map'] = dict(self.names)

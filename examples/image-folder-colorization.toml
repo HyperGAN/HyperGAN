@@ -1,0 +1,206 @@
+# Canonical 128x128 Conditional Colorization Generator (L -> AB) with Alpha Handling
+# - Multi-port HNDL generator: conditions on grayscale/luminance (L) and particle latent (z)
+# - Sub-pixel U-Net skip decoder with GroupNorm, RoPE + SwiGLU Transformer palette cross-attention,
+#   and exact 7-face polytope luminance lock ensuring perfect luminance preservation (L(G(L, z)) == L)
+# - Alpha handling: RGBA and palette transparency composited onto white (alpha = "composite_white")
+# - Self-contained: Auxiliary HNDL luma extraction from batch.real allows direct use with image_folder
+format = "hypergan-model/1"
+name = "colorization-128"
+defaults = "particlegan"
+
+# [data] Dataset source, resolution, and preprocessing with alpha compositing
+[data]
+builtin = "image_folder"
+args = { root = "./data", height = 128, width = 128, mode = "RGB", resize = "center_crop", alpha = "composite_white", follow_symlinks = true }
+
+# [prior] Latent particle distribution
+[prior]
+kind = "particles"
+initialization_seed = 2
+z_dim = 128
+num_particles = 10000
+
+# [networks.luma] Auxiliary ITU-R BT.601 luma extractor (L = 0.299 R + 0.587 G + 0.114 B)
+# Allows standard image_folder datasets to supply the grayscale conditioning input cleanly
+[networks.luma]
+role = "auxiliary"
+inputs = { x = "batch.real" }
+input_shape = ["B", 3, 128, 128]
+output_shape = ["B", 1, 128, 128]
+source = """
+r, gb = split(x, 1)
+g, b = split(gb, 1)
+out = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
+"""
+
+# [networks.generator] 128x128 conditional colorization generator (L -> AB)
+[networks.generator]
+role = "generator"
+inputs = { z = "latent", gray = "components.luma" }
+input_shape = { z = ["B", 128], gray = ["B", 1, 128, 128] }
+output_shape = ["B", 3, 128, 128]
+source = """
+# 1. Multi-scale residual grayscale U-Net encoder (128 -> 64 -> 32 -> 16 -> 8)
+e128 = resblock(gray, 16, norm="group_norm", groups=4, name="enc128")
+e64 = resblock(e128, 32, stride=2, norm="group_norm", groups=8, name="enc64")
+e32 = resblock(e64, 64, stride=2, norm="group_norm", groups=8, name="enc32")
+e16 = resblock(e32, 128, stride=2, norm="group_norm", groups=8, name="enc16")
+e8 = resblock(e16, 256, stride=2, norm="group_norm", groups=8, name="enc8")
+
+# 2. 8x8 RoPE + SwiGLU Transformer bottleneck with particle palette cross-attention
+palette_tokens = linear(z, 2048, name="palette_tokens")
+palette_tokens = reshape(palette_tokens, 8, 256)
+
+tokens = reshape(e8, 256, 64)
+tokens = permute(tokens, 2, 1)
+for _ in range(2):
+    tokens = transformer_block(tokens, 4, mlp_ratio=2, norm="layer_norm", rope=True, ffn_kind="swiglu", name="bottleneck_block")
+    normed = layer_norm(tokens, name="xattn_norm")
+    attended = cross_attention(normed, palette_tokens, 4, name="palette_xattn")
+    tokens = add(tokens, attended)
+
+tokens = layer_norm(tokens, name="bottleneck_norm")
+h8 = permute(tokens, 2, 1)
+h8 = reshape(h8, 256, 8, 8)
+
+# 3. Sub-pixel (pixel_shuffle) + residual U-Net skip decoder with shape-inferred adaptive_norm
+h16 = conv(h8, 512, kernel_size=3, padding=1, name="up16_conv")
+h16 = pixel_shuffle(h16, 2)
+h16 = concat(h16, e16)
+h16 = resblock(h16, 128, norm="group_norm", groups=8, name="dec16")
+h16 = adaptive_norm(h16, linear(z, name="style16"), name="adain16")
+h16 = leaky_relu(h16, 0.2)
+
+h32 = conv(h16, 256, kernel_size=3, padding=1, name="up32_conv")
+h32 = pixel_shuffle(h32, 2)
+h32 = concat(h32, e32)
+h32 = resblock(h32, 64, norm="group_norm", groups=8, name="dec32")
+h32 = adaptive_norm(h32, linear(z, name="style32"), name="adain32")
+h32 = leaky_relu(h32, 0.2)
+
+h64 = conv(h32, 128, kernel_size=3, padding=1, name="up64_conv")
+h64 = pixel_shuffle(h64, 2)
+h64 = concat(h64, e64)
+h64 = resblock(h64, 32, norm="group_norm", groups=8, name="dec64")
+h64 = adaptive_norm(h64, linear(z, name="style64"), name="adain64")
+h64 = leaky_relu(h64, 0.2)
+
+h128 = conv(h64, 64, kernel_size=3, padding=1, name="up128_conv")
+h128 = pixel_shuffle(h128, 2)
+h128 = concat(h128, e128)
+h128 = resblock(h128, 16, norm="group_norm", groups=8, name="dec128")
+h128 = group_norm(h128, 8, affine=False)
+
+# 4. Bilinear particle palette synthesis:
+# Spatial basis [B, 16, 16384] has zero mean and unit variance per group across space.
+# Bias-free particle palette [B, 3, 16] ensures z=0 produces zero chroma (pure grayscale).
+basis = reshape(h128, 16, 16384)
+palette = linear(z, 48, bias=False, name="palette_head")
+palette = reshape(palette, 3, 16)
+raw = matmul(palette, basis)
+raw = reshape(raw, 3, 128, 128)
+raw = scale(raw, 0.25)
+x = tanh(raw)
+
+# 5. Exact 7-face polytope luminance lock onto {x in [-1, 1]^3 : 0.299 R + 0.587 G + 0.114 B = gray}.
+r, gb = split(x, 1)
+g, b = split(gb, 1)
+y = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
+d = scale(sub(gray, y), 1.0)
+x = clamp(add(x, concat(d, d, d)), min=-1.0, max=1.0)
+
+r, gb = split(x, 1)
+g, b = split(gb, 1)
+y = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
+d = scale(sub(gray, y), 1.128668171557562)
+x = clamp(add(x, concat(d, d, d)), min=-1.0, max=1.0)
+
+r, gb = split(x, 1)
+g, b = split(gb, 1)
+y = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
+d = scale(sub(gray, y), 1.4265335235378031)
+x = clamp(add(x, concat(d, d, d)), min=-1.0, max=1.0)
+
+r, gb = split(x, 1)
+g, b = split(gb, 1)
+y = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
+d = scale(sub(gray, y), 1.7035775127768313)
+x = clamp(add(x, concat(d, d, d)), min=-1.0, max=1.0)
+
+r, gb = split(x, 1)
+g, b = split(gb, 1)
+y = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
+d = scale(sub(gray, y), 2.4213075060532687)
+x = clamp(add(x, concat(d, d, d)), min=-1.0, max=1.0)
+
+r, gb = split(x, 1)
+g, b = split(gb, 1)
+y = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
+d = scale(sub(gray, y), 3.3444816053511705)
+x = clamp(add(x, concat(d, d, d)), min=-1.0, max=1.0)
+
+r, gb = split(x, 1)
+g, b = split(gb, 1)
+y = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
+d = scale(sub(gray, y), 8.771929824561404)
+out = clamp(add(x, concat(d, d, d)), min=-1.0, max=1.0)
+"""
+
+# [networks.discriminator] Joint conditional critic over p(x, gray)
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate", gray = "components.luma" }
+input_shape = { x = ["B", 3, 128, 128], gray = ["B", 1, 128, 128] }
+output_shape = ["B", 1]
+source = """
+h = concat(x, gray)
+conv(64, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(128, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(256, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(512, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+"""
+
+# [losses] Adversarial and prior regularization objectives
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+
+# [train] Training steps, batch size, device, and initialization
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda:0"
+initialization = "deterministic_orthogonal"
+
+[metrics]
+every_steps = 10
+
+# [checkpoints] Checkpoint retention and EMA export policy
+[checkpoints]
+keep_last = 3
+keep_every = 50000
+export_bundle = "on_eval"
+
+# [sampling] Periodic sample grid preview configuration with comparison
+[sampling]
+count = 16
+seed = 10000
+comparison = [
+  { label = "X", binding = "batch.real" },
+  { label = "B", binding = "components.luma" },
+  { label = "X_hat", binding = "generator" },
+]

@@ -1,0 +1,38 @@
+# HyperGAN
+
+> HyperGAN 2.0: Modular Generative Adversarial Network training, inference, and analysis framework in PyTorch and HNDL.
+
+HyperGAN is a production-grade machine learning system for training and deploying generative models. It features declarative TOML model configurations (`hypergan-model/1`), the pure architecture description language HNDL (HyperGAN Network Description Language), ParticleGAN latent table optimization, robust distributed multi-GPU and multi-node execution, a local Web Observatory, and standalone generator baking.
+
+## System Architecture
+
+- **Model Specification (`hypergan-model/1`)**: Declarative TOML describing data providers, latent priors, networks, loss formulations, optimizer guards, retention policies, and cluster execution settings.
+- **HNDL (HyperGAN Network Description Language)**: Torch-free architecture DSL compiling to pure PyTorch `nn.Module` graphs with static shape inference, parameter sharing, and support for all 85 built-in and augmentation operators.
+- **ParticleGAN**: Learned latent particle table optimization replacing Gaussian sampling, ensuring mode coverage and high sample fidelity.
+- **Distributed Engine**: Slurm/torchrun-native multi-GPU and multi-node DDP and DiLoCo training with coalesced collective bucketing and follower coordination without shared NFS requirements.
+- **Unified Run Metadata**: Canonical `RunInfo` dataclass and `read_run_info()` interface unifying `manifest.json`, `summary.json`, and `tag.json`.
+- **Telemetry & Health Monitoring**: Periodic tracking of critic margins, classification accuracy, gradient norms, particle RMS, and diversity ratios with automated advisory health alerts.
+
+## Primary Interfaces
+
+- `hypergan.api`: Python API providing `load()`, `train()`, `resume()`, `status()`, `inspect()`, `read_run_info()`, `schema()`, `operators()`, and `export()`.
+- `hypergan.cli`: CLI entrypoint providing commands:
+  - `hypergan new`: Project scaffolding and template generation.
+  - `hypergan train`: Start model training with real-time telemetry and optional Web Observatory.
+  - `hypergan resume`: Resume training from an existing run directory or checkpoint.
+  - `hypergan validate`: Statically validate a model TOML configuration and HNDL network definitions.
+  - `hypergan schema`: Inspect `hypergan-model/1` tables, fields, types, and constraints (`--json` supported).
+  - `hypergan ops`: Inspect all 85 HNDL neural network operators and signatures (`--json` supported).
+  - `hypergan status`: Query active or completed run status, latest metrics, and health alerts.
+  - `hypergan export`: Export standalone generator bundles and weights (`safetensors`, `pt2`, `onnx`).
+  - `hypergan sample`: Generate sample images or latents from trained checkpoints or bundles.
+
+## Documentation Index
+
+- [Configuration Guide](docs/configuration.md): Complete guide to TOML model files and runtime settings.
+- [HNDL Operator Reference](docs/hndl-reference.md): Exhaustive catalog of all 85 HNDL operators across 13 categories.
+- [Distributed Training](docs/distributed.md): Multi-GPU, multi-node, Slurm, and DiLoCo clustering documentation.
+- [Image Data](docs/image-data.md): ImageFolder dataset options, alpha compositing, and preprocessing pipelines.
+- [Execution Profiles](docs/execution-profiles.md): Memory policies, microbatch accumulation, and profiling.
+- [Image FID Evaluation](docs/image-fid.md): Inception-v3 FID calculation and evaluation cadences.
+- [Local Web Observatory](docs/local-web.md): Browser dashboard, telemetry graphs, and preview thumbnails.

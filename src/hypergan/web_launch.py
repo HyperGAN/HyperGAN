@@ -7,7 +7,7 @@ import signal
 import sys
 import tempfile
 
-from .ports import DEFAULT_VIEWER_PORT, PORT_SEARCH_LIMIT
+from .ports import DEFAULT_VIEWER_PORT
 
 
 def require_web():
@@ -17,7 +17,7 @@ def require_web():
         raise RuntimeError("Local serving requires 'hypergan[web]' (missing " + ', '.join(missing) + ')')
 
 
-def bind_server(port=0, host="0.0.0.0"):
+def bind_server(port=0, host="127.0.0.1"):
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError('port must be in 0..65535; zero selects an available port')
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -40,7 +40,7 @@ def bind_server(port=0, host="0.0.0.0"):
         raise
 
 
-def bind_available(port=None, host="0.0.0.0", *, attempts=1):
+def bind_available(port=None, host="127.0.0.1", *, attempts=1):
     """Bind the viewer socket to fixed default port 8765, or explicit requested port.
 
     Does not hunt across port range. If the target port is occupied, raises an
@@ -75,7 +75,40 @@ def bind_loopback(port=0):
     return bind_server(port, "127.0.0.1")
 
 
-def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=None,
+def running_dashboard(root, port=None, auth="none"):
+    """URL of the dashboard already serving `root` (or the root holding this run) on `port`.
+
+    `hypergan train` starts a persistent dashboard; `hypergan view` for the same
+    root then opens it instead of failing to bind. A dashboard for another root
+    is not reused, and one with different auth is reported rather than reused.
+    """
+    from .web_autostart import _registered_dashboard, dashboard_url, find_runs_root, probe_dashboard
+    target_port = DEFAULT_VIEWER_PORT if port is None else port
+    if target_port == 0:
+        return None
+    root = Path(root).resolve()
+    runs_root = find_runs_root(root)
+    state, token = _registered_dashboard(runs_root)
+    if state is None and runs_root != root:
+        state, token = _registered_dashboard(root)
+    probed = probe_dashboard("127.0.0.1", target_port, auth_token=token)
+    if not probed or probed.get('alien') or probed.get('auth_required') or not probed.get('runs_root'):
+        return None
+    served = Path(probed['runs_root']).resolve()
+    if served == root:
+        run_id = None
+    elif (root / 'manifest.json').is_file() and root.is_relative_to(served):
+        run_id = root.name
+    else:
+        return None
+    if probed.get('auth_mode') != auth:
+        raise OSError(f"Port {target_port} already serves this root's dashboard with --auth {probed.get('auth_mode')}; "
+                      f"stop it with 'hypergan view {served} --stop' to change its settings")
+    host = state.get('host', '127.0.0.1') if state else '127.0.0.1'
+    return dashboard_url(host, target_port, run_id)
+
+
+def serve(run_dir=None, *, port=None, host="127.0.0.1", auth="none", session_file=None,
           open_browser=False, public_origin=None):
     require_web()
     from contextlib import ExitStack
@@ -111,6 +144,14 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
         raise ValueError('Selected directory does not exist')
     if session_file is not None and Path(session_file).resolve().is_relative_to(root):
         raise ValueError('Viewer credentials must be stored outside the run directory')
+    existing = running_dashboard(root, port, auth)
+    if existing is not None:
+        print(json.dumps({'origin': existing, 'reused': True}), flush=True)
+        print(f'Viewer: {existing} (already running for this root)', file=sys.stderr, flush=True)
+        if open_browser:
+            import webbrowser
+            webbrowser.open(existing)
+        return
     with tempfile.TemporaryDirectory(prefix='hypergan-viewer-') as private:
         credential_path = Path(session_file) if session_file is not None else Path(private) / 'session.json'
         with bind_available(port, host) as listener:
@@ -123,6 +164,10 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
             started_at = time.time()
             runs_root = _wa.find_runs_root(root)
             candidate_roots = [runs_root, root]
+            if root.parent != root:
+                candidate_roots.append(root.parent.resolve())
+                if root.parent.name == "runs" and root.parent.parent != root.parent:
+                    candidate_roots.append(root.parent.parent.resolve())
             if root.name == "runs" and root.parent != root:
                 candidate_roots.append(root.parent.resolve())
             if (root / "runs").is_dir():
@@ -165,7 +210,6 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
 
             stop_event = threading.Event()
             owned_reg_dirs = []
-            dash_state_files = []
             with ExitStack() as ownership:
                 for cand in unique_roots:
                     try:
@@ -181,24 +225,6 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
                         owned_reg_dirs.append(reg_dir)
                     except Exception:
                         pass
-                    if hasattr(_wa, "_dashboard_state_path"):
-                        try:
-                            sf = Path(_wa._dashboard_state_path(cand))
-                            atomic_json(sf, {
-                                "pid": os.getpid(),
-                                "port": bound_port,
-                                "host": host,
-                                "url": session.origin,
-                                "origin": session.origin,
-                                "runs_root": str(runs_root),
-                                "root": str(root),
-                                "status": "ready",
-                                "started_at": started_at,
-                                "server_instance_id": session.instance_id,
-                            })
-                            dash_state_files.append(sf)
-                        except Exception:
-                            pass
 
                 if owned_reg_dirs:
                     def _watch_stop():
@@ -240,11 +266,6 @@ def serve(run_dir=None, *, port=None, host="0.0.0.0", auth="none", session_file=
                     run_socket(root, listener, session)
                 finally:
                     stop_event.set()
-                    for sf in dash_state_files:
-                        try:
-                            sf.unlink(missing_ok=True)
-                        except OSError:
-                            pass
                     for reg_dir in owned_reg_dirs:
                         try:
                             stopped_state = dict(state_payload, status='stopped',

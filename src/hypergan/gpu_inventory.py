@@ -16,6 +16,9 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 _WARNED_MISSING_TOOL = False
+# nvidia-smi/amd-smi/rocm-smi can hang on a wedged driver; the queue and status
+# paths call these, so a hung tool reads as "no data" instead of blocking them.
+SMI_TIMEOUT_SECONDS = 10
 
 
 def reset_inventory_warning_state():
@@ -180,7 +183,7 @@ class NvidiaSmiProvider(BaseGpuInventoryProvider):
             res = subprocess.run(
                 ["nvidia-smi", "--query-gpu=index,name,uuid,memory.total,memory.free,memory.used,utilization.gpu",
                  "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True, timeout=SMI_TIMEOUT_SECONDS
             )
             return self.parse_hardware_output(res.stdout)
         except Exception:
@@ -215,7 +218,7 @@ class NvidiaSmiProvider(BaseGpuInventoryProvider):
             res = subprocess.run(
                 ["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
                  "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True, timeout=SMI_TIMEOUT_SECONDS
             )
             return self.parse_processes_output(res.stdout)
         except Exception:
@@ -261,7 +264,7 @@ class AmdSmiProvider(BaseGpuInventoryProvider):
         try:
             res = subprocess.run(
                 ["amd-smi", "static", "--json"],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True, timeout=SMI_TIMEOUT_SECONDS
             )
             static_out = res.stdout
         except Exception:
@@ -270,7 +273,7 @@ class AmdSmiProvider(BaseGpuInventoryProvider):
         try:
             res = subprocess.run(
                 ["amd-smi", "metric", "--json"],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True, timeout=SMI_TIMEOUT_SECONDS
             )
             metric_out = res.stdout
         except Exception:
@@ -394,7 +397,7 @@ class AmdSmiProvider(BaseGpuInventoryProvider):
         try:
             res = subprocess.run(
                 ["amd-smi", "process", "--json"],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True, timeout=SMI_TIMEOUT_SECONDS
             )
             hw = self.get_hardware()
             hw_map = {g["index"]: g["uuid"] for g in hw if isinstance(g, dict) and "index" in g and "uuid" in g}
@@ -482,7 +485,7 @@ class RocmSmiProvider(BaseGpuInventoryProvider):
             res = subprocess.run(
                 ["rocm-smi", "--showid", "--showproductname", "--showuniqueid", "--showserial",
                  "--showbus", "--showuse", "--showmeminfo", "vram", "--json"],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True, timeout=SMI_TIMEOUT_SECONDS
             )
             return self.parse_hardware_output(res.stdout)
         except Exception:
@@ -558,7 +561,7 @@ class RocmSmiProvider(BaseGpuInventoryProvider):
         try:
             res = subprocess.run(
                 ["rocm-smi", "--showpids", "details", "--json"],
-                capture_output=True, text=True, check=True
+                capture_output=True, text=True, check=True, timeout=SMI_TIMEOUT_SECONDS
             )
             hw = self.get_hardware()
             hw_map = {g["index"]: g["uuid"] for g in hw if isinstance(g, dict) and "index" in g and "uuid" in g}

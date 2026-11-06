@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 
 
 # Heavy: every test here starts real subprocesses or multi-rank jobs and
@@ -40,6 +40,7 @@ class Distance:
 
 DRIVER = '''
 import json
+import shutil
 from pathlib import Path
 import sys
 import time
@@ -71,8 +72,13 @@ if __name__ == '__main__':
         stopped = run_train(root / 'interval.toml', root / 'interval', profile=PROFILE,
                             checkpoint_every=1, stop_after_steps=2)
         resumed = run_resume(root / 'interval')
+        # Replay can prune the abandoned branch; retain its exact rank state
+        # outside the run so the comparison does not depend on retention.
+        resumed_checkpoint = root / 'resumed-checkpoint'
+        shutil.copytree(resumed['checkpoint_path'], resumed_checkpoint)
         replayed = run_resume(root / 'interval', checkpoint=stopped['checkpoint_path'])
-        (root / 'results.json').write_text(json.dumps({'stopped': stopped, 'resumed': resumed, 'replayed': replayed}))
+        (root / 'results.json').write_text(json.dumps({'stopped': stopped, 'resumed': resumed,
+            'replayed': replayed, 'resumed_checkpoint': str(resumed_checkpoint)}))
     assert 'torch' not in sys.modules, 'replicated coordinator imported numerical runtime'
 '''
 
@@ -170,7 +176,7 @@ def test_replicated_interval_resume_and_older_checkpoint_replay_preserve_state_a
         (results['stopped']['attempt_id'], 2), (results['resumed']['attempt_id'], 4),
         (results['replayed']['attempt_id'], 4)}
     baseline = _digest(_states(tmp_path / 'plain'))
-    assert baseline == _digest(_states(tmp_path / 'interval', results['resumed']['checkpoint_path']))
+    assert baseline == _digest(_states(tmp_path / 'interval', results['resumed_checkpoint']))
     assert baseline == _digest(_states(tmp_path / 'interval'))
     assert results['replayed']['evaluation_schedule']['distance']['next_step'] == 6
     assert results['replayed']['status'] == 'complete'

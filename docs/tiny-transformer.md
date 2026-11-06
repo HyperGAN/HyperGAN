@@ -3,7 +3,7 @@
 The subsequent [CIFAR experiment](cifar-tiny-transformer.md) adapts this
 generator to 32px and removes the discriminator's pixel branch.
 
-The [recipe](../examples/tiny-transformer-resnet-128.toml) replaces the style
+The [recipe](../examples/archive/tiny-transformer-resnet-128.toml) replaces the style
 transformer with a [9,851,555-parameter generator](../examples/networks/tiny-transformer-generator-128.hndl).
 It keeps the normal-rate recipe's ResNet18 multiscale/pixel critic, no DiffAug,
 learned prior, losses, penalties, batch size, seeds, and schedule. Effective
@@ -46,7 +46,7 @@ peak allocated memory. This excludes the critic, EMA, and optimizer state and
 does not establish training stability or convergence.
 
 ```bash
-hypergan train examples/tiny-transformer-resnet-128.toml \
+hypergan train examples/image-folder-tiny-transformer.toml \
     --run-dir ./runs/train-tiny-transformer-resnet-128 \
     -d 0 --preview-every 100 --checkpoint-every 1000
 ```

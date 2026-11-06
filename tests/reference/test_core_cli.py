@@ -14,8 +14,10 @@ import pytest
 import torch
 from tests.hndl_fixtures import fixture_linear
 
+from hypergan.previews import index_path
 from hypergan.artifacts import sample, save_bundle
-from hypergan.config import resolve_config, write_default
+from hypergan.config import resolve_config
+from tests.config_fixtures import write_default
 
 
 def cli(tmp_path, *args):
@@ -93,7 +95,7 @@ def test_cli_stop_resume_and_json_progress(tmp_path):
     published = first_steps + resumed_steps
     assert [record["step"] for record in previews["previews"]] == sorted({published[0], published[-1]})
     for record in previews["previews"]:
-        payload = json.loads(Path(record["path"]).read_text())
+        payload = json.loads(index_path(run, record["path"]).read_text())
         assert payload["step"] == record["step"]
         assert payload["identity"] == record["identity"]
     assert after["preview_every"] == 1 and after["preview_keep"] == 2

@@ -42,7 +42,7 @@ def test_missing_web_extra_auto_continues_explicit_fails(monkeypatch, tmp_path, 
 def test_bind_and_auth_cli_options():
     parser = _parser()
     serve = parser.parse_args(['serve', 'run'])
-    assert (serve.host, serve.auth) == ('0.0.0.0', 'none')
+    assert (serve.host, serve.auth) == ('127.0.0.1', 'none')
     serve = parser.parse_args(['serve', 'run', '--host', '127.0.0.1', '--auth', 'token'])
     assert (serve.host, serve.auth) == ('127.0.0.1', 'token')
     for command in [['train', 'config', '--run-dir', 'run'], ['resume', 'run']]:

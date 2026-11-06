@@ -4,10 +4,16 @@ from pathlib import Path
 from hypergan.config import config_values, fingerprint, load_config
 
 
-def test_transgan_changes_only_generator_and_run_name():
+def _recipe(name: str) -> Path:
     examples = Path(__file__).parents[2] / 'examples'
-    baseline = load_config(examples / 'sagan-adain-dinov3-multidepth-128.toml')
-    variant = load_config(examples / 'transgan-dinov3-multidepth-128.toml')
+    if (examples / name).exists():
+        return examples / name
+    return examples / 'archive' / name
+
+
+def test_transgan_changes_only_generator_and_run_name():
+    baseline = load_config(_recipe('sagan-adain-dinov3-multidepth-128.toml'))
+    variant = load_config(_recipe('transgan-dinov3-multidepth-128.toml'))
     assert fingerprint(baseline) != fingerprint(variant)
     left, right = config_values(baseline), config_values(variant)
     assert left.pop('name') != right.pop('name')
@@ -20,8 +26,8 @@ def test_transgan_changes_only_generator_and_run_name():
 
 def test_cifar_transgan_preserves_discriminator_encoder_and_training_recipe():
     examples = Path(__file__).parents[2] / 'examples'
-    baseline = load_config(examples / 'cifar-pretrained-sagan.toml')
-    variant = load_config(examples / 'cifar-transgan.toml')
+    baseline = load_config(_recipe('cifar-pretrained-sagan.toml'))
+    variant = load_config(_recipe('cifar-transgan.toml'))
     assert fingerprint(baseline) != fingerprint(variant)
     left, right = config_values(baseline), config_values(variant)
     assert left.pop('name') != right.pop('name')

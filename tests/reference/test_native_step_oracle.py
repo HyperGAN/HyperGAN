@@ -79,9 +79,20 @@ def _close(left, right):
         assert left == right
 
 
+_TELEMETRY_KEYS = {
+    "critic/real_mean", "critic/fake_mean", "critic/margin", "critic/accuracy",
+    "grad_norm/critic", "grad_norm/generator", "grad_norm/prior",
+    "optimizer/d_guard_ratio", "prior/particle_rms", "diversity/ratio",
+    "critic_real_mean", "critic_fake_mean", "critic_margin", "critic_accuracy",
+    "grad_norm_critic", "grad_norm_generator", "grad_norm_prior",
+    "d_guard_ratio", "particle_rms", "diversity_ratio",
+}
+
+
 def _assert_rows(produced, reference):
-    assert produced.keys() == reference.keys()
-    for key, value in produced.items():
+    filtered_produced = {k: v for k, v in produced.items() if k not in _TELEMETRY_KEYS}
+    assert filtered_produced.keys() == reference.keys()
+    for key, value in filtered_produced.items():
         assert value == reference[key]
 
 

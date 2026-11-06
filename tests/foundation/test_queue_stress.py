@@ -348,7 +348,7 @@ def test_active_run_directory_lock_collision_avoidance(temp_queue, tmp_path, mon
 
 
 def test_wait_kind_job_completion_flow(temp_queue, tmp_path):
-    """Verify kind='wait' job pauses until manifest status reaches terminal state."""
+    """Verify kind='wait' job pauses while the target trainer holds its run lock."""
     target_rd = tmp_path / "wait_target_run"
     target_rd.mkdir(parents=True)
     manifest_file = target_rd / "manifest.json"
@@ -357,20 +357,26 @@ def test_wait_kind_job_completion_flow(temp_queue, tmp_path):
     wait_job = queue_add(target_rd, wait=True, queue_file=temp_queue)
     assert wait_job["kind"] == "wait"
 
-    def _mark_terminal_after_delay():
-        time.sleep(0.12)
-        # While still running, verify job remains queued
-        jobs = queue_ls(queue_file=temp_queue)
-        assert jobs[0]["status"] == "queued"
-        manifest_file.write_text(json.dumps({"status": "stopped"}), encoding="utf-8")
+    locked = threading.Event()
+    still_queued = []
 
-    helper = threading.Thread(target=_mark_terminal_after_delay)
+    def _release_lock_after_delay():
+        with run_lock(target_rd):
+            locked.set()
+            time.sleep(0.12)
+            # While still running, verify job remains queued
+            still_queued.append(queue_ls(queue_file=temp_queue)[0]["status"] == "queued")
+            manifest_file.write_text(json.dumps({"status": "stopped"}), encoding="utf-8")
+
+    helper = threading.Thread(target=_release_lock_after_delay)
     helper.start()
+    assert locked.wait(5)
 
     ret = queue_run(poll_interval=0.04, queue_file=temp_queue, once=True)
     helper.join(timeout=5.0)
 
     assert ret == 0
+    assert still_queued == [True]
     jobs = queue_ls(queue_file=temp_queue)
     assert jobs[0]["status"] == "completed"
 

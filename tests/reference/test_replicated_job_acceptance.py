@@ -9,7 +9,7 @@ import sys
 import pytest
 import torch
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 
 
 # Heavy: every test here starts real subprocesses or multi-rank jobs and
@@ -170,7 +170,11 @@ if __name__ == '__main__':
             before = (run / 'manifest.json').read_bytes()
             pointer = (run / 'distributed-checkpoints/latest.json').read_bytes()
             attempts = sorted(path.name for path in (run / 'attempts').iterdir())
-            options = {'profile': profile(1 if mode == 'mismatch-profile' else 2), 'service_policy': policy}
+            options = {'profile': profile(), 'service_policy': policy}
+            if mode == 'mismatch-profile':
+                # Accumulation changes are supported by elastic resume; an
+                # indivisible global batch remains an invalid profile.
+                options['profile']['execution']['world_size'] = 3
             if mode == 'mismatch-config':
                 bad = config.with_name('changed.toml')
                 bad.write_text(config.read_text().replace('steps = 4', 'steps = 5'))

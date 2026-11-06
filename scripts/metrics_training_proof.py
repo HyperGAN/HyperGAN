@@ -252,7 +252,8 @@ def paired_summary(trials, numerator, denominator, target_percent):
 def orchestrate(args):
     import httpx
     import hypergan
-    from hypergan.config import DEFAULT_TOML
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # the engine-recipe test fixtures
+    from tests.config_fixtures import DEFAULT_TOML
     if not args.device.startswith('cuda'):
         raise ValueError('This throughput acceptance requires an explicit CUDA device')
     if not 2 <= args.repetitions <= 8 or not 1 <= args.warmup < args.steps:

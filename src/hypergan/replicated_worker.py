@@ -3,6 +3,10 @@
 Only the supervised rank imports this module. No handler publishes a canonical
 training checkpoint; the parent owns that authority and the run lock.
 
+On follower nodes of an experimental multi-node group, ranks receive node 0's
+commands and payloads unchanged. They take part in every collective but never
+validate or write node 0's attempt-local preview, evaluation or inference paths.
+
 Inference has a command deadline and post-write file size checks, not a sandbox
 or an allocation bound for custom Python. Rank zero retains its numerical process group;
 collective-dependent inference fails the job rather than involving idle peers.
@@ -20,8 +24,6 @@ from .checkpoints import capture_rng, restore_rng
 from .config import resolve_config
 from .distributed_checkpoints import (distributed_checkpoint_identity, distributed_runtime_info,
     prepare_distributed_checkpoint, restore_distributed_checkpoint)
-from . import distributed_checkpoints as _dc
-_dc.MAX_RANK_BYTES = 1024 * 1024 * 1024
 from .distributed_training import ReplicatedTrainer
 from .training import _recovery_contract, source_info
 from .replicated_execution import MAX_SAMPLE_COUNT
@@ -43,18 +45,30 @@ def _ready(state):
     if torch.get_num_threads() != 1 or torch.get_default_dtype() != torch.float32:
         raise ValueError('Replicated execution requires one CPU thread and float32 default dtype')
     if trainer.device.type == 'cuda':
-        if torch.cuda.current_device() != trainer.rank:
+        local_rank = trainer.rank % trainer.ranks_per_node
+        if torch.cuda.current_device() != local_rank:
             raise ValueError('Replicated CUDA worker no longer owns its assigned current device')
         torch.cuda.synchronize(trainer.device)
     return {'step': trainer.step, 'ready': True, 'inference_available': state['batch'] is not None}
 
 
+def _node_0_context(trainer, context):
+    """Followers adopt node 0's run identity."""
+    leader = trainer._exchange('multi-node run identity',
+                               {'run_id': context.get('run_id'), 'run_dir': context.get('run_dir')})[0]
+    return context if leader.get('run_id') == context.get('run_id') else dict(context, run_id=leader.get('run_id'))
+
+
 def create_worker(rank, world_size, config, execution, context):
     trainer = ReplicatedTrainer(resolve_config(config), world_size=world_size,
-                                    accumulation_steps=execution['accumulation_steps'])
+                                    accumulation_steps=execution['accumulation_steps'],
+                                    execution=execution)
     if any(trainer.strategy_info.get(key) != value for key, value in execution.items()):
         raise ValueError('Actual replicated strategy differs from resolved execution profile')
-    return {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context}
+    if execution.get('nodes', 1) > 1:
+        context = _node_0_context(trainer, context)
+    return {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context, 'execution': execution,
+            'follower': execution.get('node_rank', 0) > 0}
 
 
 def _information(state):
@@ -80,6 +94,8 @@ def _information(state):
 def _inference(state, payload):
     trainer = state['trainer']
     context = state['context']
+    if state.get('follower'):
+        return _ready(state)  # Only global rank zero renders, inside node 0's attempt.
     directory = Path(context['attempt_dir']) / 'inference'
     if payload['bundle_dir'] != str(directory) or payload['identity']['run_id'] != context['run_id'] or payload['identity']['attempt_id'] != context['attempt_id']:
         raise ValueError('Inference destination or identity differs from the current attempt')
@@ -117,22 +133,34 @@ def handle_command(state, operation, payload):
     trainer, context = state['trainer'], state['context']
     _ready(state)
     if operation == 'describe':
-        info = trainer._phase('execution identity', lambda: _information(state))
+        info = trainer._phase('execution identity', lambda: _information(state), force=True)
         digest = hashlib.sha256(_encoded(info)).hexdigest()
         peers = trainer._exchange('execution identity digest', digest)
         if any(peer != digest for peer in peers):
             raise ValueError('Ranks disagree on execution runtime/source/data identity')
-        return {**_ready(state), 'identity_sha256': digest, **({'information': info} if state['rank'] == 0 else {})}
+        ranks_per_node = getattr(trainer, 'ranks_per_node', trainer.world_size)
+        return {**_ready(state), 'identity_sha256': digest, **({'information': info} if trainer.rank % ranks_per_node == 0 else {})}
     if operation == 'update':
         metrics, state['batch'] = trainer.update()
         return {**_ready(state), 'metrics': metrics}
     if operation == 'restore':
-        path, info, state['batch'] = restore_distributed_checkpoint(context['run_dir'], trainer,
-            {'run_id': context['run_id']}, checkpoint=payload['checkpoint'])
-        return {**_ready(state), 'checkpoint_path': str(path), 'saved_step': info['step']}
+        path, info, state['batch'], restore_warnings = restore_distributed_checkpoint(
+            context['run_dir'],
+            trainer,
+            {'run_id': context['run_id']},
+            checkpoint=payload['checkpoint'],
+            allow_elastic=True,
+            return_warnings=True,
+        )
+        return {
+            **_ready(state),
+            'checkpoint_path': str(path),
+            'saved_step': info['step'],
+            'warnings': list(restore_warnings),
+        }
     if operation == 'prepare':
         metadata = payload['metadata']
-        if any(metadata[key] != context[key] for key in ('run_id', 'attempt_id')):
+        if not state.get('follower') and any(metadata[key] != context[key] for key in ('run_id', 'attempt_id')):
             raise ValueError('Checkpoint lineage differs from the immutable worker attempt')
         receipt = prepare_distributed_checkpoint(context['run_dir'], trainer, state['batch'], metadata,
             command_sequence=payload['command_sequence'], controller_id=payload['controller_id'])
@@ -142,6 +170,8 @@ def handle_command(state, operation, payload):
         return _inference(state, payload)
     if operation == 'evaluation-snapshot':
         def validate():
+            if state.get('follower'):
+                return  # Node 0 validates its own attempt paths.
             identity, path = payload['identity'], Path(payload['path'])
             if (not isinstance(identity, dict)
                     or any(type(identity.get(key)) is not type(context[key])
@@ -161,14 +191,16 @@ def handle_command(state, operation, payload):
             from .preview_snapshot import write_snapshot
             return write_snapshot(capture_evaluation_state(trainer, payload['identity']), payload['path'])
         try:
-            trainer._phase('evaluation snapshot validation', validate)
-            descriptor = trainer._phase('evaluation snapshot', capture)
+            trainer._phase('evaluation snapshot validation', validate, force=True)
+            descriptor = trainer._phase('evaluation snapshot', capture, force=True)
             return {**_ready(state), **({'snapshot': descriptor} if state['rank'] == 0 else {})}
         except BaseException:
             trainer._poisoned = True
             trainer.checkpoint_ready = False
             raise
     if operation == 'preview-snapshot':
+        if state.get('follower'):
+            return _ready(state)
         identity, path = payload['identity'], Path(payload['path'])
         if (any(identity[key] != context[key] for key in ('run_id', 'attempt_id', 'attempt_index'))
                 or path.name != 'snapshot.pt' or path.parent.parent != Path(context['attempt_dir'])

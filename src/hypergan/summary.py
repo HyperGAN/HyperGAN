@@ -61,12 +61,28 @@ def read_summary_json(run_dir: Path | str) -> dict | None:
     return None
 
 
+def _catalog_definitions(run_dir, revision, cache):
+    """Metric definitions of one catalog revision; empty when unreadable."""
+    if revision not in cache:
+        try:
+            from .metrics import read_catalog
+            cache[revision] = read_catalog(run_dir, revision)['metrics']
+        except Exception:
+            cache[revision] = {}
+    return cache[revision]
+
+
 def collect_evaluations(run_dir: Path) -> list[dict]:
-    """Scan metrics/evaluations/*/receipt.json and collect completed evaluation records."""
+    """Scan metrics/evaluations/*/receipt.json and collect completed evaluation records.
+
+    Each record carries the declared ``direction`` and ``unit`` from the
+    catalog revision its receipt names, or None when that catalog is missing.
+    """
     eval_root = Path(run_dir) / "metrics" / "evaluations"
     results = []
     if not eval_root.is_dir():
         return results
+    catalogs = {}
 
     for receipt_path in eval_root.glob("*/receipt.json"):
         try:
@@ -74,7 +90,7 @@ def collect_evaluations(run_dir: Path) -> list[dict]:
             if receipt.get("status") != "complete" or "result" not in receipt:
                 continue
             val = receipt["result"].get("value")
-            if not isinstance(val, (int, float)) or not math.isfinite(val):
+            if not isinstance(val, (int, float)) or isinstance(val, bool) or not math.isfinite(val):
                 continue
             step = receipt.get("source_step")
             if step is None:
@@ -91,6 +107,9 @@ def collect_evaluations(run_dir: Path) -> list[dict]:
                     ts = datetime.fromtimestamp(receipt_path.stat().st_mtime, timezone.utc).isoformat()
                 except OSError:
                     ts = None
+            definition = {}
+            if isinstance(receipt.get("catalog"), str):
+                definition = _catalog_definitions(run_dir, receipt["catalog"], catalogs).get(metric_id) or {}
 
             results.append({
                 "step": int(step),
@@ -98,6 +117,9 @@ def collect_evaluations(run_dir: Path) -> list[dict]:
                 "value": float(val),
                 "dir": receipt_path.parent.name,
                 "timestamp": ts,
+                "attempt_id": receipt.get("attempt_id"),
+                "direction": definition.get("direction"),
+                "unit": definition.get("unit"),
             })
         except Exception:
             continue
@@ -106,96 +128,147 @@ def collect_evaluations(run_dir: Path) -> list[dict]:
     return results
 
 
+_FID_ID = re.compile(r'(?:^|[^a-z0-9])fid(?:$|[^a-z]|50k)', re.IGNORECASE)
+
+
+def is_fid_metric(record: dict) -> bool:
+    """Whether an evaluation record measures FID.
+
+    The catalog's declared unit decides. Only legacy receipts without a
+    readable catalog fall back to an ``fid`` token in the metric ID.
+    """
+    if record.get("unit") is not None:
+        return record["unit"] == "FID"
+    return bool(_FID_ID.search(str(record.get("metric", ""))))
+
+
+def primary_metric(evaluations: list[dict], policy: dict | None = None) -> tuple[str, str] | tuple[None, None]:
+    """The single metric that defines "best" for a run, and its direction.
+
+    ``keep_best.metric`` when it has results, otherwise the only evaluated
+    metric whose catalog declares a direction. Unrelated metrics are never
+    pooled. The catalog's ``direction`` wins; ``keep_best.mode`` applies only
+    when the configured metric declares none.
+    """
+    from .model_file import normalize_checkpoint_policy
+    try:
+        keep_best = normalize_checkpoint_policy(policy if isinstance(policy, dict) else None)['keep_best']
+    except ValueError:
+        keep_best = None
+    present = {r["metric"] for r in evaluations}
+    if keep_best and keep_best["metric"] in present:
+        metric = keep_best["metric"]
+    else:
+        directional = {r["metric"] for r in evaluations if r.get("direction") in ("minimize", "maximize")}
+        if len(directional) != 1:
+            return None, None
+        metric = directional.pop()
+    declared = [r.get("direction") for r in evaluations if r["metric"] == metric and r.get("direction")]
+    direction = declared[-1] if declared else None
+    if direction not in ("minimize", "maximize"):
+        if not keep_best or metric != keep_best["metric"]:
+            return None, None
+        direction = "minimize" if keep_best["mode"] == "min" else "maximize"
+    return metric, direction
+
+
+def rank_evaluations(evaluations: list[dict], policy: dict | None = None) -> tuple[str | None, str | None, list[dict]]:
+    """Records of the primary metric ordered best first; ties prefer the later step.
+
+    This one ranking backs summary ``best``, ``resolve_checkpoint('best')``
+    and ``keep_best`` retention.
+    """
+    metric, direction = primary_metric(evaluations, policy)
+    if metric is None:
+        return None, None, []
+    sign = 1 if direction == "minimize" else -1
+    records = [r for r in evaluations if r["metric"] == metric]
+    return metric, direction, sorted(records, key=lambda r: (sign * r["value"], -r["step"]))
+
+
+_STEP_DIR_RE = re.compile(r"(?:^|[_-])step[_-](\d+)(?:$|[_-])", re.IGNORECASE)
+
+
 def collect_checkpoints(run_dir: Path, evaluations_by_step: dict | None = None) -> list[dict]:
-    """Scan checkpoints/*/manifest.json and collect active checkpoint records."""
-    ckpt_root = Path(run_dir) / "checkpoints"
-    results = []
-    if not ckpt_root.is_dir():
-        return results
-
+    """Scan checkpoints/ and distributed-checkpoints/ and collect active checkpoint records."""
+    root_dir = Path(run_dir)
     eval_by_step = evaluations_by_step or {}
+    deduped: dict[tuple[int, str], dict] = {}
 
-    for manifest_path in ckpt_root.glob("*/manifest.json"):
-        dir_name = manifest_path.parent.name
-        if dir_name.startswith("."):
+    for subdir in ("checkpoints", "distributed-checkpoints"):
+        ckpt_root = root_dir / subdir
+        if not ckpt_root.is_dir():
             continue
         try:
-            data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            step = data.get("step")
-            if step is None or not isinstance(step, int):
+            entries = list(ckpt_root.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            dir_name = entry.name
+            if dir_name.startswith(".") or not entry.is_dir():
+                continue
+            manifest_path = entry / "manifest.json"
+            step = None
+            ts = None
+            if manifest_path.is_file():
+                try:
+                    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                raw_step = data.get("step")
+                if isinstance(raw_step, int) and not isinstance(raw_step, bool):
+                    step = raw_step
+                raw_ts = data.get("created_at") or data.get("timestamp")
+                if isinstance(raw_ts, str) and raw_ts:
+                    ts = raw_ts
+            if step is None:
+                match = _STEP_DIR_RE.search(dir_name)
+                if match is not None:
+                    step = int(match.group(1))
+            if step is None:
                 continue
 
-            ts = data.get("created_at")
             if ts is None:
+                stat_target = manifest_path if manifest_path.is_file() else entry
                 try:
-                    ts = datetime.fromtimestamp(manifest_path.stat().st_mtime, timezone.utc).isoformat()
+                    ts = datetime.fromtimestamp(stat_target.stat().st_mtime, timezone.utc).isoformat()
                 except OSError:
                     ts = None
 
             metrics_at_step = dict(eval_by_step.get(step, {}))
-
-            results.append({
+            deduped[(step, dir_name)] = {
                 "step": step,
                 "name": dir_name,
-                "path": f"checkpoints/{dir_name}",
+                "path": f"{subdir}/{dir_name}",
                 "timestamp": ts,
                 "metrics": metrics_at_step,
-            })
-        except Exception:
-            continue
+            }
 
-    results.sort(key=lambda c: (c["step"], c["name"]))
+    results = list(deduped.values())
+    results.sort(key=lambda c: (c["step"], c.get("timestamp") or "", c["name"]))
     return results
 
 
 def compute_best_evaluation(evaluations: list[dict], checkpoints_by_step: dict | None = None, policy: dict | None = None) -> dict | None:
-    """Identify the best evaluation record according to retention policy or FID priority."""
-    if not evaluations:
+    """The best record of the run's primary metric (see ``primary_metric``)."""
+    metric, direction, ranked = rank_evaluations(evaluations, policy)
+    if not ranked:
         return None
-
-    policy = policy or {}
-    keep_best = policy.get("keep_best") if isinstance(policy, dict) else None
-    target_metric = None
-    target_mode = None
-    if isinstance(keep_best, dict):
-        target_metric = keep_best.get("metric")
-        target_mode = keep_best.get("mode")
-
-    if target_metric:
-        matched = [r for r in evaluations if r["metric"] == target_metric or r["metric"].lower() == target_metric.lower()]
-        if not matched and "fid" in target_metric.lower():
-            matched = [r for r in evaluations if "fid" in r["metric"].lower()]
-        records = matched if matched else evaluations
-    else:
-        fid_recs = [r for r in evaluations if "fid" in r["metric"].lower()]
-        records = fid_recs if fid_recs else evaluations
-
-    if not records:
-        return None
-
-    if target_mode in ("min", "max"):
-        mode_min = (target_mode == "min")
-    else:
-        sample_metric = records[0]["metric"].lower()
-        mode_min = not (sample_metric in ("is", "inception_score", "score", "acc", "accuracy", "sample_diversity", "diversity")
-                        or sample_metric.endswith(("_is", "_score", "_acc", "_accuracy", "_diversity")))
-
-    sorted_records = sorted(
-        records,
-        key=lambda r: (r["value"] if mode_min else -r["value"], -r["step"])
-    )
-    best_record = sorted_records[0]
-
+    best_record = ranked[0]
     step = best_record["step"]
     ckpt_name = None
     if checkpoints_by_step and step in checkpoints_by_step:
         ckpt_name = checkpoints_by_step[step]["name"]
 
     return {
-        "metric": best_record["metric"],
+        "metric": metric,
         "value": best_record["value"],
         "step": step,
         "checkpoint": ckpt_name,
+        "direction": direction,
+        "unit": best_record.get("unit"),
     }
 
 
@@ -225,7 +298,10 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
 
     config = manifest.get("config", {}) if isinstance(manifest.get("config"), dict) else {}
     run_id = manifest.get("run_id") or existing_summary.get("run_id") or run_dir.name
-    name = manifest.get("name") or config.get("name") or existing_summary.get("name") or run_id
+    from .registry import read_run_tag
+
+    # `hypergan tag` writes tag.json because the trainer republishes its own manifest.
+    name = read_run_tag(run_dir) or manifest.get("name") or config.get("name") or existing_summary.get("name") or run_id
 
     resolved_status = status or manifest.get("status") or existing_summary.get("status") or "unknown"
     canonical_status = resolved_status
@@ -276,13 +352,17 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
             if isinstance(v, (int, float)) and math.isfinite(v):
                 latest_metrics[k] = float(v)
 
-    # Attach evaluation values to latest metrics if evaluated at or after step
+    # Evaluations finish after their source step, so the newest source step of
+    # each metric is its latest value regardless of the current training step.
+    latest_eval = {}
     for ev in eval_list:
-        if ev["step"] >= step or ev["metric"] not in latest_metrics:
-            latest_metrics[ev["metric"]] = ev["value"]
+        latest_eval[ev["metric"]] = ev
+        latest_metrics[ev["metric"]] = ev["value"]
 
-    latest_fid = latest_metrics.get("fid50k_train") or latest_metrics.get("fid")
-    best_fid = best["value"] if (best and "fid" in str(best.get("metric", "")).lower()) else None
+    # FID fields describe the same primary metric as "best", never a pool.
+    best_is_fid = best is not None and best["metric"] in latest_eval and is_fid_metric(latest_eval[best["metric"]])
+    latest_fid = latest_eval[best["metric"]]["value"] if best_is_fid else None
+    best_fid = best["value"] if best_is_fid else None
     best_step = best["step"] if best else None
 
     from .registry import extract_or_derive_slug
@@ -293,6 +373,38 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
         or extract_or_derive_slug(run_id, name=str(name), run_dir_name=run_dir.name)
     )
     pid = manifest.get("pid") or (os.getpid() if canonical_status in ("running", "initializing") else existing_summary.get("pid"))
+
+    # Update telemetry trends (rolling EMA alpha=0.2)
+    telemetry_trends = dict(existing_summary.get("telemetry_trends", {}))
+    for k, v in latest_metrics.items():
+        if isinstance(v, (int, float)) and math.isfinite(v):
+            old_trend = telemetry_trends.get(k)
+            if old_trend is not None and isinstance(old_trend, (int, float)):
+                telemetry_trends[k] = round(0.2 * float(v) + 0.8 * float(old_trend), 6)
+            else:
+                telemetry_trends[k] = round(float(v), 6)
+
+    # Advisory health alerts
+    health_alerts = []
+    gn_critic = latest_metrics.get("grad_norm/critic", latest_metrics.get("grad_norm_critic"))
+    if gn_critic is not None and isinstance(gn_critic, (int, float)) and gn_critic < 1e-5:
+        health_alerts.append("Discriminator vanishing gradient (grad_norm/critic < 1e-5)")
+
+    gn_gen = latest_metrics.get("grad_norm/generator", latest_metrics.get("grad_norm_generator"))
+    if gn_gen is not None and isinstance(gn_gen, (int, float)) and gn_gen < 1e-5:
+        health_alerts.append("Generator vanishing gradient (grad_norm/generator < 1e-5)")
+
+    div_ratio = latest_metrics.get("diversity/ratio", latest_metrics.get("diversity_ratio"))
+    if div_ratio is not None and isinstance(div_ratio, (int, float)) and div_ratio < 0.2:
+        health_alerts.append("Mode collapse risk (diversity/ratio < 0.2)")
+
+    if step is not None and step >= 20:
+        c_acc = latest_metrics.get("critic/accuracy", latest_metrics.get("critic_accuracy"))
+        if c_acc is not None and isinstance(c_acc, (int, float)):
+            if c_acc > 0.98:
+                health_alerts.append("Discriminator overpowering generator (critic/accuracy > 0.98)")
+            elif c_acc < 0.05:
+                health_alerts.append("Critic collapsed (critic/accuracy < 0.05)")
 
     summary_doc = {
         "run_id": run_id,
@@ -314,6 +426,8 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
         "latest_fid": latest_fid,
         "checkpoints": ckpt_list,
         "evaluations": eval_list,
+        "health_alerts": health_alerts,
+        "telemetry_trends": telemetry_trends,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "error": manifest.get("error"),
     }

@@ -63,7 +63,8 @@ import multiprocessing
 from pathlib import Path
 import sys
 import time
-from hypergan.config import DEFAULT, resolve_config, write_default
+from hypergan.config import DEFAULT, resolve_config
+from tests.config_fixtures import write_default
 from hypergan.execution_profiles import resolve_execution_profile
 from hypergan.execution_preflight import preflight
 
@@ -117,9 +118,9 @@ def test_runtime_preflight_bounds_real_rank_failures_without_running_models(tmp_
     script.write_text(DRIVER, encoding='utf-8')
     # Isolated installed-wheel checks cannot import cwd implicitly; the driver
     # explicitly receives its own trusted fixture directory below.
-    code = 'import runpy,sys;sys.path.insert(0,sys.argv[1]);sys.argv=sys.argv[2:];runpy.run_path(sys.argv[0],run_name="__main__")'
+    code = 'import runpy,sys;sys.path[:0]=sys.argv[1:3];sys.argv=sys.argv[3:];runpy.run_path(sys.argv[0],run_name="__main__")'
     command = [sys.executable, *(['-I'] if sys.flags.isolated else []), '-c', code,
-               str(tmp_path), str(script), str(tmp_path), mode]
+               str(tmp_path), str(Path(__file__).resolve().parents[2]), str(script), str(tmp_path), mode]
     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                text=True, start_new_session=os.name == 'posix')
     try:

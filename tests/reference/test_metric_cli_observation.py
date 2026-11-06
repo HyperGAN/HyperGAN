@@ -4,7 +4,7 @@ import inspect
 import json
 
 from hypergan.bounded_cli_output import TrainingOutput
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.training import train
 
 

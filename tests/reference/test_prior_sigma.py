@@ -74,7 +74,7 @@ def test_ambiguous_explicit_scale_rejected():
 def test_audited_050_checkpoint_metadata_uses_qualified_resume(tmp_path):
     from hypergan.checkpoint_compatibility import PARTICLEGAN_060_MIGRATION
     from hypergan.checkpoints import read_checkpoint
-    from hypergan.config import write_default
+    from tests.config_fixtures import write_default
     from hypergan.training import resume, train
     from tests.reference.test_recovery import equal
 

@@ -4,10 +4,16 @@ from pathlib import Path
 import tomllib
 
 
-def test_stable_recipe_changes_only_explicit_network_settings():
+def _recipe(name: str) -> Path:
     examples = Path(__file__).parents[2] / 'examples'
-    baseline = tomllib.loads((examples / 'transgan-dinov3-multidepth-128.toml').read_text())
-    stable = tomllib.loads((examples / 'transgan-projected-dinov3-128-stable.toml').read_text())
+    if (examples / name).exists():
+        return examples / name
+    return examples / 'archive' / name
+
+
+def test_stable_recipe_changes_only_explicit_network_settings():
+    baseline = tomllib.loads(_recipe('transgan-dinov3-multidepth-128.toml').read_text())
+    stable = tomllib.loads(_recipe('transgan-projected-dinov3-128-stable.toml').read_text())
     expected = deepcopy(baseline)
     expected['name'] = 'images/logos-transgan-projected-dinov3-128-stable'
     expected['networks']['generator'].update(
@@ -19,9 +25,8 @@ def test_stable_recipe_changes_only_explicit_network_settings():
 
 
 def test_e2_recipe_changes_only_generator_and_run_name():
-    examples = Path(__file__).parents[2] / 'examples'
-    baseline = tomllib.loads((examples / 'transgan-resnet-multiscale-128-stable.toml').read_text())
-    e2 = tomllib.loads((examples / 'transgan-resnet-multiscale-128-e2.toml').read_text())
+    baseline = tomllib.loads(_recipe('transgan-resnet-multiscale-128-stable.toml').read_text())
+    e2 = tomllib.loads(_recipe('transgan-resnet-multiscale-128-e2.toml').read_text())
     expected = deepcopy(baseline)
     expected['name'] = 'images/logos-transgan-resnet-multiscale-128-e2'
     expected['networks']['generator']['hndl'] = 'networks/transgan-generator-128-e2.hndl'
@@ -29,9 +34,8 @@ def test_e2_recipe_changes_only_generator_and_run_name():
 
 
 def test_e3_recipe_changes_only_generator_and_run_name():
-    examples = Path(__file__).parents[2] / 'examples'
-    baseline = tomllib.loads((examples / 'transgan-resnet-multiscale-128-stable.toml').read_text())
-    e3 = tomllib.loads((examples / 'transgan-resnet-multiscale-128-e3.toml').read_text())
+    baseline = tomllib.loads(_recipe('transgan-resnet-multiscale-128-stable.toml').read_text())
+    e3 = tomllib.loads(_recipe('transgan-resnet-multiscale-128-e3.toml').read_text())
     expected = deepcopy(baseline)
     expected['name'] = 'images/logos-transgan-resnet-multiscale-128-e3'
     expected['networks']['generator']['hndl'] = 'networks/transgan-generator-128-e3.hndl'
@@ -39,9 +43,8 @@ def test_e3_recipe_changes_only_generator_and_run_name():
 
 
 def test_equalized_recipe_changes_only_generator_and_run_name():
-    examples = Path(__file__).parents[2] / 'examples'
-    baseline = tomllib.loads((examples / 'transgan-resnet-multiscale-128-stable.toml').read_text())
-    equalized = tomllib.loads((examples / 'transgan-resnet-multiscale-128-equalized.toml').read_text())
+    baseline = tomllib.loads(_recipe('transgan-resnet-multiscale-128-stable.toml').read_text())
+    equalized = tomllib.loads(_recipe('transgan-resnet-multiscale-128-equalized.toml').read_text())
     expected = deepcopy(baseline)
     expected['name'] = 'images/logos-transgan-resnet-multiscale-128-equalized'
     expected['networks']['generator']['hndl'] = 'networks/transgan-generator-128-equalized.hndl'
@@ -51,9 +54,8 @@ def test_equalized_recipe_changes_only_generator_and_run_name():
 def test_simple_styletransformer_preserves_d_and_prior_rates():
     import pytest
 
-    examples = Path(__file__).parents[2] / 'examples'
-    baseline = tomllib.loads((examples / 'transgan-resnet-multiscale-128-stable.toml').read_text())
-    simple = tomllib.loads((examples / 'simple-styletransformer-resnet-128-low-g-lr.toml').read_text())
+    baseline = tomllib.loads(_recipe('transgan-resnet-multiscale-128-stable.toml').read_text())
+    simple = tomllib.loads(_recipe('simple-styletransformer-resnet-128-low-g-lr.toml').read_text())
     expected = deepcopy(baseline)
     expected['name'] = 'images/logos-simple-styletransformer-resnet-128-low-g-lr'
     expected['networks']['generator']['hndl'] = 'networks/simple-styletransformer-generator-128.hndl'

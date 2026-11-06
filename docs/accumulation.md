@@ -1,10 +1,12 @@
 # CPU gradient accumulation
 
-The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](../reports/resurrection-status.md) for the current combined scope.
+The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](../reports/archive/resurrection-status.md) for the current combined scope.
 
 `ReplicatedCPUTrainer(config, world_size=2, accumulation_steps=2)` divides each rank's effective local batch into equal microbatches. The factor must be a positive integer dividing `training.batch_size / world_size`. Every nonscalar input tensor must retain the local batch dimension; critic outputs must retain the microbatch dimension. Batch size still means the global number of samples in one complete D → G/prior/auxiliary → EMA update. Learning rates, lazy-penalty frequency and update counts retain their configured meaning.
 
 Public `train` and `resume` select this strategy through a [CPU/Gloo or CUDA/NCCL execution profile](execution.md). Set `accumulation_steps` in the separate profile TOML. The [worker API](cpu-workers.md) remains available to internal callers. Mixed precision and actual clusters require separate qualification.
+
+Configured critic input noise, generator output noise and independent D/G phase draws currently require `accumulation_steps=1`. Profiles with accumulation greater than one reject these settings before launching workers; the replay path does not implement them. Ordinary replicated updates support them.
 
 ## Preserving the objective
 
@@ -22,7 +24,7 @@ Components must treat samples independently along the batch dimension for accumu
 
 Built-in MSE/L1 objectives with `reduction="mean"` or `"sum"` have known aggregation semantics. Custom scalar objectives must declare `accumulation_reduction = "mean"` or `"sum"`: this promises an additive per-sample objective whose full-local-batch value is the corresponding weighted mean or sum of microbatch values. A covariance, contrastive population loss or other cross-sample objective does not satisfy that promise merely by returning a scalar. Missing or unsupported reduction semantics fail explicitly when accumulation is enabled; accumulation one retains the existing custom-objective behavior.
 
-The [session report](../reports/core-accumulation-2026-09-19.md) records numerical, memory and recovery evidence.
+The [session report](../reports/archive/core-accumulation-2026-09-19.md) records numerical, memory and recovery evidence.
 
 ## Recovery
 

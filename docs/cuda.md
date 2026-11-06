@@ -24,9 +24,9 @@ Periodic previews operate on copied EMA state on CPU. Inference bundles remain p
 The regular `python -m pytest` suite selects the fast foundation and CPU numerical tests; the subprocess and multi-rank half is gated behind `-m heavy`. Hardware checks are a separate gate and fail if required hardware is missing:
 
 ```sh
-python -m pytest tests/cuda -q
+python -m pytest tests/cuda -q -m ""
 ```
 
-Run against an installed wheel outside the checkout for integration evidence, using an absolute tests path and `python -I -m pytest ... --import-mode=importlib`. The CUDA suite includes native updates/recovery, the NCCL diagnostic, and complete replicated numerical/recovery cases. See the [execution ledger](../reports/resurrection-status.md) for exact results and limits. Two GPUs on one host do not establish image quality or a real cluster.
+Run against an installed wheel outside the checkout for integration evidence, using an absolute tests path and `python -I -m pytest ... --import-mode=importlib`. The CUDA suite includes native updates/recovery, the NCCL diagnostic, and complete replicated numerical/recovery cases. See the [execution ledger](../reports/archive/resurrection-status.md) for exact results and limits. Two GPUs on one host do not establish image quality or a real cluster.
 
 The [internal CUDA/NCCL profile](replicated-cuda.md) connects rank-owned devices, device-aware reductions, accumulated replay and coordinated recovery to the existing independent supervisor. The [public execution commands](execution.md) now select this profile with `--profile cuda-replicated-nccl` and infer it on resume. Actual two-host testing follows with a concrete cloud allocation.

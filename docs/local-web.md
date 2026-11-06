@@ -24,23 +24,52 @@ hypergan serve runs/example --open
 ```
 
 `hypergan view` and `hypergan serve` listen on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
-working across restarts. If that port is busy, it takes the next free port above it,
-up to 100 ports, and prints the port it actually chose. Select another address with
-`--host 127.0.0.1`, a fixed port with `--port 8123`, or an OS-assigned port with
-`--port 0`. An explicitly requested port that is already in use is an error rather
-than a silent move to another port. The printed browser URL uses `127.0.0.1` for a
-wildcard bind; remote browsers use this machine's address with that same port.
-Browser requests remain same-origin.
+working across restarts. A port that is already in use is an error naming the process
+that holds it, never a silent move to another port; when that process is the dashboard
+`hypergan train` started for the same root, `hypergan view` prints and opens its URL
+instead. Select another address with `--host 127.0.0.1`, a fixed port with
+`--port 8123`, or an OS-assigned port with `--port 0`. For a wildcard bind, a viewer
+that `hypergan view` or `hypergan serve` starts prints a `127.0.0.1` URL, while
+`hypergan train`, `hypergan resume` and a `hypergan view` that reuses a running
+dashboard print `localhost`; `localhost`, `127.0.0.1` and `[::1]` are the same
+loopback authority. Browser requests remain same-origin.
+
+A wildcard bind accepts a `Host` that is an IP address, a loopback name, or this
+machine's own host name (with or without its domain, and its mDNS name
+`<host>.local`). Any other DNS name is refused, so a website that rebinds
+its own name to this machine (DNS rebinding) cannot read runs or post controls. To
+reach the viewer directly under another name, such as a MagicDNS name, list it in
+`HYPERGAN_VIEWER_HOSTS` (comma separated); a TLS proxy uses `--public-origin`.
 
 ## Global Runs Dashboard & Live Control Endpoints
+
+A training step is one complete global discriminator/generator update. All ranks
+share that step counter: two GPUs completing update 250 still report step 250.
+Progress, chart axes, preview history, FID source steps, checkpoints and sampling
+cadences use that same unit. Steps/s measures completed global training updates;
+samples/s multiplies that rate by the global batch size, which already includes
+every rank.
 
 When serving a workspace or runs directory (or when runs are registered in the global registry), the Web Observatory exposes both the multi-run dashboard and per-run observatories:
 
 - **`GET /` (Global Runs Dashboard)**: Lists discovered and registered runs with labeled search (name, slug, or ID), status filters, result counts, and clear-filter feedback. Complete includes `completed`; Stopped includes `interrupted` and cancelled runs. Creation times appear in the browser's time zone, with UTC timestamps in tooltips; missing recorded times show `Unknown`. Sort newest first (default), oldest first, or by name. The responsive table becomes run cards on narrow screens. While the tab is visible, `/api/runs` refreshes every 3 seconds, including empty dashboards, adding and removing runs and updating progress, throughput (`it/s`), disk usage, and available controls without resetting filters. A Refresh button and visible failure/retry messages support recovery. FID columns are omitted from this overview.
 - **`GET /api/runs` and `GET /api/v1/runs`**: Returns a JSON array of all discovered/registered runs with their `run_id`, `short_id`, `slug`, `name`, `status`, `active`, `running`, `pid`, `created_at`, `step`, `total_steps`, `steps_per_second`, `latest_fid`, `best_fid`, `best_step`, `disk_bytes`, `disk_formatted`, `run_dir`, and `url`. `created_at` is an ISO 8601 UTC timestamp from recorded creation metadata or the first launch receipt (`launch/0001.json`), or `null` when unavailable. It does not use the manifest's modification time, which changes during training. FID fields remain available to API clients.
 - **`GET /runs/<id_or_slug_or_tag>`**: Opens the per-run Web Observatory UI for any run addressed by its full `run_id`, 8-character `short_id`, Docker-style `slug` (e.g. `fleet-hawk`), custom tag (`hypergan tag <run> <tag>`), or directory name. Automatically ensures built-in scalar projections are up to date before serving.
-- **`POST /api/runs/<id>/checkpoint` (and `POST /api/v1/runs/<id>/checkpoint`)**: Submits an immediate durable checkpoint request to an active run at the next update boundary (returns HTTP 400 if the run is not active).
-- **`POST /api/runs/<id>/stop` (and `POST /api/v1/runs/<id>/stop`)**: Gracefully stops an active training run via SIGINT so it saves a checkpoint and halts cleanly (returns HTTP 400 if the run is not active).
+- **`POST /api/runs/<id>/checkpoint` (and `POST /api/v1/runs/<id>/checkpoint`)**: Submits an idempotent, attempt-bound durable checkpoint request to an active run at the next completed update boundary (returns HTTP 400 if the run is not active). Accepts an optional JSON body `{"request_id": "...", "attempt_id": "..."}`.
+- **`POST /api/runs/<id>/sample` (and `POST /api/v1/runs/<id>/sample`)**: Submits an idempotent, attempt-bound bounded preview sample request to an active run at the next completed update boundary without disturbing training RNG or optimizer state (returns HTTP 400 if the run is not active). Accepts an optional JSON body `{"request_id": "...", "attempt_id": "..."}`.
+- **`POST /api/runs/<id>/stop` (and `POST /api/v1/runs/<id>/stop`)**: Submits an idempotent, attempt-bound graceful stop request (and signals local runs via SIGINT when running on the same host) so the trainer saves a boundary checkpoint and halts cleanly at the next completed update boundary (returns HTTP 400 if the run is not active).
+- **`GET /api/runs/<id>/requests/<request_id>` (and `GET /api/v1/runs/<id>/requests/<request_id>`)**: Reads the durable status or receipt (`pending`, `succeeded`, `failed`, or `rejected`) for a control request (`checkpoint`, `sample`, or `stop`).
+
+### Headless cluster attachment and file-backed control requests
+
+Scheduled and multi-node cluster jobs run headlessly by default (`--no-server` or no local viewer per rank), with only the designated writer publishing global progress, events, and preview artifacts to the run directory. Attach `hypergan view` or `hypergan serve` to a shared or synchronized run directory from a login node or local workstation (or tunnel to a single service on the allocated host via SSH or `--public-origin`):
+
+```sh
+# Attach to a headless cluster run on a shared filesystem without importing torch
+hypergan serve /shared/experiments/runs/cluster-run --host 127.0.0.1 --port 8765 --auth token
+```
+
+When a run's `.run.lock`, `launch/*.json`, `manifest.json`, or `summary.json` records a `hostname` different from the viewer host while the run is in `running` or `initializing` state, HyperGAN marks the run as active and remote (`remote: true`, `active: true`). Viewer disconnection never cancels or signals the remote training job. Control actions (`checkpoint`, `sample`, and `stop`) use the file-backed request queue under `checkpoint_requests/pending/` and `checkpoint_requests/receipts/` rather than local PID signals, so idempotent control requests and receipts work identically for local and headless cluster runs. When `--auth token` is enabled, every API route except `POST /api/v1/session` requires a valid session cookie or `Authorization: Bearer <token>` header: reads, SSE streams and controls, under both `/api/v1/runs/*` and `/api/runs/*`. Only the HTML shell, its static assets and the sign-in exchange are public; the dashboard then shows a sign-in form and no run data until the browser has a session.
 
 ### Remote browsers over plain HTTP
 
@@ -126,7 +155,7 @@ bootstrap state and SSE envelopes. Every per-run route is served with full parit
 - `/api/runs/{run_id}` & `/api/v1/runs/{run_id}` (and `/status`): public observed/durable progress manifest.
 - `/api/runs/{run_id}/summary` & `/api/v1/runs/{run_id}/summary` (and `/api/runs/{run_id}/metrics` & `/api/v1/runs/{run_id}/metrics`): cached or live run metrics summary (`step`, `steps_per_second`, `latest_fid`, `best_fid`, etc.).
 - `/api/runs/{run_id}/metrics/catalog` & `/api/v1/runs/{run_id}/metrics/catalog?revision=...`: current or historical metric definition catalog.
-- `/api/runs/{run_id}/contributions` & `/api/v1/runs/{run_id}/contributions`: bounded mapped scalar contribution frames.
+- `/api/runs/{run_id}/contributions` & `/api/v1/runs/{run_id}/contributions`: one bounded page of mapped scalar contribution frames (`limit` 1..1000, default 100); pass the returned `cursor` while `has_more` is true.
 - `/api/runs/{run_id}/model` & `/api/v1/runs/{run_id}/model` (and `/architecture`): GAN formulation, losses, optimizers, and HNDL network descriptions.
 - `/api/runs/{run_id}/events` & `/api/v1/runs/{run_id}/events?stream_id=...&cursor=...&limit=100`: bounded raw event pages.
 - `/api/runs/{run_id}/views` & `/api/v1/runs/{run_id}/views`: built-in view and registered streams.
@@ -134,7 +163,9 @@ bootstrap state and SSE envelopes. Every per-run route is served with full parit
 - `/api/runs/{run_id}/stream` & `/api/v1/runs/{run_id}/stream?stream_id=projection:{map_revision}&cursor=...`: SSE continuation.
 - `/api/runs/{run_id}/artifacts` & `/api/v1/runs/{run_id}/artifacts`: bounded artifact index; append `/{artifact_id}` to download a digest-verified entry.
 - `POST /api/runs/{run_id}/checkpoint` & `POST /api/v1/runs/{run_id}/checkpoint`: trigger an immediate checkpoint on an active run.
-- `POST /api/runs/{run_id}/stop` & `POST /api/v1/runs/{run_id}/stop`: gracefully stop an active run.
+- `POST /api/runs/{run_id}/sample` & `POST /api/v1/runs/{run_id}/sample`: trigger an immediate preview sample on an active run at the next completed update boundary.
+- `POST /api/runs/{run_id}/stop` & `POST /api/v1/runs/{run_id}/stop`: gracefully stop an active run at the next completed update boundary.
+- `GET /api/runs/{run_id}/requests/{request_id}` & `GET /api/v1/runs/{run_id}/requests/{request_id}`: inspect the pending or acknowledged receipt for a `checkpoint`, `sample`, or `stop` request.
 
 The global `/api/v1/stream` also reports run creation and future stream
 registrations. This lets an automatically started viewer wait for the first run
@@ -159,7 +190,17 @@ behind, or when over 30 seconds old with a changed head. Pending work remains on
 fixed-H job even while training advances. Unchanged history is reused indefinitely.
 Live updates never refresh or reduce the cache; changing buckets, selected series,
 range or recovery lineage requests a separate bounded job. `step_from` and
-`step_to` are inclusive optional query limits.
+`step_to` are inclusive optional query limits. Historical caches are derived state
+kept outside the run, under `$HYPERGAN_VIEWER_CACHE` (default
+`~/.cache/hypergan/viewer`), bounded to the 16 most recent per run and the 64 most
+recently viewed runs, so a read-only run that was projected beforehand still charts.
+Projection is the viewer's own background work: a request never projects, and history
+for a run that is still being projected answers 202 until the projection is announced.
+When the viewer's projector fails on a run (for example a read-only run that was never
+projected), history answers 404 with the projector's error, also when the projector runs
+in its own process beside the server (the dashboard `hypergan train` starts keeps the
+error in `.projection-failures/` under the viewer cache); the projector retries when
+the event log grows or after 30 seconds.
 
 SSE sends unchanged `frame` envelopes and control events: `stream_added`,
 `metadata`, `heartbeat`, `bootstrap_ready`, `artifacts`, `gap` and
@@ -274,8 +315,7 @@ not training overhead or image quality.
 ## Automatic viewer during CLI training
 
 With the `web` extra installed, `hypergan train` and `hypergan resume` automatically
-bind port `8765` on `0.0.0.0` — or the next free port above it, up to 100 ports — and
-launch a supervised local viewer. A restarted run reuses the same port, so the viewer
+bind port `8765` on `0.0.0.0` and launch a supervised local viewer. A restarted run reuses the same port, so the viewer
 URL stays stable instead of changing on every start. Startup
 runs concurrently with training; there is no browser launch or readiness wait by
 default. Without the extra, these commands remain silently headless. The Python

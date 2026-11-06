@@ -1,8 +1,9 @@
 # Browser / public consumer contract
 
 All API paths are under `/api/v1`. JSON bodies, same-origin only. Static `/` and
-`/assets/*` are public login shell resources; run endpoints require the HttpOnly
-session cookie created by `POST /session` with `{ "token": "private session token" }`.
+`/assets/*` are public login shell resources; in token mode every API endpoint
+(including the legacy `/api/runs/*` aliases and every SSE stream) requires the
+HttpOnly session cookie created by `POST /session` with `{ "token": "private session token" }`.
 The token never enters a URL, storage, telemetry, or browser logs.
 
 - `GET /capabilities` -> `{ "run_id":"r", "reducer":{"sha256":"..."} }`.

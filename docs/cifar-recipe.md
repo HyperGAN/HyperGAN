@@ -13,23 +13,12 @@ share authorship. These source references remain for reproducibility; the existi
 [MIT license](../LICENSE) applies to the port. This permission covers the source
 components, not a redistribution or relicensing of pretrained weights or data.
 
-[The example](../examples/cifar-pretrained-sagan.toml) configures a scratch
-encoder, a 16,384-row MoG prior in 64 dimensions, fixed sigma
-`0.212616428732872`, and encoder-only reconstruction through a shared generator.
-It is an initial HyperGAN image recipe, not a reproduced final FID result.
-The source's separate attention-depth intervention is not part of this recipe.
+HyperGAN packages canonical production CIFAR-10 recipes directly in the wheel:
+- `cifar10-transgan`: CIFAR-10 TransGAN generator paired with pure HNDL multi-scale discriminator, trained with ParticleGAN latent particle table.
+- `cifar10-tiny-transformer`: Lightweight transformer generator paired with frozen ResNet-18 feature critic.
+- [`cifar-pretrained-sagan.toml`](../examples/archive/cifar-pretrained-sagan.toml): Historical ablation recipe in the archive.
 
-Install `hypergan[train,cifar,web,fid]` from this checkout with a matching CUDA
-PyTorch/TorchVision installation.
-Set the example's data root and weight path to existing local files before
-running it. There are no automatic downloads. The ResNet18 weight file is
-`resnet18-f37072fd.pth`, SHA256
-`f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`.
-The native HNDL pretrained node verifies that artifact digest and loads the
-checkpoint into one frozen ResNet18. Missing files and changed bytes fail
-explicitly. The older Python adapter additionally checked a derived feature-state
-digest; the single-file recipe relies on the complete checkpoint's SHA256.
-Weights and dataset bytes are not included in the package.
+Install `hypergan[all]` or `hypergan[train,image,web,fid]` with a matching CUDA PyTorch/TorchVision installation. CIFAR-10 batches and pretrained ResNet-18 backbone weights (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand. Missing files or corrupt checksums fail explicitly.
 
 Both CIFAR examples define the complete discriminator in
 [`networks/cifar-discriminator-32.hndl`](../examples/networks/cifar-discriminator-32.hndl)
@@ -56,7 +45,15 @@ Copy `examples/cifar-pretrained-sagan.toml` to `cifar.toml`, keeping its relativ
 HNDL file references valid (copy the referenced files and adjust their paths if
 moving the recipe). Put the already
 obtained official Python-format CIFAR batches under `./data/cifar-10-batches-py/`,
-or edit all three `root` entries to their existing location. Paths are relative
+or acquire and verify them explicitly with the opt-in downloader before training
+(training itself never downloads data implicitly):
+
+```sh
+hypergan download-data cifar10 --info
+hypergan download-data cifar10 --output ./data
+```
+
+Alternatively, edit all three `root` entries to an existing local directory. Paths are relative
 to the command's working directory; use absolute paths if you run commands from
 multiple locations. The example uses the conventional torch checkpoint cache for
 both ResNet18 and Inception; change both Inception entries if your cache differs.
@@ -88,7 +85,7 @@ hypergan resume runs/cifar --stop-after-steps 10000 --checkpoint-every 1000 --pr
 
 Periodic previews publish the generated grid as sample `g` and the comparable
 real batch as `x`; the viewer shows each name's newest image with a slider over
-the retained history (`--preview-keep`, default: keep everything).
+the retained history (`--preview-keep`, default: 128).
 
 The example automatically evaluates FID at steps 10,000, 20,000 and so on.
 A stopped run can also be evaluated explicitly with
@@ -100,7 +97,7 @@ For a viewer that persists across stopped segments, run `hypergan serve runs/cif
 and `hypergan project runs/cifar --follow` in separate terminals. Training prints
 per-update D/G losses to stderr; redirect stderr to a log for `tail -F`.
 
-The [execution report](../reports/image-training-execution-2026-09-20.md) records
+The [execution report](../reports/archive/image-training-execution-2026-09-20.md) records
 the exact installed CUDA smoke/recovery proofs and the first 40k measurements.
 Keep the installed environment used by a run for supported recovery; source and
 package identity are intentionally checked strictly. The public example retains the measured numerical settings, changes artifact
@@ -227,7 +224,7 @@ variant changes the pinned pretrained weights.
 
 ## Compact TransGAN generator comparison
 
-[The CIFAR TransGAN recipe](../examples/cifar-transgan.toml) replaces only the
+[The CIFAR TransGAN recipe](../examples/archive/cifar-transgan.toml) replaces only the
 baseline generator and run name. It retains the multiscale frozen ResNet18 plus
 pixel discriminator, routing encoder, encoder-only reconstruction, 16,384
 particles in 64 dimensions, fixed sigma, batch 64, optimizer settings, and FID

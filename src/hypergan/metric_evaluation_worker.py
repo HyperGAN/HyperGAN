@@ -16,6 +16,21 @@ from .recipes import ComponentGraph, construct, execution_device, make_prior, mo
 MAX_BATCH_ELEMENTS = 16 * 1024 * 1024
 
 
+class EvaluationDataExhausted(ValueError):
+    """The evaluation data ran out before the declared sample count."""
+
+
+def _draw(data, size, generator, count, sample_count):
+    # A StopIteration raised inside the batches() generator would otherwise
+    # surface as PEP 479's bare "generator raised StopIteration".
+    try:
+        return data(size, generator=generator)
+    except StopIteration:
+        raise EvaluationDataExhausted(
+            f'Evaluation data ran out after {count} of {sample_count} samples; lower the '
+            f'evaluation sample count or use evaluation data with at least {sample_count} items') from None
+
+
 def _sources(objects):
     result = {}
     for value in objects:
@@ -88,7 +103,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
         nonlocal count, observed_backend
         while count < evaluation['sample_count']:
             size = min(evaluation['batch_size'], evaluation['sample_count'] - count)
-            batch = data(size, generator=data_rng)
+            batch = _draw(data, size, data_rng, count, evaluation['sample_count'])
             if not isinstance(batch, dict) or not isinstance(batch.get('real'), torch.Tensor) or len(batch['real']) != size:
                 raise ValueError('Evaluation data must return a batched real tensor')
             if any(not isinstance(value, torch.Tensor) or value.ndim < 1 or len(value) != size for value in batch.values()):

@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.training import train, resume
 from hypergan.checkpoints import read_checkpoint
 from hypergan.distributed_checkpoints import _digest
@@ -110,12 +110,14 @@ def test_interval_resume_and_older_snapshot_recovery_keep_attempt_positions(tmp_
     assert [item['result']['step'] for item in receipts(tmp_path / 'run')] == [2]
     first = stopped['attempt_id']
     resumed = resume(tmp_path / 'run')
+    # Replay may prune the abandoned branch; capture its final state first.
+    resumed_digest = _digest(read_checkpoint(tmp_path / 'run')[2])
     recovered = resume(tmp_path / 'run', checkpoint=stopped['checkpoint_path'])
     measured = receipts(tmp_path / 'run')
     assert sorted(item['result']['step'] for item in measured) == [2, 4, 4]
     assert {item['result']['snapshot_identity']['attempt_id'] for item in measured} == {
         first, resumed['attempt_id'], recovered['attempt_id']}
-    assert _digest(read_checkpoint(tmp_path / 'run', resumed['checkpoint_path'])[2]) == _digest(read_checkpoint(tmp_path / 'run')[2])
+    assert resumed_digest == _digest(read_checkpoint(tmp_path / 'run')[2])
     assert recovered['evaluation_schedule']['distance']['next_step'] == 6
 
 

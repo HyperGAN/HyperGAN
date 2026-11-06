@@ -18,10 +18,11 @@ def _luma(rgb):
 class SampleDiversityRatio:
     """Generated/reference RMS distance across all distinct image pairs.
 
-    Average-pool RGB images before measuring sample spread. Streaming centered
-    moments use O(pool_size**2) storage and float64 CPU arithmetic; unbiased
-    sample variance gives pairwise squared RMS as twice its coordinate mean.
-    The ratio detects lost variation, not realism or semantic mode coverage.
+    Average-pool RGB images before measuring sample spread with the shared
+    streaming ``DiversityMoments`` (O(pool_size**2) float64 CPU storage);
+    unbiased sample variance gives pairwise squared RMS as twice its coordinate
+    mean. The ratio detects lost variation, not realism or semantic mode
+    coverage.
     """
     def __init__(self, pool_size=32):
         if type(pool_size) is not int or not 1 <= pool_size <= 256:
@@ -34,31 +35,20 @@ class SampleDiversityRatio:
                 'description': f'Ratio of distinct-pair RGB RMS after average pooling to {self.pool_size}x{self.pool_size}; zero indicates identical outputs and one matches reference spread. Noise can also score highly; this is not image quality or semantic coverage.'}
 
     def evaluate(self, *, batches, context):
-        import torch
-        from torch.nn import functional as F
-        counts = [0, 0]
-        means = torch.zeros((2, 3 * self.pool_size ** 2), dtype=torch.float64)
-        centered_sums = torch.zeros_like(means)
+        from .diversity_metrics import DiversityMoments
+        moments = {name: DiversityMoments(self.pool_size) for name in ('generated', 'reference')}
         for batch in batches:
-            for i, name in enumerate(('generated', 'reference')):
+            for name, accumulator in moments.items():
                 rgb = _rgb(batch[name])
                 if min(rgb.shape[-2:]) < self.pool_size:
                     raise ValueError('Diversity inputs must be at least pool_size in height and width')
-                values = F.adaptive_avg_pool2d(rgb, self.pool_size).flatten(1)
-                batch_mean = values.mean(0)
-                difference = batch_mean - means[i]
-                total = counts[i] + len(values)
-                centered_sums[i] += (values - batch_mean).square().sum(0)
-                centered_sums[i] += difference.square() * (counts[i] * len(values) / total)
-                means[i] += difference * (len(values) / total)
-                counts[i] = total
-        if min(counts) < 2:
+                accumulator.update(rgb)
+        if min(accumulator.count for accumulator in moments.values()) < 2:
             raise ValueError('Sample diversity requires at least two generated and reference samples')
-        pairwise_squared = [2 * float(centered_sums[i].mean()) / (counts[i] - 1)
-                            for i in range(2)]
-        if pairwise_squared[1] <= 0:
+        reference = moments['reference'].rms()
+        if reference <= 0:
             raise ValueError('Sample diversity ratio requires nonzero reference sample spread')
-        return math.sqrt(pairwise_squared[0] / pairwise_squared[1])
+        return moments['generated'].rms() / reference
 
 
 class ChromaDistributionDistance:

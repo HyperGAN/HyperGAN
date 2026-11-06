@@ -3,7 +3,7 @@
 The [128px logo adaptation](logos-tiny-transformer-features.md) embeds both
 networks in one config and retains this recipe's latent, prior, and optimizer.
 
-The [recipe](../examples/cifar-tiny-transformer-resnet-features.toml) pairs the
+The [recipe](../examples/archive/cifar-tiny-transformer-resnet-features.toml) pairs the
 simplified transformer with a discriminator that uses only pretrained ResNet18
 features. This tests whether the pair can learn CIFAR at 32px before another
 128px experiment. It changes both networks, so it does not isolate the effect
@@ -73,7 +73,7 @@ for the user to launch. This is a fresh architecture, not a checkpoint resume.
 
 ## ParticleGAN 0.7 viewer demo
 
-The local [pg07/lr2e-4 demo config](../examples/cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.toml)
+The local [pg07/lr2e-4 demo config](../examples/archive/cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.toml)
 preserves the original pg07 run's networks, 65,536 particles, 128-dimensional
 latent, batch 64, seeds, 200,000-step schedule and evaluation protocols. Its
 learning rate is `0.0002`; other defaults come from ParticleGAN 0.7.0.

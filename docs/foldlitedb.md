@@ -17,7 +17,12 @@ Rust source, WASM assets and reproducible build qualification live in Foldlite.
 ## Regenerable historical views
 
 Explicit historical bootstrap jobs materialize the requested metric groups in
-`views/<map_revision>/foldlite/<query_digest>.fold` (with companion `.fold.cache` and `.fold.lock` files). Each cached document holds
+the viewer cache, outside the run directory:
+`$HYPERGAN_VIEWER_CACHE/<owner>/<map_revision>/<query_digest>.fold` (with companion
+`.fold.cache` and `.fold.lock` files). `$HYPERGAN_VIEWER_CACHE` defaults to
+`$XDG_CACHE_HOME/hypergan/viewer` or `~/.cache/hypergan/viewer`, and `<owner>` is a
+digest of the runs root and run id (`ObservationService.view_cache_dir`). Viewing never
+writes into the run. Each cached document holds
 one complete projection frame and its source cursor, including empty emissions.
 Foldlite atomically commits document identity, source position, reduced state and
 change history. Reopening retrieves the last committed document and continues from
@@ -35,15 +40,18 @@ bounded cursor validation under the immutable-source contract, not a full histor
 checksum on every query. Complete corruption encountered by readers fails visibly.
 
 Source files remain authoritative. To regenerate these views, stop observers using
-the cache and remove `views/<map_revision>/foldlite/`; the next explicit historical
+the cache and remove the viewer cache directory (`~/.cache/hypergan/viewer`, or
+`$HYPERGAN_VIEWER_CACHE` when set; removing one `<owner>/` subdirectory resets a single
+run); the next explicit historical
 query reconstructs it. Replacing a projection with a new generation invalidates
 its cache. Removing only the derived cache does not alter source documents,
 contributions or training checkpoints.
 
 This integration uses one Foldlite database (`.fold`, `.fold.cache`, `.fold.lock`) per distinct query and lineage.
-It duplicates projection documents across queries and retains cache files until
-explicitly removed. Active jobs remain bounded, while disk retention is user
-controlled. A new query performs an initial historical pass; reopening the same
+It duplicates projection documents across queries. Disk retention is bounded: the
+viewer keeps the 16 most recently used caches per run and map revision and the 64
+most recently viewed runs, deleting the least recently used beyond either bound.
+Active jobs remain bounded too. A new query performs an initial historical pass; reopening the same
 query consumes only its suffix. Live fanout continues to forward unchanged frames;
 connected viewers reduce their live suffix through the same Foldlite WASM module.
 

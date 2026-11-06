@@ -644,19 +644,19 @@ class TestTier3Combinations:
         run_dir = tmp_path / "symlink_run"
         make_synthetic_run(run_dir, count=5)
 
-        # Create external directory and symlink views/<map_rev>/foldlite to it
+        # Create external directory and symlink the run's view cache directory to it
         map_rev = MapSpec().revision
-        foldlite_dir = run_dir / "views" / map_rev / "foldlite"
-        foldlite_dir.parent.mkdir(parents=True, exist_ok=True)
-
         target_dir = tmp_path / "external_target"
         target_dir.mkdir()
-        foldlite_dir.symlink_to(target_dir)
 
         async def _test():
-            service = await ObservationService(run_dir, poll_seconds=0.01, history_timeout=10).start()
+            service = await ObservationService(run_dir, poll_seconds=0.01, history_timeout=10,
+                                               cache_dir=tmp_path / "viewer-cache").start()
             try:
                 await wait_for_service_ready(service)
+                foldlite_dir = service.view_cache_dir(map_rev)
+                foldlite_dir.parent.mkdir(parents=True, exist_ok=True)
+                foldlite_dir.symlink_to(target_dir)
                 job = service.bootstrap(map_rev, series=["loss/g_total"], bucket_steps=2)
                 await job.task
                 assert job.error is not None, "Symlinked view directory must fail bootstrap"

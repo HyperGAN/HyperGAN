@@ -3,7 +3,7 @@ import pytest
 import torch
 from hypergan.checkpoint_compatibility import HyperGANHardwareWarning
 from hypergan.checkpoints import read_checkpoint
-from hypergan.config import write_default
+from tests.config_fixtures import write_default
 from hypergan.recipes import execution_device
 from hypergan.training import train
 

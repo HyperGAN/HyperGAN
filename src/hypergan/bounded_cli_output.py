@@ -333,6 +333,8 @@ class CLIProgress:
         self.progress_lines = 0
 
     def __call__(self, event):
+        if getattr(self.output, "quiet", False) and not self.output.progress_json:
+            return
         self.output.policy.refresh(self.output.stderr)
         if event.get('event') == 'train' and event['step'] % self.output.policy.every:
             return
@@ -358,7 +360,16 @@ class CLIProgress:
                     eta_str = f"{eta_secs // 3600:02d}:{(eta_secs % 3600) // 60:02d}:{eta_secs % 60:02d}"
                 else:
                     eta_str = "--:--:--"
-                progress_line = f"step {step:,} / {total:,} ({pct:.1f}%) · {rate_str} · ETA {eta_str}"
+                metrics = event.get('metrics', {})
+                d_val = metrics.get('loss/d_total', metrics.get('d_loss', event.get('d_loss')))
+                g_val = metrics.get('loss/g_total', metrics.get('g_loss', event.get('g_loss')))
+                loss_items = []
+                if d_val is not None and isinstance(d_val, (int, float)) and math.isfinite(d_val):
+                    loss_items.append(f"D={d_val:.4f}")
+                if g_val is not None and isinstance(g_val, (int, float)) and math.isfinite(g_val):
+                    loss_items.append(f"G={g_val:.4f}")
+                loss_str = (" · " + " ".join(loss_items)) if loss_items else ""
+                progress_line = f"step {step:,} / {total:,} ({pct:.1f}%){loss_str} · {rate_str} · ETA {eta_str}"
                 is_atty = hasattr(self.output.stderr, "isatty") and self.output.stderr.isatty()
                 if is_atty:
                     self.output.stderr.write(f"\r\033[K{progress_line}")
@@ -417,11 +428,12 @@ class CLIProgress:
 
 
 class TrainingOutput:
-    def __init__(self, stdout, stderr, progress_json, progress_every=None):
+    def __init__(self, stdout, stderr, progress_json, progress_every=None, quiet=False):
         from .console_settings import ConsolePolicy
         self.policy = ConsolePolicy(progress_every=progress_every)
         self.stdout, self.stderr = stdout, stderr
         self.progress_json = progress_json
+        self.quiet = quiet
         self.evaluation_reminder = None
         self.dashboard_url = None
         self.viewer_enabled = None
@@ -438,6 +450,8 @@ class TrainingOutput:
             self.viewer_enabled = viewer_enabled
 
     def result(self, result, *, run_dir=None, human=False, dashboard_url=None):
+        if getattr(self, "quiet", False) and not self.progress_json:
+            return
         if not self.progress_json and human:
             manifest = result if isinstance(result, dict) else {}
             status = manifest.get('status', 'complete')
@@ -518,7 +532,7 @@ class TrainingOutput:
 
 
 @contextmanager
-def training_output(*, progress_json=False, progress_every=None):
+def training_output(*, progress_json=False, progress_every=None, quiet=False):
     """Bound all train/resume output; close and reap drains within finite grace.
 
     Per stream: 16 queued lines in the parent, 16 in the child, one partial and
@@ -533,7 +547,7 @@ def training_output(*, progress_json=False, progress_every=None):
         stdout = _Stream(originals[0], 1)
         stderr = _Stream(originals[1], 2)
         sys.stdout, sys.stderr = stdout, stderr
-        output = TrainingOutput(stdout, stderr, progress_json, progress_every)
+        output = TrainingOutput(stdout, stderr, progress_json, progress_every, quiet=quiet)
         yield output
     finally:
         if output is not None:

@@ -31,7 +31,8 @@ def test_help_and_version_are_lightweight(tmp_path):
     assert "validate" in help_result.stdout
     result = run_cli(tmp_path, "--version")
     assert result.returncode == 0
-    assert result.stdout.strip() == "hypergan 2.0.0a1"
+    import hypergan
+    assert result.stdout.strip() == f"hypergan {hypergan.__version__}"
     probe = subprocess.run(
         [sys.executable, "-I", "-c",
          "import sys, hypergan, hypergan.cli; assert 'torch' not in sys.modules; "
@@ -50,7 +51,8 @@ def test_console_entrypoint(tmp_path):
     assert executable, "installed console entrypoint was not generated"
     result = subprocess.run([executable, "version"], cwd=tmp_path, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "hypergan 2.0.0a1"
+    import hypergan
+    assert result.stdout.strip() == f"hypergan {hypergan.__version__}"
 
 
 def test_create_validate_and_no_overwrite(tmp_path):
@@ -123,7 +125,7 @@ raise SystemExit(main(sys.argv[1:]))
     )
     assert result.returncode != 0
     assert "hypergan[train]" in result.stderr
-    assert "unqualified" in result.stderr
+    assert "training dependencies are missing" in result.stderr
     assert "Traceback" not in result.stderr
 
 
@@ -147,7 +149,7 @@ def test_invalid_new_device_leaves_no_project(tmp_path):
 
 
 def test_cli_convert_subcommand(tmp_path):
-    from hypergan.config import LEGACY_REFERENCE_TOML
+    from tests.config_fixtures import LEGACY_REFERENCE_TOML
     legacy = tmp_path / "legacy_recipe.toml"
     legacy.write_text(LEGACY_REFERENCE_TOML, encoding="utf-8")
     out_model = tmp_path / "converted_model.toml"

@@ -20,12 +20,22 @@ class Collectives:
         self.backend = dist.get_backend()
         if self.backend not in ('gloo', 'nccl'):
             raise ValueError("Only default Gloo/CPU and NCCL/CUDA groups are supported")
-        expected = torch.device('cuda', dist.get_rank()) if self.backend == 'nccl' else torch.device('cpu')
-        self.device = expected if device is None else torch.device(device)
-        if self.device != expected:
-            raise ValueError('Collective device must be CPU for Gloo or cuda:rank for NCCL')
         if self.backend == 'nccl':
+            current = torch.cuda.current_device() if torch.cuda.is_available() and torch.cuda.device_count() > 0 else dist.get_rank()
+            expected = torch.device('cuda', current)
+            if device is None:
+                self.device = expected
+            else:
+                target = torch.device(device)
+                self.device = torch.device('cuda', current) if target.type == 'cuda' and target.index is None else target
+            if self.device != expected:
+                raise ValueError(f'Collective device must match current CUDA device ({expected}) for NCCL')
             torch.cuda.set_device(self.device)
+        else:
+            expected = torch.device('cpu')
+            self.device = expected if device is None else torch.device(device)
+            if self.device != expected:
+                raise ValueError('Collective device must be CPU for Gloo')
         if dist.get_world_size() != world_size:
             raise ValueError("Initialized process group differs from fixed world_size")
         self.world_size = world_size

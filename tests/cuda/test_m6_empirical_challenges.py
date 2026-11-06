@@ -95,6 +95,16 @@ def _worker_nonfinite_refusal(rank, rendezvous, out_path):
         expected_mean = 3.0
         results["case4_finite_success"] = bool(torch.allclose(param.grad, torch.full_like(param, expected_mean)))
 
+        # Finite inputs can still overflow the collective SUM. Refuse the
+        # reduced result before any optimizer state or parameters change.
+        param.grad = torch.full_like(param, torch.finfo(param.dtype).max * .75)
+        try:
+            trainer._reduce_gradients(opt, "test_reduced_overflow")
+        except ValueError as exc:
+            results["case5_reduced_overflow"] = "Nonfinite reduced gradient" in str(exc)
+        results["case5_grad_cleared"] = param.grad is None
+        results["case5_optimizer_untouched"] = not opt.state
+
     except Exception as exc:
         results["error"] = f"{type(exc).__name__}: {exc}"
     finally:
@@ -102,6 +112,7 @@ def _worker_nonfinite_refusal(rank, rendezvous, out_path):
         Path(out_path).write_text(json.dumps(results), encoding="utf-8")
 
 
+@pytest.mark.multi_gpu
 def test_asymmetric_nonfinite_gradient_refusal(tmp_path):
     """Verify that _reduce_gradients raises ValueError synchronously on both ranks without hanging."""
     if not (torch.cuda.is_available() and torch.cuda.device_count() >= 2):
@@ -119,10 +130,8 @@ def test_asymmetric_nonfinite_gradient_refusal(tmp_path):
             logs.append(log)
             out_json = tmp_path / f"rank-{rank}.json"
             cmd = [
-                sys.executable,
-                "-c",
-                f"from tests.cuda.test_m6_empirical_challenges import _worker_nonfinite_refusal; "
-                f"_worker_nonfinite_refusal({rank}, {str(rendezvous)!r}, {str(out_json)!r})",
+                sys.executable, *(['-I'] if sys.flags.isolated else []),
+                str(Path(__file__).resolve()), 'nonfinite', str(rank), str(rendezvous), str(out_json),
             ]
             children.append(subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env))
 
@@ -147,6 +156,9 @@ def test_asymmetric_nonfinite_gradient_refusal(tmp_path):
             assert data["case3_neginf_rank1"] is True, f"Rank {rank} failed to raise on Rank 1 -Inf"
             assert data["case3_grad_cleared"] is True, f"Rank {rank} failed to clear grad on Case 3"
             assert data["case4_finite_success"] is True, f"Rank {rank} failed to reduce finite grad"
+            assert data["case5_reduced_overflow"] is True, f"Rank {rank} accepted reduction overflow"
+            assert data["case5_grad_cleared"] is True
+            assert data["case5_optimizer_untouched"] is True
     finally:
         for child in children:
             if child.poll() is None:
@@ -408,6 +420,7 @@ def _worker_controller_parity(rank, rendezvous, out_path):
         Path(out_path).write_text(json.dumps(results), encoding="utf-8")
 
 
+@pytest.mark.multi_gpu
 def test_particlegan_controller_state_parity(tmp_path):
     """Stress-test replicated multi-step training with controller state across 2 CUDA GPUs."""
     if not (torch.cuda.is_available() and torch.cuda.device_count() >= 2):
@@ -425,10 +438,8 @@ def test_particlegan_controller_state_parity(tmp_path):
             logs.append(log)
             out_json = tmp_path / f"rank-{rank}.json"
             cmd = [
-                sys.executable,
-                "-c",
-                f"from tests.cuda.test_m6_empirical_challenges import _worker_controller_parity; "
-                f"_worker_controller_parity({rank}, {str(rendezvous)!r}, {str(out_json)!r})",
+                sys.executable, *(['-I'] if sys.flags.isolated else []),
+                str(Path(__file__).resolve()), 'controller', str(rank), str(rendezvous), str(out_json),
             ]
             children.append(subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env))
 
@@ -498,3 +509,8 @@ def test_controller_divergence_without_all_gather_negative_control():
     digest0 = ReplicatedTrainer._digest({"location": c0.location, "reference": c0.reference, "data_score": c0.data_score})
     digest1 = ReplicatedTrainer._digest({"location": c1.location, "reference": c1.reference, "data_score": c1.data_score})
     assert digest0 != digest1, "Expected digest mismatch on un-gathered controller state"
+
+
+if __name__ == '__main__':
+    worker = {'nonfinite': _worker_nonfinite_refusal, 'controller': _worker_controller_parity}[sys.argv[1]]
+    worker(int(sys.argv[2]), sys.argv[3], sys.argv[4])

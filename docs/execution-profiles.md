@@ -32,7 +32,7 @@ timeout = 60
 collective_timeout = 15
 ```
 
-For the internal CUDA strategy, use `name="cuda-replicated-nccl"` with recipe `training.device="cuda"`; the remaining fields are the same as the replicated CPU example. Each rank owns its corresponding visible GPU index. See the [CUDA contract](replicated-cuda.md).
+For the internal CUDA strategy, use `name="cuda-replicated-nccl"` with model file `train.device="cuda"`; the remaining fields are the same as the replicated CPU example. Each rank owns its corresponding visible GPU index. See the [CUDA contract](replicated-cuda.md).
 
 Save a profile as `execution.toml`, then check it against a recipe:
 
@@ -49,13 +49,13 @@ The first command validates structure and prints the resolved profile without im
 
 | Input | Contract |
 | --- | --- |
-| `execution.name` | `cpu-single` or `cpu-replicated-gloo` require `training.device="cpu"`; `cuda-replicated-nccl` requires exactly `training.device="cuda"` |
+| `execution.name` | `cpu-single` or `cpu-replicated-gloo` require `train.device="cpu"`; `cuda-replicated-nccl` requires exactly `train.device="cuda"` |
 | `execution.world_size` | Integer 1–64; single requires exactly 1, replicated requires at least 2 |
 | `execution.accumulation_steps` | Positive integer; single requires exactly 1; must divide the per-rank batch evenly |
 | `preflight.timeout` | Finite positive seconds until cleanup is triggered, including startup and construction |
 | `preflight.collective_timeout` | Finite positive seconds, no greater than the complete timeout |
 
-Booleans are not accepted as numbers. The global batch comes exclusively from the recipe's `training.batch_size`. It must divide evenly across workers. With global batch 16, world size 2 and accumulation 2, each rank processes 8 samples in microbatches of 4. Accumulation changes activation storage and evaluation order; it does not multiply the global batch or trigger a learning-rate adjustment.
+Booleans are not accepted as numbers. The global batch comes exclusively from the model file's `train.batch_size`. It must divide evenly across workers. With global batch 16, world size 2 and accumulation 2, each rank processes 8 samples in microbatches of 4. Accumulation changes activation storage and evaluation order; it does not multiply the global batch or trigger a learning-rate adjustment.
 
 The resolved result has three keys: `schema_version`, `execution` and `preflight`. Its numerical `execution` dictionary contains `name`, `world_size`, `accumulation_steps`, `global_batch_size`, `local_batch_size`, `microbatch_size` and `accumulation_algorithm`. The algorithm is `retained-local-graph-v1` at accumulation one and `detached-logit-vjp-replay-v1` above one, matching the internal replicated trainer. The single profile has its own execution name; sharing an algorithm label does not make checkpoints interchangeable.
 

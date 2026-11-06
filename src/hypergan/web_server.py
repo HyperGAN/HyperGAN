@@ -3,28 +3,72 @@ import asyncio
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import hashlib
 import html
-import inspect
 import json
-import os
+import logging
 from pathlib import Path
+import re
 import time
 from urllib.parse import quote
 
 from . import inspection as _insp_mod
 from . import registry as _reg_mod
-from .web_autostart import ensure_run_projected, is_projection_stale_or_missing, project_run
 from .web_dev import RELOAD_ASSET, RELOAD_SCRIPT, VERSION_ROUTE, dev_assets
-from .web_files import read_artifact, read_json, _open
-from .web_service import MAX_STREAMS, ObservationService, RunObservationService, MapSpec, ViewSpec
+from .web_files import read_artifact, read_bytes, read_json, _open
+from .web_service import (
+    MAX_GROUPS,
+    MAX_QUEUE_BYTES,
+    MAX_STREAMS,
+    MAX_SUBSCRIBERS,
+    PREVIEW_INDEX_BYTES,
+    MapSpec,
+    ObservationService,
+    ViewSpec,
+    _finite_nonneg_float,
+    _positive_int,
+    compute_throughput_and_eta,
+    cursor_offset,
+    extract_fid_and_health,
+    extract_topology_and_batch,
+    sse,
+)
 from .web_session import LocalSession
 
-STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'styles.css', 'uplot.js', 'uplot.css', 'runs.js', 'runs.css', 'logo.png'}
+STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'runs.js', 'runs.css', 'logo.png'}
+
+
+# Seconds an event stream waits for its client to accept one frame.
+STREAM_SEND_DEADLINE = 5.0
+
+
+class StreamSendDeadline(OSError):
+    """An event-stream client stopped reading; its connection is dropped."""
+
+
+def _is_send_deadline(error, depth=0):
+    if error is None or depth > 8:
+        return False
+    if isinstance(error, StreamSendDeadline):
+        return True
+    if isinstance(error, BaseExceptionGroup):
+        return any(_is_send_deadline(item, depth + 1) for item in error.exceptions)
+    return _is_send_deadline(error.__cause__ or error.__context__, depth + 1)
+
+
+def _quiet_send_deadline(record):
+    """Logging filter: a stalled browser tab is routine, not a server error.
+
+    Raising out of the ASGI app is the only way to make the server close a
+    connection whose client no longer drains it, and uvicorn logs that as
+    'Exception in ASGI application'. Record it at debug level instead.
+    """
+    if record.exc_info and _is_send_deadline(record.exc_info[1]):
+        logging.getLogger(__name__).debug('Closed an event stream whose client stopped reading')
+        return False
+    return True
 
 _disk_cache: dict[Path, tuple[float, int]] = {}
-_ORIG_LIST_REGISTERED_RUNS = getattr(_reg_mod, "list_registered_runs", None)
-_ORIG_CHECK_RUN_ACTIVE = getattr(_insp_mod, "check_run_active", None)
-_ORIG_STOP_RUN = getattr(_insp_mod, "stop_run", None)
 
 
 def get_run_disk_bytes(run_dir: Path, ttl_seconds: float = 20.0) -> int:
@@ -71,25 +115,17 @@ def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int, int], ...]:
         _stat_watermark(run_dir / "manifest.json"),
         _stat_watermark(run_dir / ".run.lock"),
         _stat_watermark(run_dir / "launch" / "0001.json"),
+        _stat_watermark(run_dir / "previews" / "index.json"),
     )
 
 
 def _disk_run_id(run_dir: Path) -> str | None:
-    manifest_path = run_dir / "manifest.json"
-    if manifest_path.is_file():
+    for relative in ("manifest.json", "summary.json"):
         try:
-            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            loaded = read_json(run_dir, relative)
             if isinstance(loaded, dict) and loaded.get("run_id"):
                 return str(loaded["run_id"])
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            pass
-    summary_path = run_dir / "summary.json"
-    if summary_path.is_file():
-        try:
-            loaded = json.loads(summary_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict) and loaded.get("run_id"):
-                return str(loaded["run_id"])
-        except (OSError, json.JSONDecodeError, UnicodeError):
+        except (OSError, ValueError):
             pass
     return None
 
@@ -116,47 +152,50 @@ def _run_created_at(run_dir: Path, manifest: dict, summary: dict | None) -> str 
             return date
     # The first launch survives resumes; later launch timestamps describe attempts.
     try:
-        launch = json.loads((run_dir / 'launch' / '0001.json').read_text(encoding='utf-8'))
+        launch = read_json(run_dir, 'launch/0001.json')
         return _created_at(launch.get('timestamp')) if isinstance(launch, dict) else None
-    except (OSError, ValueError, UnicodeError):
+    except (OSError, ValueError):
         return None
+
+
+def _is_stale_unmodified_run(run_dir: Path, max_idle_seconds: float = 3600.0) -> bool:
+    latest_mtime = 0.0
+    for candidate in (run_dir / ".run.lock", run_dir / "summary.json", run_dir / "manifest.json", run_dir / "events.jsonl"):
+        try:
+            if candidate.exists():
+                latest_mtime = max(latest_mtime, candidate.stat().st_mtime)
+        except OSError:
+            pass
+    if latest_mtime <= 0.0:
+        return False
+    return (time.time() - latest_mtime) > max_idle_seconds
 
 
 def read_run_summary(run_dir: Path) -> dict:
     run_dir = Path(run_dir).resolve()
-    summary_path = run_dir / "summary.json"
-    manifest_path = run_dir / "manifest.json"
 
     summary = None
-    if summary_path.is_file():
-        try:
-            loaded_summary = json.loads(summary_path.read_text(encoding="utf-8"))
-            if isinstance(loaded_summary, dict):
-                summary = loaded_summary
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            summary = None
+    try:
+        loaded_summary = read_json(run_dir, "summary.json")
+        if isinstance(loaded_summary, dict):
+            summary = loaded_summary
+    except (OSError, ValueError):
+        summary = None
 
     manifest = {}
-    if manifest_path.is_file():
-        try:
-            loaded_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if isinstance(loaded_manifest, dict):
-                manifest = loaded_manifest
-        except (OSError, json.JSONDecodeError, UnicodeError):
-            manifest = {}
+    try:
+        loaded_manifest = read_json(run_dir, "manifest.json")
+        if isinstance(loaded_manifest, dict):
+            manifest = loaded_manifest
+    except (OSError, ValueError):
+        manifest = {}
 
-    is_active = False
-    pid = None
-    if (
-        (run_dir / ".run.lock").exists()
-        or (run_dir / "launch").is_dir()
-        or getattr(_insp_mod, "check_run_active", None) is not _ORIG_CHECK_RUN_ACTIVE
-    ):
-        try:
-            is_active, pid = _insp_mod.check_run_active(run_dir)
-        except Exception:
-            is_active, pid = False, None
-    else:
+    host_info = _insp_mod.inspect_run_host(run_dir)
+    try:
+        is_active, pid = _insp_mod.check_run_active(run_dir)
+    except OSError:
+        is_active, pid = False, None
+    if pid is None and not is_active:
         if summary and isinstance(summary.get("pid"), int):
             pid = summary["pid"]
         elif isinstance(manifest.get("pid"), int):
@@ -181,14 +220,26 @@ def read_run_summary(run_dir: Path) -> dict:
         or str(run_id)[:8]
     )
     raw_status = (summary.get("status") if summary else None) or manifest.get("status") or "unknown"
-    status = "running" if is_active else raw_status
-    active = bool(is_active or status == "running" or (summary and (summary.get("active") or summary.get("running"))))
+    if is_active:
+        status = "running"
+        active = True
+    elif (
+        str(raw_status).strip().lower() in ("running", "initializing")
+        and ((run_dir / ".run.lock").exists() or _is_stale_unmodified_run(run_dir))
+    ):
+        status = "stopped"
+        active = False
+    else:
+        status = raw_status
+        active = str(status).strip().lower() in ("running", "training", "initializing", "starting")
     running = bool(is_active)
 
     step = (summary.get("step") if summary and "step" in summary else None)
     if step is None:
         step = manifest.get("steps", 0)
 
+    cfg = manifest.get("config") if isinstance(manifest.get("config"), dict) else {}
+    training_cfg = cfg.get("training") if isinstance(cfg.get("training"), dict) else {}
     total_steps = (
         (summary.get("total_steps") if summary else None)
         or manifest.get("total_steps")
@@ -196,6 +247,7 @@ def read_run_summary(run_dir: Path) -> dict:
         or manifest.get("max_steps")
         or (summary.get("target_steps") if summary else None)
         or manifest.get("target_steps")
+        or _positive_int(training_cfg.get("steps"))
     )
     max_steps = (
         (summary.get("max_steps") if summary else None)
@@ -204,26 +256,105 @@ def read_run_summary(run_dir: Path) -> dict:
         or (summary.get("target_steps") if summary else None)
         or manifest.get("target_steps")
     )
-    steps_per_second = (
-        ((summary.get("steps_per_second") or summary.get("speed_its") or summary.get("steps_per_sec")) if summary else None)
-        or manifest.get("steps_per_second")
-        or manifest.get("speed_its")
+    steps_per_second = _finite_nonneg_float(
+        summary.get("steps_per_second") if summary else None,
+        summary.get("speed_its") if summary else None,
+        summary.get("steps_per_sec") if summary else None,
+        manifest.get("steps_per_second"),
+        manifest.get("speed_its"),
     )
 
-    latest_fid = None
-    if summary:
-        latest_fid = summary.get("latest_fid") or summary.get("fid_latest")
-        if latest_fid is None and isinstance(summary.get("metrics"), dict):
-            latest_fid = summary["metrics"].get("fid50k_train") or summary["metrics"].get("fid")
-
-    best = summary.get("best") if summary and isinstance(summary.get("best"), dict) else None
-    best_fid = (best.get("value") if best else None) or (summary.get("best_fid") if summary else None) or (summary.get("fid_best") if summary else None)
-    best_step = (best.get("step") if best else None) or (summary.get("best_step") if summary else None)
+    topo_batch = extract_topology_and_batch(manifest, summary)
+    samples_per_second, eta_seconds = compute_throughput_and_eta(
+        active=active,
+        step=step,
+        total_steps=total_steps,
+        steps_per_second=steps_per_second,
+        global_batch_size=topo_batch["global_batch_size"],
+        summary=summary,
+    )
+    last_durable_step = summary.get("last_durable_step") if (summary and "last_durable_step" in summary) else None
+    if last_durable_step is None:
+        last_durable_step = manifest.get("last_durable_step")
+    fid_health = extract_fid_and_health(manifest, summary)
+    latest_fid = fid_health["latest_fid"]
+    best_fid = fid_health["best_fid"]
+    best_step = fid_health["best_step"]
+    best_metric = fid_health["best_metric"]
+    health_alerts = fid_health["health_alerts"]
+    warnings = fid_health["warnings"]
 
     updated_at = (summary.get("updated_at") if summary else None) or manifest.get("updated_at")
 
     disk_bytes = get_run_disk_bytes(run_dir)
     disk_formatted = format_disk_bytes(disk_bytes)
+
+    has_preview = False
+    thumbnail_revision: str | None = None
+    try:
+        pdata = read_json(run_dir, "previews/index.json", max_bytes=PREVIEW_INDEX_BYTES)
+        previews_list = pdata.get("previews") if isinstance(pdata, dict) else None
+        if isinstance(previews_list, list) and previews_list:
+            has_preview = True
+            chosen = None
+            for entry in reversed(previews_list):
+                if isinstance(entry, dict) and isinstance(entry.get("image_grid"), dict):
+                    chosen = entry
+                    break
+            if chosen is None:
+                for entry in reversed(previews_list):
+                    if isinstance(entry, dict):
+                        chosen = entry
+                        break
+            if chosen is not None:
+                grid = chosen.get("image_grid") if isinstance(chosen.get("image_grid"), dict) else {}
+                raw_rev = None
+                for candidate_hash in (grid.get("sha256"), chosen.get("sha256")):
+                    if isinstance(candidate_hash, str):
+                        cleaned_rev = re.sub(r"[^A-Za-z0-9]", "", candidate_hash)[:12]
+                        if cleaned_rev:
+                            raw_rev = cleaned_rev
+                            break
+                if not raw_rev:
+                    fallback_token = json.dumps(
+                        [
+                            chosen.get("sample_sequence"),
+                            chosen.get("step"),
+                            grid.get("path") or chosen.get("path"),
+                            len(previews_list),
+                        ],
+                        sort_keys=True,
+                        default=str,
+                    )
+                    raw_rev = hashlib.sha256(fallback_token.encode("utf-8")).hexdigest()[:12]
+                thumbnail_revision = raw_rev
+    except (OSError, ValueError):
+        pass
+    if not has_preview and (run_dir / "previews").is_dir():
+        try:
+            newest_sig: tuple[int, int, str] | None = None
+            for png_path in (run_dir / "previews").rglob("*.png"):
+                try:
+                    if png_path.is_file() and not png_path.is_symlink():
+                        st = png_path.stat()
+                        sig = (st.st_mtime_ns, st.st_size, png_path.name)
+                        if newest_sig is None or sig > newest_sig:
+                            newest_sig = sig
+                except OSError:
+                    continue
+            if newest_sig is not None:
+                has_preview = True
+                thumbnail_revision = hashlib.sha256(
+                    f"{newest_sig[0]}:{newest_sig[1]}".encode("utf-8")
+                ).hexdigest()[:12]
+        except Exception:
+            pass
+
+    if has_preview:
+        base_thumb = f"/api/v1/runs/{quote(str(run_id), safe='')}/thumbnail"
+        thumbnail_url = f"{base_thumb}?rev={thumbnail_revision}" if thumbnail_revision else base_thumb
+    else:
+        thumbnail_url = None
 
     return {
         "run_id": run_id,
@@ -234,20 +365,37 @@ def read_run_summary(run_dir: Path) -> dict:
         "active": active,
         "running": running,
         "pid": pid,
+        "hostname": host_info.get("hostname"),
+        "remote": host_info.get("remote", False),
+        "topology": topo_batch["topology"],
+        "global_batch_size": topo_batch["global_batch_size"],
+        "local_batch_size": topo_batch["local_batch_size"],
+        "microbatch_size": topo_batch["microbatch_size"],
+        "accumulation_steps": topo_batch["accumulation_steps"],
+        "batch_label": topo_batch["batch_label"],
+        "batch_detail": topo_batch["batch_detail"],
         "step": step,
         "total_steps": total_steps,
         "max_steps": max_steps,
+        "last_durable_step": last_durable_step,
         "steps_per_second": steps_per_second,
         "speed_its": steps_per_second,
+        "samples_per_second": samples_per_second,
+        "eta_seconds": eta_seconds,
         "latest_fid": latest_fid,
         "fid_latest": latest_fid,
         "best_fid": best_fid,
         "fid_best": best_fid,
         "best_step": best_step,
+        "best_metric": best_metric,
+        "health_alerts": health_alerts,
+        "warnings": warnings,
         "created_at": _run_created_at(run_dir, manifest, summary),
         "updated_at": updated_at,
         "disk_bytes": disk_bytes,
         "disk_formatted": disk_formatted,
+        "thumbnail_revision": thumbnail_revision,
+        "thumbnail_url": thumbnail_url,
         "run_dir": str(run_dir),
         "url": f"/runs/{quote(str(run_id), safe='')}",
     }
@@ -261,65 +409,186 @@ def _render_run_row(r: dict) -> str:
     def escape(value):
         return html.escape(str(value))
 
+    def is_finite_num(value) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value == value and abs(value) != float('inf')
+
+    def format_eta(seconds) -> str:
+        if not is_finite_num(seconds) or seconds <= 0:
+            return ''
+        total_sec = max(1, int(round(seconds)))
+        if total_sec < 60:
+            return f'ETA {total_sec}s'
+        if total_sec < 3600:
+            mins, secs = divmod(total_sec, 60)
+            return f'ETA {mins}m {secs:02d}s'
+        if total_sec < 86400:
+            hours, rem = divmod(total_sec, 3600)
+            mins = rem // 60
+            return f'ETA {hours}h {mins:02d}m'
+        days, rem = divmod(total_sec, 86400)
+        hours = rem // 3600
+        return f'ETA {days}d {hours:02d}h'
+
     run_id = str(r.get('run_id', 'unknown'))
     name = str(r.get('name') or run_id)
-    slug = r.get('slug') or _reg_mod.extract_or_derive_slug(run_id, name=name)
-    short_id = r.get('short_id') or run_id[:8]
+    slug = str(r.get('slug') or _reg_mod.extract_or_derive_slug(run_id, name=name))
+    short_id = str(r.get('short_id') or run_id[:8])
     status = str(r.get('status') or 'unknown').strip().lower()
-    active = bool(r.get('active') or r.get('running') or status == 'running')
-    step = r.get('step') or 0
-    total = r.get('total_steps') or r.get('max_steps') or 0
-    percent = min(100, max(0, int(step / total * 100))) if total > 0 else 0
+    if 'active' in r and r['active'] is not None:
+        active = bool(r['active'])
+    elif 'running' in r and r['running'] is not None:
+        active = bool(r['running'])
+    else:
+        active = status in ('running', 'training', 'initializing', 'starting')
+
+    topology = r.get('topology') if isinstance(r.get('topology'), dict) else {}
+    # A step is one completed global training update, shared by all ranks.
+    step = max(0, int(r.get('step') or 0))
+    total = max(0, int(r.get('total_steps') or r.get('max_steps') or 0))
+    percent = min(100, max(0, int(round(step / total * 100)))) if total > 0 else 0
     progress = f'{step:,} / {total:,}' if total > 0 else f'{step:,}'
-    speed = r.get('steps_per_second')
-    speed_text = f'{speed:.1f} it/s' if isinstance(speed, (int, float)) else '—'
+    eta_text = format_eta(r.get('eta_seconds')) if active else ''
+
+    raw_speed = r.get('steps_per_second') if r.get('steps_per_second') is not None else r.get('speed_its')
+    speed = float(raw_speed) if is_finite_num(raw_speed) and raw_speed >= 0 else None
+    has_active_speed = active and speed is not None
+    raw_samples = r.get('samples_per_second')
+    has_active_samples = has_active_speed and is_finite_num(raw_samples) and raw_samples >= 0
+    if has_active_speed and speed is not None:
+        speed_primary = f'<span class="speed-primary" data-field="speed-primary">{speed:.1f} steps/s</span>'
+    else:
+        speed_primary = '<span class="muted" data-field="speed-primary">—</span>'
+    if has_active_samples:
+        speed_sub = f'<small class="cell-sub" data-field="speed-sub">{raw_samples:.0f} samples/s</small>'
+    else:
+        speed_sub = '<small class="cell-sub" data-field="speed-sub" hidden></small>'
+    speed_cell = f'<td data-label="Speed" data-field="speed">{speed_primary}{speed_sub}</td>'
+
     created = _created_at(r.get('created_at'))
     date_text = datetime.fromisoformat(created).strftime('%b %d, %Y · %H:%M UTC') if created else 'Unknown'
-    url = escape('/runs/' + quote(run_id, safe=''))
-    return f'''<tr data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
-      data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}">
-      <td data-label="Run"><a class="run-link" href="{url}">{escape(name)}</a>
-        <div class="run-id-sub"><span class="slug-badge">{escape(slug)}</span>
-          <span class="id-badge" title="{escape(run_id)}">{escape(short_id)}</span></div></td>
+    raw_url = str(r.get('url') or ('/runs/' + quote(run_id, safe='')))
+    url = escape(raw_url)
+
+    thumb_url = r.get("thumbnail_url")
+    if thumb_url:
+        preview_cell = (
+            f'<td data-label="Preview" class="thumbnail-cell">'
+            f'<img class="run-thumbnail" src="{escape(thumb_url)}" alt="Preview of {escape(name)}" loading="lazy" width="48" height="48" /></td>'
+        )
+    else:
+        preview_cell = '<td data-label="Preview" class="thumbnail-cell"><span class="no-thumbnail" title="No previews yet">—</span></td>'
+
+    topo_primary = ' · '.join(str(p) for p in (topology.get('label'), r.get('batch_label')) if p)
+    topo_sub = ' · '.join(str(p) for p in (topology.get('detail'), r.get('batch_detail')) if p)
+    topo_primary_cls = 'topo-primary' if topo_primary else 'topo-primary muted'
+    topo_sub_hidden = '' if topo_sub else ' hidden'
+    topology_cell = (
+        f'<td data-label="Topology & Batch" data-field="topology">'
+        f'<span class="{topo_primary_cls}" data-field="topology-primary">{escape(topo_primary or "—")}</span>'
+        f'<small class="cell-sub" data-field="topology-sub"{topo_sub_hidden}>{escape(topo_sub)}</small></td>'
+    )
+
+    best_fid = r.get("best_fid") if r.get("best_fid") is not None else r.get("fid_best")
+    latest_fid = r.get("latest_fid") if r.get("latest_fid") is not None else r.get("fid_latest")
+    has_best_fid = is_finite_num(best_fid)
+    has_latest_fid = is_finite_num(latest_fid)
+    sort_fid = best_fid if has_best_fid else (latest_fid if has_latest_fid else None)
+    if has_best_fid:
+        show_latest_sub = has_latest_fid and abs(latest_fid - best_fid) > 0.01
+        sub_text = f'({latest_fid:.2f})' if show_latest_sub else ''
+        sub_hidden = '' if show_latest_sub else ' hidden'
+        fid_text = (
+            f'<span class="best-fid" data-field="fid-primary" title="Best FID">{best_fid:.2f}</span> '
+            f'<small class="latest-fid" data-field="fid-latest" title="Latest FID"{sub_hidden}>{sub_text}</small>'
+        )
+    elif has_latest_fid:
+        fid_text = (
+            f'<span class="latest-fid" data-field="fid-primary" title="Latest FID">{latest_fid:.2f}</span> '
+            '<small class="latest-fid" data-field="fid-latest" title="Latest FID" hidden></small>'
+        )
+    else:
+        fid_text = (
+            '<span class="no-fid muted" data-field="fid-primary">—</span> '
+            '<small class="latest-fid" data-field="fid-latest" title="Latest FID" hidden></small>'
+        )
+    fid_cell = f'<td data-label="FID" data-field="fid">{fid_text}</td>'
+
+    disk_bytes = r.get('disk_bytes')
+    disk_attr = str(int(disk_bytes)) if (is_finite_num(disk_bytes) and disk_bytes >= 0) else ''
+    fid_attr = str(float(sort_fid)) if sort_fid is not None else ''
+    speed_attr = str(float(speed)) if (has_active_speed and speed is not None) else ''
+
+    show_host = bool(r.get('remote') and r.get('hostname'))
+    host_name = str(r.get('hostname')) if show_host else ''
+    host_title = f' title="Remote host: {escape(host_name)}"' if show_host else ''
+    host_hidden = '' if show_host else ' hidden'
+    slug_hidden = '' if slug else ' hidden'
+    eta_hidden = '' if eta_text else ' hidden'
+
+    return f'''<tr class="run-row" data-url="{url}" data-id="{escape(run_id)}" data-name="{escape(name)}" data-slug="{escape(slug)}"
+      data-status="{escape(status)}" data-active="{str(active).lower()}" data-created-at="{escape(created or '')}"
+      data-fid="{escape(fid_attr)}" data-step="{step}" data-total-steps="{total}"
+      data-speed="{escape(speed_attr)}" data-disk-bytes="{escape(disk_attr)}">
+      <td data-label="Run / Name" class="run-name-cell"><a class="run-link" href="{url}">{escape(name)}</a>
+        <div class="run-id-sub"><span class="slug-badge"{slug_hidden}>{escape(slug)}</span>
+          <span class="id-badge" title="{escape(run_id)}">{escape(short_id)}</span>
+          <span class="host-badge" data-field="host"{host_title}{host_hidden}>{escape(host_name)}</span></div></td>
+      {preview_cell}
       <td data-label="Status"><span class="badge" data-status="{escape(status)}">{escape(status)}</span></td>
+      {topology_cell}
+      {fid_cell}
       <td data-label="Created at"><time data-field="created" datetime="{escape(created or '')}"
         title="{escape(created or 'Creation time was not recorded')}">{date_text}</time></td>
       <td data-label="Progress"><div class="progress-bar-container"><span data-field="steps">{progress}</span>
         <div class="progress-bar" aria-hidden="true"{'' if total > 0 else ' hidden'}>
-          <div class="progress-fill" style="width: {percent}%"></div></div></div></td>
-      <td data-label="Speed" data-field="speed">{speed_text}</td>
+          <div class="progress-fill" style="width: {percent}%"></div></div>
+        <small class="cell-sub" data-field="eta"{eta_hidden}>{escape(eta_text)}</small></div></td>
+      {speed_cell}
       <td data-label="Disk" data-field="disk">{escape(r.get('disk_formatted') or '—')}</td>
-      <td data-label="Actions"><div class="actions-cell"><a class="btn" href="{url}">Open run →</a>
-        <button type="button" class="btn btn-checkpoint" data-action="checkpoint"{'' if active else ' hidden'}>Checkpoint</button>
-        <button type="button" class="btn btn-stop" data-action="stop"{'' if active else ' hidden'}>Stop</button>
-      </div></td>
     </tr>'''
 
 
-def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
-    runs = sorted(runs, key=lambda r: (_created_at(r.get('created_at')) or '', str(r.get('run_id', ''))), reverse=True)
+def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = False) -> str:
+    """Dashboard page; with `login` it carries no run data, only the sign-in form."""
+    def _sort_key(r: dict):
+        created_iso = _created_at(r.get('created_at'))
+        ts = -datetime.fromisoformat(created_iso).timestamp() if created_iso else float('inf')
+        run_id_str = str(r.get('run_id', ''))
+        name_str = str(r.get('name') or run_id_str)
+        return (0 if created_iso else 1, ts, name_str, run_id_str)
+
+    runs = [] if login else sorted(runs, key=_sort_key)
     rows = "\n".join(_render_run_row(r) for r in runs)
-    root = html.escape(str(runs_root))
+    root = '' if login else html.escape(str(runs_root))
+    indicator_cls = 'connection' if login else 'connection live'
+    initial_status = 'Sign in to see runs' if login else 'Live · 3s'
     return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HyperGAN Runs — Dashboard</title>
+  <meta name="color-scheme" content="dark">
+  <title>HyperGAN Runs — Observatory</title>
   <link rel="icon" type="image/png" href="/assets/logo.png">
   <link rel="stylesheet" href="/assets/runs.css">
   <script src="/assets/runs.js" defer></script>
 </head>
 <body>
+  <header class="masthead">
+    <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="30" height="30" alt="" />HYPERGAN<span class="brand-separator">/</span><span class="brand-detail">EXPERIMENTS</span></a>
+    <span class="root-path" title="{root}">{root}</span>
+    <span id="live-indicator" class="{indicator_cls}" role="status"><i aria-hidden="true"></i><span id="refresh-status">{initial_status}</span></span>
+  </header>
   <main class="container">
-    <header class="header">
-      <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="28" height="28" alt=""> HYPERGAN</a>
-      <span class="root-path" title="{root}">{root}</span>
-    </header>
-    <div class="page-heading"><div><h1>Training runs</h1>
-      <p>Find an experiment and follow its progress.</p></div>
-      <div class="refresh-controls"><span id="refresh-status" role="status">Updates every 3 seconds</span>
-        <button id="refresh" type="button" class="btn">Refresh</button></div>
+    <div class="page-heading">
+      <div>
+        <span class="eyebrow">WORKSPACE OBSERVATORY</span>
+        <h1>Training runs</h1>
+        <p>Find an experiment and follow its progress.</p>
+      </div>
+      <div class="refresh-controls">
+        <button id="refresh" type="button" class="btn">Refresh</button>
+      </div>
     </div>
     <div class="controls" role="search" aria-label="Find training runs">
       <label class="search-control" for="search">Search runs
@@ -336,18 +605,37 @@ def render_run_index_html(runs: list[dict], runs_root: Path) -> str:
         <option value="newest">Newest first</option>
         <option value="oldest">Oldest first</option>
         <option value="name">Name A–Z</option>
+        <option value="fid">Best FID (lowest)</option>
+        <option value="progress">Progress (highest)</option>
+        <option value="speed">Speed (fastest active)</option>
+        <option value="disk">Disk usage (largest)</option>
       </select></div>
       <button id="clear-filters" type="button" class="btn" hidden>Clear filters</button>
     </div>
+    <form id="login" class="login-panel"{'' if login else ' hidden'}>
+      <h2>Sign in to this dashboard</h2>
+      <p>Paste the session token printed in your terminal or saved in the viewer's private session file.</p>
+      <label for="token">Session token</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false" required>
+      <button type="submit" class="btn">Sign in</button>
+      <p id="login-error" role="alert"></p>
+    </form>
     <p id="run-count" role="status">{len(runs)} run{'s' if len(runs) != 1 else ''}</p>
-    <p id="action-status" role="status" hidden></p>
     <noscript><p>Enable JavaScript to search, filter, and receive live updates.</p></noscript>
     <div class="table-container">
       <table class="run-table" id="runs-table">
-        <caption class="sr-only">Training runs with creation time, status, and progress</caption>
-        <thead><tr><th scope="col">Run / Name</th><th scope="col">Status</th>
-          <th scope="col">Created at <span id="time-zone">(UTC)</span></th><th scope="col">Progress</th>
-          <th scope="col">Speed</th><th scope="col">Disk</th><th scope="col">Actions</th></tr></thead>
+        <caption class="sr-only">Training runs with topology, evaluation FID, creation time, status, and progress</caption>
+        <thead><tr>
+          <th scope="col" data-sort-key="name" aria-sort="none"><button type="button" class="th-sort" data-sort="name">Run / Name</button></th>
+          <th scope="col">Preview</th>
+          <th scope="col">Status</th>
+          <th scope="col">Topology & Batch</th>
+          <th scope="col" data-sort-key="fid" aria-sort="none"><button type="button" class="th-sort" data-sort="fid">FID</button></th>
+          <th scope="col" data-sort-key="newest" aria-sort="descending"><button type="button" class="th-sort" data-sort="newest">Created at <span id="time-zone">(UTC)</span></button></th>
+          <th scope="col" data-sort-key="progress" aria-sort="none"><button type="button" class="th-sort" data-sort="progress">Progress</button></th>
+          <th scope="col" data-sort-key="speed" aria-sort="none"><button type="button" class="th-sort" data-sort="speed">Speed</button></th>
+          <th scope="col" data-sort-key="disk" aria-sort="none"><button type="button" class="th-sort" data-sort="disk">Disk</button></th>
+        </tr></thead>
         <tbody id="runs-body">{rows}</tbody>
       </table>
       <div id="empty-state" class="empty-state"{ ' hidden' if runs else ''}>
@@ -374,17 +662,27 @@ class ServiceRegistry:
         self._lock = asyncio.Lock()
 
     def is_single(self) -> bool:
-        if (self.root / "manifest.json").is_file():
+        if (self.root / "manifest.json").is_file() or (self.root / "summary.json").is_file():
             return True
+        if (self.root / "hypergan.toml").is_file() or (self.root / "runs").is_dir():
+            return False
         try:
-            if self.root.is_dir() and any((d / "manifest.json").is_file() for d in self.root.iterdir() if d.is_dir()):
+            if self.root.is_dir() and any(
+                (d / "manifest.json").is_file() or (d / "summary.json").is_file()
+                for d in self.root.iterdir() if d.is_dir()
+            ):
                 return False
         except OSError:
             pass
         from .web_autostart import find_runs_root
         if find_runs_root(self.root) != self.root:
             return True
-        if (self.root / "events.jsonl").is_file() or (self.root / "launch").is_dir() or (self.root / "checkpoints").is_dir():
+        if (
+            (self.root / "events.jsonl").is_file()
+            or (self.root / "launch").is_dir()
+            or (self.root / "checkpoints").is_dir()
+            or (self.root / "distributed-checkpoints").is_dir()
+        ):
             return True
         try:
             if not self.root.exists():
@@ -397,66 +695,21 @@ class ServiceRegistry:
         return False
 
     def _iter_registered_run_dirs(self) -> list[Path]:
-        entries = []
-        list_fn = getattr(_reg_mod, "list_registered_runs", None)
-        is_patched = list_fn is not None and list_fn is not _ORIG_LIST_REGISTERED_RUNS
-        has_backfill_kw = False
-        if list_fn is not None and not is_patched:
-            try:
-                has_backfill_kw = "backfill_cwd" in inspect.signature(list_fn).parameters
-            except Exception:
-                has_backfill_kw = False
-
-        if list_fn is not None and (is_patched or has_backfill_kw):
-            try:
-                entries = list_fn(backfill_cwd=False)
-            except TypeError:
-                try:
-                    entries = list_fn()
-                except Exception:
-                    entries = []
-            except Exception:
-                entries = []
-        else:
-            try:
-                reg_dir = _reg_mod.get_registry_dir(self.root)
-                data = _reg_mod._read_registry_unlocked(reg_dir)
-                entries = list(data.get("runs", {}).values())
-            except Exception:
-                try:
-                    data = _reg_mod._read_registry_unlocked()
-                    entries = list(data.get("runs", {}).values())
-                except Exception:
-                    entries = []
-
-
-        dirs: list[Path] = []
-        seen: set[Path] = set()
-        for item in entries or []:
-            rdir_val = item.get("run_dir") if isinstance(item, dict) else (str(item) if isinstance(item, (str, Path)) else None)
-            if not rdir_val:
-                continue
-            try:
-                p = Path(rdir_val).resolve()
-                if p not in seen and p.is_dir() and ((p / "manifest.json").is_file() or (p / "summary.json").is_file()):
-                    seen.add(p)
-                    dirs.append(p)
-            except OSError:
-                continue
-        return dirs
+        """Registered runs nested under this root; a dashboard never serves another root's runs."""
+        if self.is_single():
+            return []
+        from .web_autostart import registered_run_dirs
+        return registered_run_dirs(self.root)
 
     def _read_cached_summary(self, run_dir: Path) -> dict:
         run_dir = Path(run_dir).resolve()
         wm = _summary_watermark(run_dir)
         cached = self._summary_cache.get(run_dir)
         is_active = False
-        if (
-            (run_dir / ".run.lock").exists()
-            or getattr(_insp_mod, "check_run_active", None) is not _ORIG_CHECK_RUN_ACTIVE
-        ):
+        if (run_dir / ".run.lock").exists():
             try:
                 is_active, _ = _insp_mod.check_run_active(run_dir)
-            except Exception:
+            except OSError:
                 is_active = False
 
         if cached is not None:
@@ -475,15 +728,19 @@ class ServiceRegistry:
 
         candidate_dirs: list[Path] = []
         seen_dirs: set[Path] = set()
-        try:
-            for entry in sorted(root.iterdir()):
-                if entry.is_dir() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
-                    resolved = entry.resolve()
-                    if resolved not in seen_dirs:
-                        seen_dirs.add(resolved)
-                        candidate_dirs.append(resolved)
-        except OSError:
-            pass
+        search_roots = [root]
+        if (root / "runs").is_dir():
+            search_roots.append(root / "runs")
+        for sroot in search_roots:
+            try:
+                for entry in sorted(sroot.iterdir()):
+                    if entry.is_dir() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
+                        resolved = entry.resolve()
+                        if resolved not in seen_dirs:
+                            seen_dirs.add(resolved)
+                            candidate_dirs.append(resolved)
+            except OSError:
+                pass
 
         for reg_dir in self._iter_registered_run_dirs():
             if reg_dir not in seen_dirs:
@@ -503,6 +760,14 @@ class ServiceRegistry:
                     results.append(summary)
             except OSError:
                 continue
+        results.sort(
+            key=lambda r: (
+                bool(r.get("running") or r.get("active")),
+                _created_at(r.get("created_at")) or _created_at(r.get("updated_at")) or "",
+                str(r.get("run_id", "")),
+            ),
+            reverse=True,
+        )
         return results
 
     def discover_runs(self) -> list[dict]:
@@ -538,38 +803,57 @@ class ServiceRegistry:
         return False
 
     def resolve_run_dir(self, run_id: str) -> Path | None:
+        """The run directory under this root that `run_id` names, or None."""
         if not run_id:
             return None
-        root_resolved = self.root.resolve()
+        root_resolved = self.root
         candidate = (self.root / run_id).resolve()
-        try:
-            if not candidate.is_relative_to(root_resolved):
-                raise FileNotFoundError(f"Unknown run identity: {run_id}")
-        except ValueError:
+        if not candidate.is_relative_to(root_resolved):
             raise FileNotFoundError(f"Unknown run identity: {run_id}")
 
-        if self.is_single() and not self._iter_registered_run_dirs():
+        single = self.is_single()
+        if single:
             if run_id == "run" or self._matches_run_entry(self.root, run_id):
                 return self.root
+        else:
+            found = self._find_run_under_root(candidate, run_id)
+            if found is not None:
+                return found
+
+        # Tags and other registry aliases, still only for runs under this root.
+        try:
+            resolved = _reg_mod.resolve_run_target(run_id, cwd=self.root, allow_latest=False)
+        except (OSError, ValueError, LookupError):
             return None
+        if resolved and resolved.is_dir() and ((resolved / "manifest.json").is_file() or (resolved / "summary.json").is_file()):
+            res_p = resolved.resolve()
+            if res_p == self.root if single else res_p.is_relative_to(root_resolved):
+                return res_p
+        return None
 
-        if (self.root / "manifest.json").is_file():
-            if run_id == "run" or self._matches_run_entry(self.root, run_id):
-                return self.root
-
-        # Check direct subdirectory
-        if candidate.is_dir() and not candidate.is_symlink() and ((candidate / "manifest.json").is_file() or (candidate / "summary.json").is_file()):
-            return candidate
+    def _find_run_under_root(self, candidate: Path, run_id: str) -> Path | None:
+        # Check direct subdirectory (and runs/ subdirectory if present)
+        for direct in (candidate, (self.root / "runs" / run_id).resolve()):
+            if not direct.is_relative_to(self.root):
+                continue
+            if direct.is_dir() and not direct.is_symlink() and ((direct / "manifest.json").is_file() or (direct / "summary.json").is_file()):
+                return direct
 
         # Scan subdirectories and registered runs
         search_dirs: list[Path] = []
-        try:
-            if self.root.is_dir():
-                for entry in self.root.iterdir():
-                    if entry.is_dir() and not entry.is_symlink() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
-                        search_dirs.append(entry.resolve())
-        except OSError:
-            pass
+        search_roots = [self.root]
+        if (self.root / "runs").is_dir():
+            search_roots.append(self.root / "runs")
+        for sroot in search_roots:
+            try:
+                if sroot.is_dir():
+                    for entry in sroot.iterdir():
+                        if entry.is_dir() and not entry.is_symlink() and ((entry / "manifest.json").is_file() or (entry / "summary.json").is_file()):
+                            resolved = entry.resolve()
+                            if resolved not in search_dirs:
+                                search_dirs.append(resolved)
+            except OSError:
+                pass
         for reg_dir in self._iter_registered_run_dirs():
             if reg_dir not in search_dirs:
                 search_dirs.append(reg_dir)
@@ -577,36 +861,11 @@ class ServiceRegistry:
         for entry in search_dirs:
             if self._matches_run_entry(entry, run_id):
                 return entry
-
-        if not self.is_single():
-            try:
-                resolved = _reg_mod.resolve_run_target(run_id, cwd=self.root, allow_latest=False)
-                if resolved and resolved.is_dir() and ((resolved / "manifest.json").is_file() or (resolved / "summary.json").is_file()):
-                    res_p = resolved.resolve()
-                    if res_p.is_relative_to(root_resolved) or bool(os.environ.get("HYPERGAN_REGISTRY_DIR")):
-                        return res_p
-            except Exception:
-                pass
         return None
 
-    def _retire_service(self, svc: ObservationService) -> None:
-        if svc in self._services.values():
-            return
-        svc._closed = True
-        tasks = [s.task for s in svc.streams.values()] + [job.task for job in svc.jobs.values()]
-        if svc._discovery:
-            tasks.append(svc._discovery)
-        for task in tasks:
-            if task:
-                try:
-                    task.cancel()
-                except Exception:
-                    pass
-        if hasattr(svc, "_executor"):
-            try:
-                svc._executor.shutdown(wait=False)
-            except Exception:
-                pass
+    def _retire_service(self, svc: ObservationService, reason: str) -> None:
+        if svc not in self._services.values():
+            svc.retire(reason)
 
     def _evict_stale_for_dir(self, run_dir: Path, disk_rid: str | None) -> None:
         has_files = run_dir.is_dir() and ((run_dir / "manifest.json").is_file() or (run_dir / "summary.json").is_file())
@@ -621,38 +880,48 @@ class ServiceRegistry:
             self._summary_cache.pop(run_dir, None)
             _disk_cache.pop(run_dir, None)
             for svc in evicted:
-                self._retire_service(svc)
+                self._retire_service(svc, "The run in this directory was replaced; reload the view")
 
     def _evict_lru_if_needed(self) -> list[ObservationService]:
+        """Retire least recently used services beyond `max_services`.
+
+        A service a browser is still watching is skipped while idle ones remain,
+        so open tabs do not evict each other in turn. A hard cap of four times the
+        limit still bounds memory; its subscribers are told to reconnect.
+        """
         evicted_services: list[ObservationService] = []
         if self.max_services <= 0:
             return evicted_services
         while len(self._services) > self.max_services:
-            _, evicted = self._services.popitem(last=False)
+            # The most recent entry is the service being requested right now.
+            older = list(self._services.items())[:-1]
+            idle = next((key for key, svc in older if not svc.subscribers), None)
+            if idle is None and len(self._services) <= 4 * self.max_services:
+                break
+            key = idle if idle is not None else older[0][0]
+            evicted = self._services.pop(key)
             if evicted not in self._services.values():
                 evicted_services.append(evicted)
-                self._retire_service(evicted)
+                self._retire_service(evicted, "The viewer released this run to serve others; reconnect to resume")
         return evicted_services
 
-    def get_service(self, run_id: str) -> ObservationService:
+    def get_service(self, run_id: str, run_dir: Path | None = None) -> ObservationService:
+        """Cached service for `run_id`; projection is owned by the viewer's projector, never a request."""
         if run_id in self._services:
             svc = self._services[run_id]
             disk_rid = _disk_run_id(svc.root)
             self._evict_stale_for_dir(svc.root, disk_rid)
             if run_id in self._services:
                 self._services.move_to_end(run_id)
-                svc = self._services[run_id]
-                ensure_run_projected(svc.root)
-                return svc
+                return self._services[run_id]
 
-        run_dir = self.resolve_run_dir(run_id)
+        if run_dir is None:
+            run_dir = self.resolve_run_dir(run_id)
         if run_dir is None:
             raise FileNotFoundError(f"Unknown run identity: {run_id}")
 
         disk_rid = _disk_run_id(run_dir)
         self._evict_stale_for_dir(run_dir, disk_rid)
-
-        ensure_run_projected(run_dir)
 
         svc = None
         for existing_key, existing_svc in list(self._services.items()):
@@ -674,7 +943,11 @@ class ServiceRegistry:
     async def get(self, run_id: str) -> ObservationService:
         async with self._lock:
             was_cached = run_id in self._services
-            svc = self.get_service(run_id)
+            # Resolution scans the root and reads summaries: keep it off the loop.
+            run_dir = None if was_cached else await asyncio.to_thread(self.resolve_run_dir, run_id)
+            if not was_cached and run_dir is None:
+                raise FileNotFoundError(f"Unknown run identity: {run_id}")
+            svc = self.get_service(run_id, run_dir)
             if svc._discovery is None:
                 await svc.start()
             elif svc.run_id is None and (svc.root / "manifest.json").is_file():
@@ -694,91 +967,96 @@ class ServiceRegistry:
                     pass
 
 
+CONTROL_ACTIONS = {'checkpoint': 'request_checkpoint', 'stop': 'request_stop', 'sample': 'request_sample'}
+
+# Every per-run route, mounted under both `/api/runs` and `/api/v1/runs`. The
+# auth layer reads the same table, so a route cannot be served without it.
+RUN_ROUTES = (
+    ('', 'run', None),
+    ('/summary', 'run_summary', None),
+    ('/status', 'run', None),
+    ('/stop', 'control:stop', ['POST']),
+    ('/checkpoint', 'control:checkpoint', ['POST']),
+    ('/sample', 'control:sample', ['POST']),
+    ('/requests/{request_id}', 'request_status', None),
+    ('/metrics', 'run_metrics', None),
+    ('/metrics/catalog', 'catalog', None),
+    ('/contributions', 'contributions', None),
+    ('/model', 'model', None),
+    ('/architecture', 'model', None),
+    ('/events', 'events', None),
+    ('/views', 'views', None),
+    ('/views/{map_revision}/bootstrap', 'bootstrap', None),
+    ('/stream', 'stream', None),
+    ('/artifacts', 'artifacts', None),
+    ('/artifacts/{artifact_id}', 'artifacts', None),
+    ('/thumbnail', 'thumbnail', None),
+)
+RUN_PREFIXES = ('/api/runs', '/api/v1/runs')
+
+
 def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=None):
     """Construct without importing torch, running maps or computing measurements."""
     try:
         from starlette.applications import Starlette
         from starlette.requests import Request
         from starlette.responses import JSONResponse, Response, StreamingResponse
-        from starlette.routing import Route
+        from starlette.routing import Match, Route
     except ImportError as exc:
         raise RuntimeError('Local serving requires hypergan[web]') from exc
     shutdown_event = asyncio.Event()
 
-    def _is_transport_closing(cycle):
-        if cycle is None:
-            return False
-        if getattr(cycle, 'disconnected', False):
-            return True
-        transport = getattr(cycle, 'transport', None)
-        if transport is None:
-            return False
-        if getattr(transport, '_conn_lost', 0) or getattr(transport, '_closing', False):
-            return True
-        is_closing = getattr(transport, 'is_closing', None)
-        return bool(is_closing and is_closing())
-
-    def _mark_cycle_disconnected(cycle, stream_stop=None):
-        if stream_stop is not None:
-            stream_stop.set()
-        if cycle is not None and not getattr(cycle, 'disconnected', False):
-            cycle.disconnected = True
-            msg_event = getattr(cycle, 'message_event', None)
-            if msg_event is not None:
-                msg_event.set()
-
     class ClosingStream(StreamingResponse):
-        async def __call__(self, scope, receive, send):
-            state = scope.setdefault('state', {})
-            cycle = state.get('_uvicorn_cycle')
-            stream_stop = state.setdefault('_stream_stop', asyncio.Event())
-            was_keep_alive = bool(getattr(cycle, 'keep_alive', False))
+        """SSE that also ends on viewer shutdown or a client that stops reading.
 
-            def _stopping():
-                if shutdown_event.is_set() or stream_stop.is_set():
-                    return True
-                if _is_transport_closing(cycle):
-                    return True
-                if was_keep_alive and not getattr(cycle, 'keep_alive', True):
-                    return True
-                return False
+        Only the ASGI contract is used: Starlette ends the response when
+        `receive` yields `http.disconnect`, and this wrapper yields one as well
+        on shutdown or after a missed send deadline, then completes the response.
+        Starlette only listens on `receive` while the server advertises ASGI
+        spec_version < 2.4 (uvicorn 0.54 reports 2.3); a server advertising 2.4
+        would skip this shutdown wakeup and rely on send failing instead.
+        """
+        async def __call__(self, scope, receive, send):
+            stop = asyncio.Event()
+            progress = {'started': False, 'complete': False}
 
             async def stream_receive():
-                receive_task = asyncio.create_task(receive())
-                stop_task = asyncio.create_task(stream_stop.wait())
-                shutdown_task = asyncio.create_task(shutdown_event.wait())
+                waiters = [asyncio.ensure_future(receive()), asyncio.ensure_future(stop.wait()),
+                           asyncio.ensure_future(shutdown_event.wait())]
                 try:
-                    while not _stopping():
-                        done, _ = await asyncio.wait(
-                            {receive_task, stop_task, shutdown_task},
-                            timeout=0.05,
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-                        if receive_task in done:
-                            return receive_task.result()
-                    _mark_cycle_disconnected(cycle, stream_stop)
-                    transport = getattr(cycle, 'transport', None)
-                    if transport is not None and hasattr(transport, 'close'):
-                        transport.close()
-                    return {'type': 'http.disconnect'}
+                    done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+                    return waiters[0].result() if waiters[0] in done else {'type': 'http.disconnect'}
                 finally:
-                    for task in (receive_task, stop_task, shutdown_task):
-                        if not task.done():
-                            task.cancel()
-                            try:
-                                await task
-                            except asyncio.CancelledError:
-                                pass
+                    for waiter in waiters:
+                        waiter.cancel()
+                    await asyncio.gather(*waiters, return_exceptions=True)
+
+            async def deadline_send(message):
+                if message['type'] == 'http.response.start':
+                    progress['started'] = True
+                    return await send(message)
+                progress['complete'] = not message.get('more_body', False)
+                try:
+                    await asyncio.wait_for(send(message), timeout=STREAM_SEND_DEADLINE)
+                except asyncio.TimeoutError as exc:
+                    stop.set()
+                    raise StreamSendDeadline('Stream client exceeded the send deadline') from exc
+                # Yield once per frame so a lost connection is observed before
+                # a replay burst writes the next one.
+                await asyncio.sleep(0)
 
             try:
-                return await super().__call__(scope, stream_receive, send)
+                await super().__call__(scope, stream_receive, deadline_send)
+                if progress['started'] and not progress['complete']:
+                    await deadline_send({'type': 'http.response.body', 'body': b'', 'more_body': False})
             finally:
                 await self.body_iterator.aclose()
 
     root = Path(run_dir).resolve()
     registry = ServiceRegistry(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
-    single_service = ObservationService(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
+    single_service = None
     if registry.is_single():
+        single_service = ObservationService(root, poll_seconds=poll_seconds, history_timeout=history_timeout)
         registry.services[root.name] = single_service
 
     dev = dev_assets() if dev is None else dev
@@ -798,6 +1076,9 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             await registry.close_all()
             if single_service is not None:
                 await single_service.close()
+
+    def authenticated(request):
+        return request.scope.get('state', {}).get('authenticated', False)
 
     async def session_exchange(request):
         if request.headers.get('content-type', '').split(';')[0] != 'application/json':
@@ -820,34 +1101,23 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                           secure=secure, max_age=86400, path='/')
         return result
 
-    async def capabilities(request):
+    def capabilities_payload():
         from . import __version__
         from .provenance import hypergan_source
         from .web_assets import compute_asset_hash
         from .metrics_reducer import descriptor
+        from .web_service import MAX_BOOTSTRAP_BYTES
 
         source = hypergan_source()
-        manifest_file = root / "manifest.json"
-        if manifest_file.is_file():
-            if single_service.run_id is None:
-                try:
-                    m = read_json(root, "manifest.json")
-                    if m.get("run_id"):
-                        single_service.run_id = m["run_id"]
-                        single_service.manifest = m
-                        registry.services[m["run_id"]] = single_service
-                except Exception:
-                    pass
-
         runs = registry._discover_runs()
-        if registry.is_single():
+        if registry.is_single() and single_service is not None:
+            # Read only: the service registers its own streams when it activates.
             run_id = single_service.run_id
             status = single_service.manifest.get('status', 'waiting')
         else:
             run_id = None
             status = 'ready' if runs else 'waiting'
-
-        return JSONResponse({
+        return {
             'schema_version': 1,
             'api_version': 'v1',
             'run_id': run_id,
@@ -862,90 +1132,152 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             'auth_mode': session.auth_mode,
             'public_origin': session.public_origin,
             'transports': ['sse'],
-            'controls': [],
+            'controls': list(CONTROL_ACTIONS),
             'reducer': descriptor(),
             'limits': {
-                'subscribers': 32, 'queue_bytes': 1048576, 'groups': 2048,
-                'bootstrap_bytes': 1048576, 'stream_count': MAX_STREAMS,
+                'subscribers': MAX_SUBSCRIBERS, 'queue_bytes': MAX_QUEUE_BYTES, 'groups': MAX_GROUPS,
+                'bootstrap_bytes': MAX_BOOTSTRAP_BYTES, 'stream_count': MAX_STREAMS,
                 'history_seconds': history_timeout
             }
-        })
+        }
+
+    async def capabilities(request):
+        return JSONResponse(await asyncio.to_thread(capabilities_payload))
 
     async def root_index(request):
-        if registry.is_single() and not registry._iter_registered_run_dirs():
-            ensure_run_projected(root)
+        if await asyncio.to_thread(registry.is_single):
             return await static(request)
-        runs = registry._discover_runs()
-        html_content = render_run_index_html(runs, root)
+        login = not authenticated(request)
+        runs = [] if login else await asyncio.to_thread(registry._discover_runs)
+        html_content = render_run_index_html(runs, root, login=login)
         return Response(html_content, media_type='text/html', headers={'Cache-Control': 'no-store'})
 
     async def run_detail_page(request):
-        run_id = request.path_params.get('run_id')
-        target_dir = registry.resolve_run_dir(run_id)
-        if target_dir is None:
-            raise FileNotFoundError(f'Unknown run identity: {run_id}')
-        ensure_run_projected(target_dir)
+        # The shell is public; only a signed-in viewer learns whether a run exists.
+        if authenticated(request):
+            run_id = request.path_params.get('run_id')
+            if await asyncio.to_thread(registry.resolve_run_dir, run_id) is None:
+                raise FileNotFoundError(f'Unknown run identity: {run_id}')
         return await static(request, asset_override='index.html')
 
     async def runs_list(request):
-        return JSONResponse(registry._discover_runs())
+        return JSONResponse(await asyncio.to_thread(registry._discover_runs))
 
-    def _is_run_considered_active(target_dir: Path, *, allow_status_when_patched: bool = False) -> tuple[bool, int | None]:
+    async def _read_control_body(request) -> dict:
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw.extend(chunk)
+            if len(raw) > 4096:
+                raise ValueError('Control body exceeds 4096 bytes')
+        if not raw or not bytes(raw).strip():
+            return {}
         try:
-            is_active, pid = _insp_mod.check_run_active(target_dir)
-        except Exception:
-            is_active, pid = False, None
-        if is_active:
-            return True, pid
-        if allow_status_when_patched and getattr(_insp_mod, "check_run_active", None) is _ORIG_CHECK_RUN_ACTIVE:
-            summary = read_run_summary(target_dir)
-            if summary.get("status") == "running" and not (target_dir / ".run.lock").exists():
-                return True, summary.get("pid")
-        return False, pid
+            body = json.loads(raw)
+        except (ValueError, UnicodeError) as exc:
+            raise ValueError('Invalid JSON control body') from exc
+        if not isinstance(body, dict) or not set(body).issubset({'request_id', 'attempt_id'}):
+            raise ValueError('Control body must be a JSON object with optional request_id and attempt_id')
+        return body
 
-    async def stop_run_endpoint(request):
-        run_id = request.path_params['run_id']
-        target_dir = registry.resolve_run_dir(run_id)
-        if target_dir is None:
-            raise FileNotFoundError(f'Unknown run identity: {run_id}')
-        stop_patched = getattr(_insp_mod, "stop_run", None) is not _ORIG_STOP_RUN
-        is_active, _ = _is_run_considered_active(target_dir, allow_status_when_patched=stop_patched)
-        if not is_active:
-            return JSONResponse({'ok': False, 'action': 'stop', 'run_id': run_id, 'error': f"Run '{run_id}' is not active"}, status_code=400)
-        res = await asyncio.to_thread(_insp_mod.stop_run, target_dir)
-        registry._summary_cache.pop(target_dir, None)
-        return JSONResponse({'ok': True, 'action': 'stop', 'run_id': run_id, 'run_dir': str(target_dir), 'result': res})
+    def _run_active(target_dir: Path) -> bool:
+        try:
+            return bool(_insp_mod.check_run_active(target_dir)[0])
+        except OSError:
+            return False
 
-    async def checkpoint_run_endpoint(request):
+    def control_endpoint(action):
+        """One handler for every durable control request; stop also signals the trainer."""
+        async def endpoint(request):
+            from . import api as _api_mod
+            from .run_requests import request_status
+            run_id = request.path_params['run_id']
+
+            def failure(message):
+                return JSONResponse({'ok': False, 'action': action, 'run_id': run_id, 'error': message}, status_code=400)
+
+            target_dir = await asyncio.to_thread(registry.resolve_run_dir, run_id)
+            if target_dir is None:
+                raise FileNotFoundError(f'Unknown run identity: {run_id}')
+            try:
+                body = await _read_control_body(request)
+            except ValueError as exc:
+                return failure(str(exc))
+            request_id, attempt_id = body.get('request_id'), body.get('attempt_id')
+
+            def reply(receipt, result):
+                receipt_request = receipt.get('request') if isinstance(receipt, dict) else None
+                payload = {
+                    'ok': True, 'action': action, 'run_id': run_id, 'run_dir': str(target_dir),
+                    'request_id': ((receipt_request or {}).get('request_id')
+                                   or (result.get('request_id') if isinstance(result, dict) else None)
+                                   or request_id),
+                    'status': (receipt if isinstance(receipt, dict) else result or {}).get('status', 'pending'),
+                    'receipt': receipt, 'result': result,
+                }
+                if action == 'stop':
+                    payload.update(remote=bool(result.get('remote')), signaled=bool(result.get('signaled')))
+                return JSONResponse(payload)
+
+            if not await asyncio.to_thread(_run_active, target_dir):
+                # A retry of a request the run already acknowledged keeps its
+                # receipt; anything else is refused rather than queued for no one.
+                receipt = None
+                if request_id is not None:
+                    try:
+                        receipt = await asyncio.to_thread(request_status, target_dir, request_id)
+                    except (OSError, ValueError, KeyError):
+                        receipt = None
+                if not isinstance(receipt, dict) or receipt.get('request', {}).get('action') != action:
+                    return failure(f"Run '{run_id}' is not active")
+                return reply(receipt, receipt)
+
+            submit = getattr(_api_mod, CONTROL_ACTIONS[action])
+            receipt = None
+            try:
+                receipt = await asyncio.to_thread(submit, target_dir, attempt_id=attempt_id, request_id=request_id)
+            except (OSError, ValueError, RuntimeError) as exc:
+                message = str(exc)
+                initializing = 'initializing' in message.lower() or not (target_dir / 'manifest.json').is_file()
+                # A trainer still in step 0 has no request inbox yet, but stop can signal it.
+                if action != 'stop' or not initializing:
+                    if initializing:
+                        message = f'Run is still initializing step 0; {action} will be available once step 1 starts'
+                    return failure(message)
+            if action != 'stop':
+                registry._summary_cache.pop(target_dir, None)
+                return reply(receipt, receipt)
+            stop_id = request_id or (receipt['request']['request_id'] if isinstance(receipt, dict) else None)
+            try:
+                result = await asyncio.to_thread(_insp_mod.stop_run, target_dir, request_id=stop_id, attempt_id=attempt_id)
+            except (OSError, ValueError, RuntimeError) as exc:
+                if receipt is None:
+                    return failure(str(exc))
+                result = {'status': 'stopping', 'run_id': run_id, 'run_dir': str(target_dir), 'receipt': receipt}
+            if receipt is None and isinstance(result.get('receipt'), dict):
+                receipt = result['receipt']
+            registry._summary_cache.pop(target_dir, None)
+            return reply(receipt, result)
+        return endpoint
+
+    async def request_status_endpoint(request):
         from . import api as _api_mod
-        from . import checkpoints as _ckpt_mod
         run_id = request.path_params['run_id']
-        target_dir = registry.resolve_run_dir(run_id)
+        request_id = request.path_params['request_id']
+        target_dir = await asyncio.to_thread(registry.resolve_run_dir, run_id)
         if target_dir is None:
             raise FileNotFoundError(f'Unknown run identity: {run_id}')
-        ckpt_fn = getattr(_ckpt_mod, 'request_checkpoint', None) or getattr(_api_mod, 'request_checkpoint', None)
-        is_active, _ = _is_run_considered_active(target_dir, allow_status_when_patched=True)
-        if not is_active:
-            return JSONResponse({'ok': False, 'action': 'checkpoint', 'run_id': run_id, 'error': f"Run '{run_id}' is not active"}, status_code=400)
-        try:
-            res = await asyncio.to_thread(ckpt_fn, target_dir)
-        except Exception as exc:
-            msg = str(exc)
-            if 'initializing' in msg.lower() or not (target_dir / 'manifest.json').is_file():
-                msg = 'Run is still initializing step 0; checkpoint will be available once step 1 starts'
-            return JSONResponse({'ok': False, 'action': 'checkpoint', 'run_id': run_id, 'error': msg}, status_code=400)
-        registry._summary_cache.pop(target_dir, None)
-        return JSONResponse({'ok': True, 'action': 'checkpoint', 'run_id': run_id, 'run_dir': str(target_dir), 'result': res})
+        receipt = await asyncio.to_thread(_api_mod.request_status, target_dir, request_id)
+        return JSONResponse(receipt)
 
     async def run_summary_endpoint(request):
         svc = await registry.get(request.path_params['run_id'])
-        summary = registry._read_cached_summary(svc.root)
+        summary = await asyncio.to_thread(registry._read_cached_summary, svc.root)
         pub = svc.public_manifest()
         return JSONResponse({**pub, **summary})
 
     async def run_metrics_summary(request):
         svc = await registry.get(request.path_params['run_id'])
-        summary = registry._read_cached_summary(svc.root)
+        summary = await asyncio.to_thread(registry._read_cached_summary, svc.root)
         catalog_data = {}
         try:
             from .metrics import read_catalog
@@ -964,20 +1296,15 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         })
 
     async def run_contributions(request):
+        """One bounded page of projected contributions; follow `cursor` while `has_more`."""
         svc = await registry.get(request.path_params['run_id'])
-        mapping = MapSpec()
-        contrib_path = svc.root / 'views' / mapping.revision / 'contributions.jsonl'
-        if not contrib_path.is_file():
-            contrib_path = svc.root / 'views' / 'default' / 'contributions.jsonl'
-        items = []
-        if contrib_path.is_file():
-            for line in contrib_path.read_text(encoding='utf-8').splitlines():
-                if line.strip():
-                    try:
-                        items.append(json.loads(line))
-                    except Exception:
-                        pass
-        return JSONResponse({'run_id': svc.run_id or request.path_params['run_id'], 'contributions': items})
+        cursor = request.query_params.get('cursor')
+        limit = int(request.query_params.get('limit', '100'))
+        if not 1 <= limit <= 1000:
+            raise ValueError('limit must be in 1..1000')
+        frames, _, page = await asyncio.to_thread(svc.page, 'projection:' + MapSpec().revision, cursor, limit=limit)
+        return JSONResponse({'run_id': svc.run_id or request.path_params['run_id'], 'contributions': frames,
+                             'cursor': page['cursor'], 'has_more': page['has_more']})
 
     async def run(request):
         svc = await registry.get(request.path_params['run_id'])
@@ -1038,26 +1365,24 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         run_id = request.path_params.get('run_id')
         if run_id:
             svc = await registry.get(run_id)
-        elif registry.is_single():
-            svc = registry.services.get(root.name) or next(iter(registry.services.values()), None)
-            if not svc:
-                svc = await registry.get(root.name)
+        elif single_service is not None and await asyncio.to_thread(registry.is_single):
+            # A root that was empty at startup becomes a dashboard once runs appear.
+            svc = single_service
         else:
             async def root_events():
-                yield 'event: ready\ndata: {"status": "ready"}\n\n'.encode('utf-8')
+                yield sse('ready', {'status': 'ready'})
                 while True:
                     await asyncio.sleep(15.0)
-                    yield 'event: ping\ndata: {}\n\n'.encode('utf-8')
+                    yield sse('ping', {})
             return ClosingStream(root_events(), media_type='text/event-stream',
                                  headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
         stream_id = request.query_params.get('stream_id', '*')
         cursor = request.query_params.get('cursor')
-        temporary, _ = svc.subscribe(stream_id)
-        svc.subscribers.remove(temporary)
-        if cursor is not None:
-            from .web_service import cursor_offset
-            cursor_offset(cursor)
+        # Refuse a bad selector, a full viewer or a malformed cursor as HTTP 400,
+        # before the event stream starts.
+        svc.check_subscription(stream_id)
+        cursor_offset(cursor)
         return ClosingStream(svc.events(stream_id, cursor), media_type='text/event-stream',
                              headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
 
@@ -1083,6 +1408,53 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                             headers={'Content-Disposition': 'attachment; filename="samples.json"'})
         return Response(data, media_type='application/octet-stream',
                         headers={'Content-Disposition': 'attachment; filename="artifact.bin"'})
+
+    async def thumbnail_endpoint(request):
+        run_id = request.path_params['run_id']
+        svc = await registry.get(run_id)
+        target_dir = svc.root
+        if target_dir is None or not target_dir.is_dir():
+            raise FileNotFoundError(f"Unknown run directory for run: {run_id}")
+
+        target_root = target_dir.resolve()
+
+        def find_png_bytes() -> bytes | None:
+            from .image_grids import inspect_png
+            try:
+                data = read_json(target_root, "previews/index.json", max_bytes=PREVIEW_INDEX_BYTES)
+                for prev in reversed(data.get("previews", [])):
+                    grid_info = prev.get("image_grid")
+                    if isinstance(grid_info, dict) and isinstance(grid_info.get("path"), str):
+                        try:
+                            raw_bytes = read_bytes(target_root, grid_info["path"], max_bytes=16 * 1048576)
+                            inspect_png(raw_bytes)
+                            return raw_bytes
+                        except Exception:
+                            continue
+            except (OSError, ValueError):
+                pass
+            previews_dir = (target_root / "previews").resolve()
+            if previews_dir.is_dir() and previews_dir.is_relative_to(target_root):
+                try:
+                    pngs = sorted(previews_dir.rglob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+                    for p in pngs:
+                        try:
+                            rel = p.relative_to(target_root).as_posix()
+                            raw_bytes = read_bytes(target_root, rel, max_bytes=16 * 1048576)
+                            inspect_png(raw_bytes)
+                            return raw_bytes
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+            return None
+
+        png_data = await asyncio.to_thread(find_png_bytes)
+        if png_data is None:
+            raise FileNotFoundError("No preview thumbnail available for this run")
+        rev = (request.query_params.get("rev") or "").strip()
+        cache_control = "private, max-age=3600" if rev else "no-cache"
+        return Response(png_data, media_type="image/png", headers={"Cache-Control": cache_control})
 
     async def static(request, asset_override=None):
         asset = asset_override or request.path_params.get('asset', 'index.html')
@@ -1125,53 +1497,40 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
         code = 404 if isinstance(exc, FileNotFoundError) else 400
         return JSONResponse({'error': str(exc)}, status_code=code, headers={'Cache-Control': 'no-store'})
 
-    routes = [
-        Route('/', root_index),
-        Route('/runs/{run_id}', run_detail_page),
-        Route('/runs/{run_id}/{path:path}', run_detail_page),
-        Route('/assets/{asset}', static),
-        Route('/reducers/{asset}', reducer_asset),
-        Route('/api/runs', runs_list),
-        Route('/api/runs/{run_id}', run),
-        Route('/api/runs/{run_id}/summary', run_summary_endpoint),
-        Route('/api/runs/{run_id}/status', run),
-        Route('/api/runs/{run_id}/stop', stop_run_endpoint, methods=['POST']),
-        Route('/api/runs/{run_id}/checkpoint', checkpoint_run_endpoint, methods=['POST']),
-        Route('/api/runs/{run_id}/metrics', run_metrics_summary),
-        Route('/api/runs/{run_id}/metrics/catalog', catalog),
-        Route('/api/runs/{run_id}/contributions', run_contributions),
-        Route('/api/runs/{run_id}/model', model),
-        Route('/api/runs/{run_id}/architecture', model),
-        Route('/api/runs/{run_id}/events', events),
-        Route('/api/runs/{run_id}/views', views),
-        Route('/api/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
-        Route('/api/runs/{run_id}/stream', stream),
-        Route('/api/runs/{run_id}/artifacts', artifacts),
-        Route('/api/runs/{run_id}/artifacts/{artifact_id}', artifacts),
-        Route('/api/v1/session', session_exchange, methods=['POST']),
-        Route('/api/v1/capabilities', capabilities),
-        Route('/api/v1/openapi.json', openapi),
-        Route('/api/v1/runs', runs_list),
-        Route('/api/v1/stream', stream),
-        Route('/api/v1/runs/{run_id}', run),
-        Route('/api/v1/runs/{run_id}/summary', run_summary_endpoint),
-        Route('/api/v1/runs/{run_id}/status', run),
-        Route('/api/v1/runs/{run_id}/stop', stop_run_endpoint, methods=['POST']),
-        Route('/api/v1/runs/{run_id}/checkpoint', checkpoint_run_endpoint, methods=['POST']),
-        Route('/api/v1/runs/{run_id}/metrics', run_metrics_summary),
-        Route('/api/v1/runs/{run_id}/metrics/catalog', catalog),
-        Route('/api/v1/runs/{run_id}/contributions', run_contributions),
-        Route('/api/v1/runs/{run_id}/model', model),
-        Route('/api/v1/runs/{run_id}/architecture', model),
-        Route('/api/v1/runs/{run_id}/events', events),
-        Route('/api/v1/runs/{run_id}/views', views),
-        Route('/api/v1/runs/{run_id}/views/{map_revision}/bootstrap', bootstrap),
-        Route('/api/v1/runs/{run_id}/stream', stream),
-        Route('/api/v1/runs/{run_id}/artifacts', artifacts),
-        Route('/api/v1/runs/{run_id}/artifacts/{artifact_id}', artifacts),
+    run_handlers = {'run': run, 'run_summary': run_summary_endpoint, 'request_status': request_status_endpoint,
+                    'run_metrics': run_metrics_summary, 'catalog': catalog, 'contributions': run_contributions,
+                    'model': model, 'events': events, 'views': views, 'bootstrap': bootstrap,
+                    'stream': stream, 'artifacts': artifacts, 'thumbnail': thumbnail_endpoint,
+                    **{'control:' + action: control_endpoint(action) for action in CONTROL_ACTIONS}}
+    # (path, endpoint, methods, public). Public routes are the HTML shell, its
+    # static assets and the credential exchange; in token mode everything else
+    # under /api requires the bearer or the session cookie.
+    table = [
+        ('/', root_index, None, True),
+        ('/runs/{run_id}', run_detail_page, None, True),
+        ('/runs/{run_id}/{path:path}', run_detail_page, None, True),
+        ('/assets/{asset}', static, None, True),
+        ('/reducers/{asset}', reducer_asset, None, True),
+        ('/api/v1/session', session_exchange, ['POST'], True),
+        ('/api/v1/capabilities', capabilities, None, False),
+        ('/api/v1/openapi.json', openapi, None, False),
+        ('/api/v1/stream', stream, None, False),
     ]
+    for prefix in RUN_PREFIXES:
+        table.append((prefix, runs_list, None, False))
+        table.extend((prefix + '/{run_id}' + suffix, run_handlers[name], methods, False)
+                     for suffix, name, methods in RUN_ROUTES)
     if dev.active:
-        routes.extend([Route(VERSION_ROUTE, dev_version), Route(RELOAD_ASSET, dev_reload)])
+        table.extend([(VERSION_ROUTE, dev_version, None, True), (RELOAD_ASSET, dev_reload, None, True)])
+    routes = [Route(path, endpoint, methods=methods) for path, endpoint, methods, _ in table]
+    public_routes = {id(route) for route, entry in zip(routes, table) if entry[3]}
+
+    def is_public(scope):
+        for route in routes:
+            if route.matches(scope)[0] is Match.FULL:
+                return id(route) in public_routes
+        return False
+
     app = Starlette(routes=routes, lifespan=lifespan,
                     exception_handlers={ValueError: error_handler, FileNotFoundError: error_handler})
     app.state.observations = single_service
@@ -1189,21 +1548,17 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                                             forwarded_proto=request.headers.get('x-forwarded-proto'),
                                             forwarded_host=request.headers.get('x-forwarded-host'))
             if channel is None:
-                return await JSONResponse({'error': 'Invalid local Host or Origin'}, status_code=403)(scope, receive, send)
-            cycle = getattr(send, '__self__', None)
+                return await JSONResponse({'error': 'Invalid local Host or Origin; list another name for this machine '
+                                                     'in HYPERGAN_VIEWER_HOSTS or name a proxy with --public-origin'},
+                                           status_code=403)(scope, receive, send)
+            signed_in = session.authenticated(authorization=request.headers.get('authorization'),
+                                              cookie=request.cookies.get(session.cookie_name))
             state = scope.setdefault('state', {})
             state['viewer_channel'] = channel
-            state['_uvicorn_cycle'] = cycle
-            stream_stop = state.setdefault('_stream_stop', asyncio.Event())
-            path = scope['path']
-            public = (path == '/' or path.startswith('/assets/') or path.startswith('/reducers/')
-                      or path == '/api/v1/session' or path == '/api/v1/runs'
-                      or path == '/api/runs' or path.startswith('/api/runs/')
-                      or path.startswith('/runs/')
-                      or (dev.active and path.startswith('/dev/')))
-            if not public and not session.authenticated(authorization=request.headers.get('authorization'),
-                                                       cookie=request.cookies.get(session.cookie_name)):
+            state['authenticated'] = signed_in
+            if not signed_in and not is_public(scope):
                 return await JSONResponse({'error': 'Viewer credential required'}, status_code=401)(scope, receive, send)
+
             async def secure_send(message):
                 if message['type'] == 'http.response.start':
                     headers = list(message.get('headers', []))
@@ -1214,23 +1569,7 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
                     if b'cache-control' not in present:
                         headers.append((b'cache-control', b'no-store'))
                     message = dict(message, headers=headers)
-                if _is_transport_closing(cycle):
-                    _mark_cycle_disconnected(cycle, stream_stop)
-                    if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
-                        await asyncio.sleep(0)
-                    return
-                if message['type'] == 'http.response.body' and scope['path'].endswith('/stream'):
-                    try:
-                        await asyncio.wait_for(send(message), timeout=5)
-                    except asyncio.TimeoutError as exc:
-                        raise OSError('Stream client exceeded the send deadline') from exc
-                    if _is_transport_closing(cycle):
-                        _mark_cycle_disconnected(cycle, stream_stop)
-                    await asyncio.sleep(0)
-                else:
-                    await send(message)
-                    if _is_transport_closing(cycle):
-                        _mark_cycle_disconnected(cycle, stream_stop)
+                await send(message)
             return await app(scope, receive, secure_send)
     return AuthenticatedApp()
 
@@ -1258,10 +1597,11 @@ def openapi_schema(*, auth_mode='token', cookie_name=LocalSession.cookie_name):
         '/stream': 'SSE run discovery and future stream registration',
         '/runs/{run_id}/artifacts': 'Explicit artifact index',
         '/runs/{run_id}/artifacts/{artifact_id}': 'Bounded digest-verified indexed artifact download',
+        '/runs/{run_id}/requests/{request_id}': 'Durable control request acknowledgement receipt',
     }
     for route, description in descriptions.items():
         params = [{'name': name, 'in': 'path', 'required': True, 'schema': {'type': 'string'}}
-                  for name in ('run_id', 'map_revision', 'artifact_id') if '{' + name + '}' in route]
+                  for name in ('run_id', 'map_revision', 'artifact_id', 'request_id') if '{' + name + '}' in route]
         paths['/api/v1' + route] = {'get': {'description': description, 'parameters': params,
             'security': [{'bearerAuth': []}, {'cookieAuth': []}],
             'responses': {'200': {'description': 'Success'}, '202': {'description': 'Background indexing or reduction'},
@@ -1276,6 +1616,7 @@ def openapi_schema(*, auth_mode='token', cookie_name=LocalSession.cookie_name):
     for action_route, action_desc in (
         ('/api/v1/runs/{run_id}/checkpoint', 'Request an immediate checkpoint on an active run'),
         ('/api/v1/runs/{run_id}/stop', 'Request a graceful stop on an active run'),
+        ('/api/v1/runs/{run_id}/sample', 'Request an immediate preview/sample on an active run'),
     ):
         paths[action_route] = {'post': {'description': action_desc, 'parameters': run_id_param,
             'security': [{'bearerAuth': []}, {'cookieAuth': []}],
@@ -1302,6 +1643,7 @@ def run_socket(run_dir, bound_socket, session, *, history_seconds=180):
     app = create_app(run_dir, session, history_timeout=history_seconds)
     config = uvicorn.Config(app, host=session.bind_host, port=bound_socket.getsockname()[1],
                             access_log=False, log_level='warning', timeout_graceful_shutdown=1)
+    logging.getLogger('uvicorn.error').addFilter(_quiet_send_deadline)
 
     class _Server(uvicorn.Server):
         def handle_exit(self, sig, frame):

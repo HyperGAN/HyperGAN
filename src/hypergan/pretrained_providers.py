@@ -21,17 +21,56 @@ def _torchvision_resnet18():
     return model
 
 
+def _resnet18_shape_fn(input_shape, output="features", layer="", readout="", layers=()):
+    """Symbolic shape calculation for ResNet-18 without weight tracing or module instantiation."""
+    b = input_shape[0]
+    h = input_shape[2] if len(input_shape) > 2 else 32
+    w = input_shape[3] if len(input_shape) > 3 else 32
+
+    layer_map = {
+        "layer1": (b, 64, h // 4, w // 4),
+        "layer2": (b, 128, h // 8, w // 8),
+        "layer3": (b, 256, h // 16, w // 16),
+        "layer4": (b, 512, h // 32, w // 32),
+    }
+    if layers:
+        return tuple(layer_map.get(l, (b, 512, h // 32, w // 32)) for l in layers)
+    if layer:
+        return layer_map.get(layer, (b, 512, h // 32, w // 32))
+    if output == "features":
+        return (b, 512)
+    if output in ("logits", "classifier"):
+        return (b, 1000)
+    return (b, 512)
+
+
+def _dinov3_shape_fn(input_shape, output="features", layer="", readout="", layers=()):
+    """Symbolic shape calculation for DINOv3 ViT-S/16 without meta-device weight tracing."""
+    b = input_shape[0]
+    h = input_shape[2] if len(input_shape) > 2 else 128
+    w = input_shape[3] if len(input_shape) > 3 else 128
+    grid_h = h // 16
+    grid_w = w // 16
+    if readout == "patch_tokens":
+        return (b, grid_h * grid_w, 384)
+    if readout == "multidepth":
+        return (b, 1536, grid_h, grid_w)
+    return (b, 384)
+
+
 def register_providers(registry, providers=None):
     """Register host-approved builders on this registry, without global state."""
     from .network_config import validate_pretrained_providers
     options = {} if providers is None else providers
     validate_pretrained_providers(options)
     if 'torchvision_resnet18' not in registry.pretrained_providers:
-        registry.pretrained_provider('torchvision_resnet18', _torchvision_resnet18)
+        registry.pretrained_provider('torchvision_resnet18', _torchvision_resnet18,
+                                     shape_fn=_resnet18_shape_fn)
     for name, config in options.items():
         registry.pretrained_provider(name, _dinov3_builder(config['source_path'], config['source_commit']),
                                      readouts={'patch_tokens': _dinov3_patch_tokens,
-                                               'multidepth': _dinov3_multidepth})
+                                               'multidepth': _dinov3_multidepth},
+                                     shape_fn=_dinov3_shape_fn)
     return registry
 
 
@@ -100,5 +139,6 @@ def dinov3_registry(source_path, source_commit):
     registry = register_providers(Registry.builtins())
     registry.pretrained_provider('dinov3_vits16', _dinov3_builder(source_path, source_commit),
                                  readouts={'patch_tokens': _dinov3_patch_tokens,
-                                           'multidepth': _dinov3_multidepth})
+                                           'multidepth': _dinov3_multidepth},
+                                 shape_fn=_dinov3_shape_fn)
     return registry

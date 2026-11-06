@@ -5,6 +5,10 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
+pytestmark = pytest.mark.multi_gpu
+
 
 def test_nccl_broker_binds_ranks_and_reaps_failed_group(tmp_path):
     driver = tmp_path / 'nccl_service_driver.py'

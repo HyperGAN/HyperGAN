@@ -1,9 +1,12 @@
 """Manual and interval snapshot evaluation against immutable EMA bundles.
 
-The public host is torch-free. The standalone command holds the run lock and pins bytes;
-interval evaluation runs under its training coordinator's lock. Both paths
-uses a fresh supervised worker, then atomically registers its independent result
-stream. No trainer state, training sampler, or training event writer is reused.
+The public host is torch-free. The standalone command does not take the run
+lock, so it can run beside training; it holds an owner lock on its own
+evaluation directory instead, which keeps the training process from recovering
+it as abandoned. Interval evaluation runs under its training coordinator's
+lock. Both paths use a fresh supervised worker, then atomically register an
+independent result stream. No trainer state, training sampler, or training
+event writer is reused.
 """
 import hashlib
 import json
@@ -14,14 +17,18 @@ from pathlib import Path
 import time
 import uuid
 
-from .config import fingerprint, load_config, resolve_config
+from foldlitedb.fileio import file_lock
+
+from .config import fingerprint, load_config
 from .metric_plugins import enabled_custom, finite_json, prepare_custom
 from .metrics import digest, metric_catalog
-from .run_state import atomic_json, run_lock, sync_directory
+from .run_state import atomic_json
 
 # Large transformer generators include position buffers as well as parameters.
 MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
 _EVAL_DIR_RE = re.compile(r'^(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})$')
+# Held by a manual evaluation for its whole lifetime; the OS releases it on death.
+OWNER_LOCK = '.owner.lock'
 
 
 def _normalize_eval_device(dev):
@@ -102,11 +109,14 @@ def _write_catalog(root, catalog):
 
 
 def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_path=None, bundle=None):
-    """Manually evaluate one configured snapshot metric lock-free and read-only.
+    """Manually evaluate one configured snapshot metric of a run.
+
+    It never changes training state, but writes its own evaluation directory,
+    the metric catalog and summary.json. It runs beside training without the
+    run lock, holding only its evaluation directory's owner lock.
 
     Each invocation starts a new evaluation ID. A failure publishes a failed
     receipt and source event; on_error=fail then raises with that receipt path.
-    Can run concurrently with training without taking run_lock.
     """
     import torch
     root = Path(run_dir).resolve()
@@ -173,11 +183,12 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
             candidate = root / candidate
         if candidate.is_dir():
             candidate = candidate / 'model.pt'
-        if candidate.is_file():
-            source_file = candidate.resolve()
-            bundle_dict = torch.load(source_file, map_location='cpu', weights_only=True)
-            step = bundle_dict.get('step', 0)
-            attempt_id = bundle_dict.get('identity', {}).get('attempt_id', attempt_id)
+        if not candidate.is_file():
+            raise ValueError(f'Bundle not found: {candidate}')
+        source_file = candidate.resolve()
+        bundle_dict = torch.load(source_file, map_location='cpu', weights_only=True)
+        step = bundle_dict.get('step', 0)
+        attempt_id = bundle_dict.get('identity', {}).get('attempt_id', attempt_id)
 
     if bundle_dict is None:
         target = checkpoint if checkpoint is not None else 'latest'
@@ -202,15 +213,22 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
     sanitized_metric = re.sub(r'[^A-Za-z0-9_-]', '_', metric_id)
     short_uuid = uuid.uuid4().hex[:8]
     dir_name = f"step-{step:08d}-{sanitized_metric}-{short_uuid}"
-    evaluation_id = dir_name
     bundle_dict.setdefault('identity', {})
-    bundle_dict['identity']['evaluation_id'] = evaluation_id
+    bundle_dict['identity']['evaluation_id'] = dir_name
     if not bundle_dict['identity'].get('attempt_id'):
         bundle_dict['identity']['attempt_id'] = attempt_id
     if not bundle_dict['identity'].get('run_id'):
         bundle_dict['identity']['run_id'] = manifest['run_id']
     directory = root / 'metrics' / 'evaluations' / dir_name
     directory.mkdir(parents=True, exist_ok=False)
+    with file_lock(directory, name=OWNER_LOCK):
+        return _evaluate_owned(root, manifest, selected, metric_id, directory, dir_name, step,
+                               attempt_id, source_file, bundle_dict, warnings_list)
+
+
+def _evaluate_owned(root, manifest, selected, metric_id, directory, evaluation_id, step,
+                    attempt_id, source_file, bundle_dict, warnings_list):
+    import torch
     snapshot = directory / 'snapshot.pt'
     torch.save(bundle_dict, snapshot)
     expected_hash = _sha256(snapshot)
@@ -316,11 +334,24 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
     return receipt
 
 
-def _recover_abandoned(root, run_id=None):
-    """Run-lock ownership proves no previous evaluator for this run is active.
+def _owner_alive(path):
+    """Whether a manual evaluation still holds this directory's owner lock."""
+    if not (path / OWNER_LOCK).is_file():
+        return False
+    try:
+        with file_lock(path, name=OWNER_LOCK):
+            return False
+    except RuntimeError:
+        return True
 
-    Completed registered results are immutable. A stopped coordinator's pending
-    evaluation is a failed observation, never a resumable partial accumulator.
+
+def _recover_abandoned(root, run_id=None):
+    """Run-lock ownership proves no previous interval evaluator for this run is active.
+
+    A manual evaluation runs without the run lock, so its directory is skipped
+    while its owner lock is held. Completed registered results are immutable. A
+    stopped coordinator's pending evaluation is a failed observation, never a
+    resumable partial accumulator.
     """
     root = Path(root)
     if (root / 'metrics').is_symlink():
@@ -344,7 +375,7 @@ def _recover_abandoned(root, run_id=None):
         if path.is_symlink() or not path.is_dir():
             raise ValueError('Evaluation entries must be ordinary directories')
         receipt_path = path / 'receipt.json'
-        if (path / 'stream.json').exists():
+        if (path / 'stream.json').exists() or _owner_alive(path):
             continue
         if not receipt_path.exists():
             (path / 'snapshot.pt').unlink(missing_ok=True)

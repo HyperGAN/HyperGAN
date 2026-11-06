@@ -16,12 +16,12 @@ use([
   CanvasRenderer,
 ]);
 export const chartColors = [
-  "#d7bb81",
-  "#8fbdaa",
-  "#b3a5d2",
-  "#d69478",
-  "#85b0cb",
-  "#c5b38f",
+  "#d7ff3f", // Signal
+  "#aacbfa", // Sky
+  "#d7bdf6", // Lilac
+  "#f0b28a", // Semantic warning / additional data series
+  "#f1f2ea", // Paper
+  "#a0a69a", // Stone
 ];
 const stepTooltip = (entries) =>
   entries.length
@@ -35,27 +35,27 @@ export function chartStyle(formatter) {
     animation: false,
     color: chartColors,
     grid: { left: 54, right: 20, top: 25, bottom: 36 },
-    textStyle: { fontFamily: "system-ui" },
+    textStyle: { fontFamily: '"IBM Plex Mono", monospace' },
     tooltip: {
       trigger: "axis",
       renderMode: "richText",
-      backgroundColor: "#28352e",
-      borderColor: "#526157",
-      textStyle: { color: "#e8e8df", fontSize: 10 },
+      backgroundColor: "#22251f",
+      borderColor: "#7c8471",
+      textStyle: { color: "#f1f2ea", fontSize: 10 },
       formatter: formatter || stepTooltip,
     },
     xAxis: {
       type: "value",
-      axisLabel: { color: "#85978b", fontSize: 9 },
-      axisLine: { lineStyle: { color: "#38483d" } },
+      axisLabel: { color: "#a0a69a", fontSize: 9 },
+      axisLine: { lineStyle: { color: "#35392f" } },
       splitLine: { show: false },
       axisTick: { show: false },
     },
     yAxis: {
       type: "value",
       scale: false,
-      axisLabel: { color: "#85978b", fontSize: 9 },
-      splitLine: { lineStyle: { color: "#2b3930" } },
+      axisLabel: { color: "#a0a69a", fontSize: 9 },
+      splitLine: { lineStyle: { color: "#35392f" } },
       axisLine: { show: false },
     },
   };

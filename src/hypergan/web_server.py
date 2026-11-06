@@ -35,7 +35,11 @@ from .web_service import (
 )
 from .web_session import LocalSession
 
-STATIC_ASSETS = {'index.html', 'app.js', 'view-worker.js', 'style.css', 'runs.js', 'runs.css', 'logo.png'}
+STATIC_ASSETS = {
+    'index.html', 'app.js', 'view-worker.js', 'style.css', 'runs.js', 'runs.css', 'logo.png',
+    'brand.css', '255labs-tokens.css', '255labs-lockup.svg',
+    'manrope-latin-variable.woff2', 'ibm-plex-mono-latin-400.woff2',
+}
 
 
 # Seconds an event stream waits for its client to accept one frame.
@@ -568,14 +572,16 @@ def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = Fa
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#101110">
   <title>HyperGAN Runs — Observatory</title>
   <link rel="icon" type="image/png" href="/assets/logo.png">
+  <link rel="stylesheet" href="/assets/brand.css">
   <link rel="stylesheet" href="/assets/runs.css">
   <script src="/assets/runs.js" defer></script>
 </head>
 <body>
   <header class="masthead">
-    <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="30" height="30" alt="" />HYPERGAN<span class="brand-separator">/</span><span class="brand-detail">EXPERIMENTS</span></a>
+    <a class="brand" href="/" aria-label="HyperGAN home"><img class="brand-mark" src="/assets/logo.png" width="30" height="30" alt="" />HyperGAN<span class="brand-separator">/</span><span class="brand-detail">EXPERIMENTS</span></a>
     <span class="root-path" title="{root}">{root}</span>
     <span id="live-indicator" class="{indicator_cls}" role="status"><i aria-hidden="true"></i><span id="refresh-status">{initial_status}</span></span>
   </header>
@@ -645,6 +651,12 @@ def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = Fa
     </div>
     <template id="run-row-template">{_render_run_row({})}</template>
   </main>
+  <footer class="brand-footer">
+    <span>HyperGAN · Training runs</span>
+    <a class="brand-endorsement" href="https://255labs.xyz" aria-label="HyperGAN by 255labs">
+      by <img src="/assets/255labs-lockup.svg" width="120" alt="255labs" />
+    </a>
+  </footer>
 </body>
 </html>'''
 
@@ -1469,6 +1481,8 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             'text/html' if asset.endswith('.html')
             else 'text/css' if asset.endswith('.css')
             else 'image/png' if asset.endswith('.png')
+            else 'image/svg+xml' if asset.endswith('.svg')
+            else 'font/woff2' if asset.endswith('.woff2')
             else 'text/javascript'
         )
         body = resource.read_bytes()

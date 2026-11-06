@@ -44,6 +44,18 @@ def test_normal_mode_keeps_packaged_assets_and_hides_dev_routes(tmp_path, monkey
         assert '/dev/reload.js' not in index.text
         assert index.headers['cache-control'] == 'no-store'
         assert 'etag' not in index.headers and 'last-modified' not in index.headers
+        # Brand resources load before authentication, with nosniff-safe types.
+        for asset, media in (
+            ('brand.css', 'text/css'),
+            ('255labs-tokens.css', 'text/css'),
+            ('255labs-lockup.svg', 'image/svg+xml'),
+            ('manrope-latin-variable.woff2', 'font/woff2'),
+            ('ibm-plex-mono-latin-400.woff2', 'font/woff2'),
+        ):
+            response = client.get(f'/assets/{asset}')
+            assert response.status_code == 200
+            assert response.headers['content-type'].split(';')[0] == media
+            assert response.content
         assert client.get('/dev/version').status_code == 404
         assert client.get('/dev/reload.js').status_code == 404
 

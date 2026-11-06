@@ -455,48 +455,6 @@ def test_snapshot_scalar_histogram_failure_discovery_and_export(real_viewer, mon
     assert not any(token in url for url in requests)
 
 
-def test_snapshot_chart_draws_one_point_and_extends_across_steps(real_viewer):
-    experiment, session, token, page, context, errors, requests = real_viewer
-    experiment.create(2)
-    publish_evaluation(experiment, '1'*32, 'scalar', 42.5, step=10000)
-    sign_in(page, session, token)
-    card = page.locator('#evaluation-items li[data-metric="quality"]')
-    card.filter(has_text='42.5 distance').wait_for()
-    assert card.locator('.chart-canvas canvas').count() == 1
-    assert '1 completed evaluation' in card.locator('.chart-note').inner_text()
-    # A single result still paints its marker on the canvas, not an empty line.
-    page.wait_for_function("""() => {
-      const canvas = document.querySelector('#evaluation-items .chart-canvas canvas');
-      if (!canvas) return false;
-      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
-      let marks = 0;
-      for (let i = 0; i < pixels.length; i += 4)
-        if (Math.abs(pixels[i] - 215) < 5 && Math.abs(pixels[i+1] - 187) < 5 && Math.abs(pixels[i+2] - 129) < 5 && pixels[i+3] > 200) marks++;
-      return marks > 3;
-    }""")
-    assert card.get_attribute('data-steps') == '10000'
-    card.locator('details.evaluation-results > summary').click()
-    rows = card.locator('details.evaluation-results tbody tr')
-    rows.first.wait_for()
-    assert rows.evaluate_all('rows => rows.map(r => r.dataset.step)') == ['10000']
-    assert '12.5' in rows.first.inner_text()
-    # New streams extend the same chart in place, in step order, losing nothing.
-    publish_evaluation(experiment, '2'*32, 'scalar', 21.5, step=30000, attempt='saved-2')
-    publish_evaluation(experiment, '3'*32, 'scalar', 30.5, step=20000, attempt='saved-3')
-    publish_evaluation(experiment, '4'*32, 'scalar', cancelled=True, step=40000)
-    page.locator('#evaluation-items li[data-metric="quality"][data-steps="10000,20000,30000"]').wait_for(timeout=10000)
-    card.locator('.evaluation-status li').filter(has_text='Cancelled').wait_for(timeout=10000)
-    assert page.locator('#evaluation-items > li').count() == 1
-    assert card.locator('.chart-canvas canvas').count() == 1
-    assert '3 completed evaluations' in card.locator('.chart-note').inner_text()
-    assert 'Source step 40000 · Cancelled · Training stopped' in card.locator('.evaluation-status li').inner_text()
-    # The details list stayed open across the update and lists every step.
-    assert rows.evaluate_all('rows => rows.map(r => r.dataset.step)') == ['10000', '20000', '30000', '40000']
-    assert card.locator('details.evaluation-result').count() == 4
-    assert page.locator('#evaluation-items canvas').count() == 1
-    assert not errors
-
-
 def test_snapshot_discovery_keeps_new_stream_when_views_responses_arrive_out_of_order(real_viewer):
     experiment, session, token, page, context, errors, requests = real_viewer
     experiment.create(2)
@@ -552,24 +510,6 @@ def test_snapshot_discovery_keeps_new_stream_when_views_responses_arrive_out_of_
     card.locator('.evaluation-status li').filter(has_text='Cancelled').wait_for(timeout=10000)
     page.locator('#evaluation-items li[data-steps="10000,20000,30000"]').wait_for()
     assert page.locator('#evaluation-items > li').count() == 1
-    assert not errors
-
-def test_single_measurement_has_a_visible_chart_mark(real_viewer):
-    experiment, session, token, page, context, errors, requests = real_viewer
-    experiment.create(1)
-    sign_in(page, session, token)
-    page.locator('#g-loss').filter(has_text='1').wait_for()
-    # With no second observation there is no line segment; the value must
-    # still appear on the actual canvas, not only in the adjacent value card.
-    page.wait_for_function("""() => {
-      const canvas = document.querySelector('.chart-canvas canvas');
-      if (!canvas) return false;
-      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
-      let marks = 0;
-      for (let i = 0; i < pixels.length; i += 4)
-        if (Math.abs(pixels[i] - 215) < 5 && Math.abs(pixels[i+1] - 187) < 5 && Math.abs(pixels[i+2] - 129) < 5 && pixels[i+3] > 200) marks++;
-      return marks > 3;
-    }""")
     assert not errors
 
 

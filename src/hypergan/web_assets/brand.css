@@ -1,0 +1,74 @@
+/* HyperGAN / by 255labs. Source: https://branding.255labs.xyz/ (v1.0). */
+@import url("./255labs-tokens.css");
+
+:root {
+  color-scheme: dark;
+  --bg: var(--brand-color-ink);
+  --surface: var(--brand-color-graphite);
+  --surface-2: #2b3026;
+  --panel: var(--surface);
+  --line: var(--brand-color-line);
+  /* Essential control boundaries exceed 3:1 on Graphite and Ink. */
+  --line-strong: #7c8471;
+  --ink: var(--brand-color-paper);
+  --muted: var(--brand-color-muted);
+  --accent: var(--brand-color-signal);
+  --blue: var(--brand-color-blue);
+  --lilac: var(--brand-color-lilac);
+  --live: var(--accent);
+  --warn: #f0b28a;
+  --danger: #f1a89c;
+  --sans: var(--brand-font-sans);
+  --mono: var(--brand-font-mono);
+  --radius: var(--brand-radius-medium);
+}
+
+code,
+pre,
+.eyebrow,
+.brand-detail,
+.connection,
+.badge,
+.meta-pill,
+.run-identity,
+.stats strong,
+.stats small,
+.evaluation-value,
+.cell-sub,
+.speed-primary,
+.best-fid,
+.latest-fid,
+time {
+  font-family: var(--mono);
+  font-weight: 400;
+}
+
+.brand-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--brand-space-4);
+  max-width: 1600px;
+  margin: var(--brand-space-8) auto 0;
+  padding: var(--brand-space-4) 4vw;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font: 11px/1.6 var(--mono);
+}
+
+.brand-endorsement {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--brand-space-2);
+  /* Preserve the original outlined lockup and its required clear space. */
+  padding: var(--brand-space-4);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.brand-endorsement img {
+  display: block;
+  width: 120px;
+  height: auto;
+}

@@ -133,7 +133,7 @@ def handle_command(state, operation, payload):
     trainer, context = state['trainer'], state['context']
     _ready(state)
     if operation == 'describe':
-        info = trainer._phase('execution identity', lambda: _information(state))
+        info = trainer._phase('execution identity', lambda: _information(state), force=True)
         digest = hashlib.sha256(_encoded(info)).hexdigest()
         peers = trainer._exchange('execution identity digest', digest)
         if any(peer != digest for peer in peers):
@@ -191,8 +191,8 @@ def handle_command(state, operation, payload):
             from .preview_snapshot import write_snapshot
             return write_snapshot(capture_evaluation_state(trainer, payload['identity']), payload['path'])
         try:
-            trainer._phase('evaluation snapshot validation', validate)
-            descriptor = trainer._phase('evaluation snapshot', capture)
+            trainer._phase('evaluation snapshot validation', validate, force=True)
+            descriptor = trainer._phase('evaluation snapshot', capture, force=True)
             return {**_ready(state), **({'snapshot': descriptor} if state['rank'] == 0 else {})}
         except BaseException:
             trainer._poisoned = True

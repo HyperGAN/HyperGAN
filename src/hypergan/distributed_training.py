@@ -195,13 +195,18 @@ class ReplicatedTrainer(ReferenceTrainer):
         return [peer['value'] for peer in peers]
 
     def _phase(self, name, function, force=False):
-        if not force and self._in_hot_path:
-            return function()
         result, error = None, None
         try:
             result = function()
         except BaseException as exc:
             error = f'{type(exc).__name__}: {exc}'
+        if not force and self._in_hot_path:
+            # Keep successful updates free of Python object collectives, but
+            # agree on phase failures before another rank can advance.
+            failed = torch.tensor(int(error is not None), dtype=torch.int32, device=self.device)
+            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
+            if not failed.item():
+                return result
         errors = self._exchange('phase:' + name, error)
         if any(errors):
             raise RuntimeError(f'{name} failed: ' + '; '.join(f'rank {rank}: {value}' for rank, value in enumerate(errors) if value))
@@ -721,7 +726,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
-        self._phase('discriminator optimizer', self.opt_d.step, force=True)
+        self._phase('discriminator optimizer', self.opt_d.step)
         if explicit_guard is not None:
             d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
         elif getattr(self.opt_d, 'guard', None) is not None:
@@ -733,7 +738,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             )
         else:
             d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
-        self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d), force=True)
+        self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
         self._average_critic_statistics()
 
         saved_flags = []
@@ -807,8 +812,8 @@ class ReplicatedTrainer(ReferenceTrainer):
                 if self.program.prior_checked
                 else torch.zeros((), dtype=torch.float64, device=self.device)
             )
-            self._phase('generator optimizer', self.opt_g.step, force=True)
-            self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g), force=True)
+            self._phase('generator optimizer', self.opt_g.step)
+            self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
             self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
         finally:
             for module, flags in saved_flags:
@@ -1074,7 +1079,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
-        self._phase('discriminator optimizer', self.opt_d.step, force=True)
+        self._phase('discriminator optimizer', self.opt_d.step)
         if explicit_guard is not None:
             d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
         elif getattr(self.opt_d, 'guard', None) is not None:
@@ -1086,7 +1091,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             )
         else:
             d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
-        self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d), force=True)
+        self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
         self._average_critic_statistics()
         saved_flags = []
         seen_modules = set()
@@ -1197,8 +1202,8 @@ class ReplicatedTrainer(ReferenceTrainer):
                 if self.program.prior_checked
                 else torch.zeros((), dtype=torch.float64, device=self.device)
             )
-            self._phase('generator optimizer', self.opt_g.step, force=True)
-            self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g), force=True)
+            self._phase('generator optimizer', self.opt_g.step)
+            self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
             self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
         finally:
             for module, flags in saved_flags:

@@ -10,7 +10,7 @@ HyperGAN 2.0.0a2 is the second alpha of HG 2. It combines declarative `hypergan-
 
 ### Release updates
 
-- Coordinate replicated optimizer failures after the first update so every rank rejects partial checkpoints.
+- Coordinate replicated phase failures after the first update, including optimizer, backward, EMA, and evaluation snapshot failures, so every rank rejects partial checkpoints.
 
 - Refresh the Web Observatory with live run polling, hardware topology and batch details, health alerts, chart presets, and side-by-side sample comparison.
 - Repair installed-package CI dependencies, test imports, and Windows lifecycle checks.

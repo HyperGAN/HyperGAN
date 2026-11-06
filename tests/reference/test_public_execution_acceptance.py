@@ -225,14 +225,16 @@ def test_installed_module_entrypoint_named_profile_and_inference_commands(tmp_pa
     assert any(event['event'] == 'train' for event in events['events'])
 
 
-def test_public_profile_conflicts_reject_before_viewer_and_attempt_creation(tmp_path):
+def test_invalid_profile_rejects_before_viewer_and_attempt_creation(tmp_path):
     config, profile = setup(tmp_path)
     run = tmp_path / 'run'
     cli(tmp_path, tmp_path / 'start-pids', 'train', config, '--run-dir', run,
         '--profile', profile, '--stop-after-steps', 1, '--no-server')
     before = {path.relative_to(run): path.read_bytes() for path in run.rglob('*') if path.is_file()}
     conflicting = tmp_path / 'conflicting.toml'
-    conflicting.write_text(profile.read_text().replace('accumulation_steps = 2', 'accumulation_steps = 1'))
+    # Elastic resume permits a new accumulation layout, but the global batch
+    # must still divide evenly across every requested worker.
+    conflicting.write_text(profile.read_text().replace('world_size = 2', 'world_size = 3'))
     # A competing service port makes the ordering observable: identity rejection
     # must win, without viewer construction or failed-attempt artifacts.
     with socket.socket() as occupied:
@@ -241,7 +243,7 @@ def test_public_profile_conflicts_reject_before_viewer_and_attempt_creation(tmp_
         _, stderr = cli(tmp_path, tmp_path / 'conflict-pids', 'resume', run,
                         '--profile', conflicting, '--server',
                         '--server-port', occupied.getsockname()[1], success=False)
-    assert any(word in stderr.lower() for word in ('identity', 'profile', 'execution'))
+    assert 'batch' in stderr.lower() and 'divide' in stderr.lower(), stderr
     assert 'address already in use' not in stderr.lower()
     assert not (tmp_path / 'conflict-pids' / 'managed.jsonl').exists()
     assert before == {path.relative_to(run): path.read_bytes() for path in run.rglob('*') if path.is_file()}

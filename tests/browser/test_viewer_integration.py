@@ -788,3 +788,91 @@ def test_cancelled_evaluation_retains_source_and_export_without_failure_or_value
     assert response.ok
     assert response.json()['events'][0]['status'] == 'cancelled'
     assert not errors
+
+
+def test_diversity_preset_persists_url_and_keeps_foldlitedb_wasm_pinned_headline_losses(real_viewer):
+    experiment, session, token, page, context, errors, requests = real_viewer
+    page.on('console', lambda msg: errors.append(msg.text) if 'Content Security Policy' in msg.text else None)
+    experiment.root.mkdir()
+    metrics_spec = {}
+    for metric_id, source, label in (
+        ('loss/g_total', 'g_loss', 'Generator total'),
+        ('loss/d_total', 'd_loss', 'Discriminator total'),
+        ('diversity/ratio', 'div_ratio', 'Diversity ratio'),
+    ):
+        desc = dict(kind='scalar', source=source, label=label, version='v1')
+        desc['definition_hash'] = digest(desc)
+        metrics_spec[metric_id] = desc
+    catalog_doc = dict(schema_version=1, metrics=metrics_spec)
+    experiment.catalog_revision = digest(catalog_doc)
+    atomic_json(experiment.root / 'metrics' / f'catalog-{experiment.catalog_revision}.json', catalog_doc)
+    experiment.manifest = dict(
+        schema_version=1,
+        run_id='browser-run',
+        attempt_id='attempt-a',
+        config={'name': 'FoldliteDB preset pinning'},
+        steps=0,
+        total_steps=20,
+        last_durable_step=1,
+        status='running',
+        metrics_catalog=experiment.catalog_revision,
+    )
+    experiment.event('start', 0, parent_attempt_id=None, restored_step=0)
+    for step in (1, 2, 3):
+        experiment.event('train', step, metrics={
+            'loss/g_total': 1.25 * step,
+            'loss/d_total': -0.5 * step,
+            'diversity/ratio': round(0.8 + 0.05 * step, 4),
+        })
+    experiment.publish()
+    experiment.project()
+
+    sign_in(page, session, token)
+    page.locator('#g-loss').filter(has_text='3.75').wait_for()
+    page.locator('#d-loss').filter(has_text='-1.5').wait_for()
+    assert page.locator('#charts .chart-card').count() == 3
+    page.locator('.data-table summary').click()
+
+    # Click Diversity preset: unchecks loss/*, charts only diversity/*, updates URL,
+    # YET keeps FoldliteDB + WASM envelope/v1 reduced headline #g-loss and #d-loss live.
+    page.locator('#preset-diversity').click()
+    page.locator('#coverage').filter(has_text='History loaded').wait_for()
+    assert page.locator('#preset-diversity').get_attribute('aria-pressed') == 'true'
+    assert not page.locator('input[value="loss/g_total"]').is_checked()
+    assert not page.locator('input[value="loss/d_total"]').is_checked()
+    assert page.locator('input[value="diversity/ratio"]').is_checked()
+
+    assert page.locator('#charts .chart-card').count() == 1
+    assert page.locator('#charts .chart-card .chart-description').inner_text() == 'diversity/ratio'
+    assert page.locator('#values-table tr').count() == 1
+    table_text = page.locator('#values-table').inner_text()
+    assert 'diversity/ratio' in table_text
+    assert 'loss/g_total' not in table_text and 'loss/d_total' not in table_text
+
+    assert page.locator('#g-loss').inner_text() == '3.75'
+    assert page.locator('#d-loss').inner_text() == '-1.5'
+    assert page.locator('#g-step').inner_text() == 'Published at step 3'
+    assert page.locator('#d-step').inner_text() == 'Published at step 3'
+    assert page.evaluate('() => location.search') == '?metrics=diversity%2Fratio'
+
+    # Live WASM frame reduction updates pinned headline losses while Diversity preset stays active.
+    experiment.event('train', 4, metrics={
+        'loss/g_total': 2.125,
+        'loss/d_total': -0.75,
+        'diversity/ratio': 0.99,
+    })
+    experiment.publish()
+    experiment.project()
+    page.locator('#g-loss').filter(has_text='2.125').wait_for(timeout=10000)
+    page.locator('#d-loss').filter(has_text='-0.75').wait_for(timeout=10000)
+    assert page.locator('#charts .chart-card').count() == 1
+
+    # Reloading preserves the URL query selection and pinned headline losses.
+    page.reload()
+    page.locator('#g-loss').filter(has_text='2.125').wait_for(timeout=10000)
+    assert page.locator('#d-loss').inner_text() == '-0.75'
+    assert not page.locator('input[value="loss/g_total"]').is_checked()
+    assert not page.locator('input[value="loss/d_total"]').is_checked()
+    assert page.locator('input[value="diversity/ratio"]').is_checked()
+    assert page.locator('#charts .chart-card').count() == 1
+    assert not errors

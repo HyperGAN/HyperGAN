@@ -43,6 +43,13 @@ reach the viewer directly under another name, such as a MagicDNS name, list it i
 
 ## Global Runs Dashboard & Live Control Endpoints
 
+A training step is one complete global discriminator/generator update. All ranks
+share that step counter: two GPUs completing update 250 still report step 250.
+Progress, chart axes, preview history, FID source steps, checkpoints and sampling
+cadences use that same unit. Steps/s measures completed global training updates;
+samples/s multiplies that rate by the global batch size, which already includes
+every rank.
+
 When serving a workspace or runs directory (or when runs are registered in the global registry), the Web Observatory exposes both the multi-run dashboard and per-run observatories:
 
 - **`GET /` (Global Runs Dashboard)**: Lists discovered and registered runs with labeled search (name, slug, or ID), status filters, result counts, and clear-filter feedback. Complete includes `completed`; Stopped includes `interrupted` and cancelled runs. Creation times appear in the browser's time zone, with UTC timestamps in tooltips; missing recorded times show `Unknown`. Sort newest first (default), oldest first, or by name. The responsive table becomes run cards on narrow screens. While the tab is visible, `/api/runs` refreshes every 3 seconds, including empty dashboards, adding and removing runs and updating progress, throughput (`it/s`), disk usage, and available controls without resetting filters. A Refresh button and visible failure/retry messages support recovery. FID columns are omitted from this overview.

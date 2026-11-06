@@ -77,12 +77,16 @@ def _telemetry_parity_worker(rank, world_size, config_dict, batches, shared_dir,
 
         calls = 0
         f64_calls = 0
+        phase_calls = 0
 
         def counted_all_reduce(tensor, *args, **kwargs):
-            nonlocal calls, f64_calls
+            nonlocal calls, f64_calls, phase_calls
             calls += 1
             if getattr(tensor, "dtype", None) == torch.float64:
                 f64_calls += 1
+            if tensor.dtype == torch.int32 and tensor.ndim == 0 and kwargs.get('op') == dist.ReduceOp.MAX:
+                assert tensor.item() == 0  # Healthy phase, before the rank agreement.
+                phase_calls += 1
             return orig_all_reduce(tensor, *args, **kwargs)
 
         dist.all_reduce = counted_all_reduce
@@ -92,7 +96,8 @@ def _telemetry_parity_worker(rank, world_size, config_dict, batches, shared_dir,
             dist.all_reduce = orig_all_reduce
 
         step_outputs.append(metrics)
-        all_reduce_counts.append({"total": calls, "float64_metric_collectives": f64_calls})
+        all_reduce_counts.append({"total": calls, "float64_metric_collectives": f64_calls,
+                                  "phase_failure_collectives": phase_calls})
 
     out_path = Path(shared_dir) / f"rank-{rank}.json"
     out_path.write_text(
@@ -104,7 +109,7 @@ def _telemetry_parity_worker(rank, world_size, config_dict, batches, shared_dir,
 @pytest.mark.parametrize("accumulation_steps", [1, 2])
 def test_replicated_trainer_telemetry_parity_and_rank_agreement(tmp_path, accumulation_steps):
     """Fix 1: ReplicatedTrainer emits all 10 GAN health scalars (+ snake_case aliases) with
-    bit-for-bit rank agreement, ReferenceTrainer parity, and zero extra dist.all_reduce calls.
+    bit-for-bit rank agreement, ReferenceTrainer parity, and no extra telemetry collectives.
     """
     config_dict = {
         "prior": {"kind": "mog", "fixed_sigma": 0.05, "args": {"num_particles": 16, "z_dim": 4}},
@@ -152,11 +157,14 @@ def test_replicated_trainer_telemetry_parity_and_rank_agreement(tmp_path, accumu
     rank0 = json.loads((tmp_path / "rank-0.json").read_text(encoding="utf-8"))
     rank1 = json.loads((tmp_path / "rank-1.json").read_text(encoding="utf-8"))
 
-    # Steady-state step 2 uses exactly 5 dist.all_reduce calls under gradient_allreduce:
+    # Numerical work still uses exactly 5 dist.all_reduce calls under gradient_allreduce:
     # (control + bucket for D) + (control + bucket for G) + 1 coalesced float64 metric scalar all_reduce.
-    # Zero extra round-trips for the 10 health telemetry scalars!
-    assert rank0["all_reduce_counts"][1] == {"total": 5, "float64_metric_collectives": 1}
-    assert rank1["all_reduce_counts"][1] == {"total": 5, "float64_metric_collectives": 1}
+    # Phase failure checks are separate from telemetry and remain explicitly bounded.
+    phase_checks = 17 if accumulation_steps == 1 else 25
+    expected = {"total": 5 + phase_checks, "float64_metric_collectives": 1,
+                "phase_failure_collectives": phase_checks}
+    assert rank0["all_reduce_counts"][1] == expected
+    assert rank1["all_reduce_counts"][1] == expected
 
     for step_idx in range(len(batches)):
         m0 = rank0["steps"][step_idx]

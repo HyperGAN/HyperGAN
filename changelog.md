@@ -4,6 +4,17 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+## 2.0.0a2 — 2026-11-05
+
+HyperGAN 2.0.0a2 is the second alpha of HG 2. It combines declarative `hypergan-model/1` TOML model files, HNDL (`>=0.11.0,<1`) networks, ParticleGAN (`>=0.9.5,<0.10`) primitives, distributed training, a typed Python API, the Web Observatory, and standalone model export.
+
+### Release updates
+
+- Coordinate replicated optimizer failures after the first update so every rank rejects partial checkpoints.
+
+- Refresh the Web Observatory with live run polling, hardware topology and batch details, health alerts, chart presets, and side-by-side sample comparison.
+- Repair installed-package CI dependencies, test imports, and Windows lifecycle checks.
+
 - Report one complete global discriminator/generator update as one training
   step throughout the viewer. Multi-GPU progress, throughput and saved-state
   counters now use the same steps as preview cadence, FID and metric charts,
@@ -26,10 +37,6 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
   retaining the constructor fallback for ParticleGAN 0.9.4. This keeps compact
   snapshots, legacy host configurations and strict prior restoration compatible
   with ParticleGAN 0.9.5 without changing their saved training settings.
-
-## 2.0.0 — 2026-10-30
-
-HyperGAN 2.0.0 is the official General Availability (GA) production release. It is a ground-up architectural rebuild centering on configurable ParticleGAN (`>=0.9.4,<0.10`) primitives, declarative `hypergan-model/1` TOML model files, HNDL (`>=0.10.0,<1`) networks, reproducible training lifecycles, an asynchronous Web Observatory, distributed multi-GPU & multi-node training, standalone privacy-preserving model export, and a fully typed Python API (`import hypergan as hg`).
 
 ### Added
 - **Core Engine & Dependency Modernization**:
@@ -85,7 +92,7 @@ HyperGAN 2.0.0 is the official General Availability (GA) production release. It 
   - Five new comprehensive user guides: `custom-images.md`, `deployment.md`, `custom-pytorch.md`, `python-api.md`, `hndl-reference.md`.
 
 ### Changed
-- Promoted distributed multi-GPU and multi-node training out of `--experimental` into first-class GA.
+- Expose distributed multi-GPU and multi-node training directly without `--experimental`.
 - Restored default metric logging cadence to 10 steps (`metrics.every_steps = 10`).
 - Replaced 6 divergent metadata readers with a single unified `RunInfo` dataclass reader.
 - `compare_runs` now dispatches `min` vs `max` based on metric catalog declared `direction`.

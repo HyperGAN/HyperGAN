@@ -72,7 +72,7 @@ def run_cli(*args: str) -> tuple[int, str, str]:
 class TestWebObservatoryFlagsAndLifecycle:
     def test_bind_flag_parsing_across_subcommands(self):
         parser = _build_parser()
-        
+
         args_train = parser.parse_args(["train", "config.toml", "-b", "0.0.0.0"])
         assert args_train.server_host == "0.0.0.0"
 
@@ -447,4 +447,3 @@ class TestResolutionLadderAndTemplates:
             assert len(recon_terms) == 1
             assert recon_terms[0]["factory"] == "l1"
             assert recon_terms[0]["weight"] == 10.0
-

@@ -295,4 +295,3 @@ The HNDL parser and AST resolver perform strict validation before graph instanti
 | **`E_UNBOUND_INPUT`** | Binding | Graph references a named input port that was not bound in the model file's `inputs` table. |
 | **`E_DIMENSION_MISMATCH`** | Channels | Channel mismatch between adjacent layers (e.g. `linear(128)` followed by `conv(64)` without `reshape`). |
 | **`E_CYCLE_DETECTED`** | Graph AST | Directed cycle detected in named variable assignments. |
-

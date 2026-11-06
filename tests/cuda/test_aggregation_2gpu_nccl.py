@@ -70,7 +70,7 @@ def make_toy_cuda_config(
 ) -> Dict[str, Any]:
     """Generate toy configuration placed on CUDA device with optional recipe features."""
     from hypergan.config import resolve_config
-    
+
     components: Dict[str, Any] = {
         'generator': {
             'factory': 'mlp',
@@ -83,7 +83,7 @@ def make_toy_cuda_config(
             'inputs': {'input': 'candidate'},
         },
     }
-    
+
     objectives = []
     if use_prior_input:
         prior_cfg: Dict[str, Any] = {
@@ -175,15 +175,15 @@ torch.backends.cudnn.allow_tf32 = False
 dist.init_process_group("nccl", init_method=uri, rank=rank, world_size=2, timeout=timedelta(seconds=30))
 try:
     cfg = json.loads(Path(cfg_path).read_text())
-    
+
     # Deterministic synthetic data
     data = torch.linspace(-1, 1, 16, device="cuda").reshape(8, 2)
     ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], device="cuda")
     local_ids = ids.chunk(2)[rank]
     local_data = data.chunk(2)[rank]
-    
+
     result = {"rank": rank, "mode": mode, "passed": True}
-    
+
     if mode == "step":
         trainer = ReplicatedTrainer(cfg, world_size=2, aggregation=agg_cfg)
         metrics = []
@@ -193,7 +193,7 @@ try:
             metrics.append({"step": step, "d_loss": float(m["d_loss"]), "g_loss": float(m["g_loss"])})
             w = {k: v.detach().cpu().tolist() for k, v in trainer.graph.state_dict().items()}
             weight_history.append(w)
-        
+
         result["metrics"] = metrics
         result["weight_history"] = weight_history
         result["final_step"] = trainer.step
@@ -209,7 +209,7 @@ try:
         for step in range(1, steps + 1):
             m, last_batch = trainer.update({"real": local_data}, (trainer.prior.z[local_ids], local_ids))
             metrics.append({"step": step, "d_loss": float(m["d_loss"]), "g_loss": float(m["g_loss"])})
-        
+
         ckpt_path = save_distributed_checkpoint(
             run_dir, trainer, last_batch,
             {"run_id": "test-run", "attempt_id": "att-1", "next_sample_sequence": 10}
@@ -226,13 +226,13 @@ try:
         )
         assert fresh_trainer.step == steps, f"Expected restored step {steps}, got {fresh_trainer.step}"
         assert fresh_trainer.aggregation_strategy.step_count == steps
-        
+
         # Train remaining steps
         metrics = []
         for step in range(steps + 1, steps + 3):
             m, last_batch = fresh_trainer.update({"real": local_data}, (fresh_trainer.prior.z[local_ids], local_ids))
             metrics.append({"step": step, "d_loss": float(m["d_loss"]), "g_loss": float(m["g_loss"])})
-            
+
         result["restored_path"] = str(restored_path)
         result["metrics"] = metrics
         result["final_weights"] = {k: v.detach().cpu().tolist() for k, v in fresh_trainer.graph.state_dict().items()}
@@ -241,7 +241,7 @@ try:
     elif mode == "adam_cpu_guard":
         # Specific regression probe for Adam param_state['step'] CPU tensor
         trainer = ReplicatedTrainer(cfg, world_size=2, aggregation=agg_cfg)
-        
+
         # Verify Adam state has CPU step tensor
         opt = trainer.opt_g
         for p in trainer.graph.parameters():
@@ -249,17 +249,17 @@ try:
             state['step'] = torch.tensor(1.0, dtype=torch.float32, device='cpu')
             state['exp_avg'] = torch.zeros_like(p.data)
             state['exp_avg_sq'] = torch.zeros_like(p.data)
-        
+
         # Trigger synchronization directly
         strat = trainer.aggregation_strategy
         if hasattr(strat, "_synchronize"):
             strat._synchronize()
-        
+
         # Verify CPU step tensor is still on CPU and was not modified by NCCL
         for p in trainer.graph.parameters():
             assert opt.state[p]['step'].device.type == 'cpu', "Adam step tensor was moved from CPU"
             assert opt.state[p]['step'].item() == 1.0, "Adam step tensor was erroneously altered"
-            
+
         result["guard_passed"] = True
         Path(out_file).write_text(json.dumps(result))
 
@@ -281,7 +281,7 @@ def run_2gpu_subprocess(
     cfg_file = tmp_path / f"cfg_{mode}_{time.monotonic_ns()}.json"
     cfg_dict = make_toy_cuda_config(batch_size=8, steps=steps + 2, **(config_kwargs or {}))
     cfg_file.write_text(json.dumps(cfg_dict))
-    
+
     worker_script = tmp_path / "worker.py"
     if not worker_script.exists():
         worker_script.write_text(WORKER_CODE)
@@ -333,7 +333,7 @@ def test_2gpu_nccl_gradient_allreduce_step_and_replica_agreement(tmp_path):
     assert len(results) == 2
     r0, r1 = results[0], results[1]
     assert r0["final_step"] == 2 and r1["final_step"] == 2
-    
+
     # Verify bit-identical weights across both ranks after every step
     for step_idx in range(2):
         w0 = r0["weight_history"][step_idx]
@@ -417,17 +417,17 @@ def test_2gpu_nccl_checkpoint_save_and_manifest_metadata(tmp_path):
     run_dir.mkdir(exist_ok=True)
     results = run_2gpu_subprocess(tmp_path, mode="checkpoint_save", agg_cfg=agg, steps=2)
     assert len(results) == 2
-    
+
     ckpt_dir = Path(results[0]["checkpoint_path"])
     manifest_path = ckpt_dir / "manifest.json"
     assert manifest_path.exists()
-    
+
     manifest = json.loads(manifest_path.read_text())
     assert manifest["step"] == 2
     assert "aggregation" in manifest
     assert manifest["aggregation"]["strategy"] == "parameter_average"
     assert manifest["aggregation"]["sync_every_steps"] == 2
-    
+
     # Verify rank payloads exist and contain portable CPU tensors
     for r in range(2):
         payload_path = ckpt_dir / f"rank-{r:05d}.pt"
@@ -447,21 +447,21 @@ def test_2gpu_nccl_checkpoint_resume_and_trajectory_continuity(tmp_path):
     agg = {"strategy": "pseudo_gradient", "sync_every_steps": 2, "outer_lr": 0.5, "outer_momentum": 0.8}
     run_dir = tmp_path / "run_checkpoint_resume"
     run_dir.mkdir(exist_ok=True)
-    
+
     # 1. Save checkpoint at step 2
     save_results = run_2gpu_subprocess(tmp_path, mode="checkpoint_save", agg_cfg=agg, steps=2, run_dir=run_dir)
     assert len(save_results) == 2
-    
+
     # 2. Resume from checkpoint for steps 3 and 4
     resume_results = run_2gpu_subprocess(tmp_path, mode="checkpoint_resume", agg_cfg=agg, steps=2, run_dir=run_dir)
     assert len(resume_results) == 2
     r0, r1 = resume_results[0], resume_results[1]
-    
+
     # Both ranks reached step 4 with agreement
     assert len(r0["metrics"]) == 2
     assert r0["metrics"][0]["step"] == 3
     assert r0["metrics"][1]["step"] == 4
-    
+
     for key in r0["final_weights"]:
         torch.testing.assert_close(
             torch.tensor(r0["final_weights"][key]),
@@ -483,7 +483,7 @@ def test_2gpu_nccl_replicated_recipe_features_with_aggregation(tmp_path):
     assert len(results) == 2
     r0, r1 = results[0], results[1]
     assert r0["final_step"] == 2 and r1["final_step"] == 2
-    
+
     # Check consensus at step 2
     w0_step2 = r0["weight_history"][1]
     w1_step2 = r1["weight_history"][1]

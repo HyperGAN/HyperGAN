@@ -148,12 +148,12 @@ def create_synthetic_image_folder(
     """Create a synthetic dataset folder with RGB, RGBA, and palette PNGs."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    
+
     for i in range(count):
         r = int(50 + (i * 20) % 200)
         g = int(80 + (i * 15) % 170)
         b = int(120 + (i * 25) % 130)
-        
+
         if include_rgba and i % 3 == 1:
             # Create RGBA image with translucent alpha channel
             img = Image.new("RGBA", (resolution, resolution), color=(r, g, b, 180))
@@ -225,4 +225,3 @@ def oracle_slerp(v0: torch.Tensor, v1: torch.Tensor, t: float, eps: float = 1e-7
     scale1 = torch.sin(t * omega) / sin_omega
     slerp_val = scale0 * v0 + scale1 * v1
     return torch.where(collinear, (1.0 - t) * v0 + t * v1, slerp_val)
-

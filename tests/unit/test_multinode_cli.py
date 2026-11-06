@@ -9,7 +9,7 @@ from hypergan import cli
 
 def test_cli_parser_multinode_flags():
     parser = cli._build_parser()
-    
+
     # Train parser
     args = parser.parse_args([
         "train", "recipe.toml",

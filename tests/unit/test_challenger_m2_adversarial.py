@@ -802,6 +802,3 @@ def test_leader_resume_replicated_ephemeral_port_succeeds(tmp_path):
         rc_port = cli.main(["resume", str(rep_run), "--rendezvous", "tcp://10.0.0.1:39999", "--no-server"])
         assert rc_port == 0
         assert mock_resume.called
-
-
-

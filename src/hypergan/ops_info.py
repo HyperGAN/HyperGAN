@@ -4,10 +4,10 @@ from typing import Any, Dict, List, Optional
 
 def get_operators(query: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return catalog of all 85 HNDL operators, optionally filtered by search query.
-    
+
     Args:
         query: Optional case-insensitive search string matching name, category, or summary.
-        
+
     Returns:
         List of operator documentation records.
     """

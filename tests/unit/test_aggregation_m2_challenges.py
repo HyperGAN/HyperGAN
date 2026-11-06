@@ -474,7 +474,7 @@ class TestCheckpointSerializationAndResumeContinuity:
 class TestDistributedReplicaAgreementChallenge:
     """Probe 7: Empirically reproduce and verify the root cause of replica agreement failures
     during periodic parameter_average and pseudo_gradient synchronization.
-    
+
     When ranks process distinct data shards, local optimizer steps cause rank-local divergence in:
     1. opt_d.record.last_sur (surrogate loss on rank-local critic batch)
     2. opt_g.regularizer['latent']['history'] (particle history on rank-local particle subset)
@@ -555,4 +555,3 @@ finally:
         assert all(json.loads(p.read_text()).get("passed") is True for p in out_files), (
             f"Workers did not report passed=True: {[p.read_text() for p in out_files]}"
         )
-

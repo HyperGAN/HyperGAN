@@ -458,4 +458,3 @@ def test_exhaustive_profile_strategy_info_exact_match(monkeypatch):
         # 3. Check create_worker accepts it cleanly
         worker = create_worker(n_rank, ws, base_cfg, execution, {})
         assert worker['trainer'].strategy_info == trainer.strategy_info
-

@@ -1719,4 +1719,3 @@ def test_tailscale_self_names_are_accepted_without_dns_rebinding_exposure(monkey
     assert session.permits_request('mlserver.tail12345.ts.net:8123', 'http://mlserver.tail12345.ts.net:8123')
     assert not session.permits_request('other-node.tail12345.ts.net:8123')
     assert not session.permits_request('evil.example:8123')
-

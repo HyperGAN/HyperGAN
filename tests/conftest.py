@@ -54,4 +54,3 @@ def isolate_hypergan_state(tmp_path_factory):
             os.environ.pop("HYPERGAN_STATE_DIR", None)
         else:
             os.environ["HYPERGAN_STATE_DIR"] = previous
-

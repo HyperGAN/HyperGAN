@@ -94,4 +94,3 @@ Evaluated on dual NVIDIA RTX A6000 GPUs (48GB VRAM each) with native PyTorch 2.6
 | **Batch 256** (128/GPU) | 2× RTX A6000 | **1,517.19** | **2.20×** | **110.2%** | **167.26 ms** | **174.28 ms** | **1,516.1 MiB** |
 
 > **Operational Guidance:** For small 32px models at `batch = 64`, single-GPU execution is fastest as inter-GPU collective communication bounds per-step update speed. Distributed multi-GPU training achieves its documented **2.20× scaling speedup (110.2% efficiency)** and cuts per-GPU VRAM consumption in half once global batch size is configured to saturate GPU compute (`batch_size >= 256` or 128px+ image models).
-

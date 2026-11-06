@@ -119,7 +119,7 @@ torch.backends.cudnn.allow_tf32 = False
 dist.init_process_group("nccl", init_method=uri, rank=rank, world_size=2, timeout=timedelta(seconds=35))
 try:
     cfg = json.loads(Path(cfg_path).read_text())
-    
+
     # Deterministic synthetic data
     data = torch.linspace(-1, 1, 16, device="cuda").reshape(8, 2)
     ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7], device="cuda")

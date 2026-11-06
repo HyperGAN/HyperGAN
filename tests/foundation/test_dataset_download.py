@@ -344,4 +344,3 @@ def test_dataset_download_is_torch_free():
     )
     res = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=20)
     assert res.returncode == 0, res.stderr
-

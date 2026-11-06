@@ -134,7 +134,7 @@ try:
     torch.manual_seed(100 + rank)
     param1 = torch.nn.Parameter(torch.zeros(4, 4))
     param1.grad = torch.randn(4, 4) * (rank + 1.5)
-    
+
     param2 = torch.nn.Parameter(torch.zeros(3))
     param2.grad = torch.tensor([-2.0, 0.0, 5.0]) * (rank - 1.0)
 
@@ -210,11 +210,11 @@ dist.init_process_group("gloo", init_method=store_uri, rank=rank, world_size=wor
 try:
     cfg = make_toy_config(device="cpu", batch_size=8, steps=3)
     trainer = ReplicatedCPUTrainer(cfg, world_size=world_size, aggregation={"strategy": "parameter_average", "sync_every_steps": 1})
-    
+
     # 2 distinct data shards
     data = torch.linspace(-1, 1, 16).reshape(8, 2)
     ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
-    
+
     step_weights = []
     for step in range(1, 4):
         local_ids = ids.chunk(world_size)[rank]
@@ -222,7 +222,7 @@ try:
         trainer.update(local_batch, (trainer.prior.z[local_ids], local_ids))
         w = [p.detach().cpu().clone().tolist() for p in trainer.graph.models['generator'].parameters()]
         step_weights.append(w)
-        
+
     out_path.write_text(json.dumps({"rank": rank, "step_weights": step_weights}))
 finally:
     dist.destroy_process_group()
@@ -260,20 +260,20 @@ dist.init_process_group("gloo", init_method=store_uri, rank=rank, world_size=wor
 try:
     cfg = make_toy_config(device="cpu", batch_size=8, steps=2)
     trainer = ReplicatedCPUTrainer(cfg, world_size=world_size, aggregation={"strategy": "parameter_average", "sync_every_steps": 2})
-    
+
     data = torch.linspace(-1, 1, 16).reshape(8, 2)
     ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
-    
+
     # Step 1: off-sync step
     local_ids = ids.chunk(world_size)[rank]
     local_batch = {'real': data.chunk(world_size)[rank]}
     trainer.update(local_batch, (trainer.prior.z[local_ids], local_ids))
     step1_w = [p.detach().cpu().clone().tolist() for p in trainer.graph.models['generator'].parameters()]
-    
+
     # Step 2: sync step
     trainer.update(local_batch, (trainer.prior.z[local_ids], local_ids))
     step2_w = [p.detach().cpu().clone().tolist() for p in trainer.graph.models['generator'].parameters()]
-    
+
     out_path.write_text(json.dumps({
         "rank": rank,
         "step1_w": step1_w,
@@ -329,10 +329,10 @@ dist.init_process_group("gloo", init_method=store_uri, rank=rank, world_size=wor
 try:
     cfg = make_toy_config(device="cpu", batch_size=8, steps=8)
     trainer = ReplicatedCPUTrainer(cfg, world_size=world_size, aggregation={"strategy": "parameter_average", "sync_every_steps": 4})
-    
+
     data = torch.linspace(-1, 1, 16).reshape(8, 2)
     ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
-    
+
     weights = []
     assert_flags = []
     for step in range(1, 9):
@@ -342,7 +342,7 @@ try:
         w = [p.detach().cpu().clone().tolist() for p in trainer.graph.models['generator'].parameters()]
         weights.append(w)
         assert_flags.append(trainer.aggregation_strategy.should_assert_replicas(step))
-        
+
     out_path.write_text(json.dumps({
         "rank": rank,
         "weights": weights,
@@ -473,10 +473,10 @@ try:
         world_size=world_size,
         aggregation={"strategy": "pseudo_gradient", "sync_every_steps": 2, "outer_lr": 1.0, "outer_momentum": 0.9}
     )
-    
+
     data = torch.linspace(-1, 1, 16).reshape(8, 2)
     ids = torch.tensor([0, 1, 2, 3, 4, 5, 6, 7])
-    
+
     weights = []
     assert_flags = []
     for step in range(1, 5):
@@ -486,7 +486,7 @@ try:
         w = [p.detach().cpu().clone().tolist() for p in trainer.graph.models['generator'].parameters()]
         weights.append(w)
         assert_flags.append(trainer.aggregation_strategy.should_assert_replicas(step))
-        
+
     out_path.write_text(json.dumps({
         "rank": rank,
         "weights": weights,

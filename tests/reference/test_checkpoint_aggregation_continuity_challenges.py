@@ -143,7 +143,7 @@ def continuity_worker(mode, rank, rendezvous, root, run, output_json, aggregatio
             for _ in range(4):
                 row, last_batch = trainer.update()
                 metrics.append({'step': row['step'], 'd_loss': float(row['d_loss']), 'g_loss': float(row['g_loss'])})
-            
+
             payload = {
                 'step': trainer.step,
                 'metrics': metrics,
@@ -157,7 +157,7 @@ def continuity_worker(mode, rank, rendezvous, root, run, output_json, aggregatio
             for _ in range(2):
                 row, last_batch = trainer.update()
                 metrics.append({'step': row['step'], 'd_loss': float(row['d_loss']), 'g_loss': float(row['g_loss'])})
-            
+
             path = save_distributed_checkpoint(
                 run, trainer, last_batch,
                 {'run_id': 'continuity-run', 'attempt_id': 'attempt-one', 'next_sample_sequence': 3}
@@ -482,13 +482,13 @@ for name, bad_agg in attacks:
             receipt['manifest_sha256'] = m_digest
             receipt['ranks'] = info_corrupt['ranks']
             receipt['checkpoint'] = f"attempt-1-step-00000002-{receipt['nonce']}"
-            
+
             orig_prep = commit.preparation_directory
             commit.preparation_directory = lambda *args, **kw: staging
             orig_root = commit.checkpoint_root
             commit.checkpoint_root = lambda *args, **kw: p / 'distributed-checkpoints'
             (p / 'distributed-checkpoints').mkdir()
-            
+
             try:
                 commit._validate_prepared(
                     p, receipt, run_id='run-1', attempt_id='attempt-1',

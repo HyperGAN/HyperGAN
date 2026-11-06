@@ -102,4 +102,3 @@ def test_inception_fid_real_weights_if_available():
     score = fid.evaluate(batches=[batch], context=context)
     assert isinstance(score, float)
     assert np.isfinite(score)
-

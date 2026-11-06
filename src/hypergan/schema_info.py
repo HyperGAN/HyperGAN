@@ -311,10 +311,10 @@ MODEL_SCHEMA: Dict[str, Any] = {
 
 def get_schema(section: Optional[str] = None) -> Dict[str, Any]:
     """Return the hypergan-model/1 specification, optionally filtered to a section.
-    
+
     Args:
         section: Optional section name, e.g. 'train', 'data', 'networks', 'losses'.
-        
+
     Returns:
         Full schema dictionary or section-specific subschema.
     """

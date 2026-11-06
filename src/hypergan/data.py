@@ -600,4 +600,3 @@ class ImageFolder:
         if self.labels:
             item["labels"] = torch.tensor(self.class_map[self.entries[index]["class"]], dtype=torch.int64)
         return item
-

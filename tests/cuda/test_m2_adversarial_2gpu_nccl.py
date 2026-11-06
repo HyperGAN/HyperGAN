@@ -67,7 +67,7 @@ try:
     if mode == "heterogeneous_cuda":
         # 1. Test Feature 23 on CUDA with heterogeneous shapes and partial participation
         device = torch.device(f"cuda:{rank}")
-        
+
         # Heterogeneous model on CUDA
         class CudaModel(nn.Module):
             def __init__(self):
@@ -79,16 +79,16 @@ try:
                 self.p_none = nn.Parameter(torch.ones(8, device=device))
                 self.p_partial_r0 = nn.Parameter(torch.ones(6, device=device))
                 self.p_partial_r1 = nn.Parameter(torch.ones(6, device=device))
-        
+
         model = CudaModel()
-        
+
         # Assign gradients
         model.p_0d.grad = torch.tensor(1.0 * (rank + 1), device=device)
         model.p_1d.grad = torch.full_like(model.p_1d.data, 2.0 * (rank + 1))
         model.p_2d.grad = torch.full_like(model.p_2d.data, 3.0 * (rank + 1))
         model.p_4d.grad = torch.full_like(model.p_4d.data, 4.0 * (rank + 1))
         model.p_none.grad = None  # Global None
-        
+
         if rank == 0:
             model.p_partial_r0.grad = torch.full_like(model.p_partial_r0.data, 10.0)
             model.p_partial_r1.grad = None
@@ -118,7 +118,7 @@ try:
 
         mock_trainer = MockTrainer(device)
         opt = torch.optim.SGD(model.parameters(), lr=0.1)
-        
+
         # Call reduction method
         ReplicatedTrainer._reduce_gradients(mock_trainer, opt, "test_cuda")
 
@@ -173,7 +173,7 @@ try:
         except ValueError as exc:
             if "Nonfinite or sparse gradient; optimizer step refused" in str(exc):
                 raised = True
-        
+
         assert raised, f"Rank {rank}: Expected ValueError was not raised on CUDA"
         assert p1.grad is None, f"Rank {rank}: p1.grad was not reset to None"
         assert p2.grad is None, f"Rank {rank}: p2.grad was not reset to None"
@@ -190,40 +190,40 @@ try:
             'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
             'training': {'steps': 3, 'batch_size': 8, 'device': 'cuda'},
         })
-        
+
         trainer = ReplicatedTrainer(cfg, world_size=2)
-        
+
         # Track dist.all_gather_object calls
         original_gather = dist.all_gather_object
         counts = {"step_1": 0, "step_2": 0, "step_3": 0}
         active_step = [1]
-        
+
         def spy_gather(output_list, input_obj, group=None):
             counts[f"step_{active_step[0]}"] += 1
             return original_gather(output_list, input_obj, group=group)
-            
+
         dist.all_gather_object = spy_gather
         try:
             data = torch.linspace(-1, 1, 16, device="cuda").reshape(8, 2)
             local_data = data.chunk(2)[rank]
             latent = (torch.randn(4, 4, device="cuda"), None)
-            
+
             # Step 1: Handshake
             active_step[0] = 1
             trainer.update({"real": local_data}, latent)
             assert counts["step_1"] >= 15
             assert trainer._in_hot_path is True
-            
+
             # Step 2: In hot path, 0 barriers
             active_step[0] = 2
             trainer.update({"real": local_data}, latent)
             assert counts["step_2"] == 0, f"Step 2 had {counts['step_2']} barriers, expected 0"
-            
+
             # Step 3: In hot path, 0 barriers
             active_step[0] = 3
             trainer.update({"real": local_data}, latent)
             assert counts["step_3"] == 0, f"Step 3 had {counts['step_3']} barriers, expected 0"
-            
+
             Path(out_path).write_text(json.dumps({
                 "rank": rank,
                 "passed": True,
@@ -244,7 +244,7 @@ def run_cuda_subprocesses(mode: str, tmp_path: Path):
     rendezvous_file = tmp_path / "rendezvous"
     uri = rendezvous_file.as_uri()
     env = make_nccl_env()
-    
+
     script_path = tmp_path / "worker.py"
     script_path.write_text(CUDA_WORKER_SCRIPT)
 

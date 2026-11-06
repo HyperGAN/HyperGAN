@@ -127,9 +127,17 @@ def test_hndl_template_parameters_load_inside_a_workspace(tmp_path):
     assert spec['description'] == 'uses {data}'
 
 
+def _force_run_name_collision(monkeypatch):
+    draws = iter((bytes((0, 0)), bytes((0, 0)), bytes((1, 1))))
+    monkeypatch.setattr('hypergan.registry.os.urandom', lambda count: next(draws))
+
+
 def test_default_run_dir_is_a_fresh_slug_unless_named(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    first, second = default_run_dir('model'), default_run_dir('model')
+    _force_run_name_collision(monkeypatch)
+    first = default_run_dir('model')
+    first.mkdir()
+    second = default_run_dir('model')
     assert first.parent == second.parent == tmp_path.resolve() and first != second
     assert re.fullmatch(r'model-[a-z]+-[a-z]+', first.name)
     assert default_run_dir('model', name='reference/100gaussians') == tmp_path.resolve() / 'reference-100gaussians'
@@ -144,7 +152,10 @@ def test_api_and_cli_share_the_run_directory_rule(tmp_path, monkeypatch):
     from hypergan.api import _default_run_dir
     monkeypatch.chdir(tmp_path)
     model = hg.packaged('gaussian-grid')  # named "reference/100gaussians", which is not a directory
-    first, second = _default_run_dir(model), _default_run_dir(model)
+    _force_run_name_collision(monkeypatch)
+    first = _default_run_dir(model)
+    first.mkdir()
+    second = _default_run_dir(model)
     assert first.parent == tmp_path.resolve() and first != second
     assert first.name.startswith('gaussian-grid-')
 

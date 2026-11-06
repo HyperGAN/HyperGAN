@@ -84,8 +84,9 @@ def test_index_filters_dates_theme_and_empty_feedback(dashboard):
 
     expect(page.get_by_role('heading', name='Training runs', exact=True)).to_be_visible()
     assert page.get_by_role('columnheader', name='Created at', exact=False).count() == 1
-    assert page.get_by_role('columnheader', name='FID', exact=True).count() == 1
+    expect(page.get_by_role('columnheader', name='FID', exact=True)).to_be_visible()
     assert page.get_by_role('columnheader', name='Topology & Batch', exact=True).count() == 1
+    expect(page.locator('#runs-body [data-field="fid-primary"]')).to_have_text(['—'] * 4)
     expect(page.locator('#time-zone')).to_have_text('(America/Denver)')
     expect(page.locator('tr[data-id="alpha"] time')).to_have_text('Oct 16, 2026, 6:00 PM')
     expect(page.locator('tr[data-id="alpha"] time')).to_have_attribute('datetime', '2026-10-17T00:00:00.000Z')

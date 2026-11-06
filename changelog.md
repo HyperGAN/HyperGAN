@@ -9,6 +9,9 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
   counters now use the same steps as preview cadence, FID and metric charts,
   rather than multiplying them by the number of ranks.
 
+- Require the published HNDL 0.11.0 release in the `train` and `all` extras,
+  and use it in the Modal smoke and scaling runtimes.
+
 - Require the published ParticleGAN 0.9.5 release in the `train` and `all` extras.
 
 - Fresh `cifar10-transgan` runs inherit ParticleGAN's released `bispf_optimized`

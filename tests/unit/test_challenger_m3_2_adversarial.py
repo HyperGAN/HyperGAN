@@ -15,10 +15,10 @@ import subprocess
 import sys
 import time
 import pytest
-import toml
 
 import hypergan as hg
 from hypergan.run_info import RunInfo, read_run_info
+from hypergan.toml_writer import dumps
 
 
 class TestCadenceWireThrough:
@@ -37,7 +37,7 @@ class TestCadenceWireThrough:
             "progress_every": 1,
         }
         spec_path = tmp_path / "recipe.toml"
-        spec_path.write_text(toml.dumps(spec))
+        spec_path.write_text(dumps(spec))
         run_dir = tmp_path / "runs" / "test_cadence"
 
         # Pace steps so background preview worker completes before subsequent cadences
@@ -77,7 +77,7 @@ class TestProgressLineLosses:
         spec["train"]["device"] = "cpu"
         spec["run"] = {"progress_every": 1}
         spec_path = tmp_path / "recipe.toml"
-        spec_path.write_text(toml.dumps(spec))
+        spec_path.write_text(dumps(spec))
         run_dir = tmp_path / "runs" / "test_progress_loss"
 
         cmd = [sys.executable, "-m", "hypergan", "train", str(spec_path), "--run-dir", str(run_dir), "--no-server"]
@@ -104,7 +104,7 @@ class TestHealthTelemetryScalars:
         spec["train"]["steps"] = 12
         spec["train"]["device"] = "cpu"
         spec_path = tmp_path / "recipe.toml"
-        spec_path.write_text(toml.dumps(spec))
+        spec_path.write_text(dumps(spec))
         run_dir = tmp_path / "runs" / "test_telemetry"
 
         hg.train(spec_path, run_dir, steps=12)
@@ -150,7 +150,7 @@ class TestHealthAlertsAndTrends:
         spec["train"]["steps"] = 20
         spec["train"]["device"] = "cpu"
         spec_path = tmp_path / "recipe.toml"
-        spec_path.write_text(toml.dumps(spec))
+        spec_path.write_text(dumps(spec))
         run_dir = tmp_path / "runs" / "test_trends"
 
         hg.train(spec_path, run_dir, steps=20)
@@ -172,7 +172,7 @@ class TestHealthAlertsAndTrends:
         spec["train"]["lr"] = 1e-8
         spec["train"]["d_lr_mult"] = 100000.0
         spec_path = tmp_path / "recipe.toml"
-        spec_path.write_text(toml.dumps(spec))
+        spec_path.write_text(dumps(spec))
         run_dir = tmp_path / "runs" / "test_overpowering"
 
         hg.train(spec_path, run_dir, steps=25)
@@ -193,7 +193,7 @@ class TestHealthAlertsAndTrends:
             {"type": "prior", "weight": 0.0},
         ]
         spec_path = tmp_path / "recipe.toml"
-        spec_path.write_text(toml.dumps(spec))
+        spec_path.write_text(dumps(spec))
         run_dir = tmp_path / "runs" / "test_vanishing"
 
         hg.train(spec_path, run_dir, steps=10)
@@ -214,7 +214,7 @@ class TestUnifiedRunInfoReader:
         spec["train"]["steps"] = 10
         spec["train"]["device"] = "cpu"
         spec_path = tmp_path / "recipe.toml"
-        spec_path.write_text(toml.dumps(spec))
+        spec_path.write_text(dumps(spec))
         run_dir = tmp_path / "runs" / "test_run_info"
 
         hg.train(spec_path, run_dir, steps=10)

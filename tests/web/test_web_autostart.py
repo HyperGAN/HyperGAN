@@ -426,15 +426,10 @@ def test_get_port_owner_detects_listening_process():
 
 def test_bind_available_raises_actionable_error_on_conflict():
     from hypergan.web_launch import bind_available
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.bind(("0.0.0.0", 0))
-    listener.listen(1)
-    port = listener.getsockname()[1]
-    try:
+    with bind_loopback() as listener:
+        port = listener.getsockname()[1]
         with pytest.raises(OSError, match=f"Port {port} is already in use by PID {os.getpid()}"):
             bind_available(port)
-    finally:
-        listener.close()
 
 
 def test_ensure_dashboard_running_auto_restart_on_version_mismatch(tmp_path, monkeypatch):

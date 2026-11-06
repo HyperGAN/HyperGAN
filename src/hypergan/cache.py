@@ -228,7 +228,7 @@ def resolve_or_cache(
     # Local file:// URI pass-through
     if s.startswith("file://"):
         parsed = urllib.parse.urlsplit(s)
-        local_path = Path(urllib.parse.unquote(parsed.path)).expanduser().resolve()
+        local_path = Path(urllib.request.url2pathname(parsed.path)).expanduser().resolve()
         return _validate_local_file(local_path, expected_sha256, expected_size)
 
     # Remote HTTP / HTTPS URL caching

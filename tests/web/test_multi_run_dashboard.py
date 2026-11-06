@@ -807,5 +807,3 @@ def test_index_active_vs_inactive_speed_eta_and_topology_rendering(tmp_path):
     assert "33.9" not in bare_html
     assert '<span class="topo-primary muted" data-field="topology-primary">—</span>' in bare_html
     assert '<span class="muted" data-field="speed-primary">—</span>' in bare_html
-
-

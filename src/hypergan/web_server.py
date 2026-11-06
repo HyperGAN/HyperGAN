@@ -654,7 +654,7 @@ def render_run_index_html(runs: list[dict], runs_root: Path, *, login: bool = Fa
   <footer class="brand-footer">
     <span>HyperGAN · Training runs</span>
     <a class="brand-endorsement" href="https://255labs.xyz" aria-label="HyperGAN by 255labs">
-      by <img src="/assets/255labs-lockup.svg" width="120" height="32" alt="255labs" />
+      by <img src="/assets/255labs-lockup.svg" width="120" alt="255labs" />
     </a>
   </footer>
 </body>

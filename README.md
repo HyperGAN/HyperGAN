@@ -2,7 +2,7 @@
 
 <p>by <a href="https://255labs.xyz"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/HyperGAN/HyperGAN/develop/docs/assets/255labs-lockup.svg" />
-  <img src="https://raw.githubusercontent.com/HyperGAN/HyperGAN/develop/docs/assets/255labs-lockup-ink.svg" width="120" height="32" hspace="16" vspace="16" align="absmiddle" alt="255labs" />
+  <img src="https://raw.githubusercontent.com/HyperGAN/HyperGAN/develop/docs/assets/255labs-lockup-ink.svg" width="120" hspace="16" vspace="16" align="absmiddle" alt="255labs" />
 </picture></a></p>
 
 Train generative models. Follow their progress. Export the result.

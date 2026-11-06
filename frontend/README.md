@@ -25,6 +25,24 @@ An explicitly requested JSON tensor preview is limited to 64 KiB, eight axes and
 values; it validates the declared shape and shows at most 128 numbers. Unknown
 media remain downloadable without decoding or executing them.
 
+## Branding
+
+HyperGAN follows the [255labs brand system](https://branding.255labs.xyz/)
+using the endorsed product model: its own name and HG icon, with a “by 255labs”
+signature. Both viewer pages load `web_assets/brand.css`, which maps the shared
+v1.0 tokens to the UI palette: Ink backgrounds, Graphite panels, Paper text,
+Stone secondary text, and Signal accents. Sky and Lilac distinguish data series;
+warnings and failures retain labeled semantic colors.
+
+Manrope Variable and IBM Plex Mono are bundled WOFF2 files, served from the same
+origin for offline use. The original outlined 255labs lockup and font files come
+from the guide's v1.0 brand kit. Its tokens are unchanged except for flattened
+font URLs to fit the viewer's asset route. Font licenses are alongside the fonts
+in `web_assets/Manrope-OFL.txt` and `web_assets/IBM-Plex-Mono-OFL.txt`.
+Preserve the lockup geometry, its 120px minimum width, and 16px clear space.
+`frontend/src/chart.js` mirrors the palette for Canvas charts; rebuild the bundle
+after changing it. SVGs and fonts are included in both wheel and source archives.
+
 ## Rebuild
 
 ```sh

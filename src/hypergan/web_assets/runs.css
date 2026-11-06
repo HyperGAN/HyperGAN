@@ -1,34 +1,7 @@
 :root {
-  color-scheme: dark;
-  --bg: #121516;
-  --surface: #1b2020;
-  --surface-2: #222829;
-  --line: #303636;
-  --line-strong: #464e4e;
-  --ink: #eeeae3;
-  --muted: #92999a;
-  --accent: #d8ba7d;
-  --live: #9dc9b8;
-  --warn: #e09a7a;
-  --radius: 8px;
-  --sans:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
-  --mono:
-    ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Monaco,
-    Consolas,
-    monospace;
   font-family: var(--sans);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 16px;
+  line-height: 1.6;
   color: var(--ink);
   background: var(--bg);
   font-synthesis: none;
@@ -73,7 +46,7 @@ select {
   min-height: 52px;
   padding: 10px clamp(16px, 3vw, 36px);
   border-bottom: 1px solid var(--line);
-  background: rgba(18, 21, 22, 0.92);
+  background: rgb(16 17 16 / 92%);
   backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
@@ -87,9 +60,9 @@ select {
   gap: 12px;
   text-decoration: none;
   color: var(--ink);
-  font-size: 13px;
-  letter-spacing: 2px;
-  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.3px;
+  font-weight: 650;
   flex-shrink: 0;
 }
 
@@ -102,7 +75,7 @@ select {
 }
 
 .brand-separator {
-  color: #535d5c;
+  color: var(--muted);
   margin: 0 2px;
 }
 
@@ -137,7 +110,7 @@ select {
 .connection i {
   height: 7px;
   width: 7px;
-  background: #8c9495;
+  background: var(--muted);
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -147,8 +120,8 @@ select {
 }
 
 .connection.live i {
-  background: #8bbaa7;
-  box-shadow: 0 0 0 4px rgba(139, 186, 167, 0.12);
+  background: var(--live);
+  box-shadow: 0 0 0 4px rgb(215 255 63 / 12%);
 }
 
 .connection.error,
@@ -178,7 +151,7 @@ select {
 .eyebrow {
   display: block;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 2.4px;
   text-transform: uppercase;
   color: var(--accent);
@@ -188,7 +161,7 @@ select {
 h1 {
   margin: 0;
   font-size: 32px;
-  font-weight: 500;
+  font-weight: 550;
   letter-spacing: -1.1px;
   color: var(--ink);
 }
@@ -249,12 +222,12 @@ select {
 }
 
 input::placeholder {
-  color: #6d7576;
+  color: var(--muted);
 }
 
 input:hover,
 select:hover {
-  border-color: #5b6565;
+  border-color: var(--line-strong);
 }
 
 .btn {
@@ -276,8 +249,8 @@ select:hover {
 }
 
 .btn:hover {
-  background: #2b3334;
-  border-color: #5b6565;
+  background: var(--surface-2);
+  border-color: var(--line-strong);
 }
 
 .btn:disabled {
@@ -383,13 +356,13 @@ tbody tr:first-child td {
 .run-link {
   color: var(--accent);
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 650;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .run-row:hover .run-link {
-  color: #e6cca0;
+  color: var(--accent);
 }
 
 .run-link:hover {
@@ -409,7 +382,7 @@ tbody tr:first-child td {
 }
 
 .slug-badge {
-  color: #c5b38e;
+  color: var(--accent);
 }
 
 .id-badge {
@@ -436,7 +409,7 @@ tbody tr:first-child td {
   object-fit: cover;
   display: block;
   border: 1px solid var(--line-strong);
-  background: #0d1011;
+  background: var(--bg);
 }
 
 .no-thumbnail,
@@ -450,10 +423,10 @@ tbody tr:first-child td {
   padding: 3px 8px;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
-  background: rgba(146, 153, 154, 0.1);
+  background: rgb(160 166 154 / 10%);
   color: var(--ink);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0.8px;
   text-transform: uppercase;
   white-space: nowrap;
@@ -463,31 +436,31 @@ tbody tr:first-child td {
 .badge[data-status="training"],
 .badge[data-status="initializing"],
 .badge[data-status="starting"] {
-  background: rgba(157, 201, 184, 0.12);
+  background: rgb(215 255 63 / 12%);
   color: var(--live);
-  border-color: rgba(157, 201, 184, 0.34);
+  border-color: rgb(215 255 63 / 34%);
 }
 
 .badge[data-status="complete"],
 .badge[data-status="completed"] {
-  background: rgba(216, 186, 125, 0.12);
-  color: var(--accent);
-  border-color: rgba(216, 186, 125, 0.34);
+  background: rgb(170 203 250 / 12%);
+  color: var(--blue);
+  border-color: rgb(170 203 250 / 34%);
 }
 
 .badge[data-status="stopped"],
 .badge[data-status="interrupted"],
 .badge[data-status="cancelled"],
 .badge[data-status="canceled"] {
-  background: rgba(194, 181, 155, 0.1);
-  color: #c2b59b;
-  border-color: rgba(194, 181, 155, 0.28);
+  background: rgb(160 166 154 / 10%);
+  color: var(--muted);
+  border-color: rgb(160 166 154 / 28%);
 }
 
 .badge[data-status="failed"] {
-  background: rgba(224, 154, 122, 0.14);
+  background: rgb(241 168 156 / 14%);
   color: var(--warn);
-  border-color: rgba(224, 154, 122, 0.36);
+  border-color: rgb(241 168 156 / 36%);
 }
 
 .topo-primary,
@@ -511,7 +484,7 @@ tbody tr:first-child td {
 }
 
 .best-fid {
-  font-weight: 600;
+  font-weight: 650;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
@@ -524,7 +497,7 @@ tbody tr:first-child td {
 
 time {
   display: block;
-  color: #d6d3cb;
+  color: var(--ink);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }

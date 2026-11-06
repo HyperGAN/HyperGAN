@@ -73,13 +73,19 @@ def test_index_filters_dates_theme_and_empty_feedback(dashboard):
     publish('delta', status='failed')
     page.goto(origin)
 
-    # Unified Warm Obsidian & Gold theme + masthead brand identity.
-    assert page.evaluate('getComputedStyle(document.documentElement).backgroundColor') == 'rgb(18, 21, 22)'
+    # Shared 255labs palette, offline typography, and product endorsement.
+    page.evaluate('document.fonts.ready')
+    assert page.evaluate('getComputedStyle(document.documentElement).backgroundColor') == 'rgb(16, 17, 16)'
+    assert page.evaluate('document.fonts.check(\'16px "Manrope Variable"\')')
+    assert page.evaluate('document.fonts.check(\'11px "IBM Plex Mono"\')')
+    assert page.locator('.eyebrow').evaluate('el => getComputedStyle(el).color') == 'rgb(215, 255, 63)'
+    expect(page.get_by_role('link', name='HyperGAN by 255labs')).to_be_visible()
+    assert page.locator('.brand-endorsement img').evaluate('el => el.complete && el.naturalWidth > 0')
     brand_text = page.locator('.masthead .brand').evaluate(
         "el => el.textContent.replace(/\\s+/g, ' ').trim()"
     )
-    assert brand_text == 'HYPERGAN/EXPERIMENTS'
-    expect(page.locator('.masthead .brand')).to_contain_text('HYPERGAN')
+    assert brand_text == 'HyperGAN/EXPERIMENTS'
+    expect(page.locator('.masthead .brand')).to_contain_text('HyperGAN')
     expect(page.locator('.masthead .brand-detail')).to_have_text('EXPERIMENTS')
 
     expect(page.get_by_role('heading', name='Training runs', exact=True)).to_be_visible()

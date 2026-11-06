@@ -64,7 +64,7 @@ def viewer():
             if path=='/' or path.startswith('/runs/'): return self.send(200,files('hypergan.web_assets').joinpath('index.html').read_bytes(),'text/html')
             if path.startswith('/assets/') or path.startswith('/reducers/'):
                 resource=(files('hypergan.web_assets') if path.startswith('/assets/') else assets()).joinpath(path.rsplit('/',1)[-1])
-                mime='text/javascript' if path.endswith('.js') else 'text/css' if path.endswith('.css') else 'image/png' if path.endswith('.png') else 'application/wasm' if path.endswith('.wasm') else 'application/octet-stream'
+                mime='text/javascript' if path.endswith('.js') else 'text/css' if path.endswith('.css') else 'image/png' if path.endswith('.png') else 'image/svg+xml' if path.endswith('.svg') else 'font/woff2' if path.endswith('.woff2') else 'application/wasm' if path.endswith('.wasm') else 'application/octet-stream'
                 return self.send(200,resource.read_bytes(),mime)
             if 'session=valid' not in self.headers.get('Cookie',''):return self.send(401,{'error':'Session required'})
             if path=='/api/v1/capabilities':return self.send(200,{'run_id':None if control.get('waiting') else RUN,'reducer':reducer.spec})

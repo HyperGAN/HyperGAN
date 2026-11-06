@@ -138,6 +138,9 @@ def _worker(rank, rendezvous, output):
                 for step in range(1, 4):
                     batch, draw = _draw(replica, step, rank)
                     actual, _ = replica.update(batch, draw)
+                    # The reference critic also changes the ambient device;
+                    # check the replicated boundary before invoking it.
+                    assert replica.checkpoint_ready and torch.cuda.current_device() == rank
                     full, global_draw = _draw(reference, step)
                     expected, _ = reference.update(full, global_draw)
                     context = f'{mode}/A{accumulation}/step{step}/rank{rank}'
@@ -145,7 +148,6 @@ def _worker(rank, rendezvous, output):
                     for key in ('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty'):
                         _close(actual[key], expected[key], f'{context}.{key}')
                     assert (actual['gradient_penalty'] > 0) == (step == 2)
-                    assert replica.checkpoint_ready and torch.cuda.current_device() == rank
                 assert any(not torch.equal(initial_encoder[key], value)
                            for key, value in replica.graph.models['encoder'].state_dict().items())
                 assert replica.opt_g.state[replica.prior.z]['exp_avg'][[1, 3, 5, 7, 8, 9, 10, 11]].abs().sum() > 0

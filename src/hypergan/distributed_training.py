@@ -203,6 +203,8 @@ class ReplicatedTrainer(ReferenceTrainer):
         if not force and self._in_hot_path:
             # Keep successful updates free of Python object collectives, but
             # agree on phase failures before another rank can advance.
+            if self.device.type == 'cuda':
+                torch.cuda.set_device(self.device)
             failed = torch.tensor(int(error is not None), dtype=torch.int32, device=self.device)
             dist.all_reduce(failed, op=dist.ReduceOp.MAX)
             if not failed.item():

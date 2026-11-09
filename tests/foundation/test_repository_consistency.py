@@ -199,7 +199,8 @@ def test_every_default_test_tier_ships_in_the_sdist_and_is_self_contained():
 
 def test_one_changelog_with_an_unreleased_section_citing_real_constants():
     assert not (ROOT / 'docs' / 'changelog.md').exists(), 'keep the root CHANGELOG.md only'
-    assert not (ROOT / 'changelog.md').exists(), 'keep the root CHANGELOG.md only'
+    root_names = {p.name for p in ROOT.iterdir()}
+    assert 'CHANGELOG.md' in root_names and 'changelog.md' not in root_names, 'keep the root CHANGELOG.md only'
     changelog = _read('CHANGELOG.md')
     headings = re.findall(r'^## (.+)$', changelog, re.M)
     assert headings[0] == 'Unreleased', headings[:2]

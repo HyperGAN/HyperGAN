@@ -138,10 +138,10 @@ def runtime_info(device='cpu'):
 
 def source_info(config=None):
     from .provenance import hypergan_source
-    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "commit": "407c2f7aad143badfa92ef4e7d5281b95b946542"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
+    result = {"integration_reference": {"repository": "https://github.com/HyperGAN/ParticleGAN", "commit": "407c2f7aad143badfa92ef4e7d5281b95b946542"}, "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": None, **hypergan_source()}
     if config and config.get('recipe'):
         result['integration_reference'] = {
-            'repository': 'https://github.com/255BITS/ParticleGAN',
+            'repository': 'https://github.com/HyperGAN/ParticleGAN',
             'version': _version('particlegan'), 'preset': config['recipe'].get('name')}
     result["distribution_records"] = {}
     for name in ("hypergan", "particlegan", "hndl"):

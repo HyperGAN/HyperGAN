@@ -26,9 +26,9 @@ calibrated once and fixed. The offset head starts at zero.
 
 The reference is ParticleGAN commit
 `d2a6450985282047d2d27c36eb80ff9f5200f8c9`:
-[recipe and caller-owned loop](https://github.com/255BITS/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/docs/particle-autoencoders.md),
-[encoding](https://github.com/255BITS/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/particlegan/autoencoder.py),
-and [image encoder](https://github.com/255BITS/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/lib/image_particle_autoencoder.py).
+[recipe and caller-owned loop](https://github.com/HyperGAN/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/docs/particle-autoencoders.md),
+[encoding](https://github.com/HyperGAN/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/particlegan/autoencoder.py),
+and [image encoder](https://github.com/HyperGAN/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/lib/image_particle_autoencoder.py).
 The package presets describe composable settings, not a complete tested 256px
 architecture. This reproduces the AE formulation; logo quality is unproven.
 

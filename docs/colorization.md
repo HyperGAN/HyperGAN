@@ -102,7 +102,7 @@ saved. For the uniform particle prior the joint KL is the constant `log(4096)`,
 so there is no optimized KL term. The hard forward route uses a soft
 straight-through gradient. This is a surrogate gradient, not an unbiased
 categorical estimator. See the original
-[ParticleGAN implementation](https://github.com/255BITS/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/particlegan/autoencoder.py).
+[ParticleGAN implementation](https://github.com/HyperGAN/ParticleGAN/blob/d2a6450985282047d2d27c36eb80ff9f5200f8c9/particlegan/autoencoder.py).
 
 GAN training samples the **uniform particle prior**, independently of the encoder.
 This keeps all particles eligible for generator training even if encoder routing

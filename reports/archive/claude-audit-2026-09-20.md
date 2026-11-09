@@ -358,6 +358,6 @@ Ledger and plan: `reports/resurrection-status.md`,
 `/home/martyn/dev/hypergan/resurrection-backups/` and run data under
 `/home/martyn/dev/hypergan/training-runs/`. GitHub state via `gh` on
 2026-09-20. ParticleGAN: https://pypi.org/project/particlegan/ ,
-https://github.com/255BITS/ParticleGAN , local checkout
+https://github.com/HyperGAN/ParticleGAN , local checkout
 `/home/martyn/dev/ParticleGAN`, installed 0.5.0 in
 `/home/martyn/dev/hypergan/image-training-env`.

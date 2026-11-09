@@ -47,13 +47,13 @@ Keep that earlier experiment's reports as historical evidence.
 
 Pinned upstream sources:
 
-- [200k findings](https://github.com/255BITS/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/reports/cifar-particle-ae/sagan_gd_16k_200k/FINDINGS.md)
-  and [configuration](https://github.com/255BITS/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/configs/cifar_particle_ae/sagan_gd_16k_200k/sagan_gd_16k.yaml).
-- [Trainer and attention implementation](https://github.com/255BITS/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/experiments/train_cifar_ae_sagan.py),
-  [image components](https://github.com/255BITS/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/lib/image_particle_autoencoder.py)
-  and [pretrained feature critic](https://github.com/255BITS/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/lib/image_moonshots.py).
-- [Unchanged continuation](https://github.com/255BITS/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/reports/cifar-particle-ae/sagan_gd_16k_300k/FINDINGS.md)
-  and [later attention-depth intervention](https://github.com/255BITS/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/reports/cifar-particle-ae/sagan_gd_depth2_240k/FINDINGS.md).
+- [200k findings](https://github.com/HyperGAN/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/reports/cifar-particle-ae/sagan_gd_16k_200k/FINDINGS.md)
+  and [configuration](https://github.com/HyperGAN/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/configs/cifar_particle_ae/sagan_gd_16k_200k/sagan_gd_16k.yaml).
+- [Trainer and attention implementation](https://github.com/HyperGAN/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/experiments/train_cifar_ae_sagan.py),
+  [image components](https://github.com/HyperGAN/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/lib/image_particle_autoencoder.py)
+  and [pretrained feature critic](https://github.com/HyperGAN/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/lib/image_moonshots.py).
+- [Unchanged continuation](https://github.com/HyperGAN/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/reports/cifar-particle-ae/sagan_gd_16k_300k/FINDINGS.md)
+  and [later attention-depth intervention](https://github.com/HyperGAN/ParticleGAN/blob/9e9ce96c96948197e21e1171c8394e3819bb0013/reports/cifar-particle-ae/sagan_gd_depth2_240k/FINDINGS.md).
 
 Local run evidence is under
 `/home/martyn/dev/ParticleGAN/runs/cifar_particle_ae/sagan_gd_16k_200k/sagan_gd_16k/`:

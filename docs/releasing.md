@@ -5,7 +5,7 @@ HyperGAN is published to PyPI as `hypergan`. The package version is declared in
 `pyproject.toml`.
 
 `develop` holds upcoming work; `master` reflects the source published to PyPI.
-Prepare the version, `changelog.md` (rename its **Unreleased** section to the
+Prepare the version, `CHANGELOG.md` (rename its **Unreleased** section to the
 new version), and `README.md` on `develop`, verify CI, merge into `master`, and publish from the verified
 `master` commit.
 
@@ -55,7 +55,7 @@ token. Configure the PyPI Trusted Publisher at
 ## Publishing
 
 1. Merge reviewed changes into `develop`, including `__version__` in
-   `src/hypergan/__init__.py`, `changelog.md`, and `README.md`.
+   `src/hypergan/__init__.py`, `CHANGELOG.md`, and `README.md`.
 2. Merge `develop` into `master` and wait for `Foundation CI` (including heavy
    suites and `Build release distributions`) to pass on `master`.
 3. Create and publish the GitHub release with a `v<version>` tag targeting the

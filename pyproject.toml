@@ -60,7 +60,7 @@ hypergan = "hypergan.cli:main"
 Homepage = "https://github.com/HyperGAN/HyperGAN"
 Documentation = "https://github.com/HyperGAN/HyperGAN/tree/master/docs"
 Repository = "https://github.com/HyperGAN/HyperGAN"
-Changelog = "https://github.com/HyperGAN/HyperGAN/blob/master/changelog.md"
+Changelog = "https://github.com/HyperGAN/HyperGAN/blob/master/CHANGELOG.md"
 Issues = "https://github.com/HyperGAN/HyperGAN/issues"
 
 [tool.setuptools]

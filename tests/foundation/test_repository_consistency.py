@@ -198,8 +198,10 @@ def test_every_default_test_tier_ships_in_the_sdist_and_is_self_contained():
 
 
 def test_one_changelog_with_an_unreleased_section_citing_real_constants():
-    assert not (ROOT / 'docs' / 'changelog.md').exists(), 'keep the root changelog.md only'
-    changelog = _read('changelog.md')
+    assert not (ROOT / 'docs' / 'changelog.md').exists(), 'keep the root CHANGELOG.md only'
+    root_names = {p.name for p in ROOT.iterdir()}
+    assert 'CHANGELOG.md' in root_names and 'changelog.md' not in root_names, 'keep the root CHANGELOG.md only'
+    changelog = _read('CHANGELOG.md')
     headings = re.findall(r'^## (.+)$', changelog, re.M)
     assert headings[0] == 'Unreleased', headings[:2]
     sources = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / 'src' / 'hypergan').rglob('*.py'))
@@ -242,7 +244,7 @@ def test_docs_index_links_every_doc_and_repository_links_resolve():
     missing = [p.name for p in sorted((ROOT / 'docs').glob('*.md')) if p.name != 'README.md' and p.name not in index]
     assert not missing, f'docs/README.md does not link: {missing}'
     broken = []
-    for relative in [*DOC_FILES, 'GLOSSARY.md', 'SECURITY.md', 'changelog.md']:
+    for relative in [*DOC_FILES, 'GLOSSARY.md', 'SECURITY.md', 'CHANGELOG.md']:
         for target in _markdown_links(relative):
             if not ((ROOT / relative).parent / target).exists():
                 broken.append(f'{relative} -> {target}')

@@ -4,6 +4,71 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+## 2.0.0 — 2026-11-09
+
+HyperGAN 2.0.0 is the official General Availability (GA) production release of HyperGAN 2. It is a ground-up architectural rebuild centered on declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.5,<0.10`) primitives, reproducible training lifecycles, distributed multi-GPU and multi-node training, a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).
+
+### Highlights Since 2.0.0a2
+- **255labs Brand Identity & Viewer Polish**:
+  - Aligned HyperGAN README and Web Observatory visual identity with 255labs (`255labs-lockup.svg`, `255labs-lockup-ink.svg`, `255labs-tokens.css`, `brand.css`).
+  - Bundled offline self-hosted `Manrope` and `IBM Plex Mono` `.woff2` fonts (with OFL license texts) in `src/hypergan/web_assets/` for reproducible offline rendering.
+  - Aligned run status badge tints, chart color tokens, and strengthened viewer control boundaries across the Index dashboard and per-run Observatory.
+- **Repository & Upstream References**:
+  - Updated all ParticleGAN upstream repository references and error guidance to `HyperGAN/ParticleGAN`.
+  - Standardized the repository changelog at root `CHANGELOG.md`.
+
+### Added
+- **Unified `format = "hypergan-model/1"` Configuration Standard & Starter Templates**:
+  - Single, human-editable TOML model schema (`[data]`, `[prior]`, `[networks.<name>]`, `[[losses]]`, `[penalty]`, `[train]`, `[evaluations.<id>]`, `[metrics]`, `[sampling]`, `[checkpoints]`, `[run]`).
+  - Recursive configuration inheritance via `extends` with relative path anchoring, workspace variable interpolation (`hypergan.toml`), `difflib` field suggestions on unknown keys, and on-the-fly CLI overrides (`-s / --set KEY=VALUE`).
+  - Automatic dataset header inspection (`--dataset <path>`) and starter project scaffolding via `hypergan new` across `dcgan`, `tiny-transformer`, `resnet`, `transgan`, `colorization`, `paired-image`, `--conditional`, and `gaussian-grid` templates supporting 32..1024px resolutions with multi-GPU-safe `group_norm` and `rms_norm`.
+  - Packaged canonical recipes in `src/hypergan/models/` addressable by bare name (`hypergan train cifar10-transgan`): `gaussian-grid.toml`, `cifar10-tiny-transformer.toml`, `cifar10-transgan.toml`, `image-folder-128.toml`, and `colorization-128.toml`.
+- **HNDL Declarative Network DSL (`hndl>=0.11.0,<1`)**:
+  - Inline (`source = """..."""`) or standalone `.hndl` network definitions (`hndl = "path/to/net.hndl"`) with static AST and symbolic shape contract verification (`hndl.resolve()`, `input_shape`, `output_shape`) before allocating GPU weights.
+  - Native support for residual blocks, self-attention, 2D relative-position bias, one-row learned token position tables, split-latent AdaIN (`adaptive_norm`), equalized linear/conv layers, coordinate warps, Fourier features, differentiable augmentation (`diff_augment`), and SHA-256-pinned frozen pretrained backbones (`torchvision_resnet18`, `dinov3_vits16`) with symbolic `shape_fn` hooks.
+  - Multi-network and auxiliary graph routing (`role = "generator" | "critic" | "encoder" | "auxiliary"`) with weight sharing (`reuse`, `freeze_parameters`), multi-critic adversarial terms, particle-routing autoencoders (`ae_gan`, `vae_gan`), paired conditional reconstruction (`d-then-g-v1`), and [routed particle LoRA host integration](docs/particle-sliders.md).
+  - Resolved HNDL sources embedded into run manifests and version-2 checkpoints (`CURRENT_VERSION = 2`) for self-contained provenance.
+- **ParticleGAN (`particlegan>=0.9.5,<0.10`) Integration & Core Engine**:
+  - Native integration with ParticleGAN's released `bispf_optimized` preset (`defaults = "particlegan"`), DualNorm optimizer family, SBNP prior regularization, and explicit `Recipe.from_dict` snapshot restoration (with backwards-compatible fallback for 0.9.4 checkpoints).
+  - Python 3.11–3.14 support with modern dependency bounds (`torch>=2.6,<3`, `safetensors>=0.8,<1`, `Pillow>=13.0.0,<14`, `torch-fidelity>=0.4.0,<0.5`) and optional extras (`[train]`, `[image]`, `[cifar]`, `[fid]`, `[reducers]`, `[web]`, `[safetensors]`, `[onnx]`, `[all]`).
+  - On-demand external URL and dataset cache (`~/.hypergan/cache/`) with SHA-256 integrity verification, multi-rank file locking (`fcntl.flock`), automatic ResNet-18 (`f37072fd`) / Inception-v3 (`6726825d`) backbone caching, opt-in CIFAR-10 dataset preparation, and `HYPERGAN_OFFLINE=1` support.
+  - `ImageFolder` RGBA and palette alpha compositing (`alpha = "composite_white" | "composite_black" | "error"`) and opt-in symlink traversal (`follow_symlinks = true`).
+- **Distributed Multi-GPU & Multi-Node Training**:
+  - First-class multi-GPU and multi-node training (`gradient_allreduce`, `parameter_average`, `pseudo_gradient`) with zero-TOML CLI flags (`--devices`, `--nodes`, `--node-rank`, `--rendezvous`, `--strategy`, `--sync-every`) and Slurm / `torchrun` environment auto-detection.
+  - Elastic cross-topology resume (`1 <-> N` and `M <-> N` GPUs) across `checkpoints/` and `distributed-checkpoints/`, plus startup provenance caching on workers so mid-run `git` commits do not disrupt periodic checkpoints.
+  - NFS-free distributed checkpoints coordinated by Rank 0 over collective scatter/gather, with coordinated post-step phase failure handling (optimizer, backward, EMA, and evaluation snapshot failures) so all ranks reject partial checkpoints and restore rank-owned CUDA device contexts.
+  - Memory-contiguous parameter gradient bucketing in `_reduce_gradients`, elimination of per-step Python `all_gather_object` barriers after step 1, and documented **2.20× scaling speedup** on dual NVIDIA RTX A6000 at `batch_size = 256` ([Scaling Benchmark](docs/scaling-benchmark.md)).
+  - Hardware qualification suite (`hypergan qualify`) and AMD ROCm / HIP runtime detection and preflight support ([ROCm Readiness](docs/rocm.md)).
+- **Web Observatory (`hypergan view`) & Foldlite DB Storage**:
+  - Backed by `foldlitedb>=0.1.2,<0.2` for atomic append-only event journaling, durable `.fold` view caches, and shared Rust/WebAssembly streaming reducers across server and browser with pinned headline losses (`loss/g_total`, `loss/d_total`).
+  - Overhauled Global Runs Dashboard (`GET /`) and Per-Run Observatory (`GET /runs/<id_or_slug_or_tag>`) featuring the 255labs design system, zero-blink live DOM polling, clickable run rows, hardware topology and batch columns (`Batch 256 (128 / GPU)`), active throughput (`steps/s` and `samples/s`), live `ETA`, 5×2 summary stat grid, inline **Model** architecture section, 4×2 default chart grid with quick presets and URL-persisted state, dismissible health/contention alerts, 2-click confirm `Stop` control with live receipt tracking, and a side-by-side **Samples** comparison workbench with synced step scrubbing, Crisp/Smooth rendering toggle, and zoom lightbox.
+  - Loopback default listener (`127.0.0.1:8765`), `-b / --bind` network binding, automatic Tailscale MagicDNS host allowlisting via local `tailscaled.sock`, and TTY-gated autostart respecting `HYPERGAN_NO_SERVER=1` and `CI=1`.
+- **Docker-Style CLI, AI Agent Ergonomics & Telemetry**:
+  - Daemonless global run registry addressing runs from any directory by Docker-style slug (`fleet-hawk`), short ID, custom tag (`hypergan tag`), or path across `ps`, `status`, `logs`, `checkpoint`, `stop`, `resume`, `sample`, `eval`, `export`, `runs`, `queue`, `prune`, `gc`, and `rm`.
+  - Universal `--json` output with structured error envelopes, global `--quiet` / `-q` flag, `hypergan schema` (`hg.schema()`), `hypergan ops` (`hg.operators()`), machine-readable root `llms.txt`, and complete [HNDL Reference](docs/hndl-reference.md).
+  - Coalesced 10-scalar GAN health telemetry emitted every 10 steps across single-GPU and multi-GPU runs (`critic/real_mean`, `critic/fake_mean`, `critic/margin`, `critic/accuracy`, `grad_norm/critic`, `grad_norm/generator`, `grad_norm/prior`, `optimizer/d_guard_ratio`, `prior/particle_rms`, and batch `diversity/ratio`), plus rolling EMA metrics and automated `health_alerts` in `summary.json` and `hg.status()`.
+- **Standalone Production Export & Typed Python API (`import hypergan as hg`)**:
+  - Privacy-preserving standalone export stripping raw `last_batch` training tensors by default (`--include-example-inputs` to opt in) and baking learned particle tables (`prior.z`, `prior.sigma`) into generator modules across `bundle`, `safetensors`, `pt2`, and `onnx` formats with zero ParticleGAN/HNDL runtime dependencies.
+  - Callable `LoadedGenerator` (`nn.Module`) via `hg.load_bundle(..., device="cuda")` with `.sample(...)` and `.interpolate(..., mode="slerp")`, plus GPU-accelerated CLI batch sampling (`hypergan sample --device cuda --output-dir <dir>`).
+  - Lazy-loaded, Torch-free top-level Python API with PEP 561 `src/hypergan/py.typed` marker, typed dataclasses (`RunStatus`, `PsSnapshot`, `RunInfo`, `ModelDescription`, `SampleResult`, `TrainResult`, `ValidationWarning`, `LoadedGenerator`), non-blocking `hg.launch()`, and `on_event` early stopping via `hg.StopTraining`.
+
+### Changed
+- Standardized global training step reporting across single-GPU and multi-GPU runs so one complete global discriminator/generator update counts as one step across progress bars, throughput, checkpoints, preview sliders, FID, and metric charts.
+- Promoted distributed multi-GPU and multi-node execution to first-class CLI and API flags without `--experimental`.
+- Unified run metadata reading through `RunInfo` and dispatched `compare_runs` `min`/`max` ordering from the metric catalog's declared `direction`.
+- Sanitized `examples/` to canonical runnable recipes with `builtin = "image_folder"`, archiving historical research ablations under `examples/archive/` and `reports/archive/`.
+
+### Fixed
+- Placed `ema_critic` in `.eval()` mode during anchor evaluations so stochastic `DiffAugment` or dropout cannot perturb critic anchors, and wired live post-guard / pre-guard gradient scaling into `optimizer/d_guard_ratio`.
+- Prioritized packaged recipe resolution in `hypergan train <recipe>` before matching older local run directories sharing the same experiment name.
+- Fixed InceptionFID eigenvalue computation on SciPy 1.18+ via `torch-fidelity>=0.4.0`.
+- Fixed `hypergan queue run` signal forwarding, atomic job claiming, and cross-platform process identity checks on Linux, macOS, and Windows.
+- Fixed `checkpoints prune` locking, branch-aware retention of abandoned attempts, and reclaimed byte accounting.
+
+### Removed
+- Removed legacy 1.x TensorFlow/PyTorch 1.x catalog components in favor of the `hypergan-model/1` + HNDL + ParticleGAN architecture (see [migration notes](docs/migration.md)).
+- Removed the unimplemented `src/hypergan/runpod_runner.py` stub and broken scratchpad configs from `examples/`.
+
 ## 2.0.0a2 — 2026-11-05
 
 HyperGAN 2.0.0a2 is the second alpha of HG 2. It combines declarative `hypergan-model/1` TOML model files, HNDL (`>=0.11.0,<1`) networks, ParticleGAN (`>=0.9.5,<0.10`) primitives, distributed training, a typed Python API, the Web Observatory, and standalone model export.
@@ -181,7 +246,7 @@ See more here [https://github.com/255BITS/HyperGAN/pull/66](https://github.com/2
 
 * Tensorflow 1.0 support
 * New configuration format and refactored api.
-* New loss based on least squared GAN.  See [least squares GAN implementation](changelog.md#Least-Squares-GAN).
+* New loss based on least squared GAN.  See [least squares GAN implementation](CHANGELOG.md#Least-Squares-GAN).
 * API example `2d-test` - tests a trainer/encoder/loss combination against a known distribution.
 * API example `2d-measure` - measure and report the above test by randomly combining options.
 * Updated default configuration.

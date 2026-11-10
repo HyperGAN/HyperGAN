@@ -164,7 +164,7 @@ def source_info(config=None):
     """Installed sources: the ParticleGAN release and recipe preset, and HyperGAN's revision."""
     from .provenance import hypergan_source
     recipe = (config or {}).get('recipe') or {}
-    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "version": _version("particlegan"), "preset": recipe.get('name')},
+    result = {"integration_reference": {"repository": "https://github.com/HyperGAN/ParticleGAN", "version": _version("particlegan"), "preset": recipe.get('name')},
               "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": _distribution_commit("particlegan"), **hypergan_source()}
     result["distribution_records"] = {}
     for name in ("hypergan", "particlegan", "hndl"):

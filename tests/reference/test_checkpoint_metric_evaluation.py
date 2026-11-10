@@ -8,7 +8,7 @@ import torch
 from hypergan.config import fingerprint, resolve_config
 from hypergan.metric_evaluation import evaluate
 from hypergan.run_state import atomic_json, run_lock
-from hypergan.checkpoints import prune_checkpoints
+from hypergan.checkpoints import _prune_run_checkpoints
 
 
 def _setup_run(run_dir: Path, step: int = 1000, status: str = "running", train_device: str = "cuda:0"):
@@ -95,7 +95,8 @@ def test_lock_free_evaluation_under_active_run_lock(tmp_path, monkeypatch):
         recorded_pre_receipt.update(json.loads(receipt_path.read_text(encoding="utf-8")))
 
         # Invariant S2 verification: while this eval is running, prune_checkpoints must retain step 1000!
-        prune_rep = prune_checkpoints(root, policy={"keep_last": 0, "keep_every": 0})
+        # The trainer prunes through the internal path under the lock it holds.
+        prune_rep = _prune_run_checkpoints(root, policy={"keep_last": 0, "keep_every": 0})
         retained_steps = {r["step"] for r in prune_rep["retained"]}
         assert 1000 in retained_steps, "Active evaluation step was not pinned by Invariant S2!"
 

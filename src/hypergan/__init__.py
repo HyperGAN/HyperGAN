@@ -55,53 +55,10 @@ if TYPE_CHECKING:
         view,
     )
 
-__all__ = (
-    "ConfigError",
-    "LoadedGenerator",
-    "Model",
-    "ModelDescription",
-    "ModelFileError",
-    "PsSnapshot",
-    "Run",
-    "RunHandle",
-    "RunInfo",
-    "RunStatus",
-    "Sample",
-    "SampleResult",
-    "StopTraining",
-    "TrainResult",
-    "ValidationWarning",
-    "compare",
-    "describe",
-    "events",
-    "export",
-    "interpolate",
-    "launch",
-    "load",
-    "load_bundle",
-    "logs",
-    "lower",
-    "metrics",
-    "new",
-    "operators",
-    "override",
-    "prune_checkpoints",
-    "ps",
-    "read_run_info",
-    "resolve",
-    "resume",
-    "rm",
-    "sample",
-    "samples",
-    "save",
-    "schema",
-    "status",
-    "stop",
-    "tag",
-    "train",
-    "validate",
-    "view",
-)
+from .api import __all__ as _api_all, ALIASES as _ALIASES
+
+__all__ = tuple(_api_all)
+del _api_all
 
 
 def __getattr__(name: str):
@@ -113,10 +70,11 @@ def __getattr__(name: str):
     if name == "metrics":
         return importlib.import_module(".metrics", __name__)
 
-    # Delegate to .api for declared public symbols and legacy helpers
-    api = importlib.import_module(".api", __name__)
-    if hasattr(api, name):
-        return getattr(api, name)
+    # Guard: only allow public symbols declared in __all__ (or their aliases)
+    if name in __all__ or name in _ALIASES:
+        api = importlib.import_module(".api", __name__)
+        if hasattr(api, name):
+            return getattr(api, name)
 
     # Allow direct submodule access (e.g. hypergan.cli, hypergan.config)
     try:

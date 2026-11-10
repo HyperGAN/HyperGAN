@@ -964,7 +964,14 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None,
     prior_state = state["ema_prior"]
     prior_buffers = state.get("buffers", {}).get("ema_prior", {}) if isinstance(state.get("buffers"), dict) else {}
 
-    batch = state.get("last_batch") or {}
+    batch = state.get("last_batch")
+    if not batch and needed_inputs:
+        rank_zero = ckpt_dir / "ranks" / "rank-00000.pt"
+        if rank_zero.is_file():
+            rank_state = torch.load(rank_zero, map_location="cpu", weights_only=True)
+            if isinstance(rank_state, dict):
+                batch = rank_state.get("last_batch")
+    batch = batch or {}
     raw_inputs = {k: v for k, v in batch.items() if k in needed_inputs} if isinstance(batch, dict) else {}
     if not include_example_inputs:
         example_inputs = {}
@@ -1014,22 +1021,57 @@ def export_checkpoint_bundle(checkpoint_dir: Path | str, output_dir: Path | str,
     else:
         dest.parent.mkdir(parents=True, exist_ok=True)
 
-    temp_pt = dest.with_suffix(".pt.tmp") if dest.suffix == ".pt" else dest.with_name(dest.name + ".tmp")
-    with temp_pt.open("wb") as stream:
-        torch.save(bundle, stream)
-        stream.flush()
-        os.fsync(stream.fileno())
-    temp_pt.replace(dest)
-
-    digest = file_sha256(dest)
     checksum_path = dest.with_name("model.sha256") if dest.name == "model.pt" else dest.with_suffix(".sha256")
-    temp_sha = checksum_path.with_suffix(".sha256.tmp") if checksum_path.suffix == ".sha256" else checksum_path.with_name(checksum_path.name + ".tmp")
-    with temp_sha.open("w", encoding="utf-8") as stream:
-        stream.write(digest + "\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    temp_sha.replace(checksum_path)
-    sync_directory(dest.parent)
+    temp_pt = dest.with_name(dest.name + ".tmp")
+    temp_sha = checksum_path.with_name(checksum_path.name + ".tmp")
+    try:
+        with temp_pt.open("wb") as stream:
+            torch.save(bundle, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        digest = file_sha256(temp_pt)
+        with temp_sha.open("w", encoding="utf-8") as stream:
+            stream.write(digest + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        temp_sha.replace(checksum_path)
+        temp_pt.replace(dest)
+        sync_directory(dest.parent)
+    finally:
+        temp_pt.unlink(missing_ok=True)
+        temp_sha.unlink(missing_ok=True)
+    return dest, checksum_path
+
+
+def atomic_copy_bundle(source_pt: Path | str, sha256_hex: str, output_dir: Path | str) -> tuple[Path, Path]:
+    """Atomically copy an existing inference bundle and write its SHA-256 sidecar without importing torch."""
+    src = Path(source_pt).resolve()
+    dest = Path(output_dir).resolve()
+    if dest.is_dir() or (not dest.exists() and dest.suffix == ""):
+        dest.mkdir(parents=True, exist_ok=True)
+        dest = dest / "model.pt"
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+    checksum_path = dest.with_name("model.sha256") if dest.name == "model.pt" else dest.with_suffix(".sha256")
+    temp_pt = dest.with_name(dest.name + ".tmp")
+    temp_sha = checksum_path.with_name(checksum_path.name + ".tmp")
+    digest = sha256_hex.strip()
+    try:
+        with src.open("rb") as reader, temp_pt.open("wb") as writer:
+            shutil.copyfileobj(reader, writer, length=1048576)
+            writer.flush()
+            os.fsync(writer.fileno())
+        with temp_sha.open("w", encoding="utf-8") as stream:
+            stream.write(digest + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        temp_sha.replace(checksum_path)
+        temp_pt.replace(dest)
+        sync_directory(dest.parent)
+    finally:
+        temp_pt.unlink(missing_ok=True)
+        temp_sha.unlink(missing_ok=True)
     return dest, checksum_path
 
 
@@ -1123,7 +1165,7 @@ def prune_checkpoints(
     return _prune_report(run_dir, dry_run, retained, deleted, failed, skipped)
 
 
-def _prune_run_checkpoints(run_dir, policy=None, dry_run=False):
+def _prune_run_checkpoints(run_dir, policy=None, dry_run=False, manifest=None):
     """Retention for one run whose lock the caller holds, adhering to Invariants S1-S5.
 
     ``keep_last`` counts checkpoints on the live branch, the lineage that ends
@@ -1178,7 +1220,7 @@ def _prune_run_checkpoints(run_dir, policy=None, dry_run=False):
         retained_reasons = defaultdict(set)
 
         # S1: Never delete latest. Compare pointers across roots so the newest tip wins.
-        m_data = _read_json(run_dir / 'manifest.json') or {}
+        m_data = manifest if isinstance(manifest, dict) else (_read_json(run_dir / 'manifest.json') or {})
         tip_candidates = []
         root_latest_names = {}
         for ckpt_root in ckpt_roots:

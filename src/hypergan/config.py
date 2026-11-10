@@ -216,6 +216,43 @@ def sampler_bindings(config):
             for path in (spec.get("inputs") or {}).values()]
 
 
+def _checkpoint_cadence_warnings(result):
+    checkpoints_cfg = result.get("checkpoints")
+    if not isinstance(checkpoints_cfg, dict):
+        return []
+    keep_best = checkpoints_cfg.get("keep_best")
+    if not isinstance(keep_best, dict) or not (type(keep_best.get("count")) is int and keep_best["count"] > 0):
+        return []
+    run_cfg = result.get("run")
+    ckpt_every = run_cfg.get("checkpoint_every") if isinstance(run_cfg, dict) else None
+    if type(ckpt_every) is not int or ckpt_every <= 0:
+        return []
+    from .metric_plugins import enabled_custom
+    custom = enabled_custom(result)
+    interval_specs = {
+        name: spec
+        for name, spec in custom.items()
+        if isinstance(spec, dict) and spec.get("mode") == "snapshot" and spec.get("trigger") == "interval"
+    }
+    target_metric = keep_best.get("metric")
+    if target_metric in interval_specs:
+        targets = [target_metric]
+    elif target_metric not in custom and len(interval_specs) == 1:
+        targets = list(interval_specs)
+    else:
+        targets = []
+    out = []
+    for metric_name in targets:
+        every_steps = interval_specs[metric_name].get("every_steps")
+        if type(every_steps) is int and every_steps > 0 and every_steps % ckpt_every != 0:
+            out.append(
+                f"checkpoints.keep_best tracks '{metric_name}' evaluated every {every_steps} steps, "
+                f"which is not divisible by checkpoint_every ({ckpt_every}); evaluation steps not "
+                f"divisible by checkpoint_every will not have resumable checkpoints to retain under keep_best."
+            )
+    return out
+
+
 def _recipe_part(config):
     """The formulation compared against the reference recipe.
 
@@ -577,6 +614,7 @@ def resolve_config(raw):
     if result['metrics']['custom']:
         warnings.append("Custom metrics execute trusted Python in bounded workers; input/output and deadlines are bounded, arbitrary allocations or descendants are not sandboxed.")
     warnings.extend(evaluation_warnings(result))
+    warnings.extend(_checkpoint_cadence_warnings(result))
     match = _recipe_part(result) == _recipe_part(DEFAULT)
     if not match:
         warnings.append("Custom resolved recipe: runnable combinations are unqualified until separately evaluated.")

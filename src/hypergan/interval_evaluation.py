@@ -6,6 +6,7 @@ import re
 import tempfile
 import time
 import uuid
+import warnings
 
 from .cpu_worker_service import CPUServiceCancelled
 from .metric_evaluation import _evaluate_pinned, _write_catalog, _recover_abandoned
@@ -66,6 +67,15 @@ class EvaluationWorker:
                 result = _evaluate_pinned(Path(root), selected, metric_id, directory,
                     Path(temporary.name) / 'snapshot.pt', descriptor['sha256'], identity,
                     cancellation_event=self.cancel, timeout=remaining)
+                if (isinstance(result, dict)
+                        and result.get('status') == 'complete'
+                        and isinstance(selected.get('checkpoints'), dict)
+                        and selected['checkpoints'].get('export_bundle') == 'on_eval'):
+                    try:
+                        from .checkpoints import atomic_copy_bundle
+                        atomic_copy_bundle(Path(temporary.name) / 'snapshot.pt', descriptor['sha256'], Path(root))
+                    except Exception as export_exc:
+                        result = dict(result, export_bundle_error=f'{type(export_exc).__name__}: {export_exc}'[:1000])
             except BaseException as error:
                 failure = error
             else:
@@ -152,6 +162,40 @@ class IntervalEvaluations:
         self.disabled.add(key)
         record.update(status='disabled', next_step=None)
 
+    def _complete(self, key, source, receipt):
+        record = self.manifest['evaluation_schedule'][key]
+        record.update(status='complete', source_step=source['source_step'],
+                      evaluation_id=receipt['evaluation_id'])
+        record.pop('reason', None)
+        if receipt.get('export_bundle_error'):
+            warnings.warn(
+                f"Automatic bundle export on evaluation failed: {receipt['export_bundle_error']}",
+                RuntimeWarning,
+            )
+        elif (isinstance(self.config.get('checkpoints'), dict)
+                and self.config['checkpoints'].get('export_bundle') == 'on_eval'
+                and (self.root / 'model.pt').is_file()):
+            self.manifest['exported_bundle_path'] = str(self.root / 'model.pt')
+        self._event(key, 'complete', source['source_step'], evaluation_id=receipt['evaluation_id'])
+        if self.manifest.get('resume_supported') and isinstance(self.config.get('checkpoints'), dict):
+            try:
+                from .checkpoints import _prune_run_checkpoints
+                pruned = _prune_run_checkpoints(
+                    self.root, policy=self.config.get('checkpoints'), dry_run=False, manifest=self.manifest
+                )
+                for item in pruned['failed']:
+                    warnings.warn(
+                        f"Automatic checkpoint pruning could not delete {item['name']}: {item['error']}",
+                        RuntimeWarning,
+                    )
+            except Exception as exc:
+                warnings.warn(f'Automatic checkpoint pruning failed: {exc}', RuntimeWarning)
+        try:
+            from .summary import write_summary_json
+            write_summary_json(self.root, self.manifest)
+        except Exception:
+            pass
+
     def poll(self):
         if not self.worker.busy:
             return
@@ -176,16 +220,7 @@ class IntervalEvaluations:
             self.worker.abort()
             self._failure(key, source, error)
             return
-        record = self.manifest['evaluation_schedule'][key]
-        record.update(status='complete', source_step=source['source_step'],
-                      evaluation_id=receipt['evaluation_id'])
-        record.pop('reason', None)
-        self._event(key, 'complete', source['source_step'], evaluation_id=receipt['evaluation_id'])
-        try:
-            from .summary import write_summary_json
-            write_summary_json(self.root, self.manifest)
-        except Exception:
-            pass
+        self._complete(key, source, receipt)
 
     def schedule(self):
         """Queue due metrics and submit the one that has waited longest.
@@ -279,16 +314,7 @@ class IntervalEvaluations:
                     if receipt['status'] == 'cancelled':
                         self._cancelled(key, source)
                     else:
-                        record = self.manifest['evaluation_schedule'][key]
-                        record.update(status='complete', source_step=source['source_step'],
-                                      evaluation_id=receipt['evaluation_id'])
-                        record.pop('reason', None)
-                        self._event(key, 'complete', source['source_step'], evaluation_id=receipt['evaluation_id'])
-                        try:
-                            from .summary import write_summary_json
-                            write_summary_json(self.root, self.manifest)
-                        except Exception:
-                            pass
+                        self._complete(key, source, receipt)
                 break
             self.poll()
             if self.worker.busy:

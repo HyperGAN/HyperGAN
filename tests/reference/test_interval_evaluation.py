@@ -206,3 +206,123 @@ if __name__ == '__main__':
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=10)
+
+
+@pytest.mark.heavy
+def test_interval_completion_prunes_non_best_checkpoint_and_exports_bundle(tmp_path, monkeypatch):
+    entered, release = tmp_path / 'entered_step2', tmp_path / 'release_step2'
+    (tmp_path / 'ranked_interval_fixture.py').write_text(f'''
+from pathlib import Path
+import time
+class RankedDistance:
+    def describe(self): return {{'kind': 'scalar', 'label': 'Ranked distance'}}
+    def evaluate(self, *, batches, context):
+        for _ in batches:
+            pass
+        step = context['step']
+        if step == 2:
+            Path({str(entered)!r}).write_text('entered')
+            deadline = time.monotonic() + 30
+            while not Path({str(release)!r}).exists():
+                if time.monotonic() > deadline:
+                    raise TimeoutError('step 2 evaluation was not released')
+                time.sleep(0.01)
+            return 5.0
+        return 0.1 if step == 1 else 9.0
+''')
+    monkeypatch.syspath_prepend(str(tmp_path))
+    path = config(tmp_path, monkeypatch, interval=1)
+    text = (
+        path.read_text()
+        .replace('steps = 5', 'steps = 3')
+        .replace('interval_fixture:Distance', 'ranked_interval_fixture:RankedDistance')
+        + '''
+[checkpoints]
+keep_last = 1
+keep_every = 0
+keep_best = { metric = "distance", mode = "min", count = 1 }
+export_bundle = "on_eval"
+'''
+    )
+    path.write_text(text)
+    run_dir = tmp_path / 'ranked_run'
+    pinned_during_step3 = []
+
+    def observe(row):
+        if row['event'] == 'train' and row['step'] == 2:
+            deadline = time.monotonic() + 20
+            while not any(r.get('status') == 'complete' and r.get('source_step') == 1 for r in receipts(run_dir)):
+                assert time.monotonic() < deadline, 'step 1 evaluation did not complete before step 2 schedule'
+                time.sleep(0.01)
+        elif row['event'] == 'checkpoint' and row['step'] == 3:
+            deadline = time.monotonic() + 20
+            while not entered.exists():
+                assert time.monotonic() < deadline, 'step 2 evaluation did not enter before step 3 release'
+                time.sleep(0.01)
+            names = [p.name for p in (run_dir / 'checkpoints').iterdir() if p.is_dir() and not p.name.startswith('.')]
+            pinned_during_step3.extend(names)
+            release.touch()
+
+    result = train(path, run_dir, checkpoint_every=1, on_event=observe)
+    assert result['status'] == 'complete'
+    # During step 3's final training checkpoint, step 2 was still pinned by S2 (active_evaluation).
+    assert any('-step-00000002-' in name for name in pinned_during_step3)
+    # Once step 2's evaluation finished with score 5.0 > 0.1, IntervalEvaluations pruned step 2 immediately.
+    remaining = [p.name for p in (run_dir / 'checkpoints').iterdir() if p.is_dir() and not p.name.startswith('.')]
+    assert any('-step-00000000-' in name for name in remaining)
+    assert any('-step-00000001-' in name for name in remaining)
+    assert not any('-step-00000002-' in name for name in remaining)
+    assert any('-step-00000003-' in name for name in remaining)
+    assert (run_dir / 'model.pt').is_file()
+    assert (run_dir / 'model.sha256').is_file()
+    assert result['exported_bundle_path'] == str(run_dir / 'model.pt')
+
+
+@pytest.mark.heavy
+def test_replicated_export_bundle_on_checkpoint_and_on_eval_stays_torch_free(tmp_path, monkeypatch):
+    import hashlib
+    import hypergan as hg
+
+    base = config(tmp_path, monkeypatch, interval=2).read_text().replace('steps = 5', 'steps = 3')
+    (tmp_path / 'rep_eval.toml').write_text(base + '\n[checkpoints]\nexport_bundle = "on_eval"\n')
+    (tmp_path / 'rep_ckpt.toml').write_text(base + '\n[checkpoints]\nexport_bundle = "on_checkpoint"\n')
+
+    driver = tmp_path / 'rep_export_driver.py'
+    driver.write_text('''from pathlib import Path
+import sys
+from hypergan.replicated_execution import run_train
+
+PROFILE = {'schema_version': 1, 'execution': {'name': 'cpu-replicated-gloo', 'world_size': 2}}
+
+if __name__ == '__main__':
+    root = Path(sys.argv[1])
+    run_train(root / 'rep_eval.toml', root / 'run_eval', profile=PROFILE, checkpoint_every=3)
+    run_train(root / 'rep_ckpt.toml', root / 'run_ckpt', profile=PROFILE, checkpoint_every=2)
+    assert 'torch' not in sys.modules, 'replicated coordinator imported torch during bundle export'
+''')
+    env = dict(os.environ)
+    env['PYTHONPATH'] = f"{tmp_path}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    proc = subprocess.run([sys.executable, str(driver), str(tmp_path)], env=env, capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    run_eval = tmp_path / 'run_eval'
+    ckpt_dirs = [
+        p.name
+        for d in ('checkpoints', 'distributed-checkpoints')
+        if (run_eval / d).is_dir()
+        for p in (run_eval / d).iterdir()
+        if p.is_dir()
+    ]
+    assert ckpt_dirs and not any('-step-00000002-' in name for name in ckpt_dirs)
+    assert (run_eval / 'model.pt').is_file() and (run_eval / 'model.sha256').is_file()
+    assert hashlib.sha256((run_eval / 'model.pt').read_bytes()).hexdigest() == (run_eval / 'model.sha256').read_text().strip()
+    bundle_eval = hg.load_bundle(run_eval / 'model.pt', device='cpu')
+    assert bundle_eval['step'] == 2
+    assert bundle_eval.sample(count=2, seed=3).shape == (2, 2)
+
+    run_ckpt = tmp_path / 'run_ckpt'
+    assert (run_ckpt / 'model.pt').is_file() and (run_ckpt / 'model.sha256').is_file()
+    assert hashlib.sha256((run_ckpt / 'model.pt').read_bytes()).hexdigest() == (run_ckpt / 'model.sha256').read_text().strip()
+    bundle_ckpt = hg.load_bundle(run_ckpt / 'model.pt', device='cpu')
+    assert bundle_ckpt['step'] == 3
+    assert bundle_ckpt.sample(count=2, seed=5).shape == (2, 2)

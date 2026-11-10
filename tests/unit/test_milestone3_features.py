@@ -20,7 +20,7 @@ from hypergan.config import resolve_config
 
 def test_capability_probes_active():
     import inspect
-    from hypergan.cli import _build_parser
+    from hypergan.cli import _parser as _build_parser
     parser = _build_parser()
     assert len(inspect.signature(validate_network_args).parameters) >= 1
     assert hasattr(hg, "schema")

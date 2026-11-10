@@ -144,7 +144,7 @@ def _validate_saved_checkpoint_topology(topology):
                 raise ValueError('Resume checkpoint numerical execution identity differs from valid topology schema')
 
 
-def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps, current_config=None, *args, raw_profile=None, **kwargs):
+def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps, current_config=None, raw_profile=None, *args, **kwargs):
     """Pin a complete generation across checkpoints/ and distributed-checkpoints/ without torch.
 
     The adapter validates all payload bytes, runtime, data and implementation
@@ -882,7 +882,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     preview_name = sample_name(manifest.get('preview_name') if preview_name is None else preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     checkpoint = (
-        _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'], config, raw_profile=raw_profile)
+        _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'], config, raw_profile)
         if not is_follower
         else None
     )

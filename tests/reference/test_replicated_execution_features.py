@@ -164,6 +164,7 @@ class FakeGroup:
 
     def __init__(self, monkeypatch, world_size=2, rank=0):
         self.world_size, self.calls = world_size, collections.Counter()
+        monkeypatch.setenv('HYPERGAN_DISTRIBUTED_BARRIERS', '1')
         for name in ('all_gather_object', 'all_reduce', 'all_gather', 'broadcast', 'broadcast_object_list'):
             monkeypatch.setattr(dist, name, getattr(self, name))
         monkeypatch.setattr(dist, 'is_available', lambda: True)

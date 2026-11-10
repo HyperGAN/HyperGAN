@@ -1,4 +1,5 @@
 """Qualification must exercise the requested topology and inherited GPU mapping."""
+import sys
 import pytest
 
 from hypergan import qualify
@@ -70,13 +71,14 @@ def test_rank_subprocesses_preserve_gpu_mapping_and_nccl_tuning(tmp_path, monkey
         monkeypatch.setenv('CUDA_VISIBLE_DEVICES', mask)
     monkeypatch.setenv('NCCL_P2P_DISABLE', '0')
     monkeypatch.delenv('NCCL_IB_DISABLE', raising=False)
-    monkeypatch.setattr(qualify, 'WORKER_DRIVER_CODE', '''
+    code = '''
 import json, os, sys
 from pathlib import Path
 Path(sys.argv[6]).write_text(json.dumps({
     key: os.environ.get(key) for key in
     ('CUDA_VISIBLE_DEVICES', 'NCCL_P2P_DISABLE', 'NCCL_IB_DISABLE')}))
-''')
+'''
+    monkeypatch.setattr(qualify, 'worker_command', lambda: [sys.executable, '-c', code])
     results = qualify.QualificationRunner()._run_subprocess_ranks(
         backend='nccl', world_size=2, cuda_devices=[0, 1])
     for result in results:

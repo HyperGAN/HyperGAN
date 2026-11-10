@@ -13,6 +13,7 @@ import pytest
 import torch
 
 from hypergan import cli
+_build_parser = getattr(cli, "_build_parser", cli._parser)
 from hypergan.cpu_workers import launch_cpu_workers
 from hypergan.distributed_checkpoints import (
     prepare_distributed_checkpoint,
@@ -438,7 +439,7 @@ def test_four_tier_precedence_hierarchy_slurm_cli_toml_defaults():
 
 
 def test_cli_parser_multinode_adversarial_boundaries():
-    parser = cli._build_parser()
+    parser = _build_parser()
 
     # Valid boundaries
     args = parser.parse_args(["train", "recipe.toml", "--nodes", "1", "--node-rank", "0", "--sync-every", "1"])
@@ -475,7 +476,7 @@ def test_cli_resume_follower_without_manifest_and_viewer_suppressed(tmp_path):
     config_file.write_text('extends = "gaussian-grid"\n')
     follower_dir = tmp_path / "deeply" / "nested" / "nonexistent_run"
 
-    parser = cli._build_parser()
+    parser = _build_parser()
     args = parser.parse_args([
         "resume", str(follower_dir),
         "--config", str(config_file),
@@ -605,7 +606,7 @@ def test_follower_resume_node_rank_sources_matrix(tmp_path):
 
 def test_follower_resume_viewer_suppression_across_all_rank_sources():
     """Verify viewer suppression across CLI, environment variables, and TOML config."""
-    parser = cli._build_parser()
+    parser = _build_parser()
     args = parser.parse_args(["resume", "dummy_run", "--node-rank", "1"])
     assert isinstance(cli._training_viewer(args), nullcontext)
 

@@ -270,13 +270,6 @@ class ReplicatedTrainer(ReferenceTrainer):
             result = function()
         except BaseException as exc:
             error = f'{type(exc).__name__}: {exc}'
-        if not force and getattr(self, '_in_hot_path', False):
-            if getattr(self, 'device', None) is not None and self.device.type == 'cuda':
-                torch.cuda.set_device(self.device)
-            failed = torch.tensor(int(error is not None), dtype=torch.int32, device=self.device)
-            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
-            if not failed.item():
-                return result
         errors = self._exchange('phase:' + name, error)
         if any(errors):
             raise RuntimeError(f'{name} failed: ' + '; '.join(f'rank {rank}: {value}' for rank, value in enumerate(errors) if value))

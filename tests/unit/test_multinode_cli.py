@@ -5,10 +5,11 @@ import pytest
 from unittest.mock import MagicMock
 
 from hypergan import cli
+_build_parser = getattr(cli, "_build_parser", cli._parser)
 
 
 def test_cli_parser_multinode_flags():
-    parser = cli._build_parser()
+    parser = _build_parser()
 
     # Train parser
     args = parser.parse_args([
@@ -44,7 +45,7 @@ def test_cli_parser_multinode_flags():
 
 
 def test_cli_parser_multinode_negative_validation():
-    parser = cli._build_parser()
+    parser = _build_parser()
 
     # --nodes cannot be 0 or negative
     with pytest.raises(SystemExit):
@@ -76,7 +77,7 @@ def test_cli_dispatch_forwards_multinode_options(tmp_path, monkeypatch):
     recipe = tmp_path / "recipe.toml"
     recipe.write_text('extends = "gaussian-grid"\n')
 
-    parser = cli._build_parser()
+    parser = _build_parser()
     args = parser.parse_args([
         "train", str(recipe),
         "--nodes", "4",

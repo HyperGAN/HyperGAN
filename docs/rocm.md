@@ -1,12 +1,14 @@
 # AMD ROCm Readiness & Verification in HyperGAN
 
-HyperGAN provides native readiness for AMD ROCm GPUs without regressing NVIDIA CUDA or CPU execution. This document covers current support status, host requirements, execution of the automated preflight qualification script (`scripts/rocm_preflight.sh`), an overview of the collected preflight report metrics, the complete 38-row codebase audit for NVIDIA assumptions, and 10 open hardware questions mapped to preflight report sections.
+HyperGAN has experimental, hardware-untested readiness for AMD ROCm GPUs that does not regress NVIDIA CUDA or CPU execution. This document covers current support status, host requirements, execution of the automated preflight qualification script (`scripts/rocm_preflight.sh`), an overview of the collected preflight report metrics, the complete 38-row codebase audit for NVIDIA assumptions, and 10 open hardware questions mapped to preflight report sections.
 
 ---
 
 ## 1. Current ROCm Support Status in HyperGAN
 
-HyperGAN supports AMD ROCm architectures via PyTorch's HIP abstraction layer (`device = "cuda"`), backed by hardware-independent readiness components landed in `exp/rocm-readiness`:
+**Status: experimental, untested on AMD hardware.** No HyperGAN run has executed on an AMD GPU yet; the components below are covered only by CPU tests that patch `torch.cuda`. Running `scripts/rocm_preflight.sh` (section 3) on a real host is the first hardware check.
+
+HyperGAN targets AMD ROCm architectures via PyTorch's HIP abstraction layer (`device = "cuda"`), backed by hardware-independent readiness components landed in `exp/rocm-readiness`:
 
 1. **GPU Inventory Provider Abstraction (`src/hypergan/gpu_inventory.py`)**:
    - Behind `hypergan.queue.inspect_gpu_hardware()` and `hypergan.queue.inspect_gpu_processes()`, a unified provider interface dynamically selects between `NvidiaSmiProvider`, `AmdSmiProvider` (`amd-smi static/metric/process --json`), and fallback `RocmSmiProvider` (`rocm-smi --json`).
@@ -72,7 +74,7 @@ HyperGAN ships an idempotent, automated preflight script (`scripts/rocm_prefligh
 
 ### 3.1 Basic Usage
 ```bash
-# Full preflight run (creates .venv-rocm, runs reference suite, 31 single-GPU tests, and training)
+# Full preflight run (creates .venv-rocm, runs reference suite, single-GPU tests/cuda tests, and training)
 ./scripts/rocm_preflight.sh
 
 # Quick smoke mode (smoke reference tests and 10 training steps)
@@ -130,9 +132,10 @@ The preflight tool generates `rocm_preflight_report.md` inside `--output-dir` co
    - Execution results of `pytest tests/reference` verifying baseline stability inside the ROCm environment.
    - Passed, failed, skipped counts and execution duration.
 6. **Section 6: Single-GPU `tests/cuda` Execution**:
-   - Rigorous partitioning of the 49 tests in `tests/cuda`:
-     - **31 Single-GPU Tests**: Executed directly against the target AMD GPU, recording per-test outcome and failure tracebacks.
-     - **18 Multi-GPU Tests**: Cataloged explicitly in the report as `deferred: needs >=2 GPUs`.
+   - Partitioning of the collected `tests/cuda` tests by the `multi_gpu` pytest marker (see `pyproject.toml`):
+     - **Single-GPU tests** (no `multi_gpu` marker): executed directly against the target AMD GPU, recording per-test outcome and failure tracebacks.
+     - **Multi-GPU tests** (marked `multi_gpu`): cataloged explicitly in the report as `deferred: needs >=2 GPUs`.
+   - The counts come from collection at run time; `pytest tests/cuda --collect-only -q -m multi_gpu` lists the deferred set.
 7. **Section 7: Short Real Training Run**:
    - Real training execution of the `gaussian-grid` recipe on `cuda:0` (50 steps, or 10 on quick mode).
    - Measures step throughput (`steps/sec`), peak allocated VRAM (`MB`), execution duration, and final loss metrics.
@@ -190,7 +193,7 @@ The Phase 1 audit investigated all occurrences of NVIDIA-specific assumptions an
 | `tests/cuda/test_interval_evaluation.py:16-17` | Sets `deterministic_algorithms = true` on `cuda` without `cublas_workspace_config` | `breaks` | Fix in this PR |
 | `tests/cuda/test_native_cuda.py` | Runs single-GPU training, updates, model parameter devices, and exact RNG restoration | `works` | Deferred to hardware |
 | `tests/cuda/test_trainer_host_syncs.py` | Single-GPU qualification of fused nonfinite check and EMA lerp/copy | `unknown` | Deferred to hardware |
-| `tests/cuda/` multi-GPU tests (11 files) | Assumes >= 2 CUDA GPUs with NCCL collectives | `unknown` | Deferred to hardware |
+| `tests/cuda/` multi-GPU tests (marked `multi_gpu`) | Assumes >= 2 CUDA GPUs with NCCL collectives | `unknown` | Deferred to hardware |
 
 ---
 
@@ -214,10 +217,10 @@ The following 10 open questions cannot be resolved without physical AMD hardware
    - *Question*: Does `pytest tests/reference` pass with 100% success inside the ROCm environment without triggering unexpected GPU driver initialization or library symbol collisions?
    - *Mapped Preflight Section*: **Section 5: CPU Reference Suite**
 6. **Single-GPU CUDA Test Execution & Profiler Activity Events**:
-   - *Question*: Do the 31 single-GPU tests in `tests/cuda` pass without modification on the AMD GPU? Specifically, does the PyTorch Kineto profiler in `test_metric_scalar_transfer.py` report `'cudaStreamSynchronize'` or `'hipStreamSynchronize'`?
+   - *Question*: Do the single-GPU tests in `tests/cuda` (those without the `multi_gpu` marker) pass without modification on the AMD GPU? Specifically, does the PyTorch Kineto profiler in `test_metric_scalar_transfer.py` report `'cudaStreamSynchronize'` or `'hipStreamSynchronize'`?
    - *Mapped Preflight Section*: **Section 6: Single-GPU `tests/cuda` Execution**
 7. **Multi-GPU / RCCL Collective Support & Deferral**:
-   - *Question*: On a single-GPU AMD box, does the preflight runner cleanly identify and defer all 18 multi-GPU tests as `deferred: needs >=2 GPUs`? When >= 2 AMD GPUs are present, does `backend='nccl'` (RCCL) successfully initialize process groups and reduce gradients?
+   - *Question*: On a single-GPU AMD box, does the preflight runner cleanly identify and defer every test marked `multi_gpu` as `deferred: needs >=2 GPUs`? When >= 2 AMD GPUs are present, does `backend='nccl'` (RCCL) successfully initialize process groups and reduce gradients?
    - *Mapped Preflight Section*: **Section 6: Single-GPU `tests/cuda` Execution** (deferral partition) and **Section 9: Failure Classification**
 8. **Live Training Dynamics, Step Throughput, and Peak VRAM**:
    - *Question*: When executing a short training run of `gaussian-grid` on `cuda:0` for 50 steps, what is the sustained throughput (`steps/s`), peak allocated VRAM (`MB`), and final loss value? Does training proceed without numerical divergence?

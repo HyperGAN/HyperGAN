@@ -49,4 +49,10 @@ Checkpoints stage complete rank state as CPU tensors, including models, Adam, EM
 
 Checkpoint transport still gathers bounded serialized payloads at rank zero. NCCL stages those bytes through GPUs; the 1 GiB per-rank and metadata caps are rejection limits, not reserved memory. This is not a sharded checkpoint system or a multi-host storage protocol. Preview snapshots are copied to CPU and rendered without a process group; supported inference bundles remain CPU-loadable. Custom CUDA-only operators need their own compatible inference path.
 
-The explicit `tests/cuda` gate requires two GPUs and never substitutes CPU or skips missing hardware. See the [execution ledger](../reports/archive/resurrection-status.md) for the exact qualified fixtures and validation results. Successful synthetic GAN updates and recovery do not establish image quality, throughput, arbitrary component determinism, real clusters or release readiness. Actual two-host testing requires a concrete agreed allocation.
+The explicit `tests/cuda` gate never substitutes CPU or skips missing hardware; its tests marked `multi_gpu` require two GPUs. See the [execution ledger](../reports/archive/resurrection-status.md) for the exact qualified fixtures and validation results. Successful synthetic GAN updates and recovery do not establish image quality, throughput, arbitrary component determinism, real clusters or release readiness. Actual two-host testing requires a concrete agreed allocation.
+
+If NCCL hangs at the first all-gather on a two-GPU host, the peer-to-peer
+transport between the GPUs is not usable there: run training and `tests/cuda`
+with `NCCL_P2P_DISABLE=1`. The [CUDA troubleshooting
+notes](cuda.md#troubleshooting-nccl-hangs-at-the-first-collective) give the
+details and a workspace setting.

@@ -170,18 +170,32 @@ def snapshot_config_sources(run_dir, source_files):
     return target_dir
 
 
+def _numbered(directory, pattern):
+    """The largest number that ``pattern``'s first group captures from an entry name of directory, or 0."""
+    try:
+        names = [p.name for p in Path(directory).iterdir()]
+    except OSError:
+        return 0
+    return max((int(m.group(1)) for m in map(re.compile(pattern).fullmatch, names) if m), default=0)
+
+
 def determine_attempt(run_dir: Path | str) -> int:
-    """Determine the next 1-based attempt sequence number for the run."""
+    """The 1-based number of the run's next attempt.
+
+    One number names both ``attempts/NNNN-<id>/`` and ``launch/NNNN.json``: it is
+    one past every number either has used. A process re-executed for a run
+    inherits the number its parent reserved, and already recorded under
+    ``launch/``, through ``_HYPERGAN_REEXEC_ATTEMPT``, unless an attempt
+    directory has used it since.
+    """
     run_dir = Path(run_dir).resolve()
+    attempts = _numbered(run_dir / "attempts", r"(\d+)-.+")
     reexec_att = os.environ.get("_HYPERGAN_REEXEC_ATTEMPT")
     if reexec_att:
         try:
-            return int(reexec_att)
+            reserved = int(reexec_att)
         except ValueError:
-            pass
-    launch_dir = run_dir / "launch"
-    if launch_dir.is_dir():
-        existing = [p for p in launch_dir.glob("*.json") if re.fullmatch(r"\d{4}\.json", p.name)]
-        if existing:
-            return max(int(p.stem) for p in existing) + 1
-    return 1
+            reserved = 0
+        if reserved > attempts:
+            return reserved
+    return max(attempts, _numbered(run_dir / "launch", r"(\d{4,})\.json")) + 1

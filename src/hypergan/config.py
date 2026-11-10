@@ -16,7 +16,7 @@ from .particlegan_integration import (PARTICLEGAN_DEFAULT_FIELDS, particlegan_de
 from .network_config import packaged_source, read_source, validate_network_args, materialize_networks
 
 from .metrics import DEFAULT_METRICS, evaluation_warnings, objective_id, validate_metrics
-from .model_file import ModelFileError
+from .model_file import ModelFileError, normalize_checkpoint_policy
 
 try:
     import tomllib
@@ -261,7 +261,10 @@ def resolve_config(raw):
         elif key == "components":
             # Explicit components replace the graph; no hidden old bindings survive.
             result[key] = deepcopy(value)
-        elif key in ("adversarial_terms", "samplers", "format", "name_map", "checkpoints", "run", "aggregation", "_source_path"):
+        elif key == "checkpoints":
+            # Retention is recorded with the run, so store the normalized form.
+            result[key] = normalize_checkpoint_policy(value)
+        elif key in ("adversarial_terms", "samplers", "format", "name_map", "run", "aggregation", "_source_path"):
             result[key] = deepcopy(value)
         elif isinstance(result[key], dict):
             extra = (
@@ -589,14 +592,15 @@ def _listed_values(config, keys, *, observation=False):
 
     A legacy resolved config and an old checkpoint both lack the key. Looking it
     up with ``get`` keeps those hashes identical and does not KeyError. Samplers
-    are observation settings: recorded with the run, never fingerprinted.
+    and the ``[checkpoints]`` retention policy are observation settings: recorded
+    with the run, never fingerprinted.
     """
     values = {key: deepcopy(config[key]) for key in keys if key in config}
     terms = config.get("adversarial_terms")
     if terms:
         values["adversarial_terms"] = deepcopy(terms)
     if observation:
-        for key in ("samplers", "format", "name_map"):
+        for key in ("samplers", "format", "name_map", "checkpoints"):
             if config.get(key) is not None:
                 values[key] = deepcopy(config[key])
     return values
@@ -627,10 +631,6 @@ class ResumeCompatibility(int):
         obj.compatible = bool(compatible)
         obj.differences = list(differences or [])
         return obj
-
-    @property
-    def details(self):
-        return self.differences
 
     def __bool__(self):
         return self.compatible
@@ -694,6 +694,8 @@ def resume_compatible(config, original, *, include_observation=False, details=Fa
     identities, and each new checkpoint records the extended configuration.
     JSON comparison preserves distinctions such as boolean vs integer arguments.
     Numerical-only distributed checkpoint configurations are accepted too.
+    With ``include_observation``, the ``[checkpoints]`` retention policy is
+    compared as well, like metrics and samplers.
     """
     try:
         values = config_values if include_observation else numerical_values
@@ -701,6 +703,14 @@ def resume_compatible(config, original, *, include_observation=False, details=Fa
         if include_observation:
             current.pop('name', None)
             saved.pop('name', None)
+            if 'checkpoints' in saved:
+                # Retention never changes training; omitting the table means the defaults.
+                for side in (current, saved):
+                    side['checkpoints'] = normalize_checkpoint_policy(side.get('checkpoints'))
+            else:
+                # A run that recorded no policy (none set, or recorded before
+                # policies were) adopts the configured one.
+                current.pop('checkpoints', None)
         if allow_device_change:
             cur_dev = current['training']['device']
             sav_dev = saved['training']['device']
@@ -772,16 +782,9 @@ def resume_compatible(config, original, *, include_observation=False, details=Fa
         if step_diff and "training.steps" not in diffs:
             diffs.insert(0, "training.steps")
 
-        compatible = (len(diffs) == 0)
-        res = ResumeCompatibility(compatible, diffs)
-        if details or return_differences:
-            return bool(res), diffs
-        return res
+        return ResumeCompatibility(not diffs, diffs)
     except (KeyError, TypeError, ValueError) as exc:
-        res = ResumeCompatibility(False, [str(exc)])
-        if details or return_differences:
-            return False, [str(exc)]
-        return res
+        return ResumeCompatibility(False, [str(exc)])
 
 
 def _step_independent(training):
@@ -929,10 +932,6 @@ def validate_device(device):
     if not isinstance(device, str) or re.fullmatch(r"cpu|cuda(?::(?:0|[1-9][0-9]*))?", device) is None:
         raise ValueError("training.device must be cpu, cuda, or cuda:N (a nonnegative visible GPU index)")
     return device
-
-
-def list_recipes():
-    return [{"name": DEFAULT["name"], "scope": "numerical-reference", "description": "CPU 2D Gaussian-grid integration fixture; no image or distributed qualification"}]
 
 
 def sampling_bindings(sampling, *, preview=False):

@@ -130,7 +130,7 @@ if __name__ == '__main__':
     try:
         if mode.startswith('corrupt-'):
             before = (run / 'manifest.json').read_bytes()
-            pointer = (run / 'distributed-checkpoints/latest.json').read_bytes()
+            pointer = (run / 'checkpoints/latest.json').read_bytes()
             attempts = sorted(path.name for path in (run / 'attempts').iterdir())
             try:
                 run_resume(run, **options)
@@ -139,7 +139,7 @@ if __name__ == '__main__':
             else:
                 raise AssertionError('invalid rank CUDA state was accepted')
             assert (run / 'manifest.json').read_bytes() == before
-            assert (run / 'distributed-checkpoints/latest.json').read_bytes() == pointer
+            assert (run / 'checkpoints/latest.json').read_bytes() == pointer
             assert sorted(path.name for path in (run / 'attempts').iterdir()) == attempts
             assert not (markers / 'candidate-load-1').exists()
             assert not list(markers.glob('live-load-*'))
@@ -246,7 +246,7 @@ def test_fresh_nccl_groups_resume_observed_state_and_earlier_selection_exactly(t
     assert resumed_previews and all(3 <= row['step'] <= 4 for row in resumed_previews)
     replayed = _run(driver, config, tmp_path / 'split', tmp_path / 'replay-pids', 'replay')
     assert replayed['status'] == 'stopped' and replayed['steps'] == 2
-    assert json.loads((tmp_path / 'split/distributed-checkpoints/latest.json').read_text())['step'] == 2
+    assert json.loads((tmp_path / 'split/checkpoints/latest.json').read_text())['step'] == 2
     final = _run(driver, config, tmp_path / 'split', tmp_path / 'final-pids', 'resume')
     _equal(tmp_path / 'full', tmp_path / 'split')
     after = json.loads((tmp_path / 'split/previews/index.json').read_text())['previews']
@@ -265,7 +265,7 @@ def test_nccl_rank_failure_never_checkpoints_partial_state_and_recovers(tmp_path
     _run(driver, config, tmp_path / 'full', tmp_path / 'full-pids', 'full')
     failed = _run(driver, config, tmp_path / 'fault', tmp_path / 'failure-pids', mode)
     assert failed['status'] == 'failed'
-    assert json.loads((tmp_path / 'fault/distributed-checkpoints/latest.json').read_text())['step'] == 1
+    assert json.loads((tmp_path / 'fault/checkpoints/latest.json').read_text())['step'] == 1
     events = [json.loads(line) for line in (tmp_path / 'fault/events.jsonl').read_text().splitlines()]
     assert [row['step'] for row in events if row['event'] == 'train'] == [1]
     assert [row['step'] for row in events if row['event'] == 'checkpoint'] == [0, 1]
@@ -306,11 +306,11 @@ def test_nccl_coordinator_death_reaps_native_blocked_ranks_and_allows_takeover(t
 def test_cuda_rank_rng_corruption_rejects_before_attempt_or_load_hooks(tmp_path, kind):
     driver, config = _setup(tmp_path)
     _run(driver, config, tmp_path / 'run', tmp_path / 'stop-pids', 'split')
-    root = tmp_path / 'run/distributed-checkpoints'
+    root = tmp_path / 'run/checkpoints'
     generation = root / json.loads((root / 'latest.json').read_text())['checkpoint']
     manifest_path = generation / 'manifest.json'
     manifest = json.loads(manifest_path.read_text())
-    path = generation / 'rank-00001.pt'
+    path = generation / 'ranks' / 'rank-00001.pt'
     state = torch.load(path, weights_only=True)
     assert state['rng']['cuda_device'] == 1
     if kind == 'device':

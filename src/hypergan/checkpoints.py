@@ -458,7 +458,7 @@ def _read_checkpoint(run_dir, checkpoint=None):
         if not pointer.exists():
             raise ValueError('No full training checkpoint exists; an inference model is not resumable')
         latest = json.loads(pointer.read_text())
-        if not isinstance(latest, dict) or latest.get('schema_version') != SCHEMA or not isinstance(latest.get('checkpoint'), str):
+        if not isinstance(latest, dict) or latest.get('schema_version') not in (1, 2) or not isinstance(latest.get('checkpoint'), str):
             raise ValueError('Invalid training checkpoint pointer')
         checkpoint = root / latest['checkpoint']
     target = Path(checkpoint)
@@ -469,10 +469,14 @@ def _read_checkpoint(run_dir, checkpoint=None):
     if not target.is_relative_to(root) or not target.is_dir() or target.name.startswith('.'):
         raise ValueError('Checkpoint must be a completed checkpoint directory inside this run')
     info = json.loads((target / 'manifest.json').read_text())
+    if 'identity' in info and isinstance(info['identity'], dict):
+        for k in ('config', 'config_sha256', 'runtime', 'data_contract', 'implementation'):
+            if k not in info and k in info['identity']:
+                info[k] = info['identity'][k]
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'config', 'config_sha256', 'runtime', 'data_contract', 'implementation', 'state_sha256', 'next_sample_sequence'}
     if not isinstance(info, dict) or not required.issubset(info):
         raise ValueError('Invalid training checkpoint metadata')
-    if info.get('schema_version') != SCHEMA or info.get('kind') != 'hypergan-training-checkpoint':
+    if info.get('schema_version') not in (1, 2) or info.get('kind') not in ('hypergan-training-checkpoint', 'hypergan-distributed-training-checkpoint'):
         raise ValueError('Unsupported full training checkpoint schema')
     from .checkpoint_compatibility import validate_checkpoint_compatibility
     validate_checkpoint_compatibility(info)
@@ -655,7 +659,7 @@ def resolve_resume_checkpoint_dir(run_dir: Path | str, checkpoint=None, *, run_m
                 pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
                 raise ValueError("Invalid training checkpoint pointer") from exc
-            if not isinstance(pointer, dict) or type(pointer.get("schema_version")) is not int or pointer["schema_version"] != SCHEMA:
+            if not isinstance(pointer, dict) or type(pointer.get("schema_version")) is not int or pointer["schema_version"] not in (1, 2):
                 raise ValueError("Unsupported training checkpoint pointer schema")
             if root.name == "distributed-checkpoints" and pointer.get("kind") != "hypergan-distributed-training-checkpoint":
                 raise ValueError("Invalid distributed checkpoint pointer kind")
@@ -1312,7 +1316,7 @@ def _prune_run_checkpoints(run_dir, policy=None, dry_run=False):
                         if remaining_in_root:
                             newest = max(remaining_in_root, key=lambda c: _checkpoint_sort_key(c['path'], m_data))
                             old_ptr = _read_json(pointer_file) or {'schema_version': SCHEMA}
-                            new_ptr = dict(old_ptr, schema_version=SCHEMA, checkpoint=newest['name'], step=newest['step'])
+                            new_ptr = dict(old_ptr, schema_version=old_ptr.get('schema_version', SCHEMA), checkpoint=newest['name'], step=newest['step'])
                             atomic_json(pointer_file, new_ptr)
                         else:
                             pointer_file.unlink(missing_ok=True)

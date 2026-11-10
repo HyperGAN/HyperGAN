@@ -17,12 +17,14 @@ import uuid
 
 from .run_state import atomic_json, sync_directory
 
-SCHEMA = 1
+SCHEMA = 2
+LEGACY_SCHEMA = 1
 KIND = 'hypergan-distributed-training-checkpoint'
 PREPARED_KIND = 'hypergan-prepared-distributed-checkpoint'
 # The one per-rank payload bound for distributed checkpoints (prepare, commit and
 # restore). Full-depth transformer generators need more than 256 MiB.
 MAX_RANK_BYTES = 1024 * 1024 * 1024
+MAX_SHARD_BYTES = 16 * 1024 * 1024
 MAX_METADATA_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_BYTES = 65536
 MAX_RANKS = 64
@@ -64,7 +66,7 @@ def _directory(path):
 def checkpoint_root(run_dir):
     run = Path(run_dir).resolve()
     _directory(run)
-    root = run / 'distributed-checkpoints'
+    root = run / 'checkpoints'
     if root.exists() or root.is_symlink():
         _directory(root)
     return root
@@ -132,7 +134,7 @@ def make_prepared_receipt(run_dir, staging, info, *, controller_id, command_sequ
     """Build the transport descriptor after rank payload and manifest staging."""
     manifest = Path(staging) / 'manifest.json'
     digest, _ = _read_regular(manifest)
-    receipt = {'schema_version': SCHEMA, 'kind': PREPARED_KIND,
+    receipt = {'schema_version': info.get('schema_version', SCHEMA), 'kind': PREPARED_KIND,
                'run_id': info['run_id'], 'attempt_id': info['attempt_id'],
                'controller_id': controller_id, 'command_sequence': command_sequence,
                'step': info['step'], 'nonce': nonce,
@@ -140,16 +142,34 @@ def make_prepared_receipt(run_dir, staging, info, *, controller_id, command_sequ
                'checkpoint': f"{info['attempt_id']}-step-{info['step']:08d}-{nonce}",
                'manifest_bytes': manifest.stat().st_size, 'manifest_sha256': digest,
                'identity_sha256': identity_sha256(info['identity']), 'ranks': info['ranks']}
+    state_file = Path(staging) / 'state.pt'
+    if state_file.is_file():
+        receipt['state_sha256'] = info.get('state_sha256')
+        receipt['state_bytes'] = state_file.stat().st_size
     _json_bytes(receipt, MAX_RECEIPT_BYTES)
     return receipt
 
 
 def _validate_prepared(run_dir, receipt, *, run_id, attempt_id, controller_id, command_sequence, identity):
     _json_bytes(receipt, MAX_RECEIPT_BYTES)
-    keys = {'schema_version', 'kind', 'run_id', 'attempt_id', 'controller_id', 'command_sequence', 'step',
-            'nonce', 'staging', 'checkpoint', 'manifest_bytes', 'manifest_sha256', 'identity_sha256', 'ranks'}
-    if not isinstance(receipt, dict) or set(receipt) != keys or type(receipt['schema_version']) is not int or receipt['schema_version'] != SCHEMA or receipt['kind'] != PREPARED_KIND:
+    req_receipt = {'schema_version', 'kind', 'run_id', 'attempt_id', 'controller_id', 'command_sequence', 'step',
+                   'nonce', 'staging', 'checkpoint', 'manifest_bytes', 'manifest_sha256', 'identity_sha256', 'ranks'}
+    if (not isinstance(receipt, dict) or not req_receipt.issubset(receipt)
+            or type(receipt['schema_version']) is not int or receipt['schema_version'] not in (1, 2)
+            or receipt['kind'] != PREPARED_KIND):
         raise ValueError('Invalid prepared checkpoint receipt schema')
+    is_v2 = (receipt['schema_version'] == 2)
+    if is_v2:
+        if 'state_sha256' not in receipt or not isinstance(receipt['state_sha256'], str) or not _HASH.fullmatch(receipt['state_sha256']):
+            raise ValueError('Invalid prepared receipt state digest')
+        if 'state_bytes' not in receipt or type(receipt['state_bytes']) is not int or not 1 <= receipt['state_bytes'] <= MAX_RANK_BYTES:
+            raise ValueError('Invalid prepared receipt state byte bound')
+        if not set(receipt) <= (req_receipt | {'state_sha256', 'state_bytes'}):
+            raise ValueError('Invalid prepared checkpoint receipt schema')
+    else:
+        if set(receipt) != req_receipt:
+            raise ValueError('Invalid prepared checkpoint receipt schema')
+
     validate_fence(receipt['controller_id'], receipt['command_sequence'])
     if (receipt['run_id'], receipt['attempt_id'], receipt['controller_id'], receipt['command_sequence']) != (run_id, attempt_id, controller_id, command_sequence):
         raise ValueError('Prepared checkpoint has a stale run/attempt/controller/command fence')
@@ -180,9 +200,11 @@ def _validate_prepared(run_dir, receipt, *, run_id, attempt_id, controller_id, c
     except (ValueError, RecursionError) as exc:
         raise ValueError('Invalid prepared checkpoint manifest JSON') from exc
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation'}
+    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation',
+                          'state_file', 'state_sha256', 'state_bytes', 'diverged_ranks'}
     if (not isinstance(info, dict) or not required <= set(info) <= allowed
-            or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND):
+            or type(info['schema_version']) is not int or info['schema_version'] not in (1, 2)
+            or info['kind'] != KIND or info['schema_version'] != receipt['schema_version']):
         raise ValueError('Invalid prepared checkpoint manifest schema')
     if any(key in info and not isinstance(info[key], dict) for key in ('source', 'initial_source')):
         raise ValueError('Prepared checkpoint source provenance must be a dictionary')
@@ -220,27 +242,63 @@ def _validate_prepared(run_dir, receipt, *, run_id, attempt_id, controller_id, c
         raise ValueError('Prepared checkpoint requires between 2 and 64 fixed ranks')
     if not isinstance(info['ranks'], list) or len(info['ranks']) != world or _json_bytes(info['ranks']) != _json_bytes(receipt['ranks']):
         raise ValueError('Prepared checkpoint must contain exactly the agreed rank inventory')
-    expected_files = {'manifest.json'}
-    for rank, record in enumerate(info['ranks']):
-        if (not isinstance(record, dict) or set(record) != {'rank', 'file', 'bytes', 'sha256'}
-                or type(record['rank']) is not int or record['rank'] != rank or record['file'] != f'rank-{rank:05d}.pt'):
-            raise ValueError('Invalid prepared rank inventory')
-        if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
-            raise ValueError('Prepared rank payload exceeds its byte bound')
-        if not isinstance(record['sha256'], str) or not _HASH.fullmatch(record['sha256']):
-            raise ValueError('Invalid prepared rank digest')
-        actual, _ = _read_regular(staging / record['file'], expected_bytes=record['bytes'], maximum=MAX_RANK_BYTES)
-        if actual != record['sha256']:
-            raise ValueError(f'Prepared rank {rank} payload digest mismatch')
-        expected_files.add(record['file'])
-    names = set()
-    with os.scandir(staging) as entries:
-        for entry in entries:
-            names.add(entry.name)
-            if len(names) > len(expected_files):
-                break
-    if names != expected_files:
-        raise ValueError('Prepared generation contains unexpected or incomplete files')
+
+    if is_v2:
+        if info.get('state_file') != 'state.pt' or info.get('state_sha256') != receipt['state_sha256'] or info.get('state_bytes') != receipt['state_bytes']:
+            raise ValueError('Prepared checkpoint manifest state description differs from receipt')
+        actual_state_sha, _ = _read_regular(staging / 'state.pt', expected_bytes=info['state_bytes'], maximum=MAX_RANK_BYTES)
+        if actual_state_sha != info['state_sha256']:
+            raise ValueError('Prepared state.pt digest mismatch')
+        ranks_dir = staging / 'ranks'
+        _directory(ranks_dir)
+
+        expected_ranks = set()
+        for rank, record in enumerate(info['ranks']):
+            if (not isinstance(record, dict) or set(record) != {'rank', 'file', 'bytes', 'sha256'}
+                    or type(record['rank']) is not int or record['rank'] != rank
+                    or record['file'] != f'ranks/rank-{rank:05d}.pt'):
+                raise ValueError('Invalid prepared rank inventory')
+            if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
+                raise ValueError('Prepared rank payload exceeds its byte bound')
+            if not isinstance(record['sha256'], str) or not _HASH.fullmatch(record['sha256']):
+                raise ValueError('Invalid prepared rank digest')
+            actual_shard_sha, _ = _read_regular(staging / record['file'], expected_bytes=record['bytes'], maximum=MAX_RANK_BYTES)
+            if actual_shard_sha != record['sha256']:
+                raise ValueError(f'Prepared rank {rank} payload digest mismatch')
+            expected_ranks.add(f'rank-{rank:05d}.pt')
+
+        with os.scandir(ranks_dir) as entries:
+            actual_ranks = {entry.name for entry in entries}
+        if actual_ranks != expected_ranks:
+            raise ValueError('Prepared ranks subfolder contains unexpected or incomplete files')
+
+        with os.scandir(staging) as entries:
+            top_names = {entry.name for entry in entries}
+        if top_names != {'manifest.json', 'state.pt', 'ranks'}:
+            raise ValueError('Prepared generation contains unexpected top-level files')
+    else:
+        expected_files = {'manifest.json'}
+        for rank, record in enumerate(info['ranks']):
+            if (not isinstance(record, dict) or set(record) != {'rank', 'file', 'bytes', 'sha256'}
+                    or type(record['rank']) is not int or record['rank'] != rank or record['file'] != f'rank-{rank:05d}.pt'):
+                raise ValueError('Invalid prepared rank inventory')
+            if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
+                raise ValueError('Prepared rank payload exceeds its byte bound')
+            if not isinstance(record['sha256'], str) or not _HASH.fullmatch(record['sha256']):
+                raise ValueError('Invalid prepared rank digest')
+            actual, _ = _read_regular(staging / record['file'], expected_bytes=record['bytes'], maximum=MAX_RANK_BYTES)
+            if actual != record['sha256']:
+                raise ValueError(f'Prepared rank {rank} payload digest mismatch')
+            expected_files.add(record['file'])
+        names = set()
+        with os.scandir(staging) as entries:
+            for entry in entries:
+                names.add(entry.name)
+                if len(names) > len(expected_files):
+                    break
+        if names != expected_files:
+            raise ValueError('Prepared generation contains unexpected or incomplete files')
+
     return staging, target, info
 
 
@@ -252,7 +310,7 @@ def _publish(staging, target, info):
     staging.rename(target)
     sync_directory(source_parent)
     sync_directory(target.parent)
-    atomic_json(target.parent / 'latest.json', {'schema_version': SCHEMA, 'kind': KIND,
+    atomic_json(target.parent / 'latest.json', {'schema_version': info.get('schema_version', SCHEMA), 'kind': KIND,
                                               'checkpoint': target.name, 'step': info['step']})
     return target
 

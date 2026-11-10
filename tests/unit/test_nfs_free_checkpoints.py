@@ -40,7 +40,7 @@ def _worker_nfs_free_save_and_restore(rank, world_size, dir_rank0, dir_rank1):
 
     if rank == 0:
         assert checkpoint_path.exists()
-        assert (Path(dir_rank0) / "distributed-checkpoints" / "latest.json").exists()
+        assert (Path(dir_rank0) / "checkpoints" / "latest.json").exists()
     else:
         # Rank 1 must NEVER have touched or created dir_rank1 / distributed-checkpoints
         assert not Path(dir_rank1).exists()

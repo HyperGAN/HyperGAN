@@ -70,8 +70,12 @@ def test_cifar_replicated_qualification_artifacts():
     )
 
     # 3. Inspect distributed checkpoints at step 20 and step 40
-    ckpt_dir = QUALIFICATION_RUN_DIR / "distributed-checkpoints"
-    assert ckpt_dir.is_dir(), f"Missing distributed-checkpoints directory in {QUALIFICATION_RUN_DIR}"
+    ckpt_dir = (
+        QUALIFICATION_RUN_DIR / "checkpoints"
+        if (QUALIFICATION_RUN_DIR / "checkpoints").is_dir()
+        else QUALIFICATION_RUN_DIR / "distributed-checkpoints"
+    )
+    assert ckpt_dir.is_dir(), f"Missing checkpoints directory in {QUALIFICATION_RUN_DIR}"
 
     subdirs = [d.name for d in ckpt_dir.iterdir() if d.is_dir() and not d.name.startswith(".")]
     has_step_20 = any("step-00000020" in name for name in subdirs)

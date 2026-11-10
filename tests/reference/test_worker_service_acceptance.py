@@ -143,7 +143,7 @@ def execute(run, markers, mode):
                     sequence = response['sequence']
                     assert all(row['step'] == row['saved_step'] == 2 for row in response['results'])
                 if mode == 'takeover':
-                    pointer = (run / 'distributed-checkpoints/latest.json').read_bytes()
+                    pointer = (run / 'checkpoints/latest.json').read_bytes()
                     old = json.loads((run / 'uncommitted-receipt.json').read_text())
                     try:
                         group.assert_healthy()
@@ -152,11 +152,11 @@ def execute(run, markers, mode):
                         pass
                     else:
                         raise AssertionError('new controller accepted prior controller receipt')
-                    assert (run / 'distributed-checkpoints/latest.json').read_bytes() == pointer
+                    assert (run / 'checkpoints/latest.json').read_bytes() == pointer
                     receipt, accepted_sequence = prepare(group, authority, mode)
                     group.assert_healthy()
                     authority.commit(receipt, expected_command_sequence=accepted_sequence)
-                    assert json.loads((run / 'distributed-checkpoints/latest.json').read_text())['step'] == 2
+                    assert json.loads((run / 'checkpoints/latest.json').read_text())['step'] == 2
                 count = 4 if mode == 'full' else 1 if mode in ('orphan', 'partial-result') else 2
                 step = 2 if mode in ('resume', 'orphan', 'takeover', 'partial-result') else 0
                 for _ in range(count):
@@ -165,7 +165,7 @@ def execute(run, markers, mode):
                     step += 1
                     assert response['sequence'] == expected_sequence
                     assert all(row == {'ready': True, 'step': step} for row in response['results'])
-                pointer_path = run / 'distributed-checkpoints/latest.json'
+                pointer_path = run / 'checkpoints/latest.json'
                 before = pointer_path.read_bytes() if pointer_path.exists() else None
                 if mode == 'partial-result':
                     try:
@@ -269,10 +269,12 @@ def _same(actual, expected):
 
 
 def _states(run):
-    root = run / 'distributed-checkpoints'
+    root = run / 'checkpoints'
     pointer = json.loads((root / 'latest.json').read_text())
     assert pointer['step'] == 4
-    return [torch.load(root / pointer['checkpoint'] / f'rank-{rank:05d}.pt', weights_only=True)
+    ckpt = root / pointer['checkpoint']
+    shared = torch.load(ckpt / 'state.pt', weights_only=True)
+    return [dict(shared, **torch.load(ckpt / 'ranks' / f'rank-{rank:05d}.pt', weights_only=True))
             for rank in range(2)]
 
 
@@ -311,7 +313,7 @@ if __name__ == '__main__':
         assert ctypes.CDLL(None).prctl(36, 1, 0, 0, 0) == 0  # PR_SET_CHILD_SUBREAPER
     driver, run, markers = map(Path, sys.argv[1:])
     markers.mkdir()
-    pointer = run / 'distributed-checkpoints/latest.json'
+    pointer = run / 'checkpoints/latest.json'
     before = pointer.read_bytes()
     bootstrap = 'import runpy,sys;sys.path.insert(0,sys.argv[1]);sys.argv=sys.argv[2:];runpy.run_path(sys.argv[0],run_name="__main__")'
     command = [sys.executable, *(['-I'] if sys.flags.isolated else []), '-c', bootstrap,
@@ -404,7 +406,7 @@ def test_prepared_receipt_without_every_rank_command_result_cannot_advance_lates
     script = _script(tmp_path)
     _run(script, tmp_path / 'full', tmp_path / 'full-pids', 'full')
     _run(script, tmp_path / 'recovery', tmp_path / 'split-pids', 'split')
-    pointer = tmp_path / 'recovery/distributed-checkpoints/latest.json'
+    pointer = tmp_path / 'recovery/checkpoints/latest.json'
     before = pointer.read_bytes()
     _run(script, tmp_path / 'recovery', tmp_path / 'failure-pids', 'partial-result')
     assert pointer.read_bytes() == before

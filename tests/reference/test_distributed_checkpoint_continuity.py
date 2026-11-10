@@ -249,7 +249,9 @@ def test_resumed_trajectory_equals_the_uninterrupted_one(tmp_path, strategy, cad
     assert 'node_rank' not in topology and 'rendezvous' not in topology
     assert (topology['world_size'], topology['nodes'], topology['ranks_per_node'], topology['global_batch_size'],
             topology['local_batch_size']) == (2, 2 if transport == 'tcp' else 1, 1 if transport == 'tcp' else 2, 4, 2)
-    payloads = [torch.load(checkpoint / f'rank-{rank:05d}.pt', weights_only=True) for rank in range(2)]
+    shared_state = torch.load(checkpoint / 'state.pt', weights_only=True)
+    shards = [torch.load(checkpoint / 'ranks' / f'rank-{rank:05d}.pt', weights_only=True) for rank in range(2)]
+    payloads = [dict(shared_state, **shards[rank]) for rank in range(2)]
     for payload in payloads:
         saved = payload['aggregation']
         assert (saved['strategy'], saved['step_count'], saved['sync_every_steps']) == (strategy, split, cadence)
@@ -289,13 +291,13 @@ def test_checkpoint_between_synchronizations_synchronizes_once(tmp_path, strateg
         assert result['rejected'] is None, result['rejected']
         assert result['synced_step'] == 1 and result['checkpoint_ready'] is True
     assert results[0]['weights'] == results[1]['weights']
-    assert json.loads((run / 'distributed-checkpoints' / 'latest.json').read_text())['step'] == 1
+    assert json.loads((run / 'checkpoints' / 'latest.json').read_text())['step'] == 1
 
 
 @pytest.mark.heavy
 def test_step_zero_checkpoint_saves_and_restores(tmp_path):
     _, _, run = _launch(tmp_path, 'step0', 'file', _aggregation('parameter_average', 2))
-    root = run / 'distributed-checkpoints'
+    root = run / 'checkpoints'
     latest = json.loads((root / 'latest.json').read_text())
     manifest = json.loads((root / latest['checkpoint'] / 'manifest.json').read_text())
     assert latest['step'] == manifest['step'] == 0
@@ -315,7 +317,7 @@ def test_product_run_resumes_from_its_latest_distributed_checkpoint(tmp_path):
     assert manifest['status'] in ('stopped', 'complete') and (manifest['steps'], manifest['last_durable_step']) == (2, 2)
     events = [json.loads(line) for line in (run / 'events.jsonl').read_text().splitlines()]
     assert [event['step'] for event in events if event.get('event') == 'train'] == [1, 2]
-    assert json.loads((run / 'distributed-checkpoints' / 'latest.json').read_text())['step'] == 2
+    assert json.loads((run / 'checkpoints' / 'latest.json').read_text())['step'] == 2
     run_resume(run, profile=profile, checkpoint_every=1, stop_after_steps=2, preview_every=0)
     manifest = json.loads((run / 'manifest.json').read_text())
     assert (manifest['steps'], manifest['last_durable_step']) == (4, 4)

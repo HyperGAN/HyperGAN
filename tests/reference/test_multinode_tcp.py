@@ -378,8 +378,9 @@ def test_2node_checkpoint_save_and_resume_across_nodes(tmp_path):
     assert len(save_results) == 2
     ckpt_dir = Path(save_results[0]['checkpoint_path'])
     assert (ckpt_dir / 'manifest.json').exists()
-    assert (ckpt_dir / 'rank-00000.pt').exists()
-    assert (ckpt_dir / 'rank-00001.pt').exists()
+    assert (ckpt_dir / 'state.pt').exists()
+    assert (ckpt_dir / 'ranks' / 'rank-00000.pt').exists()
+    assert (ckpt_dir / 'ranks' / 'rank-00001.pt').exists()
 
     manifest = json.loads((ckpt_dir / 'manifest.json').read_text())
     assert manifest['step'] == 2

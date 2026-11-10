@@ -271,12 +271,13 @@ def test_cpu_replicated_gloo_end_to_end_summary_telemetry_and_distributed_checkp
 
     assert isinstance(summary["health_alerts"], list)
 
-    # Fix 2: distributed-checkpoints/ populated into summary.json["checkpoints"] and `hypergan status`
-    assert (run_dir / "distributed-checkpoints").is_dir()
-    assert not (run_dir / "checkpoints").exists()
+    # Fix 2: unified checkpoints/ populated into summary.json["checkpoints"] and `hypergan status`
+    assert (run_dir / "checkpoints").is_dir()
+    assert not (run_dir / "distributed-checkpoints").exists()
+    assert (run_dir / "model.json").is_file()
     ckpts = summary["checkpoints"]
     assert [c["step"] for c in ckpts] == [0, 10, 20]
-    assert all(c["path"].startswith("distributed-checkpoints/") for c in ckpts)
+    assert all(c["path"].startswith("checkpoints/") for c in ckpts)
 
     capsys.readouterr()
     rc = cli.main(["status", str(run_dir)])

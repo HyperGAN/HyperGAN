@@ -126,12 +126,13 @@ args = {side=10,noise=0.015}
 def _states(root, checkpoint=None):
     import torch
     if checkpoint is None:
-        directory = root / 'distributed-checkpoints'
+        directory = root / 'checkpoints'
         latest = json.loads((directory / 'latest.json').read_text())
         checkpoint = directory / latest['checkpoint']
     else:
         checkpoint = Path(checkpoint)
-    return [torch.load(checkpoint / f'rank-{rank:05d}.pt', weights_only=True) for rank in range(2)]
+    shared = torch.load(checkpoint / 'state.pt', weights_only=True)
+    return [dict(shared, **torch.load(checkpoint / 'ranks' / f'rank-{rank:05d}.pt', weights_only=True)) for rank in range(2)]
 
 
 def _receipts(root):

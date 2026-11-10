@@ -26,7 +26,7 @@ def test_nonregular_payload_is_rejected_before_open(tmp_path, monkeypatch, kind)
 
 
 def test_managed_staging_ancestor_symlink_is_rejected(tmp_path):
-    root = tmp_path / 'distributed-checkpoints'
+    root = tmp_path / 'checkpoints'
     root.mkdir()
     outside = tmp_path / 'outside'
     outside.mkdir()

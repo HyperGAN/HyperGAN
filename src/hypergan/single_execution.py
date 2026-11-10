@@ -103,7 +103,12 @@ class SingleProcessExecution:
         manifest_path = Path(run_dir) / 'manifest.json'
         run_manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else None
         target, pointer = resolve_resume_checkpoint_dir(run_dir, checkpoint, run_manifest=run_manifest)
-        is_distributed = target.parent.name == 'distributed-checkpoints'
+        ckpt_manifest = target / 'manifest.json'
+        ckpt_info = json.loads(ckpt_manifest.read_text(encoding='utf-8')) if ckpt_manifest.is_file() else {}
+        is_distributed = (
+            target.parent.name == 'distributed-checkpoints'
+            or (isinstance(ckpt_info, dict) and ckpt_info.get('kind') == 'hypergan-distributed-training-checkpoint')
+        )
         if is_distributed:
             from .distributed_checkpoints import read_distributed_checkpoint_for_elastic
             target, info, identity, state = read_distributed_checkpoint_for_elastic(run_dir, target, run_id)

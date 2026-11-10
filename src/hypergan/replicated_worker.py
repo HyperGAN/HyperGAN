@@ -59,6 +59,28 @@ def _node_0_context(trainer, context):
     return context if leader.get('run_id') == context.get('run_id') else dict(context, run_id=leader.get('run_id'))
 
 
+def _maybe_record_model(state):
+    """Rank 0 on Node 0 records <run_dir>/model.json for Web Observatory visualization."""
+    if state.get('follower') or state.get('rank', -1) != 0:
+        return
+    run_dir = state.get('context', {}).get('run_dir')
+    if not run_dir:
+        return
+    model_path = Path(run_dir) / 'model.json'
+    if model_path.is_file():
+        return
+    try:
+        from .model_description import record_networks
+        from .config import fingerprint
+        from .run_state import atomic_json
+        trainer = state['trainer']
+        model_doc = record_networks(trainer.graph, fingerprint(trainer.config))
+        atomic_json(model_path, model_doc)
+    except Exception as exc:
+        import warnings
+        warnings.warn(f'Network description was not recorded: {exc}', RuntimeWarning)
+
+
 def create_worker(rank, world_size, config, execution, context):
     trainer = ReplicatedTrainer(resolve_config(config), world_size=world_size,
                                     accumulation_steps=execution['accumulation_steps'],
@@ -67,8 +89,10 @@ def create_worker(rank, world_size, config, execution, context):
         raise ValueError('Actual replicated strategy differs from resolved execution profile')
     if execution.get('nodes', 1) > 1:
         context = _node_0_context(trainer, context)
-    return {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context, 'execution': execution,
-            'follower': execution.get('node_rank', 0) > 0}
+    state = {'rank': rank, 'trainer': trainer, 'batch': None, 'context': context, 'execution': execution,
+             'follower': execution.get('node_rank', 0) > 0}
+    _maybe_record_model(state)
+    return state
 
 
 def _information(state):
@@ -133,6 +157,7 @@ def handle_command(state, operation, payload):
     trainer, context = state['trainer'], state['context']
     _ready(state)
     if operation == 'describe':
+        _maybe_record_model(state)
         info = trainer._phase('execution identity', lambda: _information(state), force=True)
         digest = hashlib.sha256(_encoded(info)).hexdigest()
         peers = trainer._exchange('execution identity digest', digest)

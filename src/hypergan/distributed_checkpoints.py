@@ -46,15 +46,35 @@ from .config import config_values, fingerprint, numerical_values, resume_compati
 from .recipes import move_tensors
 from .run_state import atomic_json, sync_directory
 from .training import _implementation, _recovery_contract, runtime_info, source_info
-from .distributed_commit import (MAX_RANK_BYTES, make_prepared_receipt, preparation_directory,
-                                 validate_fence, _validate_prepared, _publish)
+from .distributed_commit import (MAX_RANK_BYTES, MAX_SHARD_BYTES, make_prepared_receipt,
+                                 preparation_directory, validate_fence, _validate_prepared, _publish)
 
-SCHEMA = 1
+SCHEMA = 2
+LEGACY_SCHEMA = 1
 KIND = 'hypergan-distributed-training-checkpoint'
 MAX_METADATA_BYTES = 16 * 1024 * 1024
 _SHARED = ('graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
            'step', 'buffers', 'trainable', 'modes')
+_LOCAL = ('step', 'streams', 'rng', 'data', 'last_batch')
 _ID = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z')
+
+
+def _split_trainer_state(state):
+    """Split full trainer state into shared (numerical weights) and rank-local components."""
+    if not isinstance(state, dict):
+        raise ValueError('Trainer state must be a dictionary')
+    shared = {key: state[key] for key in (*_SHARED, 'aggregation') if key in state}
+    local = {key: state[key] for key in _LOCAL if key in state}
+    return shared, local
+
+
+def _combine_trainer_state(shared, local):
+    """Recombine shared numerical state and rank-local components into a complete state."""
+    if not isinstance(shared, dict) or not isinstance(local, dict):
+        raise ValueError('Shared and local states must be dictionaries')
+    state = dict(shared)
+    state.update(local)
+    return state
 
 
 def _group():
@@ -312,13 +332,32 @@ def _deserialize(payload):
         raise ValueError('Invalid distributed checkpoint payload; safe tensor loading failed') from exc
 
 
+def _serialize_shard(shard):
+    stream = io.BytesIO()
+    torch.save(shard, stream)
+    if stream.tell() > MAX_SHARD_BYTES:
+        raise ValueError(f'Checkpoint rank shard exceeds {MAX_SHARD_BYTES} bytes')
+    return stream.getvalue()
+
+
+def _deserialize_shard(payload):
+    try:
+        shard = torch.load(io.BytesIO(payload), map_location='cpu', weights_only=True)
+        required_local = ('step', 'streams', 'rng', 'data', 'last_batch')
+        if not isinstance(shard, dict) or any(k not in shard for k in required_local):
+            raise ValueError('Incomplete distributed rank shard')
+        return shard
+    except (pickle.UnpicklingError, RuntimeError, EOFError, KeyError, TypeError) as exc:
+        raise ValueError('Invalid distributed checkpoint shard; safe tensor loading failed') from exc
+
+
 def _root(run_dir):
     run = Path(run_dir).resolve()
     if not run.is_dir():
         raise ValueError(f'Run directory must already exist: {run}')
-    root = run / 'distributed-checkpoints'
+    root = run / 'checkpoints'
     if root.is_symlink() or (root.exists() and not root.is_dir()):
-        raise ValueError('Distributed checkpoint root must be an ordinary directory')
+        raise ValueError('Checkpoint root must be an ordinary directory')
     return root
 
 
@@ -370,7 +409,7 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
     rng = capture_rng()
     temporary = None
     try:
-        error, descriptor, payload = None, None, None
+        error, descriptor, state_bytes, shard_bytes, shared_sha = None, None, None, None, None
         try:
             root = _root(run_dir) if rank == 0 else None
             sync_packet = [controller_id, command_sequence, metadata] if rank == 0 else [None, None, None]
@@ -387,10 +426,13 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
                 raise ValueError('Checkpoint step is outside the configured schedule')
             state = _rank_state(trainer, last_batch)
             _digest(state)  # All rank-local tensors must follow the CPU state contract too.
-            payload = _serialize(state)
+            shared_dict, local_shard = _split_trainer_state(state)
+            shard_bytes = _serialize_shard(local_shard)
+            shared_sha = _shared_digest(state)
+            state_bytes = _serialize(state) if rank == 0 else None
             descriptor = {'lineage': lineage, 'identity': identity,
                           'controller_id': controller_id, 'command_sequence': command_sequence,
-                          'step': trainer.step, 'replicated_sha256': _shared_digest(state)}
+                          'step': trainer.step, 'replicated_sha256': shared_sha}
             if len(json.dumps(descriptor, allow_nan=False).encode()) > MAX_METADATA_BYTES:
                 raise ValueError('Distributed checkpoint metadata exceeds its byte bound')
         except Exception as exc:
@@ -398,39 +440,58 @@ def prepare_distributed_checkpoint(run_dir, trainer, last_batch, metadata, *, co
         peers = _agree('prepare:collect', descriptor, error, trainer=trainer)
         if any(not _same_json(peer, peers[0]) for peer in peers):
             raise ValueError('Ranks disagree on checkpoint step, lineage, config/runtime/source/data/topology or replicated numerical state')
-        payloads = [None] * world_size if rank == 0 else None
-        dist.gather_object(payload, object_gather_list=payloads, dst=0)
+
+        gathered_shards = [None] * world_size if rank == 0 else None
+        dist.gather_object((shared_sha, shard_bytes), object_gather_list=gathered_shards, dst=0)
+
         error, receipt = None, None
         if rank == 0:
             try:
                 nonce = uuid.uuid4().hex[:12]
                 temporary = preparation_directory(run_dir, lineage['attempt_id'], controller_id,
                                                   command_sequence, nonce, create=True)
+                ranks_dir = temporary / 'ranks'
+                ranks_dir.mkdir(exist_ok=True)
+                state_sha256 = hashlib.sha256(state_bytes).hexdigest()
+                with (temporary / 'state.pt').open('wb') as f_state:
+                    f_state.write(state_bytes)
+                    f_state.flush()
+                    os.fsync(f_state.fileno())
+
                 records = []
-                for index, rank_payload in enumerate(payloads):
-                    if not isinstance(rank_payload, bytes) or len(rank_payload) > MAX_RANK_BYTES:
-                        raise ValueError('Invalid/oversized gathered rank payload')
-                    state = _deserialize(rank_payload)
-                    if state['step'] != trainer.step or _shared_digest(state) != descriptor['replicated_sha256']:
+                for index, item in enumerate(gathered_shards):
+                    if not isinstance(item, (tuple, list)) or len(item) != 2:
+                        raise ValueError('Invalid gathered shard packet')
+                    rep_sha, s_bytes = item
+                    if not isinstance(s_bytes, bytes) or len(s_bytes) > MAX_SHARD_BYTES:
+                        raise ValueError('Invalid/oversized gathered rank shard')
+                    if rep_sha != descriptor['replicated_sha256']:
                         raise ValueError('Gathered rank payload differs from complete replica agreement')
-                    filename = f'rank-{index:05d}.pt'
+                    shard = _deserialize_shard(s_bytes)
+                    if shard['step'] != trainer.step:
+                        raise ValueError('Gathered rank shard step differs from checkpoint step')
+                    filename = f'ranks/rank-{index:05d}.pt'
                     with (temporary / filename).open('wb') as output:
-                        output.write(rank_payload)
+                        output.write(s_bytes)
                         output.flush()
                         os.fsync(output.fileno())
-                    records.append({'rank': index, 'file': filename, 'bytes': len(rank_payload),
-                                    'sha256': hashlib.sha256(rank_payload).hexdigest()})
+                    records.append({'rank': index, 'file': filename, 'bytes': len(s_bytes),
+                                    'sha256': hashlib.sha256(s_bytes).hexdigest()})
+
                 strategy = getattr(trainer, 'aggregation_strategy', getattr(trainer, 'aggregation', None))
                 agg_meta = strategy.manifest_metadata() if hasattr(strategy, 'manifest_metadata') else (
                     dict(strategy) if isinstance(strategy, dict) else None
                 )
                 info = dict(lineage, schema_version=SCHEMA, kind=KIND, step=trainer.step,
-                            identity=identity, replicated_sha256=descriptor['replicated_sha256'], ranks=records)
+                            identity=identity, replicated_sha256=descriptor['replicated_sha256'],
+                            state_file='state.pt', state_sha256=state_sha256, state_bytes=len(state_bytes),
+                            ranks=records)
                 if agg_meta is not None:
                     info['aggregation'] = agg_meta
                 if len((json.dumps(info, indent=2, allow_nan=False) + '\n').encode()) > MAX_METADATA_BYTES:
                     raise ValueError('Distributed checkpoint metadata exceeds its byte bound')
                 atomic_json(temporary / 'manifest.json', info)
+                sync_directory(ranks_dir)
                 sync_directory(temporary)
                 receipt = make_prepared_receipt(run_dir, temporary, info, controller_id=controller_id,
                                                 command_sequence=command_sequence, nonce=nonce)
@@ -498,19 +559,27 @@ def read_distributed_checkpoint_for_elastic(run_dir, target, expected_run):
     then returns `(target, info, identity, rank0_state)`.
     """
     run_dir = Path(run_dir).resolve()
-    root = (run_dir / 'distributed-checkpoints').resolve()
     target = Path(target)
     if not target.is_absolute():
-        target = root / target
+        if (run_dir / 'checkpoints' / target).is_dir():
+            target = run_dir / 'checkpoints' / target
+        elif (run_dir / 'distributed-checkpoints' / target).is_dir():
+            target = run_dir / 'distributed-checkpoints' / target
+        else:
+            target = run_dir / 'checkpoints' / target
     if target.is_symlink():
         raise ValueError('Distributed checkpoint generation must not be a symlink')
     target = target.resolve()
-    if target.parent != root or not target.is_dir() or target.name.startswith('.'):
+    valid_parents = {(run_dir / 'checkpoints').resolve(), (run_dir / 'distributed-checkpoints').resolve()}
+    if target.parent not in valid_parents or not target.is_dir() or target.name.startswith('.'):
         raise ValueError('Select a completed distributed checkpoint directory inside this run')
     info = _read_json(target / 'manifest.json')
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation'}
-    if not isinstance(info, dict) or not required <= set(info) <= allowed or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
+    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation',
+                          'state_file', 'state_sha256', 'state_bytes', 'diverged_ranks'}
+    if (not isinstance(info, dict) or not required <= set(info) <= allowed
+            or type(info['schema_version']) is not int or info['schema_version'] not in (1, 2)
+            or info['kind'] != KIND):
         raise ValueError('Invalid distributed checkpoint metadata/schema')
     from .run_state import validate_event_boundary
     validate_event_boundary(run_dir, info)
@@ -528,32 +597,72 @@ def read_distributed_checkpoint_for_elastic(run_dir, target, expected_run):
         raise ValueError('Distributed checkpoint step is invalid')
     if not isinstance(info['ranks'], list) or len(info['ranks']) < 1:
         raise ValueError('Distributed checkpoint must contain at least one saved rank')
+
     rank0_state = None
-    for rank_idx, record in enumerate(info['ranks']):
-        if (
-            not isinstance(record, dict)
-            or set(record) != {'rank', 'file', 'bytes', 'sha256'}
-            or type(record['rank']) is not int
-            or record['rank'] != rank_idx
-            or record['file'] != f'rank-{rank_idx:05d}.pt'
-        ):
-            raise ValueError('Invalid distributed checkpoint rank inventory')
-        if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
-            raise ValueError('Invalid distributed checkpoint payload size')
-        path = target / record['file']
-        if path.is_symlink() or not path.is_file() or path.stat().st_size != record['bytes']:
-            raise ValueError('Distributed rank payload size/type mismatch')
-        with path.open('rb') as source:
-            payload = source.read(record['bytes'] + 1)
-        if len(payload) != record['bytes']:
-            raise ValueError('Distributed rank payload changed size while reading')
-        if hashlib.sha256(payload).hexdigest() != record['sha256']:
-            raise ValueError('Distributed rank payload digest mismatch')
-        state = _deserialize(payload)
-        if state['step'] != info['step'] or _shared_digest(state) != info['replicated_sha256']:
+    is_v2 = (info['schema_version'] == 2 and not info.get('diverged_ranks', False))
+    if is_v2:
+        state_file = target / info.get('state_file', 'state.pt')
+        if state_file.is_symlink() or not state_file.is_file() or state_file.stat().st_size != info.get('state_bytes'):
+            raise ValueError('Distributed state payload size/type mismatch')
+        with state_file.open('rb') as source:
+            payload = source.read(info['state_bytes'] + 1)
+        if len(payload) != info['state_bytes']:
+            raise ValueError('Distributed state payload changed size while reading')
+        if hashlib.sha256(payload).hexdigest() != info.get('state_sha256'):
+            raise ValueError('Distributed state payload digest mismatch')
+        rank0_state = _deserialize(payload)
+        if rank0_state['step'] != info['step'] or _shared_digest(rank0_state) != info['replicated_sha256']:
             raise ValueError('Distributed rank numerical state differs from committed agreement')
-        if rank_idx == 0:
-            rank0_state = state
+        for rank_idx, record in enumerate(info['ranks']):
+            if (
+                not isinstance(record, dict)
+                or set(record) != {'rank', 'file', 'bytes', 'sha256'}
+                or type(record['rank']) is not int
+                or record['rank'] != rank_idx
+                or record['file'] != f'ranks/rank-{rank_idx:05d}.pt'
+            ):
+                raise ValueError('Invalid distributed checkpoint rank inventory')
+            if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_SHARD_BYTES:
+                raise ValueError('Invalid distributed checkpoint payload size')
+            path = target / record['file']
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != record['bytes']:
+                raise ValueError('Distributed rank payload size/type mismatch')
+            with path.open('rb') as source:
+                s_payload = source.read(record['bytes'] + 1)
+            if len(s_payload) != record['bytes']:
+                raise ValueError('Distributed rank payload changed size while reading')
+            if hashlib.sha256(s_payload).hexdigest() != record['sha256']:
+                raise ValueError('Distributed rank payload digest mismatch')
+            shard = _deserialize_shard(s_payload)
+            if shard['step'] != info['step']:
+                raise ValueError('Distributed rank shard step differs from checkpoint step')
+    else:
+        for rank_idx, record in enumerate(info['ranks']):
+            expected_file = f'ranks/rank-{rank_idx:05d}.pt' if (target / 'ranks').is_dir() else f'rank-{rank_idx:05d}.pt'
+            if (
+                not isinstance(record, dict)
+                or set(record) != {'rank', 'file', 'bytes', 'sha256'}
+                or type(record['rank']) is not int
+                or record['rank'] != rank_idx
+                or record['file'] not in (f'rank-{rank_idx:05d}.pt', f'ranks/rank-{rank_idx:05d}.pt')
+            ):
+                raise ValueError('Invalid distributed checkpoint rank inventory')
+            if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
+                raise ValueError('Invalid distributed checkpoint payload size')
+            path = target / record['file']
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != record['bytes']:
+                raise ValueError('Distributed rank payload size/type mismatch')
+            with path.open('rb') as source:
+                payload = source.read(record['bytes'] + 1)
+            if len(payload) != record['bytes']:
+                raise ValueError('Distributed rank payload changed size while reading')
+            if hashlib.sha256(payload).hexdigest() != record['sha256']:
+                raise ValueError('Distributed rank payload digest mismatch')
+            state = _deserialize(payload)
+            if state['step'] != info['step'] or _shared_digest(state) != info['replicated_sha256']:
+                raise ValueError('Distributed rank numerical state differs from committed agreement')
+            if rank_idx == 0:
+                rank0_state = state
     return target, info, identity, rank0_state
 
 
@@ -580,8 +689,14 @@ def _is_same_distributed_topology(saved_identity, current_identity, saved_ranks_
 def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
     pointer = None
     if checkpoint is None:
-        pointer = _read_json(root / 'latest.json')
-        if not isinstance(pointer, dict) or set(pointer) != {'schema_version', 'kind', 'checkpoint', 'step'} or type(pointer['schema_version']) is not int or pointer['schema_version'] != SCHEMA or pointer['kind'] != KIND:
+        pointer_file = root / 'latest.json'
+        if not pointer_file.is_file() and (root.parent / 'distributed-checkpoints' / 'latest.json').is_file():
+            root = (root.parent / 'distributed-checkpoints').resolve()
+            pointer_file = root / 'latest.json'
+        pointer = _read_json(pointer_file)
+        if (not isinstance(pointer, dict) or set(pointer) != {'schema_version', 'kind', 'checkpoint', 'step'}
+                or type(pointer['schema_version']) is not int or pointer['schema_version'] not in (1, 2)
+                or pointer['kind'] != KIND):
             raise ValueError('Invalid distributed checkpoint pointer')
         if type(pointer['step']) is not int or not 0 <= pointer['step'] <= expected_identity['config']['training']['steps']:
             raise ValueError('Invalid distributed checkpoint pointer step')
@@ -590,16 +705,29 @@ def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
         checkpoint = pointer['checkpoint']
     target = Path(checkpoint)
     if not target.is_absolute():
-        target = root / target
+        if (root / target).is_dir():
+            target = root / target
+        elif (root.parent / 'distributed-checkpoints' / target).is_dir():
+            root = (root.parent / 'distributed-checkpoints').resolve()
+            target = root / target
+        elif (root.parent / 'checkpoints' / target).is_dir():
+            root = (root.parent / 'checkpoints').resolve()
+            target = root / target
+        else:
+            target = root / target
     if target.is_symlink():
         raise ValueError('Distributed checkpoint generation must not be a symlink')
     target = target.resolve()
-    if target.parent != root or not target.is_dir() or target.name.startswith('.'):
+    valid_parents = {root, (root.parent / 'distributed-checkpoints').resolve(), (root.parent / 'checkpoints').resolve()}
+    if target.parent not in valid_parents or not target.is_dir() or target.name.startswith('.'):
         raise ValueError('Select a completed distributed checkpoint directory inside this run')
     info = _read_json(target / 'manifest.json')
     required = {'schema_version', 'kind', 'run_id', 'attempt_id', 'step', 'identity', 'replicated_sha256', 'ranks', 'next_sample_sequence'}
-    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation'}
-    if not isinstance(info, dict) or not required <= set(info) <= allowed or type(info['schema_version']) is not int or info['schema_version'] != SCHEMA or info['kind'] != KIND:
+    allowed = required | {'request_ids', 'event_boundary', 'source', 'initial_source', 'aggregation',
+                          'state_file', 'state_sha256', 'state_bytes', 'diverged_ranks'}
+    if (not isinstance(info, dict) or not required <= set(info) <= allowed
+            or type(info['schema_version']) is not int or info['schema_version'] not in (1, 2)
+            or info['kind'] != KIND):
         raise ValueError('Invalid distributed checkpoint metadata/schema')
     from .run_state import validate_event_boundary
     validate_event_boundary(root.parent, info)
@@ -616,25 +744,67 @@ def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
         raise ValueError('Distributed checkpoint pointer step differs from generation')
     if not isinstance(info['ranks'], list) or len(info['ranks']) != dist.get_world_size():
         raise ValueError('Distributed checkpoint must contain exactly every fixed rank')
-    payloads = []
-    for rank, record in enumerate(info['ranks']):
-        if not isinstance(record, dict) or set(record) != {'rank', 'file', 'bytes', 'sha256'} or type(record['rank']) is not int or record['rank'] != rank or record['file'] != f'rank-{rank:05d}.pt':
-            raise ValueError('Invalid distributed checkpoint rank inventory')
-        if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
-            raise ValueError('Invalid distributed checkpoint payload size')
-        path = target / record['file']
-        if path.is_symlink() or path.stat().st_size != record['bytes']:
-            raise ValueError('Distributed rank payload size/type mismatch')
-        with path.open('rb') as source:
-            payload = source.read(record['bytes'] + 1)
-        if len(payload) != record['bytes']:
-            raise ValueError('Distributed rank payload changed size while reading')
-        if hashlib.sha256(payload).hexdigest() != record['sha256']:
-            raise ValueError('Distributed rank payload digest mismatch')
-        state = _deserialize(payload)
-        if state['step'] != info['step'] or _shared_digest(state) != info['replicated_sha256']:
-            raise ValueError('Distributed rank numerical state differs from committed agreement')
-        payloads.append(payload)
+
+    is_v2 = (info['schema_version'] == 2 and not info.get('diverged_ranks', False))
+    if is_v2:
+        state_file = target / info.get('state_file', 'state.pt')
+        if state_file.is_symlink() or not state_file.is_file() or state_file.stat().st_size != info.get('state_bytes'):
+            raise ValueError('Distributed state payload size/type mismatch')
+        with state_file.open('rb') as source:
+            state_bytes = source.read(info['state_bytes'] + 1)
+        if len(state_bytes) != info['state_bytes']:
+            raise ValueError('Distributed state payload changed size while reading')
+        if hashlib.sha256(state_bytes).hexdigest() != info.get('state_sha256'):
+            raise ValueError('Distributed state payload digest mismatch')
+        shared_state = _deserialize(state_bytes)
+        if shared_state['step'] != info['step'] or _shared_digest(shared_state) != info['replicated_sha256']:
+            raise ValueError('Distributed state numerical state differs from committed agreement')
+
+        shard_payloads = []
+        for rank, record in enumerate(info['ranks']):
+            if (not isinstance(record, dict) or set(record) != {'rank', 'file', 'bytes', 'sha256'}
+                    or type(record['rank']) is not int or record['rank'] != rank
+                    or record['file'] != f'ranks/rank-{rank:05d}.pt'):
+                raise ValueError('Invalid distributed checkpoint rank inventory')
+            if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_SHARD_BYTES:
+                raise ValueError('Invalid distributed checkpoint payload size')
+            path = target / record['file']
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != record['bytes']:
+                raise ValueError('Distributed rank payload size/type mismatch')
+            with path.open('rb') as source:
+                s_payload = source.read(record['bytes'] + 1)
+            if len(s_payload) != record['bytes']:
+                raise ValueError('Distributed rank payload changed size while reading')
+            if hashlib.sha256(s_payload).hexdigest() != record['sha256']:
+                raise ValueError('Distributed rank payload digest mismatch')
+            shard = _deserialize_shard(s_payload)
+            if shard['step'] != info['step']:
+                raise ValueError('Distributed rank shard step differs from checkpoint step')
+            shard_payloads.append(s_payload)
+        payloads = (state_bytes, shard_payloads)
+    else:
+        payloads = []
+        for rank, record in enumerate(info['ranks']):
+            if (not isinstance(record, dict) or set(record) != {'rank', 'file', 'bytes', 'sha256'}
+                    or type(record['rank']) is not int or record['rank'] != rank
+                    or record['file'] not in (f'rank-{rank:05d}.pt', f'ranks/rank-{rank:05d}.pt')):
+                raise ValueError('Invalid distributed checkpoint rank inventory')
+            if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
+                raise ValueError('Invalid distributed checkpoint payload size')
+            path = target / record['file']
+            if path.is_symlink() or path.stat().st_size != record['bytes']:
+                raise ValueError('Distributed rank payload size/type mismatch')
+            with path.open('rb') as source:
+                payload = source.read(record['bytes'] + 1)
+            if len(payload) != record['bytes']:
+                raise ValueError('Distributed rank payload changed size while reading')
+            if hashlib.sha256(payload).hexdigest() != record['sha256']:
+                raise ValueError('Distributed rank payload digest mismatch')
+            state = _deserialize(payload)
+            if state['step'] != info['step'] or _shared_digest(state) != info['replicated_sha256']:
+                raise ValueError('Distributed rank numerical state differs from committed agreement')
+            payloads.append(payload)
+
     if warn is not None:
         return target, info, payloads, rt_warnings
     return target, info, payloads
@@ -817,42 +987,90 @@ def restore_distributed_checkpoint(run_dir, trainer, expected_metadata, checkpoi
             return Path(response[0]['path']), response[0]['info'], last_batch, tuple(response[0].get('warnings') or ())
         return Path(response[0]['path']), response[0]['info'], last_batch
 
-    local = [None]
-    dist.scatter_object_list(local, scatter_object_input_list=payloads, src=0)
-    error, state = None, None
-    try:
-        state = _deserialize(local[0])
-        _validate_rank_rng(trainer, state)
-        expected_digest = _digest(state)
-        # Imported Python modules are singleton dependencies, not mutable owned
-        # trainer state (ImageFolder keeps Pillow modules for lazy decoding).
-        memo = {id(module): module for module in list(sys.modules.values()) if isinstance(module, types.ModuleType)}
-        candidate = copy.deepcopy(trainer, memo)
-        candidate_last_batch = restore_trainer(candidate, copy.deepcopy(state))
-        if _digest(_rank_state(candidate, candidate_last_batch)) != expected_digest:
-            raise ValueError('Restored candidate rank state differs from checkpoint')
-    except Exception as exc:
-        error = f'{type(exc).__name__}: {exc}'
-    finally:
-        restore_rng(initial_rng)
-    _agree('restore:validated', error=error, trainer=trainer)
-    trainer.checkpoint_ready = False
-    try:
-        error, last_batch = None, None
+    is_v2 = (response[0]['info'].get('schema_version') == 2 and not response[0]['info'].get('diverged_ranks', False))
+    if is_v2:
+        state_bytes = payloads[0] if rank == 0 else None
+        shard_payloads = payloads[1] if rank == 0 else None
+        shared_box = [state_bytes]
+        dist.broadcast_object_list(shared_box, src=0)
+        shard_box = [None]
+        dist.scatter_object_list(shard_box, scatter_object_input_list=shard_payloads, src=0)
+
+        error, state = None, None
         try:
-            # Load hooks may mutate their input. Never pass the canonical state or
-            # compare against an expected digest computed after invoking a hook.
-            last_batch = restore_trainer(trainer, _deserialize(local[0]))
-            if _digest(_rank_state(trainer, last_batch)) != expected_digest:
-                raise ValueError('Live restored rank state differs from checkpoint')
+            shared_state, _ = _split_trainer_state(_deserialize(shared_box[0]))
+            local_shard = _deserialize_shard(shard_box[0])
+            state = _combine_trainer_state(shared_state, local_shard)
+            _validate_rank_rng(trainer, state)
+            expected_digest = _digest(state)
+            memo = {id(module): module for module in list(sys.modules.values()) if isinstance(module, types.ModuleType)}
+            candidate = copy.deepcopy(trainer, memo)
+            candidate_last_batch = restore_trainer(candidate, copy.deepcopy(state))
+            if _digest(_rank_state(candidate, candidate_last_batch)) != expected_digest:
+                raise ValueError('Restored candidate rank state differs from checkpoint')
         except Exception as exc:
             error = f'{type(exc).__name__}: {exc}'
-        _agree('restore:loaded', error=error, trainer=trainer)
-    except BaseException:
+        finally:
+            restore_rng(initial_rng)
+        _agree('restore:validated', error=error, trainer=trainer)
         trainer.checkpoint_ready = False
-        trainer._poisoned = True
-        raise
-    trainer.checkpoint_ready = True
-    if return_warnings:
-        return Path(response[0]['path']), response[0]['info'], last_batch, tuple(response[0].get('warnings') or ())
-    return Path(response[0]['path']), response[0]['info'], last_batch
+        try:
+            error, last_batch = None, None
+            try:
+                shared_state, _ = _split_trainer_state(_deserialize(shared_box[0]))
+                local_shard = _deserialize_shard(shard_box[0])
+                state = _combine_trainer_state(shared_state, local_shard)
+                last_batch = restore_trainer(trainer, copy.deepcopy(state))
+                if _digest(_rank_state(trainer, last_batch)) != expected_digest:
+                    raise ValueError('Live restored rank state differs from checkpoint')
+            except Exception as exc:
+                error = f'{type(exc).__name__}: {exc}'
+            _agree('restore:loaded', error=error, trainer=trainer)
+        except BaseException:
+            trainer.checkpoint_ready = False
+            trainer._poisoned = True
+            raise
+        trainer.checkpoint_ready = True
+        if return_warnings:
+            return Path(response[0]['path']), response[0]['info'], last_batch, tuple(response[0].get('warnings') or ())
+        return Path(response[0]['path']), response[0]['info'], last_batch
+    else:
+        local = [None]
+        dist.scatter_object_list(local, scatter_object_input_list=payloads, src=0)
+        error, state = None, None
+        try:
+            state = _deserialize(local[0])
+            _validate_rank_rng(trainer, state)
+            expected_digest = _digest(state)
+            # Imported Python modules are singleton dependencies, not mutable owned
+            # trainer state (ImageFolder keeps Pillow modules for lazy decoding).
+            memo = {id(module): module for module in list(sys.modules.values()) if isinstance(module, types.ModuleType)}
+            candidate = copy.deepcopy(trainer, memo)
+            candidate_last_batch = restore_trainer(candidate, copy.deepcopy(state))
+            if _digest(_rank_state(candidate, candidate_last_batch)) != expected_digest:
+                raise ValueError('Restored candidate rank state differs from checkpoint')
+        except Exception as exc:
+            error = f'{type(exc).__name__}: {exc}'
+        finally:
+            restore_rng(initial_rng)
+        _agree('restore:validated', error=error, trainer=trainer)
+        trainer.checkpoint_ready = False
+        try:
+            error, last_batch = None, None
+            try:
+                # Load hooks may mutate their input. Never pass the canonical state or
+                # compare against an expected digest computed after invoking a hook.
+                last_batch = restore_trainer(trainer, _deserialize(local[0]))
+                if _digest(_rank_state(trainer, last_batch)) != expected_digest:
+                    raise ValueError('Live restored rank state differs from checkpoint')
+            except Exception as exc:
+                error = f'{type(exc).__name__}: {exc}'
+            _agree('restore:loaded', error=error, trainer=trainer)
+        except BaseException:
+            trainer.checkpoint_ready = False
+            trainer._poisoned = True
+            raise
+        trainer.checkpoint_ready = True
+        if return_warnings:
+            return Path(response[0]['path']), response[0]['info'], last_batch, tuple(response[0].get('warnings') or ())
+        return Path(response[0]['path']), response[0]['info'], last_batch

@@ -53,7 +53,7 @@ class _Fold:
     """Rank-local phases, agreements and gathers that share one exchange."""
 
     def __init__(self, name):
-        self.name, self.entries, self.failed, self.gathered = name, [], False, {}
+        self.name, self.entries, self.failed, self.gathered, self.forced = name, [], False, {}, False
 
     def fail(self, name, exc):
         # The first rank-local error is the cause; later ones follow from it.
@@ -230,7 +230,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._settle(fold)
 
     def _settle(self, fold, force=False):
-        if not force and getattr(self, '_in_hot_path', False):
+        if not force and not getattr(fold, 'forced', False) and getattr(self, '_in_hot_path', False):
             has_error = fold.failed or any(entry[0] == 'error' for entry in fold.entries)
             if getattr(self, 'device', None) is not None and self.device.type == 'cuda':
                 torch.cuda.set_device(self.device)
@@ -256,6 +256,8 @@ class ReplicatedTrainer(ReferenceTrainer):
     def _phase(self, name, function, force=False, *, gather=False):
         fold = self._fold
         if fold is not None:
+            if force or gather:
+                fold.forced = True
             if fold.failed:
                 return None
             try:
@@ -270,6 +272,13 @@ class ReplicatedTrainer(ReferenceTrainer):
             result = function()
         except BaseException as exc:
             error = f'{type(exc).__name__}: {exc}'
+        if not force and not gather and getattr(self, '_in_hot_path', False):
+            if getattr(self, 'device', None) is not None and self.device.type == 'cuda':
+                torch.cuda.set_device(self.device)
+            failed = torch.tensor(int(error is not None), dtype=torch.int32, device=self.device)
+            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
+            if not failed.item():
+                return result
         errors = self._exchange('phase:' + name, error)
         if any(errors):
             raise RuntimeError(f'{name} failed: ' + '; '.join(f'rank {rank}: {value}' for rank, value in enumerate(errors) if value))
@@ -278,6 +287,8 @@ class ReplicatedTrainer(ReferenceTrainer):
     def _agree(self, name, value, force=False):
         fold = self._fold
         if fold is not None:
+            if force:
+                fold.forced = True
             if not fold.failed:
                 fold.entries.append(('agreement', name, value))
             return
@@ -355,8 +366,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             # A half/failed update is not synchronized here; the checkpoint itself rejects it.
             return bool(self._poisoned or not self.checkpoint_ready or strategy.is_synchronized(self.step))
         with self._folded('aggregation state'):
-            synchronized = self._phase('aggregation state', boundary)
-            self._agree('aggregation state', synchronized)
+            synchronized = self._phase('aggregation state', boundary, force=True)
+            self._agree('aggregation state', synchronized, force=True)
         if synchronized:
             return False
         self.checkpoint_ready = False

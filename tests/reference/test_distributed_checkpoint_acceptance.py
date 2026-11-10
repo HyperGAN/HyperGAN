@@ -58,9 +58,9 @@ def _worker(rank, root):
         selected = checkpoint_api.save_distributed_checkpoint(run, trainer, None,
             {'run_id': 'rng-test', 'attempt_id': 'attempt-one'})
         _equal_rng(capture_rng(), before)
-        saved = torch.load(selected / f'rank-{rank:05d}.pt', weights_only=True)
+        saved = torch.load(selected / 'ranks' / f'rank-{rank:05d}.pt', weights_only=True)
         _equal_rng(saved['rng'], before)
-        pointer = run / 'distributed-checkpoints/latest.json'
+        pointer = run / 'checkpoints/latest.json'
         prior_pointer = pointer.read_bytes()
 
         # The writer must not publish metadata that its own bounded reader refuses.
@@ -75,8 +75,8 @@ def _worker(rank, root):
         _equal_rng(capture_rng(), before)
         dist.barrier()
         assert pointer.read_bytes() == prior_pointer
-        assert not list((run / 'distributed-checkpoints').glob('.pending-*'))
-        assert not list((run / 'distributed-checkpoints' / '.prepared').rglob('command-*'))
+        assert not list((run / 'checkpoints').glob('.pending-*'))
+        assert not list((run / 'checkpoints' / '.prepared').rglob('command-*'))
         (root / f'rank-{rank}.json').write_text(json.dumps({'passed': True}))
     finally:
         dist.destroy_process_group()

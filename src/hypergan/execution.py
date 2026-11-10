@@ -153,19 +153,21 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps, current_c
     from .checkpoints import resolve_resume_checkpoint_dir
     target, pointer = resolve_resume_checkpoint_dir(run_dir, checkpoint, run_manifest=manifest)
     info = _read_metadata(target / 'manifest.json')
-    if type(info.get('schema_version')) is not int or info['schema_version'] != 1:
+    if type(info.get('schema_version')) is not int or info['schema_version'] not in (1, 2):
         raise ValueError('Unsupported training checkpoint schema')
     if type(info.get('step')) is not int or not 0 <= info['step'] <= total_steps:
         raise ValueError('Checkpoint step is outside the original schedule')
     if pointer is not None and (type(pointer.get('step')) is not int or pointer['step'] != info['step']):
         raise ValueError('Checkpoint pointer step differs from generation')
-    expected_root_kind = (
-        'hypergan-distributed-training-checkpoint'
+    allowed_kinds = (
+        ('hypergan-distributed-training-checkpoint',)
         if target.parent.name == 'distributed-checkpoints'
-        else 'hypergan-training-checkpoint'
+        else ('hypergan-training-checkpoint', 'hypergan-distributed-training-checkpoint')
     )
-    if info.get('kind') != expected_root_kind:
+    if info.get('kind') not in allowed_kinds:
         raise ValueError(f'Unsupported or mismatched training checkpoint kind {info.get("kind")!r}')
+    if info['kind'] == 'hypergan-training-checkpoint' and info['schema_version'] != 1:
+        raise ValueError('Unsupported training checkpoint schema')
     if info.get('run_id') != manifest['run_id']:
         raise ValueError('Checkpoint belongs to a different run')
     is_dist_ckpt = info['kind'] == 'hypergan-distributed-training-checkpoint'
@@ -701,7 +703,6 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
                   preview_name=None):
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
-    raw_profile = profile
     raw_profile = profile
     raw_devices = devices
     run_dir = Path(run_dir).resolve() if run_dir is not None else None

@@ -193,9 +193,10 @@ if __name__=='__main__':
     result=run(driver,'normal')
     assert result.returncode==0,result.stdout+result.stderr
     def states(name):
-        root=tmp_path/name/'distributed-checkpoints'
+        root=tmp_path/name/'checkpoints'
         checkpoint=json.loads((root/'latest.json').read_text())['checkpoint']
-        return [torch.load(root/checkpoint/f'rank-{rank:05d}.pt',weights_only=True) for rank in range(2)]
+        shared=torch.load(root/checkpoint/'state.pt',weights_only=True)
+        return [dict(shared,**torch.load(root/checkpoint/'ranks'/f'rank-{rank:05d}.pt',weights_only=True)) for rank in range(2)]
     same(states('base'),states('custom'))
     assert [row['step'] for row in rows(tmp_path/'custom') if 'ratio' in row.get('metrics',{})]==[2]
 

@@ -168,7 +168,7 @@ if __name__ == '__main__':
                                 service_policy=policy, max_seconds=1e-9)
         elif mode in ('mismatch-profile', 'mismatch-config', 'mismatch-data', 'preview', 'observer'):
             before = (run / 'manifest.json').read_bytes()
-            pointer = (run / 'distributed-checkpoints/latest.json').read_bytes()
+            pointer = (run / 'checkpoints/latest.json').read_bytes()
             attempts = sorted(path.name for path in (run / 'attempts').iterdir())
             options = {'profile': profile(), 'service_policy': policy}
             if mode == 'mismatch-profile':
@@ -190,7 +190,7 @@ if __name__ == '__main__':
             else:
                 raise AssertionError('unsupported or incompatible resume unexpectedly succeeded')
             assert (run / 'manifest.json').read_bytes() == before
-            assert (run / 'distributed-checkpoints/latest.json').read_bytes() == pointer
+            assert (run / 'checkpoints/latest.json').read_bytes() == pointer
             assert sorted(path.name for path in (run / 'attempts').iterdir()) == attempts
             result = {'rejected': True}
         else:
@@ -290,9 +290,10 @@ def _same(actual, expected):
 
 
 def _states(run):
-    pointer = json.loads((run / 'distributed-checkpoints/latest.json').read_text())
-    root = run / 'distributed-checkpoints' / pointer['checkpoint']
-    return [torch.load(root / f'rank-{rank:05d}.pt', weights_only=True) for rank in range(2)]
+    pointer = json.loads((run / 'checkpoints/latest.json').read_text())
+    root = run / 'checkpoints' / pointer['checkpoint']
+    shared = torch.load(root / 'state.pt', weights_only=True)
+    return [dict(shared, **torch.load(root / 'ranks' / f'rank-{rank:05d}.pt', weights_only=True)) for rank in range(2)]
 
 
 def _artifacts(manifest):
@@ -322,7 +323,7 @@ def test_replicated_job_exact_recovery_old_selection_and_required_artifacts(tmp_
     _, _, second_sequence = _artifacts(resumed)
     replayed = _run(driver, config, tmp_path / 'split', tmp_path / 'replay-pids', 'replay')
     assert replayed['status'] == 'stopped' and replayed['steps'] == replayed['last_durable_step'] == 2
-    assert json.loads((tmp_path / 'split/distributed-checkpoints/latest.json').read_text())['step'] == 2
+    assert json.loads((tmp_path / 'split/checkpoints/latest.json').read_text())['step'] == 2
     _, _, third_sequence = _artifacts(replayed)
     final = _run(driver, config, tmp_path / 'split', tmp_path / 'final-pids', 'resume')
     _, _, fourth_sequence = _artifacts(final)
@@ -398,7 +399,7 @@ if __name__ == '__main__':
             broker = int((markers / 'broker.pid').read_text())
             manifest = json.loads((run / 'manifest.json').read_text())
             assert manifest['status'] == 'running' and manifest['steps'] == manifest['last_durable_step'] == 2
-            pointer = (run / 'distributed-checkpoints/latest.json').read_bytes()
+            pointer = (run / 'checkpoints/latest.json').read_bytes()
             parent.kill()
             parent.wait(timeout=5)
             deadline = time.monotonic() + 15
@@ -410,7 +411,7 @@ if __name__ == '__main__':
                 while os.waitpid(broker, os.WNOHANG)[0] != broker:
                     assert time.monotonic() < deadline, 'adopted broker did not exit'
                     time.sleep(.02)
-            assert (run / 'distributed-checkpoints/latest.json').read_bytes() == pointer
+            assert (run / 'checkpoints/latest.json').read_bytes() == pointer
             with run_lock(run):
                 pass
             (markers / 'death-proof.json').write_text(json.dumps({'ranks': ranks, 'attempt_id': manifest['attempt_id']}))

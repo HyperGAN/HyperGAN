@@ -281,7 +281,7 @@ if __name__ == '__main__':
             brokers = {row['broker'] for row in rows}
             manifest = json.loads((run / 'manifest.json').read_text())
             assert manifest['status'] == 'running' and 1 <= manifest['last_durable_step'] <= 4
-            pointer = (run / 'distributed-checkpoints/latest.json').read_bytes()
+            pointer = (run / 'checkpoints/latest.json').read_bytes()
             parent.kill()
             parent.wait(timeout=5)
             deadline = time.monotonic() + 15
@@ -295,7 +295,7 @@ if __name__ == '__main__':
                         brokers.remove(pid)
                 assert time.monotonic() < deadline, 'adopted guardian did not exit'
                 time.sleep(.02)
-            assert (run / 'distributed-checkpoints/latest.json').read_bytes() == pointer
+            assert (run / 'checkpoints/latest.json').read_bytes() == pointer
             with run_lock(run):
                 pass
             (markers / 'proof.json').write_text(json.dumps({'attempt_id': manifest['attempt_id'], 'roles': [row['role'] for row in rows]}))

@@ -276,12 +276,18 @@ def _resume_point_is_current(manifest):
     try:
         restored = Path(manifest['resumed_from'])
         if restored.parent.name in ('checkpoints', 'distributed-checkpoints'):
-            expected_root = 'distributed-checkpoints' if manifest.get('execution') else 'checkpoints'
-            if restored.parent.name != expected_root:
+            if not manifest.get('execution') and restored.parent.name != 'checkpoints':
                 return False
         pointer = json.loads((restored.parent / 'latest.json').read_text(encoding='utf-8'))
         saved = json.loads((restored / 'manifest.json').read_text(encoding='utf-8'))
         if not (isinstance(pointer, dict) and pointer.get('checkpoint') == restored.name and isinstance(saved, dict)):
+            return False
+        expected_kind = (
+            'hypergan-distributed-training-checkpoint'
+            if manifest.get('execution')
+            else 'hypergan-training-checkpoint'
+        )
+        if saved.get('kind') != expected_kind:
             return False
         saved_sha = saved.get('config_sha256')
         if saved_sha is None and isinstance(saved.get('identity'), dict):

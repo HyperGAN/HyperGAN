@@ -310,8 +310,8 @@ def test_data_check_does_not_trust_the_inspection_cache(isolated, monkeypatch):
 
 def test_one_resolution_preset_rule():
     from hypergan.recipe_generator import preset_resolution
-    assert [preset_resolution(w, h) for w, h in ((8, 8), (32, 20), (33, 33), (64, 100), (128, 128), (129, 50), (999, 9))] == \
-        [32, 32, 64, 128, 128, 256, 256]
+    assert [preset_resolution(w, h) for w, h in ((8, 8), (32, 20), (33, 33), (64, 100), (128, 128), (129, 50), (257, 257), (513, 50), (9999, 9))] == \
+        [32, 32, 64, 128, 128, 256, 512, 1024, 1024]
 
 
 def test_recipe_comments_take_the_data_table():

@@ -114,10 +114,11 @@ def _worker_nfs_free_adversarial(rank, world_size, dir_rank0, dir_rank1):
 
     if rank == 0:
         assert checkpoint_path.exists()
-        ckpt_root = Path(dir_rank0) / "distributed-checkpoints"
+        ckpt_root = Path(dir_rank0) / "checkpoints"
         assert (ckpt_root / "latest.json").exists()
-        assert (ckpt_root / checkpoint_path.name / "rank-00000.pt").exists()
-        assert (ckpt_root / checkpoint_path.name / "rank-00001.pt").exists()
+        assert (ckpt_root / checkpoint_path.name / "state.pt").exists()
+        assert (ckpt_root / checkpoint_path.name / "ranks" / "rank-00000.pt").exists()
+        assert (ckpt_root / checkpoint_path.name / "ranks" / "rank-00001.pt").exists()
         assert (ckpt_root / checkpoint_path.name / "manifest.json").exists()
     else:
         # Follower must have written strictly 0 bytes to disk

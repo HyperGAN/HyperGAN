@@ -38,11 +38,12 @@ raise SystemExit(main(sys.argv[2:]))
 
 
 def states(run):
-    root = run / 'distributed-checkpoints'
+    root = run / 'checkpoints'
     path = root / json.loads((root / 'latest.json').read_text())['checkpoint']
     info = json.loads((path / 'manifest.json').read_text())
     validate_event_boundary(run, info)
-    return [torch.load(path / record['file'], map_location='cpu', weights_only=True) for record in info['ranks']]
+    shared = torch.load(path / 'state.pt', map_location='cpu', weights_only=True)
+    return [dict(shared, **torch.load(path / record['file'], map_location='cpu', weights_only=True)) for record in info['ranks']]
 
 
 @pytest.mark.skipif(os.name == 'nt', reason='POSIX terminal process-group signal contract')

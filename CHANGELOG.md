@@ -4,8 +4,16 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+### Changed
+- **Unified Multi-GPU Checkpoints (`schema_version = 2`)**:
+  - Consolidated distributed multi-GPU checkpoints into the canonical `<run_dir>/checkpoints/` directory alongside single-GPU checkpoints, storing shared replicated weights, EMA parameters, prior states, optimizer states, and aggregation state once in `state.pt` and lightweight per-rank RNG/stream/sampler state in `ranks/rank-RRRRR.pt` (`~35 KB`), eliminating `N×` redundant model weight storage and wire transfer across ranks.
+  - Preserved transparent read-only backward compatibility for legacy `distributed-checkpoints/` (`schema_version = 1`) across `resume`, `sample`, `export`, `evaluate`, `status`, and `checkpoints prune`.
+  - Enabled `hypergan evaluate` (`hg.evaluate()`) to directly evaluate distributed training checkpoints without requiring a separate exported bundle.
+  - Recorded `<run_dir>/model.json` on Rank 0 at startup during replicated multi-GPU training so the Web Observatory renders layer-by-layer network topology for active multi-GPU runs.
+
 ### Fixed
 - Fixed checkpoint retention symlink vulnerability where premature path resolution in `_checkpoint_roots()` bypassed symlink rejection guards for `distributed-checkpoints/` directories during checkpoint pruning.
+- Fixed `ReplicatedTrainer._settle` / `_phase` / `_agree` hot-path fast-path barrier handling so forced replica agreement checks (`_assert_replicas`) and `synchronize_replicas()` inside `_folded` blocks are never skipped on `step > 1`.
 
 ## 2.0.0 — 2026-11-09
 

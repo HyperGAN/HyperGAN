@@ -315,7 +315,7 @@ def _second_micro_failure(root):
         before = copy.deepcopy(trainer_state(trainer, None))
         saved = save_distributed_checkpoint(run, trainer, None,
             {'run_id': 'backward-failure', 'attempt_id': 'initial'})
-        pointer = run / 'distributed-checkpoints/latest.json'
+        pointer = run / 'checkpoints/latest.json'
         pointer_before = pointer.read_bytes()
         _BACKWARD_COUNT = 0
         batch, draw = _draw(trainer, 1)
@@ -341,7 +341,7 @@ def _second_micro_failure(root):
         dist.barrier()
         assert pointer.read_bytes() == pointer_before
         assert json.loads((saved / 'manifest.json').read_text())['step'] == 0
-        checkpoint_root = run / 'distributed-checkpoints'
+        checkpoint_root = run / 'checkpoints'
         assert [path for path in checkpoint_root.iterdir() if path.is_dir() and not path.name.startswith('.')] == [saved]
         assert not list((checkpoint_root / '.prepared').rglob('command-*'))
 

@@ -157,9 +157,17 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
         target = checkpoint if checkpoint is not None else 'latest'
         checkpoint_dir = resolve_checkpoint(root, target)
         state_file = checkpoint_dir / 'state.pt'
+        rank0_file = checkpoint_dir / 'rank-00000.pt'
         model_file = checkpoint_dir / 'model.pt'
         if state_file.is_file():
             source_file = state_file
+            ckpt_manifest_path = checkpoint_dir / 'manifest.json'
+            ckpt_manifest = json.loads(ckpt_manifest_path.read_text(encoding='utf-8')) if ckpt_manifest_path.is_file() else manifest
+            step = ckpt_manifest.get('step', 0)
+            attempt_id = ckpt_manifest.get('attempt_id', attempt_id)
+            bundle_dict = extract_ema_bundle(checkpoint_dir, manifest=ckpt_manifest)
+        elif rank0_file.is_file():
+            source_file = rank0_file
             ckpt_manifest_path = checkpoint_dir / 'manifest.json'
             ckpt_manifest = json.loads(ckpt_manifest_path.read_text(encoding='utf-8')) if ckpt_manifest_path.is_file() else manifest
             step = ckpt_manifest.get('step', 0)
@@ -171,7 +179,7 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
             step = bundle_dict.get('step', 0)
             attempt_id = bundle_dict.get('identity', {}).get('attempt_id', attempt_id)
         else:
-            raise ValueError(f"No state.pt or model.pt in checkpoint {checkpoint_dir}")
+            raise ValueError(f"No state.pt, rank-00000.pt, or model.pt in checkpoint {checkpoint_dir}")
 
     sanitized_metric = re.sub(r'[^A-Za-z0-9_-]', '_', metric_id)
     short_uuid = uuid.uuid4().hex[:8]

@@ -428,14 +428,16 @@ def test_2gpu_nccl_checkpoint_save_and_manifest_metadata(tmp_path):
     assert manifest["aggregation"]["strategy"] == "parameter_average"
     assert manifest["aggregation"]["sync_every_steps"] == 2
 
-    # Verify rank payloads exist and contain portable CPU tensors
+    # Verify state.pt and rank shards exist and contain portable CPU tensors
+    state_payload = torch.load(ckpt_dir / "state.pt", weights_only=False)
+    assert "aggregation" in state_payload
+    assert state_payload["aggregation"]["step_count"] == 2
+    assert state_payload["aggregation"]["strategy"] == "parameter_average"
     for r in range(2):
-        payload_path = ckpt_dir / f"rank-{r:05d}.pt"
+        payload_path = ckpt_dir / "ranks" / f"rank-{r:05d}.pt"
         assert payload_path.exists()
-        payload = torch.load(payload_path, weights_only=False)
-        assert "aggregation" in payload
-        assert payload["aggregation"]["step_count"] == 2
-        assert payload["aggregation"]["strategy"] == "parameter_average"
+        shard = torch.load(payload_path, weights_only=False)
+        assert shard["step"] == 2
 
 
 def test_2gpu_nccl_checkpoint_resume_and_trajectory_continuity(tmp_path):

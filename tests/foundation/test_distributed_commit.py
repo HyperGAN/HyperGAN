@@ -16,25 +16,42 @@ import hypergan.distributed_commit as commit
 from hypergan.run_state import atomic_json, run_lock
 
 
-def _fixture(run, *, sequence=1, authority=None):
+def _fixture(run, *, sequence=1, authority=None, schema_version=2):
     run.mkdir(exist_ok=True)
     identity = {'config': {'training': {'steps': 3}}, 'topology': {'world_size': 2}}
     authority = authority or commit.CheckpointCommitAuthority(run, run_id='run-one', attempt_id='attempt-one', identity=identity)
     nonce = f'{sequence:012x}'
     staging = commit.preparation_directory(run, 'attempt-one', authority.controller_id, sequence, nonce, create=True)
-    records = []
-    for rank in range(2):
-        payload = f'opaque rank {rank}'.encode()
-        name = f'rank-{rank:05d}.pt'
-        (staging / name).write_bytes(payload)
-        records.append({'rank': rank, 'file': name, 'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()})
-    info = {'schema_version': 1, 'kind': commit.KIND, 'run_id': 'run-one', 'attempt_id': 'attempt-one',
-            'step': 2, 'identity': identity, 'replicated_sha256': 'a' * 64, 'ranks': records,
-            'next_sample_sequence': 3, 'request_ids': ['request-one']}
+    if schema_version == 2:
+        state_payload = b'opaque state'
+        (staging / 'state.pt').write_bytes(state_payload)
+        ranks_dir = staging / 'ranks'
+        ranks_dir.mkdir(exist_ok=True)
+        records = []
+        for rank in range(2):
+            payload = f'opaque rank {rank}'.encode()
+            name = f'ranks/rank-{rank:05d}.pt'
+            (staging / name).write_bytes(payload)
+            records.append({'rank': rank, 'file': name, 'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()})
+        info = {'schema_version': 2, 'kind': commit.KIND, 'run_id': 'run-one', 'attempt_id': 'attempt-one',
+                'step': 2, 'identity': identity, 'replicated_sha256': 'a' * 64,
+                'state_file': 'state.pt', 'state_sha256': hashlib.sha256(state_payload).hexdigest(),
+                'state_bytes': len(state_payload), 'ranks': records,
+                'next_sample_sequence': 3, 'request_ids': ['request-one']}
+    else:
+        records = []
+        for rank in range(2):
+            payload = f'opaque rank {rank}'.encode()
+            name = f'rank-{rank:05d}.pt'
+            (staging / name).write_bytes(payload)
+            records.append({'rank': rank, 'file': name, 'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()})
+        info = {'schema_version': 1, 'kind': commit.KIND, 'run_id': 'run-one', 'attempt_id': 'attempt-one',
+                'step': 2, 'identity': identity, 'replicated_sha256': 'a' * 64, 'ranks': records,
+                'next_sample_sequence': 3, 'request_ids': ['request-one']}
     atomic_json(staging / 'manifest.json', info)
     receipt = commit.make_prepared_receipt(run, staging, info, controller_id=authority.controller_id,
                                            command_sequence=sequence, nonce=nonce)
-    pointer = run / 'distributed-checkpoints' / 'latest.json'
+    pointer = run / 'checkpoints' / 'latest.json'
     pointer.write_text('{"previous": "durable"}')
     return authority, staging, receipt, pointer
 
@@ -45,7 +62,9 @@ def test_parent_commit_is_torch_free_and_consumes_sequence(tmp_path):
         target = authority.commit(receipt, expected_command_sequence=1)
         assert not staging.exists()
         assert json.loads(pointer.read_text())['checkpoint'] == target.name
-        assert (target / 'rank-00001.pt').read_bytes() == b'opaque rank 1'
+        assert json.loads(pointer.read_text())['schema_version'] == 2
+        assert (target / 'state.pt').read_bytes() == b'opaque state'
+        assert (target / 'ranks' / 'rank-00001.pt').read_bytes() == b'opaque rank 1'
         with pytest.raises(ValueError, match='consumed'):
             authority.commit(receipt, expected_command_sequence=1)
         authority.close()
@@ -105,10 +124,10 @@ def test_incomplete_or_corrupt_preparation_never_publishes(tmp_path, monkeypatch
     authority, staging, receipt, pointer = _fixture(tmp_path)
     before = pointer.read_bytes()
     if mode == 'rank-corrupt':
-        path = staging / 'rank-00000.pt'
+        path = staging / 'ranks' / 'rank-00000.pt'
         path.write_bytes(b'!' * path.stat().st_size)
     elif mode == 'rank-missing':
-        (staging / 'rank-00001.pt').unlink()
+        (staging / 'ranks' / 'rank-00001.pt').unlink()
     elif mode == 'manifest-corrupt':
         path = staging / 'manifest.json'
         path.write_bytes(b'!' * path.stat().st_size)

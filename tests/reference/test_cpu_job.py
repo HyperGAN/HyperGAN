@@ -63,11 +63,12 @@ def _same(actual, expected):
 
 
 def _states(run):
-    root = run / 'distributed-checkpoints'
+    root = run / 'checkpoints'
     pointer = json.loads((root / 'latest.json').read_text())
     assert pointer['step'] == 3
     generation = root / pointer['checkpoint']
-    return [torch.load(generation / f'rank-{rank:05d}.pt', weights_only=True) for rank in range(2)]
+    shared = torch.load(generation / 'state.pt', weights_only=True)
+    return [dict(shared, **torch.load(generation / 'ranks' / f'rank-{rank:05d}.pt', weights_only=True)) for rank in range(2)]
 
 
 def test_supervised_training_and_fresh_group_resume(tmp_path):

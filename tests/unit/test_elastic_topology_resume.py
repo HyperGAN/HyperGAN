@@ -25,6 +25,7 @@ from hypergan.checkpoints import (
 from hypergan.config import config_values, fingerprint, load_config, resolve_config
 from hypergan.distributed_checkpoints import (
     _deserialize,
+    _deserialize_shard,
     _shared_digest,
     distributed_checkpoint_identity,
     prepare_distributed_checkpoint,
@@ -131,12 +132,13 @@ def test_scale_up_1_to_2_ranks_and_per_rank_divergence(tmp_path, monkeypatch):
     assert m2["topology_history"][0]["to_execution"]["world_size"] == 2
 
     # Inspect committed distributed checkpoint at step 8: shared weights match, per-rank streams diverge
-    dist_latest = json.loads((run_dir / "distributed-checkpoints" / "latest.json").read_text(encoding="utf-8"))
+    dist_latest = json.loads((run_dir / "checkpoints" / "latest.json").read_text(encoding="utf-8"))
     assert dist_latest["step"] == 8
-    dist_ckpt = run_dir / "distributed-checkpoints" / dist_latest["checkpoint"]
-    r0 = _deserialize((dist_ckpt / "rank-00000.pt").read_bytes())
-    r1 = _deserialize((dist_ckpt / "rank-00001.pt").read_bytes())
-    assert _shared_digest(r0) == _shared_digest(r1)
+    dist_ckpt = run_dir / "checkpoints" / dist_latest["checkpoint"]
+    shared_state = _deserialize((dist_ckpt / "state.pt").read_bytes())
+    r0 = _deserialize_shard((dist_ckpt / "ranks" / "rank-00000.pt").read_bytes())
+    r1 = _deserialize_shard((dist_ckpt / "ranks" / "rank-00001.pt").read_bytes())
+    assert shared_state["step"] == r0["step"] == r1["step"] == 8
     assert not torch.equal(r0["streams"]["prior"], r1["streams"]["prior"])
     r_bkey = next(k for k, v in r0["last_batch"].items() if isinstance(v, torch.Tensor))
     assert not torch.equal(r0["last_batch"][r_bkey], r1["last_batch"][r_bkey])
@@ -152,8 +154,8 @@ def test_scale_down_2_to_1_rank_and_artifacts_status(tmp_path, monkeypatch):
     assert m1["steps"] == 4
     assert m1["status"] == "stopped"
     assert m1["execution"]["world_size"] == 2
-    assert not (run_dir / "checkpoints").exists()
-    assert (run_dir / "distributed-checkpoints" / "latest.json").is_file()
+    assert not (run_dir / "distributed-checkpoints").exists()
+    assert (run_dir / "checkpoints" / "latest.json").is_file()
 
     # Verify sample, export_generator, and run_status work seamlessly on distributed-only checkpoints!
     sample_path_dist = sample(run_dir, count=4, seed=7, output=tmp_path / "dist_samples.json")
@@ -207,7 +209,8 @@ def test_rescale_replicated_2_to_4_to_2_and_batch_size_divisibility(tmp_path, mo
     assert m2["execution"]["world_size"] == 4
     assert m2["execution"]["local_batch_size"] == 4
     ckpt6 = Path(m2["checkpoint_path"])
-    assert len(list(ckpt6.glob("rank-*.pt"))) == 4
+    assert (ckpt6 / "state.pt").is_file()
+    assert len(list((ckpt6 / "ranks").glob("rank-*.pt"))) == 4
 
     # Step 6 -> 9 scaling back to 2 ranks AND explicitly adjusting batch_size via sets!
     profile_3_scaled = {"schema_version": 1, "execution": {"name": "cpu-replicated-gloo", "world_size": 3}}
@@ -234,28 +237,28 @@ def test_ping_pong_1_to_2_to_1_latest_and_explicit_checkpoint_resolution(tmp_pat
     m1 = prepare_train(proj, run_dir, stop_after_steps=3, checkpoint_every=3).run()
     assert m1["steps"] == 3
 
-    # Phase 2: 2 ranks, steps 3 -> 6 (writes distributed-checkpoints/ at step 6; checkpoints/latest.json remains step 3!)
+    # Phase 2: 2 ranks, steps 3 -> 6 (writes unified checkpoints/ at step 6)
     m2 = prepare_resume(run_dir, profile="cpu-replicated-gloo", stop_after_steps=3, checkpoint_every=3).run()
     assert m2["steps"] == 6
-    assert json.loads((run_dir / "checkpoints" / "latest.json").read_text(encoding="utf-8"))["step"] == 3
-    assert json.loads((run_dir / "distributed-checkpoints" / "latest.json").read_text(encoding="utf-8"))["step"] == 6
+    assert json.loads((run_dir / "checkpoints" / "latest.json").read_text(encoding="utf-8"))["step"] == 6
+    assert not (run_dir / "distributed-checkpoints").exists()
 
-    # Phase 3: 1 rank, checkpoint=None MUST pick step 6 from distributed-checkpoints/, NEVER stale step 3!
+    # Phase 3: 1 rank, checkpoint=None MUST pick step 6 from unified checkpoints/
     prep3 = prepare_resume(run_dir, devices="cpu", checkpoint_every=3)
-    assert prep3.checkpoint.parent.name == "distributed-checkpoints"
+    assert prep3.checkpoint.parent.name == "checkpoints"
     assert json.loads((prep3.checkpoint / "manifest.json").read_text(encoding="utf-8"))["step"] == 6
     m3 = prep3.run()
     assert m3["steps"] == 9
     assert m3["status"] == "complete"
-    assert Path(m3["resumed_from"]).parent.name == "distributed-checkpoints"
+    assert Path(m3["resumed_from"]).parent.name == "checkpoints"
 
-    # Verify latest & explicit step resolution across both checkpoint roots
+    # Verify latest & explicit step resolution
     latest_dir, _ = resolve_resume_checkpoint_dir(run_dir, None)
     assert latest_dir.parent.name == "checkpoints"
     assert json.loads((latest_dir / "manifest.json").read_text(encoding="utf-8"))["step"] == 9
 
     ckpt_6 = resolve_checkpoint(run_dir, 6)
-    assert ckpt_6.parent.name == "distributed-checkpoints"
+    assert ckpt_6.parent.name == "checkpoints"
     ckpt_3 = resolve_checkpoint(run_dir, 3)
     assert ckpt_3.parent.name == "checkpoints"
 
@@ -295,13 +298,15 @@ def test_same_topology_bitwise_determinism_preserved(tmp_path, monkeypatch):
 
     full_ckpt = Path(json.loads((rep_full / "manifest.json").read_text(encoding="utf-8"))["checkpoint_path"])
     split_ckpt = Path(json.loads((rep_split / "manifest.json").read_text(encoding="utf-8"))["checkpoint_path"])
+    full_state = _deserialize((full_ckpt / "state.pt").read_bytes())
+    split_state = _deserialize((split_ckpt / "state.pt").read_bytes())
+    _assert_state_tensors_equal(full_state["graph"], split_state["graph"])
+    _assert_state_tensors_equal(full_state["ema_graph"], split_state["ema_graph"])
+    _assert_state_tensors_equal(full_state["prior"], split_state["prior"])
+    _assert_state_tensors_equal(full_state["optimizers"], split_state["optimizers"])
     for rank_file in ("rank-00000.pt", "rank-00001.pt"):
-        full_r = _deserialize((full_ckpt / rank_file).read_bytes())
-        split_r = _deserialize((split_ckpt / rank_file).read_bytes())
-        _assert_state_tensors_equal(full_r["graph"], split_r["graph"])
-        _assert_state_tensors_equal(full_r["ema_graph"], split_r["ema_graph"])
-        _assert_state_tensors_equal(full_r["prior"], split_r["prior"])
-        _assert_state_tensors_equal(full_r["optimizers"], split_r["optimizers"])
+        full_r = _deserialize_shard((full_ckpt / "ranks" / rank_file).read_bytes())
+        split_r = _deserialize_shard((split_ckpt / "ranks" / rank_file).read_bytes())
         _assert_state_tensors_equal(full_r["streams"], split_r["streams"])
 
 

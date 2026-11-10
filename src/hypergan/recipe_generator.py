@@ -10,12 +10,11 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 IMAGE_FORMATS = ("JPEG", "PNG", "WEBP", "BMP", "TIFF")
 
 
-PRESET_RESOLUTIONS = (32, 64, 128, 256)
-SUPPORTED_RESOLUTIONS = (32, 64, 128, 256, 512, 1024)
+PRESET_RESOLUTIONS = (32, 64, 128, 256, 512, 1024)
 
 
 def preset_resolution(width: int, height: int) -> int:
-    """The smallest starter resolution that holds width x height (256 for anything larger)."""
+    """The smallest starter resolution that holds width x height (1024 for anything larger)."""
     max_dim = max(width, height)
     return next((res for res in PRESET_RESOLUTIONS if max_dim <= res), PRESET_RESOLUTIONS[-1])
 
@@ -76,13 +75,7 @@ def inspect_image_dataset(dataset_dir: Union[Path, str]) -> Dict[str, Any]:
 
     has_varying = any(w != target_w or h != target_h for w, h in zip(widths, heights))
 
-    max_dim = max(target_w, target_h)
-    if max_dim <= 256:
-        preset_res = preset_resolution(target_w, target_h)
-    elif max_dim <= 512:
-        preset_res = 512
-    else:
-        preset_res = 1024
+    preset_res = preset_resolution(target_w, target_h)
 
     return {
         "count": len(image_paths),
@@ -203,12 +196,7 @@ def _downsample_conv_stages(preset_res: int, cond_var: str) -> str:
 def get_hndl_templates(width: int, height: int, channels: int, template: str = "dcgan") -> Tuple[str, str]:
     """Select optimal generator and critic HNDL architecture templates for resolution and template style."""
     max_dim = max(width, height)
-    if max_dim <= 256:
-        preset_res = preset_resolution(width, height)
-    elif max_dim <= 512:
-        preset_res = 512
-    else:
-        preset_res = 1024
+    preset_res = preset_resolution(width, height)
 
     if max_dim <= 32:
         # CIFAR-32 template
@@ -652,15 +640,15 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
         c = info["channels"]
         mode = info["mode"]
         preset_res = int(resolution or info["preset_res"])
-        if preset_res not in SUPPORTED_RESOLUTIONS:
-            raise ValueError(f"Unsupported resolution {preset_res}; choose one of {', '.join(map(str, SUPPORTED_RESOLUTIONS))}")
+        if preset_res not in PRESET_RESOLUTIONS:
+            raise ValueError(f"Unsupported resolution {preset_res}; choose one of {', '.join(map(str, PRESET_RESOLUTIONS))}")
     else:
         dataset_path = None
         c = 3
         mode = "RGB"
         preset_res = int(resolution or 64)
-        if preset_res not in SUPPORTED_RESOLUTIONS:
-            raise ValueError(f"Unsupported resolution {preset_res}; choose one of {', '.join(map(str, SUPPORTED_RESOLUTIONS))}")
+        if preset_res not in PRESET_RESOLUTIONS:
+            raise ValueError(f"Unsupported resolution {preset_res}; choose one of {', '.join(map(str, PRESET_RESOLUTIONS))}")
 
     if target_path.exists() and not overwrite:
         raise FileExistsError(f"Recipe file already exists: {target_path}")

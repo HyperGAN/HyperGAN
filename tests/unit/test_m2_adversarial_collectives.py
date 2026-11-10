@@ -438,6 +438,20 @@ def _worker_force_barriers_and_replica_checks(rank, world_size):
     trainer._force_barriers = False
     assert trainer._in_hot_path is True
 
+    # 5. Forced replica check inside folded _complete on a hot-path step must detect divergence
+    trainer.aggregation_strategy.replica_check_every = 2
+    orig_check = trainer._check_modules
+
+    def corrupt_rank_1_before_assert():
+        orig_check()
+        if rank == 1:
+            with torch.no_grad():
+                next(trainer.graph.parameters()).add_(1.0)
+
+    trainer._check_modules = corrupt_rank_1_before_assert
+    with pytest.raises(ValueError, match="Ranks disagree on complete replicated state"):
+        trainer.update({"real": local_data}, None)
+
 
 def test_adversarial_force_barriers_and_replica_checks():
     launch_cpu_workers(_worker_force_barriers_and_replica_checks, world_size=2, timeout=20)

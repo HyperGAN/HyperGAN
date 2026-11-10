@@ -192,7 +192,7 @@ def worker(mode, rank, rendezvous, root, run, output):
         else:
             _, last = trainer.update()
             good = save_distributed_checkpoint(run, trainer, last, {'run_id': 'fixture-run', 'attempt_id': 'attempt-one'})
-            pointer = (run / 'distributed-checkpoints' / 'latest.json').read_bytes()
+            pointer = (run / 'checkpoints' / 'latest.json').read_bytes()
             if mode == 'half':
                 if rank == 1:
                     def fail_step():
@@ -244,7 +244,7 @@ def worker(mode, rank, rendezvous, root, run, output):
                 result.update(error=str(exc), elapsed=time.monotonic() - start)
             else:
                 raise AssertionError('Invalid distributed checkpoint unexpectedly succeeded')
-            assert (run / 'distributed-checkpoints' / 'latest.json').read_bytes() == pointer
+            assert (run / 'checkpoints' / 'latest.json').read_bytes() == pointer
             assert (good / 'manifest.json').is_file()
         Path(output).write_text(json.dumps(result))
     finally:
@@ -308,9 +308,14 @@ def test_fresh_group_resume_preserves_every_rank_rng_sampler_and_optimizer(tmp_p
     else:
         assert states[0]['last_batch']['real'].shape == (2, 1, 2, 3)
         assert states[0]['last_batch']['labels'].dtype == torch.int64
-    generations = list((tmp_path / 'split' / 'distributed-checkpoints').glob('attempt-*'))
+    generations = list((tmp_path / 'split' / 'checkpoints').glob('attempt-*'))
     assert len(generations) == 2
-    assert all((path / 'rank-00000.pt').is_file() and (path / 'rank-00001.pt').is_file() for path in generations)
+    assert all(
+        (path / 'state.pt').is_file()
+        and (path / 'ranks' / 'rank-00000.pt').is_file()
+        and (path / 'ranks' / 'rank-00001.pt').is_file()
+        for path in generations
+    )
 
 
 @pytest.mark.heavy
@@ -322,8 +327,8 @@ def test_failed_rank_or_staging_never_advances_last_complete_checkpoint(tmp_path
         assert results[0]['error'] == results[1]['error']
     else:
         assert len(results) == 1 and results[0]['elapsed'] < 8
-    assert not list((tmp_path / 'run' / 'distributed-checkpoints').glob('.pending-*'))
-    assert not list((tmp_path / 'run' / 'distributed-checkpoints' / '.prepared').rglob('command-*'))
+    assert not list((tmp_path / 'run' / 'checkpoints').glob('.pending-*'))
+    assert not list((tmp_path / 'run' / 'checkpoints' / '.prepared').rglob('command-*'))
 
 
 @pytest.mark.heavy
@@ -335,9 +340,9 @@ def test_incompatible_or_incomplete_checkpoint_rejected_before_live_mutation(tmp
     if mode == 'restore-data':
         (root / 'data-identity').write_text('changed-content-or-class-map')
     if mode == 'restore-missing-rank':
-        (generation / 'rank-00001.pt').unlink()
+        (generation / 'ranks' / 'rank-00001.pt').unlink()
     if mode == 'restore-pointer':
-        path = run / 'distributed-checkpoints' / 'latest.json'
+        path = run / 'checkpoints' / 'latest.json'
         value = json.loads(path.read_text())
         value['step'] = 1
         path.write_text(json.dumps(value))

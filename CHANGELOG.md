@@ -30,6 +30,7 @@ HyperGAN 2.0.0 is the General Availability (GA) release of HyperGAN 2: declarati
   - Updated `README.md` for PyPI rendering (`master` GitHub doc links, `2.0.0` installation commands, `cu130` CUDA wheel index for `torch==2.14.0` on Python 3.11–3.14, and `hypergan gc`), `docs/cifar-recipe.md`, `docs/configuration.md`, and `docs/releasing.md`.
 
 ### Fixed
+- Cached startup package version strings (`particlegan`, `hypergan`, `hndl`) inside `trainer._checkpoint_provenance` in `_distributed_checkpoint_identity()` (`src/hypergan/distributed_checkpoints.py`) so mid-run editable package metadata updates on disk never drift a running worker's checkpoint identity.
 - Fixed `export_generator(..., format="pt2" | "onnx")` and `LoadedGenerator.sample_latents()` latent dimension resolution (`_resolve_z_dim`) to read baked `particle_z.shape[-1]`, `prior.args.z_dim`, `prior.z_dim`, and generator `input_shape` instead of defaulting to `4`, and wrapped unconditional PT2 exports so `torch.export.load(...).module()` unlifts cleanly without colliding with `torch.fx.GraphModule.graph`.
 - Fixed `hypergan ps` (`hg.ps()`, `hg.list_runs()`, `hg.status()`) on multi-GPU runs to aggregate live VRAM across descendant `replicated_worker` CUDA processes and report multi-GPU device topologies (`cuda:0,cuda:1`).
 - Prevented `pytest-of-*` temporary viewer states and run directories from leaking into the host user's global run registry (`~/.local/share/hypergan/runs.json`) during host discovery.

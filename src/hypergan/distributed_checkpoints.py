@@ -253,6 +253,7 @@ def _distributed_checkpoint_identity(trainer):
     contract, reasons = _recovery_contract(trainer)
     if reasons:
         raise ValueError('Recovery unsupported: ' + '; '.join(reasons))
+    runtime = distributed_runtime_info(trainer)
     cached_provenance = getattr(trainer, '_checkpoint_provenance', None)
     if cached_provenance is None:
         implementation = _implementation(trainer)
@@ -271,13 +272,20 @@ def _distributed_checkpoint_identity(trainer):
                      'preview_snapshot', 'snapshot_renderer', 'previews', 'bounded_observer'):
             implementation['hypergan.' + name] = file_sha256(Path(__file__).with_name(name + '.py'))
         source = source_info(trainer.config)
+        runtime_versions = {k: runtime[k] for k in ('particlegan', 'hypergan', 'hndl') if k in runtime}
         try:
-            trainer._checkpoint_provenance = (copy.deepcopy(implementation), copy.deepcopy(source))
+            trainer._checkpoint_provenance = (
+                copy.deepcopy(implementation),
+                copy.deepcopy(source),
+                copy.deepcopy(runtime_versions),
+            )
         except (AttributeError, TypeError):
             pass
+    elif len(cached_provenance) == 3:
+        implementation, source, runtime_versions = copy.deepcopy(cached_provenance)
+        runtime.update(runtime_versions)
     else:
         implementation, source = copy.deepcopy(cached_provenance)
-    runtime = distributed_runtime_info(trainer)
     topology = {k: v for k, v in strategy.items() if k not in ('node_rank', 'rendezvous')}
     return _json({'hypergan_checkpoint_version': CURRENT_VERSION,
                   'config': numerical_values(trainer.config), 'config_sha256': fingerprint(trainer.config),

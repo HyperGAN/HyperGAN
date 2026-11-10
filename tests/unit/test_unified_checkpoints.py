@@ -238,3 +238,36 @@ def test_evaluate_supports_unified_and_legacy_distributed_checkpoints(tmp_path, 
     prune_checkpoints(legacy_run, policy={"keep_last": 0, "keep_every": 0, "keep_best": 0})
     remaining = collect_checkpoints(legacy_run)
     assert [c["step"] for c in remaining] == [4]
+
+
+def test_checkpoint_provenance_caches_runtime_package_versions(monkeypatch):
+    """Verify mid-run editable package metadata updates do not drift checkpoint identity."""
+    import importlib.metadata
+    from hypergan.config import resolve_config
+    from hypergan.distributed_checkpoints import distributed_checkpoint_identity
+    from hypergan.training import ReferenceTrainer
+
+    monkeypatch.setattr("hypergan.distributed_checkpoints._group", lambda: (0, 2))
+    monkeypatch.setattr("torch.distributed.get_backend", lambda: "gloo")
+
+    cfg = resolve_config({"training": {"device": "cpu", "batch_size": 8, "steps": 4}})
+    trainer = ReferenceTrainer(cfg)
+    trainer.rank = 0
+    trainer.world_size = 2
+    trainer.strategy_info = {
+        "name": "cpu-replicated-gloo",
+        "world_size": 2,
+        "global_batch_size": 8,
+        "local_batch_size": 4,
+    }
+
+    first = distributed_checkpoint_identity(trainer)
+    orig_version = importlib.metadata.version
+    monkeypatch.setattr(
+        importlib.metadata,
+        "version",
+        lambda name: "99.99.99" if name == "hypergan" else orig_version(name),
+    )
+    second = distributed_checkpoint_identity(trainer)
+    assert second == first
+    assert second["runtime"]["hypergan"] == first["runtime"]["hypergan"]

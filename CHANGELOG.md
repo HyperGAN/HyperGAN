@@ -4,9 +4,9 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
-## 2.0.0 — 2026-11-09
+## 2.0.0a3 — 2026-11-09
 
-HyperGAN 2.0.0 is the official General Availability (GA) production release of HyperGAN 2. It is a ground-up architectural rebuild centered on declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.7,<0.10`) primitives, reproducible training lifecycles, distributed multi-GPU and multi-node training, a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).
+HyperGAN 2.0.0a3 is the third alpha of HG 2. It combines declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.7,<0.10`) primitives, reproducible training lifecycles, unified multi-GPU and multi-node checkpoints (`schema_version = 2`), a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).
 
 ### Highlights Since 2.0.0a2
 - **ParticleGAN `0.9.7` Upgrade**:

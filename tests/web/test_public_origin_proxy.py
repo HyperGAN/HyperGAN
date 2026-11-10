@@ -119,10 +119,15 @@ def test_public_origin_values_are_validated_strictly():
 def test_public_origin_reaches_the_detached_supervisor_and_its_reports(tmp_path):
     """The supervised viewer is a subprocess; the state file is what reaches it."""
     import http.client
+    import socket
     from hypergan.web_autostart import Viewer, stop_viewer, viewer_status
 
     fixture_run(tmp_path)
-    viewer = Viewer(tmp_path, host='127.0.0.1', auth='token', public_origin=PUBLIC + '/')
+    # A free port, not the default 8765 that a live dashboard may already hold.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(('0.0.0.0', 0))
+        port = probe.getsockname()[1]
+    viewer = Viewer(tmp_path, port=port, host='127.0.0.1', auth='token', public_origin=PUBLIC + '/')
     try:
         viewer.wait_ready()
         assert viewer.session.public_origin == PUBLIC
@@ -130,7 +135,7 @@ def test_public_origin_reaches_the_detached_supervisor_and_its_reports(tmp_path)
         credentials = json.loads(viewer.credential_path.read_text())
         assert credentials['public_origin'] == PUBLIC
         status = viewer_status(tmp_path)
-        assert status['public_origin'] == PUBLIC and status['origin'].startswith('http://127.0.0.1:')
+        assert status['public_origin'] == PUBLIC and status['origin'] == f'http://127.0.0.1:{port}'
         receipt = json.loads((tmp_path / 'observations' /
                               f'viewer-{viewer.session.instance_id}.json').read_text())
         assert receipt['public_origin'] == PUBLIC

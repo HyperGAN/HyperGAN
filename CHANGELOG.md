@@ -4,6 +4,9 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+### Fixed
+- Fixed checkpoint retention symlink vulnerability where premature path resolution in `_checkpoint_roots()` bypassed symlink rejection guards for `distributed-checkpoints/` directories during checkpoint pruning.
+
 ## 2.0.0 — 2026-11-09
 
 HyperGAN 2.0.0 is the official General Availability (GA) production release of HyperGAN 2. It is a ground-up architectural rebuild centered on declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.5,<0.10`) primitives, reproducible training lifecycles, distributed multi-GPU and multi-node training, a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).

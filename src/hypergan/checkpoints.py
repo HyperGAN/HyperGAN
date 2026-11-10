@@ -609,7 +609,7 @@ CHECKPOINT_DIR_NAMES = ("checkpoints", "distributed-checkpoints")
 
 def _checkpoint_roots(run_dir: Path, *, existing_only: bool = True) -> list[Path]:
     run_dir = Path(run_dir).resolve()
-    roots = [(run_dir / name).resolve() for name in CHECKPOINT_DIR_NAMES]
+    roots = [run_dir / name for name in CHECKPOINT_DIR_NAMES]
     if existing_only:
         return [r for r in roots if r.is_dir()]
     return roots
@@ -1134,9 +1134,6 @@ def _prune_run_checkpoints(run_dir, policy=None, dry_run=False):
     except (ValueError, FileNotFoundError):
         run_dir = Path(run_dir).resolve()
 
-    ckpt_root = run_dir / 'checkpoints'
-    if ckpt_root.is_symlink():
-        raise ValueError(f'Refusing to prune a symlinked checkpoints directory: {ckpt_root}')
     for root in _checkpoint_roots(run_dir, existing_only=False):
         if root.is_symlink():
             raise ValueError(f'Refusing to prune a symlinked checkpoints directory: {root}')

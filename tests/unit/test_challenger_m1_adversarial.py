@@ -605,10 +605,6 @@ class TestAdversarialCheckpointRetentionSymlinkGuards:
         with pytest.raises(ValueError, match="Refusing to prune a symlinked checkpoints directory"):
             prune_checkpoints(run_dir, policy=TEST_RETENTION_POLICY)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BUG in checkpoints.py:1140 - _checkpoint_roots() resolves paths, so root.is_symlink() is False for symlinked distributed-checkpoints directories, failing to reject and deleting through the symlink",
-    )
     def test_symlinked_distributed_checkpoints_dir_strictly_rejected(self, tmp_path):
         """prune_checkpoints strictly refuses a run whose distributed-checkpoints/ is a symlink."""
         outside = tmp_path / "outside_dist_checkpoints"

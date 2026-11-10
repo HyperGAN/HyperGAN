@@ -250,7 +250,7 @@ def _adversarial_terms(config):
 def _prior_table(config):
     """Whether training gives the prior a trainable table (a prior optimizer group).
 
-    Mirrors objective_program.compile_legacy_program: the prior group holds the
+    Mirrors objective_program.compile_objective_program: the prior group holds the
     prior parameters that require grad; a Gaussian prior has none and
     ``args.learnable = false`` stores the table as a buffer. Returns (trainable, reason).
     """

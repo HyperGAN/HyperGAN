@@ -287,7 +287,7 @@ def _resume_point_is_current(manifest):
             if manifest.get('execution')
             else 'hypergan-training-checkpoint'
         )
-        if saved.get('kind') != expected_kind:
+        if saved.get('kind') is not None and saved.get('kind') != expected_kind:
             return False
         saved_sha = saved.get('config_sha256')
         if saved_sha is None and isinstance(saved.get('identity'), dict):

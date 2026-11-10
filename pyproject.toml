@@ -28,7 +28,7 @@ dependencies = ["foldlitedb>=0.1.2,<0.2"]
 
 [project.optional-dependencies]
 # CI tests only torch==2.14.0 (.github/workflows/ci.yml); the rest of the range is untested.
-train = ["hndl>=0.11.0,<1", "particlegan>=0.9.5,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3", "safetensors>=0.8,<1"]
+train = ["hndl>=0.11.0,<1", "particlegan>=0.9.7,<0.10", "torch>=2.6,<3", "numpy>=1.26,<3", "safetensors>=0.8,<1"]
 image = ["Pillow>=13.0.0,<14"]
 cifar = ["torchvision>=0.21,<1", "Pillow>=13.0.0,<14"]
 fid = ["torch-fidelity>=0.4.0,<0.5", "torchvision>=0.21,<1", "Pillow>=13.0.0,<14", "scipy>=1.10,<2.0"]
@@ -41,7 +41,7 @@ all = [
     "hndl>=0.11.0,<1",
     "numpy>=1.26,<3",
     "onnx>=1.16,<2.0",
-    "particlegan>=0.9.5,<0.10",
+    "particlegan>=0.9.7,<0.10",
     "Pillow>=13.0.0,<14",
     "safetensors>=0.8,<1",
     "scipy>=1.10,<2.0",

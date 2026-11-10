@@ -5,6 +5,8 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 ## Unreleased
 
 ### Changed
+- **ParticleGAN `0.9.7` Upgrade**:
+  - Upgraded the `train` and `all` dependency extras to `particlegan>=0.9.7,<0.10` (`bispf_optimized` default preset and `generator_gradient_response` host capability guard).
 - **Unified Multi-GPU Checkpoints (`schema_version = 2`)**:
   - Consolidated distributed multi-GPU checkpoints into the canonical `<run_dir>/checkpoints/` directory alongside single-GPU checkpoints, storing shared replicated weights, EMA parameters, prior states, optimizer states, and aggregation state once in `state.pt` and lightweight per-rank RNG/stream/sampler state in `ranks/rank-RRRRR.pt` (`~35 KB`), eliminating `N×` redundant model weight storage and wire transfer across ranks.
   - Preserved transparent read-only backward compatibility for legacy `distributed-checkpoints/` (`schema_version = 1`) across `resume`, `sample`, `export`, `evaluate`, `status`, and `checkpoints prune`.
@@ -17,7 +19,7 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## 2.0.0 — 2026-11-09
 
-HyperGAN 2.0.0 is the official General Availability (GA) production release of HyperGAN 2. It is a ground-up architectural rebuild centered on declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.5,<0.10`) primitives, reproducible training lifecycles, distributed multi-GPU and multi-node training, a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).
+HyperGAN 2.0.0 is the official General Availability (GA) production release of HyperGAN 2. It is a ground-up architectural rebuild centered on declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.7,<0.10`) primitives, reproducible training lifecycles, distributed multi-GPU and multi-node training, a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).
 
 ### Highlights Since 2.0.0a2
 - **255labs Brand Identity & Viewer Polish**:

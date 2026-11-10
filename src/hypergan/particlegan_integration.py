@@ -131,6 +131,7 @@ def particlegan_recipe(config):
         'conditioning': recipe.conditioning == 'ucd',
         'encoder_mode': recipe.encoder_mode != 'none',
         'row_policy': recipe.row_policy != 'independent',
+        'generator_gradient_response': getattr(recipe, 'generator_gradient_response', 'none') != 'none',
     }
     rejected = [key for key, active in unsupported.items() if active]
     if rejected:

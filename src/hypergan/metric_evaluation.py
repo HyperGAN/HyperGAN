@@ -21,7 +21,7 @@ from foldlitedb.fileio import file_lock
 
 from .config import fingerprint, load_config
 from .metric_plugins import enabled_custom, finite_json, prepare_custom
-from .metrics import digest, metric_catalog
+from .metrics import digest, metric_catalog, normalize_device, same_gpu
 from .run_state import atomic_json
 
 # Large transformer generators include position buffers as well as parameters.
@@ -29,52 +29,6 @@ MAX_SNAPSHOT_BYTES = 512 * 1024 * 1024
 _EVAL_DIR_RE = re.compile(r'^(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})$')
 # Held by a manual evaluation for its whole lifetime; the OS releases it on death.
 OWNER_LOCK = '.owner.lock'
-
-
-def _normalize_eval_device(dev):
-    if isinstance(dev, int):
-        return f"cuda:{dev}"
-    dev_str = str(dev).strip().lower()
-    if dev_str.isdigit():
-        return f"cuda:{dev_str}"
-    if dev_str.startswith("gpu") and dev_str[3:].isdigit():
-        return f"cuda:{dev_str[3:]}"
-    if dev_str == "cpu":
-        return "cpu"
-    if dev_str == "cuda":
-        return "cuda:0"
-    return dev_str
-
-
-def _parse_device_set(dev):
-    if dev is None:
-        return {"cuda:0"}
-    if isinstance(dev, (list, tuple, set)):
-        result = set()
-        for item in dev:
-            result.update(_parse_device_set(item))
-        return result
-    if isinstance(dev, int):
-        return {f"cuda:{dev}"}
-    dev_str = str(dev).strip()
-    if not dev_str:
-        return {"cuda:0"}
-    if "," in dev_str:
-        result = set()
-        for part in dev_str.split(","):
-            part = part.strip()
-            if part:
-                result.update(_parse_device_set(part))
-        return result
-    return {_normalize_eval_device(dev_str)}
-
-
-def _devices_conflict(d1, d2):
-    s1 = _parse_device_set(d1)
-    s2 = _parse_device_set(d2)
-    s1.discard("cpu")
-    s2.discard("cpu")
-    return bool(s1 & s2)
 
 
 def _sha256(path):
@@ -119,6 +73,11 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
     receipt and source event; on_error=fail then raises with that receipt path.
     """
     import torch
+    if devices is not None:
+        try:
+            devices = normalize_device(devices)
+        except ValueError as exc:
+            raise ValueError(f'Evaluation runs on one device: {exc}') from None
     root = Path(run_dir).resolve()
     manifest_path = root / 'manifest.json'
     if not manifest_path.is_file():
@@ -154,13 +113,17 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
 
     warnings_list = []
     if devices is not None:
-        eval_device = _normalize_eval_device(devices)
+        eval_device = devices
         spec.setdefault('evaluation', {})['device'] = eval_device
     else:
         eval_device = spec.get('evaluation', {}).get('device', 'cuda')
 
     train_device = manifest.get('runtime', {}).get('device') or config.get('training', {}).get('device', 'cuda')
-    if manifest.get('status') == 'running' and _devices_conflict(eval_device, train_device):
+    try:
+        shared = manifest.get('status') == 'running' and same_gpu(eval_device, train_device)
+    except ValueError:  # An unrecognized recorded training device cannot be compared.
+        shared = False
+    if shared:
         msg = f"warning: evaluation shares device '{eval_device}' with active training run; may cause GPU contention"
         sys.stderr.write(msg + '\n')
         warnings_list.append({
@@ -443,14 +406,3 @@ def _recover_abandoned(root, run_id=None):
             'path': event_path.relative_to(root).as_posix(), 'role': 'measurement', 'modality': 'scalar'})
         (path / 'snapshot.pt').unlink(missing_ok=True)
 
-
-def _copy_snapshot(source, destination):
-    copied = 0
-    while True:
-        block = source.read(min(1024 * 1024, MAX_SNAPSHOT_BYTES - copied + 1))
-        if not block:
-            return copied
-        copied += len(block)
-        if copied > MAX_SNAPSHOT_BYTES:
-            raise ValueError('Evaluation snapshot grew beyond the 512 MiB copy budget')
-        destination.write(block)

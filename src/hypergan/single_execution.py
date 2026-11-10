@@ -159,7 +159,10 @@ class SingleProcessExecution:
         if reasons:
             raise ValueError('Recovery unsupported: ' + '; '.join(reasons))
         if contract != identity['data_contract']:
-            raise ValueError('Resume data identity or state protocol differs from checkpoint')
+            from .data import identity_change_hint
+            saved = identity['data_contract'] if isinstance(identity['data_contract'], dict) else {}
+            raise ValueError('Resume data identity or state protocol differs from checkpoint'
+                             + identity_change_hint(saved.get('identity'), contract['identity']))
         validate_implementation(identity['implementation'], _implementation(self._trainer))
         self._ready = False
         if is_cross_topology:

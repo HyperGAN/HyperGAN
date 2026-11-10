@@ -272,3 +272,34 @@ def test_step_named_stream_discovery_and_recovery(tmp_path):
     assert (abandoned_dir / "stream.json").is_file()
     rec = json.loads((abandoned_dir / "receipt.json").read_text())
     assert rec["status"] == "failed"
+
+
+@pytest.mark.parametrize("eval_device,train_device,collides", [
+    ("cuda:0", "cuda:0", True), ("cuda:1", "cuda:0", False), ("cpu", "cuda", False),
+    # Bare "cuda" may be any GPU (replicated training spans every visible one).
+    ("cuda", "cuda:1", True), ("cuda:1", "cuda", True), ("cuda", "cuda", True),
+])
+def test_config_and_manual_evaluation_device_warnings_agree(tmp_path, monkeypatch, eval_device, train_device, collides):
+    import copy
+    from hypergan.metrics import evaluation_warnings
+    run_dir, cfg = _setup_run(tmp_path / "run", step=2000, status="running", train_device=train_device)
+    config = copy.deepcopy(cfg)
+    config["metrics"]["custom"]["fid50k_train"]["evaluation"]["device"] = eval_device
+    config_warns = any("may be the training device" in message for message in evaluation_warnings(config))
+
+    recorded = []
+    monkeypatch.setattr("hypergan.metric_evaluation.prepare_custom", lambda c: c.setdefault("_metric_runtime", {
+        "fid50k_train": {"descriptor": {"kind": "scalar"}, "factory_sources": {"module": "a" * 64},
+                         "protocol": "hypergan-metric/v1"}}))
+    monkeypatch.setattr("hypergan.metric_evaluation._evaluate_pinned",
+                        lambda *args, warnings=None: recorded.extend(warnings or []) or {"status": "complete"})
+    evaluate(run_dir, metric_id="fid50k_train", devices=eval_device)
+    manual_warns = any(w.get("code") == "DEVICE_COLLISION" for w in recorded)
+    assert config_warns == manual_warns == collides
+
+
+@pytest.mark.parametrize("devices", ["1,2", "gpu", "cuda:x", "tpu", ""])
+def test_manual_evaluation_rejects_anything_but_one_device(tmp_path, devices):
+    run_dir, _ = _setup_run(tmp_path / "run", step=2000, status="running")
+    with pytest.raises(ValueError, match="Evaluation runs on one device"):
+        evaluate(run_dir, metric_id="fid50k_train", devices=devices)

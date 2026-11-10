@@ -201,15 +201,59 @@ class TestTier1Features:
     @requires_reducers
     def test_tier1_wasmi_execution_without_wasmtime(self):
         """Verify that Reducer executes via native wasmi engine without requiring external wasmtime."""
+        import subprocess
+
         desc = active_reducers.descriptor()
         assert desc.get("abi") == 1, f"Expected ABI version 1, got {desc.get('abi')}"
 
         reducer = active_reducers.Reducer()
         assert len(reducer.module_sha256) == 64, "module_sha256 must be a 64-character SHA-256 hex string"
-        # Verify that wasmtime is not required or imported
-        assert "wasmtime" not in sys.modules, (
-            "Native wasmi reducer engine must not import external wasmtime runtime"
+
+        # Verify in an isolated subprocess (immune to prior tests importing wasmtime)
+        # that blocking wasmtime imports via sys.meta_path still allows full Reducer
+        # execution without importing wasmtime (note: foldlitedb treats literal
+        # sys.modules["wasmtime"] = None as a synthetic missing-extra sentinel).
+        src_dir = str(Path(__file__).resolve().parents[2] / "src")
+        target_mod = "foldlitedb.reducers" if HAVE_FOLDLITEDB_REDUCERS else "hypergan.metrics_reducer"
+        sub_code = f"""
+import importlib
+import sys
+
+class _BlockWasmtime:
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "wasmtime" or fullname.startswith("wasmtime."):
+            raise ModuleNotFoundError("wasmtime import blocked for native wasmi verification")
+        return None
+
+sys.path.insert(0, {src_dir!r})
+sys.meta_path.insert(0, _BlockWasmtime())
+
+mod = importlib.import_module({target_mod!r})
+hg_mod = importlib.import_module("hypergan.metrics_reducer")
+for m in (mod, hg_mod):
+    desc = m.descriptor()
+    assert desc.get("abi") == 1, f"Expected ABI 1, got {{desc.get('abi')}}"
+    r = m.Reducer()
+    assert len(r.module_sha256) == 64
+    state = r.identity("mean/v1")
+    state = r.add(state, [
+        {{"value": 10.0, "position": [1, "event-0001"]}},
+        {{"value": 20.0, "position": [2, "event-0002"]}},
+    ])
+    res = r.finalize(state)
+    assert res == {{"count": 2, "value": 15.0}}, f"Unexpected finalize result: {{res}}"
+
+assert "wasmtime" not in sys.modules, "wasmtime was imported!"
+assert not any(k.startswith("wasmtime.") for k in sys.modules), "wasmtime submodule was imported!"
+print("WASMI_ISOLATED_OK")
+"""
+        proc = subprocess.run(
+            [sys.executable, "-c", sub_code],
+            check=True,
+            capture_output=True,
+            text=True,
         )
+        assert "WASMI_ISOLATED_OK" in proc.stdout
 
     @requires_reducers
     @pytest.mark.parametrize("kind", ["mean/v1", "envelope/v1", "sum/v1", "count/v1"])

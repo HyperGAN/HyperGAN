@@ -451,3 +451,61 @@ assert "particlegan" not in sys.modules
         timeout=20,
     )
     assert res.returncode == 0, res.stderr
+
+
+def test_host_registry_ignores_and_prunes_pytest_temp_paths(monkeypatch):
+    """Host registry discovery skips pytest-of-* viewer states and prunes leaked pytest-of-* roots/runs."""
+    import tempfile
+    from hypergan.registry import _is_pytest_temp_path, read_registry
+    from hypergan.summary import atomic_write_json
+
+    assert _is_pytest_temp_path("/tmp/pytest-of-alice/pytest-42/test_run0")
+    assert not _is_pytest_temp_path("/nvme/dev/hypergan/HyperGAN/runs/cifar10")
+
+    with tempfile.TemporaryDirectory(prefix="hg-host-reg-test-") as raw_tmp:
+        fake_home = Path(raw_tmp) / "host_home"
+        host_cwd = fake_home / "project"
+        host_cwd.mkdir(parents=True)
+        real_run = _create_mock_run(
+            host_cwd / "runs" / "real-exp",
+            run_id="11112222333344445555666677778888",
+            name="real-exp",
+            slug="noble-photon",
+        )
+        leaked_pytest_dir = fake_home / "pytest-of-user" / "pytest-99" / "test_leak0"
+        _create_mock_run(
+            leaked_pytest_dir,
+            run_id="aaaabbbbccccddddeeeeffff00001111",
+            name="test_leak0",
+            slug="kinetic-prism",
+        )
+
+        monkeypatch.delenv("HYPERGAN_HOME", raising=False)
+        monkeypatch.delenv("HYPERGAN_STATE_DIR", raising=False)
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+        monkeypatch.setattr("hypergan.registry._discover_system_roots_and_runs", lambda: ([], []))
+
+        reg_dir = fake_home / ".local" / "share" / "hypergan"
+        reg_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(
+            reg_dir / "runs.json",
+            {
+                "schema_version": 1,
+                "roots": [str(leaked_pytest_dir.parent)],
+                "runs": {
+                    str(leaked_pytest_dir): {
+                        "run_id": "aaaabbbbccccddddeeeeffff00001111",
+                        "run_dir": str(leaked_pytest_dir),
+                        "status": "running",
+                    }
+                },
+            },
+        )
+
+        runs = list_registered_runs(cwd=host_cwd)
+        assert [Path(r["run_dir"]).resolve() for r in runs] == [real_run.resolve()]
+        persisted = read_registry(reg_dir)
+        assert not any(_is_pytest_temp_path(r) for r in persisted.get("roots", []))
+        assert not any(_is_pytest_temp_path(k) for k in persisted.get("runs", {}))

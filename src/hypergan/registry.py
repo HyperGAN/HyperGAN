@@ -624,6 +624,15 @@ def find_live_pid_for_run(run_dir: Path) -> Optional[int]:
     return cmdline_match
 
 
+def _is_pytest_temp_path(path: Union[Path, str]) -> bool:
+    """Return True if path resides inside a pytest temporary directory (pytest-of-*)."""
+    try:
+        parts = Path(path).parts
+    except Exception:
+        parts = str(path).replace("\\", "/").split("/")
+    return any(p.startswith("pytest-of-") for p in parts)
+
+
 def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
     """Discover active runs_roots and run_dirs from viewer state files and /proc on host."""
     if os.environ.get("HYPERGAN_HOME") or os.environ.get("HYPERGAN_STATE_DIR"):
@@ -642,6 +651,8 @@ def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
                     root_str = sdata.get("root")
                     if root_str:
                         rp = Path(root_str).resolve()
+                        if _is_pytest_temp_path(rp):
+                            continue
                         if rp.is_dir():
                             if is_run_dir(rp):
                                 run_dirs.append(rp)
@@ -686,6 +697,8 @@ def _discover_system_roots_and_runs() -> Tuple[List[Path], List[Path]]:
                         cand = Path(token)
                         if cand.is_dir() and is_run_dir(cand):
                             resolved = cand.resolve()
+                            if _is_pytest_temp_path(resolved):
+                                continue
                             run_dirs.append(resolved)
                             if resolved.parent.is_dir() and str(resolved.parent) != "/tmp":
                                 roots.append(resolved.parent)
@@ -1369,7 +1382,8 @@ def list_registered_runs(
             is_tmp = str(rp.resolve()) == "/tmp" or str(r_str).strip() == "/tmp"
         except Exception:
             is_tmp = str(r_str).strip() == "/tmp"
-        if is_tmp:
+        if is_tmp or (not is_test and _is_pytest_temp_path(r_str)):
+            missing_roots.pop(r_str, None)
             continue
         if rp.is_dir():
             kept_roots.append(r_str)
@@ -1399,6 +1413,11 @@ def list_registered_runs(
     for existing_key in list(data["runs"].keys()):
         entry_obj = data["runs"].get(existing_key)
         rdir_str = (entry_obj.get("run_dir") if isinstance(entry_obj, dict) else None) or existing_key
+        if not is_test and (_is_pytest_temp_path(existing_key) or _is_pytest_temp_path(rdir_str)):
+            data["runs"].pop(existing_key, None)
+            runs_updates[existing_key] = None
+            changed = True
+            continue
         ep = Path(rdir_str)
         if ep.is_dir() and is_run_dir(ep):
             resolved_ep = ep.resolve()

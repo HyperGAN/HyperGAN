@@ -4,26 +4,22 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
-### Changed
-- **ParticleGAN `0.9.7` Upgrade**:
-  - Upgraded the `train` and `all` dependency extras to `particlegan>=0.9.7,<0.10` (`bispf_optimized` default preset and `generator_gradient_response` host capability guard).
-- **Unified Multi-GPU Checkpoints (`schema_version = 2`)**:
-  - Consolidated distributed multi-GPU checkpoints into the canonical `<run_dir>/checkpoints/` directory alongside single-GPU checkpoints, storing shared replicated weights, EMA parameters, prior states, optimizer states, and aggregation state once in `state.pt` and lightweight per-rank RNG/stream/sampler state in `ranks/rank-RRRRR.pt` (`~35 KB`), eliminating `N×` redundant model weight storage and wire transfer across ranks.
-  - Preserved transparent read-only backward compatibility for legacy `distributed-checkpoints/` (`schema_version = 1`) across `resume`, `sample`, `export`, `evaluate`, `status`, and `checkpoints prune`.
-  - Enabled `hypergan evaluate` (`hg.evaluate()`) to directly evaluate distributed training checkpoints without requiring a separate exported bundle.
-  - Recorded `<run_dir>/model.json` on Rank 0 at startup during replicated multi-GPU training so the Web Observatory renders layer-by-layer network topology for active multi-GPU runs.
-
-### Fixed
-- Fixed checkpoint retention symlink vulnerability where premature path resolution in `_checkpoint_roots()` bypassed symlink rejection guards for `distributed-checkpoints/` directories during checkpoint pruning.
-- Fixed `ReplicatedTrainer._settle` / `_phase` / `_agree` hot-path fast-path barrier handling so forced replica agreement checks (`_assert_replicas`) and `synchronize_replicas()` inside `_folded` blocks are never skipped on `step > 1`.
-- Fixed 9 unpinned `.detach().cpu().item()` host-sync transfers in `run_native_program` (`src/hypergan/objective_program.py`) by staging all single-GPU health telemetry scalars through `trainer._metric_transfer(...)` pinned memory buffers.
-- Allowed `hypergan sample <bundle_dir>` and `hg.sample(<bundle_dir>)` to resolve `<bundle_dir>/model.pt` automatically when passed an exported bundle directory.
-
 ## 2.0.0 — 2026-11-09
 
 HyperGAN 2.0.0 is the official General Availability (GA) production release of HyperGAN 2. It is a ground-up architectural rebuild centered on declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.7,<0.10`) primitives, reproducible training lifecycles, distributed multi-GPU and multi-node training, a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).
 
 ### Highlights Since 2.0.0a2
+- **ParticleGAN `0.9.7` Upgrade**:
+  - Upgraded the `train` and `all` dependency extras to `particlegan>=0.9.7,<0.10` (`bispf_optimized` default preset and `generator_gradient_response` host capability guard).
+- **Unified Multi-GPU Checkpoints (`schema_version = 2`)**:
+  - Consolidated distributed multi-GPU checkpoints into the canonical `<run_dir>/checkpoints/` directory alongside single-GPU checkpoints, storing shared replicated weights, EMA parameters, prior states, optimizer states, and aggregation state once in `state.pt` and lightweight per-rank RNG/stream/sampler state in `ranks/rank-RRRRR.pt` (`~35 KB`), eliminating `N×` redundant model weight storage and wire transfer across ranks.
+  - Preserved transparent read-only backward compatibility for legacy `distributed-checkpoints/` (`schema_version = 1`) across `resume`, `sample`, `export`, `evaluate`, `status`, and `checkpoints prune`.
+  - Enabled `hypergan evaluate` (`hg.evaluate()`) to directly evaluate distributed training checkpoints without requiring a separate exported bundle, and allowed `hypergan sample <bundle_dir>` (`hg.sample(<bundle_dir>)`) to resolve `<bundle_dir>/model.pt` automatically.
+  - Recorded `<run_dir>/model.json` on Rank 0 at startup during replicated multi-GPU training so the Web Observatory renders layer-by-layer network topology for active multi-GPU runs.
+- **Distributed & CUDA Runtime Hardening**:
+  - Fixed `ReplicatedTrainer._settle` / `_phase` / `_agree` hot-path fast-path barrier handling so forced replica agreement checks (`_assert_replicas`) and `synchronize_replicas()` inside `_folded` blocks are never skipped on `step > 1`.
+  - Staged all 9 single-GPU health telemetry scalars in `run_native_program` (`src/hypergan/objective_program.py`) through `trainer._metric_transfer(...)` pinned memory buffers, eliminating 9 blocking pageable device-to-host copies per step.
+  - Fixed checkpoint retention symlink vulnerability where premature path resolution in `_checkpoint_roots()` bypassed symlink rejection guards for `distributed-checkpoints/` directories during checkpoint pruning.
 - **255labs Brand Identity & Viewer Polish**:
   - Aligned HyperGAN README and Web Observatory visual identity with 255labs (`255labs-lockup.svg`, `255labs-lockup-ink.svg`, `255labs-tokens.css`, `brand.css`).
   - Bundled offline self-hosted `Manrope` and `IBM Plex Mono` `.woff2` fonts (with OFL license texts) in `src/hypergan/web_assets/` for reproducible offline rendering.
@@ -43,7 +39,7 @@ HyperGAN 2.0.0 is the official General Availability (GA) production release of H
   - Native support for residual blocks, self-attention, 2D relative-position bias, one-row learned token position tables, split-latent AdaIN (`adaptive_norm`), equalized linear/conv layers, coordinate warps, Fourier features, differentiable augmentation (`diff_augment`), and SHA-256-pinned frozen pretrained backbones (`torchvision_resnet18`, `dinov3_vits16`) with symbolic `shape_fn` hooks.
   - Multi-network and auxiliary graph routing (`role = "generator" | "critic" | "encoder" | "auxiliary"`) with weight sharing (`reuse`, `freeze_parameters`), multi-critic adversarial terms, particle-routing autoencoders (`ae_gan`, `vae_gan`), paired conditional reconstruction (`d-then-g-v1`), and [routed particle LoRA host integration](docs/particle-sliders.md).
   - Resolved HNDL sources embedded into run manifests and version-2 checkpoints (`CURRENT_VERSION = 2`) for self-contained provenance.
-- **ParticleGAN (`particlegan>=0.9.5,<0.10`) Integration & Core Engine**:
+- **ParticleGAN (`particlegan>=0.9.7,<0.10`) Integration & Core Engine**:
   - Native integration with ParticleGAN's released `bispf_optimized` preset (`defaults = "particlegan"`), DualNorm optimizer family, SBNP prior regularization, and explicit `Recipe.from_dict` snapshot restoration (with backwards-compatible fallback for 0.9.4 checkpoints).
   - Python 3.11–3.14 support with modern dependency bounds (`torch>=2.6,<3`, `safetensors>=0.8,<1`, `Pillow>=13.0.0,<14`, `torch-fidelity>=0.4.0,<0.5`) and optional extras (`[train]`, `[image]`, `[cifar]`, `[fid]`, `[reducers]`, `[web]`, `[safetensors]`, `[onnx]`, `[all]`).
   - On-demand external URL and dataset cache (`~/.hypergan/cache/`) with SHA-256 integrity verification, multi-rank file locking (`fcntl.flock`), automatic ResNet-18 (`f37072fd`) / Inception-v3 (`6726825d`) backbone caching, opt-in CIFAR-10 dataset preparation, and `HYPERGAN_OFFLINE=1` support.

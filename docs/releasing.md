@@ -63,9 +63,9 @@ token. Configure the PyPI Trusted Publisher at
 
    ```sh
    RELEASE_SHA=$(git rev-parse master)
-   gh release create v2.0.0a2 --prerelease --repo HyperGAN/HyperGAN \
-     --target "$RELEASE_SHA" --title "HyperGAN 2.0.0a2" \
-     --notes-file /tmp/hypergan-2.0.0a2-release-notes.md
+   gh release create v2.0.0 --repo HyperGAN/HyperGAN \
+     --target "$RELEASE_SHA" --title "HyperGAN 2.0.0" \
+     --notes-file /tmp/hypergan-2.0.0-release-notes.md
    ```
 
    Use `--prerelease` for alpha and beta releases; omit it for a stable release.

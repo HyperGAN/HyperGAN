@@ -168,7 +168,7 @@ atexit.register(dependency_shutdown)
 from hypergan.metrics_reducer import Reducer
 assert Reducer().identity('mean/v1')['count'] == 0
 """
-    result = subprocess.run([sys.executable, '-I', '-c', code], cwd=tmp_path,
+    result = subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), '-c', code], cwd=tmp_path,
                             capture_output=True, text=True, timeout=15)
     assert result.returncode == 0, result.stderr
     assert result.stderr == ''

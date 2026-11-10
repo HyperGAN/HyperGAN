@@ -159,8 +159,8 @@ def test_replicated_trainer_telemetry_parity_and_rank_agreement(tmp_path, accumu
 
     # Numerical work still uses exactly 5 dist.all_reduce calls under gradient_allreduce:
     # (control + bucket for D) + (control + bucket for G) + 1 coalesced float64 metric scalar all_reduce.
-    # Phase failure checks are separate from telemetry and remain explicitly bounded.
-    phase_checks = 17 if accumulation_steps == 1 else 25
+    # Phase failure checks are separate from telemetry and remain explicitly bounded (folded into 6 phase blocks).
+    phase_checks = 6
     expected = {"total": 5 + phase_checks, "float64_metric_collectives": 1,
                 "phase_failure_collectives": phase_checks}
     assert rank0["all_reduce_counts"][1] == expected

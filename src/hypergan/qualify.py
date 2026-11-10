@@ -261,10 +261,13 @@ def _cuda_device_mask(devices: List[int]) -> str:
 
 # Each multi-rank suite runs one ``python -m hypergan.qualify_worker`` process per rank.
 WORKER_MODULE = "hypergan.qualify_worker"
+WORKER_DRIVER_CODE: Optional[str] = None
 
 
 def worker_command() -> List[str]:
     """argv prefix that starts one rank; the rank's own arguments follow it."""
+    if WORKER_DRIVER_CODE is not None:
+        return [sys.executable, "-c", WORKER_DRIVER_CODE]
     return [sys.executable, "-m", WORKER_MODULE]
 
 
@@ -416,8 +419,6 @@ class QualificationRunner:
             try:
                 for r in range(world_size):
                     env = env_base.copy()
-                    if backend == "nccl" and cuda_devices:
-                        env["CUDA_VISIBLE_DEVICES"] = str(cuda_devices[r % len(cuda_devices)])
                     cmd = worker_command() + [
                         mode, str(r), str(world_size), init_method, backend, str(out_files[r]), extra_str
                     ]

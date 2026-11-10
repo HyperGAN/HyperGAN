@@ -30,7 +30,7 @@ import torch.nn as nn
 
 import hypergan.api as hg
 from hypergan.cli import (
-    _build_parser,
+    _parser as _build_parser,
     _port_number,
     _print_training_header,
     _training_viewer,

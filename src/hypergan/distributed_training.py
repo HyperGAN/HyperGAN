@@ -229,7 +229,15 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._fold = None
         self._settle(fold)
 
-    def _settle(self, fold):
+    def _settle(self, fold, force=False):
+        if not force and getattr(self, '_in_hot_path', False):
+            has_error = fold.failed or any(entry[0] == 'error' for entry in fold.entries)
+            if getattr(self, 'device', None) is not None and self.device.type == 'cuda':
+                torch.cuda.set_device(self.device)
+            failed = torch.tensor(int(has_error), dtype=torch.int32, device=self.device)
+            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
+            if not failed.item():
+                return
         peers = self._exchange('fold:' + fold.name, fold.entries)
         for index in range(max(len(entries) for entries in peers)):
             rows = [entries[index] if index < len(entries) else None for entries in peers]
@@ -245,7 +253,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             if kind == 'gather':
                 fold.gathered[name] = [row[2] for row in rows]
 
-    def _phase(self, name, function, *, gather=False):
+    def _phase(self, name, function, force=False, *, gather=False):
         fold = self._fold
         if fold is not None:
             if fold.failed:
@@ -262,16 +270,25 @@ class ReplicatedTrainer(ReferenceTrainer):
             result = function()
         except BaseException as exc:
             error = f'{type(exc).__name__}: {exc}'
+        if not force and getattr(self, '_in_hot_path', False):
+            if getattr(self, 'device', None) is not None and self.device.type == 'cuda':
+                torch.cuda.set_device(self.device)
+            failed = torch.tensor(int(error is not None), dtype=torch.int32, device=self.device)
+            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
+            if not failed.item():
+                return result
         errors = self._exchange('phase:' + name, error)
         if any(errors):
             raise RuntimeError(f'{name} failed: ' + '; '.join(f'rank {rank}: {value}' for rank, value in enumerate(errors) if value))
         return result
 
-    def _agree(self, name, value):
+    def _agree(self, name, value, force=False):
         fold = self._fold
         if fold is not None:
             if not fold.failed:
                 fold.entries.append(('agreement', name, value))
+            return
+        if not force and getattr(self, '_in_hot_path', False):
             return
         values = self._exchange('agreement:' + name, value)
         if any(item != values[0] for item in values):
@@ -328,7 +345,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             restore_rng(rng)
 
     def _assert_replicas(self, name):
-        self._agree(name, self._phase(name + ' validation', self._replica_digest))
+        self._agree(name, self._phase(name + ' validation', self._replica_digest, force=True), force=True)
 
     def synchronize_replicas(self):
         """Force one local-SGD synchronization so a checkpoint has one replicated state.

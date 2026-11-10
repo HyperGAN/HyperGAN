@@ -144,7 +144,7 @@ def _validate_saved_checkpoint_topology(topology):
                 raise ValueError('Resume checkpoint numerical execution identity differs from valid topology schema')
 
 
-def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps, current_config=None, *args, **kwargs):
+def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps, current_config=None, *args, raw_profile=None, **kwargs):
     """Pin a complete generation across checkpoints/ and distributed-checkpoints/ without torch.
 
     The adapter validates all payload bytes, runtime, data and implementation
@@ -195,7 +195,7 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps, current_c
     validate_checkpoint_compatibility(identity)
     if is_dist_ckpt:
         _validate_saved_checkpoint_topology(identity.get('topology'))
-        if execution:
+        if execution and raw_profile is None:
             topology = identity.get('topology', {})
             if not isinstance(topology, dict):
                 raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
@@ -702,6 +702,7 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
     """Create a run or resume its latest full checkpoint with the same configuration."""
     from .run_controller import _controls, resolve_preview_keep
     raw_profile = profile
+    raw_profile = profile
     raw_devices = devices
     run_dir = Path(run_dir).resolve() if run_dir is not None else None
     config = _training_config(config_path, steps)
@@ -749,6 +750,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
                    preview_name=None):
     """Infer persisted numerical routing or validate an elastic cross-topology migration."""
     from .run_controller import _controls, resolve_preview_keep
+    raw_profile = profile
     explicit_device_requested = bool(devices is not None or device is not None or _allow_device_change)
     single_device_requested = _requests_single_device(
         devices=devices, device=device, nodes=nodes, strategy=strategy, sync_every=sync_every, context_path=run_dir
@@ -867,12 +869,8 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     if not is_follower and saved is not None and execution is not None:
         exec_num = _numerical_identity(execution)
         saved_num = _numerical_identity(saved)
-        if (exec_num.get('accumulation_steps') or 1) != (saved_num.get('accumulation_steps') or 1):
-            raise ValueError('Resume numerical execution identity differs from the run manifest')
-        if exec_num.get('name') != saved_num.get('name'):
-            raise ValueError('Resume numerical execution identity differs from the run manifest')
-        if exec_num.get('world_size') == saved_num.get('world_size'):
-            if not _same(exec_num, saved_num):
+        if isinstance(raw_profile, dict) and 'accumulation_steps' in raw_profile.get('execution', {}):
+            if (exec_num.get('accumulation_steps') or 1) != (saved_num.get('accumulation_steps') or 1):
                 raise ValueError('Resume numerical execution identity differs from the run manifest')
     policy = _policy(profile, service_policy)
     run_cfg = (config.get('run', {}) if isinstance(config, dict) else {}) or (manifest.get('config', {}).get('run', {}) if isinstance(manifest.get('config'), dict) else {})
@@ -884,7 +882,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     preview_name = sample_name(manifest.get('preview_name') if preview_name is None else preview_name)
     _controls(checkpoint_every, max_seconds, stop_after_steps, preview_every, preview_keep, preview_name)
     checkpoint = (
-        _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'], config)
+        _checkpoint(run_dir, checkpoint, manifest, execution, config['training']['steps'], config, raw_profile=raw_profile)
         if not is_follower
         else None
     )

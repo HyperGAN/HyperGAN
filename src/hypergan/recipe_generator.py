@@ -10,11 +10,11 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 IMAGE_FORMATS = ("JPEG", "PNG", "WEBP", "BMP", "TIFF")
 
 
-PRESET_RESOLUTIONS = (32, 64, 128, 256, 512, 1024)
+PRESET_RESOLUTIONS = (32, 64, 128, 256)
 
 
 def preset_resolution(width: int, height: int) -> int:
-    """The smallest starter resolution that holds width x height (1024 for anything larger)."""
+    """The smallest starter resolution that holds width x height (256 for anything larger)."""
     max_dim = max(width, height)
     return next((res for res in PRESET_RESOLUTIONS if max_dim <= res), PRESET_RESOLUTIONS[-1])
 

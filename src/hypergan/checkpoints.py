@@ -1320,6 +1320,8 @@ def _prune_run_checkpoints(run_dir, policy=None, dry_run=False):
                         else:
                             pointer_file.unlink(missing_ok=True)
                     sync_directory(ckpt_root)
+        else:
+            deleted = [{'step': c['step'], 'name': c['name'], 'size': c['size']} for c in deleted_candidates]
 
         retained = [
             {'step': c['step'], 'name': c['name'], 'reasons': sorted(list(retained_reasons[c['name']]))}

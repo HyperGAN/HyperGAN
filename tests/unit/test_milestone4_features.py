@@ -39,7 +39,7 @@ from hypergan.artifacts import (
     sample,
     _coerce_conditioning_input,
 )
-from hypergan.cli import _build_parser, _port_number, _print_training_header, main as cli_main
+from hypergan.cli import _parser as _build_parser, _port_number, _print_training_header, main as cli_main
 from hypergan.data import ImageFolder
 from hypergan.recipe_generator import (
     STARTER_TEMPLATES,

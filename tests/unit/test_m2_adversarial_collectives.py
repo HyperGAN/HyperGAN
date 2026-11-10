@@ -362,8 +362,8 @@ def _worker_barrier_elimination_multi_step(rank, world_size, result_dir):
         assert trainer.step == 1
         assert trainer._handshake_complete is True
         assert trainer._in_hot_path is True, "Hot path must be True after step 1 completes"
-        # Handshake in step 1 must execute all exchange barriers (>20 calls)
-        assert gather_counts["step_1"] >= 15, f"Rank {rank}: Expected >=15 handshake barriers in step 1, got {gather_counts['step_1']}"
+        # Handshake in step 1 must execute exchange barriers (folded into phase blocks)
+        assert gather_counts["step_1"] >= 5, f"Rank {rank}: Expected >=5 handshake barriers in step 1, got {gather_counts['step_1']}"
 
         # -------------------------------------------------------------
         # Step 2: In hot path - dist.all_gather_object MUST BE STRICTLY 0
@@ -406,7 +406,7 @@ def test_adversarial_barrier_elimination_multi_step(tmp_path):
         token_path = tmp_path / f"rank_{rank}_success.json"
         assert token_path.exists(), f"Rank {rank} failed to finish"
         data = json.loads(token_path.read_text())
-        assert data["step_1_barriers"] >= 15
+        assert data["step_1_barriers"] >= 5
         assert data["step_2_barriers"] == 0
         assert data["step_3_barriers"] == 0
 

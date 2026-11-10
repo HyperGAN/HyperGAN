@@ -50,6 +50,12 @@ def particlegan_recipe_fields():
     """
     package = importlib.util.find_spec("particlegan")
     if package is None or not package.submodule_search_locations:
+        import site
+        user_site = site.getusersitepackages()
+        if user_site and user_site not in sys.path and Path(user_site).is_dir():
+            sys.path.append(user_site)
+            package = importlib.util.find_spec("particlegan")
+    if package is None or not package.submodule_search_locations:
         raise ValueError('defaults = "particlegan" requires ParticleGAN (the train extra)')
     name = "_hypergan_particlegan_recipes"
     recipe_path = Path(package.submodule_search_locations[0]) / "recipes.py"

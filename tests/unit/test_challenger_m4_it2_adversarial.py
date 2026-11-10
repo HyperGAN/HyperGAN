@@ -17,6 +17,7 @@ import torch
 
 import hypergan.api as hg
 from hypergan.artifacts import LoadedGenerator, interpolate
+from hypergan.model_file import ModelFileError
 
 
 # ---------------------------------------------------------------------------
@@ -460,9 +461,9 @@ class TestLoadedGeneratorDeviceTransfersAndDeterminism:
         lg2 = hg.load_bundle(str(bundle_file))
         assert isinstance(lg2, LoadedGenerator)
 
-        # hg.load dispatch for .pt
-        lg3 = hg.load(bundle_file)
-        assert isinstance(lg3, LoadedGenerator)
+        # hg.load of a .pt bundle raises ModelFileError pointing to hg.load_bundle
+        with pytest.raises(ModelFileError, match="hg.load_bundle"):
+            hg.load(bundle_file)
 
         # Non-existent file
         with pytest.raises(Exception):

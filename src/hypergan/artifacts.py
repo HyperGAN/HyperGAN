@@ -462,6 +462,46 @@ def interpolate(v0: torch.Tensor, v1: torch.Tensor, steps: int = 10, *, mode: st
     return torch.cat(points, dim=0) if v0.ndim >= 2 else torch.stack(points, dim=0)
 
 
+def _resolve_z_dim(lg: object | None, config: dict | None) -> int:
+    """Resolve latent dimension z_dim from baked particles, prior config, or generator input_shape."""
+    p_z = getattr(lg, "particle_z", None)
+    if isinstance(p_z, torch.Tensor) and p_z.ndim >= 2 and p_z.shape[-1] > 0:
+        return int(p_z.shape[-1])
+
+    cfg = config if isinstance(config, dict) else {}
+    prior_cfg = cfg.get("prior")
+    if isinstance(prior_cfg, dict):
+        prior_args = prior_cfg.get("args")
+        if isinstance(prior_args, dict):
+            z_dim = prior_args.get("z_dim")
+            if isinstance(z_dim, int) and not isinstance(z_dim, bool) and z_dim > 0:
+                return z_dim
+        z_dim = prior_cfg.get("z_dim")
+        if isinstance(z_dim, int) and not isinstance(z_dim, bool) and z_dim > 0:
+            return z_dim
+
+    for comp_map in (cfg.get("components"), getattr(lg, "components", None)):
+        if isinstance(comp_map, dict):
+            gen_spec = comp_map.get("generator")
+            if isinstance(gen_spec, dict):
+                gen_args = gen_spec.get("args")
+                if isinstance(gen_args, dict):
+                    in_shape = gen_args.get("input_shape")
+                    if isinstance(in_shape, (list, tuple)) and len(in_shape) >= 2:
+                        dim = in_shape[1]
+                        if isinstance(dim, int) and not isinstance(dim, bool) and dim > 0:
+                            return dim
+                    elif isinstance(in_shape, dict):
+                        for port in ("z", "latent", "x", "input"):
+                            port_shape = in_shape.get(port)
+                            if isinstance(port_shape, (list, tuple)) and len(port_shape) >= 2:
+                                dim = port_shape[1]
+                                if isinstance(dim, int) and not isinstance(dim, bool) and dim > 0:
+                                    return dim
+
+    return 4
+
+
 class LoadedGenerator(torch.nn.Module, dict):
     """Callable standalone generator module with baked particle table and inference helpers."""
     __hash__ = object.__hash__
@@ -512,14 +552,14 @@ class LoadedGenerator(torch.nn.Module, dict):
         elif generator is not None and seed is not None:
             raise ValueError("Cannot provide both generator and seed")
         if self.particle_z is not None:
-            idx = torch.randint(0, len(self.particle_z), (count,), generator=generator, device=self.device)
+            idx = torch.randint(0, self.particle_z.shape[0], (count,), generator=generator, device=self.device)
             z = self.particle_z[idx]
             if self.particle_sigma is not None and float(self.particle_sigma) > 0:
-                noise = torch.randn(count, self.particle_z.shape[1], generator=generator, device=self.device, dtype=z.dtype)
+                noise = torch.randn(count, self.particle_z.shape[-1], generator=generator, device=self.device, dtype=z.dtype)
                 z = z + self.particle_sigma * noise
             return z
         else:
-            z_dim = self.config.get("prior", {}).get("z_dim", 4)
+            z_dim = _resolve_z_dim(self, self.config)
             return torch.randn(count, z_dim, generator=generator, device=self.device)
 
     def sample_prior(self, count: int, generator: torch.Generator | None = None, seed: int | None = None) -> torch.Tensor:
@@ -529,13 +569,17 @@ class LoadedGenerator(torch.nn.Module, dict):
         if inputs is None:
             inputs = kwargs.get("conditioning") or kwargs.get("batch") or {}
         if z is None:
-            count = len(next(iter(inputs.values()))) if inputs else 1
+            if inputs:
+                first_val = next(iter(inputs.values()))
+                count = first_val.shape[0] if isinstance(first_val, torch.Tensor) else len(first_val)
+            else:
+                count = 1
             z = self.sample_latents(count)
         else:
-            count = len(z)
+            count = z.shape[0]
         if inputs:
             inputs = {
-                k: (v.expand(count, *v.shape[1:]) if isinstance(v, torch.Tensor) and len(v) == 1 and count > 1 else v)
+                k: (v.expand(count, *v.shape[1:]) if isinstance(v, torch.Tensor) and v.shape[0] == 1 and count > 1 else v)
                 for k, v in inputs.items()
             }
         context = self.graph.generate(z, inputs, prior=self)
@@ -579,6 +623,75 @@ class LoadedGenerator(torch.nn.Module, dict):
         if device is not None:
             self.device = device
         return super().to(*args, **kwargs)
+
+
+class _UnconditionalExportWrapper(torch.nn.Module):
+    """Thin wrapper avoiding GraphModule.graph attribute collision with LoadedGenerator.graph."""
+
+    def __init__(self, generator: LoadedGenerator):
+        super().__init__()
+        self.generator = generator
+
+    def forward(self, latent: torch.Tensor) -> torch.Tensor:
+        return self.generator(latent)
+
+
+class _ConditionalExportWrapper(torch.nn.Module):
+    """Positional-tensor wrapper mapping (latent, *cond_tensors) to LoadedGenerator(latent, dict)."""
+
+    def __init__(self, generator: LoadedGenerator, cond_keys: list[str] | tuple[str, ...]):
+        super().__init__()
+        self.generator = generator
+        self.cond_keys = tuple(cond_keys)
+
+    def forward(self, latent: torch.Tensor, *cond_tensors: torch.Tensor) -> torch.Tensor:
+        return self.generator(latent, dict(zip(self.cond_keys, cond_tensors)))
+
+
+def _prepare_export_conditioning(lg: LoadedGenerator, bundle: dict) -> tuple[list[str], tuple[torch.Tensor, ...]]:
+    """Extract ordered conditioning keys and batch-1 dummy tensors on lg.device when required."""
+    example_inputs = bundle.get("example_inputs")
+    if isinstance(example_inputs, dict) and example_inputs:
+        cond_keys = list(example_inputs.keys())
+        cond_tensors = []
+        for k in cond_keys:
+            spec = example_inputs[k]
+            v = _coerce_conditioning_input(spec, spec if isinstance(spec, torch.Tensor) else None)
+            if v.ndim >= 1 and v.shape[0] >= 1:
+                v = v[:1].contiguous().to(lg.device)
+            elif v.ndim >= 1 and v.shape[0] == 0:
+                v = torch.zeros((1, *v.shape[1:]), dtype=v.dtype, device=lg.device)
+            else:
+                v = v.to(lg.device)
+            cond_tensors.append(v)
+        return cond_keys, tuple(cond_tensors)
+
+    inferred_keys: list[str] = []
+    inferred_tensors: list[torch.Tensor] = []
+    components = getattr(lg, "components", None) or bundle.get("components") or {}
+    if isinstance(components, dict):
+        for comp_spec in components.values():
+            if not isinstance(comp_spec, dict):
+                continue
+            comp_inputs = comp_spec.get("inputs") or {}
+            comp_in_shape = (comp_spec.get("args") or {}).get("input_shape")
+            for port_name, binding in comp_inputs.items():
+                if isinstance(binding, str) and binding.startswith("batch."):
+                    batch_key = binding.split(".", 1)[1]
+                    if batch_key in inferred_keys:
+                        continue
+                    port_shape = None
+                    if isinstance(comp_in_shape, dict):
+                        port_shape = comp_in_shape.get(port_name)
+                    elif isinstance(comp_in_shape, (list, tuple)) and len(comp_inputs) == 1:
+                        port_shape = comp_in_shape
+                    if isinstance(port_shape, (list, tuple)) and len(port_shape) >= 2:
+                        concrete = (1, *(int(d) if isinstance(d, int) else 1 for d in port_shape[1:]))
+                    else:
+                        concrete = (1, 1)
+                    inferred_keys.append(batch_key)
+                    inferred_tensors.append(torch.zeros(concrete, dtype=torch.float32, device=lg.device))
+    return inferred_keys, tuple(inferred_tensors)
 
 
 def export_generator(run_dir: Path | str, output_path: Path | str | None = None,
@@ -632,12 +745,17 @@ def export_generator(run_dir: Path | str, output_path: Path | str | None = None,
             for k, v in bundle["prior"].items():
                 if isinstance(v, torch.Tensor):
                     tensors[f"prior.{k}"] = v.contiguous().cpu()
+        raw_example_inputs = bundle.get("example_inputs", {})
+        safe_example_inputs = {
+            k: ({"shape": list(v.shape), "dtype": str(v.dtype)} if isinstance(v, torch.Tensor) else v)
+            for k, v in (raw_example_inputs.items() if isinstance(raw_example_inputs, dict) else ())
+        }
         meta = {
             "format": "safetensors",
             "schema_version": "1",
             "step": str(bundle.get("step", 0)),
             "config": json.dumps(bundle.get("config", {})),
-            "example_inputs": json.dumps(bundle.get("example_inputs", {}))
+            "example_inputs": json.dumps(safe_example_inputs),
         }
         safetensors.torch.save_file(tensors, dest, metadata=meta)
         digest = hashlib.sha256(dest.read_bytes()).hexdigest()
@@ -647,13 +765,20 @@ def export_generator(run_dir: Path | str, output_path: Path | str | None = None,
 
     elif format == "pt2":
         lg = LoadedGenerator(bundle, device=device)
-        z_dim = bundle.get("config", {}).get("prior", {}).get("z_dim", 4)
+        z_dim = _resolve_z_dim(lg, bundle.get("config", {}))
         dummy_z = torch.randn(1, z_dim, device=lg.device)
+        cond_keys, cond_tensors = _prepare_export_conditioning(lg, bundle)
+        if cond_keys:
+            export_mod = _ConditionalExportWrapper(lg, cond_keys)
+            export_args = (dummy_z, *cond_tensors)
+        else:
+            export_mod = _UnconditionalExportWrapper(lg)
+            export_args = (dummy_z,)
         try:
-            exported = torch.export.export(lg, (dummy_z,))
+            exported = torch.export.export(export_mod, export_args, strict=False)
             torch.export.save(exported, dest)
         except Exception:
-            traced = torch.jit.trace(lg, (dummy_z,))
+            traced = torch.jit.trace(export_mod, export_args)
             torch.jit.save(traced, dest)
         return dest
 
@@ -663,12 +788,21 @@ def export_generator(run_dir: Path | str, output_path: Path | str | None = None,
         except ImportError:
             raise ImportError("Exporting to ONNX format requires the onnx package: pip install hypergan[onnx]")
         lg = LoadedGenerator(bundle, device=device)
-        z_dim = bundle.get("config", {}).get("prior", {}).get("z_dim", 4)
+        z_dim = _resolve_z_dim(lg, bundle.get("config", {}))
         dummy_z = torch.randn(1, z_dim, device=lg.device)
+        cond_keys, cond_tensors = _prepare_export_conditioning(lg, bundle)
+        if cond_keys:
+            export_mod = _ConditionalExportWrapper(lg, cond_keys)
+            export_args = (dummy_z, *cond_tensors)
+        else:
+            export_mod = lg
+            export_args = (dummy_z,)
+        input_names = ["latent", *cond_keys]
+        dynamic_axes = {name: {0: "batch"} for name in [*input_names, "output"]}
         torch.onnx.export(
-            lg, (dummy_z,), dest,
-            input_names=["latent"], output_names=["output"],
-            dynamic_axes={"latent": {0: "batch"}, "output": {0: "batch"}},
+            export_mod, export_args, dest,
+            input_names=input_names, output_names=["output"],
+            dynamic_axes=dynamic_axes,
             dynamo=False
         )
         return dest

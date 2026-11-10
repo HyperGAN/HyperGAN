@@ -23,7 +23,7 @@ extends = "./base-cifar.toml"
 | `format` | `string` | Schema identifier. Always `"hypergan-model/1"`. |
 | `name` | `string` | Experiment or model identifier used for run naming, slugs, and registry display (defaults to the file stem). |
 | `description` | `string` | Optional human-readable summary of the model or experiment. |
-| `extends` | `string` | Optional parent `.toml` path or packaged model name (e.g., `"gaussian-grid"` or `"./base.toml"`). Tables are deep-merged recursively; scalars and arrays (`[[losses]]`) are replaced by the child config. Relative paths inside each file remain anchored to the file that declared them. |
+| `extends` | `string` | Optional parent `.toml` path or packaged model name (e.g., `"gaussian-grid"` or `"./base.toml"`). Tables are deep-merged recursively; scalars and `[[losses]]` arrays are replaced by the child config (or patched selectively via `[losses.<id_or_critic_or_type>]`). Relative paths inside each file remain anchored to the file that declared them. |
 | `defaults` | `string` | Numerical formulation preset (`"particlegan"` by default). Supplies ParticleGAN's released defaults for loss, learning rates, hyperparameters, normalization, regularization, and optimizers. |
 | `recipe` | `table` | Optional table of resolved ParticleGAN preset overrides saved alongside the run. |
 
@@ -346,7 +346,7 @@ cublas_workspace_config = ":4096:8"
 | `latent_damping_max_rate` | `float` | Maximum latent damping rate (`[0, 1]`). |
 | `checkpoint_every`, `preview_every`, `progress_every` | `int` | Default cadences for durable checkpoints (`1000`), EMA preview snapshots (`0` / off unless set), and console progress lines (`100`). |
 
-In `hypergan-model/1`, the `[train]` section unifies all training loop, optimizer, and cadence settings into a single canonical table. Optimizer settings (`lr`, `betas`, `d_lr_mult`, `prior_lr_mult`, `ema`, `implementation`) are defined directly under `[train]` (do not create a top-level `[optimizer]` table, which is rejected by the schema validator). When overriding parameters via CLI flags (`-s / --set`), you may use either `train.<key>` (canonical), `training.<key>`, or `optimizer.<key>` (e.g. `-s train.lr=0.0002` or `-s optimizer.lr=0.0002`).
+In `hypergan-model/1`, the `[train]` section unifies all training loop, optimizer, and cadence settings into a single canonical table. Optimizer settings (`lr`, `betas`, `d_lr_mult`, `prior_lr_mult`, `implementation`, `d_guard_ratio`, `d_guard_min_steps`, `latent_damping_max_rate`) are defined directly under `[train]` or grouped under an optional `[train.optimizer]` subtable (do not create a top-level `[optimizer]` table, which is rejected by the schema validator). When overriding parameters via CLI flags (`-s / --set`), you may use either `train.<key>` (canonical), `training.<key>`, or `optimizer.<key>` (e.g. `-s train.lr=0.0002` or `-s optimizer.lr=0.0002`).
 
 Global batch size may be specified in either `[train] batch_size = 64` or `[data] batch_size = 64` (both resolve to `training.batch_size`).
 
@@ -397,7 +397,7 @@ horizontal_flip = false
 | `batch_size` | `int` | Batch size per evaluation forward pass (required). |
 | `seed` | `int` | Deterministic RNG seed for evaluation latent draws and dataset iteration (required). |
 | `device` | `string` | Execution device for the evaluation worker (`"cuda"`, `"cuda:1"`, `"cpu"`). |
-| `data` | `table` | Required evaluation dataset specification (`builtin`, `dataset`, or `factory` + `args`). Evaluations never implicitly fall back to training data. |
+| `data` | `table` / `string` | Required evaluation dataset specification (`builtin`, `dataset`, or `factory` + `args`), or `"train"` (or `{ extends = "train", ... }`) to explicitly reuse the model's `[data]` table with deterministic evaluation defaults (`shuffle = false` / `sampling = "sequential"`, `horizontal_flip = false`). Evaluations never implicitly fall back to training data. |
 | `output` / `target` | `string` | Generator output binding to evaluate (defaults to `sampling.output` or `"generated"`, or bind a specific network such as `"reconstruction"`). |
 | `on_busy` | `string` | What a due evaluation does while the evaluator is still running an earlier one. `"skip"` is the default and the only accepted value; the name is historical, because the evaluation is deferred, not dropped (see below). |
 | `timeout`, `on_error` | `int`, `string` | Worker deadline in seconds and failure policy (`"fail"` or `"disable"`). |
@@ -799,7 +799,7 @@ seed = 123
 
 ### Example D: Configuration Inheritance (`extends`) & CLI Overrides (`-s / --set`)
 
-Create a child configuration that inherits from a base model and overrides only the learning rate and batch size:
+Create a child configuration that inherits from a base model and overrides only the learning rate, batch size, and discriminator gradient penalty:
 
 ```toml
 # configs/dcgan-fast.toml
@@ -811,6 +811,10 @@ extends = "./dcgan-64.toml"
 batch_size = 32
 lr = 0.0001
 steps = 50000
+
+# Selectively patch an inherited [[losses]] entry by id, critic, or type (without repeating the full [[losses]] list)
+[losses.discriminator]
+penalty = 2.0
 ```
 
 Override any field on the command line during validation or training without editing the TOML file:
@@ -822,4 +826,4 @@ hypergan train configs/dcgan-fast.toml -n exp-lr1e4 -s train.lr=0.0001 -s losses
 ```
 
 - In CLI overrides (`-s / --set`), `[train]` fields can be addressed as `train.<field>` (canonical), `training.<field>`, or `optimizer.<field>`.
-- `[[losses]]` entries can be addressed by list index (`losses.0.weight=0.5`), `id` (`losses.reconstruction.weight=0.5`), or `critic` name (`losses.discriminator.penalty=2.0`).
+- Both in `extends` child configs (`[losses.<key>]`) and CLI overrides (`-s losses.<key>.<field>=...`), `[[losses]]` entries can be addressed by list index (`losses.0.weight=0.5`), `id` (`losses.reconstruction.weight=0.5`), `critic` name (`losses.discriminator.penalty=2.0`), or `type` (`losses.prior.weight=0.5`). Declaring `[[losses]]` as an array of tables in a child config replaces the inherited `[[losses]]` list wholesale.

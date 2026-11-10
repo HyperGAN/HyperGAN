@@ -10,6 +10,8 @@ import json
 import math
 import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 from typing import Protocol
 import uuid
@@ -618,6 +620,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     for key in ('error', 'shutdown_error', 'metric_shutdown_error', 'progress_observation',
                 'sample_path', 'bundle_path', 'steps_per_second'):
         manifest.pop(key, None)
+    if 'exported_bundle_path' in manifest and not Path(manifest['exported_bundle_path']).is_file():
+        manifest.pop('exported_bundle_path', None)
     atomic_json(run_dir / 'manifest.json', manifest)
     journal = ObservationIO(run_dir, attempt_dir)
     sequence = 0
@@ -766,6 +770,8 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
         def evaluation_event(event, **values):
             nonlocal custom_publications
             custom_publications += 1
+            if event == 'evaluation_complete':
+                publish(wait=False)
             return emit(event, **values)
         manifest['steps'] = info.step
         evaluations = IntervalEvaluations(config, run_dir, manifest, execution, evaluation_event)
@@ -783,6 +789,15 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                         next_sample_sequence=manifest['next_sample_sequence'],
                         source=_json_value(manifest.get('source', {})),
                         initial_source=_json_value(manifest['initial_source']))
+
+        def observer_error(source, error, *, step=None):
+            source_step = manifest['steps'] if step is None else step
+            record = {'source': source, 'step': source_step, 'attempt_id': attempt_id,
+                      'error': f'{type(error).__name__}: {error}'[:1000]}
+            manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
+            publish(wait=False)
+            emit('observer_error', _step=source_step,
+                 **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
 
         def checkpoint_now(request_ids=None, observer=False):
             nonlocal checkpoint_custom_publications, checkpoint_preview_publications
@@ -808,11 +823,38 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                             possible_lost_steps=0)
             publish()
             emit('checkpoint', checkpoint_path=str(path), request_ids=list(request_ids or []))
+            retention_policy = config.get('checkpoints')
+            if (isinstance(retention_policy, dict)
+                    and retention_policy.get('export_bundle') == 'on_checkpoint'
+                    and execution.inference_available):
+                try:
+                    if 'torch' in sys.modules:
+                        from .checkpoints import export_checkpoint_bundle
+                        export_checkpoint_bundle(path, run_dir)
+                    else:
+                        subprocess.run(
+                            [
+                                sys.executable,
+                                '-c',
+                                'import sys; from hypergan.checkpoints import export_checkpoint_bundle; '
+                                'export_checkpoint_bundle(sys.argv[1], sys.argv[2])',
+                                str(path),
+                                str(run_dir),
+                            ],
+                            env={**os.environ, 'CUDA_VISIBLE_DEVICES': ''},
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                        )
+                    manifest['exported_bundle_path'] = str(run_dir / 'model.pt')
+                    publish()
+                except Exception as exc:
+                    observer_error('export_bundle', exc)
             try:
-                retention_policy = config.get('checkpoints')
                 # This attempt already holds the run lock.
                 from .checkpoints import _prune_run_checkpoints
-                pruned = _prune_run_checkpoints(run_dir, policy=retention_policy, dry_run=False)
+                pruned = _prune_run_checkpoints(run_dir, policy=retention_policy, dry_run=False, manifest=manifest)
                 for item in pruned['failed']:
                     warnings.warn(f"Automatic checkpoint pruning could not delete {item['name']}: {item['error']}", RuntimeWarning)
             except Exception as exc:
@@ -836,15 +878,6 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
             checkpoint_custom_publications = custom_publications
             checkpoint_preview_publications = preview_publications
             publish()
-
-        def observer_error(source, error, *, step=None):
-            source_step = manifest['steps'] if step is None else step
-            record = {'source': source, 'step': source_step, 'attempt_id': attempt_id,
-                      'error': f'{type(error).__name__}: {error}'[:1000]}
-            manifest['observation_errors'] = [*manifest.get('observation_errors', []), record][-16:]
-            publish(wait=False)
-            emit('observer_error', _step=source_step,
-                 **{key: value for key, value in record.items() if key not in ('step', 'attempt_id')})
 
         def publish_preview_result(preview):
             nonlocal preview_publications, last_preview_record

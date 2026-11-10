@@ -21,6 +21,8 @@ PROFILE_NAMES = ('cpu-single', 'cpu-replicated-gloo', 'cuda-replicated-nccl')
 SERVICE_TIMEOUTS = ('startup_timeout', 'command_timeout', 'collective_timeout',
                     'total_timeout', 'observer_timeout', 'preview_timeout')
 MAX_METADATA_BYTES = 16 * 1024 * 1024
+# Where this node joins this launch; distributed checkpoint topology omits them too.
+PER_LAUNCH_KEYS = ('node_rank', 'rendezvous')
 
 
 def _read_metadata(path):
@@ -81,6 +83,43 @@ def _execution(profile):
     if profile is None or profile['execution']['name'] == 'cpu-single':
         return None
     return profile['execution']
+
+
+def _numerical_identity(execution):
+    """An execution table without its per-launch keys, as checkpoints record it."""
+    if not isinstance(execution, dict):
+        return execution
+    return {key: value for key, value in execution.items() if key not in PER_LAUNCH_KEYS}
+
+
+def _is_follower(profile=None, config=None):
+    """Whether an explicit profile or environment runs a follower node (node_rank > 0).
+
+    Node 0 alone owns a shared run's manifest, checkpoints and resume selection,
+    so a follower checks none of them: it mirrors node 0's command stream.
+    """
+    if profile is not None and config is not None:
+        if isinstance(profile, str) and profile in PROFILE_NAMES:
+            return False
+        try:
+            execution = _execution(_profile(profile, config))
+            if execution is not None and execution.get('node_rank', 0) > 0:
+                return True
+        except Exception:
+            pass
+    if isinstance(profile, dict):
+        exec_cfg = profile.get('execution', {})
+        if isinstance(exec_cfg, dict) and (exec_cfg.get('node_rank', 0) > 0 or exec_cfg.get('rank', 0) > 0):
+            return True
+    for env_key in ('NODE_RANK', 'GROUP_RANK', 'SLURM_NODEID'):
+        val = os.environ.get(env_key)
+        if val is not None:
+            try:
+                if int(val) > 0:
+                    return True
+            except (ValueError, TypeError):
+                pass
+    return False
 
 
 def _policy(profile, service_policy):
@@ -156,6 +195,18 @@ def _checkpoint(run_dir, checkpoint, manifest, execution, total_steps, current_c
     validate_checkpoint_compatibility(identity)
     if is_dist_ckpt:
         _validate_saved_checkpoint_topology(identity.get('topology'))
+        if execution:
+            topology = identity.get('topology', {})
+            if not isinstance(topology, dict):
+                raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
+            exec_num = _numerical_identity(execution)
+            if (topology.get('accumulation_steps') or 1) != (exec_num.get('accumulation_steps') or 1):
+                raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
+            if topology.get('name') != exec_num.get('name'):
+                raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
+            if topology.get('world_size') == exec_num.get('world_size'):
+                if any(not _same(topology.get(key), value) for key, value in exec_num.items()):
+                    raise ValueError('Resume checkpoint numerical execution identity differs from the run manifest')
     if info.get('event_boundary') is None:
         raise ValueError('Controller checkpoint requires a durable event boundary')
     from .run_state import validate_event_boundary
@@ -194,21 +245,6 @@ def detect_cluster_environment() -> dict:
 
     return detected
 
-
-def _is_follower(profile=None):
-    if isinstance(profile, dict):
-        exec_cfg = profile.get('execution', {})
-        if isinstance(exec_cfg, dict) and (exec_cfg.get('node_rank', 0) > 0 or exec_cfg.get('rank', 0) > 0):
-            return True
-    for env_key in ('NODE_RANK', 'GROUP_RANK', 'SLURM_NODEID'):
-        val = os.environ.get(env_key)
-        if val is not None:
-            try:
-                if int(val) > 0:
-                    return True
-            except ValueError:
-                pass
-    return False
 
 
 def _sync_prior_device(config):
@@ -649,6 +685,15 @@ def _is_run(run_dir):
                      'choose a new run directory or remove this one')
 
 
+def _is_follower_launch(profile, devices, config_path, steps, run_dir):
+    """Whether prepare_train's profile is a follower's, which never resumes node 0's run itself."""
+    if profile is None or (isinstance(profile, str) and profile in PROFILE_NAMES):
+        return False
+    config = _training_config(config_path, steps)
+    profile, _ = _apply_devices(devices, config, profile, run_dir)
+    return _is_follower(profile, config)
+
+
 def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_policy=None,
                   devices=None, device=None, nodes=None, node_rank=None, rendezvous=None, strategy=None, sync_every=None,
                   checkpoint_every=None, max_seconds=None, stop_after_steps=None,
@@ -666,7 +711,7 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
         context_path=run_dir if run_dir else config_path
     )
     profile = _profile(profile, config)
-    if run_dir is not None and not _is_follower(profile) and run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
+    if run_dir is not None and not _is_follower(profile, config) and run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=raw_profile, service_policy=service_policy, devices=raw_devices, device=device,
             nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
@@ -819,6 +864,16 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
     profile = _profile(profile, config)
     execution = _execution(profile)
     is_follower = is_follower or (execution is not None and execution.get('node_rank', 0) > 0)
+    if not is_follower and saved is not None and execution is not None:
+        exec_num = _numerical_identity(execution)
+        saved_num = _numerical_identity(saved)
+        if (exec_num.get('accumulation_steps') or 1) != (saved_num.get('accumulation_steps') or 1):
+            raise ValueError('Resume numerical execution identity differs from the run manifest')
+        if exec_num.get('name') != saved_num.get('name'):
+            raise ValueError('Resume numerical execution identity differs from the run manifest')
+        if exec_num.get('world_size') == saved_num.get('world_size'):
+            if not _same(exec_num, saved_num):
+                raise ValueError('Resume numerical execution identity differs from the run manifest')
     policy = _policy(profile, service_policy)
     run_cfg = (config.get('run', {}) if isinstance(config, dict) else {}) or (manifest.get('config', {}).get('run', {}) if isinstance(manifest.get('config'), dict) else {})
     if checkpoint_every is None:

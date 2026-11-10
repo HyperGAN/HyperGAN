@@ -478,10 +478,18 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
         try:
             descriptor = _configure_attempt(execution, context, preview_every, on_event)
             requested = descriptor['execution'] if descriptor is not None else None
+            # node_rank and rendezvous say where this launch joins, not what it computes.
+            requested_num, saved_num = ({k: v for k, v in value.items() if k not in ('node_rank', 'rendezvous')}
+                                        if isinstance(value, dict) else value for value in (requested, manifest.get('execution')))
+            if isinstance(requested_num, dict) and isinstance(saved_num, dict):
+                if (requested_num.get('accumulation_steps') or 1) != (saved_num.get('accumulation_steps') or 1):
+                    raise ValueError('Resume numerical execution identity differs from the run manifest')
+                if requested_num.get('name') != saved_num.get('name'):
+                    raise ValueError('Resume numerical execution identity differs from the run manifest')
             if (
-                not getattr(execution, 'supports_elastic_resume', False)
-                and json.dumps(requested, sort_keys=True, allow_nan=False)
-                != json.dumps(manifest.get('execution'), sort_keys=True, allow_nan=False)
+                not (getattr(execution, 'supports_elastic_resume', False) is True)
+                and json.dumps(requested_num, sort_keys=True, allow_nan=False)
+                != json.dumps(saved_num, sort_keys=True, allow_nan=False)
             ):
                 raise ValueError('Resume numerical execution identity differs from the run manifest')
             restored = execution.restore(run_dir, checkpoint, manifest['run_id'], manifest['config_sha256'])

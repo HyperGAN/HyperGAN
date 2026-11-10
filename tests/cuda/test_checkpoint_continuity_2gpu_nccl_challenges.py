@@ -405,35 +405,38 @@ def test_2gpu_nccl_bit_identical_restoration_verification(tmp_path):
     assert len(split_results) == 2
 
     ckpt_dir = Path(split_results[0]["checkpoint_path"])
+    state_file = ckpt_dir / "state.pt"
+    assert state_file.exists()
+    payload = torch.load(state_file, weights_only=True)
+
+    assert payload["step"] == 2
+    assert payload["aggregation"]["step_count"] == 2
+    assert "anchor" in payload["aggregation"]
+    assert "momentum_buffer" in payload["aggregation"]
+
+    # Ensure tensors in checkpoint payload are strictly CPU tensors
+    for k, v in payload["aggregation"]["anchor"].items():
+        assert v.device.type == "cpu"
+    for k, v in payload["aggregation"]["momentum_buffer"].items():
+        assert v.device.type == "cpu"
+
+    # Check optimizer regularizer serialization
+    opt_g = payload["optimizers"][0]
+    assert "regularizer" in opt_g
+    assert "latent" in opt_g["regularizer"]
+
     for r in range(2):
-        payload_file = ckpt_dir / f"rank-{r:05d}.pt"
-        payload = torch.load(payload_file, weights_only=True)
-
-        assert payload["step"] == 2
-        assert payload["aggregation"]["step_count"] == 2
-        assert "anchor" in payload["aggregation"]
-        assert "momentum_buffer" in payload["aggregation"]
-
-        # Ensure tensors in checkpoint payload are strictly CPU tensors
-        for k, v in payload["aggregation"]["anchor"].items():
-            assert v.device.type == "cpu"
-        for k, v in payload["aggregation"]["momentum_buffer"].items():
-            assert v.device.type == "cpu"
-
-        # Check optimizer regularizer serialization
-        opt_g = payload["optimizers"][0]
-        assert "regularizer" in opt_g
-        assert "latent" in opt_g["regularizer"]
+        rank_file = ckpt_dir / "ranks" / f"rank-{r:05d}.pt"
+        assert rank_file.exists()
 
     # Resume and verify restored initial anchor and momentum match saved payload
     resume_results = run_cuda_continuity_subprocess(tmp_path, "resume", agg, run_dir, total_steps=4, split_steps=2)
     assert len(resume_results) == 2
 
+    saved_anchor = payload["aggregation"]["anchor"]
+    saved_momentum = payload["aggregation"]["momentum_buffer"]
     for r in range(2):
         res = resume_results[r]
-        payload = torch.load(ckpt_dir / f"rank-{r:05d}.pt", weights_only=True)
-        saved_anchor = payload["aggregation"]["anchor"]
-        saved_momentum = payload["aggregation"]["momentum_buffer"]
 
         for k in saved_anchor:
             restored_t = torch.tensor(res["restored_anchor"][k])

@@ -1540,6 +1540,13 @@ def sample(run=None, count=16, seed=None, *, inputs=None, output=None, checkpoin
     from .artifacts import sample as draw
     if isinstance(run, (str, Path)) and (str(run).endswith('.pt') or (Path(run).is_file() and Path(run).suffix.lower() == '.pt')):
         target_path = Path(run)
+    elif (
+        isinstance(run, (str, Path))
+        and Path(run).is_dir()
+        and (Path(run) / "model.pt").is_file()
+        and not (Path(run) / "manifest.json").is_file()
+    ):
+        target_path = Path(run) / "model.pt"
     else:
         run_obj = _run(run)
         target_path = run_obj.path

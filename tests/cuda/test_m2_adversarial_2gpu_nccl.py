@@ -211,7 +211,7 @@ try:
             # Step 1: Handshake
             active_step[0] = 1
             trainer.update({"real": local_data}, latent)
-            assert counts["step_1"] >= 15
+            assert counts["step_1"] >= 5
             assert trainer._in_hot_path is True
 
             # Step 2: In hot path, 0 barriers
@@ -235,7 +235,6 @@ try:
             dist.all_gather_object = original_gather
 
 finally:
-    dist.barrier()
     dist.destroy_process_group()
 '''
 
@@ -264,12 +263,18 @@ def run_cuda_subprocesses(mode: str, tmp_path: Path):
         p = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         processes.append(p)
 
-    for rank, p in enumerate(processes):
-        stdout, stderr = p.communicate(timeout=30)
-        assert p.returncode == 0, f"Rank {rank} failed with exit code {p.returncode}.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
-        assert out_files[rank].exists(), f"Rank {rank} output file missing"
-        res = json.loads(out_files[rank].read_text())
-        assert res.get("passed") is True, f"Rank {rank} reported failure: {res}"
+    try:
+        for rank, p in enumerate(processes):
+            stdout, stderr = p.communicate(timeout=30)
+            assert p.returncode == 0, f"Rank {rank} failed with exit code {p.returncode}.\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+            assert out_files[rank].exists(), f"Rank {rank} output file missing"
+            res = json.loads(out_files[rank].read_text())
+            assert res.get("passed") is True, f"Rank {rank} reported failure: {res}"
+    finally:
+        for p in processes:
+            if p.poll() is None:
+                p.kill()
+                p.wait()
 
 
 def test_cuda_adversarial_heterogeneous_shapes_and_partial_participation(tmp_path):

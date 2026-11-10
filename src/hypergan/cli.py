@@ -2197,6 +2197,13 @@ def _dispatch(args, *, output=None):
 
             target_raw = args.run_dir
             target_p = Path(target_raw) if target_raw is not None else None
+            if (
+                target_p is not None
+                and target_p.is_dir()
+                and (target_p / "model.pt").is_file()
+                and not (target_p / "manifest.json").is_file()
+            ):
+                target_p = target_p / "model.pt"
             is_pt_bundle = bool(target_p and (str(target_p).lower().endswith(".pt") or (target_p.is_file() and target_p.suffix.lower() == ".pt")))
 
             if is_pt_bundle:

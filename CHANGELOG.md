@@ -16,6 +16,8 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 ### Fixed
 - Fixed checkpoint retention symlink vulnerability where premature path resolution in `_checkpoint_roots()` bypassed symlink rejection guards for `distributed-checkpoints/` directories during checkpoint pruning.
 - Fixed `ReplicatedTrainer._settle` / `_phase` / `_agree` hot-path fast-path barrier handling so forced replica agreement checks (`_assert_replicas`) and `synchronize_replicas()` inside `_folded` blocks are never skipped on `step > 1`.
+- Fixed 9 unpinned `.detach().cpu().item()` host-sync transfers in `run_native_program` (`src/hypergan/objective_program.py`) by staging all single-GPU health telemetry scalars through `trainer._metric_transfer(...)` pinned memory buffers.
+- Allowed `hypergan sample <bundle_dir>` and `hg.sample(<bundle_dir>)` to resolve `<bundle_dir>/model.pt` automatically when passed an exported bundle directory.
 
 ## 2.0.0 — 2026-11-09
 

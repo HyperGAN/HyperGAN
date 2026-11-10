@@ -373,33 +373,36 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                 critic_checked.append(parameter)
     trainer._refuse_nonfinite(d_loss, "Nonfinite discriminator loss; run stopped",
                               [("Nonfinite discriminator gradient; run stopped", critic_checked)])
-    try:
-        critic_grad_norm = float(torch.sqrt(sum(p.grad.norm(2)**2 for p in critic_checked if p.grad is not None)).detach().cpu().item())
-    except Exception:
-        critic_grad_norm = 0.0
-
-    try:
-        critic_real_mean = float(d_real_score.mean().detach().cpu().item())
-        critic_fake_mean = float(d_fake_score.mean().detach().cpu().item())
-        critic_margin = critic_real_mean - critic_fake_mean
-        critic_accuracy = float((d_real_score > d_fake_score).float().mean().detach().cpu().item())
-    except Exception:
-        critic_real_mean = 0.0
-        critic_fake_mean = 0.0
-        critic_margin = 0.0
-        critic_accuracy = 0.5
+    with torch.no_grad():
+        zero_scalar = torch.zeros((), dtype=torch.float32, device=trainer.device)
+        one_scalar = torch.ones((), dtype=torch.float32, device=trainer.device)
+        half_scalar = torch.full((), 0.5, dtype=torch.float32, device=trainer.device)
+        try:
+            c_grads = [p.grad.detach() for p in critic_checked if p.grad is not None]
+            critic_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in c_grads)).reshape(()) if c_grads else zero_scalar
+        except Exception:
+            critic_grad_norm_t = zero_scalar
+        try:
+            rs = d_real_score.detach()
+            fs = d_fake_score.detach()
+            critic_real_mean_t = rs.mean().reshape(())
+            critic_fake_mean_t = fs.mean().reshape(())
+            critic_accuracy_t = (rs > fs).float().mean().reshape(())
+        except Exception:
+            critic_real_mean_t = zero_scalar
+            critic_fake_mean_t = zero_scalar
+            critic_accuracy_t = half_scalar
     explicit_guard = getattr(trainer.opt_d, 'd_guard_ratio', None)
     trainer.opt_d.step()
-    if explicit_guard is not None:
-        d_guard_ratio = float(explicit_guard or 1.0)
-    elif getattr(trainer.opt_d, 'guard', None) is not None and critic_grad_norm > 0.0:
-        try:
-            post_critic_grad_norm = float(torch.sqrt(sum(p.grad.norm(2)**2 for p in critic_checked if p.grad is not None)).detach().cpu().item())
-            d_guard_ratio = post_critic_grad_norm / critic_grad_norm if math.isfinite(post_critic_grad_norm) else 1.0
-        except Exception:
-            d_guard_ratio = 1.0
-    else:
-        d_guard_ratio = 1.0
+    with torch.no_grad():
+        if explicit_guard is None and getattr(trainer.opt_d, 'guard', None) is not None:
+            try:
+                post_c_grads = [p.grad.detach() for p in critic_checked if p.grad is not None]
+                post_critic_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in post_c_grads)).reshape(()) if post_c_grads else zero_scalar
+            except Exception:
+                post_critic_grad_norm_t = zero_scalar
+        else:
+            post_critic_grad_norm_t = zero_scalar
     saved_flags = []
     seen_modules = set()
     for term in terms:
@@ -444,14 +447,17 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
                                   [("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
                                    ("Nonfinite prior gradient; run stopped", prior_checked)])
-        try:
-            gen_grad_norm = float(torch.sqrt(sum(p.grad.norm(2)**2 for p in gen_checked if p.grad is not None)).detach().cpu().item())
-        except Exception:
-            gen_grad_norm = 0.0
-        try:
-            prior_grad_norm = float(torch.sqrt(sum(p.grad.norm(2)**2 for p in prior_checked if p.grad is not None)).detach().cpu().item()) if prior_checked else 0.0
-        except Exception:
-            prior_grad_norm = 0.0
+        with torch.no_grad():
+            try:
+                g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
+                gen_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in g_grads)).reshape(()) if g_grads else zero_scalar
+            except Exception:
+                gen_grad_norm_t = zero_scalar
+            try:
+                p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
+                prior_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in p_grads)).reshape(()) if p_grads else zero_scalar
+            except Exception:
+                prior_grad_norm_t = zero_scalar
         trainer.opt_g.step()
     finally:
         for module, flags in saved_flags:
@@ -460,30 +466,54 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     update_ema(trainer.ema_graph, trainer.graph, settings["ema"])
     update_ema(trainer.ema_prior, trainer.prior, settings["ema"])
     trainer.step = step
+    with torch.no_grad():
+        try:
+            if hasattr(trainer, 'prior') and hasattr(trainer.prior, 'z') and isinstance(trainer.prior.z, torch.Tensor):
+                particle_rms_t = torch.sqrt(torch.mean(trainer.prior.z.detach() ** 2)).reshape(())
+            else:
+                particle_rms_t = zero_scalar
+        except Exception:
+            particle_rms_t = zero_scalar
+        try:
+            if d_fake_samples is not None and d_real_samples is not None:
+                diversity_ratio_t = (d_fake_samples.detach().std() / (d_real_samples.detach().std() + 1e-8)).reshape(())
+            else:
+                diversity_ratio_t = one_scalar
+        except Exception:
+            diversity_ratio_t = one_scalar
+
     values = trainer._metric_transfer([d_loss, d_adversarial, d_adversarial_weighted,
         g_adversarial_weighted, g_loss, g_adversarial, prior_loss, d_penalty,
+        critic_real_mean_t, critic_fake_mean_t, critic_accuracy_t,
+        critic_grad_norm_t, post_critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
+        particle_rms_t, diversity_ratio_t,
         *objective_losses])
     row = dict(zip(("d_loss", "d_adversarial", "d_adversarial_weighted",
                     "g_adversarial_weighted", "g_loss", "g_adversarial",
                     "prior_loss", "gradient_penalty"), values[:8]))
-    try:
-        if hasattr(trainer, 'prior') and hasattr(trainer.prior, 'z') and isinstance(trainer.prior.z, torch.Tensor):
-            particle_rms = float(torch.sqrt(torch.mean(trainer.prior.z ** 2)).detach().cpu().item())
-        else:
-            particle_rms = 0.0
-    except Exception:
-        particle_rms = 0.0
-
-    try:
-        if d_fake_samples is not None and d_real_samples is not None:
-            diversity_ratio = float((d_fake_samples.std() / (d_real_samples.std() + 1e-8)).detach().cpu().item())
-        else:
-            diversity_ratio = 1.0
-    except Exception:
-        diversity_ratio = 1.0
+    (raw_real_mean, raw_fake_mean, raw_acc,
+     raw_gn_critic, raw_post_gn_critic, raw_gn_gen, raw_gn_prior,
+     raw_particle_rms, raw_diversity_ratio) = values[8:17]
+    critic_real_mean = float(raw_real_mean) if math.isfinite(raw_real_mean) else 0.0
+    critic_fake_mean = float(raw_fake_mean) if math.isfinite(raw_fake_mean) else 0.0
+    critic_margin = critic_real_mean - critic_fake_mean
+    if not math.isfinite(critic_margin):
+        critic_margin = 0.0
+    critic_accuracy = float(raw_acc) if math.isfinite(raw_acc) else 0.5
+    critic_grad_norm = float(raw_gn_critic) if math.isfinite(raw_gn_critic) else 0.0
+    gen_grad_norm = float(raw_gn_gen) if math.isfinite(raw_gn_gen) else 0.0
+    prior_grad_norm = float(raw_gn_prior) if math.isfinite(raw_gn_prior) else 0.0
+    particle_rms = float(raw_particle_rms) if math.isfinite(raw_particle_rms) else 0.0
+    diversity_ratio = float(raw_diversity_ratio) if math.isfinite(raw_diversity_ratio) else 1.0
+    if explicit_guard is not None:
+        d_guard_ratio = float(explicit_guard or 1.0)
+    elif getattr(trainer.opt_d, 'guard', None) is not None and critic_grad_norm > 0.0:
+        d_guard_ratio = float(raw_post_gn_critic) / critic_grad_norm if math.isfinite(raw_post_gn_critic) else 1.0
+    else:
+        d_guard_ratio = 1.0
 
     row.update(
-        event="train", step=step, objectives=values[8:], lr_scale=scale,
+        event="train", step=step, objectives=values[17:], lr_scale=scale,
         critic_real_mean=critic_real_mean,
         critic_fake_mean=critic_fake_mean,
         critic_margin=critic_margin,

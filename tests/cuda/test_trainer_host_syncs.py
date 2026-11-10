@@ -18,7 +18,10 @@ from hypergan.training import ReferenceTrainer, update_ema
 
 
 _METRIC_SCALARS = ('d_loss', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted',
-                   'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty')
+                   'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty',
+                   'critic_real_mean', 'critic_fake_mean', 'critic_accuracy',
+                   'grad_norm_critic', 'post_critic_grad_norm', 'grad_norm_generator', 'grad_norm_prior',
+                   'particle_rms', 'diversity_ratio')
 
 
 def config():
@@ -72,25 +75,22 @@ def test_gradient_screening_reads_the_host_once_per_phase():
                                             torch.profiler.ProfilerActivity.CUDA]) as profile:
         row, _ = trainer.update()
     events = {event.key: event.count for event in profile.key_averages()}
-    # One stacked flag read per phase; the metric fence keeps its pinned copies.
-    assert events.get('Memcpy DtoH (Device -> Pageable)') == 2
+    # One stacked flag read per phase plus KA2StepRecord's stacked surprise read;
+    # the metric fence keeps its pinned copies.
+    assert events.get('Memcpy DtoH (Device -> Pageable)') == 3
     # Plus the critic spike guard's clip count, which stays on the device.
-    assert events.get('aten::stack') == 3
+    assert events.get('aten::stack') == 4
     assert events.get('aten::isfinite') == 2  # one loss reduction per phase
     assert events.get('aten::_amp_foreach_non_finite_check_and_unscale_') == 3
     # The per-parameter checks this replaces read each gradient back through an
     # unpinned device transfer, so that count scaled with the parameter
-    # inventory; two remain. The metric fence stages its own scalars through
-    # pinned buffers and is qualified in test_metric_scalar_transfer.py.
+    # inventory; two screening reads plus one stacked KA2 surprise read remain.
+    # The metric fence stages its own scalars through pinned buffers and is
+    # qualified in test_metric_scalar_transfer.py.
     assert len(row['objectives']) == 0
     # ParticleGAN's latent-row damping on the particle table reads its active
     # row count and masks rows by a boolean index: three fixed reads per step.
-    # KA2StepRecord.record_step also computes one scalar surprise per trained
-    # critic tensor. Keep those optimizer reads visible in the exact budget;
-    # they are separate from HyperGAN's two fused screening reads above.
-    critic_surprise_reads = sum(parameter.grad is not None and 'exp_avg_sq' in trainer.opt_d.state[parameter]
-        for group in trainer.opt_d.param_groups for parameter in group['params'])
-    assert events.get('Memcpy DtoH (Device -> Pinned)') == len(_METRIC_SCALARS) + 1 + 3 + critic_surprise_reads
+    assert events.get('Memcpy DtoH (Device -> Pinned)') == len(_METRIC_SCALARS) + 1 + 3
     # Fused EMA: one lerp launch for this single-device float32 graph rather
     # than one per tensor. (The foreach Adam also issues its own lerps, so the
     # EMA is profiled on its own.)

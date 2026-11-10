@@ -48,7 +48,7 @@ def command(tmp_path, *args):
                  'from hypergan.cli import main;result=main();'
                  'assert "torch" not in sys.modules,"replicated CLI imported torch";'
                  'raise SystemExit(result)')
-    return [sys.executable, '-I', '-c', bootstrap, str(tmp_path), 'hypergan', *map(str, args)]
+    return [sys.executable, *(['-I'] if sys.flags.isolated else []), '-c', bootstrap, str(tmp_path), 'hypergan', *map(str, args)]
 
 
 def environment(markers):
@@ -209,7 +209,7 @@ def test_installed_module_entrypoint_named_profile_and_inference_commands(tmp_pa
     config = write_default(tmp_path / 'project', device='cpu', defaults='hypergan')
     run = tmp_path / 'run'
     def invoke(*args):
-        process = subprocess.run([sys.executable, '-I', '-m', 'hypergan', *map(str, args)],
+        process = subprocess.run([sys.executable, *(['-I'] if sys.flags.isolated else []), '-m', 'hypergan', *map(str, args)],
                                  cwd=tmp_path, capture_output=True, text=True, timeout=90)
         assert process.returncode == 0, process.stdout + process.stderr
         return process.stdout

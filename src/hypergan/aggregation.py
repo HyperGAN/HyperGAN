@@ -507,10 +507,12 @@ class PseudoGradientStrategy(_LocalSGDStrategy):
         self._init_anchor_and_momentum(models)
 
     def _init_anchor_and_momentum(self, models: Any = None) -> None:
+        # The outer state lives beside its parameter (the trainer device), so a
+        # synchronization makes no host round trip per parameter.
         params = self._get_named_parameters(models)
         for k, p in params.items():
             if k not in self.anchor:
-                self.anchor[k] = p.detach().clone().cpu()
+                self.anchor[k] = p.detach().clone()
             if k not in self.momentum_buffer:
                 self.momentum_buffer[k] = torch.zeros_like(self.anchor[k])
 
@@ -527,9 +529,10 @@ class PseudoGradientStrategy(_LocalSGDStrategy):
 
         for k, p in params.items():
             if k not in self.anchor:
-                self.anchor[k] = p.detach().clone().cpu()
+                self.anchor[k] = p.detach().clone()
                 self.momentum_buffer[k] = torch.zeros_like(self.anchor[k])
 
+            # A no-op unless restored state was loaded without the trainer's parameters.
             anchor_t = self.anchor[k].to(device=p.device, dtype=p.dtype)
             delta = anchor_t - p.data
 
@@ -540,11 +543,8 @@ class PseudoGradientStrategy(_LocalSGDStrategy):
 
             v_prev = self.momentum_buffer[k].to(device=p.device, dtype=p.dtype)
             v_new = self.outer_momentum * v_prev + delta
-            self.momentum_buffer[k] = v_new.detach().clone().cpu()
-
             new_anchor = anchor_t - self.outer_lr * v_new
-            self.anchor[k] = new_anchor.detach().clone().cpu()
-
+            self.momentum_buffer[k], self.anchor[k] = v_new, new_anchor
             p.data.copy_(new_anchor)
 
         if is_dist and world_size > 1:
@@ -569,11 +569,13 @@ class PseudoGradientStrategy(_LocalSGDStrategy):
         self._load_cadence(state)
         self.outer_lr = state.get("outer_lr", self.outer_lr)
         self.outer_momentum = state.get("outer_momentum", self.outer_momentum)
-        # Older checkpoints also carried aliases of the same tensors.
+        # Older checkpoints also carried aliases of the same tensors. Checkpoints
+        # store the state on the CPU; it returns to its parameter's device here.
+        devices = {k: p.device for k, p in self._get_named_parameters().items()}
         anchor_data = state.get("anchor") or state.get("anchor_weights") or state.get("weights") or {}
-        self.anchor = {k: v.clone() for k, v in anchor_data.items()}
+        self.anchor = {k: v.detach().to(devices.get(k, v.device), copy=True) for k, v in anchor_data.items()}
         momentum_data = state.get("momentum_buffer") or state.get("momentum") or {}
-        self.momentum_buffer = {k: v.clone() for k, v in momentum_data.items()}
+        self.momentum_buffer = {k: v.detach().to(devices.get(k, v.device), copy=True) for k, v in momentum_data.items()}
 
     def manifest_metadata(self) -> Dict[str, Any]:
         return {
@@ -585,12 +587,8 @@ class PseudoGradientStrategy(_LocalSGDStrategy):
 
 
 # ==============================================================================
-# Aliases & Public Registry
+# Public Registry
 # ==============================================================================
-
-GradientAllreduceAggregation = GradientAllreduceStrategy
-ParameterAverageAggregation = ParameterAverageStrategy
-PseudoGradientAggregation = PseudoGradientStrategy
 
 _REGISTRY: Dict[str, Type[AggregationStrategy]] = {
     "gradient_allreduce": GradientAllreduceStrategy,
@@ -641,9 +639,6 @@ __all__ = [
     "GradientAllreduceStrategy",
     "ParameterAverageStrategy",
     "PseudoGradientStrategy",
-    "GradientAllreduceAggregation",
-    "ParameterAverageAggregation",
-    "PseudoGradientAggregation",
     "register_aggregation_strategy",
     "get_aggregation_strategy",
     "create_aggregation_strategy",

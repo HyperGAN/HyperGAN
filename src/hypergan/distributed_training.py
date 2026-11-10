@@ -3,6 +3,7 @@
 This is an internal replicated strategy, not DDP, a launcher or a run service.
 The caller owns the default Gloo or NCCL group, finite timeouts and whole-job lifecycle.
 """
+import contextlib
 import copy
 import hashlib
 import inspect
@@ -46,6 +47,19 @@ def _bucket_parameters(parameters, bucket_cap_bytes=DEFAULT_BUCKET_CAP_BYTES):
     if current_bucket:
         buckets.append(current_bucket)
     return buckets
+
+
+class _Fold:
+    """Rank-local phases, agreements and gathers that share one exchange."""
+
+    def __init__(self, name):
+        self.name, self.entries, self.failed, self.gathered = name, [], False, {}
+
+    def fail(self, name, exc):
+        # The first rank-local error is the cause; later ones follow from it.
+        if not self.failed:
+            self.failed = True
+            self.entries.append(('error', name, f'{type(exc).__name__}: {exc}'))
 
 
 class ReplicatedTrainer(ReferenceTrainer):
@@ -194,28 +208,70 @@ class ReplicatedTrainer(ReferenceTrainer):
             raise ValueError(f'Ranks entered different trainer operations: {operations}')
         return [peer['value'] for peer in peers]
 
-    def _phase(self, name, function, force=False):
+    _fold = None
+
+    @contextlib.contextmanager
+    def _folded(self, name):
+        """Agree on every phase, agreement and gather in the block with one exchange.
+
+        Phases run rank-locally and the exchange at the end of the block raises
+        the earliest failure identically on every rank. A rank that failed skips
+        the block's remaining phases, and any other exception unwinds to the
+        exchange, so no rank is left waiting. Only the block's first phase may
+        run collectives: a rank that failed earlier would skip them.
+        """
+        fold = self._fold = _Fold(name)
+        try:
+            yield fold
+        except BaseException as exc:
+            fold.fail(name, exc)
+        finally:
+            self._fold = None
+        self._settle(fold)
+
+    def _settle(self, fold):
+        peers = self._exchange('fold:' + fold.name, fold.entries)
+        for index in range(max(len(entries) for entries in peers)):
+            rows = [entries[index] if index < len(entries) else None for entries in peers]
+            errors = [(rank, row) for rank, row in enumerate(rows) if row is not None and row[0] == 'error']
+            if errors:
+                names = ' / '.join(dict.fromkeys(row[1] for _, row in errors))
+                raise RuntimeError(f'{names} failed: ' + '; '.join(f'rank {rank}: {row[2]}' for rank, row in errors))
+            if any(row is None or row[:2] != rows[0][:2] for row in rows):
+                raise ValueError(f'Ranks entered different trainer operations: {[row and row[1] for row in rows]}')
+            kind, name, value = rows[0]
+            if kind == 'agreement' and any(row[2] != value for row in rows):
+                raise ValueError(f'Ranks disagree on {name}')
+            if kind == 'gather':
+                fold.gathered[name] = [row[2] for row in rows]
+
+    def _phase(self, name, function, *, gather=False):
+        fold = self._fold
+        if fold is not None:
+            if fold.failed:
+                return None
+            try:
+                result = function()
+            except BaseException as exc:
+                fold.fail(name, exc)
+                return None
+            fold.entries.append(('gather', name, result) if gather else ('phase', name, None))
+            return result
         result, error = None, None
         try:
             result = function()
         except BaseException as exc:
             error = f'{type(exc).__name__}: {exc}'
-        if not force and self._in_hot_path:
-            # Keep successful updates free of Python object collectives, but
-            # agree on phase failures before another rank can advance.
-            if self.device.type == 'cuda':
-                torch.cuda.set_device(self.device)
-            failed = torch.tensor(int(error is not None), dtype=torch.int32, device=self.device)
-            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
-            if not failed.item():
-                return result
         errors = self._exchange('phase:' + name, error)
         if any(errors):
             raise RuntimeError(f'{name} failed: ' + '; '.join(f'rank {rank}: {value}' for rank, value in enumerate(errors) if value))
         return result
 
-    def _agree(self, name, value, force=False):
-        if not force and self._in_hot_path:
+    def _agree(self, name, value):
+        fold = self._fold
+        if fold is not None:
+            if not fold.failed:
+                fold.entries.append(('agreement', name, value))
             return
         values = self._exchange('agreement:' + name, value)
         if any(item != values[0] for item in values):
@@ -272,7 +328,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             restore_rng(rng)
 
     def _assert_replicas(self, name):
-        self._agree(name, self._phase(name + ' validation', self._replica_digest, force=True), force=True)
+        self._agree(name, self._phase(name + ' validation', self._replica_digest))
 
     def synchronize_replicas(self):
         """Force one local-SGD synchronization so a checkpoint has one replicated state.
@@ -288,15 +344,18 @@ class ReplicatedTrainer(ReferenceTrainer):
         def boundary():
             # A half/failed update is not synchronized here; the checkpoint itself rejects it.
             return bool(self._poisoned or not self.checkpoint_ready or strategy.is_synchronized(self.step))
-        synchronized = self._phase('aggregation state', boundary, force=True)
-        self._agree('aggregation state', synchronized, force=True)
+        with self._folded('aggregation state'):
+            synchronized = self._phase('aggregation state', boundary)
+            self._agree('aggregation state', synchronized)
         if synchronized:
             return False
         self.checkpoint_ready = False
         try:
-            self._phase('aggregation synchronization', strategy.synchronize, force=True)
-            self._phase('synchronized CUDA completion', lambda: self._synchronize(force=True), force=True)
-            self._assert_replicas('synchronized replicated state')
+            with self._folded('aggregation synchronization'):
+                # The synchronization's collectives come first, before any rank can have failed.
+                self._phase('aggregation synchronization', strategy.synchronize)
+                self._phase('synchronized CUDA completion', self._synchronize)
+                self._assert_replicas('synchronized replicated state')
         except BaseException:
             self._poisoned = True
             raise
@@ -481,6 +540,11 @@ class ReplicatedTrainer(ReferenceTrainer):
                 if isinstance(value, torch.Tensor) and not torch.isfinite(value).all():
                     raise ValueError('Optimizer produced nonfinite state')
 
+    def _optimizer_step(self, optimizer, name):
+        with self._folded(name + ' optimizer'):
+            self._phase(name + ' optimizer', optimizer.step)
+            self._phase(name + ' optimizer state', lambda: self._finite_optimizer(optimizer))
+
     def _logits(self, real, fake):
         # The supported loss pairs real and fake rows, so rank-local
         # logits suffice; the parameter-gradient mean forms the global loss.
@@ -623,11 +687,35 @@ class ReplicatedTrainer(ReferenceTrainer):
             raise ValueError('Configured total update schedule is complete')
         self.checkpoint_ready = False
         try:
-            batch, latent_draw = self._phase('input device transfer', lambda: (move_tensors(batch, self.device), move_tensors(latent_draw, self.device)))
             return self._update(batch, latent_draw)
         except BaseException:
             self._poisoned = True
             raise
+
+    # An update folds its rank-local phases into one error agreement between
+    # consecutive collectives (review 2026-10-25 M5: it used to exchange once per
+    # phase, about 23 pickled object collectives per update).
+
+    def _inputs(self, batch, latent_draw):
+        batch, latent_draw = self._phase('input device transfer', lambda: (move_tensors(batch, self.device), move_tensors(latent_draw, self.device)))
+        self._agree('input source', {'sample_data': batch is None, 'sample_prior': latent_draw is None})
+        return self.batch() if batch is None else batch, latent_draw
+
+    def _complete(self, step, metrics):
+        """Finish an update; return the rank-mean metrics once every rank completed it."""
+        with self._folded('update completion'):
+            # The strategy hook may synchronize replicas, so its collectives come first.
+            self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
+            self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, self.config['training']['ema']),
+                                        update_ema(self.ema_prior, self.prior, self.config['training']['ema'])))
+            self._phase('module compatibility', self._check_modules)
+            if self.aggregation_strategy.should_assert_replicas(step):
+                self._assert_replicas('complete replicated state')
+            self._phase('complete CUDA update', self._synchronize)
+        values = torch.tensor(metrics, dtype=torch.float64, device=self.device)
+        dist.all_reduce(values)
+        values /= self.world_size
+        return values.tolist()
 
     def _update(self, batch, latent_draw):
         if self.accumulation_steps > 1:
@@ -638,10 +726,6 @@ class ReplicatedTrainer(ReferenceTrainer):
         scale = schedule_learning_rates(self, step - 1)
         input_std, output_std = noise_levels(self, step - 1)
         noise_stream = self.streams['noise']
-
-        self._agree('input source', {'sample_data': batch is None, 'sample_prior': latent_draw is None})
-        if batch is None:
-            batch = self.batch()
 
         def prepare(b, l_draw):
             local_batch = b
@@ -659,9 +743,11 @@ class ReplicatedTrainer(ReferenceTrainer):
             context['generated'] = fake
             return local_batch, context, fake, real, ids
 
-        batch, context, fake, real, ids = self._phase('batch and generator forward', lambda: prepare(batch, latent_draw))
-        self._agree('real data shape', (tuple(real.shape), str(real.dtype)))
-        self._agree('prior kind', ids is None)
+        with self._folded('batch and generator forward'):
+            batch, latent_draw = self._inputs(batch, latent_draw)
+            batch, context, fake, real, ids = self._phase('batch and generator forward', lambda: prepare(batch, latent_draw))
+            self._agree('real data shape', (tuple(real.shape), str(real.dtype)))
+            self._agree('prior kind', ids is None)
         selected = None
         if ids is not None:
             selected = self.collectives.unique_indices(ids, num_rows=len(self.prior.z))
@@ -718,17 +804,18 @@ class ReplicatedTrainer(ReferenceTrainer):
             return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
 
         self.opt_d.zero_grad(set_to_none=True)
-        d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
-            'discriminator forward and penalty', discriminator_forward)
-        critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
-        fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
-        self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
-        self._phase('discriminator backward', d_loss.backward)
+        with self._folded('discriminator backward'):
+            d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
+                'discriminator forward and penalty', discriminator_forward)
+            critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
+            fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
+            self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
+            self._phase('discriminator backward', d_loss.backward)
         self._reduce_gradients(self.opt_d, 'discriminator')
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
-        self._phase('discriminator optimizer', self.opt_d.step)
+        self._optimizer_step(self.opt_d, 'discriminator')
         if explicit_guard is not None:
             d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
         elif getattr(self.opt_d, 'guard', None) is not None:
@@ -740,7 +827,6 @@ class ReplicatedTrainer(ReferenceTrainer):
             )
         else:
             d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
-        self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
         self._average_critic_statistics()
 
         saved_flags = []
@@ -754,9 +840,10 @@ class ReplicatedTrainer(ReferenceTrainer):
             saved_flags.append((term.module, flags))
         try:
             if independent:
-                gen_batch = self.batch()
-                gen_batch, gen_context, gen_fake, gen_real, gen_ids = self._phase(
-                    'generator batch and forward', lambda: prepare(gen_batch, None))
+                with self._folded('generator batch and forward'):
+                    gen_batch = self.batch()
+                    gen_batch, gen_context, gen_fake, gen_real, gen_ids = self._phase(
+                        'generator batch and forward', lambda: prepare(gen_batch, None))
                 gen_selected = None if gen_ids is None else self.collectives.unique_indices(gen_ids, num_rows=len(self.prior.z))
             else:
                 gen_batch, gen_context, gen_fake, gen_real, gen_selected, gen_ids = batch, context, fake, real, selected, ids
@@ -774,9 +861,6 @@ class ReplicatedTrainer(ReferenceTrainer):
                     weighted.append(term.weight * loss)
                 return _sum_tensors(unweighted), _sum_tensors(weighted)
 
-            g_adversarial, g_adversarial_weighted = self._phase(
-                'generator critic forward', generator_adversarial_forward)
-
             def remaining_losses():
                 rows = None if gen_selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[gen_selected]
                 prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else gen_fake.new_zeros(())
@@ -791,16 +875,17 @@ class ReplicatedTrainer(ReferenceTrainer):
                     objective_losses.append(term_spec['weight'] * value)
                 return prior_loss, objective_losses
 
-            prior_loss, objective_losses = self._phase('generator regularizers and objectives', remaining_losses)
-            g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-
             from particlegan.optim.constraint_geometry import constraint_geometry_backward
-            set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
-            if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
-                set_rows(self.prior.z, gen_selected)
-
-            self._phase('generator loss', lambda: self._finite_loss(g_loss))
-            self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
+            with self._folded('generator backward'):
+                g_adversarial, g_adversarial_weighted = self._phase(
+                    'generator critic forward', generator_adversarial_forward)
+                prior_loss, objective_losses = self._phase('generator regularizers and objectives', remaining_losses)
+                g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+                set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
+                if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
+                    set_rows(self.prior.z, gen_selected)
+                self._phase('generator loss', lambda: self._finite_loss(g_loss))
+                self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
 
             if getattr(self.opt_g, '_protected', None) is not None:
                 if getattr(self.aggregation_strategy, 'reduces_gradients', False):
@@ -814,17 +899,11 @@ class ReplicatedTrainer(ReferenceTrainer):
                 if self.program.prior_checked
                 else torch.zeros((), dtype=torch.float64, device=self.device)
             )
-            self._phase('generator optimizer', self.opt_g.step)
-            self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
-            self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
+            self._optimizer_step(self.opt_g, 'generator')
         finally:
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)
-        self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
-        self._phase('module compatibility', self._check_modules)
-        if self.aggregation_strategy.should_assert_replicas(step):
-            self._assert_replicas('complete replicated state')
         particle_rms_t = self._particle_rms_scalar()
         n_objectives = len(objective_losses)
         transferred = self._metric_transfer([
@@ -837,14 +916,10 @@ class ReplicatedTrainer(ReferenceTrainer):
             fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
             d_guard_ratio_t,
         ])
-        values = torch.tensor(transferred, dtype=torch.float64, device=self.device)
-        dist.all_reduce(values)
-        values /= self.world_size
-        self._phase('complete CUDA update', self._synchronize)
+        values = self._complete(step, transferred)
         self.step = step
         self.checkpoint_ready = True
         self._handshake_complete = True
-        values = values.tolist()
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
         row.update(event='train', step=step, objectives=values[8:8 + n_objectives], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size, world_size=self.world_size)
@@ -947,12 +1022,8 @@ class ReplicatedTrainer(ReferenceTrainer):
         exact penalty double-backward graphs are bounded by one microbatch.
         """
         cfg, step = self.config, self.step + 1
-        settings = cfg['training']
         scale = schedule_learning_rates(self, step - 1)
-        self._agree('input source', {'sample_data': batch is None, 'sample_prior': latent_draw is None})
-        if batch is None:
-            batch = self.batch()
-        self._phase('accumulation batch', lambda: self._validate_batch(batch))
+
         def prepare():
             z, ids = self.prior.sample(self.local_batch_size, generator=self.streams['prior']) if latent_draw is None else latent_draw
             if not isinstance(z, torch.Tensor) or z.device != self.device or z.ndim < 1 or len(z) != self.local_batch_size or not torch.isfinite(z).all():
@@ -963,9 +1034,13 @@ class ReplicatedTrainer(ReferenceTrainer):
             for start in range(0, self.local_batch_size, self.microbatch_size):
                 self._microbatch(batch, start)
             return z, ids
-        z, ids = self._phase('accumulation latent', prepare)
-        self._agree('real data shape', (tuple(batch['real'].shape), str(batch['real'].dtype)))
-        self._agree('prior kind', ids is None)
+
+        with self._folded('accumulation inputs'):
+            batch, latent_draw = self._inputs(batch, latent_draw)
+            self._phase('accumulation batch', lambda: self._validate_batch(batch))
+            z, ids = self._phase('accumulation latent', prepare)
+            self._agree('real data shape', (tuple(batch['real'].shape), str(batch['real'].dtype)))
+            self._agree('prior kind', ids is None)
         selected = None if ids is None else self.collectives.unique_indices(ids, num_rows=len(self.prior.z))
         if hasattr(self.opt_d, 'controller') and self.opt_d.controller is not None and getattr(self.opt_d, 'record', None) is not None:
             controller = self.opt_d.controller
@@ -1025,63 +1100,64 @@ class ReplicatedTrainer(ReferenceTrainer):
                 return term_records, self._digest(context['generated']), self._sample_moment_scalars(last_fake, last_real)
             return term_records, self._digest(context['generated'])
 
-        # Prepasses use ordinary grad mode and immediately discard each graph,
-        # so custom grad-mode behavior is the same on the checked replay.
-        for index, start in enumerate(starts):
-            rng = self._accumulation_rng()
-            generation_rng.append(rng)
-            def prepass():
-                term_records, fake_digest, sample_moments = self._immutable_forward(
-                    lambda: discriminator_micro(index, start, capture_moments=True))
-                for _, _, pen in term_records:
-                    self._finite_loss(pen)
-                return [(r_sc.detach(), f_sc.detach(), pen.detach()) for r_sc, f_sc, pen in term_records], fake_digest, sample_moments
-            d_records.append((rng, self._phase(f'D micro {index} discovery', prepass)))
-            if logical_calls is None:
-                logical_calls = record.calls
-        all_dr, all_df = [], []
-        unweighted, weighted = [], []
-        for t, term in enumerate(terms):
-            dr_t = torch.cat([rec[1][0][t][0] for rec in d_records]).requires_grad_(True)
-            df_t = torch.cat([rec[1][0][t][1] for rec in d_records]).requires_grad_(True)
-            global_dr_t, global_df_t = self._logits(dr_t, df_t)
-            loss_raw = term.gan.d_loss(global_dr_t, global_df_t)
-            unweighted.append(loss_raw)
-            weighted.append(term.weight * loss_raw)
-            all_dr.append(dr_t)
-            all_df.append(df_t)
-        d_adversarial_raw = _sum_tensors(unweighted)
-        d_adversarial = _sum_tensors(weighted)
-        self._phase('accumulated D objective', lambda: self._finite_loss(d_adversarial))
-        all_targets = tuple(all_dr + all_df)
-        all_cotangents = self._phase('accumulated D logit derivatives', lambda: torch.autograd.grad(d_adversarial, all_targets))
-        dr_cotangents = all_cotangents[:len(terms)]
-        df_cotangents = all_cotangents[len(terms):]
-        d_penalty = sum(rec[1][0][t][2] / self.accumulation_steps for rec in d_records for t in range(len(terms)))
-        d_loss = d_adversarial.detach() + d_penalty
-        self._phase('accumulated D total loss', lambda: self._finite_loss(d_loss))
-        self.opt_d.zero_grad(set_to_none=True)
-        for index, start in enumerate(starts):
-            rng, expected = d_records[index]
-            def replay():
-                current = self._immutable_forward(lambda: discriminator_micro(index, start))
-                current_terms, current_digest = current
-                if current_digest != expected[1]:
-                    raise ValueError('Discriminator microbatch replay differs from discovery outputs')
-                step_loss = 0
-                for t, (dr_m, df_m, pen_m) in enumerate(current_terms):
-                    dr_slice = dr_cotangents[t][start:start + self.microbatch_size]
-                    df_slice = df_cotangents[t][start:start + self.microbatch_size]
-                    term_loss = (dr_m * dr_slice).sum() + (df_m * df_slice).sum() + pen_m / self.accumulation_steps
-                    step_loss = step_loss + term_loss
-                step_loss.backward()
-            self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
-        record.calls = calls_before if logical_calls is None else logical_calls
+        with self._folded('discriminator backward'):
+            # Prepasses use ordinary grad mode and immediately discard each graph,
+            # so custom grad-mode behavior is the same on the checked replay.
+            for index, start in enumerate(starts):
+                rng = self._accumulation_rng()
+                generation_rng.append(rng)
+                def prepass():
+                    term_records, fake_digest, sample_moments = self._immutable_forward(
+                        lambda: discriminator_micro(index, start, capture_moments=True))
+                    for _, _, pen in term_records:
+                        self._finite_loss(pen)
+                    return [(r_sc.detach(), f_sc.detach(), pen.detach()) for r_sc, f_sc, pen in term_records], fake_digest, sample_moments
+                d_records.append((rng, self._phase(f'D micro {index} discovery', prepass)))
+                if logical_calls is None:
+                    logical_calls = record.calls
+            all_dr, all_df = [], []
+            unweighted, weighted = [], []
+            for t, term in enumerate(terms):
+                dr_t = torch.cat([rec[1][0][t][0] for rec in d_records]).requires_grad_(True)
+                df_t = torch.cat([rec[1][0][t][1] for rec in d_records]).requires_grad_(True)
+                global_dr_t, global_df_t = self._logits(dr_t, df_t)
+                loss_raw = term.gan.d_loss(global_dr_t, global_df_t)
+                unweighted.append(loss_raw)
+                weighted.append(term.weight * loss_raw)
+                all_dr.append(dr_t)
+                all_df.append(df_t)
+            d_adversarial_raw = _sum_tensors(unweighted)
+            d_adversarial = _sum_tensors(weighted)
+            self._phase('accumulated D objective', lambda: self._finite_loss(d_adversarial))
+            all_targets = tuple(all_dr + all_df)
+            all_cotangents = self._phase('accumulated D logit derivatives', lambda: torch.autograd.grad(d_adversarial, all_targets))
+            dr_cotangents = all_cotangents[:len(terms)]
+            df_cotangents = all_cotangents[len(terms):]
+            d_penalty = sum(rec[1][0][t][2] / self.accumulation_steps for rec in d_records for t in range(len(terms)))
+            d_loss = d_adversarial.detach() + d_penalty
+            self._phase('accumulated D total loss', lambda: self._finite_loss(d_loss))
+            self.opt_d.zero_grad(set_to_none=True)
+            for index, start in enumerate(starts):
+                rng, expected = d_records[index]
+                def replay():
+                    current = self._immutable_forward(lambda: discriminator_micro(index, start))
+                    current_terms, current_digest = current
+                    if current_digest != expected[1]:
+                        raise ValueError('Discriminator microbatch replay differs from discovery outputs')
+                    step_loss = 0
+                    for t, (dr_m, df_m, pen_m) in enumerate(current_terms):
+                        dr_slice = dr_cotangents[t][start:start + self.microbatch_size]
+                        df_slice = df_cotangents[t][start:start + self.microbatch_size]
+                        term_loss = (dr_m * dr_slice).sum() + (df_m * df_slice).sum() + pen_m / self.accumulation_steps
+                        step_loss = step_loss + term_loss
+                    step_loss.backward()
+                self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
+            record.calls = calls_before if logical_calls is None else logical_calls
         self._reduce_gradients(self.opt_d, 'discriminator')
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
-        self._phase('discriminator optimizer', self.opt_d.step)
+        self._optimizer_step(self.opt_d, 'discriminator')
         if explicit_guard is not None:
             d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
         elif getattr(self.opt_d, 'guard', None) is not None:
@@ -1093,7 +1169,6 @@ class ReplicatedTrainer(ReferenceTrainer):
             )
         else:
             d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
-        self._phase('discriminator optimizer state', lambda: self._finite_optimizer(self.opt_d))
         self._average_critic_statistics()
         saved_flags = []
         seen_modules = set()
@@ -1131,72 +1206,73 @@ class ReplicatedTrainer(ReferenceTrainer):
                     objectives.append(term_spec['weight'] * value)
                 return term_records, objectives, local_z, self._digest(fake)
 
-            g_records = []
-            for index, start in enumerate(starts):
-                rng = self._accumulation_rng()
-                def prepass():
-                    term_records, terms_obj, _, fake_digest = self._immutable_forward(lambda: generator_micro(index, start))
-                    for value in terms_obj:
-                        self._finite_loss(value)
-                    return (
-                        [(gf.detach(), gr.detach()) for gf, gr in term_records],
-                        detach(terms_obj),
-                        fake_digest
-                    )
-                g_records.append((rng, self._phase(f'G micro {index} discovery', prepass)))
-            all_gf = []
-            g_unweighted, g_weighted = [], []
-            for t, term in enumerate(terms):
-                gf_t = torch.cat([rec[1][0][t][0] for rec in g_records]).requires_grad_(True)
-                gr_t = torch.cat([rec[1][0][t][1] for rec in g_records])
-                global_gr_t, global_gf_t = self._logits(gr_t, gf_t)
-                loss_raw = term.gan.g_loss(global_gf_t, global_gr_t)
-                g_unweighted.append(loss_raw)
-                g_weighted.append(term.weight * loss_raw)
-                all_gf.append(gf_t)
-            g_adversarial = _sum_tensors(g_unweighted)
-            weighted_adversarial = _sum_tensors(g_weighted)
-            self._phase('accumulated G objective', lambda: self._finite_loss(weighted_adversarial))
-            g_cotangents = self._phase('accumulated G logit derivatives', lambda: torch.autograd.grad(weighted_adversarial, tuple(all_gf)))
-            objective_factors = [1 / self.accumulation_steps if reduction == 'mean' else 1 for reduction in self._objective_reductions]
-            objective_losses = [sum(record[1][1][i] * factor for record in g_records) for i, factor in enumerate(objective_factors)]
-            self.opt_g.zero_grad(set_to_none=True)
-            z_cotangent = torch.zeros_like(z) if z.requires_grad else None
-            any_z_gradient = False
-            for index, start in enumerate(starts):
-                rng, expected = g_records[index]
-                def replay():
-                    nonlocal any_z_gradient
-                    current = self._immutable_forward(lambda: generator_micro(index, start))
-                    term_records, objectives, local_z, fake_digest = current
-                    if fake_digest != expected[2]:
-                        raise ValueError('Generator microbatch replay differs from discovery outputs')
-                    step_loss = 0
-                    for t, (gf_m, _) in enumerate(term_records):
-                        gf_slice = g_cotangents[t][start:start + self.microbatch_size]
-                        step_loss = step_loss + (gf_m * gf_slice).sum()
-                    step_loss = step_loss + sum(value * factor for value, factor in zip(objectives, objective_factors))
-                    step_loss.backward()
-                    if z_cotangent is not None and local_z.grad is not None:
-                        any_z_gradient = True
-                        z_cotangent[start:start + self.microbatch_size].copy_(local_z.grad)
-                self._phase(f'G micro {index} replay', lambda: self._isolated_replay(rng, replay))
-            def prior_backward():
-                rows = None if selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[selected]
-                prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else z.new_zeros(())
-                self._finite_loss(prior_loss)
-                self._finite_loss(weighted_adversarial.detach() + prior_loss.detach() + sum(objective_losses))
-                outputs, gradients = [], []
-                if any_z_gradient:
-                    outputs.append(z)
-                    gradients.append(z_cotangent)
-                if prior_loss.requires_grad:
-                    outputs.append(prior_loss)
-                    gradients.append(torch.ones_like(prior_loss))
-                if outputs:
-                    torch.autograd.backward(outputs, gradients)
-                return prior_loss.detach()
-            prior_loss = self._phase('global prior regularizer and latent backward', prior_backward)
+            with self._folded('generator backward'):
+                g_records = []
+                for index, start in enumerate(starts):
+                    rng = self._accumulation_rng()
+                    def prepass():
+                        term_records, terms_obj, _, fake_digest = self._immutable_forward(lambda: generator_micro(index, start))
+                        for value in terms_obj:
+                            self._finite_loss(value)
+                        return (
+                            [(gf.detach(), gr.detach()) for gf, gr in term_records],
+                            detach(terms_obj),
+                            fake_digest
+                        )
+                    g_records.append((rng, self._phase(f'G micro {index} discovery', prepass)))
+                all_gf = []
+                g_unweighted, g_weighted = [], []
+                for t, term in enumerate(terms):
+                    gf_t = torch.cat([rec[1][0][t][0] for rec in g_records]).requires_grad_(True)
+                    gr_t = torch.cat([rec[1][0][t][1] for rec in g_records])
+                    global_gr_t, global_gf_t = self._logits(gr_t, gf_t)
+                    loss_raw = term.gan.g_loss(global_gf_t, global_gr_t)
+                    g_unweighted.append(loss_raw)
+                    g_weighted.append(term.weight * loss_raw)
+                    all_gf.append(gf_t)
+                g_adversarial = _sum_tensors(g_unweighted)
+                weighted_adversarial = _sum_tensors(g_weighted)
+                self._phase('accumulated G objective', lambda: self._finite_loss(weighted_adversarial))
+                g_cotangents = self._phase('accumulated G logit derivatives', lambda: torch.autograd.grad(weighted_adversarial, tuple(all_gf)))
+                objective_factors = [1 / self.accumulation_steps if reduction == 'mean' else 1 for reduction in self._objective_reductions]
+                objective_losses = [sum(record[1][1][i] * factor for record in g_records) for i, factor in enumerate(objective_factors)]
+                self.opt_g.zero_grad(set_to_none=True)
+                z_cotangent = torch.zeros_like(z) if z.requires_grad else None
+                any_z_gradient = False
+                for index, start in enumerate(starts):
+                    rng, expected = g_records[index]
+                    def replay():
+                        nonlocal any_z_gradient
+                        current = self._immutable_forward(lambda: generator_micro(index, start))
+                        term_records, objectives, local_z, fake_digest = current
+                        if fake_digest != expected[2]:
+                            raise ValueError('Generator microbatch replay differs from discovery outputs')
+                        step_loss = 0
+                        for t, (gf_m, _) in enumerate(term_records):
+                            gf_slice = g_cotangents[t][start:start + self.microbatch_size]
+                            step_loss = step_loss + (gf_m * gf_slice).sum()
+                        step_loss = step_loss + sum(value * factor for value, factor in zip(objectives, objective_factors))
+                        step_loss.backward()
+                        if z_cotangent is not None and local_z.grad is not None:
+                            any_z_gradient = True
+                            z_cotangent[start:start + self.microbatch_size].copy_(local_z.grad)
+                    self._phase(f'G micro {index} replay', lambda: self._isolated_replay(rng, replay))
+                def prior_backward():
+                    rows = None if selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[selected]
+                    prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else z.new_zeros(())
+                    self._finite_loss(prior_loss)
+                    self._finite_loss(weighted_adversarial.detach() + prior_loss.detach() + sum(objective_losses))
+                    outputs, gradients = [], []
+                    if any_z_gradient:
+                        outputs.append(z)
+                        gradients.append(z_cotangent)
+                    if prior_loss.requires_grad:
+                        outputs.append(prior_loss)
+                        gradients.append(torch.ones_like(prior_loss))
+                    if outputs:
+                        torch.autograd.backward(outputs, gradients)
+                    return prior_loss.detach()
+                prior_loss = self._phase('global prior regularizer and latent backward', prior_backward)
             self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
             gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
             prior_grad_norm_t = (
@@ -1204,18 +1280,12 @@ class ReplicatedTrainer(ReferenceTrainer):
                 if self.program.prior_checked
                 else torch.zeros((), dtype=torch.float64, device=self.device)
             )
-            self._phase('generator optimizer', self.opt_g.step)
-            self._phase('generator optimizer state', lambda: self._finite_optimizer(self.opt_g))
-            self._phase('aggregation step complete', lambda: self.aggregation_strategy.on_step_complete(step))
+            self._optimizer_step(self.opt_g, 'generator')
         finally:
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)
         g_loss = weighted_adversarial.detach() + prior_loss + sum(objective_losses)
-        self._phase('EMA', lambda: (update_ema(self.ema_graph, self.graph, settings['ema']), update_ema(self.ema_prior, self.prior, settings['ema'])))
-        self._phase('module compatibility', self._check_modules)
-        if self.aggregation_strategy.should_assert_replicas(step):
-            self._assert_replicas('complete replicated state')
         critic_real_mean_t, critic_fake_mean_t, critic_acc_t = self._critic_score_scalars(
             all_dr[-1] if all_dr else None, all_df[-1] if all_df else None)
         micro_moments = [rec[1][2] for rec in d_records]
@@ -1237,13 +1307,9 @@ class ReplicatedTrainer(ReferenceTrainer):
             fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
             d_guard_ratio_t,
         ])
-        values = torch.tensor(transferred, dtype=torch.float64, device=self.device)
-        dist.all_reduce(values)
-        values /= self.world_size
-        self._phase('complete CUDA update', self._synchronize)
+        values = self._complete(step, transferred)
         self.step, self.checkpoint_ready = step, True
         self._handshake_complete = True
-        values = values.tolist()
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
         row.update(event='train', step=step, objectives=values[8:8 + n_objectives], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size,

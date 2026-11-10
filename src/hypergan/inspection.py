@@ -14,23 +14,12 @@ import json
 import math
 import os
 from pathlib import Path
-import re
 import shutil
 import sys
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .summary import atomic_write_json, read_summary_json
 from .workspace import find_workspace
-
-_FID_RE = re.compile(r'(?:^|[^a-z0-9])fid(?:$|[^a-z]|50k)', re.IGNORECASE)
-
-
-def _is_fid_metric(metric_name: Any) -> bool:
-    if not metric_name:
-        return False
-    return bool(_FID_RE.search(str(metric_name)))
-
-
 
 def format_bytes(num_bytes: int) -> str:
     """Format byte count into human-readable unit (B, KB, MB, GB)."""
@@ -243,8 +232,8 @@ def _read_events_tail_fallback(run_dir: Path) -> Dict[str, Any]:
         "step": None,
         "steps_per_sec": None,
         "latest_metrics": {},
-        "best_fid": None,
-        "best_step": None,
+        # Legacy evaluation events that carry a value, as summary.collect_evaluations records.
+        "evaluations": [],
         "status": None,
     }
     if not events_path.is_file():
@@ -283,14 +272,13 @@ def _read_events_tail_fallback(run_dir: Path) -> Dict[str, Any]:
                     or (ev.get("result", {}).get("metric") if isinstance(ev.get("result"), dict) else "")
                     or ""
                 )
-                if _is_fid_metric(m_id):
-                    val = ev.get("value")
-                    if val is None and isinstance(ev.get("result"), dict):
-                        val = ev["result"].get("value")
-                    if isinstance(val, (int, float)) and math.isfinite(val):
-                        if info["best_fid"] is None or float(val) < info["best_fid"]:
-                            info["best_fid"] = float(val)
-                            info["best_step"] = int(ev_step or 0)
+                val = ev.get("value")
+                if val is None and isinstance(ev.get("result"), dict):
+                    val = ev["result"].get("value")
+                if m_id and isinstance(val, (int, float)) and math.isfinite(val):
+                    info["evaluations"].append(
+                        {"metric": m_id, "value": float(val), "step": int(ev_step or 0), "unit": ev.get("unit")}
+                    )
             elif kind in ("complete", "completed", "stopped", "failed"):
                 info["status"] = "completed" if kind == "complete" else str(kind)
     except Exception:
@@ -343,11 +331,11 @@ def run_status(
     manifest = _read_manifest_safe(resolved_dir)
     events_fallback = _read_events_tail_fallback(resolved_dir)
 
-    from .registry import _read_registry_unlocked, extract_or_derive_slug, get_registry_dir
+    from .registry import canonical_slug, get_registry_dir, read_registry, read_run_fid, read_run_tag
 
     reg_entry: Optional[Dict[str, Any]] = None
     try:
-        reg_data = _read_registry_unlocked(get_registry_dir(resolved_dir))
+        reg_data = read_registry(get_registry_dir(resolved_dir))
         reg_entry = reg_data.get("runs", {}).get(str(resolved_dir))
     except Exception:
         reg_entry = None
@@ -360,23 +348,21 @@ def run_status(
         or (reg_entry.get("run_id") if reg_entry else None)
         or resolved_dir.name
     )
+    tag = read_run_tag(resolved_dir)
     raw_name = (
-        (summary.get("name") if summary else None)
+        tag
+        or (summary.get("name") if summary else None)
         or manifest.get("name")
         or config.get("name")
         or (reg_entry.get("name") if reg_entry else None)
         or run_id
     )
-    if reg_entry and reg_entry.get("_old_dir_name") and str(raw_name) == str(reg_entry["_old_dir_name"]):
+    if not tag and reg_entry and reg_entry.get("_old_dir_name") and str(raw_name) == str(reg_entry["_old_dir_name"]):
         raw_name = reg_entry.get("name") or resolved_dir.name
     name = str(raw_name)
 
-    slug = (
-        (summary.get("slug") if summary else None)
-        or manifest.get("slug")
-        or (reg_entry.get("slug") if reg_entry else None)
-        or extract_or_derive_slug(str(run_id), name=name, run_dir_name=resolved_dir.name)
-    )
+    # The registry's derivation, so `status`, `ps` and `rm` name the same slug.
+    slug = canonical_slug(resolved_dir, str(run_id), name=name, manifest=manifest, summary=summary, existing=reg_entry)
 
     status_str = _resolve_valid_status(summary, manifest, is_active=is_active, run_dir=resolved_dir)
 
@@ -441,47 +427,18 @@ def run_status(
         latest_metrics = dict(events_fallback.get("latest_metrics", {}))
 
     best = summary.get("best") if (summary and isinstance(summary.get("best"), dict)) else None
-    best_fid = summary.get("best_fid") if summary else None
+    fid = read_run_fid(resolved_dir, summary, manifest, fallback_evaluations=events_fallback.get("evaluations"))
+    best_fid = fid["best_fid"]
     best_step = summary.get("best_step") if summary else None
     best_checkpoint = None
 
     if best:
-        b_metric = str(best.get("metric") or "fid50k_train")
-        if _is_fid_metric(b_metric):
-            if best_fid is None:
-                best_fid = best.get("value")
-        else:
-            best_fid = None
         if best_step is None:
             best_step = best.get("step")
         best_checkpoint = best.get("checkpoint")
-    else:
-        # Fallback scan evaluations
-        eval_root = resolved_dir / "metrics" / "evaluations"
-        best_val = None
-        best_s = None
-        if eval_root.is_dir():
-            for rec in eval_root.glob("*/receipt.json"):
-                try:
-                    data = json.loads(rec.read_text(encoding="utf-8"))
-                    if isinstance(data, dict) and data.get("status") == "complete" and isinstance(data.get("result"), dict):
-                        m_id = str(data.get("metric_id") or data.get("metric") or data["result"].get("metric") or "")
-                        if not _is_fid_metric(m_id):
-                            continue
-                        val = data["result"].get("value")
-                        s = data.get("source_step") or data["result"].get("step")
-                        if val is not None and (best_val is None or val < best_val):
-                            best_val = val
-                            best_s = s
-                except Exception:
-                    continue
-        if best_val is None and events_fallback.get("best_fid") is not None:
-            best_val = events_fallback["best_fid"]
-            best_s = events_fallback.get("best_step")
-        if best_val is not None:
-            best_fid = best_val
-            best_step = best_s
-            best = {"metric": "fid50k_train", "value": best_val, "step": best_s, "checkpoint": None}
+    elif best_fid is not None:
+        best_step = fid["best_step"]
+        best = {"metric": fid["metric"], "value": best_fid, "step": best_step, "checkpoint": None, "unit": "FID"}
 
     # Collect evaluation values by step to enrich checkpoint rows
     eval_by_step: Dict[int, Dict[str, float]] = {}
@@ -503,12 +460,8 @@ def run_status(
                         eval_by_step.setdefault(int(s), {})[m_name] = float(val)
             except Exception:
                 continue
-    if best_step is not None:
-        if best_fid is not None and isinstance(best_fid, (int, float)):
-            eval_by_step.setdefault(int(best_step), {}).setdefault("fid50k_train", float(best_fid))
-        if isinstance(best, dict) and isinstance(best.get("value"), (int, float)):
-            b_m = str(best.get("metric") or "fid50k_train")
-            eval_by_step.setdefault(int(best_step), {}).setdefault(b_m, float(best["value"]))
+    if best_step is not None and isinstance(best, dict) and isinstance(best.get("value"), (int, float)):
+        eval_by_step.setdefault(int(best_step), {}).setdefault(str(best["metric"]), float(best["value"]))
 
     # Recent checkpoints
     from .summary import collect_checkpoints
@@ -543,8 +496,6 @@ def run_status(
         if c_step_int in eval_by_step:
             for m_k, m_v in eval_by_step[c_step_int].items():
                 c_metrics.setdefault(m_k, m_v)
-                if _is_fid_metric(m_k):
-                    c_metrics.setdefault("fid50k_train", m_v)
         c_copy["metrics"] = c_metrics
         checkpoints.append(c_copy)
 
@@ -586,13 +537,12 @@ def run_status(
         "best": best,
         "best_fid": best_fid,
         "best_step": best_step,
+        # The FID protocol best_fid and the checkpoint FID column report.
+        "fid_metric": fid["metric"],
         "best_checkpoint": best_checkpoint,
         "recent_checkpoints": recent_ckpts,
         "warnings": warnings,
     }
-
-
-status = run_status
 
 
 def format_run_status(info: Dict[str, Any]) -> str:
@@ -638,12 +588,14 @@ def format_run_status(info: Dict[str, Any]) -> str:
         for alert in alerts:
             lines.append(f"  ! {alert}")
 
+    from .summary import is_fid_metric
+
     best_obj = info.get("best")
     if isinstance(best_obj, dict) and isinstance(best_obj.get("value"), (int, float)):
-        b_metric = str(best_obj.get("metric") or "fid50k_train")
+        b_metric = str(best_obj.get("metric") or "")
         b_val = best_obj["value"]
         b_step = best_obj.get("step") if best_obj.get("step") is not None else info.get("best_step")
-        if _is_fid_metric(b_metric):
+        if is_fid_metric(best_obj):
             best_str = f"Best FID:  {b_val:.2f}"
         else:
             best_str = f"Best {b_metric}:  {b_val:.4g}"
@@ -668,9 +620,8 @@ def format_run_status(info: Dict[str, Any]) -> str:
             if len(c_path) > 52:
                 c_path = c_path[:24] + "..." + c_path[-25:]
             c_metrics = c.get("metrics") if isinstance(c.get("metrics"), dict) else {}
-            fid_val = c_metrics.get("fid50k_train")
-            if fid_val is None:
-                fid_val = c_metrics.get("fid")
+            # Only the run's own FID protocol; another FID at the same step is not comparable.
+            fid_val = c_metrics.get(info["fid_metric"]) if info.get("fid_metric") else None
             if fid_val is None and c.get("fid") is not None:
                 fid_val = c.get("fid")
             if fid_val is None and info.get("best_step") is not None and c.get("step") == info.get("best_step") and info.get("best_fid") is not None:
@@ -692,22 +643,20 @@ def format_run_status(info: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-format_status = format_run_status
-
-
 def _collect_ps_row(
     run_dir: Union[Path, str],
     cached_entry: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Collect a single run row for list_runs / ps_runs using Tier 1 mtime cache or safe metadata fallback."""
-    from .registry import _read_registry_unlocked, canonical_slug, extract_or_derive_slug, get_registry_dir, read_run_tag
+    from .registry import (canonical_slug, extract_or_derive_slug, get_registry_dir, read_registry, read_run_fid,
+                           read_run_tag)
 
     run_path = Path(run_dir).resolve()
     is_active, pid = check_run_active(run_path)
 
     if cached_entry is None:
         try:
-            reg_data = _read_registry_unlocked(get_registry_dir(run_path))
+            reg_data = read_registry(get_registry_dir(run_path))
             cached_entry = reg_data.get("runs", {}).get(str(run_path))
         except Exception:
             cached_entry = None
@@ -818,36 +767,7 @@ def _collect_ps_row(
     if sps is None:
         sps = manifest.get("steps_per_second") or events_fallback.get("steps_per_sec")
 
-    best = summary.get("best") if (summary and isinstance(summary.get("best"), dict)) else None
-    best_fid = summary.get("best_fid") if summary else None
-    if best and isinstance(best, dict):
-        b_metric = str(best.get("metric") or "")
-        if _is_fid_metric(b_metric) and isinstance(best.get("value"), (int, float)):
-            best_fid = best.get("value")
-        elif not _is_fid_metric(b_metric):
-            best_fid = None
-    elif best_fid is not None and isinstance(best, dict) and not _is_fid_metric(best.get("metric", "")):
-        best_fid = None
-
-    if best_fid is None and (run_path / "metrics" / "evaluations").is_dir():
-        for rec in (run_path / "metrics" / "evaluations").glob("*/receipt.json"):
-            try:
-                rdata = json.loads(rec.read_text(encoding="utf-8"))
-                if isinstance(rdata, dict) and rdata.get("status") == "complete" and isinstance(rdata.get("result"), dict):
-                    m_id = str(
-                        rdata.get("metric_id")
-                        or rdata.get("metric")
-                        or (rdata.get("result", {}).get("metric") if isinstance(rdata.get("result"), dict) else "")
-                        or ""
-                    )
-                    if _is_fid_metric(m_id):
-                        val = rdata["result"].get("value")
-                        if val is not None and (best_fid is None or val < best_fid):
-                            best_fid = val
-            except Exception:
-                continue
-    if best_fid is None and events_fallback.get("best_fid") is not None:
-        best_fid = events_fallback["best_fid"]
+    best_fid = read_run_fid(run_path, summary, manifest, fallback_evaluations=events_fallback.get("evaluations"))["best_fid"]
 
     latest = (summary.get("latest", {}) if (summary and isinstance(summary.get("latest"), dict)) else {}) or (
         events_fallback.get("latest_metrics", {}) if events_fallback else {}
@@ -1837,11 +1757,11 @@ def stop_run(
     """Gracefully stop an active training run (or all active runs) via file request and/or SIGINT."""
     import signal
     import time
-    from .registry import find_live_pid_for_run, pid_has_file_open, resolve_destructive_target, sync_registry
+    from .registry import find_live_pid_for_run, list_registered_runs, pid_has_file_open, resolve_destructive_target
     from .run_requests import request_status as _req_status, submit_stop_request
 
     if stop_all:
-        entries = sync_registry(cwd=cwd)
+        entries = list_registered_runs(cwd=cwd)
         active_entries = [e for e in entries if e.get("active")]
         if not active_entries:
             return {"status": "idle", "stopped": [], "message": "No active training runs to stop."}
@@ -1974,7 +1894,7 @@ def stop_run(
         stopped_cleanly = not check_run_active(run_dir)[0]
 
     # Refresh summary and registry state
-    sync_registry(cwd=cwd or run_dir)
+    list_registered_runs(cwd=cwd or run_dir)
     state_str = "stopped" if stopped_cleanly else "stopping"
     if stopped_cleanly:
         msg = f"Stopped {str(run_id)[:8]} ({slug or name}) [PID {pid}] cleanly."
@@ -2097,7 +2017,7 @@ def remove_run(
     or run path) to a directory with a run identity; anything else, including
     workspace roots, runs roots and $HOME, is refused before anything is deleted.
     """
-    from .registry import _read_registry_unlocked, canonical_slug, get_registry_dir, resolve_destructive_target, unregister_run
+    from .registry import canonical_slug, get_registry_dir, read_registry, resolve_destructive_target, unregister_run
 
     run_dir = resolve_destructive_target(target, cwd=cwd)
 
@@ -2109,7 +2029,7 @@ def remove_run(
     manifest = _read_manifest_safe(run_dir)
     reg_entry: Optional[Dict[str, Any]] = None
     try:
-        reg_data = _read_registry_unlocked(get_registry_dir(cwd or run_dir))
+        reg_data = read_registry(get_registry_dir(cwd or run_dir))
         reg_entry = reg_data.get("runs", {}).get(str(run_dir))
     except Exception:
         reg_entry = None

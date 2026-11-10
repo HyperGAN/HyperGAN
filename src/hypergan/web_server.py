@@ -120,6 +120,7 @@ def _summary_watermark(run_dir: Path) -> tuple[tuple[int, int, int], ...]:
         _stat_watermark(run_dir / ".run.lock"),
         _stat_watermark(run_dir / "launch" / "0001.json"),
         _stat_watermark(run_dir / "previews" / "index.json"),
+        _stat_watermark(run_dir / _reg_mod.TAG_FILE),
     )
 
 
@@ -206,18 +207,22 @@ def read_run_summary(run_dir: Path) -> dict:
             pid = manifest["pid"]
 
     run_id = (summary.get("run_id") if summary else None) or manifest.get("run_id") or run_dir.name
-    name = (
-        (manifest.get("config", {}).get("name") if isinstance(manifest.get("config"), dict) else None)
+    # Name and slug as `ps` and `rm` report them: a `hypergan tag` wins, and the
+    # slug is the one the registry reserved for this run.
+    tag = _reg_mod.read_run_tag(run_dir)
+    name = str(
+        tag
         or (summary.get("name") if summary else None)
         or manifest.get("name")
+        or (manifest.get("config", {}).get("name") if isinstance(manifest.get("config"), dict) else None)
         or run_dir.name
     )
-    slug = (
-        (summary.get("slug") if summary else None)
-        or manifest.get("slug")
-        or (manifest.get("config", {}).get("slug") if isinstance(manifest.get("config"), dict) else None)
-        or _reg_mod.extract_or_derive_slug(str(run_id), name=str(name), run_dir_name=run_dir.name)
-    )
+    try:
+        reg_entry = _reg_mod.read_registry(_reg_mod.get_registry_dir(run_dir)).get("runs", {}).get(str(run_dir))
+    except (OSError, RuntimeError):
+        reg_entry = None
+    slug = _reg_mod.canonical_slug(run_dir, str(run_id), name=name, manifest=manifest, summary=summary,
+                                   existing=reg_entry if isinstance(reg_entry, dict) else None)
     short_id = (
         (summary.get("short_id") if summary else None)
         or manifest.get("short_id")
@@ -281,12 +286,13 @@ def read_run_summary(run_dir: Path) -> dict:
     if last_durable_step is None:
         last_durable_step = manifest.get("last_durable_step")
     fid_health = extract_fid_and_health(manifest, summary)
-    latest_fid = fid_health["latest_fid"]
-    best_fid = fid_health["best_fid"]
-    best_step = fid_health["best_step"]
     best_metric = fid_health["best_metric"]
     health_alerts = fid_health["health_alerts"]
     warnings = fid_health["warnings"]
+    fid = _reg_mod.read_run_fid(run_dir, summary, manifest)
+    latest_fid = fid["latest_fid"]
+    best_fid = fid["best_fid"]
+    best_step = fid["best_step"] if fid["best_step"] is not None else fid_health["best_step"]
 
     updated_at = (summary.get("updated_at") if summary else None) or manifest.get("updated_at")
 
@@ -365,6 +371,7 @@ def read_run_summary(run_dir: Path) -> dict:
         "short_id": short_id,
         "slug": slug,
         "name": name,
+        "tag": tag,
         "status": status,
         "active": active,
         "running": running,

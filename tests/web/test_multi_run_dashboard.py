@@ -68,8 +68,11 @@ def create_mock_run(runs_root: Path, run_id: str, *, dir_name: str | None = None
             'step': step,
             'target_steps': step * 2,
             'speed_its': speed,
-            'fid_latest': fid_latest,
-            'fid_best': fid_best,
+            # summary.json's FID fields describe its primary metric when that is an FID.
+            'best': None if fid_best is None else {'metric': 'fid50k_train', 'value': fid_best, 'step': step,
+                                                   'checkpoint': None, 'direction': 'minimize', 'unit': 'FID'},
+            'best_fid': fid_best,
+            'latest_fid': fid_latest,
             'updated_at': time.time(),
         }
         atomic_json(run_dir / 'summary.json', summary)

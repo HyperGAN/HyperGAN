@@ -138,7 +138,7 @@ def is_fid_metric(record: dict) -> bool:
     readable catalog fall back to an ``fid`` token in the metric ID.
     """
     if record.get("unit") is not None:
-        return record["unit"] == "FID"
+        return str(record["unit"]).strip().upper() == "FID"
     return bool(_FID_ID.search(str(record.get("metric", ""))))
 
 

@@ -701,19 +701,34 @@ def _extract_run_dir_from_log(log_path: Path | str) -> Optional[str]:
     return None
 
 
-def _find_run_dir_from_registry(pid: int | None, job_name: str | None) -> Optional[str]:
-    """Inspect registry for active or recent run matching pid or name."""
-    if pid is None and not job_name:
+def _updated_since(entry: dict, since: str | None) -> bool:
+    if since is None:
+        return True
+    try:
+        updated = datetime.fromisoformat(str(entry.get("updated_at")))
+        started = datetime.fromisoformat(since)
+    except (TypeError, ValueError):
+        return False
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    return updated >= started
+
+
+def _find_run_dir_from_registry(pid: int | None, since: str | None = None) -> Optional[str]:
+    """The registered run whose trainer (the run lock holder) was the launched process.
+
+    Never matched by name: the job name defaults to the model stem, which every
+    earlier run of that model shares. With ``since`` (the job's start), an entry
+    last updated before it is an earlier process that had the same PID.
+    """
+    if not pid:
         return None
     try:
-        from .registry import _read_registry_unlocked, get_registry_dir
+        from .registry import get_registry_dir, read_registry
         reg_dir = get_registry_dir()
         if reg_dir.is_dir():
-            data = _read_registry_unlocked(reg_dir)
-            for path_str, entry in data.get("runs", {}).items():
-                if pid and entry.get("pid") == pid:
-                    return path_str
-                if job_name and entry.get("name") == job_name:
+            for path_str, entry in read_registry(reg_dir).get("runs", {}).items():
+                if isinstance(entry, dict) and entry.get("pid") == pid and _updated_since(entry, since):
                     return path_str
     except Exception:
         pass
@@ -1002,7 +1017,7 @@ def queue_run(
             if not detected_run_dir:
                 detected_run_dir = (
                     _extract_run_dir_from_log(log_path)
-                    or _find_run_dir_from_registry(proc.pid, target_job.get("name"))
+                    or _find_run_dir_from_registry(proc.pid, since=target_job.get("started_at"))
                 )
 
             if exit_code != 0:

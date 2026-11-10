@@ -268,3 +268,149 @@ steps = 500
     assert m.spec["data"]["builtin"] == "gaussian_grid"
     assert m.spec["name"] == "my_exp"
     assert "extends" not in m.spec
+
+
+def test_extends_keyed_loss_overrides_and_append(tmp_path):
+    base = tmp_path / "base.toml"
+    base.write_text("""
+format = "hypergan-model/1"
+[data]
+builtin = "gaussian_grid"
+[networks.generator]
+role = "generator"
+source = "linear(2)\\n"
+input_shape = ["B", 4]
+output_shape = ["B", 2]
+inputs = { x = "latent" }
+[networks.discriminator]
+role = "critic"
+source = "linear(1)\\n"
+input_shape = ["B", 2]
+output_shape = ["B", 1]
+inputs = { x = "candidate" }
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+weight = 1.0
+""")
+
+    child = tmp_path / "child.toml"
+    child.write_text("""
+format = "hypergan-model/1"
+extends = "base.toml"
+
+[losses.discriminator]
+penalty = 2.5
+
+[losses.prior]
+weight = 0.5
+
+[losses.reconstruction]
+fn = "l1"
+weight = 0.25
+""")
+
+    m = hg.load(child)
+    losses = m.spec["losses"]
+    assert isinstance(losses, list) and len(losses) == 3
+    assert losses[0] == {"type": "adversarial", "critic": "discriminator", "weight": 1.0, "penalty": 2.5}
+    assert losses[1] == {"type": "prior", "weight": 0.5}
+    assert losses[2] == {"type": "reconstruction", "id": "reconstruction", "fn": "l1", "weight": 0.25}
+    lowered = hg.lower(m)
+    assert lowered["gradient_penalty"]["coeff"] == 2.5
+    assert lowered["prior_regularizer"]["weight"] == 0.5
+    assert len(lowered["objectives"]) == 1
+    assert lowered["objectives"][0]["factory"] == "l1"
+    assert lowered["objectives"][0]["weight"] == 0.25
+
+
+def test_relative_path_anchoring_uncreated_paths_and_urls(tmp_path):
+    base_dir = tmp_path / "base_dir"
+    base_dir.mkdir()
+    sub_dir = tmp_path / "sub_dir"
+    sub_dir.mkdir()
+
+    parent = base_dir / "parent.toml"
+    parent.write_text("""
+format = "hypergan-model/1"
+[data]
+builtin = "image_folder"
+root = "./uncreated_data_dir"
+[evaluations.fid.args]
+weights_path = "https://example.com/weights.pth"
+cache_dir = "~/.cache/hypergan"
+manifest = "${paths.data}/manifest.json"
+""")
+
+    child = sub_dir / "child.toml"
+    child.write_text(f'format = "hypergan-model/1"\nextends = "{parent.as_posix()}"\n')
+
+    with child.open("rb") as f:
+        import tomllib
+        raw_child = tomllib.load(f)
+
+    merged = resolve_inheritance(raw_child, config_path=child)
+    assert merged["data"]["root"] == str((base_dir / "uncreated_data_dir").resolve())
+    assert merged["evaluations"]["fid"]["args"]["weights_path"] == "https://example.com/weights.pth"
+    assert merged["evaluations"]["fid"]["args"]["cache_dir"] == "~/.cache/hypergan"
+    assert merged["evaluations"]["fid"]["args"]["manifest"] == "${paths.data}/manifest.json"
+
+
+def test_evaluations_data_train_shorthand_and_train_optimizer_subtable():
+    from hypergan.model_file import ModelFileError, lower
+    from hypergan.schema_info import get_schema
+
+    spec = {
+        "format": "hypergan-model/1",
+        "name": "eval-shorthand-test",
+        "data": {"builtin": "cifar10", "root": "./data/cifar10", "sampling": "random", "horizontal_flip": True},
+        "networks": {
+            "generator": {"role": "generator", "source": "linear(2)\n", "input_shape": ["B", 4], "output_shape": ["B", 2], "inputs": {"x": "latent"}},
+            "discriminator": {"role": "critic", "source": "linear(1)\n", "input_shape": ["B", 2], "output_shape": ["B", 1], "inputs": {"x": "candidate"}},
+        },
+        "losses": [{"type": "adversarial", "critic": "discriminator"}],
+        "train": {
+            "steps": 100,
+            "batch_size": 32,
+            "optimizer": {"lr": 0.0004, "d_lr_mult": 2.0},
+        },
+        "evaluations": {
+            "div": {
+                "factory": "hypergan.diversity_metrics:SampleDiversity",
+                "samples": 64,
+                "batch_size": 16,
+                "seed": 7,
+                "data": "train",
+            }
+        },
+    }
+    lowered = lower(spec)
+    assert lowered["optimizer"]["lr"] == 0.0004
+    assert lowered["optimizer"]["d_lr_mult"] == 2.0
+    eval_data = lowered["metrics"]["custom"]["div"]["evaluation"]["data"]
+    assert eval_data["factory"] == "hypergan.image_data:CIFAR10Data"
+    assert eval_data["args"]["sampling"] == "sequential"
+    assert eval_data["args"]["horizontal_flip"] is False
+
+    # Top-level [optimizer] gives actionable hint
+    bad_spec = dict(spec, optimizer={"lr": 0.0001})
+    with pytest.raises(ModelFileError, match=r"place optimizer settings in '\[train\]' or '\[train\.optimizer\]'"):
+        lower(bad_spec)
+
+    # Schema sync assertions
+    schema = get_schema()
+    assert "cifar10" in schema["sections"]["data"]["fields"]["builtin"]["choices"]
+    assert schema["sections"]["prior"]["fields"]["fixed_sigma"]["type"] == "number"
+    assert "optimizer" not in schema["sections"]["networks"]["properties"]
+    assert set(schema["sections"]["losses"]["items"]["fields"]["type"]["choices"]) == {
+        "adversarial", "prior", "reconstruction", "objective"
+    }
+    assert set(schema["sections"]["metrics"]["fields"]["preset"]["choices"]) == {"standard", "none"}
+    for sec in ("penalty", "sampling", "samplers", "defaults", "aggregation"):
+        assert get_schema(sec)["section"] == sec

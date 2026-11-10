@@ -4,6 +4,15 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+### Changed
+- **`hypergan-model/1` Configuration Readability, Customizability & Schema Alignment**:
+  - Synchronized `MODEL_SCHEMA` in `src/hypergan/schema_info.py` (`hypergan schema` / `hg.schema()`) with `src/hypergan/model_file.py` (`data.builtin` including `"cifar10"`, `data.width`/`height`/`mode`/`resize`, `prior.fixed_sigma` as float, `losses.type` choices `["adversarial", "prior", "reconstruction", "objective"]`, `metrics.preset` choices `["standard", "none"]`, removed unsupported `networks.<name>.optimizer`, and added `penalty`, `sampling`, `samplers`, `defaults`, and `aggregation` schema sections).
+  - Added support for keyed `[losses.<id_or_critic_or_type>]` overrides in child configurations using `extends`, allowing selective patching or appending of loss entries without repeating the entire `[[losses]]` array.
+  - Added `data = "train"` (and `data = { extends = "train", ... }`) shorthand in `[evaluations.<id>]` to explicitly reuse `[data]` with deterministic evaluation defaults (`shuffle = false` / `sampling = "sequential"`, `horizontal_flip = false`).
+  - Added support for an optional `[train.optimizer]` subtable inside `[train]` and improved error hints when a top-level `[optimizer]` table is used.
+  - Updated `_anchor_relative_paths()` during `extends` resolution to anchor relative path fields (`_PATH_KEYS` and `./` / `../`) to the declaring file's directory even before dataset/weights files are created on disk, while preserving `http(s)://`, `~`, and `${...}` references.
+  - Cleaned up internal `components.<net>` binding prefixes and detached `[losses.inputs]` subtables across `hg.lift()`, `recipe_generator.py`, `examples/*.toml`, and `src/hypergan/models/*.toml`.
+
 ## 2.0.0a3 — 2026-11-09
 
 HyperGAN 2.0.0a3 is the third alpha of HG 2. It combines declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.7,<0.10`) primitives, reproducible training lifecycles, unified multi-GPU and multi-node checkpoints (`schema_version = 2`), a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).

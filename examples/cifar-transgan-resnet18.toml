@@ -38,7 +38,7 @@ args = { z_dim = 64, width = 32, temperature = 0.125 }
 
 [networks.reconstruction]
 role = "auxiliary"
-inputs = { z = "components.encoder.latent" }
+inputs = { z = "encoder.latent" }
 freeze_parameters = true
 reuse = "generator"
 
@@ -119,12 +119,10 @@ penalty = 1.0
 type = "reconstruction"
 id = "reconstruction"
 fn = "mse"
+input = "reconstruction"
+target = "batch.real"
 weight = 1.0
 detach = ["target"]
-
-[losses.inputs]
-input = "components.reconstruction"
-target = "batch.real"
 
 [[losses]]
 type = "prior"

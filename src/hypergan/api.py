@@ -2020,8 +2020,13 @@ def lift(raw, *, base=None):
     from .model_description import roles
     inferred = roles({'components': components, 'adversarial_terms': raw.get('adversarial_terms', [])}, aliases=False)
 
+    def _lift_binding(b):
+        if isinstance(b, str) and b.startswith('components.'):
+            return b[len('components.'):]
+        return b
+
     for name, spec in components.items():
-        net = {'role': inferred[name], 'inputs': dict(spec.get('inputs', {}))}
+        net = {'role': inferred[name], 'inputs': {k: _lift_binding(v) for k, v in spec.get('inputs', {}).items()}}
         if 'trainable' in spec:
             net['trainable'] = spec['trainable']
         if 'freeze_parameters' in spec:
@@ -2059,9 +2064,11 @@ def lift(raw, *, base=None):
 
     for term in raw.get('adversarial_terms', []):
         entry = {'type': 'adversarial', 'critic': term['component'], 'weight': term.get('weight', 1.0)}
-        for k in ('real', 'fake', 'inputs', 'id'):
+        for k in ('real', 'fake', 'id'):
             if k in term:
-                entry[k] = term[k]
+                entry[k] = _lift_binding(term[k]) if k in ('real', 'fake') else term[k]
+        if 'inputs' in term and isinstance(term['inputs'], dict):
+            entry['inputs'] = {ik: _lift_binding(iv) for ik, iv in term['inputs'].items()}
         if term.get('penalty') is False:
             entry['penalty'] = 0.0
         elif term.get('penalty_coeff') is not None:
@@ -2077,8 +2084,14 @@ def lift(raw, *, base=None):
             fn = factory
         kind = 'reconstruction' if term.get('id') == 'reconstruction' else 'objective'
         entry = {'type': kind, 'id': term.get('id', 'loss'), 'fn': fn, 'weight': term.get('weight', 1.0)}
-        if 'inputs' in term:
-            entry['inputs'] = dict(term['inputs'])
+        if 'inputs' in term and isinstance(term['inputs'], dict):
+            lifted_in = {ik: _lift_binding(iv) for ik, iv in term['inputs'].items()}
+            if 'input' in lifted_in and set(lifted_in.keys()) <= {'input', 'target'}:
+                entry['input'] = lifted_in['input']
+                if 'target' in lifted_in:
+                    entry['target'] = lifted_in['target']
+            else:
+                entry['inputs'] = lifted_in
         if 'detach' in term:
             entry['detach'] = list(term['detach'])
         if args:
@@ -2124,7 +2137,18 @@ def lift(raw, *, base=None):
         sampling_spec = deepcopy(raw['sampling'])
         sampling_spec.pop('output_noise', None)
         if 'generated' in sampling_spec:
-            sampling_spec['output'] = sampling_spec.pop('generated')
+            sampling_spec['output'] = _lift_binding(sampling_spec.pop('generated'))
+        elif 'output' in sampling_spec:
+            sampling_spec['output'] = _lift_binding(sampling_spec['output'])
+        if 'particle_ids' in sampling_spec:
+            sampling_spec['particle_ids'] = _lift_binding(sampling_spec['particle_ids'])
+        if isinstance(sampling_spec.get('views'), dict):
+            sampling_spec['views'] = {vk: _lift_binding(vv) for vk, vv in sampling_spec['views'].items()}
+        if isinstance(sampling_spec.get('comparison'), list):
+            sampling_spec['comparison'] = [
+                {**col, 'binding': _lift_binding(col['binding'])} if isinstance(col, dict) and 'binding' in col else col
+                for col in sampling_spec['comparison']
+            ]
         model_spec['sampling'] = sampling_spec
     if 'samplers' in raw:
         model_spec['samplers'] = deepcopy(raw['samplers'])

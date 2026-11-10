@@ -234,6 +234,12 @@ def _table(value, location, allowed=None):
         if unknown:
             suggestions = []
             for u in unknown:
+                if location == 'model file' and u == 'optimizer':
+                    suggestions.append("place optimizer settings in '[train]' or '[train.optimizer]'")
+                    continue
+                if location == 'model file' and u == 'training':
+                    suggestions.append("did you mean 'train'?")
+                    continue
                 m = difflib.get_close_matches(u, allowed, n=1, cutoff=0.6)
                 if m:
                     suggestions.append(f"did you mean '{m[0]}'?")
@@ -569,7 +575,12 @@ class _Lowering:
                 raise ModelFileError(f'{location}.type must be adversarial, objective, reconstruction or prior')
 
     def train(self, spec, recipe):
-        _table(spec, 'train', OPTIMIZER_FIELDS | TRAINING_FIELDS | RUN_CADENCE_FIELDS)
+        _table(spec, 'train', OPTIMIZER_FIELDS | TRAINING_FIELDS | RUN_CADENCE_FIELDS | {'optimizer'})
+        spec = deepcopy(spec)
+        if 'optimizer' in spec:
+            opt_sub = _table(spec.pop('optimizer'), 'train.optimizer', OPTIMIZER_FIELDS)
+            for k, v in opt_sub.items():
+                spec.setdefault(k, v)
         optimizer = {key: deepcopy(value) for key, value in spec.items() if key in OPTIMIZER_FIELDS}
         training = {key: deepcopy(value) for key, value in spec.items() if key in TRAINING_FIELDS}
         run_cadence = {key: deepcopy(value) for key, value in spec.items() if key in RUN_CADENCE_FIELDS}
@@ -683,8 +694,33 @@ class _Lowering:
             inputs = {key: value if value.startswith('evaluation.') else 'evaluation.' + value
                       for key, value in _table(inputs, f'{location}.inputs').items()}
             if 'data' not in evaluation:
-                raise ModelFileError(f'{location}.data is required: evaluations never fall back to training data')
-            protocol = {'data': self.data(evaluation['data'], f'{location}.data'),
+                raise ModelFileError(f'{location}.data is required: evaluations never fall back to training data (set data = "train" or a data table)')
+            eval_data_raw = evaluation['data']
+            if eval_data_raw == 'train' or (isinstance(eval_data_raw, dict) and eval_data_raw.get('extends') == 'train'):
+                raw_train_data = self.raw.get('data') if 'data' in self.raw else self.raw.get('dataset')
+                if not isinstance(raw_train_data, dict):
+                    raise ModelFileError(f'{location}.data = "train" requires a [data] table in the model file')
+                base_data = deepcopy(raw_train_data)
+                if base_data.get('builtin') == 'image_folder':
+                    base_data.setdefault('args', {})['shuffle'] = False
+                    base_data.pop('shuffle', None)
+                elif 'dataset' in base_data:
+                    base_data['shuffle'] = False
+                elif base_data.get('builtin') == 'cifar10' or base_data.get('factory') == 'hypergan.image_data:CIFAR10Data':
+                    if isinstance(base_data.get('args'), dict):
+                        base_data['args']['sampling'] = 'sequential'
+                        base_data['args']['horizontal_flip'] = False
+                    else:
+                        base_data['sampling'] = 'sequential'
+                        base_data['horizontal_flip'] = False
+                if isinstance(eval_data_raw, dict):
+                    override_data = deepcopy(eval_data_raw)
+                    override_data.pop('extends', None)
+                    base_data = _deep_merge(base_data, override_data)
+                eval_data = self.data(base_data, f'{location}.data')
+            else:
+                eval_data = self.data(eval_data_raw, f'{location}.data')
+            protocol = {'data': eval_data,
                         'sample_count': evaluation.get('samples'), 'batch_size': evaluation.get('batch_size'),
                         'seed': evaluation.get('seed')}
             if any(value is None for value in protocol.values()):
@@ -857,12 +893,49 @@ def model_warnings(raw):
     return warnings
 
 
+def _merge_loss_overrides(base_losses: list, overrides: dict) -> list:
+    """Merge keyed `[losses.<id_or_critic_or_type_or_index>]` overrides into an inherited `[[losses]]` list."""
+    merged = deepcopy(base_losses)
+    for key, patch in overrides.items():
+        if not isinstance(patch, dict):
+            raise ModelFileError(f"losses.{key} override must be a table")
+        idx = None
+        if key.isdigit() and int(key) < len(merged):
+            idx = int(key)
+        else:
+            for i, item in enumerate(merged):
+                if isinstance(item, dict) and key in (item.get('id'), item.get('critic')):
+                    idx = i
+                    break
+            if idx is None:
+                for i, item in enumerate(merged):
+                    if isinstance(item, dict) and key == item.get('type'):
+                        idx = i
+                        break
+        if idx is not None:
+            merged[idx] = _deep_merge(merged[idx], patch)
+        elif 'type' in patch or key in ('reconstruction', 'prior'):
+            new_item = deepcopy(patch)
+            new_item.setdefault('type', key)
+            if new_item['type'] in ('objective', 'reconstruction') and 'id' not in new_item:
+                new_item['id'] = key
+            merged.append(new_item)
+        else:
+            raise ModelFileError(
+                f"losses.{key}: no matching loss in inherited configuration (by index, id, critic, or type) "
+                "and no 'type' field provided to append a new loss"
+            )
+    return merged
+
+
 def _deep_merge(base, override):
-    """Deep merge dictionaries; scalars and lists are replaced by override."""
+    """Deep merge dictionaries; scalars and lists are replaced by override (or patched via [losses.<key>])."""
     if isinstance(base, dict) and isinstance(override, dict):
         result = deepcopy(base)
         for k, v in override.items():
-            if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            if k == "losses" and isinstance(result.get("losses"), list) and isinstance(v, dict):
+                result["losses"] = _merge_loss_overrides(result["losses"], v)
+            elif k in result and isinstance(result[k], dict) and isinstance(v, dict):
                 result[k] = _deep_merge(result[k], v)
             else:
                 result[k] = deepcopy(v)
@@ -871,7 +944,9 @@ def _deep_merge(base, override):
 
 
 def _anchor_relative_paths(spec, base_dir, _in_path_container=False):
-    """Anchor relative file paths (not starting with '${') to base_dir."""
+    """Anchor relative file paths (not starting with '${', '~', or URL scheme) to base_dir."""
+    packaged_dir = Path(__file__).resolve().parent / "models"
+    is_packaged_base = Path(base_dir).resolve() == packaged_dir
     if isinstance(spec, dict):
         res = {}
         for k, v in spec.items():
@@ -882,7 +957,12 @@ def _anchor_relative_paths(spec, base_dir, _in_path_container=False):
                     or v.startswith("./")
                     or v.startswith("../")
                 )
-                if is_path_field and not v.startswith("${") and not Path(v).is_absolute() and (base_dir / v).exists():
+                if (
+                    is_path_field
+                    and not v.startswith(("${", "~", "http://", "https://"))
+                    and not Path(v).is_absolute()
+                    and (not is_packaged_base or (base_dir / v).exists())
+                ):
                     res[k] = str((base_dir / v).resolve())
                 else:
                     res[k] = v

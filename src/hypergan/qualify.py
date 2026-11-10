@@ -4,20 +4,21 @@ Provides:
 - Fast (<3 minute) qualification smoke suite testing:
   1. Environment & platform diagnostics (Python, PyTorch, CUDA, device count & models)
   2. Single-device execution smoke test
-  3. Multi-device CPU Gloo replicated execution
+  3. Multi-device CPU Gloo replicated execution through the product path
+     (``replicated_execution.run_train``: ReplicatedExecution, the worker broker, run_controller)
   4. Multi-device CUDA NCCL replicated execution (when >= 2 CUDA GPUs available)
   5. Pluggable learning aggregation strategies (gradient_allreduce, parameter_average, pseudo_gradient)
   6. Multi-node topology over a TCP rendezvous, simulated on one host (both node ranks
      run as local processes; separate hosts and the multi-node launcher are not exercised)
   7. Checkpoint compatibility smoke test
-- Standardized machine-readable JSON receipt emitter following PROJECT.md § Interface
-  Contracts (schema_version 1). ``receipt_sha256`` is an unkeyed SHA-256 checksum of the
-  receipt's own content: it detects accidental corruption or truncation, but anyone who
-  edits a receipt can recompute it, so it is not a signature or tamper proof.
+- Standardized machine-readable JSON receipt (schema_version 1) whose contract is what
+  ``validate_qualification_receipt`` checks. ``receipt_sha256`` is an unkeyed SHA-256
+  checksum of the receipt's own content: it detects accidental corruption or truncation,
+  but anyone who edits a receipt can recompute it, so it is not a signature or tamper proof.
 - Receipt and suite statuses: ``passed``, ``failed``, ``skipped`` (nothing could run,
   e.g. no GPUs) and ``dry_run`` (``--dry-run``: nothing ran). Only suites that actually
   ran and checked their result report ``passed``.
-- Worker subprocess logic for isolated distributed execution
+- One process per rank for the multi-rank suites, running ``python -m hypergan.qualify_worker``
 - CLI driver `run_qualification_cli` for `hypergan qualify`
 """
 from __future__ import annotations
@@ -39,8 +40,10 @@ from typing import Any, Callable, Dict, List, Optional, TextIO, Tuple
 import uuid
 
 MAX_QUALIFICATION_SECONDS: float = 180.0
-# Ceiling for one multi-rank worker job; the remaining qualification budget lowers it.
+# Ceilings for one multi-rank worker job and one product-path training job; the remaining
+# qualification budget lowers them.
 RANK_TIMEOUT_SECONDS: float = 35.0
+PRODUCT_PATH_TIMEOUT_SECONDS: float = 60.0
 RECEIPT_STATUSES: Tuple[str, ...] = ("passed", "failed", "skipped", "dry_run")
 
 
@@ -86,9 +89,12 @@ def summarize_suite_status(suites: List[Dict[str, Any]]) -> str:
 
 
 def validate_qualification_receipt(receipt: Dict[str, Any]) -> None:
-    """Verify that a qualification receipt satisfies PROJECT.md § Interface Contracts.
+    """Verify that a qualification receipt satisfies the receipt contract (schema_version 1).
 
-    Raises ReceiptValidationError on the first violation.
+    The contract is exactly what this function checks: the required keys, their types,
+    statuses from RECEIPT_STATUSES, the receipt_sha256 checksum, the 3-minute limit for
+    anything but a failure, and an overall status that agrees with the suites. Raises
+    ReceiptValidationError on the first violation.
     """
     def check(condition: Any, message: str) -> None:
         if not condition:
@@ -250,139 +256,31 @@ def _cuda_device_mask(devices: List[int]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Worker Subprocess Driver Script
+# Qualification Recipe & Rank Worker
 # ---------------------------------------------------------------------------
 
-WORKER_DRIVER_CODE = r'''
-from datetime import timedelta
-import json
-from pathlib import Path
-import sys
-import torch
-import torch.distributed as dist
+# Each multi-rank suite runs one ``python -m hypergan.qualify_worker`` process per rank.
+WORKER_MODULE = "hypergan.qualify_worker"
 
-from hypergan.config import resolve_config
-from hypergan.distributed_training import ReplicatedTrainer
-from hypergan.distributed_checkpoints import save_distributed_checkpoint, restore_distributed_checkpoint
 
-mode = sys.argv[1]
-rank = int(sys.argv[2])
-world_size = int(sys.argv[3])
-init_method = sys.argv[4]
-backend = sys.argv[5]
-out_file = Path(sys.argv[6])
-extra_json = sys.argv[7] if len(sys.argv) > 7 else "{}"
-extra = json.loads(extra_json)
+def worker_command() -> List[str]:
+    """argv prefix that starts one rank; the rank's own arguments follow it."""
+    return [sys.executable, "-m", WORKER_MODULE]
 
-steps = extra.get("steps", 2)
-agg_cfg = extra.get("aggregation", {"strategy": "gradient_allreduce", "sync_every_steps": 1})
-nodes = extra.get("nodes", 1)
-ranks_per_node = extra.get("ranks_per_node", world_size // nodes)
-node_rank = rank // ranks_per_node
-run_dir_str = extra.get("run_dir")
 
-if backend == "nccl":
-    avail_gpus = torch.cuda.device_count()
-    if avail_gpus < world_size:
-        raise RuntimeError(f"Qualification requires {world_size} distinct GPUs; found {avail_gpus}")
-    local_dev = rank
-    torch.cuda.set_device(local_dev)
-    torch.set_num_threads(1)
-    torch.use_deterministic_algorithms(True)
-    torch.backends.cuda.matmul.allow_tf32 = False
-    torch.backends.cudnn.allow_tf32 = False
-else:
-    torch.set_num_threads(1)
-
-dist.init_process_group(
-    backend,
-    init_method=init_method,
-    rank=rank,
-    world_size=world_size,
-    timeout=timedelta(seconds=25),
-)
-
-try:
-    dev_name = "cuda" if backend == "nccl" else "cpu"
-    batch_size = 4 * world_size
-    cfg = resolve_config({
+def qualification_recipe(device: str, steps: int) -> Dict[str, Any]:
+    """The toy two-dimensional recipe every qualification suite trains."""
+    return {
         'components': {
             'generator': {'factory': 'mlp', 'args': {'input_dim': 4, 'output_dim': 2, 'hidden': [8]}, 'inputs': {'x': 'latent'}},
             'discriminator': {'factory': 'linear', 'args': {'in_features': 2, 'out_features': 1, 'bias': False}, 'inputs': {'input': 'candidate'}},
         },
-        'prior': {'args': {'num_particles': max(16, batch_size), 'z_dim': 4}},
+        'prior': {'args': {'num_particles': 16, 'z_dim': 4}},
         'gradient_penalty': {'lazy_k': 2, 'kappa': 0.01},
-        'training': {'steps': steps + 2, 'batch_size': batch_size, 'device': dev_name, 'seed': 42},
+        'training': {'steps': steps, 'batch_size': 8, 'device': device, 'seed': 42},
         'sampling': {'count': 4},
-    })
-
-    execution = {
-        'name': 'cuda-replicated-nccl' if backend == 'nccl' else 'cpu-replicated-gloo',
-        'world_size': world_size,
-        'nodes': nodes,
-        'node_rank': node_rank,
-        'ranks_per_node': ranks_per_node,
-        'rendezvous': init_method,
-        'accumulation_steps': 1,
-        'global_batch_size': batch_size,
-        'local_batch_size': batch_size // world_size,
-        'microbatch_size': batch_size // world_size,
-        'accumulation_algorithm': 'retained-local-graph-v1',
-        'aggregation': agg_cfg,
+        'metrics': {'preset': 'none'},
     }
-
-    raw_data = torch.linspace(-1, 1, batch_size * 2, device=dev_name).reshape(batch_size, 2)
-    ids = torch.arange(batch_size, device=dev_name)
-    local_ids = ids.chunk(world_size)[rank]
-    local_data = raw_data.chunk(world_size)[rank]
-
-    trainer = ReplicatedTrainer(
-        cfg, world_size=world_size, accumulation_steps=1, nodes=nodes,
-        node_rank=node_rank, ranks_per_node=ranks_per_node, rendezvous=init_method,
-        execution=execution,
-    )
-
-    losses = []
-    weight_history = []
-    last_batch = None
-    for step in range(1, steps + 1):
-        m, last_batch = trainer.update({'real': local_data}, (trainer.prior.z[local_ids], local_ids))
-        losses.append({"step": step, "d_loss": float(m["d_loss"]), "g_loss": float(m["g_loss"])})
-        weights = {k: v.detach().cpu().tolist() for k, v in trainer.graph.state_dict().items()}
-        weight_history.append(weights)
-
-    out_data = {
-        "rank": rank,
-        "node_rank": node_rank,
-        "passed": True,
-        "losses": losses,
-        "final_weights": weight_history[-1] if weight_history else {},
-        "weight_history": weight_history,
-    }
-
-    if mode == "checkpoint" and run_dir_str:
-        run_dir = Path(run_dir_str)
-        ckpt_path = save_distributed_checkpoint(
-            run_dir, trainer, last_batch,
-            {"run_id": "qual-ckpt", "attempt_id": "att-1", "next_sample_sequence": 2}
-        )
-        fresh_trainer = ReplicatedTrainer(
-            cfg, world_size=world_size, accumulation_steps=1, nodes=nodes,
-            node_rank=node_rank, ranks_per_node=ranks_per_node, rendezvous=init_method,
-            execution=execution,
-        )
-        restored_path, info, _ = restore_distributed_checkpoint(
-            run_dir, fresh_trainer, {"run_id": "qual-ckpt"}
-        )
-        if fresh_trainer.step != steps:
-            raise RuntimeError(f"Restored trainer is at step {fresh_trainer.step}, expected {steps}")
-        out_data["checkpoint_verified"] = True
-
-    out_file.write_text(json.dumps(out_data))
-finally:
-    dist.destroy_process_group()
-'''
-
 
 # Known qualification test suites (filter names; matching is by substring)
 VALID_SUITES = {
@@ -489,8 +387,6 @@ class QualificationRunner:
             raise TimeoutError(f"Qualification timeout of {self.timeout}s exhausted before ranks could start")
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
-            script = tmp / "worker.py"
-            script.write_text(WORKER_DRIVER_CODE)
 
             port = get_free_tcp_port()
             init_method = f"tcp://127.0.0.1:{port}"
@@ -506,7 +402,8 @@ class QualificationRunner:
 
             out_files = [tmp / f"out_{r}.json" for r in range(world_size)]
             env_base = os.environ.copy()
-            # The directory that holds the hypergan package: src/ in a checkout, site-packages when installed.
+            # Put this hypergan first so `-m hypergan.qualify_worker` runs the same copy:
+            # src/ in a checkout, site-packages when installed.
             package_root = str(Path(__file__).resolve().parents[1])
             env_base["PYTHONPATH"] = package_root + os.pathsep + env_base.get("PYTHONPATH", "")
             if backend == "nccl":
@@ -519,8 +416,9 @@ class QualificationRunner:
             try:
                 for r in range(world_size):
                     env = env_base.copy()
-                    cmd = [
-                        sys.executable, str(script),
+                    if backend == "nccl" and cuda_devices:
+                        env["CUDA_VISIBLE_DEVICES"] = str(cuda_devices[r % len(cuda_devices)])
+                    cmd = worker_command() + [
                         mode, str(r), str(world_size), init_method, backend, str(out_files[r]), extra_str
                     ]
                     # Files, not pipes: a rank blocked on a full pipe would stall its peers.
@@ -575,19 +473,44 @@ class QualificationRunner:
         }
 
     def _run_suite_cpu_replicated_gloo(self, env_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Suite 2: Multi-device CPU Gloo replicated execution."""
+        """Suite 2: two CPU Gloo ranks through the product path.
+
+        Trains with ``replicated_execution.run_train`` (ReplicatedExecution, the
+        CPUWorkerService broker and run_controller), the path a cpu-replicated-gloo
+        profile takes, then compares the replicas in the published distributed checkpoint.
+        """
         t0 = time.monotonic()
         if self.dry_run:
             return self._dry_run_result("cpu_replicated_gloo")
-        results = self._run_subprocess_ranks(backend="gloo", world_size=2, steps=2)
-        _require(len(results) == 2 and all(r.get("passed") for r in results), "CPU Gloo ranks did not all report success")
-        w0, w1 = results[0]["final_weights"], results[1]["final_weights"]
-        _require(w0 == w1, "CPU Gloo replica weights diverged")
+        import torch
+        from .replicated_execution import run_train
+        budget = min(PRODUCT_PATH_TIMEOUT_SECONDS, self._remaining())
+        if budget <= 0:
+            raise TimeoutError(f"Qualification timeout of {self.timeout}s exhausted before the job could start")
+        world_size, steps = 2, 2
+        profile = {"schema_version": 1,
+                   "execution": {"name": "cpu-replicated-gloo", "world_size": world_size, "accumulation_steps": 1}}
+        policy = {"startup_timeout": budget, "command_timeout": budget,
+                  "collective_timeout": min(15.0, budget), "total_timeout": budget}
+        with tempfile.TemporaryDirectory() as td:
+            result = run_train(qualification_recipe("cpu", steps=steps), Path(td) / "run", profile=profile,
+                               checkpoint_every=steps, service_policy=policy)
+            _require(result.get("status") == "complete" and result.get("steps") == steps,
+                     f"CPU Gloo job ended {result.get('status')!r} at step {result.get('steps')!r}, expected complete at {steps}")
+            checkpoint = Path(result["checkpoint_path"])
+            states = [torch.load(checkpoint / f"rank-{rank:05d}.pt", weights_only=True) for rank in range(world_size)]
+        for key in ("graph", "prior", "ema_graph", "ema_prior"):
+            reference = states[0][key]
+            for rank, state in enumerate(states[1:], start=1):
+                _require(state[key].keys() == reference.keys()
+                         and all(torch.equal(state[key][name], reference[name]) for name in reference),
+                         f"CPU Gloo replica {key} diverged between rank 0 and rank {rank}")
         return {
             "name": "cpu_replicated_gloo",
             "status": "passed",
             "duration_seconds": round(time.monotonic() - t0, 4),
-            "details": {"world_size": 2, "steps": 2, "consensus": True},
+            "details": {"world_size": world_size, "steps": steps, "consensus": True,
+                        "path": "replicated_execution.run_train (ReplicatedExecution, CPUWorkerService, run_controller)"},
         }
 
     def _run_suite_cuda_replicated_nccl(self, env_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

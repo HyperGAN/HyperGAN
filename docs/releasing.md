@@ -5,8 +5,10 @@ HyperGAN is published to PyPI as `hypergan`. The package version is declared in
 `pyproject.toml`.
 
 `develop` holds upcoming work; `master` reflects the source published to PyPI.
-Prepare the version, `CHANGELOG.md` (rename its **Unreleased** section to the
-new version), and `README.md` on `develop`, verify CI, merge into `master`, and publish from the verified
+Prepare the version, `CHANGELOG.md` (move **Unreleased** entries under a new
+`## <version> — YYYY-MM-DD` heading while keeping an empty `## Unreleased`
+section at the top, as verified by `test_repository_consistency.py`), and
+`README.md` on `develop`, verify CI, merge into `master`, and publish from the verified
 `master` commit.
 
 ## CI
@@ -20,7 +22,7 @@ and release workflow calls against an immutable tagged source SHA:
   ParticleGAN-free environment, runs `tests/foundation` against the installed
   wheel outside the checkout, and verifies clean sdist rebuilds.
 - **CPU reference (`ubuntu-latest`, Python 3.12):**
-  Installs the tested CPU runtime (`[train,image,cifar,web,test]`) and runs
+  Installs the tested CPU runtime (`[train,image,cifar,fid,web,test]`) and runs
   `tests/reference`, `tests/unit`, `tests/playbooks`, and `tests/e2e` outside the
   checkout.
 - **Heavy lightweight & Heavy CPU reference:**
@@ -63,12 +65,12 @@ token. Configure the PyPI Trusted Publisher at
 
    ```sh
    RELEASE_SHA=$(git rev-parse master)
-   gh release create v2.0.0a3 --prerelease --repo HyperGAN/HyperGAN \
-     --target "$RELEASE_SHA" --title "HyperGAN 2.0.0a3" \
-     --notes-file /tmp/hypergan-2.0.0a3-release-notes.md
+   gh release create v2.0.0 --repo HyperGAN/HyperGAN \
+     --target "$RELEASE_SHA" --title "HyperGAN 2.0.0" \
+     --notes-file /tmp/hypergan-2.0.0-release-notes.md
    ```
 
-   Use `--prerelease` for alpha and beta releases; omit it for a stable release.
+   Omit `--prerelease` for a stable release; pass `--prerelease` for alpha and beta pre-releases.
 
    Publishing the release triggers `release.yml`, which validates that the tag
    matches `v<__version__>`, runs `ci.yml` against the immutable `source_sha`,

@@ -493,7 +493,15 @@ export_bundle = "on_eval"         # "on_eval" | "on_checkpoint" | "never"
 | `keep_last` | `int` | Number of most recent complete checkpoints to retain during pruning (default `3`). |
 | `keep_every` | `int` | Milestone step interval whose checkpoints are permanently retained (default `50000`). |
 | `keep_best` | `int` / `table` | Retain the checkpoints of the `count` best evaluations of the run's primary metric (`{ metric = "fid50k_train", mode = "min" | "max", count = 2 }`, or an integer `count` shorthand for `fid50k_train`). `count` defaults to `2`, also when the table names only `metric` or `mode`. Set `false` or `0` to disable. |
-| `export_bundle` | `string` | Automatic standalone EMA inference bundle (`model.pt`) export policy (`"on_eval"`, `"on_checkpoint"`, or `"never"`). |
+| `export_bundle` | `string` | Automatic standalone EMA inference bundle export policy (`"on_eval"` default, `"on_checkpoint"`, or `"never"`). Atomically writes `<run_dir>/model.pt` and `<run_dir>/model.sha256` on completed interval evaluations (`"on_eval"`) or on durable training checkpoints (`"on_checkpoint"`); `"never"` disables automatic in-run bundle export (`hypergan export` remains available at any time). |
+
+**Aligning evaluation and checkpoint cadences.** `keep_best` retains durable
+training checkpoints at the steps where the primary metric achieved its best
+scores; asynchronous snapshot evaluations do not save full optimizer/RNG
+training checkpoints on their own. When `keep_best` is used, set
+`evaluations.<id>.every` to a multiple of `checkpoint_every` (for example
+`checkpoint_every = 1000` and `every = 10000`) so every evaluated step has a
+full resumable training checkpoint on disk.
 
 **Which metric is "best".** `keep_best` retention, `--checkpoint best`, and the
 `best` entry of `summary.json` (shown by `hypergan status`) all rank one primary

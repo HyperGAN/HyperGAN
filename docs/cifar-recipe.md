@@ -14,13 +14,13 @@ share authorship. These source references remain for reproducibility; the existi
 components, not a redistribution or relicensing of pretrained weights or data.
 
 HyperGAN packages canonical production CIFAR-10 recipes directly in the wheel:
-- `cifar10-transgan`: CIFAR-10 TransGAN generator paired with pure HNDL multi-scale discriminator, trained with ParticleGAN latent particle table.
+- `cifar10-transgan`: Pure-transformer CIFAR-10 TransGAN generator and scratch multi-scale HNDL transformer discriminator, trained with a ParticleGAN latent mixture prior.
 - `cifar10-tiny-transformer`: Lightweight transformer generator paired with frozen ResNet-18 feature critic.
 - [`cifar-pretrained-sagan.toml`](../examples/archive/cifar-pretrained-sagan.toml): Historical ablation recipe in the archive.
 
-Install `hypergan[all]` or `hypergan[train,image,web,fid]` with a matching CUDA PyTorch/TorchVision installation. CIFAR-10 batches and pretrained ResNet-18 backbone weights (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand. Missing files or corrupt checksums fail explicitly.
+Install `hypergan[all]` or `hypergan[train,image,cifar,web,fid]` with a matching CUDA PyTorch/TorchVision installation. Prepare the verified CIFAR-10 batches once into `~/.hypergan/cache/cifar10` with `hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10`; pretrained Inception-v3 (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) and ResNet-18 (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) weights are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand (or verified strictly offline when `HYPERGAN_OFFLINE=1`). Missing files or corrupt checksums fail explicitly.
 
-Both CIFAR examples define the complete discriminator in
+The ResNet-18 feature-critic CIFAR examples define the complete discriminator in
 [`networks/cifar-discriminator-32.hndl`](../examples/networks/cifar-discriminator-32.hndl)
 with `factory = "hndl"`. Its three pixel residual blocks, 16px attention,
 64px bilinear feature resize, ImageNet normalization, fixed zero-image context,
@@ -39,14 +39,33 @@ remains available for saved recipes and the separate 256px configuration.
 
 ## CLI walkthrough
 
-From the repository checkout, install the optional dependencies into your chosen
+### Packaged `cifar10-transgan` workflow (zero-copy)
+
+With `hypergan[all]` (or `hypergan[train,image,cifar,web,fid]`) installed, acquire and SHA-256 verify CIFAR-10 into `~/.hypergan/cache/cifar10`, then run the packaged `cifar10-transgan` recipe directly without copying `.toml` or `.hndl` files:
+
+```sh
+hypergan download-data cifar10 --info
+hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10
+hypergan validate cifar10-transgan
+hypergan train cifar10-transgan --steps 200000
+```
+
+During interval FID evaluations, HyperGAN downloads and SHA-256 verifies the pinned Inception-v3 weights (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) into `~/.hypergan/cache/` on demand. Once CIFAR-10 and the required weight files are cached under `~/.hypergan/cache/`, set `HYPERGAN_OFFLINE=1` for air-gapped or strictly offline runs:
+
+```sh
+HYPERGAN_OFFLINE=1 hypergan train cifar10-transgan --steps 200000
+```
+
+### Historical `cifar-pretrained-sagan` ablation walkthrough
+
+From a repository checkout, install the optional dependencies into your chosen
 CUDA environment with `python -m pip install '.[train,cifar,web,fid]'`.
-Copy `examples/cifar-pretrained-sagan.toml` to `cifar.toml`, keeping its relative
-HNDL file references valid (copy the referenced files and adjust their paths if
+Copy `examples/archive/cifar-pretrained-sagan.toml` to `cifar.toml`, keeping its relative
+HNDL file references valid (copy `examples/networks/` alongside it or adjust `hndl` paths if
 moving the recipe). Put the already
 obtained official Python-format CIFAR batches under `./data/cifar-10-batches-py/`,
 or acquire and verify them explicitly with the opt-in downloader before training
-(training itself never downloads data implicitly):
+(training itself never downloads dataset archives implicitly):
 
 ```sh
 hypergan download-data cifar10 --info
@@ -139,8 +158,8 @@ still receive their adversarial gradients. The prior regularizer sees all raw
 rows. Adam uses fused PyTorch updates, G/E learning rate 0.0003, D 0.00045, prior
 0.003, G/D betas `(0, .999)`, prior betas `(.5, .999)`, and constant learning rate.
 The bounded candidate penalty is evaluated every eighth update. EMA is `.995`.
-The explicit independent-draw/fused policy currently requires native execution;
-replicated execution rejects that unsupported configuration.
+Multi-GPU replicated execution (for example `--devices 0,1` with `accumulation_steps = 1`)
+supports `phase_draws = "independent"`, execution-device data RNG, and fused Adam updates.
 
 For FID reference batches, use `hypergan.image_data:CIFAR10Data` with
 `split="train"`, `sampling="sequential"` and `horizontal_flip=false`.
@@ -246,8 +265,8 @@ paper or a claimed solution to collapse.
 Use the same local data and checkpoint paths as the baseline. Start a new run:
 
 ```sh
-hypergan validate examples/cifar-transgan.toml
-hypergan train examples/cifar-transgan.toml --run-dir runs/cifar-transgan \
+hypergan validate examples/archive/cifar-transgan.toml
+hypergan train examples/archive/cifar-transgan.toml --run-dir runs/cifar-transgan \
   --preview-every 100 --checkpoint-every 1000
 ```
 

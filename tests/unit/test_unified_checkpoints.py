@@ -271,3 +271,26 @@ def test_checkpoint_provenance_caches_runtime_package_versions(monkeypatch):
     second = distributed_checkpoint_identity(trainer)
     assert second == first
     assert second["runtime"]["hypergan"] == first["runtime"]["hypergan"]
+
+
+def test_rank_shard_serialization_supports_high_resolution_batches():
+    """256x256+ rank-local batches (e.g. [32, 4, 256, 256] > 32 MiB) must serialize and deserialize cleanly."""
+    import torch
+    from hypergan.distributed_checkpoints import _deserialize_shard, _serialize_shard
+
+    shard = {
+        "step": 5,
+        "streams": {"data": b"rng"},
+        "rng": {"cpu": b"cpu"},
+        "data": {"schema_version": 1, "permutation": list(range(1000)), "cursor": 64, "epoch": 1},
+        "last_batch": {
+            "real": torch.zeros(32, 3, 256, 256, dtype=torch.float32),
+            "gray": torch.zeros(32, 1, 256, 256, dtype=torch.float32),
+        },
+    }
+    payload = _serialize_shard(shard)
+    assert len(payload) > 16 * 1024 * 1024
+    restored = _deserialize_shard(payload)
+    assert restored["step"] == 5
+    assert tuple(restored["last_batch"]["real"].shape) == (32, 3, 256, 256)
+    assert tuple(restored["last_batch"]["gray"].shape) == (32, 1, 256, 256)

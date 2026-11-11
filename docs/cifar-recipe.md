@@ -13,9 +13,10 @@ share authorship. These source references remain for reproducibility; the existi
 [MIT license](../LICENSE) applies to the port. This permission covers the source
 components, not a redistribution or relicensing of pretrained weights or data.
 
-HyperGAN packages canonical production CIFAR-10 recipes directly in the wheel:
+HyperGAN packages canonical production CIFAR-10 recipes directly in the wheel (with additional architecture variants in `examples/`):
 - `cifar10-transgan`: Pure-transformer CIFAR-10 TransGAN generator and scratch multi-scale HNDL transformer discriminator, trained with a ParticleGAN latent mixture prior.
-- `cifar10-tiny-transformer`: Lightweight transformer generator paired with frozen ResNet-18 feature critic.
+- `cifar10-tiny-transformer`: Lightweight 64-token transformer generator paired with a scratch convolutional critic.
+- [`cifar10-tiny-transformer-resnet18.toml`](../examples/cifar10-tiny-transformer-resnet18.toml): Lightweight 64-token transformer generator paired with a frozen pretrained ResNet-18 feature critic.
 - [`cifar-pretrained-sagan.toml`](../examples/archive/cifar-pretrained-sagan.toml): Historical ablation recipe in the archive.
 
 Install `hypergan[all]` or `hypergan[train,image,cifar,web,fid]` with a matching CUDA PyTorch/TorchVision installation. Prepare the verified CIFAR-10 batches once into `~/.hypergan/cache/cifar10` with `hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10`; pretrained Inception-v3 (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) and ResNet-18 (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) weights are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand (or verified strictly offline when `HYPERGAN_OFFLINE=1`). Missing files or corrupt checksums fail explicitly.

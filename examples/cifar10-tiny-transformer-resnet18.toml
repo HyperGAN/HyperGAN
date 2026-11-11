@@ -1,0 +1,100 @@
+# CIFAR-10 32x32 Lightweight Transformer Generator + Frozen Pretrained ResNet-18 Critic
+# Generator: 64 spatial tokens (8x8x256), 2 pre-LayerNorm Transformer blocks, nearest upsampling + 3x3 convs (tiny-transformer-generator-32.hndl).
+# Critic: Frozen SHA256-pinned ImageNet ResNet-18 at 64px (layer1/2/3 + fixed context) with 3 trainable feature heads (resnet18-features-discriminator-32.hndl).
+# Formulation: ParticleGAN bispf_optimized (DualNorm) with 16,384-particle MoG prior in z=64.
+format = "hypergan-model/1"
+name = "cifar10-tiny-transformer-resnet18"
+defaults = "particlegan"
+
+[data]
+builtin = "cifar10"
+args = { root = "~/.hypergan/cache/cifar10", split = "train", sampling = "random", horizontal_flip = true }
+
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+hndl = "networks/tiny-transformer-generator-32.hndl"
+input_shape = ["B", 64]
+output_shape = ["B", 3, 32, 32]
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+hndl = "networks/resnet18-features-discriminator-32.hndl"
+input_shape = ["B", 3, 32, 32]
+output_shape = ["B", 1]
+
+[networks.discriminator.args.parameters]
+weights_path = "https://download.pytorch.org/models/resnet18-f37072fd.pth"
+weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 24003
+fixed_sigma = 0.212616428732872
+num_particles = 16384
+z_dim = 64
+sigma_rel = 0.025
+
+[train]
+steps = 200000
+batch_size = 64
+seed = 24002
+device = "cuda"
+initialization = "deterministic_orthogonal"
+phase_draws = "independent"
+data_rng_device = "execution"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+[train.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[checkpoints]
+keep_last = 3
+keep_every = 50000
+keep_best = { metric = "fid50k_train", mode = "min", count = 2 }
+export_bundle = "on_eval"
+
+[sampling]
+count = 64
+seed = 34002
+
+[metrics]
+preset = "standard"
+every_steps = 10
+
+[evaluations.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+inputs = { generated = "generated", reference = "reference" }
+every = 10000
+timeout = 3600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda"
+samples = 50000
+batch_size = 128
+seed = 34002
+
+[evaluations.fid50k_train.args]
+weights_path = "https://github.com/toshas/torch-fidelity/releases/download/v0.2.0/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+
+[evaluations.fid50k_train.data]
+builtin = "cifar10"
+args = { root = "~/.hypergan/cache/cifar10", split = "train", sampling = "sequential", horizontal_flip = false }
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+rows = "full"

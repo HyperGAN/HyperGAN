@@ -58,26 +58,48 @@ def run_cli(*args: str) -> tuple[int, str, str]:
 @pytest.fixture(scope="module")
 def trained_dcgan_fixture(tmp_path_factory):
     """Train a 2-step DCGAN model with real images to verify exports and sampling."""
+    import os
+
     base_dir = tmp_path_factory.mktemp("challenger_m4_dcgan")
-    data_dir = base_dir / "data"
-    data_dir.mkdir()
-    for i in range(4):
-        # Distinct RGB images
-        img = Image.new("RGB", (32, 32), (i * 60, (4 - i) * 50, 128))
-        img.save(data_dir / f"img_{i:02d}.png")
+    state_dir = base_dir / "state"
+    state_dir.mkdir()
+    prev_state = os.environ.get("HYPERGAN_STATE_DIR")
+    prev_cuda_vis = os.environ.get("CUDA_VISIBLE_DEVICES")
+    prev_cuda_order = os.environ.get("CUDA_DEVICE_ORDER")
+    os.environ["HYPERGAN_STATE_DIR"] = str(state_dir)
+    try:
+        data_dir = base_dir / "data"
+        data_dir.mkdir()
+        for i in range(4):
+            # Distinct RGB images
+            img = Image.new("RGB", (32, 32), (i * 60, (4 - i) * 50, 128))
+            img.save(data_dir / f"img_{i:02d}.png")
 
-    proj_dir = base_dir / "proj"
-    rc, _, err = run_cli("new", "--project", str(proj_dir), "--template", "dcgan", "--dataset", str(data_dir), "--device", "cpu")
-    assert rc == 0, f"hypergan new failed: {err}"
+        proj_dir = base_dir / "proj"
+        rc, _, err = run_cli("new", "--project", str(proj_dir), "--template", "dcgan", "--dataset", str(data_dir), "--device", "cpu")
+        assert rc == 0, f"hypergan new failed: {err}"
 
-    cfg = proj_dir / "configs" / "dcgan.toml"
-    rc_t, _, err_t = run_cli("train", str(cfg), "--steps", "2", "-d", "cpu")
-    assert rc_t == 0, f"hypergan train failed: {err_t}"
+        cfg = proj_dir / "configs" / "dcgan.toml"
+        rc_t, _, err_t = run_cli("train", str(cfg), "--steps", "2", "--no-server")
+        assert rc_t == 0, f"hypergan train failed: {err_t}"
 
-    rc_s, out_s, _ = run_cli("status", "--json")
-    assert rc_s == 0
-    run_dir = Path(json.loads(out_s)["run_dir"])
-    assert run_dir.is_dir()
+        rc_s, out_s, _ = run_cli("status", "--json")
+        assert rc_s == 0
+        run_dir = Path(json.loads(out_s)["run_dir"])
+        assert run_dir.is_dir()
+    finally:
+        if prev_state is None:
+            os.environ.pop("HYPERGAN_STATE_DIR", None)
+        else:
+            os.environ["HYPERGAN_STATE_DIR"] = prev_state
+        if prev_cuda_vis is None:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = prev_cuda_vis
+        if prev_cuda_order is None:
+            os.environ.pop("CUDA_DEVICE_ORDER", None)
+        else:
+            os.environ["CUDA_DEVICE_ORDER"] = prev_cuda_order
     return run_dir, base_dir
 
 

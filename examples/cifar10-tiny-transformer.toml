@@ -1,6 +1,8 @@
 # Canonical CIFAR-10 32x32 Generative Transformer Recipe
-# Uses 64 spatial tokens with learned position projections, 2 Transformer blocks, and nearest upsampling.
-# External dataset archive is verified and cached in ~/.hypergan/cache/
+# Generator: 64 spatial tokens (8x8x256), 2 pre-LayerNorm Transformer blocks, nearest upsampling + 3x3 convs.
+# Critic: Frozen SHA256-pinned ImageNet ResNet-18 at 64px (layer1/2/3 + fixed context) with 3 trainable feature heads.
+# Formulation: ParticleGAN bispf_optimized (DualNorm) with 16,384-particle MoG prior in z=64.
+# External dataset archive and pretrained weights are SHA-256 verified and cached in ~/.hypergan/cache/
 format = "hypergan-model/1"
 name = "cifar10-tiny-transformer"
 defaults = "particlegan"
@@ -16,23 +18,15 @@ defaults = "particlegan"
 builtin = "cifar10"
 args = { root = "~/.hypergan/cache/cifar10", split = "train", sampling = "random", horizontal_flip = true }
 
-# [prior] Latent particle distribution
-[prior]
-kind = "particles"
-initialization_seed = 2
-z_dim = 128
-num_particles = 10000
-
-# [networks] Generator and critic network definitions
 [networks.generator]
 role = "generator"
 inputs = { z = "latent" }
-input_shape = { z = ["B", 128] }
+input_shape = ["B", 64]
 output_shape = ["B", 3, 32, 32]
 source = """
-# CIFAR-10 32x32 Generative Transformer
-# 64 spatial tokens with learned position projections, 2 Transformer blocks, nearest upsampling
-h = linear(z, 16384, name="input_projection")
+# CIFAR z=64 -> 64 spatial tokens; two pre-LayerNorm transformer blocks.
+# Each position has its own projection weights, so no position table is needed.
+h = linear(x, 16384, name="input_projection")
 h = reshape(h, 64, 256)
 
 branch = layer_norm(h, name="block0_attention_norm")
@@ -49,6 +43,7 @@ branch = layer_norm(h, name="block1_ffn_norm")
 branch = feed_forward(branch, 512, activation="gelu", dropout=0.0, name="block1_ffn")
 h = add(h, branch)
 
+# Plain nearest-neighbor upsampling and 3x3 convolutions: 8 -> 16 -> 32.
 h = permute(h, 2, 1)
 h = reshape(h, 256, 8, 8)
 h = upsample(h, 2, mode="nearest")
@@ -67,49 +62,123 @@ inputs = { x = "candidate" }
 input_shape = ["B", 3, 32, 32]
 output_shape = ["B", 1]
 source = """
-conv(64, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(128, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(256, kernel_size=4, stride=2, padding=1)
-leaky_relu(0.2)
-conv(1, kernel_size=4, stride=1, padding=0)
-flatten()
+# CIFAR feature-only critic: frozen ResNet18 at 64px, three trainable heads.
+# Preserve CIFAR preprocessing, fixed context, and layer1/2/3 feature heads.
+# No pixel discriminator. Normalize the three remaining scores by sqrt(3).
+context = constant(x, 3, 32, 32)
+
+# Join along batch before normalization: raw zero context is midgray RGB.
+# ResNet preprocessing: (RGB * 0.5 + 0.5 - ImageNet mean) / std.
+feature_batch = concat(x, context, axis=0, name="feature_batch")
+resized = upsample(feature_batch, 2, mode="bilinear", align_corners=False)
+scaled = scale(resized, 0.5)
+half = constant(feature_batch, 3, 1, 1, value=0.5)
+normalized = broadcast_add(scaled, half)
+red, green_blue = split(normalized, 1)
+green, blue = split(green_blue, 1)
+red_bias = constant(red, 1, 1, 1, value=-0.485)
+red = broadcast_add(red, red_bias)
+red = scale(red, 4.3668122270742355)
+green_bias = constant(green, 1, 1, 1, value=-0.456)
+green = broadcast_add(green, green_bias)
+green = scale(green, 4.464285714285714)
+blue_bias = constant(blue, 1, 1, 1, value=-0.406)
+blue = broadcast_add(blue, blue_bias)
+blue = scale(blue, 4.444444444444445)
+normalized = concat(red, green, blue, name="normalized")
+
+# One frozen backbone, one pass at batch 2*B, native 16px / 8px / 4px maps.
+# Frozen BatchNorm uses checkpoint statistics; examples remain independent.
+feature1, feature2, feature3 = pretrained(normalized, ${weights_path},
+    provider="torchvision_resnet18", sha256=${weights_sha256},
+    layers=("layer1", "layer2", "layer3"), trainable=False, name="resnet")
+
+# Candidate + fixed-context feature head 1, native 16px map.
+candidate1, context1 = chunk(feature1, 2, dim=0, name="feature1_split")
+head1 = concat(candidate1, context1, name="feature1_join")
+head1 = conv(head1, 64, kernel_size=1, name="feature1_project")
+head1 = group_norm(head1, 8, name="feature1_norm")
+head1 = leaky_relu(head1, 0.2)
+head1 = conv(head1, 64, kernel_size=3, padding=1, name="feature1_conv")
+head1 = leaky_relu(head1, 0.2)
+head1 = adaptive_avg_pool(head1, 4)
+head1 = flatten(head1)
+score1 = linear(head1, 1, name="feature1_score")
+
+# Candidate + fixed-context feature head 2, native 8px map.
+candidate2, context2 = chunk(feature2, 2, dim=0, name="feature2_split")
+head2 = concat(candidate2, context2, name="feature2_join")
+head2 = conv(head2, 64, kernel_size=1, name="feature2_project")
+head2 = group_norm(head2, 8, name="feature2_norm")
+head2 = leaky_relu(head2, 0.2)
+head2 = conv(head2, 64, kernel_size=3, padding=1, name="feature2_conv")
+head2 = leaky_relu(head2, 0.2)
+head2 = adaptive_avg_pool(head2, 4)
+head2 = flatten(head2)
+score2 = linear(head2, 1, name="feature2_score")
+
+# Candidate + fixed-context feature head 3, native 4px map.
+candidate3, context3 = chunk(feature3, 2, dim=0, name="feature3_split")
+head3 = concat(candidate3, context3, name="feature3_join")
+head3 = conv(head3, 64, kernel_size=1, name="feature3_project")
+head3 = group_norm(head3, 8, name="feature3_norm")
+head3 = leaky_relu(head3, 0.2)
+head3 = conv(head3, 64, kernel_size=3, padding=1, name="feature3_conv")
+head3 = leaky_relu(head3, 0.2)
+head3 = adaptive_avg_pool(head3, 4)
+head3 = flatten(head3)
+score3 = linear(head3, 1, name="feature3_score")
+
+feature_score = concat(score1, score2, score3)
+feature_score = sum(feature_score, 1, keepdim=True)
+out = scale(feature_score, 0.5773502691896258)
 """
 
-# [losses] Adversarial and prior regularization objectives
-[[losses]]
-type = "adversarial"
-critic = "discriminator"
-weight = 1.0
-penalty = 1.0
+[networks.discriminator.args.parameters]
+weights_path = "https://download.pytorch.org/models/resnet18-f37072fd.pth"
+weights_sha256 = "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
 
-[[losses]]
-type = "prior"
+[prior]
+kind = "mog"
+initialization_device = "cpu"
+initialization_seed = 24003
+fixed_sigma = 0.212616428732872
+num_particles = 16384
+z_dim = 64
+sigma_rel = 0.025
 
-# [train] Training steps, batch size, device, and initialization
 [train]
 steps = 200000
 batch_size = 64
-seed = 0
-device = "cuda:0"
+seed = 24002
+device = "cuda"
 initialization = "deterministic_orthogonal"
+phase_draws = "independent"
+data_rng_device = "execution"
+data_seed_offset = 2
+prior_seed_offset = 3
 
-[metrics]
-every_steps = 10
+[train.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
 
-# [checkpoints] Checkpoint retention and EMA export policy
 [checkpoints]
 keep_last = 3
 keep_every = 50000
+keep_best = { metric = "fid50k_train", mode = "min", count = 2 }
 export_bundle = "on_eval"
 
-# [sampling] Periodic sample grid preview configuration
 [sampling]
 count = 64
-seed = 10000
+seed = 34002
 
-# [evaluations.fid50k_train] Periodic FID evaluation against sequential reference distribution
+[metrics]
+preset = "standard"
+every_steps = 10
+
 [evaluations.fid50k_train]
 factory = "hypergan.image_metrics:InceptionFID"
 inputs = { generated = "generated", reference = "reference" }
@@ -117,7 +186,7 @@ every = 10000
 timeout = 3600
 on_error = "fail"
 on_busy = "skip"
-device = "cuda:0"
+device = "cuda"
 samples = 50000
 batch_size = 128
 seed = 34002
@@ -129,3 +198,13 @@ weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129
 [evaluations.fid50k_train.data]
 builtin = "cifar10"
 args = { root = "~/.hypergan/cache/cifar10", split = "train", sampling = "sequential", horizontal_flip = false }
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+rows = "full"

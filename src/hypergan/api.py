@@ -374,6 +374,11 @@ def load(path):
     if path.suffix.lower() == '.pt':
         raise ModelFileError(f'{path} is an exported .pt bundle, not a model file; '
                              'load it with hg.load_bundle(path) or hg.load_inference(path)')
+    if not path.exists():
+        from .config import resolve_packaged_model_path
+        packaged_file = resolve_packaged_model_path(raw)
+        if packaged_file is not None:
+            path = packaged_file
     if not path.exists() and path.suffix.lower() != '.toml':
         try:
             resolved_run = resolve_run_target(raw, allow_latest=(raw == 'latest'))
@@ -381,11 +386,6 @@ def load(path):
                 return _load_stored_run_model(resolved_run)
         except Exception:
             pass
-    if not path.exists():
-        from .config import resolve_packaged_model_path
-        packaged_file = resolve_packaged_model_path(raw)
-        if packaged_file is not None:
-            path = packaged_file
     if path.is_dir():
         if (path / 'model.toml').is_file():
             path = path / 'model.toml'
@@ -2263,7 +2263,13 @@ def describe(path=None, networks=False, write=False) -> ModelDescription:
         else:
             manifest, config = load_model_desc(path)
     else:
-        if path is None or (not Path(path).exists() and not str(path).endswith(".toml")):
+        packaged_file = None
+        if not write and path is not None and not Path(path).exists():
+            from .config import resolve_packaged_model_path
+            packaged_file = resolve_packaged_model_path(path)
+        if packaged_file is not None:
+            resolved_path = packaged_file
+        elif path is None or (not Path(path).exists() and not str(path).endswith(".toml")):
             from .registry import resolve_run_target
             try:
                 resolved_path = resolve_run_target(path)
@@ -2633,7 +2639,12 @@ def _extract_diff_config(target):
         return _clean_diff_dict(target)
     target_str = str(target)
     target_p = Path(target_str)
-    if target_str.endswith(".toml") or (target_p.is_file() and target_p.suffix == ".toml"):
+    if not target_p.exists():
+        from .config import resolve_packaged_model_path
+        packaged_file = resolve_packaged_model_path(target_str)
+        if packaged_file is not None:
+            target_p = packaged_file
+    if target_p.suffix.lower() == ".toml" or target_str.lower().endswith(".toml"):
         if not target_p.is_file():
             raise FileNotFoundError(f"Recipe target '{target_str}' not found")
         m = load(target_p)

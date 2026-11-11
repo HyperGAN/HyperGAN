@@ -491,14 +491,58 @@ def test_local_files_and_existing_runs_take_precedence_over_packaged_names(tmp_p
     loaded_dir = hg.load("gaussian-grid")
     assert hg.resolve(loaded_dir)["training"]["steps"] == 42
 
-    # 3. Unknown bare name still raises FileNotFoundError
+    # 3. Historical runs registered in global runs.json with a packaged recipe name/prefix
+    # must NOT hijack bare packaged model resolution from another working directory, while
+    # slug and explicit path loading still resolve the historical run.
+    other_ws = tmp_path / "other_ws"
+    other_ws.mkdir()
+    prior_run = tmp_path / "runs" / "cifar10-tiny-transformer-resnet18"
+    prior_run.mkdir(parents=True)
+    custom_spec = tomllib.loads((PACKAGED_MODELS_DIR / "gaussian-grid.toml").read_text(encoding="utf-8"))
+    custom_spec["name"] = "cifar10-tiny-transformer-resnet18"
+    custom_spec["train"]["steps"] = 123
+    hg.save(hg.from_dict(custom_spec), prior_run / "model.toml")
+    (prior_run / "manifest.json").write_text(
+        json.dumps(
+            {
+                "run_id": "deadbeef1234567890abcdef12345678",
+                "short_id": "deadbeef",
+                "slug": "cobalt-falcon",
+                "name": "cifar10-tiny-transformer-resnet18",
+                "status": "complete",
+                "steps": 123,
+                "config": hg.resolve(prior_run / "model.toml"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(other_ws)
+    hg.register_run(
+        prior_run,
+        run_id="deadbeef1234567890abcdef12345678",
+        slug="cobalt-falcon",
+        name="cifar10-tiny-transformer-resnet18",
+        status="complete",
+    )
+    expected_tiny = (PACKAGED_MODELS_DIR / "cifar10-tiny-transformer.toml").resolve()
+    loaded_pkg = hg.load("cifar10-tiny-transformer")
+    assert loaded_pkg.path == expected_tiny
+    assert hg.resolve(loaded_pkg)["training"]["steps"] == 200000
+    assert hg.describe("cifar10-tiny-transformer").name == "cifar10-tiny-transformer"
+    diff_res = hg.diff("cifar10-tiny-transformer", "cifar10-transgan")
+    assert diff_res["identical"] is False
+    loaded_by_slug = hg.load("cobalt-falcon")
+    assert loaded_by_slug.path == (prior_run / "model.toml").resolve()
+    assert hg.resolve(loaded_by_slug)["training"]["steps"] == 123
+
+    # 4. Unknown bare name still raises FileNotFoundError
     with pytest.raises(FileNotFoundError):
         hg.load("nonexistent-packaged-recipe-xyz")
 
 
 def test_cifar10_transgan_uses_self_contained_hypergan_cache_paths(tmp_path, monkeypatch):
-    """Fix 4: cifar10-transgan.toml uses builtin='cifar10', root='~/.hypergan/cache/cifar10',
-    and HTTPS Inception weights URL + sha256 matching cifar10-tiny-transformer.toml.
+    """Fix 4: cifar10-transgan.toml and promoted cifar10-tiny-transformer.toml use builtin='cifar10',
+    root='~/.hypergan/cache/cifar10', and SHA-256-pinned HTTPS weights URLs.
     """
     empty_dir = tmp_path / "fresh_dir"
     empty_dir.mkdir()
@@ -506,6 +550,9 @@ def test_cifar10_transgan_uses_self_contained_hypergan_cache_paths(tmp_path, mon
 
     transgan_path = PACKAGED_MODELS_DIR / "cifar10-transgan.toml"
     tiny_path = PACKAGED_MODELS_DIR / "cifar10-tiny-transformer.toml"
+    example_tiny_path = Path(__file__).resolve().parents[2] / "examples" / "cifar10-tiny-transformer.toml"
+
+    assert tiny_path.read_text(encoding="utf-8") == example_tiny_path.read_text(encoding="utf-8")
 
     raw_transgan = tomllib.loads(transgan_path.read_text(encoding="utf-8"))
     raw_tiny = tomllib.loads(tiny_path.read_text(encoding="utf-8"))
@@ -513,6 +560,14 @@ def test_cifar10_transgan_uses_self_contained_hypergan_cache_paths(tmp_path, mon
     assert raw_transgan["data"]["builtin"] == "cifar10"
     assert raw_transgan["data"]["args"]["root"] == "~/.hypergan/cache/cifar10"
     assert raw_transgan["data"]["args"]["root"] == raw_tiny["data"]["args"]["root"]
+
+    tiny_disc_params = raw_tiny["networks"]["discriminator"]["args"]["parameters"]
+    assert tiny_disc_params["weights_path"] == "https://download.pytorch.org/models/resnet18-f37072fd.pth"
+    assert tiny_disc_params["weights_sha256"] == (
+        "f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+    )
+    assert raw_tiny["prior"]["z_dim"] == 64
+    assert raw_tiny["losses"][1] == {"type": "prior", "rows": "full"}
 
     eval_transgan = raw_transgan["evaluations"]["fid50k_train"]
     eval_tiny = raw_tiny["evaluations"]["fid50k_train"]
@@ -530,6 +585,8 @@ def test_cifar10_transgan_uses_self_contained_hypergan_cache_paths(tmp_path, mon
 
     warnings = hg.validate("cifar10-transgan")
     assert isinstance(warnings, list)
+    tiny_warnings = hg.validate("cifar10-tiny-transformer")
+    assert isinstance(tiny_warnings, list)
 
 
 def test_cifar10_transgan_uses_lazy_k_1_and_released_particlegan_guard_settings():

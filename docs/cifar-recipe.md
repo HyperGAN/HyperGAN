@@ -13,10 +13,9 @@ share authorship. These source references remain for reproducibility; the existi
 [MIT license](../LICENSE) applies to the port. This permission covers the source
 components, not a redistribution or relicensing of pretrained weights or data.
 
-HyperGAN packages canonical production CIFAR-10 recipes directly in the wheel (with additional architecture variants in `examples/`):
+HyperGAN packages canonical production CIFAR-10 recipes directly in the wheel (also mirrored in `examples/`):
+- `cifar10-tiny-transformer`: Lightweight 64-token transformer generator paired with a frozen pretrained ResNet-18 multi-scale feature critic and a 16,384-particle ParticleGAN latent mixture prior (`z = 64`), achieving `FID-50k = 14.56` in 15,000 steps (`3.13 steps/s` on 2× RTX A6000 at `batch_size = 256`).
 - `cifar10-transgan`: Pure-transformer CIFAR-10 TransGAN generator and scratch multi-scale HNDL transformer discriminator, trained with a ParticleGAN latent mixture prior.
-- `cifar10-tiny-transformer`: Lightweight 64-token transformer generator paired with a scratch convolutional critic.
-- [`cifar10-tiny-transformer-resnet18.toml`](../examples/cifar10-tiny-transformer-resnet18.toml): Lightweight 64-token transformer generator paired with a frozen pretrained ResNet-18 feature critic.
 - [`cifar-pretrained-sagan.toml`](../examples/archive/cifar-pretrained-sagan.toml): Historical ablation recipe in the archive.
 
 Install `hypergan[all]` or `hypergan[train,image,cifar,web,fid]` with a matching CUDA PyTorch/TorchVision installation. Prepare the verified CIFAR-10 batches once into `~/.hypergan/cache/cifar10` with `hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10`; pretrained Inception-v3 (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) and ResNet-18 (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) weights are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand (or verified strictly offline when `HYPERGAN_OFFLINE=1`). Missing files or corrupt checksums fail explicitly.
@@ -40,21 +39,21 @@ remains available for saved recipes and the separate 256px configuration.
 
 ## CLI walkthrough
 
-### Packaged `cifar10-transgan` workflow (zero-copy)
+### Packaged CIFAR-10 workflows (zero-copy)
 
-With `hypergan[all]` (or `hypergan[train,image,cifar,web,fid]`) installed, acquire and SHA-256 verify CIFAR-10 into `~/.hypergan/cache/cifar10`, then run the packaged `cifar10-transgan` recipe directly without copying `.toml` or `.hndl` files:
+With `hypergan[all]` (or `hypergan[train,image,cifar,web,fid]`) installed, acquire and SHA-256 verify CIFAR-10 into `~/.hypergan/cache/cifar10`, then run either packaged CIFAR-10 recipe (`cifar10-tiny-transformer` for the fast frozen ResNet-18 critic + 64-token transformer generator, or `cifar10-transgan` for pure-transformer generation and discrimination) directly without copying `.toml` or `.hndl` files:
 
 ```sh
 hypergan download-data cifar10 --info
 hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10
-hypergan validate cifar10-transgan
-hypergan train cifar10-transgan --steps 200000
+hypergan validate cifar10-tiny-transformer
+hypergan train cifar10-tiny-transformer --steps 200000
 ```
 
-During interval FID evaluations, HyperGAN downloads and SHA-256 verifies the pinned Inception-v3 weights (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) into `~/.hypergan/cache/` on demand. Once CIFAR-10 and the required weight files are cached under `~/.hypergan/cache/`, set `HYPERGAN_OFFLINE=1` for air-gapped or strictly offline runs:
+During training and interval FID evaluations, HyperGAN downloads and SHA-256 verifies the pinned ResNet-18 (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) and Inception-v3 (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) weights into `~/.hypergan/cache/` on demand. Once CIFAR-10 and the required weight files are cached under `~/.hypergan/cache/`, set `HYPERGAN_OFFLINE=1` for air-gapped or strictly offline runs:
 
 ```sh
-HYPERGAN_OFFLINE=1 hypergan train cifar10-transgan --steps 200000
+HYPERGAN_OFFLINE=1 hypergan train cifar10-tiny-transformer --steps 200000
 ```
 
 ### Historical `cifar-pretrained-sagan` ablation walkthrough

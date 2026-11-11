@@ -12,9 +12,8 @@ This directory provides canonical, minimal, verified recipes and scripts for tra
 | [`image-folder-dcgan.toml`](image-folder-dcgan.toml) | 128×128 DCGAN for custom image datasets with GroupNorm and alpha compositing | Local image folder | CPU / GPU |
 | [`image-folder-tiny-transformer.toml`](image-folder-tiny-transformer.toml) | 128×128 Tiny Transformer generator with multi-scale ResNet-18 critic | Local image folder | GPU |
 | [`image-folder-colorization.toml`](image-folder-colorization.toml) | 128×128 Conditional Colorizer (L → AB) with exact polytope luminance lock | Local image folder | GPU |
-| [`cifar10-tiny-transformer.toml`](cifar10-tiny-transformer.toml) | 32×32 CIFAR-10 Tiny Transformer generator with convolutional critic | `hypergan download-data cifar10` | GPU |
-| [`cifar10-tiny-transformer-resnet18.toml`](cifar10-tiny-transformer-resnet18.toml) | 32×32 CIFAR-10 Tiny Transformer generator with frozen ResNet-18 feature critic | `hypergan download-data cifar10` | GPU |
-| [`cifar10-transgan.toml`](cifar10-transgan.toml) | 32×32 CIFAR-10 Pure Transformer TransGAN (winning benchmark recipe) | `hypergan download-data cifar10` | GPU |
+| [`cifar10-tiny-transformer.toml`](cifar10-tiny-transformer.toml) | 32×32 CIFAR-10 Tiny Transformer generator with frozen ResNet-18 feature critic (`FID-50k = 14.56`) | `hypergan download-data cifar10` | GPU |
+| [`cifar10-transgan.toml`](cifar10-transgan.toml) | 32×32 CIFAR-10 Pure Transformer TransGAN (scratch multi-scale transformer critic) | `hypergan download-data cifar10` | GPU |
 
 ## Directory Structure
 

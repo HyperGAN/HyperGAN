@@ -21,7 +21,13 @@ from .config import config_values, fingerprint, resolve_config
 from .distributed import Collectives
 from .recipes import detach, move_tensors
 from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, noise_levels, schedule_learning_rates, update_ema, with_noise
-from .objective_program import _bound_scores, _sum_tensors, score_candidate
+from .objective_program import (
+    _bound_scores,
+    _rhbi_generator_context,
+    _rhbi_simplex_loss,
+    _sum_tensors,
+    score_candidate,
+)
 
 DEFAULT_BUCKET_CAP_BYTES = 25 * 1024 * 1024  # 25 MB default bucket size
 
@@ -567,9 +573,68 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._phase(name + ' optimizer state', lambda: self._finite_optimizer(optimizer))
 
     def _logits(self, real, fake):
-        # The supported loss pairs real and fake rows, so rank-local
-        # logits suffice; the parameter-gradient mean forms the global loss.
+        # Row-separable losses use rank-local logits; coupled Sinkhorn/RHBI losses
+        # gather global pairs via _gather_rhbi_pair before loss evaluation.
         return real, fake
+
+    def _all_gather_coupled(self, tensor):
+        """Gather ``[B_local, ...]`` across ranks into ``[B_global, ...]``, preserving local autograd."""
+        detached = tensor.detach().contiguous()
+        shards = [torch.empty_like(detached) for _ in range(self.world_size)]
+        dist.all_gather(shards, detached)
+        if tensor.requires_grad:
+            shards[self.rank] = tensor
+        return torch.cat(shards, dim=0)
+
+    def _scale_coupled_backward(self, loss):
+        """Preserve global forward loss value while scaling local backward cotangent for mean all-reduce."""
+        if loss.requires_grad and self.world_size > 1:
+            return loss * self.world_size + loss.detach() * (1.0 - self.world_size)
+        return loss
+
+    @staticmethod
+    def _uses_coupled_critic_loss(term):
+        return hasattr(term.gan, 'rhbi') and (
+            getattr(term.gan, 'critic_weight', 0.0) > 0.0
+            or getattr(term.gan, 'fibre_rel_blend', 0.0) > 0.0
+        )
+
+    @staticmethod
+    def _uses_coupled_generator_loss(term):
+        return hasattr(term.gan, 'rhbi') and getattr(term.gan.rhbi, 'weight', 0.0) > 0.0
+
+    def _gather_rhbi_pair(self, fake_score, real_score):
+        """Gather critic logits and RHBI input/conditioning captures across all ranks."""
+        from particlegan._rhbi.critic import _lookup_rhbi_capture_parts
+
+        rec = getattr(self.opt_d, 'record', None)
+        x_f, cond_f, rec_f, cc_f, parts_f = _lookup_rhbi_capture_parts(fake_score, rec)
+        x_r, cond_r, rec_r, cc_r, parts_r = _lookup_rhbi_capture_parts(
+            real_score, rec_f if rec_f is not None else rec
+        )
+        eff_rec = rec_f if rec_f is not None else (rec_r if rec_r is not None else rec)
+        global_f_sc = self._all_gather_coupled(fake_score)
+        global_r_sc = self._all_gather_coupled(real_score)
+        if x_f is not None and x_r is not None:
+            global_x_f = self._all_gather_coupled(x_f)
+            global_x_r = self._all_gather_coupled(x_r)
+            global_cond_f = self._all_gather_coupled(cond_f) if cond_f is not None else None
+            global_cond_r = self._all_gather_coupled(cond_r) if cond_r is not None else None
+            global_parts_f = tuple(self._all_gather_coupled(p) for p in parts_f) if parts_f is not None else None
+            global_parts_r = tuple(self._all_gather_coupled(p) for p in parts_r) if parts_r is not None else None
+            global_f_sc._rhbi_input = global_x_f
+            global_f_sc._rhbi_cond = global_cond_f
+            global_f_sc._rhbi_cont_cond = cc_f
+            global_f_sc._rhbi_parts = global_parts_f
+            global_f_sc._rhbi_record = eff_rec
+            if getattr(fake_score, '_rhbi_thermally_scaled', False):
+                global_f_sc._rhbi_thermally_scaled = True
+            global_r_sc._rhbi_input = global_x_r
+            global_r_sc._rhbi_cond = global_cond_r
+            global_r_sc._rhbi_cont_cond = cc_r
+            global_r_sc._rhbi_parts = global_parts_r
+            global_r_sc._rhbi_record = eff_rec
+        return global_f_sc, global_r_sc
 
     @staticmethod
     def _critic_checked_parameters(terms):
@@ -825,13 +890,71 @@ class ReplicatedTrainer(ReferenceTrainer):
             return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
 
         self.opt_d.zero_grad(set_to_none=True)
-        with self._folded('discriminator backward'):
-            d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
-                'discriminator forward and penalty', discriminator_forward)
-            critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
-            fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
-            self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
-            self._phase('discriminator backward', d_loss.backward)
+        coupled_d = bool(
+            getattr(self.aggregation_strategy, 'reduces_gradients', False)
+            and any(self._uses_coupled_critic_loss(term) for term in terms)
+        )
+        if coupled_d:
+            def discriminator_scores_only():
+                scored = []
+                for term in terms:
+                    scored.append(_bound_scores(
+                        term, context, self.graph, "critic", term.critic_phase, first="real", noise=noise))
+                return scored
+
+            with self._folded('discriminator scores'):
+                d_scored = self._phase('discriminator scores', discriminator_scores_only)
+            d_global_pairs = [
+                self._gather_rhbi_pair(f_sc, r_sc) if self._uses_coupled_critic_loss(term) else None
+                for term, (_, _, r_sc, f_sc) in zip(terms, d_scored)
+            ]
+
+            def discriminator_coupled_loss():
+                unweighted = []
+                weighted = []
+                penalties = []
+                last_fake = None
+                last_real = None
+                last_r_sc = None
+                last_f_sc = None
+                for term, (r_s, f_s, r_sc, f_sc), g_pair in zip(terms, d_scored, d_global_pairs):
+                    if g_pair is not None:
+                        gf_sc, gr_sc = g_pair
+                        loss = self._scale_coupled_backward(term.gan.d_loss(gr_sc, gf_sc))
+                    else:
+                        r_sc_l, f_sc_l = self._logits(r_sc, f_sc)
+                        loss = term.gan.d_loss(r_sc_l, f_sc_l)
+                    unweighted.append(loss)
+                    weighted.append(term.weight * loss)
+                    last_real = r_s
+                    last_fake = f_s
+                    last_r_sc = r_sc
+                    last_f_sc = f_sc
+                    if term.penalty_fn is not None:
+                        penalties.append(penalty_fn(term, r_s, f_s))
+                d_adv = _sum_tensors(unweighted)
+                d_adv_weighted = _sum_tensors(weighted)
+                d_pen = _sum_tensors(penalties) if penalties else (last_fake.new_zeros(()) if last_fake is not None else real.new_zeros(()))
+                d_tot = d_adv_weighted + d_pen
+                score_stats = self._critic_score_scalars(last_r_sc, last_f_sc)
+                moment_stats = self._sample_moment_scalars(last_fake, last_real)
+                return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
+
+            with self._folded('discriminator backward'):
+                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
+                    'discriminator forward and penalty', discriminator_coupled_loss)
+                critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
+                fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
+                self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
+                self._phase('discriminator backward', d_loss.backward)
+        else:
+            with self._folded('discriminator backward'):
+                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
+                    'discriminator forward and penalty', discriminator_forward)
+                critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
+                fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
+                self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
+                self._phase('discriminator backward', d_loss.backward)
         self._reduce_gradients(self.opt_d, 'discriminator')
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
@@ -859,6 +982,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             flags = [p.requires_grad for p in term.module.parameters()]
             term.module.requires_grad_(False)
             saved_flags.append((term.module, flags))
+        rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(self, terms)
         try:
             if independent:
                 with self._folded('generator batch and forward'):
@@ -870,6 +994,14 @@ class ReplicatedTrainer(ReferenceTrainer):
                 gen_batch, gen_context, gen_fake, gen_real, gen_selected, gen_ids = batch, context, fake, real, selected, ids
 
             self.opt_g.zero_grad(set_to_none=True)
+            if rhbi_mod is not None:
+                simplicial_active = bool(
+                    use_rhbi_simplex
+                    and getattr(self.recipe, 'rhbi_simplex_chart_weight', 0.0) > 0.0
+                    and getattr(self.recipe, 'rhbi_simplex_macro_settle', False)
+                )
+                rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
+
             def generator_adversarial_forward():
                 unweighted = []
                 weighted = []
@@ -882,9 +1014,14 @@ class ReplicatedTrainer(ReferenceTrainer):
                     weighted.append(term.weight * loss)
                 return _sum_tensors(unweighted), _sum_tensors(weighted)
 
-            def remaining_losses():
+            def remaining_losses(simplex_real=None):
                 rows = None if gen_selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[gen_selected]
                 prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else gen_fake.new_zeros(())
+                simplex_loss = (
+                    _rhbi_simplex_loss(self, rhbi_mod, gen_selected, simplex_real)
+                    if (use_rhbi_simplex and rhbi_mod is not None and simplex_real is not None)
+                    else None
+                )
                 objective_losses = []
                 for term_spec, objective in zip(cfg['objectives'], self.objectives):
                     inputs = {arg: self.graph.resolve(path, gen_context) for arg, path in term_spec['inputs'].items()}
@@ -894,19 +1031,74 @@ class ReplicatedTrainer(ReferenceTrainer):
                     if not isinstance(value, torch.Tensor) or value.numel() != 1:
                         raise ValueError('Each objective must return one scalar tensor')
                     objective_losses.append(term_spec['weight'] * value)
-                return prior_loss, objective_losses
+                return prior_loss, simplex_loss, objective_losses
 
             from particlegan.optim.constraint_geometry import constraint_geometry_backward
-            with self._folded('generator backward'):
-                g_adversarial, g_adversarial_weighted = self._phase(
-                    'generator critic forward', generator_adversarial_forward)
-                prior_loss, objective_losses = self._phase('generator regularizers and objectives', remaining_losses)
-                g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-                set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
-                if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
-                    set_rows(self.prior.z, gen_selected)
-                self._phase('generator loss', lambda: self._finite_loss(g_loss))
-                self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
+            coupled_g = bool(
+                getattr(self.aggregation_strategy, 'reduces_gradients', False)
+                and any(self._uses_coupled_generator_loss(term) for term in terms)
+            )
+            if coupled_g:
+                def generator_scores_only():
+                    return [
+                        _bound_scores(term, gen_context, self.graph, "generator", term.generator_phase, first="fake", noise=noise)
+                        for term in terms
+                    ]
+
+                with self._folded('generator critic scores'):
+                    g_scored = self._phase('generator critic scores', generator_scores_only)
+                g_global_pairs = [
+                    self._gather_rhbi_pair(f_sc, r_sc) if self._uses_coupled_generator_loss(term) else None
+                    for term, (_, _, r_sc, f_sc) in zip(terms, g_scored)
+                ]
+                global_simplex_real = (
+                    self._all_gather_coupled(gen_real.detach())
+                    if (use_rhbi_simplex and rhbi_mod is not None)
+                    else None
+                )
+
+                def generator_coupled_adversarial():
+                    unweighted = []
+                    weighted = []
+                    for term, (_, _, r_sc, f_sc), g_pair in zip(terms, g_scored, g_global_pairs):
+                        if g_pair is not None:
+                            gf_sc, gr_sc = g_pair
+                            loss = self._scale_coupled_backward(term.gan.g_loss(gf_sc, gr_sc))
+                        else:
+                            r_sc_l, f_sc_l = self._logits(r_sc, f_sc)
+                            loss = term.gan.g_loss(f_sc_l, r_sc_l)
+                        unweighted.append(loss)
+                        weighted.append(term.weight * loss)
+                    return _sum_tensors(unweighted), _sum_tensors(weighted)
+
+                with self._folded('generator backward'):
+                    g_adversarial, g_adversarial_weighted = self._phase(
+                        'generator critic forward', generator_coupled_adversarial)
+                    prior_loss, simplex_loss, objective_losses = self._phase(
+                        'generator regularizers and objectives', lambda: remaining_losses(global_simplex_real))
+                    g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+                    if simplex_loss is not None:
+                        g_loss = g_loss + simplex_loss
+                    set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
+                    if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
+                        set_rows(self.prior.z, gen_selected)
+                    self._phase('generator loss', lambda: self._finite_loss(g_loss))
+                    self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
+            else:
+                simplex_real_local = gen_real if (use_rhbi_simplex and rhbi_mod is not None) else None
+                with self._folded('generator backward'):
+                    g_adversarial, g_adversarial_weighted = self._phase(
+                        'generator critic forward', generator_adversarial_forward)
+                    prior_loss, simplex_loss, objective_losses = self._phase(
+                        'generator regularizers and objectives', lambda: remaining_losses(simplex_real_local))
+                    g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+                    if simplex_loss is not None:
+                        g_loss = g_loss + simplex_loss
+                    set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
+                    if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
+                        set_rows(self.prior.z, gen_selected)
+                    self._phase('generator loss', lambda: self._finite_loss(g_loss))
+                    self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
 
             if getattr(self.opt_g, '_protected', None) is not None:
                 if getattr(self.aggregation_strategy, 'reduces_gradients', False):
@@ -922,6 +1114,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             )
             self._optimizer_step(self.opt_g, 'generator')
         finally:
+            if rhbi_mod is not None:
+                rhbi_mod.bind_discrete_prior_step(False)
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)

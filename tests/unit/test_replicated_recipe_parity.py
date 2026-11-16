@@ -267,6 +267,33 @@ def test_replicated_parity_particlegan_preset(tmp_path):
     _run_parity_case(config, batch, tmp_path)
 
 
+def test_replicated_parity_particlegan_preset_mog(tmp_path):
+    """Smoke test: resolved ParticleGAN preset (RHBI) with MoG prior matches reference."""
+    config = {
+        "defaults": "particlegan",
+        "gradient_penalty": {"lazy_k": 2},
+        "training": {"steps": 1, "batch_size": 8, "device": "cpu", "seed": 42},
+        "prior": {"kind": "mog", "fixed_sigma": 0.05, "args": {"num_particles": 16, "z_dim": 4}},
+        "components": {
+            "generator": {
+                "factory": "linear",
+                "args": {"in_features": 4, "out_features": 2, "bias": False},
+                "inputs": {"input": "latent"},
+            },
+            "discriminator": {
+                "factory": "linear",
+                "args": {"in_features": 2, "out_features": 1, "bias": False},
+                "inputs": {"input": "candidate"},
+            },
+        },
+    }
+    batch = {
+        "real": torch.linspace(-1, 1, 16).reshape(8, 2),
+        "_ids": torch.tensor([0, 1, 2, 3, 4, 5, 6, 7]),
+    }
+    _run_parity_case(config, batch, tmp_path)
+
+
 def test_replicated_parity_accumulation_steps(tmp_path):
     """Smoke test: 2-rank replicated training with accumulation_steps=2 matches reference."""
     config = {

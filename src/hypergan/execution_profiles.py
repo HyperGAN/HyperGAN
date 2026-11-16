@@ -42,9 +42,12 @@ def validate_replicated_recipe(config, *, accumulation_steps=1):
             or config.get('optimizer', {}).get('implementation', 'device_adam') not in ('device_adam', 'torch_fused_adam', 'recipe')):
         raise ValueError('Unsupported numerical policies currently require native execution; replicated/accumulated image execution is not qualified')
     if accumulation_steps > 1:
+        recipe = config.get('recipe') or {}
         unsupported = [name for name in ('input_noise_std', 'output_noise_std') if training.get(name, 0)]
         if training.get('phase_draws') == 'independent':
             unsupported.append('phase_draws=independent')
+        if recipe.get('critic_formulation') in ('rhbi', 'empf') or recipe.get('rhbi_weight', 0) > 0:
+            unsupported.append('direct-coordinate transport (rhbi/empf)')
         if unsupported:
             raise ValueError('Replicated accumulation does not implement ' + ', '.join(unsupported)
                              + '; use accumulation_steps=1 to preserve these numerical policies')

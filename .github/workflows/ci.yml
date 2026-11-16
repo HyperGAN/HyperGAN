@@ -87,9 +87,12 @@ jobs:
           FOLDLITEDB_SOURCE: ${{ vars.FOLDLITEDB_SOURCE }}
         run: python .github/scripts/install_foldlitedb.py
       - name: Install tested CPU runtime and build
+        env:
+          PARTICLEGAN_SOURCE: ${{ vars.PARTICLEGAN_SOURCE }}
         run: |
           python -m pip install "build>=1,<2" "httpx>=0.28,<0.29"
           python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
+          python .github/scripts/install_particlegan.py
           python -m build
           python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,fid,web,test]'])"
       - name: Verify InceptionFID under Scipy and Torch-Fidelity
@@ -154,9 +157,12 @@ jobs:
           FOLDLITEDB_SOURCE: ${{ vars.FOLDLITEDB_SOURCE }}
         run: python .github/scripts/install_foldlitedb.py
       - name: Install tested CPU runtime and build
+        env:
+          PARTICLEGAN_SOURCE: ${{ vars.PARTICLEGAN_SOURCE }}
         run: |
           python -m pip install "build>=1,<2"
           python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
+          python .github/scripts/install_particlegan.py
           python -m build
           python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,fid,test]'])"
       - name: Run the gated heavy reference tests

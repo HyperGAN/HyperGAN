@@ -267,6 +267,62 @@ def _synchronize_optimizer_regularizers(
                 rec.ema_residual = float((stats[0] / world_size).item())
                 rec.ema_data_scale = float((stats[1] / world_size).item())
 
+            if hasattr(rec, "_thermal_scale") and not hasattr(rec, "rhbi_ell_initialized"):
+                therm = torch.tensor([float(rec._thermal_scale)], dtype=torch.float64, device=comm_device)
+                dist.all_reduce(therm, op=dist.ReduceOp.SUM)
+                rec._thermal_scale = float((therm[0] / world_size).item())
+
+            # Synchronize RHBI transport horizon, Weyl chord phase, and thermal settling state
+            if hasattr(rec, "rhbi_ell_initialized") and hasattr(rec, "rhbi_thermal_initialized"):
+                rhbi_floats = torch.tensor(
+                    [
+                        float(rec.rhbi_ell_ema),
+                        float(rec.rhbi_chord_phase),
+                        float(rec.rhbi_ema_ed),
+                        float(rec.rhbi_ema_mu_sq),
+                        float(rec.rhbi_ema_spread),
+                        float(rec.rhbi_ema_q90),
+                        float(rec.rhbi_ema_hmax),
+                        float(rec.rhbi_ema_tail),
+                        float(rec.rhbi_cond_ema),
+                        float(rec.rhbi_het_ema),
+                        float(rec._thermal_scale),
+                    ],
+                    dtype=torch.float64,
+                    device=comm_device,
+                )
+                dist.all_reduce(rhbi_floats, op=dist.ReduceOp.SUM)
+                rhbi_floats /= world_size
+                vals = rhbi_floats.tolist()
+                rec.rhbi_ell_ema = float(vals[0])
+                rec.rhbi_chord_phase = float(vals[1]) % 1.0
+                rec.rhbi_ema_ed = float(vals[2])
+                rec.rhbi_ema_mu_sq = float(vals[3])
+                rec.rhbi_ema_spread = float(vals[4])
+                rec.rhbi_ema_q90 = float(vals[5])
+                rec.rhbi_ema_hmax = float(vals[6])
+                rec.rhbi_ema_tail = float(vals[7])
+                rec.rhbi_cond_ema = float(vals[8])
+                rec.rhbi_het_ema = float(vals[9])
+                rec._thermal_scale = max(1e-6, min(1.0, float(vals[10])))
+
+                rhbi_flags = torch.tensor(
+                    [
+                        int(bool(rec.rhbi_ell_initialized)),
+                        int(bool(rec.rhbi_thermal_initialized)),
+                        int(bool(rec.rhbi_cond_initialized)),
+                        int(bool(rec.rhbi_het_initialized)),
+                    ],
+                    dtype=torch.int32,
+                    device=comm_device,
+                )
+                dist.all_reduce(rhbi_flags, op=dist.ReduceOp.MAX)
+                flags = rhbi_flags.tolist()
+                rec.rhbi_ell_initialized = bool(flags[0])
+                rec.rhbi_thermal_initialized = bool(flags[1])
+                rec.rhbi_cond_initialized = bool(flags[2])
+                rec.rhbi_het_initialized = bool(flags[3])
+
         # 3. Synchronize EMA critic network if attached to optimizer
         ema_critic = getattr(opt, "ema_critic", None)
         if ema_critic is not None and isinstance(ema_critic, torch.nn.Module):

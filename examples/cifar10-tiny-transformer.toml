@@ -1,7 +1,7 @@
 # Canonical CIFAR-10 32x32 Generative Transformer Recipe
 # Generator: 64 spatial tokens (8x8x256), 2 pre-LayerNorm Transformer blocks, nearest upsampling + 3x3 convs.
 # Critic: Frozen SHA256-pinned ImageNet ResNet-18 at 64px (layer1/2/3 + fixed context) with 3 trainable feature heads.
-# Formulation: ParticleGAN bispf_optimized (DualNorm) with 16,384-particle MoG prior in z=64.
+# Formulation: ParticleGAN rhbi_optimized (DualNorm) with 16,384-particle MoG prior in z=64.
 # External dataset archive and pretrained weights are SHA-256 verified and cached in ~/.hypergan/cache/
 format = "hypergan-model/1"
 name = "cifar10-tiny-transformer"

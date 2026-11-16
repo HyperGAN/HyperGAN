@@ -4,6 +4,14 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+### Changed
+- **ParticleGAN `0.10.0` Upgrade (`rhbi_optimized`)**:
+  - Upgraded the `train` and `all` dependency extras to `particlegan>=0.10.0,<0.11` (`DEFAULT_RECIPE = "rhbi_optimized"` Relativistic Hellinger-Born-Infeld Transport formulation, retaining explicit `Recipe.from_dict` restoration for `bispf_optimized`, `empf`, and `ka2` runs).
+  - Bound critic transport/thermal step records (`bind_rhbi_record`, `bind_empf_record`, `bind_thermal_source`) in `ReferenceTrainer._initialize`, wired unconditional discrete `ParticlePrior` simplicial manifold regularization (`simplicial_manifold_loss` and `bind_discrete_prior_step`) into `objective_program.py` and `distributed_training.py`, and added global-batch coupled Sinkhorn/RHBI score and capture gathering across multi-GPU ranks so `ReplicatedTrainer` preserves global RHBI transport coupling and bitwise replica agreement.
+
+### Fixed
+- Updated `QualificationRunner._run_suite_cpu_replicated_gloo` (`hypergan qualify`) to verify `schema_version = 2` unified distributed checkpoints (`state.pt` + `ranks/rank-RRRRR.pt`) alongside legacy v1 rank files.
+
 ## 2.0.0 — 2026-11-10
 
 HyperGAN 2.0.0 is the General Availability (GA) release of HyperGAN 2: declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.7,<0.10`) primitives, unified multi-GPU and multi-node training and checkpoints (`schema_version = 2`), a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export across `bundle`, `safetensors`, `pt2`, and `onnx`, and a fully typed config-first Python API (`import hypergan as hg`).

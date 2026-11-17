@@ -566,9 +566,10 @@ class _Lowering:
                     term['owner'] = loss.get('owner') or loss.get('network')
                 recipe['objectives'].append(term)
             elif kind == 'prior':
+                from .particlegan_integration import is_particlegan_defaults
                 _table(loss, location, {'type', 'weight', 'target_std', 'eps', 'rows'})
                 recipe['prior_regularizer'] = {key: value for key, value in loss.items() if key != 'type'}
-                if self.raw.get('defaults') != 'particlegan':
+                if not is_particlegan_defaults(self.raw.get('defaults')):
                     recipe['prior_regularizer'].setdefault('weight', 1.0)
 
             else:

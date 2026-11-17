@@ -4,6 +4,10 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+### Added
+- **Named ParticleGAN Preset Selection (`defaults = "particlegan:<preset>"`)**:
+  - Added support for selecting explicit ParticleGAN presets via `defaults = "particlegan:<preset>"` (e.g., `particlegan:empf`, `particlegan:bispf_optimized`, `particlegan:rhbi_optimized`, including `-s defaults=particlegan:empf` CLI overrides) without overwriting preset learning rates or prior regularization weights, alongside full `_empf_record` binding and multi-GPU e-means prototype/thermal synchronization (`sync_empf_record`).
+
 ### Changed
 - **ParticleGAN `0.10.0` Upgrade (`rhbi_optimized`)**:
   - Upgraded the `train` and `all` dependency extras to `particlegan>=0.10.0,<0.11` (`DEFAULT_RECIPE = "rhbi_optimized"` Relativistic Hellinger-Born-Infeld Transport formulation, retaining explicit `Recipe.from_dict` restoration for `bispf_optimized`, `empf`, and `ka2` runs).

@@ -367,6 +367,9 @@ class ReferenceTrainer:
             elif formulation == 'empf':
                 from particlegan.empf import bind_empf_record
                 bind_empf_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
+                self.opt_g._empf_record = record
+                self.opt_d._empf_record = record
+                self.prior._empf_record = record
             elif (
                 formulation == 'rhbi'
                 or getattr(self.recipe, 'rhbi_weight', 0) > 0

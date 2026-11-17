@@ -362,10 +362,11 @@ def _optimizers(config):
 
 
 def _defaults_source(config, manifest):
+    from .particlegan_integration import is_particlegan_defaults
     if _section(config, 'recipe'):
         return 'particlegan (recorded recipe)'
     recorded = manifest.get('defaults')
-    return recorded if recorded in ('hypergan', 'particlegan') else 'unknown'
+    return recorded if (recorded == 'hypergan' or is_particlegan_defaults(recorded)) else 'unknown'
 
 
 def _network(name, spec, role, display_name=None):

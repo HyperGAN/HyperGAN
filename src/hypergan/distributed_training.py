@@ -958,6 +958,10 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._reduce_gradients(self.opt_d, 'discriminator')
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+        rec_d = getattr(self.opt_d, 'record', None)
+        if rec_d is not None and hasattr(rec_d, 'proto_initialized'):
+            from .aggregation import sync_empf_record
+            sync_empf_record(rec_d, self.device, self.world_size)
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
         self._optimizer_step(self.opt_d, 'discriminator')
         if explicit_guard is not None:
@@ -1371,6 +1375,10 @@ class ReplicatedTrainer(ReferenceTrainer):
         self._reduce_gradients(self.opt_d, 'discriminator')
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+        rec_d = getattr(self.opt_d, 'record', None)
+        if rec_d is not None and hasattr(rec_d, 'proto_initialized'):
+            from .aggregation import sync_empf_record
+            sync_empf_record(rec_d, self.device, self.world_size)
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
         self._optimizer_step(self.opt_d, 'discriminator')
         if explicit_guard is not None:

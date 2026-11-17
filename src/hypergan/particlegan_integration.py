@@ -41,9 +41,26 @@ PARTICLEGAN_DEFAULT_FIELDS = {
 }
 
 
+def is_particlegan_defaults(value):
+    """Return True when ``defaults`` selects ParticleGAN's default or a named preset."""
+    return value == "particlegan" or (isinstance(value, str) and value.startswith("particlegan:") and len(value) > len("particlegan:"))
+
+
+def parse_particlegan_defaults(value):
+    """Return ``(enabled, preset)`` for a ``defaults`` selector string."""
+    if value == "particlegan":
+        return True, None
+    if isinstance(value, str) and value.startswith("particlegan:"):
+        preset = value.split(":", 1)[1].strip()
+        if not preset:
+            raise ValueError('defaults = "particlegan:<preset>" requires a nonempty ParticleGAN preset name')
+        return True, preset
+    return False, None
+
+
 @functools.cache
-def particlegan_recipe_fields():
-    """Read the installed public preset without importing Torch or ParticleGAN.
+def particlegan_recipe_fields(preset=None):
+    """Read an installed ParticleGAN preset without importing Torch or ParticleGAN.
 
     Loads the public recipes module without importing the package, whose
     __init__ imports Torch; configuration loading stays Torch-free.
@@ -64,14 +81,14 @@ def particlegan_recipe_fields():
     sys.modules[name] = module
     try:
         spec.loader.exec_module(module)
-        recipe = module.get_recipe_fields()
+        recipe = module.get_recipe_fields() if preset is None else module.get_recipe_fields(preset)
     finally:
         del sys.modules[name]
     return recipe
 
 
-def particlegan_defaults():
-    recipe = dict(particlegan_recipe_fields())
+def particlegan_defaults(preset=None):
+    recipe = dict(particlegan_recipe_fields(preset))
     if recipe["prior_betas"] is None:
         recipe["prior_betas"] = recipe["betas"]
     return {key: list(recipe[field]) if isinstance(recipe[field], tuple) else recipe[field]

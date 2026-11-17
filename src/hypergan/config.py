@@ -10,8 +10,8 @@ import math
 import re
 from pathlib import Path
 
-from .particlegan_integration import (PARTICLEGAN_DEFAULT_FIELDS, particlegan_defaults,
-                                     particlegan_recipe_fields)
+from .particlegan_integration import (PARTICLEGAN_DEFAULT_FIELDS, parse_particlegan_defaults,
+                                     particlegan_defaults, particlegan_recipe_fields)
 
 from .network_config import packaged_source, read_source, validate_network_args, materialize_networks
 
@@ -282,14 +282,15 @@ def resolve_config(raw):
                          "regularization; remove " + ", ".join(f"gradient_penalty.{key}" for key in removed))
     source = raw.pop("defaults", "hypergan")
     result = deepcopy(DEFAULT)
-    if source == "particlegan":
-        result["recipe"] = deepcopy(particlegan_recipe_fields())
+    pg_enabled, pg_preset = parse_particlegan_defaults(source)
+    if pg_enabled:
+        result["recipe"] = deepcopy(particlegan_recipe_fields(pg_preset))
         if result['recipe']:
             result['optimizer']['implementation'] = 'recipe'
-        for (section, key), value in particlegan_defaults().items():
+        for (section, key), value in particlegan_defaults(pg_preset).items():
             result[section][key] = deepcopy(value)
     elif source != "hypergan":
-        raise ValueError('defaults must be "hypergan" or "particlegan"')
+        raise ValueError('defaults must be "hypergan", "particlegan", or "particlegan:<preset>"')
     for key, value in raw.items():
         if key == "recipe":
             if not isinstance(value, dict):

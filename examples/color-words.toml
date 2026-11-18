@@ -29,7 +29,7 @@ args = { z_dim = 16, width = 8, temperature = 0.125 }
 
 [networks.reconstruction]
 role = "auxiliary"
-inputs = { latent = "components.image_encoder.latent" }
+inputs = { latent = "image_encoder.latent" }
 reuse = "generator"
 
 [networks.text_encoder]
@@ -40,7 +40,7 @@ args = { z_dim = 16, embed_dim = 16, temperature = 0.125 }
 
 [networks.text_image]
 role = "auxiliary"
-inputs = { latent = "components.text_encoder.latent" }
+inputs = { latent = "text_encoder.latent" }
 reuse = "generator"
 
 [networks.z_embedding]
@@ -57,7 +57,7 @@ args = { embed_dim = 16, width = 16 }
 
 [networks.joint_critic]
 role = "critic"
-inputs = { candidate = "candidate", embedding = "components.text_encoder.embedding" }
+inputs = { candidate = "candidate", embedding = "text_encoder.embedding" }
 module = "hypergan.color_words:JointCritic"
 args = { embed_dim = 16, width = 8 }
 
@@ -111,7 +111,7 @@ type = "adversarial"
 critic = "discriminator"
 weight = 1.0
 real = "batch.real"
-fake = "components.text_image"
+fake = "text_image"
 id = "image-from-text"
 penalty = 0.0
 
@@ -119,8 +119,8 @@ penalty = 0.0
 type = "adversarial"
 critic = "text_critic"
 weight = 1.0
-real = "components.text_encoder.embedding"
-fake = "components.z_embedding"
+real = "text_encoder.embedding"
+fake = "z_embedding"
 id = "text-marginal"
 penalty = 0.1
 
@@ -129,7 +129,7 @@ type = "adversarial"
 critic = "joint_critic"
 weight = 1.0
 real = "batch.real"
-fake = "components.text_image"
+fake = "text_image"
 id = "joint"
 penalty = 0.1
 
@@ -137,34 +137,28 @@ penalty = 0.1
 type = "objective"
 id = "rgb-image"
 fn = "mse"
+input = "reconstruction"
+target = "batch.real"
 weight = 1.0
 detach = ["target"]
-
-[losses.inputs]
-input = "components.reconstruction"
-target = "batch.real"
 
 [[losses]]
 type = "objective"
 id = "rgb-text"
 fn = "mse"
+input = "text_image"
+target = "batch.real"
 weight = 1.0
 detach = ["target"]
-
-[losses.inputs]
-input = "components.text_image"
-target = "batch.real"
 
 [[losses]]
 type = "objective"
 id = "latent-text"
 fn = "mse"
+input = "text_encoder.latent"
+target = "image_encoder.latent"
 weight = 1.0
 detach = ["target"]
-
-[losses.inputs]
-input = "components.text_encoder.latent"
-target = "components.image_encoder.latent"
 
 [[losses]]
 type = "prior"

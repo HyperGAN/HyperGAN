@@ -19,7 +19,7 @@ output_shape = ["B", 2]
 
 [networks.generator]
 role = "generator"
-inputs = { x = "latent", condition = "components.encoder" }
+inputs = { x = "latent", condition = "encoder" }
 source = """
 concat(x, condition)
 linear(16)
@@ -73,12 +73,10 @@ weight = 1.0
 type = "reconstruction"
 id = "reconstruction"
 fn = "mse"
-weight = 1.0
-detach = ["target"]
-
-[losses.inputs]
 input = "generated"
 target = "batch.real"
+weight = 1.0
+detach = ["target"]
 
 [[losses]]
 type = "prior"

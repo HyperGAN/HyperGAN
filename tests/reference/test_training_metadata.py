@@ -71,14 +71,14 @@ def test_source_info_names_the_installed_particlegan_and_recipe():
 
     plain = source_info({})
     assert plain['integration_reference'] == {
-        'repository': 'https://github.com/255BITS/ParticleGAN', 'version': _version('particlegan'), 'preset': None}
+        'repository': 'https://github.com/HyperGAN/ParticleGAN', 'version': _version('particlegan'), 'preset': None}
     recipe = source_info({'recipe': {'name': 'cifar'}})
     assert recipe['integration_reference']['preset'] == 'cifar'
     assert recipe['particlegan_distribution_version'] == _version('particlegan')
 
 
 @pytest.mark.parametrize('direct_url,commit', [
-    ({'url': 'https://github.com/255BITS/ParticleGAN', 'vcs_info': {'vcs': 'git', 'commit_id': 'c' * 40}}, 'c' * 40),
+    ({'url': 'https://github.com/HyperGAN/ParticleGAN', 'vcs_info': {'vcs': 'git', 'commit_id': 'c' * 40}}, 'c' * 40),
     ({'url': 'file:///src/ParticleGAN', 'dir_info': {'editable': True}}, None),
     ({'vcs_info': 'not a table'}, None),
     (None, None),

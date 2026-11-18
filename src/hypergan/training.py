@@ -164,7 +164,7 @@ def source_info(config=None):
     """Installed sources: the ParticleGAN release and recipe preset, and HyperGAN's revision."""
     from .provenance import hypergan_source
     recipe = (config or {}).get('recipe') or {}
-    result = {"integration_reference": {"repository": "https://github.com/255BITS/ParticleGAN", "version": _version("particlegan"), "preset": recipe.get('name')},
+    result = {"integration_reference": {"repository": "https://github.com/HyperGAN/ParticleGAN", "version": _version("particlegan"), "preset": recipe.get('name')},
               "particlegan_distribution_version": _version("particlegan"), "particlegan_distribution_commit": _distribution_commit("particlegan"), **hypergan_source()}
     result["distribution_records"] = {}
     for name in ("hypergan", "particlegan", "hndl"):
@@ -358,6 +358,25 @@ class ReferenceTrainer:
                                  and self.program.prior_parameters == (table,)) else None
         self.opt_g = _skip_cpu_capture_guard(self.recipe.make_generator_optimizer(
             groups, modules=self.graph, latent_table=latent_table, **optimizer_options))
+        record = getattr(self.opt_d, 'record', None)
+        if record is not None:
+            formulation = getattr(self.recipe, 'effective_critic_formulation', None)
+            if formulation == 'bispf':
+                from particlegan.bispf import bind_thermal_source
+                bind_thermal_source(record, self.gan, self.spread)
+            elif formulation == 'empf':
+                from particlegan.empf import bind_empf_record
+                bind_empf_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
+                self.opt_g._empf_record = record
+                self.opt_d._empf_record = record
+                self.prior._empf_record = record
+            elif (
+                formulation == 'rhbi'
+                or getattr(self.recipe, 'rhbi_weight', 0) > 0
+                or getattr(self.recipe, 'rhbi_critic_weight', 0) > 0
+            ):
+                from particlegan.rhbi import bind_rhbi_record
+                bind_rhbi_record(record, self.gan, self.spread, self.opt_g, self.opt_d)
         prior_ids = {id(parameter) for parameter in self.program.prior_parameters}
         self.lr_roles = [[group.get('role', 'prior' if all(id(parameter) in prior_ids for parameter in group['params']) else 'generator')
                           for group in self.opt_g.param_groups],

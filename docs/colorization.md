@@ -6,11 +6,11 @@ _Assets: [128×128 grayscale HG input (`assets/hg-bw-128.png`)](assets/hg-bw-128
 
 ## 128×128 conditional colorization (`examples/image-folder-colorization.toml`)
 
-`examples/image-folder-colorization.toml` (archived research ablation: `examples/archive/logos-colorization-128.toml`) is a declarative `hypergan-model/1` model
+`examples/image-folder-colorization.toml` (archived research ablations: `examples/archive/logos-colorization-128.toml` and `examples/archive/logos-colorization-dinov3-256.toml`) is a declarative `hypergan-model/1` model
 file (`defaults = "particlegan"`) that pairs a multi-input HNDL conditional
-colorization generator (`examples/networks/colorization-generator-128.hndl`)
-with the 128×128 multidepth DINOv3 projected critic
-(`examples/networks/dinov3-projected-discriminator-128.hndl`) and a 4,096-particle
+colorization generator (`examples/networks/colorization-generator-128.hndl`, or `examples/networks/colorization-generator-256.hndl` at 256×256)
+with the multidepth DINOv3 projected critic
+(`examples/networks/dinov3-projected-discriminator-128.hndl`, or `examples/networks/dinov3-projected-discriminator-256.hndl` at 256×256) and a 4,096-particle
 latent prior.
 
 Zero custom Python model classes are required: the entire conditional generator,

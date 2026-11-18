@@ -1579,7 +1579,7 @@ def _dispatch(args, *, output=None):
             resolved_model_path = args.path
             if resolved_model_path is None:
                 resolved_model_path = hg.resolve_run_target(None)
-            elif not Path(resolved_model_path).exists() and not str(resolved_model_path).endswith(".toml"):
+            elif args.write and not Path(resolved_model_path).exists() and not str(resolved_model_path).endswith(".toml"):
                 try:
                     resolved_model_path = hg.resolve_run_target(resolved_model_path)
                 except Exception:

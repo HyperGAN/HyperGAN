@@ -36,7 +36,7 @@ out = add(add(scale(r, 0.299), scale(g, 0.587)), scale(b, 0.114))
 # [networks.generator] 128x128 conditional colorization generator (L -> AB)
 [networks.generator]
 role = "generator"
-inputs = { z = "latent", gray = "components.luma" }
+inputs = { z = "latent", gray = "luma" }
 input_shape = { z = ["B", 128], gray = ["B", 1, 128, 128] }
 output_shape = ["B", 3, 128, 128]
 source = """
@@ -149,7 +149,7 @@ out = clamp(add(x, concat(d, d, d)), min=-1.0, max=1.0)
 # [networks.discriminator] Joint conditional critic over p(x, gray)
 [networks.discriminator]
 role = "critic"
-inputs = { x = "candidate", gray = "components.luma" }
+inputs = { x = "candidate", gray = "luma" }
 input_shape = { x = ["B", 3, 128, 128], gray = ["B", 1, 128, 128] }
 output_shape = ["B", 1]
 source = """
@@ -201,6 +201,6 @@ count = 16
 seed = 10000
 comparison = [
   { label = "X", binding = "batch.real" },
-  { label = "B", binding = "components.luma" },
+  { label = "B", binding = "luma" },
   { label = "X_hat", binding = "generator" },
 ]

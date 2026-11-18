@@ -13,6 +13,12 @@ def test_compact_saved_recipe_keeps_its_recorded_formulation():
     assert restored.critic_formulation == 'bispf'
     assert restored.ema_decay == 0
 
+    saved_rhbi = particlegan.get_recipe('rhbi_optimized', batch_size=16).to_dict()
+    restored_rhbi = restore_particlegan_recipe(saved_rhbi)
+    assert restored_rhbi.to_dict() == saved_rhbi
+    assert restored_rhbi.critic_formulation == 'rhbi'
+    assert restored_rhbi.rhbi_weight == 1.0
+
 
 def test_modern_restoration_never_calls_a_partial_constructor(monkeypatch):
     saved = {'lr': 0.003}

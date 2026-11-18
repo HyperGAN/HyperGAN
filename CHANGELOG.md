@@ -4,6 +4,54 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+## 2.0.0a4 — 2026-11-17
+
+HyperGAN 2.0.0a4 is the fourth alpha release of HyperGAN 2: declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.10.1,<0.11`) e-means (`empf`) primitives, unified multi-GPU and multi-node training and checkpoints (`schema_version = 2`), a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export across `bundle`, `safetensors`, `pt2`, and `onnx`, and a fully typed config-first Python API (`import hypergan as hg`).
+
+### Added
+- **Named ParticleGAN Preset Selection (`defaults = "particlegan:<preset>"`)**:
+  - Added support for selecting explicit ParticleGAN presets via `defaults = "particlegan:<preset>"` (e.g., `particlegan:empf`, `particlegan:bispf_optimized`, `particlegan:rhbi_optimized`, including `-s defaults=particlegan:empf` CLI overrides) without overwriting preset learning rates or prior regularization weights, alongside full `_empf_record` binding and multi-GPU e-means prototype/thermal synchronization (`sync_empf_record`).
+- **Automatic Standalone Bundle Staging (`checkpoints.export_bundle`)**:
+  - Wired `checkpoints.export_bundle = "on_eval" | "on_checkpoint" | "never"` end-to-end across single-GPU and distributed multi-GPU runs, atomically staging `<run_dir>/model.pt` and `<run_dir>/model.sha256` (`.tmp` + `fsync` + atomic rename) and recording `manifest.exported_bundle_path`.
+  - `"on_eval"` stages the pinned privacy-clean evaluation snapshot immediately upon completed interval evaluations without importing `torch` on the coordinator or waiting for `checkpoint_every` boundaries, and immediately runs `keep_best` retention pruning.
+  - Added a validation warning in `resolve_config()` when `checkpoints.keep_best` tracks an interval evaluation whose `every` cadence is not a multiple of `checkpoint_every`.
+- **Conditional & High-Dimensional `pt2` / `onnx` Export**:
+  - Added conditional input export support (`_ConditionalExportWrapper` and dynamic batch axes) to `hg.export(..., format="pt2" | "onnx")` and JSON-safe tensor spec metadata serialization in `safetensors` when `include_example_inputs=True`.
+- **256×256 Declarative Colorization & Multidepth DINOv3 Critic HNDL Architectures**:
+  - Added `examples/networks/colorization-generator-256.hndl` (6-stage GroupNorm residual U-Net + RoPE/SwiGLU Transformer palette cross-attention + bilinear particle palette synthesis + exact 7-face polytope luminance lock at 256×256), `examples/networks/dinov3-projected-discriminator-256.hndl` (frozen ViT-S/16 `16×16` multidepth projected heads + full-resolution multiscale spatial/color pyramid), and `examples/archive/logos-colorization-dinov3-256.toml`.
+- **Automated GitHub Releases in Release CI (`.github/workflows/release.yml`)**:
+  - Tagging `v<version>` (or dispatching `release.yml`) now validates `CHANGELOG.md`, runs full `Foundation CI`, publishes distributions to PyPI via Trusted Publishing, and automatically creates/updates the GitHub Release with extracted changelog notes, attached `.whl` / `.tar.gz` assets, and an up-to-date `Latest` pointer on the `2.x` line.
+
+### Changed
+- **ParticleGAN `0.10.1` Upgrade (`empf` Default Preset)**:
+  - Upgraded the `train` and `all` dependency extras to `particlegan>=0.10.1,<0.11` (`DEFAULT_RECIPE = "empf"`, Exponential Moving Prototype Flow / e-means formulation with `newton_schulz_hybrid_v1` DualNorm updates, retaining explicit `Recipe.from_dict` restoration and `particlegan:<preset>` selection for `rhbi_optimized`, `rhbi`, `bispf_optimized`, and `ka2` runs), validated to `FID-50k = 15.16` on `cifar10-tiny-transformer` (`3.32 steps/s`) and `FID-50k = 51.30` on scratch pure-Transformer `cifar10-transgan` (`0.47 steps/s`).
+  - Bound critic transport/thermal step records (`bind_empf_record`, `bind_rhbi_record`, `bind_thermal_source`) in `ReferenceTrainer._initialize`, wired unconditional discrete `ParticlePrior` simplicial manifold regularization (`simplicial_manifold_loss` and `bind_discrete_prior_step`) into `objective_program.py` and `distributed_training.py`, and added global-batch coupled Sinkhorn/RHBI score and capture gathering across multi-GPU ranks so `ReplicatedTrainer` preserves global transport coupling and bitwise replica agreement.
+- **Promoted `cifar10-tiny-transformer` to Frozen Pretrained ResNet-18 Feature Critic**:
+  - Upgraded the packaged `cifar10-tiny-transformer` recipe (`src/hypergan/models/cifar10-tiny-transformer.toml` and `examples/cifar10-tiny-transformer.toml`) to pair the 64-token 2-block `tiny-transformer-generator-32` generator (`z_dim = 64`, `16,384` MoG particles, `rows = "full"`) with the SHA-256-pinned frozen ImageNet ResNet-18 multi-scale feature critic (`resnet18-features-discriminator-32`) under `defaults = "particlegan"`.
+- **`hypergan-model/1` Configuration Readability, Customizability & Schema Alignment**:
+  - Synchronized `MODEL_SCHEMA` in `src/hypergan/schema_info.py` (`hypergan schema` / `hg.schema()`) with `src/hypergan/model_file.py` (`data.builtin` including `"cifar10"`, `data.width`/`height`/`mode`/`resize`, `prior.fixed_sigma` as float, `losses.type` choices `["adversarial", "prior", "reconstruction", "objective"]`, `metrics.preset` choices `["standard", "none"]`, removed unsupported `networks.<name>.optimizer`, and added `penalty`, `sampling`, `samplers`, `defaults`, and `aggregation` schema sections).
+  - Added support for keyed `[losses.<id_or_critic_or_type>]` overrides in child configurations using `extends`, allowing selective patching or appending of loss entries without repeating the entire `[[losses]]` array.
+  - Added `data = "train"` (and `data = { extends = "train", ... }`) shorthand in `[evaluations.<id>]` to explicitly reuse `[data]` with deterministic evaluation defaults (`shuffle = false` / `sampling = "sequential"`, `horizontal_flip = false`).
+  - Added support for an optional `[train.optimizer]` subtable inside `[train]` and improved error hints when a top-level `[optimizer]` table is used.
+  - Updated `_anchor_relative_paths()` during `extends` resolution to anchor relative path fields (`_PATH_KEYS` and `./` / `../`) to the declaring file's directory even before dataset/weights files are created on disk, while preserving `http(s)://`, `~`, and `${...}` references.
+  - Cleaned up internal `components.<net>` binding prefixes and detached `[losses.inputs]` subtables across `hg.lift()`, `recipe_generator.py`, `examples/*.toml`, and `src/hypergan/models/*.toml`.
+- **Packaging, Typing & Documentation**:
+  - Synchronized `src/hypergan/__init__.py` `if TYPE_CHECKING:` re-exports with 100% of `hypergan.__all__` (`128` symbols) so `py.typed` static type checkers (`mypy`, `pyright`) resolve the full public API without importing `torch`.
+  - Updated `README.md` for PyPI rendering (`master` GitHub doc links, `2.0.0a4` installation commands, `cu130` CUDA wheel index for `torch==2.14.0` on Python 3.11–3.14, and `hypergan gc`), `docs/cifar-recipe.md`, `docs/configuration.md`, and `docs/releasing.md`.
+
+### Fixed
+- Deferred `torch` imports in `extract_ema_bundle()` until checkpoint tensor loading and removed `torch` from `tests/foundation/test_checkpoints_prune_safety.py` so the Torch-free lightweight foundation suite runs without PyTorch installed.
+- Updated `QualificationRunner._run_suite_cpu_replicated_gloo` (`hypergan qualify`) and heavy replicated acceptance tests (`test_replicated_fault_acceptance.py`, `test_metrics_replicated.py`) to verify `schema_version = 2` unified distributed checkpoints (`state.pt` + `ranks/rank-RRRRR.pt`) alongside legacy v1 rank files.
+- Resolved HTTP/HTTPS `weights_path` template parameters inside `build_network()` (`src/hypergan/hndl_networks.py`) via `resolve_or_cache()`, enabling native HNDL `pretrained()` nodes (including `src/hypergan/models/cifar10-tiny-transformer.toml` and `examples/image-folder-tiny-transformer.toml`) to verify and cache remote SHA-256-pinned weights in `~/.hypergan/cache/`.
+- Prioritized bare packaged model names in `hg.load()`, `hg.describe()`, `hg.diff()`, and `hypergan model` / `validate` / `explain` / `preflight` / `diff` ahead of fuzzy global-registry (`runs.json`) name/prefix matches from historical runs, while preserving local file/directory precedence.
+- Cached startup package version strings (`particlegan`, `hypergan`, `hndl`) inside `trainer._checkpoint_provenance` in `_distributed_checkpoint_identity()` (`src/hypergan/distributed_checkpoints.py`) so mid-run editable package metadata updates on disk never drift a running worker's checkpoint identity.
+- Raised `MAX_SHARD_BYTES` in `src/hypergan/distributed_commit.py` from `16 MiB` to match `MAX_RANK_BYTES` (`1 GiB`) so high-resolution (`256×256`–`1024×1024`) multi-GPU rank shards (`last_batch` + large `image_folder` / `ColorizationData` epoch permutations) prepare, commit, and restore without hitting a premature shard size limit.
+- Fixed `export_generator(..., format="pt2" | "onnx")` and `LoadedGenerator.sample_latents()` latent dimension resolution (`_resolve_z_dim`) to read baked `particle_z.shape[-1]`, `prior.args.z_dim`, `prior.z_dim`, and generator `input_shape` instead of defaulting to `4`, and wrapped unconditional PT2 exports so `torch.export.load(...).module()` unlifts cleanly without colliding with `torch.fx.GraphModule.graph`.
+- Fixed `hypergan ps` (`hg.ps()`, `hg.list_runs()`, `hg.status()`) on multi-GPU runs to aggregate live VRAM across descendant `replicated_worker` CUDA processes and report multi-GPU device topologies (`cuda:0,cuda:1`).
+- Prevented `pytest-of-*` temporary viewer states and run directories from leaking into the host user's global run registry (`~/.local/share/hypergan/runs.json`) during host discovery.
+- Included `tests/conftest.py` and `tests/README.md` in `MANIFEST.in` and `.github/workflows/ci.yml` so source distributions (`sdist`) preserve test isolation fixtures (`HOME`, `XDG_*`, `HYPERGAN_NO_SERVER`).
+- Updated `source_info()` provenance metadata in `src/hypergan/training.py` to point `integration_reference.repository` to `https://github.com/HyperGAN/ParticleGAN`.
+
 ## 2.0.0a3 — 2026-11-09
 
 HyperGAN 2.0.0a3 is the third alpha of HG 2. It combines declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.9.7,<0.10`) primitives, reproducible training lifecycles, unified multi-GPU and multi-node checkpoints (`schema_version = 2`), a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export, and a fully typed config-first Python API (`import hypergan as hg`).

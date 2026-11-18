@@ -5,8 +5,10 @@ HyperGAN is published to PyPI as `hypergan`. The package version is declared in
 `pyproject.toml`.
 
 `develop` holds upcoming work; `master` reflects the source published to PyPI.
-Prepare the version, `CHANGELOG.md` (rename its **Unreleased** section to the
-new version), and `README.md` on `develop`, verify CI, merge into `master`, and publish from the verified
+Prepare the version, `CHANGELOG.md` (move **Unreleased** entries under a new
+`## <version> — YYYY-MM-DD` heading while keeping an empty `## Unreleased`
+section at the top, as verified by `test_repository_consistency.py`), and
+`README.md` on `develop`, verify CI, merge into `master`, and publish from the verified
 `master` commit.
 
 ## CI
@@ -20,7 +22,7 @@ and release workflow calls against an immutable tagged source SHA:
   ParticleGAN-free environment, runs `tests/foundation` against the installed
   wheel outside the checkout, and verifies clean sdist rebuilds.
 - **CPU reference (`ubuntu-latest`, Python 3.12):**
-  Installs the tested CPU runtime (`[train,image,cifar,web,test]`) and runs
+  Installs the tested CPU runtime (`[train,image,cifar,fid,web,test]`) and runs
   `tests/reference`, `tests/unit`, `tests/playbooks`, and `tests/e2e` outside the
   checkout.
 - **Heavy lightweight & Heavy CPU reference:**
@@ -55,22 +57,25 @@ token. Configure the PyPI Trusted Publisher at
 ## Publishing
 
 1. Merge reviewed changes into `develop`, including `__version__` in
-   `src/hypergan/__init__.py`, `CHANGELOG.md`, and `README.md`.
+   `src/hypergan/__init__.py`, `CHANGELOG.md` (`## <version> — YYYY-MM-DD`), and
+   `README.md`.
 2. Merge `develop` into `master` and wait for `Foundation CI` (including heavy
    suites and `Build release distributions`) to pass on `master`.
-3. Create and publish the GitHub release with a `v<version>` tag targeting the
-   verified `master` commit:
+3. Tag the verified `master` commit as `v<version>` and push the tag:
 
    ```sh
    RELEASE_SHA=$(git rev-parse master)
-   gh release create v2.0.0a3 --prerelease --repo HyperGAN/HyperGAN \
-     --target "$RELEASE_SHA" --title "HyperGAN 2.0.0a3" \
-     --notes-file /tmp/hypergan-2.0.0a3-release-notes.md
+   git tag -a v2.0.0a4 "$RELEASE_SHA" -m "HyperGAN 2.0.0a4"
+   git push origin v2.0.0a4
    ```
 
-   Use `--prerelease` for alpha and beta releases; omit it for a stable release.
-
-   Publishing the release triggers `release.yml`, which validates that the tag
-   matches `v<__version__>`, runs `ci.yml` against the immutable `source_sha`,
-   downloads the verified `python-package-distributions` artifact, and publishes
-   to PyPI via Trusted Publishing.
+   Pushing `v<version>` (or running `gh workflow run release.yml -f tag=v2.0.0a4`)
+   triggers `release.yml`, which:
+   - validates that the tag matches `v<__version__>` and extracts the matching
+     `## <version>` notes from `CHANGELOG.md`,
+   - runs `ci.yml` against the immutable `source_sha`,
+   - publishes the verified `python-package-distributions` wheel and sdist to
+     PyPI via Trusted Publishing, and
+   - creates or updates the GitHub Release with the extracted changelog notes,
+     attaches the wheel and sdist assets, and keeps the repository's `Latest`
+     release pointer aligned with the current `2.x` line.

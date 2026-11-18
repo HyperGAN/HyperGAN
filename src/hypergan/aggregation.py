@@ -256,21 +256,182 @@ def _synchronize_optimizer_regularizers(
                 dist.all_reduce(sur, op=dist.ReduceOp.SUM)
                 rec.last_sur = float((sur / world_size).item())
 
-            # Synchronize ema_residual and ema_data_scale
-            if hasattr(rec, "ema_residual") and hasattr(rec, "ema_data_scale"):
-                stats = torch.tensor(
-                    [float(rec.ema_residual), float(rec.ema_data_scale)],
+            if hasattr(rec, "proto_initialized"):
+                sync_empf_record(rec, comm_device, world_size)
+            else:
+                # Synchronize ema_residual and ema_data_scale
+                if hasattr(rec, "ema_residual") and hasattr(rec, "ema_data_scale"):
+                    stats = torch.tensor(
+                        [float(rec.ema_residual), float(rec.ema_data_scale)],
+                        dtype=torch.float64,
+                        device=comm_device,
+                    )
+                    dist.all_reduce(stats, op=dist.ReduceOp.SUM)
+                    rec.ema_residual = float((stats[0] / world_size).item())
+                    rec.ema_data_scale = float((stats[1] / world_size).item())
+
+                if hasattr(rec, "_thermal_scale") and not hasattr(rec, "rhbi_ell_initialized"):
+                    therm = torch.tensor([float(rec._thermal_scale)], dtype=torch.float64, device=comm_device)
+                    dist.all_reduce(therm, op=dist.ReduceOp.SUM)
+                    rec._thermal_scale = float((therm[0] / world_size).item())
+
+            # Synchronize RHBI transport horizon, Weyl chord phase, and thermal settling state
+            if hasattr(rec, "rhbi_ell_initialized") and hasattr(rec, "rhbi_thermal_initialized"):
+                rhbi_floats = torch.tensor(
+                    [
+                        float(rec.rhbi_ell_ema),
+                        float(rec.rhbi_chord_phase),
+                        float(rec.rhbi_ema_ed),
+                        float(rec.rhbi_ema_mu_sq),
+                        float(rec.rhbi_ema_spread),
+                        float(rec.rhbi_ema_q90),
+                        float(rec.rhbi_ema_hmax),
+                        float(rec.rhbi_ema_tail),
+                        float(rec.rhbi_cond_ema),
+                        float(rec.rhbi_het_ema),
+                        float(rec._thermal_scale),
+                    ],
                     dtype=torch.float64,
                     device=comm_device,
                 )
-                dist.all_reduce(stats, op=dist.ReduceOp.SUM)
-                rec.ema_residual = float((stats[0] / world_size).item())
-                rec.ema_data_scale = float((stats[1] / world_size).item())
+                dist.all_reduce(rhbi_floats, op=dist.ReduceOp.SUM)
+                rhbi_floats /= world_size
+                vals = rhbi_floats.tolist()
+                rec.rhbi_ell_ema = float(vals[0])
+                rec.rhbi_chord_phase = float(vals[1]) % 1.0
+                rec.rhbi_ema_ed = float(vals[2])
+                rec.rhbi_ema_mu_sq = float(vals[3])
+                rec.rhbi_ema_spread = float(vals[4])
+                rec.rhbi_ema_q90 = float(vals[5])
+                rec.rhbi_ema_hmax = float(vals[6])
+                rec.rhbi_ema_tail = float(vals[7])
+                rec.rhbi_cond_ema = float(vals[8])
+                rec.rhbi_het_ema = float(vals[9])
+                rec._thermal_scale = max(1e-6, min(1.0, float(vals[10])))
+
+                rhbi_flags = torch.tensor(
+                    [
+                        int(bool(rec.rhbi_ell_initialized)),
+                        int(bool(rec.rhbi_thermal_initialized)),
+                        int(bool(rec.rhbi_cond_initialized)),
+                        int(bool(rec.rhbi_het_initialized)),
+                    ],
+                    dtype=torch.int32,
+                    device=comm_device,
+                )
+                dist.all_reduce(rhbi_flags, op=dist.ReduceOp.MAX)
+                flags = rhbi_flags.tolist()
+                rec.rhbi_ell_initialized = bool(flags[0])
+                rec.rhbi_thermal_initialized = bool(flags[1])
+                rec.rhbi_cond_initialized = bool(flags[2])
+                rec.rhbi_het_initialized = bool(flags[3])
 
         # 3. Synchronize EMA critic network if attached to optimizer
         ema_critic = getattr(opt, "ema_critic", None)
         if ema_critic is not None and isinstance(ema_critic, torch.nn.Module):
             _average_modules([ema_critic], world_size)
+
+
+def sync_empf_record(rec: Any, comm_device: torch.device, world_size: int) -> None:
+    """Synchronize EMPF e-means prototype bank, phases, and thermal/step scales across ranks."""
+    if rec is None or world_size <= 1 or not hasattr(rec, "proto_initialized"):
+        return
+    flags = torch.tensor(
+        [int(bool(rec.initialized)), int(bool(rec.proto_initialized))],
+        dtype=torch.int32,
+        device=comm_device,
+    )
+    dist.all_reduce(flags, op=dist.ReduceOp.MAX)
+    init_flag, proto_flag = flags.tolist()
+    rec.initialized = bool(init_flag)
+
+    scalars = torch.tensor(
+        [
+            float(rec.ema_residual),
+            float(rec.ema_data_scale),
+            float(rec.ema_cond_energy),
+            float(rec._thermal_scale),
+            float(rec._step_scale),
+        ],
+        dtype=torch.float64,
+        device=comm_device,
+    )
+    dist.all_reduce(scalars, op=dist.ReduceOp.SUM)
+    scalars /= world_size
+    s_vals = scalars.tolist()
+    rec.ema_residual = max(0.0, float(s_vals[0]))
+    rec.ema_data_scale = max(0.0, float(s_vals[1]))
+    rec.ema_cond_energy = float(s_vals[2])
+    rec._thermal_scale = max(0.0, min(1.0, float(s_vals[3])))
+    rec._step_scale = max(1e-6, min(1.0, float(s_vals[4])))
+
+    phase_meta = torch.tensor(
+        [float(rec.chord_phase), float(rec.revival_phase), float(int(rec.revivals))],
+        dtype=torch.float64,
+        device=comm_device,
+    )
+    rev_bounds = torch.tensor(
+        [int(rec.revivals), -int(rec.revivals)],
+        dtype=torch.int64,
+        device=comm_device,
+    )
+    dist.all_reduce(rev_bounds, op=dist.ReduceOp.MAX)
+    revivals_match = int(rev_bounds[0].item()) == -int(rev_bounds[1].item())
+    dist.broadcast(phase_meta, src=0)
+    p_vals = phase_meta.tolist()
+    rec.chord_phase = float(p_vals[0]) % 1.0
+    rec.revival_phase = float(p_vals[1]) % 1.0
+    rec.revivals = max(0, int(round(p_vals[2])))
+
+    if bool(proto_flag):
+        # Verify all ranks hold matching prototype bank shapes; otherwise broadcast rank 0's bank.
+        has_local = bool(rec.proto_initialized and isinstance(rec.proto_sum, torch.Tensor) and isinstance(rec.proto_count, torch.Tensor))
+        shape_info = torch.tensor(
+            [
+                int(has_local),
+                int(rec.proto_sum.shape[0]) if has_local else 0,
+                int(rec.proto_sum.shape[1]) if has_local else 0,
+            ],
+            dtype=torch.int64,
+            device=comm_device,
+        )
+        all_shapes = [torch.zeros_like(shape_info) for _ in range(world_size)]
+        dist.all_gather(all_shapes, shape_info)
+        shapes_list = [t.tolist() for t in all_shapes]
+        uniform_bank = all(row[0] == 1 and row == shapes_list[0] for row in shapes_list)
+        if uniform_bank and revivals_match:
+            orig_dev = rec.proto_sum.device
+            p_sum = rec.proto_sum.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+            p_cnt = rec.proto_count.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+            dist.all_reduce(p_sum, op=dist.ReduceOp.SUM)
+            dist.all_reduce(p_cnt, op=dist.ReduceOp.SUM)
+            p_sum /= world_size
+            p_cnt = (p_cnt / world_size).clamp_min(1e-8)
+            rec.proto_sum = p_sum.to(device=orig_dev)
+            rec.proto_count = p_cnt.to(device=orig_dev)
+            rec.proto_initialized = True
+        elif shapes_list[0][0] == 1:
+            k_n, d_n = int(shapes_list[0][1]), int(shapes_list[0][2])
+            orig_dev = rec.proto_sum.device if has_local else comm_device
+            p_sum = (
+                rec.proto_sum.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+                if dist.get_rank() == 0
+                else torch.empty((k_n, d_n), dtype=torch.float32, device=comm_device)
+            )
+            p_cnt = (
+                rec.proto_count.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+                if dist.get_rank() == 0
+                else torch.empty((k_n,), dtype=torch.float32, device=comm_device)
+            )
+            dist.broadcast(p_sum, src=0)
+            dist.broadcast(p_cnt, src=0)
+            rec.proto_sum = p_sum.to(device=orig_dev)
+            rec.proto_count = p_cnt.clamp_min(1e-8).to(device=orig_dev)
+            rec.proto_initialized = True
+    else:
+        rec.proto_initialized = False
+        rec.proto_sum = None
+        rec.proto_count = None
 
 
 def _average_modules(modules: List[torch.nn.Module], world_size: int, *, parameters: bool = True) -> None:

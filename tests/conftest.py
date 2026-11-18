@@ -43,9 +43,11 @@ def private_viewer_cache(tmp_path_factory, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def isolate_hypergan_state(tmp_path_factory):
-    """Isolate HyperGAN state directory (registry, locks, runs.json) per test."""
+    """Isolate HyperGAN state directory (registry, locks, runs.json) and CUDA mask per test."""
     state_dir = tmp_path_factory.mktemp("state")
     previous = os.environ.get("HYPERGAN_STATE_DIR")
+    prev_cuda_vis = os.environ.get("CUDA_VISIBLE_DEVICES")
+    prev_cuda_order = os.environ.get("CUDA_DEVICE_ORDER")
     os.environ["HYPERGAN_STATE_DIR"] = str(state_dir)
     try:
         yield state_dir
@@ -54,3 +56,11 @@ def isolate_hypergan_state(tmp_path_factory):
             os.environ.pop("HYPERGAN_STATE_DIR", None)
         else:
             os.environ["HYPERGAN_STATE_DIR"] = previous
+        if prev_cuda_vis is None:
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        else:
+            os.environ["CUDA_VISIBLE_DEVICES"] = prev_cuda_vis
+        if prev_cuda_order is None:
+            os.environ.pop("CUDA_DEVICE_ORDER", None)
+        else:
+            os.environ["CUDA_DEVICE_ORDER"] = prev_cuda_order

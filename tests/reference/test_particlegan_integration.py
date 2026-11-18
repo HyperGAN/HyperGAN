@@ -260,3 +260,56 @@ def test_cpu_capture_guard_keeps_the_recipe_optimizer_class(tmp_path, monkeypatc
     meta = torch.optim.Adam([torch.nn.Parameter(torch.ones(2, device='meta'))])
     assert _skip_cpu_capture_guard(meta) is meta
     assert not {'_accelerator_graph_capture_health_check', '_cuda_graph_capture_health_check'} & set(vars(meta))
+
+
+def test_named_particlegan_preset_selector_resolves_empf_without_overwriting_hyperparams():
+    torch.set_num_threads(1)
+    model = {
+        'format': 'hypergan-model/1',
+        'name': 'test-empf-preset',
+        'defaults': 'particlegan:empf',
+        'data': {'builtin': 'gaussian_grid'},
+        'prior': {'kind': 'mog', 'num_particles': 128, 'z_dim': 4, 'initialization_seed': 2, 'fixed_sigma': 0.2},
+        'networks': {
+            'generator': {
+                'role': 'generator',
+                'inputs': {'x': 'latent'},
+                'input_shape': ['B', 4],
+                'output_shape': ['B', 2],
+                'source': 'linear(16)\nleaky_relu(0.2)\nlinear(2)',
+            },
+            'discriminator': {
+                'role': 'critic',
+                'inputs': {'x': 'candidate'},
+                'input_shape': ['B', 2],
+                'output_shape': ['B', 1],
+                'source': 'linear(16)\nleaky_relu(0.2)\nlinear(1)',
+            },
+        },
+        'losses': [
+            {'type': 'adversarial', 'critic': 'discriminator', 'weight': 1.0, 'penalty': 1.0},
+            {'type': 'prior', 'rows': 'full'},
+        ],
+        'train': {'steps': 5, 'batch_size': 32, 'seed': 0, 'device': 'cpu', 'initialization': 'deterministic_orthogonal'},
+    }
+    resolved = load_config(model)
+    expected = get_recipe('empf')
+    assert resolved['optimizer']['lr'] == expected.lr == 0.012
+    assert resolved['optimizer']['d_lr_mult'] == expected.d_lr_mult == 1.5
+    assert resolved['optimizer']['prior_lr_mult'] == expected.prior_lr_mult == 2.5
+    assert resolved['prior_regularizer']['weight'] == expected.prior_reg == 0.01
+    trainer = ReferenceTrainer(resolved)
+    assert trainer.recipe.name == 'empf'
+    assert trainer.recipe.critic_formulation == 'empf'
+    assert trainer.opt_g._empf_record is trainer.opt_d.record
+    assert trainer.prior._empf_record is trainer.opt_d.record
+    row, batch = trainer.update()
+    assert torch.isfinite(torch.tensor(row['g_loss']))
+    saved = copy.deepcopy(trainer_state(trainer, batch))
+    _, batch = trainer.update()
+    wanted = copy.deepcopy(trainer_state(trainer, batch))
+    resumed = ReferenceTrainer(resolved)
+    restore_trainer(resumed, saved)
+    _, batch = resumed.update()
+    equal(wanted, trainer_state(resumed, batch))
+

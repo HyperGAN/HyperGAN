@@ -224,6 +224,59 @@ def _read_manifest_safe(run_dir: Path) -> Dict[str, Any]:
     return {}
 
 
+def _positive_int_field(val: Any) -> Optional[int]:
+    if isinstance(val, int) and not isinstance(val, bool) and val > 0:
+        return val
+    return None
+
+
+def _gpu_device_sort_key(dev: str) -> Tuple[int, Union[int, str]]:
+    suffix = dev.split(":", 1)[1] if ":" in dev else dev
+    try:
+        return (0, int(suffix))
+    except (ValueError, TypeError):
+        return (1, suffix)
+
+
+def _refine_multigpu_device(device: str, manifest: Dict[str, Any]) -> str:
+    """Format bare 'cuda' as 'cuda:0,cuda:1' (or '<world_size>x cuda') when manifest records multi-GPU topology."""
+    if device != "cuda" or not isinstance(manifest, dict) or not manifest:
+        return device
+
+    runtime = manifest.get("runtime") if isinstance(manifest.get("runtime"), dict) else {}
+    cuda = runtime.get("cuda") if isinstance(runtime.get("cuda"), dict) else {}
+    rank_devices = cuda.get("rank_devices")
+
+    if isinstance(rank_devices, list) and len(rank_devices) >= 2:
+        devs: List[str] = []
+        for entry in rank_devices:
+            if not isinstance(entry, dict):
+                continue
+            dev_name = entry.get("device")
+            if isinstance(dev_name, str) and dev_name.strip():
+                d_str = dev_name.strip()
+            elif isinstance(entry.get("index"), int) and not isinstance(entry.get("index"), bool):
+                d_str = f"cuda:{entry['index']}"
+            else:
+                continue
+            if d_str not in devs:
+                devs.append(d_str)
+        if len(devs) >= 2:
+            devs.sort(key=_gpu_device_sort_key)
+            return ",".join(devs)
+
+    execution = manifest.get("execution") if isinstance(manifest.get("execution"), dict) else {}
+    world_size = (
+        _positive_int_field(execution.get("world_size"))
+        or _positive_int_field(runtime.get("world_size"))
+        or _positive_int_field(manifest.get("world_size"))
+    )
+    if world_size is not None and world_size > 1 and runtime.get("device") != "cpu" and runtime.get("backend") != "gloo":
+        return f"{world_size}x cuda"
+
+    return device
+
+
 def _read_events_tail_fallback(run_dir: Path) -> Dict[str, Any]:
     """Extract fallback run metadata from the tail of events.jsonl when summary/manifest are missing or corrupt."""
     events_path = run_dir / "events.jsonl"
@@ -418,6 +471,7 @@ def run_status(
                         pid = att_data["pid"]
             except Exception:
                 pass
+    devices_str = _refine_multigpu_device(str(devices_str), manifest)
 
     if not is_active:
         pid = None
@@ -690,6 +744,9 @@ def _collect_ps_row(
             else cached_entry.get("steps_per_sec")
         )
         rid = str(cached_entry["run_id"])
+        cached_dev = str(cached_entry.get("device") or "cuda")
+        if cached_dev == "cuda":
+            cached_dev = _refine_multigpu_device(cached_dev, _read_manifest_safe(run_path))
         return {
             "run_id": rid,
             "short_id": cached_entry.get("short_id") or rid[:8],
@@ -707,7 +764,7 @@ def _collect_ps_row(
             "steps_per_sec": speed_val,
             "latest_metric": cached_entry.get("latest_metric", "--"),
             "best_fid": cached_entry.get("best_fid"),
-            "device": str(cached_entry.get("device") or "cuda"),
+            "device": cached_dev,
             "updated_at": str(cached_entry.get("updated_at") or "--"),
             "summary_mtime_ns": summary_mtime_ns,
         }
@@ -786,6 +843,7 @@ def _collect_ps_row(
         or (cached_entry.get("device") if cached_entry else None)
         or "cuda"
     )
+    device = _refine_multigpu_device(str(device), manifest)
 
     updated_at = (summary.get("updated_at") if summary else None) or manifest.get("updated_at")
     if not updated_at:
@@ -1570,6 +1628,110 @@ def gc_all(
     return results
 
 
+def _parse_proc_stat_ppid(stat_text: str) -> Optional[int]:
+    """Extract PPID from Linux /proc/<pid>/stat safely across comm names with spaces or parens."""
+    rparen = stat_text.rfind(")")
+    if rparen < 0:
+        return None
+    fields = stat_text[rparen + 1:].split()
+    if len(fields) < 2:
+        return None
+    try:
+        ppid = int(fields[1])
+        return ppid if ppid >= 0 else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _build_ppid_map(proc_root: Optional[Union[Path, str]] = None) -> Dict[int, int]:
+    """Build a lightweight child PID -> parent PID mapping via /proc or POSIX ps fallback."""
+    ppid_map: Dict[int, int] = {}
+    proc_path = Path("/proc") if proc_root is None else Path(proc_root)
+    if proc_path.is_dir():
+        try:
+            with os.scandir(proc_path) as entries:
+                for entry in entries:
+                    if not entry.name.isdigit():
+                        continue
+                    try:
+                        pid_val = int(entry.name)
+                        if pid_val <= 0:
+                            continue
+                        stat_text = (proc_path / entry.name / "stat").read_text(
+                            encoding="utf-8", errors="ignore"
+                        )
+                    except (OSError, ValueError):
+                        continue
+                    ppid_val = _parse_proc_stat_ppid(stat_text)
+                    if ppid_val is not None and ppid_val > 0:
+                        ppid_map[pid_val] = ppid_val
+            return ppid_map
+        except OSError:
+            pass
+
+    if os.name != "nt":
+        import subprocess
+
+        try:
+            res = subprocess.run(
+                ["ps", "-eo", "pid=,ppid="],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            if res.returncode == 0 and res.stdout:
+                for line in res.stdout.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        try:
+                            pid_val = int(parts[0])
+                            ppid_val = int(parts[1])
+                            if pid_val > 0 and ppid_val > 0:
+                                ppid_map[pid_val] = ppid_val
+                        except (ValueError, TypeError):
+                            continue
+        except Exception:
+            pass
+
+    return ppid_map
+
+
+def _is_pid_or_descendant(
+    candidate_pid: Any,
+    target_pid: Any,
+    ppid_map: Optional[Dict[int, int]] = None,
+    *,
+    max_depth: int = 16,
+) -> bool:
+    """Return True if candidate_pid equals target_pid or descends from target_pid within max_depth."""
+    try:
+        cand = int(candidate_pid)
+        target = int(target_pid)
+    except (ValueError, TypeError):
+        return False
+    if cand <= 0 or target <= 0:
+        return False
+    if cand == target:
+        return True
+    if not ppid_map:
+        return False
+
+    visited = {cand}
+    cur = cand
+    for _ in range(max_depth):
+        parent = ppid_map.get(cur)
+        if parent is None or parent <= 0:
+            return False
+        if parent == target:
+            return True
+        if parent <= 1 or parent in visited:
+            return False
+        visited.add(parent)
+        cur = parent
+    return False
+
+
 def ps_runs(*, all_runs: bool = False, cwd: Optional[Union[Path, str]] = None) -> Dict[str, Any]:
     """List active training runs (or all runs if all_runs=True) enriched with live GPU VRAM and queue status."""
     all_items = list_runs(root=None, sort="updated", status_filter=None, cwd=cwd)
@@ -1578,6 +1740,7 @@ def ps_runs(*, all_runs: bool = False, cwd: Optional[Union[Path, str]] = None) -
     # Enrich active runs with GPU VRAM and device info via GPU inventory provider (if available)
     gpu_procs: List[Dict[str, Any]] = []
     gpu_hw: Dict[str, Dict[str, Any]] = {}
+    ppid_map: Dict[int, int] = {}
     if any(r.get("active") for r in items):
         try:
             from .gpu_inventory import inspect_gpu_hardware, inspect_gpu_processes
@@ -1587,24 +1750,26 @@ def ps_runs(*, all_runs: bool = False, cwd: Optional[Union[Path, str]] = None) -
             gpu_procs = inspect_gpu_processes()
         except Exception:
             gpu_procs = []
+        if gpu_procs and any(r.get("active") and r.get("pid") for r in items):
+            ppid_map = _build_ppid_map()
 
     for r in items:
         r_dir = Path(r["run_dir"])
-        if not r.get("device"):
-            r["device"] = "cuda"
+        if not r.get("device") or r.get("device") == "cuda":
+            r["device"] = _refine_multigpu_device(str(r.get("device") or "cuda"), _read_manifest_safe(r_dir))
         r["vram_mb"] = None
 
         if r.get("active"):
             pid = r.get("pid")
             r_dir_str = str(r_dir)
             vram_total = 0.0
-            matched_gpus = []
+            matched_gpus: List[str] = []
             for gp in gpu_procs:
                 gp_pid = gp.get("pid")
                 gp_cmd = str(gp.get("cmdline", ""))
                 # Whole-argument match only: a substring or basename test credits
                 # runs/cifar with the VRAM of a runs/cifar-v2 trainer.
-                if (pid and gp_pid == pid) or r_dir_str in gp_cmd.split():
+                if (pid and _is_pid_or_descendant(gp_pid, pid, ppid_map)) or r_dir_str in gp_cmd.split():
                     vram_total += float(gp.get("used_memory") or 0.0)
                     uuid_str = str(gp.get("gpu_uuid", ""))
                     if uuid_str in gpu_hw:
@@ -1614,6 +1779,7 @@ def ps_runs(*, all_runs: bool = False, cwd: Optional[Union[Path, str]] = None) -
             if vram_total > 0:
                 r["vram_mb"] = round(vram_total, 1)
             if matched_gpus:
+                matched_gpus.sort(key=_gpu_device_sort_key)
                 r["device"] = ",".join(matched_gpus)
 
     # Also check queued jobs from queue.json if present

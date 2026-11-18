@@ -22,9 +22,10 @@ LEGACY_SCHEMA = 1
 KIND = 'hypergan-distributed-training-checkpoint'
 PREPARED_KIND = 'hypergan-prepared-distributed-checkpoint'
 # The one per-rank payload bound for distributed checkpoints (prepare, commit and
-# restore). Full-depth transformer generators need more than 256 MiB.
+# restore). Full-depth transformer generators and high-resolution (256..1024px)
+# rank-local batches + large dataset permutations exceed 16..256 MiB.
 MAX_RANK_BYTES = 1024 * 1024 * 1024
-MAX_SHARD_BYTES = 16 * 1024 * 1024
+MAX_SHARD_BYTES = MAX_RANK_BYTES
 MAX_METADATA_BYTES = 16 * 1024 * 1024
 MAX_RECEIPT_BYTES = 65536
 MAX_RANKS = 64

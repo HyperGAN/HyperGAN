@@ -69,9 +69,11 @@ def verify_replicated_metrics(tmp_path, device):
                             capture_output=True, text=True, timeout=240, env=env)
     assert result.returncode == 0, result.stdout + result.stderr
     def states(name):
-        root = tmp_path / name / 'distributed-checkpoints'
+        root = tmp_path / name / 'checkpoints'
         pointer = json.loads((root / 'latest.json').read_text())
-        return [torch.load(root / pointer['checkpoint'] / f'rank-{rank:05d}.pt', weights_only=True) for rank in range(2)]
+        ckpt = root / pointer['checkpoint']
+        shared = torch.load(ckpt / 'state.pt', weights_only=True)
+        return [dict(shared, **torch.load(ckpt / 'ranks' / f'rank-{rank:05d}.pt', weights_only=True)) for rank in range(2)]
     baseline = states('on')
     same(baseline, states('off'))
     same(baseline, states('split'))

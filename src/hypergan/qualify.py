@@ -496,13 +496,28 @@ class QualificationRunner:
             _require(result.get("status") == "complete" and result.get("steps") == steps,
                      f"CPU Gloo job ended {result.get('status')!r} at step {result.get('steps')!r}, expected complete at {steps}")
             checkpoint = Path(result["checkpoint_path"])
-            states = [torch.load(checkpoint / f"rank-{rank:05d}.pt", weights_only=True) for rank in range(world_size)]
-        for key in ("graph", "prior", "ema_graph", "ema_prior"):
-            reference = states[0][key]
-            for rank, state in enumerate(states[1:], start=1):
-                _require(state[key].keys() == reference.keys()
-                         and all(torch.equal(state[key][name], reference[name]) for name in reference),
-                         f"CPU Gloo replica {key} diverged between rank 0 and rank {rank}")
+            state_pt = checkpoint / "state.pt"
+            if state_pt.is_file():
+                from .distributed_checkpoints import _shared_digest
+                meta = json.loads((checkpoint / "manifest.json").read_text(encoding="utf-8"))
+                shared = torch.load(state_pt, weights_only=True)
+                _require(_shared_digest(shared) == meta.get("replicated_sha256"),
+                         "CPU Gloo shared checkpoint state differs from committed replica agreement")
+                for key in ("graph", "prior", "ema_graph", "ema_prior"):
+                    _require(isinstance(shared.get(key), dict) and len(shared[key]) > 0,
+                             f"CPU Gloo shared checkpoint missing {key}")
+                shards = [torch.load(checkpoint / "ranks" / f"rank-{rank:05d}.pt", weights_only=True)
+                          for rank in range(world_size)]
+                _require(all(shard.get("step") == steps for shard in shards),
+                         "CPU Gloo rank shard step mismatch")
+            else:
+                states = [torch.load(checkpoint / f"rank-{rank:05d}.pt", weights_only=True) for rank in range(world_size)]
+                for key in ("graph", "prior", "ema_graph", "ema_prior"):
+                    reference = states[0][key]
+                    for rank, state in enumerate(states[1:], start=1):
+                        _require(state[key].keys() == reference.keys()
+                                 and all(torch.equal(state[key][name], reference[name]) for name in reference),
+                                 f"CPU Gloo replica {key} diverged between rank 0 and rank {rank}")
         return {
             "name": "cpu_replicated_gloo",
             "status": "passed",

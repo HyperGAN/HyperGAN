@@ -280,6 +280,62 @@ def _sum_tensors(values):
     return total
 
 
+def _graph_generator_uses_batch(graph):
+    """Return True if resolving ``generator`` transitively reads ``batch.*``."""
+    visited = set()
+
+    def walk(name):
+        if name in visited or name not in graph.specs:
+            return False
+        visited.add(name)
+        for path in graph.specs[name].get("inputs", {}).values():
+            if path == "batch" or path.startswith("batch."):
+                return True
+            if path.startswith("components."):
+                sub = path.split(".", 2)[1]
+                if walk(sub):
+                    return True
+        return False
+
+    return walk("generator")
+
+
+def _rhbi_generator_context(trainer, terms):
+    """Return ``(rhbi_module, is_discrete, use_simplex)`` for the current generator step."""
+    from particlegan import ParticlePrior
+
+    if len(terms) != 1:
+        return None, False, False
+    rhbi = getattr(terms[0].gan, "rhbi", None)
+    if rhbi is None or not hasattr(rhbi, "bind_discrete_prior_step"):
+        return None, False, False
+    is_discrete = type(trainer.prior) is ParticlePrior
+    use_simplex = bool(
+        is_discrete
+        and trainer.prior.z.requires_grad
+        and len(trainer.prior.z) >= 2
+        and len(terms[0].routes) == 1
+        and getattr(trainer.recipe, "rhbi_simplex_weight", 0.0) > 0.0
+        and not _graph_generator_uses_batch(trainer.graph)
+    )
+    return rhbi, is_discrete, use_simplex
+
+
+def _rhbi_simplex_loss(trainer, rhbi, selected_ids, real_batch):
+    """Evaluate the RHBI simplicial manifold regularizer on an unconditional discrete ParticlePrior."""
+    raw_base = trainer.prior.z
+    base_table = raw_base if len(raw_base) <= 1024 or selected_ids is None else raw_base[selected_ids]
+    return trainer.recipe.rhbi_simplex_weight * rhbi.simplicial_manifold_loss(
+        base_table,
+        lambda z_q: trainer.graph.generate(z_q, {}, prior=trainer.prior)["generated"],
+        real_batch,
+        record=getattr(trainer.opt_d, "record", None),
+        chart_weight=trainer.recipe.rhbi_simplex_chart_weight,
+        macro_settle=trainer.recipe.rhbi_simplex_macro_settle,
+        curve_settle=trainer.recipe.rhbi_simplex_curve_settle,
+    )
+
+
 def _generator_tail(trainer, program, context, ids, fake):
     if ids is None or not trainer.prior.z.requires_grad:
         prior_loss = fake.new_zeros(())
@@ -412,16 +468,28 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         flags = [parameter.requires_grad for parameter in term.module.parameters()]
         term.module.requires_grad_(False)
         saved_flags.append((term.module, flags))
+    rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(trainer, terms)
     try:
         if independent:
             batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
         trainer.opt_g.zero_grad(set_to_none=True)
+        if rhbi_mod is not None:
+            simplicial_active = bool(
+                use_rhbi_simplex
+                and getattr(trainer.recipe, "rhbi_simplex_chart_weight", 0.0) > 0.0
+                and getattr(trainer.recipe, "rhbi_simplex_macro_settle", False)
+            )
+            rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
+        simplex_loss = None
         if len(terms) == 1:
             term = terms[0]
             real, fake, real_score, fake_score = _bound_scores(
                 term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
             g_adversarial = term.gan.g_loss(fake_score, real_score)
             prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+            if use_rhbi_simplex and rhbi_mod is not None:
+                unique_ids = ids.unique() if ids is not None else None
+                simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
             g_adversarial_weighted = term.weight * g_adversarial
         else:
             unweighted = []
@@ -437,6 +505,8 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
             g_adversarial_weighted = _sum_tensors(weighted)
         g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+        if simplex_loss is not None:
+            g_loss = g_loss + simplex_loss
         from particlegan.optim.constraint_geometry import constraint_geometry_backward
         set_rows = getattr(trainer.opt_g, 'set_sampled_rows', None)
         if set_rows is not None and ids is not None and program.prior_parameters:
@@ -460,6 +530,8 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                 prior_grad_norm_t = zero_scalar
         trainer.opt_g.step()
     finally:
+        if rhbi_mod is not None:
+            rhbi_mod.bind_discrete_prior_step(False)
         for module, flags in saved_flags:
             for parameter, flag in zip(module.parameters(), flags):
                 parameter.requires_grad_(flag)

@@ -690,9 +690,9 @@ def generate_recipe(name: Optional[Union[str, Path]] = None,
         gen_source, disc_source = get_hndl_templates(preset_res, preset_res, c, template=template)
 
         if template == "colorization":
-            gen_inputs = {"z": "latent", "gray": "components.luma"}
+            gen_inputs = {"z": "latent", "gray": "luma"}
             gen_input_shape = {"z": ["B", 128], "gray": ["B", 1, preset_res, preset_res]}
-            disc_inputs = {"x": "candidate", "gray": "components.luma"}
+            disc_inputs = {"x": "candidate", "gray": "luma"}
             disc_input_shape = {"x": ["B", 3, preset_res, preset_res], "gray": ["B", 1, preset_res, preset_res]}
         elif template in ("paired-image", "conditional"):
             gen_inputs = {"z": "latent", "condition": "batch.condition"}

@@ -180,6 +180,8 @@ def test_pre_1_0_dependencies_have_an_upper_bound():
 
 def test_every_default_test_tier_ships_in_the_sdist_and_is_self_contained():
     manifest = _read('MANIFEST.in')
+    assert 'include tests/conftest.py' in manifest
+    assert 'include tests/README.md' in manifest
     for path in _pyproject()['tool']['pytest']['ini_options']['testpaths']:
         assert f'recursive-include {path} *.py' in manifest, path
     for helper in sorted((ROOT / 'tests').glob('*_fixtures.py')):
@@ -195,6 +197,28 @@ def test_every_default_test_tier_ships_in_the_sdist_and_is_self_contained():
             if any(re.match(r'(tests\.)?e2e(\.|$)', name) for name in names):
                 offenders.append(str(source.relative_to(ROOT)))
     assert not offenders, offenders
+
+
+def test_init_type_checking_covers_all_public_symbols():
+    """Every symbol in hypergan.__all__ is statically bound inside `if TYPE_CHECKING:` in hypergan/__init__.py."""
+    import hypergan
+
+    tree = ast.parse(_read('src/hypergan/__init__.py'))
+    type_checking_names = set()
+    for node in tree.body:
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == 'TYPE_CHECKING':
+            for stmt in node.body:
+                if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                    for alias in stmt.names:
+                        type_checking_names.add(alias.asname or alias.name.split('.')[0])
+                elif isinstance(stmt, ast.Assign):
+                    for target in stmt.targets:
+                        if isinstance(target, ast.Name):
+                            type_checking_names.add(target.id)
+    assert set(hypergan.__all__) <= type_checking_names, (
+        f'Public symbols missing from TYPE_CHECKING in src/hypergan/__init__.py: '
+        f'{sorted(set(hypergan.__all__) - type_checking_names)}'
+    )
 
 
 def test_one_changelog_with_an_unreleased_section_citing_real_constants():

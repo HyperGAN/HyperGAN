@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 
 import pytest
-import torch
 
 from hypergan import checkpoints
 from hypergan.checkpoints import _prune_run_checkpoints, extract_ema_bundle, prune_checkpoints
@@ -16,7 +15,7 @@ POLICY = {'keep_last': 1, 'keep_every': 0, 'keep_best': None}
 def make_checkpoint(run_dir, attempt, step, suffix=None, sequence=None):
     path = Path(run_dir) / 'checkpoints' / f'{attempt}-step-{step:08d}-{suffix or format(step, "012x")}'
     path.mkdir(parents=True)
-    torch.save({'step': step}, path / 'state.pt')
+    (path / 'state.pt').write_bytes(f'step={step}'.encode('utf-8'))
     info = {'run_id': 'run', 'attempt_id': attempt, 'step': step}
     if sequence is not None:
         info['event_boundary'] = {'sequence': sequence}
@@ -171,7 +170,7 @@ def test_extract_ema_bundle_requires_the_checkpoints_own_manifest(tmp_path):
     # The removed fallback read checkpoints/manifest.json, a file a run never writes.
     ckpt = tmp_path / 'checkpoints' / '0001-a-step-00000001-000000000001'
     ckpt.mkdir(parents=True)
-    torch.save({'step': 1}, ckpt / 'state.pt')
+    (ckpt / 'state.pt').write_bytes(b'step=1')
     (tmp_path / 'checkpoints' / 'manifest.json').write_text(json.dumps({'config': {'components': {}}}))
     with pytest.raises(ValueError, match='Checkpoint manifest missing'):
         extract_ema_bundle(ckpt)

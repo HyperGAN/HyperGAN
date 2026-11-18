@@ -150,10 +150,9 @@ class TestModelExportAndInferenceAPI:
         proj_dir = tmp_dir / "proj"
         run_cli("new", "--project", str(proj_dir), "--template", "gaussian-grid", "--device", "cpu")
         cfg_file = proj_dir / "configs" / "gaussian-grid.toml"
-        rc, _, err = run_cli("train", str(cfg_file), "--steps", "2", "-d", "cpu")
+        run_dir = proj_dir / "runs" / "export_run"
+        rc, _, err = run_cli("train", str(cfg_file), "--run-dir", str(run_dir), "--steps", "2", "-d", "cpu")
         assert rc == 0, err
-        rc_st, out_st, _ = run_cli("status", "--json")
-        run_dir = Path(json.loads(out_st)["run_dir"])
         return run_dir, tmp_dir
 
     def test_export_privacy_strip_default(self, trained_run):
@@ -230,6 +229,285 @@ class TestModelExportAndInferenceAPI:
             with pytest.raises(ImportError, match=r"(?i)onnx.*requires"):
                 export_generator(run_dir, out_onnx, format="onnx")
 
+    def test_export_generator_hndl_zdim64_and_pt2_reload(self, tmp_path, monkeypatch):
+        import sys
+        import types
+        import warnings
+
+        data_dir = tmp_path / "img_z64"
+        data_dir.mkdir()
+        for i in range(4):
+            Image.new("RGB", (16, 16), (i * 50, 100, 150)).save(data_dir / f"im_{i}.png")
+
+        cfg_path = tmp_path / "hndl_z64.toml"
+        cfg_path.write_text(
+            f"""
+format = "hypergan-model/1"
+name = "hndl_z64"
+
+[data]
+builtin = "image_folder"
+args = {{ root = "{data_dir.as_posix()}", height = 16, width = 16, mode = "RGB" }}
+
+[prior]
+kind = "particles"
+z_dim = 64
+num_particles = 32
+
+[networks.generator]
+role = "generator"
+inputs = {{ z = "latent" }}
+input_shape = {{ z = ["B", 64] }}
+output_shape = ["B", 3, 16, 16]
+source = \"\"\"
+h = linear(z, 256, name="proj")
+h = reshape(h, 16, 16)
+h = attention(h, 4, dropout=0.0)
+h = permute(h, 2, 1)
+h = reshape(h, 16, 4, 4)
+h = pixel_shuffle(h, 2)
+h = pixel_shuffle(h, 2)
+h = conv(h, 3, kernel_size=3, padding=1)
+out = tanh(h)
+\"\"\"
+
+[networks.discriminator]
+role = "critic"
+inputs = {{ x = "candidate" }}
+input_shape = ["B", 3, 16, 16]
+output_shape = ["B", 1]
+source = \"\"\"
+conv(16, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(32, kernel_size=4, stride=2, padding=1)
+leaky_relu(0.2)
+conv(1, kernel_size=4, stride=1, padding=0)
+flatten()
+\"\"\"
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+weight = 1.0
+
+[train]
+steps = 1
+batch_size = 2
+seed = 0
+device = "cpu"
+
+[sampling]
+count = 2
+seed = 42
+""",
+            encoding="utf-8",
+        )
+        run_dir = tmp_path / "runs" / "hndl_z64_run"
+        rc, _, err = run_cli("train", str(cfg_path), "--run-dir", str(run_dir), "--steps", "1", "-d", "cpu")
+        assert rc == 0, err
+
+        # 1. Bundle + z_dim=64 resolution check (with & without baked particle_z)
+        out_bundle = tmp_path / "z64.pt"
+        res_bundle = export_generator(run_dir, out_bundle, format="bundle")
+        assert res_bundle.is_file()
+        loaded = hg.load_bundle(res_bundle, device="cpu")
+        assert loaded.sample_latents(3).shape == (3, 64)
+        loaded.particle_z = None
+        assert loaded.sample_latents(3).shape == (3, 64)
+
+        # 2. Safetensors
+        out_st = tmp_path / "z64.safetensors"
+        res_st = export_generator(run_dir, out_st, format="safetensors")
+        assert res_st.is_file()
+        assert res_st.with_suffix(".sha256").is_file()
+
+        # 3. PT2 export and torch.export.load verification
+        out_pt2 = tmp_path / "z64.pt2"
+        res_pt2 = export_generator(run_dir, out_pt2, format="pt2")
+        assert res_pt2.is_file()
+        exported_prog = torch.export.load(res_pt2)
+        test_z = torch.randn(1, 64)
+        pt2_out = exported_prog.module()(test_z)
+        assert pt2_out.shape == (1, 3, 16, 16)
+        assert torch.isfinite(pt2_out).all()
+
+        # 4. ONNX export
+        out_onnx = tmp_path / "z64.onnx"
+        try:
+            import onnx  # noqa: F401
+            res_onnx = export_generator(run_dir, out_onnx, format="onnx")
+            assert res_onnx.is_file()
+        except ImportError:
+            with pytest.raises(ImportError, match=r"(?i)onnx.*requires"):
+                export_generator(run_dir, out_onnx, format="onnx")
+            captured = {}
+
+            def fake_onnx_export(mod, args, f, *, input_names=None, output_names=None, dynamic_axes=None, **kw):
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("error", category=torch.jit.TracerWarning)
+                    out = mod(*args)
+                captured["args"] = args
+                captured["input_names"] = input_names
+                captured["dynamic_axes"] = dynamic_axes
+                captured["out"] = out
+                Path(f).write_bytes(b"FAKE_ONNX")
+
+            monkeypatch.setitem(sys.modules, "onnx", types.ModuleType("onnx"))
+            monkeypatch.setattr(torch.onnx, "export", fake_onnx_export)
+            res_onnx = export_generator(run_dir, out_onnx, format="onnx")
+            assert res_onnx.is_file()
+            assert len(captured["args"]) == 1
+            assert captured["args"][0].shape == (1, 64)
+            assert captured["input_names"] == ["latent"]
+            assert captured["dynamic_axes"] == {"latent": {0: "batch"}, "output": {0: "batch"}}
+            assert captured["out"].shape == (1, 3, 16, 16)
+            assert torch.isfinite(captured["out"]).all()
+
+    def test_export_generator_conditional_hndl_all_formats(self, tmp_path, monkeypatch):
+        import sys
+        import types
+        import warnings
+
+        cfg_path = tmp_path / "cond_hndl.toml"
+        cfg_path.write_text(
+            """
+format = "hypergan-model/1"
+name = "cond_hndl"
+
+[data]
+builtin = "paired_linear"
+args = { dimensions = 16, scale = 1.0, offset = 0.0 }
+
+[prior]
+kind = "particles"
+z_dim = 64
+num_particles = 32
+
+[networks.generator]
+role = "generator"
+inputs = { z = "latent", condition = "batch.condition" }
+input_shape = { z = ["B", 64], condition = ["B", 16] }
+output_shape = ["B", 16]
+source = \"\"\"
+g = reshape(condition, 1, 4, 4)
+h = linear(z, 64)
+h = reshape(h, 4, 4, 4)
+h = concat(h, g, axis=1)
+h = conv(h, 8, kernel_size=3, padding=1)
+h = relu(h)
+h = flatten(h)
+out = linear(h, 16)
+\"\"\"
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate", condition = "batch.condition" }
+input_shape = { x = ["B", 16], condition = ["B", 16] }
+output_shape = ["B", 1]
+source = \"\"\"
+h = concat(x, condition, axis=1)
+h = linear(h, 32)
+h = leaky_relu(h, 0.2)
+out = linear(h, 1)
+\"\"\"
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+weight = 1.0
+
+[train]
+steps = 1
+batch_size = 2
+seed = 0
+device = "cpu"
+
+[sampling]
+count = 2
+seed = 42
+""",
+            encoding="utf-8",
+        )
+        run_dir = tmp_path / "runs" / "cond_hndl_run"
+        rc, _, err = run_cli("train", str(cfg_path), "--run-dir", str(run_dir), "--steps", "1", "-d", "cpu")
+        assert rc == 0, err
+
+        # 1. Bundle (privacy-stripped conditioning spec)
+        out_bundle = tmp_path / "cond.pt"
+        res_bundle = export_generator(run_dir, out_bundle, format="bundle")
+        assert res_bundle.is_file()
+        bundle_state = torch.load(res_bundle, weights_only=False)
+        assert "condition" in bundle_state["example_inputs"]
+        assert isinstance(bundle_state["example_inputs"]["condition"], dict)
+        loaded = hg.load_bundle(res_bundle, device="cpu")
+        cond_out = loaded.sample(count=3, conditioning={"condition": torch.randn(1, 16)})
+        assert cond_out.shape == (3, 16)
+        assert torch.isfinite(cond_out).all()
+
+        # 2. Safetensors (both privacy-stripped and include_example_inputs=True)
+        out_st = tmp_path / "cond.safetensors"
+        res_st = export_generator(run_dir, out_st, format="safetensors")
+        assert res_st.is_file()
+        out_st_raw = tmp_path / "cond_raw.safetensors"
+        res_st_raw = export_generator(run_dir, out_st_raw, format="safetensors", include_example_inputs=True)
+        assert res_st_raw.is_file()
+
+        # 3. PT2 export and torch.export.load verification with conditioning tensor
+        out_pt2 = tmp_path / "cond.pt2"
+        res_pt2 = export_generator(run_dir, out_pt2, format="pt2")
+        assert res_pt2.is_file()
+        exported_prog = torch.export.load(res_pt2)
+        pt2_out = exported_prog.module()(torch.randn(1, 64), torch.randn(1, 16))
+        assert pt2_out.shape == (1, 16)
+        assert torch.isfinite(pt2_out).all()
+
+        # 4. ONNX export for conditional generator
+        out_onnx = tmp_path / "cond.onnx"
+        try:
+            import onnx  # noqa: F401
+            res_onnx = export_generator(run_dir, out_onnx, format="onnx")
+            assert res_onnx.is_file()
+        except ImportError:
+            with pytest.raises(ImportError, match=r"(?i)onnx.*requires"):
+                export_generator(run_dir, out_onnx, format="onnx")
+            captured = {}
+
+            def fake_onnx_export(mod, args, f, *, input_names=None, output_names=None, dynamic_axes=None, **kw):
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("error", category=torch.jit.TracerWarning)
+                    out = mod(*args)
+                captured["args"] = args
+                captured["input_names"] = input_names
+                captured["dynamic_axes"] = dynamic_axes
+                captured["out"] = out
+                Path(f).write_bytes(b"FAKE_COND_ONNX")
+
+            monkeypatch.setitem(sys.modules, "onnx", types.ModuleType("onnx"))
+            monkeypatch.setattr(torch.onnx, "export", fake_onnx_export)
+            res_onnx = export_generator(run_dir, out_onnx, format="onnx")
+            assert res_onnx.is_file()
+            assert len(captured["args"]) == 2
+            assert captured["args"][0].shape == (1, 64)
+            assert captured["args"][1].shape == (1, 16)
+            assert captured["input_names"] == ["latent", "condition"]
+            assert captured["dynamic_axes"] == {
+                "latent": {0: "batch"},
+                "condition": {0: "batch"},
+                "output": {0: "batch"},
+            }
+            assert captured["out"].shape == (1, 16)
+            assert torch.isfinite(captured["out"]).all()
+
 
 # ---------------------------------------------------------------------------
 # Feature 51: Latent Interpolation API
@@ -263,9 +541,9 @@ class TestLatentInterpolation:
         proj_dir = tmp_path / "proj_interp"
         run_cli("new", "--project", str(proj_dir), "--template", "gaussian-grid", "--device", "cpu")
         cfg_file = proj_dir / "configs" / "gaussian-grid.toml"
-        run_cli("train", str(cfg_file), "--steps", "2", "-d", "cpu")
-        rc_st, out_st, _ = run_cli("status", "--json")
-        run_dir = Path(json.loads(out_st)["run_dir"])
+        run_dir = proj_dir / "runs" / "interp_run"
+        rc, _, err = run_cli("train", str(cfg_file), "--run-dir", str(run_dir), "--steps", "2", "-d", "cpu")
+        assert rc == 0, err
         export_out = tmp_path / "model_interp.pt"
         run_cli("export", str(run_dir), "-o", str(export_out))
 
@@ -287,9 +565,9 @@ class TestSamplingAndConditioning:
         proj_dir = tmp_path / "proj_batch_sample"
         run_cli("new", "-p", str(proj_dir), "-t", "dcgan", "--dataset", str(data_dir), "--device", "cpu")
         cfg_file = proj_dir / "configs" / "dcgan.toml"
-        run_cli("train", str(cfg_file), "--steps", "1", "-d", "cpu")
-        rc_st, out_st, _ = run_cli("status", "--json")
-        run_dir = Path(json.loads(out_st)["run_dir"])
+        run_dir = proj_dir / "runs" / "batch_sample_run"
+        rc, _, err = run_cli("train", str(cfg_file), "--run-dir", str(run_dir), "--steps", "1", "-d", "cpu")
+        assert rc == 0, err
 
         out_dir = tmp_path / "png_samples"
         res = sample(run_dir, count=3, device="cpu", output_dir=out_dir)

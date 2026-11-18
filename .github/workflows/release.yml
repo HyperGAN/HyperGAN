@@ -2,6 +2,7 @@ name: Publish to PyPI and GitHub Releases
 
 on:
   push:
+    branches: [master]
     tags:
       - "v*"
   workflow_dispatch:
@@ -27,24 +28,31 @@ jobs:
     outputs:
       source_sha: ${{ steps.package.outputs.source_sha }}
       version: ${{ steps.package.outputs.version }}
+      publish: ${{ steps.package.outputs.publish }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          ref: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.sha || format('refs/tags/{0}', inputs.tag || github.ref_name) }}
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Require a tag and changelog entry matching the package version
+      - name: Validate the release metadata and check PyPI
         id: package
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          MASTER_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         run: |
           python - <<'PY'
           import ast
+          import json
           import os
           import re
           import tomllib
           from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import urlopen
 
           project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
           module = ast.parse(Path("src/hypergan/__init__.py").read_text(encoding="utf-8"))
@@ -59,8 +67,25 @@ jobs:
           version = versions[0]
           expected = f"v{version}"
           tag = os.environ["RELEASE_TAG"]
-          if project["name"] != "hypergan" or tag != expected:
+          master_push = os.environ["MASTER_PUSH"] == "true"
+          if project["name"] != "hypergan" or (not master_push and tag != expected):
               raise SystemExit(f"Expected hypergan release {expected}, got {tag!r}")
+
+          if master_push:
+              try:
+                  with urlopen(f"https://pypi.org/pypi/hypergan/{quote(version, safe='')}/json", timeout=15) as response:
+                      published = json.load(response)
+              except HTTPError as error:
+                  if error.code != 404:
+                      raise
+              else:
+                  if published["info"]["name"].lower() != "hypergan":
+                      raise SystemExit("PyPI returned a different project")
+                  if published["urls"]:
+                      print(f"hypergan {version} is already published")
+                      with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                          out.write("publish=false\n")
+                      raise SystemExit(0)
 
           changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
           match = re.search(
@@ -74,11 +99,12 @@ jobs:
           notes = match.group(1).strip() + "\n"
           Path("release-notes.md").write_text(notes, encoding="utf-8")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write(f"version={version}\n")
+              out.write(f"version={version}\npublish=true\n")
           print(f"Validated {project['name']} {version} and extracted release notes ({len(notes)} bytes)")
           PY
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Save extracted release notes
+        if: steps.package.outputs.publish == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: release-notes
@@ -88,13 +114,40 @@ jobs:
   checks:
     name: Test and build release
     needs: validate-release
+    if: needs.validate-release.outputs.publish == 'true'
     uses: ./.github/workflows/ci.yml
     with:
       source_ref: ${{ needs.validate-release.outputs.source_sha }}
 
+  bind-tag:
+    name: Bind the release tag to the tested commit
+    needs: [validate-release, checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SOURCE_SHA: ${{ needs.validate-release.outputs.source_sha }}
+      VERSION: ${{ needs.validate-release.outputs.version }}
+      MASTER_PUSH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    steps:
+      - run: |
+          set -euo pipefail
+          ref="refs/tags/v${VERSION}"
+          remote="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          refs=$(git ls-remote --tags "$remote" "$ref" "${ref}^{}")
+          if [[ -z "$refs" ]]; then
+            [[ "$MASTER_PUSH" == true ]] || { echo "Missing release tag $ref" >&2; exit 1; }
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f ref="$ref" -f sha="$SOURCE_SHA" --silent
+            refs=$(git ls-remote --tags "$remote" "$ref" "${ref}^{}")
+          fi
+          actual=$(awk -v ref="$ref" '$2 == ref {direct=$1} $2 == ref "^{}" {peeled=$1} END {print peeled ? peeled : direct}' <<< "$refs")
+          [[ "$actual" == "$SOURCE_SHA" ]] || { echo "$ref does not match the tested commit" >&2; exit 1; }
+
   publish:
     name: Publish tested distributions
-    needs: [validate-release, checks]
+    needs: [validate-release, checks, bind-tag]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:

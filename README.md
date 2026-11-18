@@ -7,9 +7,9 @@
 
 Train generative models. Follow their progress. Export the result.
 
-HyperGAN 2.0.0a4 is the fourth alpha release of HG 2: declarative `hypergan-model/1` TOML model files, HNDL neural graphs, configurable ParticleGAN primitives, distributed multi-GPU & multi-node training, a typed Python API (`import hypergan as hg`), a real-time Web Observatory, and standalone privacy-preserving model export.
+HyperGAN 2.0.0 trains generative models from declarative TOML files using HNDL networks and ParticleGAN recipes. Use the CLI or typed Python API (`import hypergan as hg`) to train, checkpoint, inspect runs in the Web Observatory, and export generators for serving.
 
-The engine provides native CUDA acceleration, multi-GPU scaling (2.20× on dual RTX A6000), complete training checkpoints, a Docker-style CLI for managing runs, and packaged production recipes including [CIFAR-10 TransGAN](https://github.com/HyperGAN/HyperGAN/blob/master/docs/cifar-recipe.md) and [128×128 / 256×256 Logo Colorization](https://github.com/HyperGAN/HyperGAN/blob/master/docs/colorization.md). Lightweight CLI commands (`new`, `validate`, `ps`, `status`, `logs`, `inspect`, `tag`, `runs`, `queue`, `gc`, `rm`) do not import PyTorch.
+The wheel includes two CIFAR-10 architectures and a 128×128 colorizer. A 256×256 DINOv3 logo colorizer is available as a source example. [CIFAR recipes and measured results](https://github.com/HyperGAN/HyperGAN/blob/master/docs/cifar-recipe.md) · [Colorization setup](https://github.com/HyperGAN/HyperGAN/blob/master/docs/colorization.md)
 
 ---
 
@@ -17,13 +17,13 @@ The engine provides native CUDA acceleration, multi-GPU scaling (2.20× on dual 
 
 Use Python 3.12+ for the tested training runtime. Lightweight package checks cover Python 3.11–3.14 on Linux, macOS and Windows; the CPU reference profile is tested on Linux. The `train` extra accepts `torch>=2.6,<3`, but CI tests only `torch==2.14.0`, the version the commands below install; other versions are untested.
 
-Install the HyperGAN 2.0.0a4 alpha from PyPI:
+Install HyperGAN 2.0.0 from PyPI.
 
 ```sh
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
-python -m pip install "hypergan[all]==2.0.0a4"
+python -m pip install "hypergan[all]==2.0.0"
 hypergan --help
 python -m hypergan --version
 ```
@@ -32,7 +32,7 @@ For NVIDIA GPU acceleration:
 
 ```sh
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cu130
-python -m pip install "hypergan[all]==2.0.0a4"
+python -m pip install "hypergan[all]==2.0.0"
 ```
 
 Or install from a source checkout:
@@ -59,6 +59,8 @@ For a local CPU correctness fixture from source, install the CPU PyTorch wheel i
 ---
 
 ## Quickstart: Project Scaffolding & Starter Templates
+
+The core install can scaffold and validate `gaussian-grid`. For image templates using `defaults = "particlegan"`, install the `train` extra so structural validation can read the installed ParticleGAN preset. The `all` extra includes it.
 
 Explore starter architectures (`dcgan`, `tiny-transformer`, `resnet`, `gaussian-grid`) or packaged recipes:
 
@@ -174,9 +176,11 @@ hypergan sample logos-colorization-128 --input docs/assets/hg-bw-128.png --count
 hypergan eval baseline-dcgan32
 hypergan evaluate baseline-dcgan32 --metric sample_diversity
 
-# Export a standalone, hash-verified EMA inference bundle (model.pt + model.sha256)
+# Export the EMA inference bundle and its SHA-256 digest
 hypergan export baseline-dcgan32 --checkpoint latest -o exported_model.pt
 ```
+
+For HNDL bundles, install HyperGAN, Torch, NumPy and HNDL on the serving host. The deployment guide includes separate load commands for Python bundles, PT2, ONNX Runtime and SafeTensors. [Serve an exported generator](https://github.com/HyperGAN/HyperGAN/blob/master/docs/deployment.md) · [Upgrade an alpha run](https://github.com/HyperGAN/HyperGAN/blob/master/docs/migration.md)
 
 ### Comparing Runs & Multi-GPU Job Queue
 ```sh
@@ -249,10 +253,9 @@ See [Local browser and streaming API](https://github.com/HyperGAN/HyperGAN/blob/
 
 ## Distributed Multi-GPU Scaling
 
-HyperGAN features first-class distributed multi-GPU and multi-node training:
-- Zero-TOML CLI flags: `--devices 0,1`, `--nodes 2`, `--strategy gradient_allreduce`.
-- Memory-contiguous gradient bucketing and barrier elimination.
-- Documented **2.20× scaling speedup (110.2% efficiency)** on dual NVIDIA RTX A6000 at `batch_size >= 256`, cutting per-GPU VRAM in half (see [Scaling Benchmark](https://github.com/HyperGAN/HyperGAN/blob/master/docs/scaling-benchmark.md)).
+Use `--devices 0,1` for single-host replicated training with NCCL. The packaged CIFAR tiny transformer saved a checkpoint and resumed on the same two RTX A6000s with ParticleGAN 0.10.1. In a separate throughput benchmark, two A6000s reached **2.20×** single-GPU throughput at global batch 256 and **0.79×** at batch 64. [Scaling measurements](https://github.com/HyperGAN/HyperGAN/blob/master/docs/scaling-benchmark.md)
+
+Multi-host training is experimental. The two-node A10 smoke exercised the internal trainer for three updates. Shared-storage recovery and the public multi-host supervisor still need qualification. [Tested topologies and recovery conditions](https://github.com/HyperGAN/HyperGAN/blob/master/docs/multigpu-readiness.md)
 
 ---
 

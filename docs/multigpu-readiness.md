@@ -2,6 +2,8 @@
 
 HyperGAN launches one supervised worker per GPU on a single host, using NCCL and a replicated float32 model, prior, optimizer and EMA. Select devices with `hypergan train MODEL --run-dir RUN --devices 0,1 --no-server`, or supply an execution profile. The parent launches the ranks; do not wrap this command in `torchrun`.
 
+On the 2.0 release candidate with ParticleGAN 0.10.1 and HNDL 0.11.0, two RTX A6000s completed the NCCL qualification with replica agreement. The packaged CIFAR tiny transformer saved a batch-256 checkpoint at step 2 and resumed on fresh workers to step 3 on the same host. The two-node result below used an earlier software stack. [November qualification and environment](../reports/astra-audit-2026-11-17.md)
+
 ## Supported execution and limits
 
 | Capability | Current scope |

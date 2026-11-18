@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 # Keep the version classifiers equal to the CI lightweight matrix
 # (tests/foundation/test_repository_consistency.py checks both).
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",

@@ -7,7 +7,7 @@
 
 Train generative models. Follow their progress. Export the result.
 
-HyperGAN 2.0.0 is the official General Availability (GA) release of HG 2: declarative `hypergan-model/1` TOML model files, HNDL neural graphs, configurable ParticleGAN primitives, distributed multi-GPU & multi-node training, a typed Python API (`import hypergan as hg`), a real-time Web Observatory, and standalone privacy-preserving model export.
+HyperGAN 2.0.0a4 is the fourth alpha release of HG 2: declarative `hypergan-model/1` TOML model files, HNDL neural graphs, configurable ParticleGAN primitives, distributed multi-GPU & multi-node training, a typed Python API (`import hypergan as hg`), a real-time Web Observatory, and standalone privacy-preserving model export.
 
 The engine provides native CUDA acceleration, multi-GPU scaling (2.20× on dual RTX A6000), complete training checkpoints, a Docker-style CLI for managing runs, and packaged production recipes including [CIFAR-10 TransGAN](https://github.com/HyperGAN/HyperGAN/blob/master/docs/cifar-recipe.md) and [128×128 / 256×256 Logo Colorization](https://github.com/HyperGAN/HyperGAN/blob/master/docs/colorization.md). Lightweight CLI commands (`new`, `validate`, `ps`, `status`, `logs`, `inspect`, `tag`, `runs`, `queue`, `gc`, `rm`) do not import PyTorch.
 
@@ -17,13 +17,13 @@ The engine provides native CUDA acceleration, multi-GPU scaling (2.20× on dual 
 
 Use Python 3.12+ for the tested training runtime. Lightweight package checks cover Python 3.11–3.14 on Linux, macOS and Windows; the CPU reference profile is tested on Linux. The `train` extra accepts `torch>=2.6,<3`, but CI tests only `torch==2.14.0`, the version the commands below install; other versions are untested.
 
-Install HyperGAN 2.0.0 from PyPI:
+Install the HyperGAN 2.0.0a4 alpha from PyPI:
 
 ```sh
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
-python -m pip install "hypergan[all]==2.0.0"
+python -m pip install "hypergan[all]==2.0.0a4"
 hypergan --help
 python -m hypergan --version
 ```
@@ -32,7 +32,7 @@ For NVIDIA GPU acceleration:
 
 ```sh
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cu130
-python -m pip install "hypergan[all]==2.0.0"
+python -m pip install "hypergan[all]==2.0.0a4"
 ```
 
 Or install from a source checkout:

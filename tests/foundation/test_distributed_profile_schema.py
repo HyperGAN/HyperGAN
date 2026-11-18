@@ -5,6 +5,7 @@ resolution, TOML parsing, torch-free imports) is in test_execution_profiles.py.
 This file holds the multi-node, rendezvous and cross-feature boundaries.
 """
 import copy
+import importlib.util
 
 import pytest
 
@@ -146,6 +147,7 @@ def test_feature_combinations_resolve_together(profile, device, expected):
         assert (execution['aggregation'] if key in execution['aggregation'] else execution)[key] == value, key
 
 
+@pytest.mark.skipif(importlib.util.find_spec('particlegan') is None, reason='requires particlegan preset metadata')
 def test_released_presets_resolve_on_both_replicated_backends():
     for name, device in (('cpu-replicated-gloo', 'cpu'), ('cuda-replicated-nccl', 'cuda')):
         config = resolve_config({'defaults': 'particlegan', 'training': {'device': device, 'steps': 2, 'batch_size': 8}})

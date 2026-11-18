@@ -165,12 +165,13 @@ def test_shared_controller_fault_boundary_and_exact_fresh_recovery(tmp_path, mod
     driver, config = _setup(tmp_path)
     _base._run(driver, config, tmp_path / 'full', tmp_path / 'full-pids', 'full')
     failed = _base._run(driver, config, tmp_path / 'fault', tmp_path / 'fault-pids', mode)
-    pointer = json.loads((tmp_path / 'fault/distributed-checkpoints/latest.json').read_text())
+    pointer = json.loads((tmp_path / 'fault/checkpoints/latest.json').read_text())
     selected_step = 2 if mode == 'after-pointer' else 1
     assert pointer['step'] == selected_step
-    selected = tmp_path / 'fault/distributed-checkpoints' / pointer['checkpoint']
+    selected = tmp_path / 'fault/checkpoints' / pointer['checkpoint']
     assert json.loads((selected / 'manifest.json').read_text())['step'] == selected_step
-    assert all((selected / f'rank-{rank:05d}.pt').is_file() for rank in range(2))
+    assert (selected / 'state.pt').is_file()
+    assert all((selected / 'ranks' / f'rank-{rank:05d}.pt').is_file() for rank in range(2))
     events = [json.loads(line) for line in (tmp_path / 'fault/events.jsonl').read_text().splitlines()]
     assert [row['step'] for row in events if row['event'] == 'checkpoint'] == [0, 1]
     assert [row['step'] for row in events if row['event'] == 'train'] == list(range(1, failed['steps'] + 1))

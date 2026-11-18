@@ -13,10 +13,17 @@ share authorship. These source references remain for reproducibility; the existi
 [MIT license](../LICENSE) applies to the port. This permission covers the source
 components, not a redistribution or relicensing of pretrained weights or data.
 
-HyperGAN packages canonical production CIFAR-10 recipes directly in the wheel (also mirrored in `examples/`):
-- `cifar10-tiny-transformer`: Lightweight 64-token transformer generator paired with a frozen pretrained ResNet-18 multi-scale feature critic and a 16,384-particle ParticleGAN latent mixture prior (`z = 64`), achieving `FID-50k = 14.56` in 15,000 steps (`3.13 steps/s` on 2× RTX A6000 at `batch_size = 256`).
-- `cifar10-transgan`: Pure-transformer CIFAR-10 TransGAN generator and scratch multi-scale HNDL transformer discriminator, trained with a ParticleGAN latent mixture prior.
-- [`cifar-pretrained-sagan.toml`](../examples/archive/cifar-pretrained-sagan.toml): Historical ablation recipe in the archive.
+The wheel packages two CIFAR-10 recipes. `cifar10-tiny-transformer` pairs a 64-token transformer generator with a frozen ResNet-18 feature critic and 16,384 particles in 64 latent dimensions. `cifar10-transgan` trains both its generator and multi-scale transformer discriminator from scratch. The earlier [pretrained SAGAN ablation](../examples/archive/cifar-pretrained-sagan.toml) is in the source archive.
+
+These runs used two RTX A6000s at global batch 256. Each score is the best recorded FID against 50,000 training references.
+
+| Model | Recorded ParticleGAN preset | Best FID-50k | Step | Run ID |
+| --- | --- | ---: | ---: | --- |
+| Tiny transformer | 0.9.7 BISPF | 14.56 | 15,000 | `117ab950` |
+| Tiny transformer | 0.10.0 EMPF | 15.16 | 12,500 | `3e046470` |
+| Scratch TransGAN | 0.10.0 EMPF | 51.30 | 22,500 | `f2cce6c4` |
+
+The EMPF tiny-transformer run recorded 16.06 at 25,000 steps. GA's public 0.10.1 dependency resolves the same recipe fields at batch 256 as the recorded 0.10.0 EMPF runs. A short two-GPU check with 0.10.1 verified checkpoint and resume. [Run revisions and qualification results](../reports/astra-audit-2026-11-17.md)
 
 Install `hypergan[all]` or `hypergan[train,image,cifar,web,fid]` with a matching CUDA PyTorch/TorchVision installation. Prepare the verified CIFAR-10 batches once into `~/.hypergan/cache/cifar10` with `hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10`; pretrained Inception-v3 (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) and ResNet-18 (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) weights are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand (or verified strictly offline when `HYPERGAN_OFFLINE=1`). Missing files or corrupt checksums fail explicitly.
 

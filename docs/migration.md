@@ -1,11 +1,30 @@
-# Migrating from historical HyperGAN
+# Migrating to HyperGAN 2.0.0
 
-The next release is being rebuilt on `develop`. It replaces the legacy TensorFlow/PyTorch experiment catalog with a small configurable runtime using ParticleGAN primitives and a HyperGAN-owned training loop.
+## Continue a 2.x alpha run or move its generator to GA
 
-Historical source, examples, documentation and tests remain available at [the preserved master commit](https://github.com/HyperGAN/HyperGAN/tree/291ddccda847e4f4ccb273bb26121a0a0d738164) and the `archive/resurrection-2026-09-18/branches/master` tag. Research branches and historical PR heads have their own archive tags. See [preservation and disposition evidence](../reports/archive/resurrection-preservation-2026-09-18.md).
+Keep the original environment and complete run directory for exact resume. HyperGAN checks the recorded dependency versions and runtime identity as well as the training configuration. A CPU `gaussian-grid` checkpoint from 2.0.0a2 and ParticleGAN 0.9.7 resumed in that environment. With ParticleGAN 0.10.1, the same checkpoint reported a ParticleGAN version mismatch. See the [checkpoint recovery contract](recovery.md).
 
-Legacy JSON configurations, checkpoints, dynamic layer strings, viewers and backends are not compatible with the new runtime. There is no automatic conversion or exact-resume path from legacy weights. Keep an archived checkout and its original environment when accessing old experiments. Future transfer initialization must be explicit and separately tested.
+To keep training, activate the alpha environment and run `hypergan resume runs/my-alpha-run`. To serve its EMA generator after upgrading, export in the alpha environment first. Keep the bundle and its sibling digest together.
 
-The new recipe configuration describes ordinary Python components, explicit input/output bindings, losses and regularizers. Custom visual generation is the first image-product direction; conditional I/O preserves a path for colorization and super-resolution. Old examples are archived, not evidence that these image tasks are already qualified.
+```sh
+hypergan export runs/my-alpha-run --checkpoint latest -o models/alpha-generator.pt
+```
 
-The initial CPU reference is a numerical integration fixture. It does not establish image quality, complete training resume, GPU/cluster support or deployment support. These are subsequent acceptance gates in [the resurrection plan](../reports/archive/resurrecting-hypergan-plan-2026-09-18.md).
+In a separate GA environment, install the serving dependencies for that model and load the exported file. A Gaussian bundle exported from a2 reproduced the original four samples exactly for the same seed. Conditional generators also require their model-specific inputs. See [deployment requirements and examples](deployment.md).
+
+```python
+import hypergan as hg
+
+generator = hg.load_bundle("models/alpha-generator.pt", device="cpu")
+points = generator.sample(count=4, seed=42)
+```
+
+To train with GA's ParticleGAN preset, install `hypergan[all]==2.0.0` with the [documented Torch wheels](../README.md#install) in a fresh environment. Start a new run directory with your model. For example, this creates a short Gaussian run:
+
+```sh
+hypergan train gaussian-grid --device cpu --run-dir runs/ga-toy --stop-after-steps 2 --checkpoint-every 1 --no-server
+```
+
+## Access a legacy 1.x experiment
+
+HyperGAN 2 uses TOML model files, HNDL networks and a HyperGAN-owned training loop. Legacy JSON configurations, dynamic layer strings, viewers and training checkpoints require the archived 1.x code and its original environment. Port the model and input bindings to a new configuration to train it under 2.0. [Preserved master commit](https://github.com/HyperGAN/HyperGAN/tree/291ddccda847e4f4ccb273bb26121a0a0d738164) · [Archive tags and preservation record](../reports/archive/resurrection-preservation-2026-09-18.md)

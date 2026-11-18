@@ -1,134 +1,93 @@
-# Deploying Exported Models
+# Deploying exported generators
 
-HyperGAN models train with full dynamic infrastructure — ParticleGAN learned latent spaces, HNDL compilers, and distributed telemetry. For deployment, HyperGAN compiles and strips these runtimes into lightweight, standalone model artifacts that run with **zero ParticleGAN and zero HNDL runtime dependency**.
+Choose a format according to how the serving process will supply inputs and load the generator. A Python bundle includes prior sampling and interpolation. PT2 and ONNX take explicit latent tensors. SafeTensors exposes the weights to a consumer that implements the model. All four exports use the checkpoint's EMA generator and omit training example pixels by default.
 
----
+## Produce the artifacts
 
-## 1. Zero-Dependency Deployment Philosophy
-
-When you export a trained generator:
-
-- **Baked Particle Table**: The learned particle coordinates (`prior.z` and `prior.sigma`) are baked directly into constant buffers inside the generator module (`particle_z`, `particle_sigma`). At inference time, random draws sample directly from these frozen buffers without initializing ParticleGAN optimizers.
-- **Pure PyTorch Computation**: HNDL architecture graphs are compiled into pure standard PyTorch `torch.nn.Module` subclasses. The exported model requires only standard PyTorch (or ONNX Runtime) to execute.
-- **Privacy-Preserving Export**: Training batch pixels (`last_batch`) are stripped from the export payload by default. The export stores only tensor metadata (`{shape, dtype}`) unless explicitly requested via `--include-example-inputs`.
-
----
-
-## 2. Export Formats & Commands
-
-HyperGAN supports four production export formats via `hypergan export`:
+Run these commands in the training environment with the `all` extra installed. The CPU `gaussian-grid` example maps four latent coordinates to a point in two dimensions. Each format has its own directory so the bundle and SafeTensors digest files can travel with their respective artifacts.
 
 ```sh
-# 1. Standalone PyTorch Bundle (.pt)
-hypergan export runs/cifar --format bundle -o models/generator.pt
-
-# 2. SafeTensors (.safetensors) for Rust, C++, WebAssembly, Hugging Face
-hypergan export runs/cifar --format safetensors -o models/generator.safetensors
-
-# 3. PyTorch 2.0 AOT / TorchScript (.pt2) for C++ LibTorch
-hypergan export runs/cifar --format pt2 -o models/generator.pt2
-
-# 4. ONNX (.onnx) for ONNX Runtime, TensorRT, CoreML, OpenVINO
-hypergan export runs/cifar --format onnx -o models/generator.onnx
+hypergan train gaussian-grid --device cpu --run-dir runs/toy --stop-after-steps 1 --checkpoint-every 1 --no-server
+hypergan export runs/toy --format bundle -o models/bundle/toy.pt
+hypergan export runs/toy --format pt2 -o models/pt2/toy.pt2
+hypergan export runs/toy --format onnx -o models/onnx/toy.onnx
+hypergan export runs/toy --format safetensors -o models/weights/toy.safetensors
 ```
 
-### Export Format Matrix
+Use a fresh Python 3.12 environment for each serving example. Run the Python snippets from the directory containing `models/`.
 
-| Format | Target Runtimes | Size Footprint | Dependencies |
-| :--- | :--- | :--- | :--- |
-| **`bundle`** (`.pt`) | Python (`LoadedGenerator`), PyTorch | Minimal | `torch` only |
-| **`safetensors`** | Hugging Face `safetensors`, Rust `candle` | Minimal | Zero Python runtime |
-| **`pt2`** | C++ LibTorch, Mobile PyTorch | Optimized graph | C++ LibTorch |
-| **`onnx`** | ONNX Runtime, TensorRT, Triton, Web | Graph-optimized | `onnxruntime` |
+## Python bundle
 
----
+For an HNDL generator, install CPU Torch, HyperGAN, NumPy and HNDL. HyperGAN rebuilds the component graph on load. Models with custom Python factories also need their importable modules and runtime dependencies. The bundle contains the learned prior used by `sample`.
 
-## 3. Python Serving with `LoadedGenerator`
-
-The standard way to serve exported models in Python is using `hg.load_bundle()`, which returns a callable `LoadedGenerator` (`torch.nn.Module`):
+```sh
+python -m pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
+python -m pip install "hypergan==2.0.0" "hndl==0.11.0" "numpy>=1.26,<3"
+```
 
 ```python
 import hypergan as hg
 import torch
 
-# Load the standalone bundle onto GPU
-generator = hg.load_bundle("models/generator.pt", device="cuda")
-generator.eval()
-
-# 1. Generate random samples from the baked particle prior
-with torch.no_grad():
-    # Returns Tensor [16, 3, 128, 128] normalized in [-1, 1]
-    images = generator.sample(count=16, seed=42)
-
-# 2. Sample explicit latent coordinates (accepts seed=... or generator=torch.Generator())
-latents = generator.sample_latents(count=4, seed=123)
-with torch.no_grad():
-    images = generator(z=latents)
-
-# 3. Conditional generation (e.g. colorization or class conditioning)
-condition = torch.randn(4, 1, 128, 128, device="cuda")
-with torch.no_grad():
-    colored = generator.sample(count=4, inputs={"gray": condition})
+generator = hg.load_bundle("models/bundle/toy.pt", device="cpu")
+with torch.inference_mode():
+    points = generator.sample(count=4, seed=42)
+    assert points.shape == (4, 2)
+    latent = generator.sample_latents(count=4, seed=42)
+    torch.testing.assert_close(generator(z=latent), points)
+    walk = generator.interpolate(seed_a=100, seed_b=200, steps=20, mode="slerp")
 ```
 
----
+For conditional models, pass the model's named batch inputs to `generator.sample(count=..., inputs={...})`. A model binding `batch.gray` expects a batch under the key `gray`. For offline sampling directly from a run, see the [sampling guide](../README.md#sampling-evaluation--standalone-export).
 
-## 4. Spherical Latent Interpolation (`slerp`)
+## PyTorch exported program (PT2)
 
-Generators trained with spherical or normalized priors support smooth latent space walks using spherical linear interpolation (`slerp`):
-
-```python
-import hypergan as hg
-
-generator = hg.load_bundle("models/generator.pt", device="cuda")
-
-# Generate 20 smooth transition frames between two random seeds
-frames = generator.interpolate(
-    seed_a=1001,
-    seed_b=2002,
-    steps=20,
-    mode="slerp"  # or "lerp" for linear interpolation
-)
-# frames shape: [20, 3, H, W]
-```
-
----
-
-## 5. High-Throughput Batch Sampling
-
-For offline dataset generation or synthetic data augmentation pipelines, use the `hypergan sample` CLI:
+Install the same Torch version used to export the graph. HyperGAN captures an example batch of one. Use one row per call and supply any conditioning tensors after the latent in export order. When a model requires the exporter's TorchScript trace fallback, load that archive with `torch.jit.load(path)`.
 
 ```sh
-# Generate 1,000 images directly to disk using CUDA
-hypergan sample runs/cifar --device cuda --output-dir ./synthetic_data/ --count 1000
-
-# Generate with conditional input image
-hypergan sample runs/conditional_gan --device cuda --output-dir ./samples/ -i gray=condition.png
+python -m pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
 ```
 
----
+```python
+import torch
 
-## 6. Serving via ONNX Runtime
+model = torch.export.load("models/pt2/toy.pt2").module()
+with torch.inference_mode():
+    assert model(torch.zeros(1, 4)).shape == (1, 2)
+```
 
-Exported `.onnx` models run with high throughput in Python, C++, Go, or Rust services without PyTorch installed:
+## ONNX Runtime
+
+Install these packages on the CPU serving host. The ONNX graph declares a batch dimension on the latent, conditioning inputs and output. Inspect the session for the input names and shapes of your exported model.
+
+```sh
+python -m pip install onnxruntime numpy
+```
 
 ```python
 import numpy as np
 import onnxruntime as ort
 
-# Initialize ONNX Runtime session with GPU (TensorRT/CUDA) provider
-session = ort.InferenceSession("models/generator.onnx", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+session = ort.InferenceSession("models/onnx/toy.onnx", providers=["CPUExecutionProvider"])
+latent = np.zeros((4, 4), dtype=np.float32)
+points, = session.run(["output"], {"latent": latent})
+assert points.shape == (4, 2)
+```
 
-# Prepare input batch [batch_size, z_dim]
-batch_size = 8
-z_dim = 128
-z_inputs = np.random.randn(batch_size, z_dim).astype(np.float32)
+## SafeTensors weights and metadata
 
-# Run inference
-input_name = session.get_inputs()[0].name
-output_name = session.get_outputs()[0].name
-output_images = session.run([output_name], {input_name: z_inputs})[0]
+The consumer constructs the generator from the recorded configuration and applies its named component weights. Inspect the tensor names, prior and configuration before mapping them into that implementation. This example reads the weights on CPU.
 
-# output_images shape: (8, 3, 128, 128), float32 in [-1, 1]
-print("Generated batch shape:", output_images.shape)
+```sh
+python -m pip install "safetensors>=0.8,<1" numpy
+```
+
+```python
+import json
+from safetensors import safe_open
+
+with safe_open("models/weights/toy.safetensors", framework="numpy") as weights:
+    config = json.loads(weights.metadata()["config"])
+    for name in weights.keys():
+        print(name, weights.get_tensor(name).shape)
 ```

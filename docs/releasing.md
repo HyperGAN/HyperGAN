@@ -8,14 +8,14 @@ HyperGAN is published to PyPI as `hypergan`. The package version is declared in
 Prepare the version, `CHANGELOG.md` (move **Unreleased** entries under a new
 `## <version> — YYYY-MM-DD` heading while keeping an empty `## Unreleased`
 section at the top, as verified by `test_repository_consistency.py`), and
-`README.md` on `develop`, verify CI, merge into `master`, and publish from the verified
-`master` commit.
+`README.md` on `develop`, verify CI, then merge into `master` to publish the version
+from that exact commit.
 
 ## CI
 
 [Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/workflows/ci.yml)
 runs on pull requests and pushes to `develop` and `master`, manual dispatches,
-and release workflow calls against an immutable tagged source SHA:
+and release workflow calls against an immutable source SHA:
 
 - **Lightweight (`ubuntu-latest`, `windows-latest`, `macos-latest`, Python 3.11–3.14):**
   Builds the wheel and source distribution, verifies a Torch-free and
@@ -59,27 +59,16 @@ token. Configure the PyPI Trusted Publisher at
 1. Merge reviewed changes into `develop`, including `__version__` in
    `src/hypergan/__init__.py`, `CHANGELOG.md` (`## <version> — YYYY-MM-DD`), and
    `README.md`.
-2. Merge `develop` into `master` and wait for `Foundation CI` (including heavy
-   suites and `Build release distributions`) to pass on `master`.
-3. Tag the verified `master` commit as `v<version>` and push the tag:
-
-   ```sh
-   git fetch origin master
-   RELEASE_SHA=$(git rev-parse origin/master)
-   git tag -a v2.0.0 "$RELEASE_SHA" -m "HyperGAN 2.0.0"
-   git push origin v2.0.0
-   ```
-
-   Pushing `v<version>` (or running `gh workflow run release.yml -f tag=v2.0.0`)
-   triggers `release.yml`, which:
-   - validates that the tag matches `v<__version__>` and extracts the matching
-     `## <version>` notes from `CHANGELOG.md`,
-   - runs `ci.yml` against the immutable `source_sha`,
-   - publishes the verified `python-package-distributions` wheel and sdist to
-     PyPI via Trusted Publishing, and
-   - creates or updates the GitHub Release with the extracted changelog notes,
-     attaches the wheel and sdist assets, and keeps the repository's `Latest`
-     release pointer aligned with the current `2.x` line.
+2. Merge `develop` into `master`. `release.yml` checks whether PyPI already
+   has files for the version. If the version is unpublished, it extracts the
+   matching notes from `CHANGELOG.md` and runs Foundation CI and the
+   distribution build against the exact merge commit.
+3. Monitor the release run. It creates or verifies `v<version>` at the tested
+   commit, publishes the tested wheel and sdist to PyPI, and attaches those
+   same files and the notes to the GitHub Release. If an upload or GitHub
+   Release sync needs a retry after the tag exists, use
+   `gh workflow run release.yml -f tag=v<version>`. Pushing a matching tag
+   also triggers the existing release path.
 
 4. Compare the wheel and source archive SHA-256 digests on PyPI and GitHub.
    Install the public wheel into a fresh environment with the README's tested

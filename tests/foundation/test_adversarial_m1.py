@@ -740,11 +740,20 @@ def test_queue_sigterm_during_idle_poll(tmp_path):
     q_dir.mkdir(parents=True)
     q_file = q_dir / "queue.json"
 
+    ready = tmp_path / "idle-poll.ready"
     runner_code = f"""
 import sys
+from pathlib import Path
 import hypergan.queue as qmod
 {_runner_signal_source(q_file)}
 
+sleep = qmod.time.sleep
+def signal_idle_poll(seconds):
+    if seconds == 1.0:
+        Path({str(ready)!r}).touch()
+    sleep(seconds)
+
+qmod.time.sleep = signal_idle_poll
 ret = qmod.queue_run(queue_file={str(q_file)!r}, poll_interval=1.0)
 sys.exit(ret)
 """
@@ -752,13 +761,21 @@ sys.exit(ret)
     runner_script.write_text(runner_code)
 
     proc = subprocess.Popen([sys.executable, str(runner_script)])
-    time.sleep(0.3)
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists():
+            assert proc.poll() is None, "Runner exited before entering its idle poll"
+            assert time.monotonic() < deadline, "Runner never entered its idle poll"
+            time.sleep(0.01)
 
-    # Deliver SIGTERM
-    start_time = time.monotonic()
-    _request_runner_stop(proc, q_file)
-    proc.wait(timeout=3.0)
-    elapsed = time.monotonic() - start_time
+        start_time = time.monotonic()
+        _request_runner_stop(proc, q_file)
+        proc.wait(timeout=3.0)
+        elapsed = time.monotonic() - start_time
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
 
     assert proc.returncode == 0
     assert elapsed < 2.5, f"Idle queue runner took too long to halt ({elapsed:.2f}s)"

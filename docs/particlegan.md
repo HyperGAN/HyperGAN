@@ -24,17 +24,9 @@ loss, penalty, prior policy, regularization, schedules and optimizer constructio
 to the recipe's public factories. The Model tab identifies ParticleGAN as the
 provider and shows host settings, loss metrics and networks.
 
-Use `examples/cifar-tiny-transformer.toml` for the two-block transformer,
-frozen ResNet18 feature critic and 65,536-particle prior. It uses two visible
-GPUs: training on `cuda:0`, interval FID evaluation on `cuda:1`. Set the evaluation
-device explicitly when using one GPU. FID and previews run separately from the
-update timing benchmark.
+ParticleGAN 0.10.1 selects `empf` by default. Select a specific preset with, for example, `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
 
-The current integration supports one critic network per resolved recipe;
-combine feature heads inside that network. Replicated execution and additional
-host controller callbacks remain restricted until their execution bindings are
-implemented. These are HyperGAN host limits. The integration does not reproduce
-or validate ParticleGAN's internal numerical techniques.
+The integration supports one critic network per resolved recipe. Combine feature heads inside that network.
 
 Existing concrete configurations can still be loaded with their explicit
 settings. Without a recipe snapshot, construction uses ParticleGAN's public

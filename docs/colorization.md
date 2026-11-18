@@ -4,18 +4,25 @@
 
 _Assets: [128×128 grayscale HG input (`assets/hg-bw-128.png`)](assets/hg-bw-128.png) · [128×128 single colorized badge (`assets/hypergan-logo.png`)](assets/hypergan-logo.png) · [512×512 4×4 colorized grid (`assets/hypergan-logo-grid.png`)](assets/hypergan-logo-grid.png) · [736×512 workflow banner (`assets/hypergan-colorizer-banner.png`)](assets/hypergan-colorizer-banner.png)._
 
-## 128×128 conditional colorization (`examples/image-folder-colorization.toml`)
+## Packaged 128×128 colorization
 
-`examples/image-folder-colorization.toml` (archived research ablations: `examples/archive/logos-colorization-128.toml` and `examples/archive/logos-colorization-dinov3-256.toml`) is a declarative `hypergan-model/1` model
-file (`defaults = "particlegan"`) that pairs a multi-input HNDL conditional
-colorization generator (`examples/networks/colorization-generator-128.hndl`, or `examples/networks/colorization-generator-256.hndl` at 256×256)
-with the multidepth DINOv3 projected critic
-(`examples/networks/dinov3-projected-discriminator-128.hndl`, or `examples/networks/dinov3-projected-discriminator-256.hndl` at 256×256) and a 4,096-particle
-latent prior.
+The wheel's `colorization-128` recipe accepts an RGB image folder. It composites transparency onto white, derives luminance in an auxiliary graph, and conditions the generator on luminance and a 128-dimensional latent from a 10,000-particle prior. Run it by name or edit the [matching source recipe](../examples/image-folder-colorization.toml).
 
-Zero custom Python model classes are required: the entire conditional generator,
-bilinear particle palette head, exact polytope luminance projection, and
-multidepth ViT-S/16 critic are declared directly in HNDL and `hypergan-model/1`.
+```sh
+hypergan validate colorization-128
+hypergan train colorization-128 --set data.args.root=/path/to/images
+```
+
+## 256×256 DINOv3 source example
+
+From a source checkout, configure the [256px DINOv3 recipe](../examples/archive/logos-colorization-dinov3-256.toml). Keep its relative HNDL paths intact. Set the image root, manifest path and digest in the training and held-out evaluation tables. Point the critic at the specified DINOv3 source revision and ViT-S/16 weights that match its recorded SHA-256. The data preparation section below describes how to generate the manifest.
+
+```sh
+hypergan validate examples/archive/logos-colorization-dinov3-256.toml --data
+hypergan train examples/archive/logos-colorization-dinov3-256.toml --devices 0,1
+```
+
+Run `d1eef023` on two RTX A6000s with ParticleGAN 0.9.7 BISPF reached held-out FID-10k **6.37** at step 2,500. Between steps 4,000 and 4,027 it recorded chroma distance 0.01353, structure error 2.61e-7, diversity 0.09285 and random spread 0.9940. Training was interrupted at step 4,447. A fresh run with the 2.0.0 defaults selects EMPF. [Recorded run and metric steps](../reports/astra-audit-2026-11-17.md)
 
 ### Why the earlier 256×256 particle-routing recipe collapsed
 
@@ -41,7 +48,7 @@ structural bottlenecks:
 ### First-principles HNDL & `hypergan-model/1` design
 
 `examples/networks/colorization-generator-128.hndl` and
-`examples/logos-colorization-128.toml` solve all four issues by construction
+`examples/archive/logos-colorization-128.toml` solve all four issues by construction
 while showcasing HNDL and HyperGAN's declarative capabilities:
 
 1. **Multi-port HNDL generator (`input_shape = { z = ["B", 128], gray = ["B", 1, 128, 128] }`)**:

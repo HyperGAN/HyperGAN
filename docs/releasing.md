@@ -64,12 +64,13 @@ token. Configure the PyPI Trusted Publisher at
 3. Tag the verified `master` commit as `v<version>` and push the tag:
 
    ```sh
-   RELEASE_SHA=$(git rev-parse master)
-   git tag -a v2.0.0a4 "$RELEASE_SHA" -m "HyperGAN 2.0.0a4"
-   git push origin v2.0.0a4
+   git fetch origin master
+   RELEASE_SHA=$(git rev-parse origin/master)
+   git tag -a v2.0.0 "$RELEASE_SHA" -m "HyperGAN 2.0.0"
+   git push origin v2.0.0
    ```
 
-   Pushing `v<version>` (or running `gh workflow run release.yml -f tag=v2.0.0a4`)
+   Pushing `v<version>` (or running `gh workflow run release.yml -f tag=v2.0.0`)
    triggers `release.yml`, which:
    - validates that the tag matches `v<__version__>` and extracts the matching
      `## <version>` notes from `CHANGELOG.md`,
@@ -79,3 +80,8 @@ token. Configure the PyPI Trusted Publisher at
    - creates or updates the GitHub Release with the extracted changelog notes,
      attaches the wheel and sdist assets, and keeps the repository's `Latest`
      release pointer aligned with the current `2.x` line.
+
+4. Compare the wheel and source archive SHA-256 digests on PyPI and GitHub.
+   Install the public wheel into a fresh environment with the README's tested
+   Torch wheels, check `hypergan --version`, and confirm that GitHub's Latest
+   release points to the stable tag.

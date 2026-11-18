@@ -4,7 +4,14 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
-- Documented the 2.0.0 release blockers, alpha checkpoint upgrade behavior, deployment requirements, and recipe qualification results in the [November 17 readiness audit](reports/astra-audit-2026-11-17.md).
+## 2.0.0 — 2026-11-18
+
+HyperGAN 2.0.0 is the first stable release of the TOML and HNDL training runtime. Install with `python -m pip install "hypergan[all]==2.0.0"` after installing the matching Torch wheels for your hardware. [Installation](https://github.com/HyperGAN/HyperGAN/blob/v2.0.0/README.md#install)
+
+- **Training and recipes.** Define models in `hypergan-model/1` TOML, inspect them with the typed Python API, and follow training in the Web Observatory. Since a2, the training runtime has moved to ParticleGAN 0.10.1 with the EMPF default and explicit named presets. The wheel includes two CIFAR-10 models and a 128×128 colorizer. The 256×256 DINOv3 colorization example ships in the source checkout. [CIFAR results by preset](https://github.com/HyperGAN/HyperGAN/blob/v2.0.0/docs/cifar-recipe.md) · [Colorization setup](https://github.com/HyperGAN/HyperGAN/blob/v2.0.0/docs/colorization.md)
+- **Distributed checkpoints.** Replicated workers store one copy of the shared training state plus each rank's sampler and RNG state. Sample or evaluate directly from a checkpoint and optionally stage an EMA bundle at evaluation or checkpoint time. Single-host NCCL checkpoint and resume were exercised on two RTX A6000s. Multi-host execution remains experimental. [Recovery](https://github.com/HyperGAN/HyperGAN/blob/v2.0.0/docs/recovery.md)
+- **Serving.** Python bundles carry the learned prior and rebuild HNDL networks on load. PT2 accepts the exported batch of one, ONNX exposes a batch dimension, and SafeTensors provides named weights and configuration for a consumer that constructs the graph. Training example pixels are omitted by default. [Serving commands](https://github.com/HyperGAN/HyperGAN/blob/v2.0.0/docs/deployment.md)
+- **Upgrading.** Preserve the original alpha environment to resume an existing training run. To move a trained generator, export its bundle there and load it in GA. Start a new run directory to train under GA defaults. [Alpha and 1.x migration](https://github.com/HyperGAN/HyperGAN/blob/v2.0.0/docs/migration.md)
 
 ## 2.0.0a4 — 2026-11-17
 
@@ -18,7 +25,7 @@ HyperGAN 2.0.0a4 is the fourth alpha release of HyperGAN 2: declarative `format 
   - `"on_eval"` stages the pinned privacy-clean evaluation snapshot immediately upon completed interval evaluations without importing `torch` on the coordinator or waiting for `checkpoint_every` boundaries, and immediately runs `keep_best` retention pruning.
   - Added a validation warning in `resolve_config()` when `checkpoints.keep_best` tracks an interval evaluation whose `every` cadence is not a multiple of `checkpoint_every`.
 - **Conditional & High-Dimensional `pt2` / `onnx` Export**:
-  - Added conditional input export support (`_ConditionalExportWrapper` and dynamic batch axes) to `hg.export(..., format="pt2" | "onnx")` and JSON-safe tensor spec metadata serialization in `safetensors` when `include_example_inputs=True`.
+  - Added conditional input export support (`_ConditionalExportWrapper` and ONNX dynamic batch axes) to `hg.export(..., format="pt2" | "onnx")` and JSON-safe tensor spec metadata serialization in `safetensors` when `include_example_inputs=True`.
 - **256×256 Declarative Colorization & Multidepth DINOv3 Critic HNDL Architectures**:
   - Added `examples/networks/colorization-generator-256.hndl` (6-stage GroupNorm residual U-Net + RoPE/SwiGLU Transformer palette cross-attention + bilinear particle palette synthesis + exact 7-face polytope luminance lock at 256×256), `examples/networks/dinov3-projected-discriminator-256.hndl` (frozen ViT-S/16 `16×16` multidepth projected heads + full-resolution multiscale spatial/color pyramid), and `examples/archive/logos-colorization-dinov3-256.toml`.
 - **Automated GitHub Releases in Release CI (`.github/workflows/release.yml`)**:
@@ -26,7 +33,7 @@ HyperGAN 2.0.0a4 is the fourth alpha release of HyperGAN 2: declarative `format 
 
 ### Changed
 - **ParticleGAN `0.10.1` Upgrade (`empf` Default Preset)**:
-  - Upgraded the `train` and `all` dependency extras to `particlegan>=0.10.1,<0.11` (`DEFAULT_RECIPE = "empf"`, Exponential Moving Prototype Flow / e-means formulation with `newton_schulz_hybrid_v1` DualNorm updates, retaining explicit `Recipe.from_dict` restoration and `particlegan:<preset>` selection for `rhbi_optimized`, `rhbi`, `bispf_optimized`, and `ka2` runs), validated to `FID-50k = 15.16` on `cifar10-tiny-transformer` (`3.32 steps/s`) and `FID-50k = 51.30` on scratch pure-Transformer `cifar10-transgan` (`0.47 steps/s`).
+  - Upgraded the `train` and `all` dependency extras to `particlegan>=0.10.1,<0.11` (`DEFAULT_RECIPE = "empf"`, Exponential Moving Prototype Flow / e-means formulation with `newton_schulz_hybrid_v1` DualNorm updates, retaining explicit `Recipe.from_dict` restoration and `particlegan:<preset>` selection for `rhbi_optimized`, `rhbi`, `bispf_optimized`, and `ka2` runs), with matching recipe settings to the ParticleGAN 0.10.0 EMPF runs that reached `FID-50k = 15.16` on `cifar10-tiny-transformer` (`3.32 steps/s`) and `FID-50k = 51.30` on scratch pure-Transformer `cifar10-transgan` (`0.47 steps/s`).
   - Bound critic transport/thermal step records (`bind_empf_record`, `bind_rhbi_record`, `bind_thermal_source`) in `ReferenceTrainer._initialize`, wired unconditional discrete `ParticlePrior` simplicial manifold regularization (`simplicial_manifold_loss` and `bind_discrete_prior_step`) into `objective_program.py` and `distributed_training.py`, and added global-batch coupled Sinkhorn/RHBI score and capture gathering across multi-GPU ranks so `ReplicatedTrainer` preserves global transport coupling and bitwise replica agreement.
 - **Promoted `cifar10-tiny-transformer` to Frozen Pretrained ResNet-18 Feature Critic**:
   - Upgraded the packaged `cifar10-tiny-transformer` recipe (`src/hypergan/models/cifar10-tiny-transformer.toml` and `examples/cifar10-tiny-transformer.toml`) to pair the 64-token 2-block `tiny-transformer-generator-32` generator (`z_dim = 64`, `16,384` MoG particles, `rows = "full"`) with the SHA-256-pinned frozen ImageNet ResNet-18 multi-scale feature critic (`resnet18-features-discriminator-32`) under `defaults = "particlegan"`.

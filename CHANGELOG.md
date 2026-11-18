@@ -4,6 +4,8 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- Documented the 2.0.0 release blockers, alpha checkpoint upgrade behavior, deployment requirements, and recipe qualification results in the [November 17 readiness audit](reports/astra-audit-2026-11-17.md).
+
 ## 2.0.0a4 — 2026-11-17
 
 HyperGAN 2.0.0a4 is the fourth alpha release of HyperGAN 2: declarative `format = "hypergan-model/1"` TOML model files, HNDL (`>=0.11.0,<1`) neural graphs, configurable ParticleGAN (`>=0.10.1,<0.11`) e-means (`empf`) primitives, unified multi-GPU and multi-node training and checkpoints (`schema_version = 2`), a real-time Web Observatory backed by Foldlite DB (`>=0.1.2,<0.2`), standalone privacy-preserving model export across `bundle`, `safetensors`, `pt2`, and `onnx`, and a fully typed config-first Python API (`import hypergan as hg`).

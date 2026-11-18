@@ -456,7 +456,7 @@ assert "particlegan" not in sys.modules
 def test_host_registry_ignores_and_prunes_pytest_temp_paths(monkeypatch):
     """Host registry discovery skips pytest-of-* viewer states and prunes leaked pytest-of-* roots/runs."""
     import tempfile
-    from hypergan.registry import _is_pytest_temp_path, read_registry
+    from hypergan.registry import _is_pytest_temp_path, get_registry_dir, read_registry
     from hypergan.summary import atomic_write_json
 
     assert _is_pytest_temp_path("/tmp/pytest-of-alice/pytest-42/test_run0")
@@ -484,10 +484,14 @@ def test_host_registry_ignores_and_prunes_pytest_temp_paths(monkeypatch):
         monkeypatch.delenv("HYPERGAN_STATE_DIR", raising=False)
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         monkeypatch.setenv("HOME", str(fake_home))
+        monkeypatch.setenv("USERPROFILE", str(fake_home))
+        monkeypatch.setenv("LOCALAPPDATA", str(fake_home / "AppData" / "Local"))
         monkeypatch.setenv("XDG_DATA_HOME", str(fake_home / ".local" / "share"))
+        monkeypatch.chdir(host_cwd)
         monkeypatch.setattr("hypergan.registry._discover_system_roots_and_runs", lambda: ([], []))
 
-        reg_dir = fake_home / ".local" / "share" / "hypergan"
+        reg_dir = get_registry_dir(host_cwd)
+        assert reg_dir.resolve().is_relative_to(fake_home.resolve())
         reg_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_json(
             reg_dir / "runs.json",

@@ -1,5 +1,22 @@
 # HyperGAN 2.0.0 release readiness
 
+## Release outcome on November 18, 2026
+
+**HyperGAN 2.0.0 shipped** from `master` commit `0f256ba8c2479b4a4bd365f3ca4d630c80246af0`. All 34 jobs passed on the release PR and again on the merged commit. The annotated tag points to that commit, all 37 tag-workflow jobs passed, and GitHub marks the stable release **Latest**. The a4 publish also completed and its PyPI and GitHub files matched. [Release PR](https://github.com/HyperGAN/HyperGAN/pull/434) · [Master CI](https://github.com/HyperGAN/HyperGAN/actions/runs/44251301926) · [Tagged publish run](https://github.com/HyperGAN/HyperGAN/actions/runs/44255259821)
+
+Both public distributions contain version `2.0.0`, the stable classifier, and the tagged source revision with `dirty: false`. The files downloaded separately from PyPI and GitHub were byte-identical. [PyPI files](https://pypi.org/project/hypergan/2.0.0/#files) · [GitHub release](https://github.com/HyperGAN/HyperGAN/releases/tag/v2.0.0)
+
+| Distribution | SHA-256 on both services |
+| --- | --- |
+| `hypergan-2.0.0-py3-none-any.whl` | `9d5bf9901a14d8000f3fd5658ee0e2670641f8f69721bcdf7e2cec7e126bb34d` |
+| `hypergan-2.0.0.tar.gz` | `177dfbf5dd2e342e2e7b8ef9b729fa411e506b075b622aed0e44d295ac2e1d4f` |
+
+- **Public installs.** Fresh Python 3.12 environments installed `hypergan[all]==2.0.0` from PyPI with Torch 2.14.0 and TorchVision 0.29.0 from the CPU and CUDA 13.0 indexes. Both passed `pip check`, reported `hypergan 2.0.0`, and sampled a Gaussian bundle on their respective devices. The public CPU wheel also scaffolded, validated, trained and resumed a run to step 5.
+- **Serving and upgrade.** Each documented format loaded in a separate serving profile. ONNX Runtime's four-row output matched the Python bundle within 1.5e-8. The PT2 example accepted a single row and enforced the batch guard. SafeTensors exposed weights and configuration. A PyPI a2 run resumed in its original environment and its exported bundle reproduced four reference samples exactly under GA. [Serving instructions](../docs/deployment.md) · [Upgrade path](../docs/migration.md)
+- **Hardware.** The GA candidate saved and resumed the packaged CIFAR tiny transformer to a durable step-3 checkpoint on two RTX A6000s (run `95bb5366`). On the exact master wheel with Torch 2.14.0+cu130, 65 CUDA cases passed and two skipped. The CIFAR sharding case then passed with its dataset path pointed at the local cache. The other case requires an unavailable archived training run. Multi-host execution retains its experimental status. [Hardware scope](../docs/multigpu-readiness.md)
+
+## Assessment before release on November 17, 2026
+
 **Hold the GA tag.** The candidate builds, trains, resumes its own checkpoints, and passes a two-GPU smoke. Before tagging, correct the deployment and upgrade instructions, put the GA version and notes into the distributions, and pass the release CI on `master`. The existing CIFAR runs already provide evidence for the two packaged architectures.
 
 **Snapshot at 22:31 MST, November 17, 2026.** `origin/develop` and `origin/master` had reached `54e7387bd48fbfa89ca05a953ed9217233ed9a0a`, tagged `v2.0.0a4`. Its Git tree is identical to the tested develop commit `71054b88d3ced227a46e9b4b18d7769e72a9edc1`. Develop CI passed on that source. The a4 release workflow had started, and its PyPI files were still absent. The public index's newest 2.x files were the **a2** wheel and sdist. GitHub's a3 prerelease has no attached distributions, and the a3 publish job was skipped after CI failed. Cover the changes since a2 for installed users, even if a4 publishes before GA. [Audited source](https://github.com/HyperGAN/HyperGAN/tree/54e7387bd48fbfa89ca05a953ed9217233ed9a0a) · [a4 publish run](https://github.com/HyperGAN/HyperGAN/actions/runs/44244816880) · [a3 publish run](https://github.com/HyperGAN/HyperGAN/actions/runs/42767113002) · [PyPI file index](https://pypi.org/simple/hypergan/)

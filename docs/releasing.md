@@ -57,22 +57,25 @@ token. Configure the PyPI Trusted Publisher at
 ## Publishing
 
 1. Merge reviewed changes into `develop`, including `__version__` in
-   `src/hypergan/__init__.py`, `CHANGELOG.md`, and `README.md`.
+   `src/hypergan/__init__.py`, `CHANGELOG.md` (`## <version> — YYYY-MM-DD`), and
+   `README.md`.
 2. Merge `develop` into `master` and wait for `Foundation CI` (including heavy
    suites and `Build release distributions`) to pass on `master`.
-3. Create and publish the GitHub release with a `v<version>` tag targeting the
-   verified `master` commit:
+3. Tag the verified `master` commit as `v<version>` and push the tag:
 
    ```sh
    RELEASE_SHA=$(git rev-parse master)
-   gh release create v2.0.0 --repo HyperGAN/HyperGAN \
-     --target "$RELEASE_SHA" --title "HyperGAN 2.0.0" \
-     --notes-file /tmp/hypergan-2.0.0-release-notes.md
+   git tag -a v2.0.0a4 "$RELEASE_SHA" -m "HyperGAN 2.0.0a4"
+   git push origin v2.0.0a4
    ```
 
-   Omit `--prerelease` for a stable release; pass `--prerelease` for alpha and beta pre-releases.
-
-   Publishing the release triggers `release.yml`, which validates that the tag
-   matches `v<__version__>`, runs `ci.yml` against the immutable `source_sha`,
-   downloads the verified `python-package-distributions` artifact, and publishes
-   to PyPI via Trusted Publishing.
+   Pushing `v<version>` (or running `gh workflow run release.yml -f tag=v2.0.0a4`)
+   triggers `release.yml`, which:
+   - validates that the tag matches `v<__version__>` and extracts the matching
+     `## <version>` notes from `CHANGELOG.md`,
+   - runs `ci.yml` against the immutable `source_sha`,
+   - publishes the verified `python-package-distributions` wheel and sdist to
+     PyPI via Trusted Publishing, and
+   - creates or updates the GitHub Release with the extracted changelog notes,
+     attaches the wheel and sdist assets, and keeps the repository's `Latest`
+     release pointer aligned with the current `2.x` line.

@@ -1,44 +1,53 @@
-name: Publish to PyPI
+name: Publish to PyPI and GitHub Releases
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing v<version> tag to validate, publish to PyPI, and sync to GitHub Releases"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: pypi-${{ github.event.release.tag_name }}
+  group: pypi-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   validate-release:
-    name: Check release version
+    name: Check release version and changelog
     if: github.repository == 'HyperGAN/HyperGAN'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       source_sha: ${{ steps.package.outputs.source_sha }}
+      version: ${{ steps.package.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Require a tag matching the package version
+      - name: Require a tag and changelog entry matching the package version
         id: package
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           python - <<'PY'
           import ast
           import os
+          import re
           import tomllib
           from pathlib import Path
 
-          project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
-          module = ast.parse(Path("src/hypergan/__init__.py").read_text())
+          project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
+          module = ast.parse(Path("src/hypergan/__init__.py").read_text(encoding="utf-8"))
           versions = [
               ast.literal_eval(node.value)
               for node in module.body
@@ -52,9 +61,29 @@ jobs:
           tag = os.environ["RELEASE_TAG"]
           if project["name"] != "hypergan" or tag != expected:
               raise SystemExit(f"Expected hypergan release {expected}, got {tag!r}")
-          print(f"Validated {project['name']} {version}")
+
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(
+              rf"^## {re.escape(version)}(?:\s+[—–-]\s+\S+)?\s*\n(.*?)(?=^## |\Z)",
+              changelog,
+              flags=re.M | re.S,
+          )
+          if not match or not match.group(1).strip():
+              raise SystemExit(f"CHANGELOG.md has no non-empty section for ## {version}")
+
+          notes = match.group(1).strip() + "\n"
+          Path("release-notes.md").write_text(notes, encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"version={version}\n")
+          print(f"Validated {project['name']} {version} and extracted release notes ({len(notes)} bytes)")
           PY
           echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Save extracted release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
 
   checks:
     name: Test and build release
@@ -65,7 +94,7 @@ jobs:
 
   publish:
     name: Publish tested distributions
-    needs: checks
+    needs: [validate-release, checks]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -80,3 +109,112 @@ jobs:
           path: dist/
       - name: Publish to PyPI with Trusted Publishing
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
+
+  github-release:
+    name: Sync GitHub Release
+    needs: [validate-release, checks, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: notes/
+      - name: Create or update GitHub Release and Latest pointer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+
+          repo = os.environ["GH_REPO"]
+          version = os.environ["VERSION"]
+          tag = f"v{version}"
+          title = f"HyperGAN {version}"
+          notes_path = Path("notes/release-notes.md")
+          notes = notes_path.read_text(encoding="utf-8")
+          assets = sorted(str(p) for p in Path("dist").iterdir() if p.is_file())
+          if not assets:
+              raise SystemExit("Expected built distributions in dist/")
+
+          raw = subprocess.check_output(
+              ["gh", "api", f"repos/{repo}/releases", "--paginate", "--slurp"],
+              text=True,
+          )
+          releases = [rel for page in json.loads(raw) for rel in page]
+
+          major = version.split(".", 1)[0]
+          is_stable = bool(re.fullmatch(r"\d+\.\d+\.\d+", version))
+
+          # Demote legacy 1.x RCs (and prior same-major pre-releases once a stable GA lands)
+          # so outdated pre-releases never hold the repository Latest badge.
+          for rel in releases:
+              rel_tag = rel["tag_name"]
+              if rel_tag == tag or rel.get("prerelease"):
+                  continue
+              is_legacy_rc = rel_tag.startswith("1.0.0-rc")
+              is_prior_major_pre = is_stable and rel_tag.startswith(f"v{major}.") and not re.fullmatch(r"v\d+\.\d+\.\d+", rel_tag)
+              if is_legacy_rc or is_prior_major_pre:
+                  subprocess.run(
+                      ["gh", "api", "-X", "PATCH", f"repos/{repo}/releases/{rel['id']}", "--input", "-"],
+                      input=json.dumps({"prerelease": True}),
+                      text=True,
+                      check=True,
+                  )
+
+          has_stable_same_major = any(
+              not rel.get("draft")
+              and not rel.get("prerelease")
+              and rel["tag_name"] != tag
+              and re.fullmatch(rf"v{re.escape(major)}\.\d+\.\d+", rel["tag_name"])
+              for rel in releases
+          )
+          # Mark as Latest on GitHub when releasing stable GA or while the current major
+          # series has no stable GA yet (so GitHub does not display legacy 1.x releases).
+          make_latest = is_stable or not has_stable_same_major
+
+          existing = next((rel for rel in releases if rel["tag_name"] == tag), None)
+          if existing is None:
+              cmd = [
+                  "gh", "release", "create", tag, *assets,
+                  "--repo", repo,
+                  "--verify-tag",
+                  "--title", title,
+                  "--notes-file", str(notes_path),
+                  "--latest" if make_latest else "--prerelease",
+              ]
+              subprocess.run(cmd, check=True)
+          else:
+              subprocess.run(
+                  ["gh", "release", "upload", tag, *assets, "--repo", repo, "--clobber"],
+                  check=True,
+              )
+              payload = {
+                  "name": title,
+                  "body": notes,
+                  "draft": False,
+                  "prerelease": not make_latest,
+                  "make_latest": "true" if make_latest else "false",
+              }
+              subprocess.run(
+                  ["gh", "api", "-X", "PATCH", f"repos/{repo}/releases/{existing['id']}", "--input", "-"],
+                  input=json.dumps(payload),
+                  text=True,
+                  check=True,
+              )
+          print(f"Synced GitHub Release {tag} (make_latest={make_latest}, assets={[Path(a).name for a in assets]})")
+          PY

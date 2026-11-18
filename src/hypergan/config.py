@@ -284,10 +284,12 @@ def resolve_config(raw):
     result = deepcopy(DEFAULT)
     pg_enabled, pg_preset = parse_particlegan_defaults(source)
     if pg_enabled:
-        result["recipe"] = deepcopy(particlegan_recipe_fields(pg_preset))
+        fields = particlegan_recipe_fields() if pg_preset is None else particlegan_recipe_fields(pg_preset)
+        result["recipe"] = deepcopy(fields)
         if result['recipe']:
             result['optimizer']['implementation'] = 'recipe'
-        for (section, key), value in particlegan_defaults(pg_preset).items():
+        defaults = particlegan_defaults() if pg_preset is None else particlegan_defaults(pg_preset)
+        for (section, key), value in defaults.items():
             result[section][key] = deepcopy(value)
     elif source != "hypergan":
         raise ValueError('defaults must be "hypergan", "particlegan", or "particlegan:<preset>"')

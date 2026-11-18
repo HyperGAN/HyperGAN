@@ -499,9 +499,10 @@ def test_ensure_dashboard_running_auto_restart_on_version_mismatch(tmp_path, mon
     monkeypatch.setattr(startup, "launch_dashboard_daemon", lambda *args, **kwargs: launched.append(args))
 
     def mock_probe(host, port, auth_token=None, **kwargs):
+        import hypergan
         tokens.append(auth_token)
         if launched:
-            return {"version": "2.0.0", "status": "ready", "runs_root": str(runs_root.resolve())}
+            return {"version": hypergan.__version__, "status": "ready", "runs_root": str(runs_root.resolve())}
         return None if stopped else probed_state
 
     monkeypatch.setattr(startup, "probe_dashboard", mock_probe)

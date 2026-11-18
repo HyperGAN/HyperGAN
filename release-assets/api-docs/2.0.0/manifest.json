@@ -1,0 +1,19 @@
+{
+  "files": {
+    "LICENSE": {
+      "sha256": "4da842ba1ab7ea8bed9cfa230d98f20a347e6175be15bfd728f9d3e35bdf50be",
+      "bytes": 1074,
+      "content_type": "text/plain"
+    },
+    "SOURCE.json": {
+      "sha256": "fdda3b45b633fd8585b9d8a379c561d840131422a27507d3ba6c066405d642e9",
+      "bytes": 458,
+      "content_type": "application/json"
+    },
+    "index.html": {
+      "sha256": "e1b8bcb8706937d210aa88fd5cb9312669667aa4f861f9e169b06c7b67ed03ae",
+      "bytes": 44026,
+      "content_type": "text/html"
+    }
+  }
+}

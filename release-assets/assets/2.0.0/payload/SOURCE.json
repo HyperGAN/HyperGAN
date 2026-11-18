@@ -1,0 +1,11 @@
+{
+  "repository": "https://github.com/HyperGAN/HyperGAN",
+  "version": "2.0.0",
+  "source_commit": "0f256ba8c2479b4a4bd365f3ca4d630c80246af0",
+  "source_files": [
+    "docs/assets/hypergan-logo.png",
+    "docs/assets/hypergan-logo-grid.png",
+    "docs/assets/hg-bw-128.png",
+    "LICENSE"
+  ]
+}

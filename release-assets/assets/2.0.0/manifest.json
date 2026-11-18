@@ -1,0 +1,29 @@
+{
+  "files": {
+    "LICENSE": {
+      "sha256": "4da842ba1ab7ea8bed9cfa230d98f20a347e6175be15bfd728f9d3e35bdf50be",
+      "bytes": 1074,
+      "content_type": "text/plain"
+    },
+    "SOURCE.json": {
+      "sha256": "1e527a182534792bae9992618f39e11d228181dab62726fab4c55477bde6c7e5",
+      "bytes": 295,
+      "content_type": "application/json"
+    },
+    "hg-bw-128.png": {
+      "sha256": "ac9dc993f4f6601fe91d0830da2ef46fcea75e2e12dc76284ec7c9ccfe02dfe7",
+      "bytes": 3011,
+      "content_type": "image/png"
+    },
+    "hypergan-logo-grid.png": {
+      "sha256": "1168f83b83f3ee25c3d603c1eb27af76bf43ba735c753ecf85ba6ab525409175",
+      "bytes": 202963,
+      "content_type": "image/png"
+    },
+    "hypergan-logo.png": {
+      "sha256": "8cbcb2ba8d917436a685a75e70b33135b1ccab3f831462f117f26c5750c6b687",
+      "bytes": 13496,
+      "content_type": "image/png"
+    }
+  }
+}

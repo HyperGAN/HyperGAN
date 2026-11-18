@@ -56,5 +56,6 @@ Contracts for contributors working on the engine, distributed execution and stor
 - [Replicated run service](replicated-run-service.md), [replicated CUDA training](replicated-cuda.md) and [bounded observation for replicated runs](replicated-observation.md)
 - [Local two-GPU NCCL readiness](gpu-readiness.md)
 - [CI and PyPI releases](releasing.md)
+- [Versioned API docs and assets on S3](s3-releases.md)
 
 The test layout and how to run each tier are in [tests/README.md](../tests/README.md). Dated design notes and experiment reports are in [reports/](../reports/), with older ones under `reports/archive/`.

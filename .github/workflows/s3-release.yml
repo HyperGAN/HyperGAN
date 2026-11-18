@@ -1,0 +1,78 @@
+name: Publish versioned S3 artifacts
+
+on:
+  pull_request:
+    paths:
+      - 'release-assets/**'
+      - 'scripts/publish_s3_release.py'
+      - 'tests/test_publish_s3_release.py'
+      - '.github/workflows/s3-release.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'release-assets/**'
+      - 'scripts/publish_s3_release.py'
+      - 'tests/test_publish_s3_release.py'
+      - '.github/workflows/s3-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      targets: ${{ steps.plan.outputs.targets }}
+      has_release: ${{ steps.plan.outputs.has_release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install boto3==1.43.68
+      - run: python -m unittest discover -s tests -p test_publish_s3_release.py
+      - name: Verify the artifact manifests
+        id: plan
+        env:
+          BEFORE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          matrix="$(python scripts/publish_s3_release.py --before "$BEFORE")"
+          printf 'targets=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          printf 'has_release=%s\n' "$(jq -r '.include | length > 0' <<< "$matrix")" >> "$GITHUB_OUTPUT"
+
+  publish:
+    if: github.repository == 'HyperGAN/HyperGAN' && github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.verify.outputs.has_release == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: hypergan-s3-${{ matrix.target }}
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.verify.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install boto3==1.43.68
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          role-to-assume: ${{ vars.AWS_S3_RELEASE_ROLE_ARN }}
+          allowed-account-ids: '563240432511'
+          aws-region: ${{ matrix.region }}
+      - name: Publish and compare the public bytes
+        env:
+          BEFORE: ${{ github.event.before }}
+          TARGET: ${{ matrix.target }}
+        run: python scripts/publish_s3_release.py --before "$BEFORE" --target "$TARGET" --publish

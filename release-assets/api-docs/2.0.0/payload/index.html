@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>HyperGAN 2.0.0 Python API Reference</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">HyperGAN 2.0.0 Python API Reference</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#python-api-reference-hyperganapi"
+id="toc-python-api-reference-hyperganapi">Python API Reference
+(<code>hypergan.api</code>)</a>
+<ul>
+<li><a href="#1-quickstart--import-architecture"
+id="toc-1-quickstart--import-architecture">1. Quickstart &amp; Import
+Architecture</a></li>
+<li><a href="#2-model-manipulation" id="toc-2-model-manipulation">2.
+Model Manipulation</a>
+<ul>
+<li><a href="#hgloadpath_or_str"
+id="toc-hgloadpath_or_str"><code>hg.load(path_or_str)</code></a></li>
+<li><a href="#hgpackagedname--hgpackaged_list"
+id="toc-hgpackagedname--hgpackaged_list"><code>hg.packaged(name)</code>
+&amp; <code>hg.packaged_list()</code></a></li>
+<li><a href="#hgoverridemodel-overrides"
+id="toc-hgoverridemodel-overrides"><code>hg.override(model, overrides)</code></a></li>
+<li><a href="#hgdumpsmodel--hgsavemodel-path"
+id="toc-hgdumpsmodel--hgsavemodel-path"><code>hg.dumps(model)</code>
+&amp; <code>hg.save(model, path)</code></a></li>
+</ul></li>
+<li><a href="#3-validation--introspection"
+id="toc-3-validation--introspection">3. Validation &amp;
+Introspection</a>
+<ul>
+<li><a href="#hgvalidatemodel---listvalidationwarning"
+id="toc-hgvalidatemodel---listvalidationwarning"><code>hg.validate(model) -&gt; list[ValidationWarning]</code></a></li>
+<li><a href="#hgschemasectionnone-jsonfalse"
+id="toc-hgschemasectionnone-jsonfalse"><code>hg.schema(section=None, json=False)</code></a></li>
+<li><a href="#hgoperatorsquerynone-jsonfalse"
+id="toc-hgoperatorsquerynone-jsonfalse"><code>hg.operators(query=None, json=False)</code></a></li>
+</ul></li>
+<li><a href="#4-training--non-blocking-execution"
+id="toc-4-training--non-blocking-execution">4. Training &amp;
+Non-Blocking Execution</a>
+<ul>
+<li><a
+href="#hgtrainmodel-run_dirnone-stepsnone-devicescuda-on_eventnone---run"
+id="toc-hgtrainmodel-run_dirnone-stepsnone-devicescuda-on_eventnone---run"><code>hg.train(model, run_dir=None, steps=None, devices="cuda", on_event=None) -&gt; Run</code></a></li>
+<li><a href="#programmatic-early-stopping-on_event"
+id="toc-programmatic-early-stopping-on_event">Programmatic Early
+Stopping (<code>on_event</code>)</a></li>
+<li><a href="#non-blocking-launch-hglaunch"
+id="toc-non-blocking-launch-hglaunch">Non-Blocking Launch
+(<code>hg.launch</code>)</a></li>
+</ul></li>
+<li><a href="#5-run-telemetry--management"
+id="toc-5-run-telemetry--management">5. Run Telemetry &amp;
+Management</a>
+<ul>
+<li><a href="#hgread_run_inforun_dir---runinfo"
+id="toc-hgread_run_inforun_dir---runinfo"><code>hg.read_run_info(run_dir) -&gt; RunInfo</code></a></li>
+<li><a href="#hgpsall_runsfalse---pssnapshot"
+id="toc-hgpsall_runsfalse---pssnapshot"><code>hg.ps(all_runs=False) -&gt; PsSnapshot</code></a></li>
+<li><a href="#hglogstarget-tail50--hgtagtarget-name"
+id="toc-hglogstarget-tail50--hgtagtarget-name"><code>hg.logs(target, tail=50)</code>
+&amp; <code>hg.tag(target, name)</code></a></li>
+</ul></li>
+<li><a href="#6-sampling--deployment" id="toc-6-sampling--deployment">6.
+Sampling &amp; Deployment</a>
+<ul>
+<li><a href="#hgsample---sample"
+id="toc-hgsample---sample"><code>hg.sample(...) -&gt; Sample</code></a></li>
+<li><a href="#hgexport"
+id="toc-hgexport"><code>hg.export(...)</code></a></li>
+<li><a href="#hgload_bundle---loadedgenerator"
+id="toc-hgload_bundle---loadedgenerator"><code>hg.load_bundle(...) -&gt; LoadedGenerator</code></a></li>
+</ul></li>
+<li><a href="#7-typed-dataclass-reference"
+id="toc-7-typed-dataclass-reference">7. Typed Dataclass Reference</a>
+<ul>
+<li><a href="#run" id="toc-run"><code>Run</code></a></li>
+<li><a href="#runhandle"
+id="toc-runhandle"><code>RunHandle</code></a></li>
+<li><a href="#validationwarning"
+id="toc-validationwarning"><code>ValidationWarning</code></a></li>
+<li><a href="#runstatus"
+id="toc-runstatus"><code>RunStatus</code></a></li>
+<li><a href="#pssnapshot"
+id="toc-pssnapshot"><code>PsSnapshot</code></a></li>
+<li><a href="#trainresult"
+id="toc-trainresult"><code>TrainResult</code></a></li>
+<li><a href="#sample--sampleresult"
+id="toc-sample--sampleresult"><code>Sample</code> &amp;
+<code>SampleResult</code></a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="python-api-reference-hyperganapi">Python API Reference
+(<code>hypergan.api</code>)</h1>
+<p>HyperGAN provides an ergonomic Python SDK under
+<code>import hypergan as hg</code>. It features full PEP 561 static
+typing (<code>py.typed</code>), fast torch-free import times (&lt; 15
+ms), typed dataclasses, non-blocking execution handles, and programmatic
+early-stopping.</p>
+<hr />
+<h2 id="1-quickstart--import-architecture">1. Quickstart &amp; Import
+Architecture</h2>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> hypergan <span class="im">as</span> hg</span></code></pre></div>
+<ul>
+<li><strong>Fast Lazy Loading</strong>: <code>import hypergan</code>
+executes in under 15ms. Heavy dependencies (such as <code>torch</code>,
+<code>torchvision</code>, and <code>onnx</code>) are lazily loaded on
+first function call.</li>
+<li><strong>PEP 561 Compliant</strong>: HyperGAN includes
+<code>py.typed</code> and comprehensive <code>TYPE_CHECKING</code>
+stubs. All public functions and dataclasses are fully resolved by Mypy
+and Pyright.</li>
+</ul>
+<hr />
+<h2 id="2-model-manipulation">2. Model Manipulation</h2>
+<p>HyperGAN represents configuration through the immutable
+<code>Model</code> object (wrapping lower-level dictionary recipes):</p>
+<h3 id="hgloadpath_or_str"><code>hg.load(path_or_str)</code></h3>
+<p>Loads and lowers a <code>hypergan-model/1</code> TOML file:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> hg.load(<span class="st">&quot;examples/cifar10-transgan.toml&quot;</span>)</span></code></pre></div>
+<h3 id="hgpackagedname--hgpackaged_list"><code>hg.packaged(name)</code>
+&amp; <code>hg.packaged_list()</code></h3>
+<p>Accesses packaged models bundled directly with the HyperGAN
+package:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> hg.packaged(<span class="st">&quot;cifar10-transgan&quot;</span>)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>all_models <span class="op">=</span> hg.packaged_list()</span></code></pre></div>
+<h3
+id="hgoverridemodel-overrides"><code>hg.override(model, overrides)</code></h3>
+<p>Creates a new <code>Model</code> with deep-merged dictionary
+overrides:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>tuned <span class="op">=</span> hg.override(model, {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;training&quot;</span>: {<span class="st">&quot;steps&quot;</span>: <span class="dv">50000</span>, <span class="st">&quot;batch_size&quot;</span>: <span class="dv">64</span>},</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;optimizer&quot;</span>: {<span class="st">&quot;lr&quot;</span>: <span class="fl">0.0001</span>}</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div>
+<h3 id="hgdumpsmodel--hgsavemodel-path"><code>hg.dumps(model)</code>
+&amp; <code>hg.save(model, path)</code></h3>
+<p>Serializes a <code>Model</code> to TOML:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>toml_str <span class="op">=</span> hg.dumps(model)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>hg.save(model, <span class="st">&quot;tuned.toml&quot;</span>)</span></code></pre></div>
+<hr />
+<h2 id="3-validation--introspection">3. Validation &amp;
+Introspection</h2>
+<h3
+id="hgvalidatemodel---listvalidationwarning"><code>hg.validate(model) -&gt; list[ValidationWarning]</code></h3>
+<p>Performs structural, shape, and dependency validation, returning a
+list of <code>ValidationWarning</code> objects (which subclass
+<code>str</code> for backward compatibility):</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>warnings <span class="op">=</span> hg.validate(model)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> w <span class="kw">in</span> warnings:</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;Warning: </span><span class="sc">{</span>w<span class="sc">.</span>message<span class="sc">}</span><span class="ss">&quot;</span>)</span></code></pre></div>
+<h3
+id="hgschemasectionnone-jsonfalse"><code>hg.schema(section=None, json=False)</code></h3>
+<p>Returns the JSON schema or formatted reference for model
+configuration tables:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>schema <span class="op">=</span> hg.schema(<span class="st">&quot;data&quot;</span>)</span></code></pre></div>
+<h3
+id="hgoperatorsquerynone-jsonfalse"><code>hg.operators(query=None, json=False)</code></h3>
+<p>Introspects registered HNDL operators:</p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>ops <span class="op">=</span> hg.operators(<span class="st">&quot;norm&quot;</span>)  <span class="co"># Finds rms_norm, group_norm, layer_norm, etc.</span></span></code></pre></div>
+<hr />
+<h2 id="4-training--non-blocking-execution">4. Training &amp;
+Non-Blocking Execution</h2>
+<h3
+id="hgtrainmodel-run_dirnone-stepsnone-devicescuda-on_eventnone---run"><code>hg.train(model, run_dir=None, steps=None, devices="cuda", on_event=None) -&gt; Run</code></h3>
+<p>Synchronous training runner. Supports direct device routing
+(<code>devices="cuda:0"</code> or <code>devices="cpu"</code>) without
+altering global <code>CUDA_VISIBLE_DEVICES</code>:</p>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> hg.train(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    model,</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    run_dir<span class="op">=</span><span class="st">&quot;runs/experiment_1&quot;</span>,</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    steps<span class="op">=</span><span class="dv">10000</span>,</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>    devices<span class="op">=</span><span class="st">&quot;cuda:0&quot;</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Trained to step:&quot;</span>, result.step)</span></code></pre></div>
+<h3 id="programmatic-early-stopping-on_event">Programmatic Early
+Stopping (<code>on_event</code>)</h3>
+<p>The <code>on_event</code> callback receives real-time event
+dictionaries. Return <code>False</code> or raise
+<code>hg.StopTraining("reason")</code> to trigger a clean, graceful
+early stop with checkpoint commit:</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> check_divergence(event):</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> event.get(<span class="st">&quot;event&quot;</span>) <span class="op">==</span> <span class="st">&quot;train&quot;</span>:</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>        metrics <span class="op">=</span> event.get(<span class="st">&quot;metrics&quot;</span>, {})</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>        d_loss <span class="op">=</span> metrics.get(<span class="st">&quot;loss_d&quot;</span>, <span class="fl">0.0</span>)</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> d_loss <span class="op">&gt;</span> <span class="fl">10.0</span>:</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>            <span class="cf">raise</span> hg.StopTraining(<span class="st">&quot;Discriminator exploded&quot;</span>)</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> event.get(<span class="st">&quot;step&quot;</span>, <span class="dv">0</span>) <span class="op">&gt;=</span> <span class="dv">5000</span>:</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> <span class="va">False</span>  <span class="co"># Graceful early stop</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="va">True</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> hg.train(model, on_event<span class="op">=</span>check_divergence)</span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Stop reason:&quot;</span>, result.stop_reason)</span></code></pre></div>
+<h3 id="non-blocking-launch-hglaunch">Non-Blocking Launch
+(<code>hg.launch</code>)</h3>
+<p>Launches training asynchronously in a dedicated worker thread,
+returning a <code>RunHandle</code>:</p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>handle <span class="op">=</span> hg.launch(model, run_dir<span class="op">=</span><span class="st">&quot;runs/async_run&quot;</span>, steps<span class="op">=</span><span class="dv">20000</span>)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Check execution status (both is_running() and is_alive() are supported)</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Running?&quot;</span>, handle.is_running())</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a><span class="co"># Wait with timeout or join (both join() and wait() are supported)</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> handle.join(timeout<span class="op">=</span><span class="fl">300.0</span>)</span></code></pre></div>
+<hr />
+<h2 id="5-run-telemetry--management">5. Run Telemetry &amp;
+Management</h2>
+<h3
+id="hgread_run_inforun_dir---runinfo"><code>hg.read_run_info(run_dir) -&gt; RunInfo</code></h3>
+<p>Reads durable metadata and metrics from <code>manifest.json</code>,
+<code>summary.json</code>, and <code>tag.json</code>:</p>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>info <span class="op">=</span> hg.read_run_info(<span class="st">&quot;runs/experiment_1&quot;</span>)</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f&quot;Run ID: </span><span class="sc">{</span>info<span class="sc">.</span>run_id<span class="sc">}</span><span class="ss">, Status: </span><span class="sc">{</span>info<span class="sc">.</span>status<span class="sc">}</span><span class="ss">, Steps: </span><span class="sc">{</span>info<span class="sc">.</span>step<span class="sc">}</span><span class="ss">&quot;</span>)</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Stop reason:&quot;</span>, info.stop_reason)</span></code></pre></div>
+<h3
+id="hgpsall_runsfalse---pssnapshot"><code>hg.ps(all_runs=False) -&gt; PsSnapshot</code></h3>
+<p>Lists active and past runs across the workspace (returns
+<code>PsSnapshot</code> supporting both mapping and attribute access on
+<code>runs</code>):</p>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>ps <span class="op">=</span> hg.ps()</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> run <span class="kw">in</span> ps.runs:</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f&quot;[</span><span class="sc">{</span>run<span class="sc">.</span>slug<span class="sc">}</span><span class="ss">] Step </span><span class="sc">{</span>run<span class="sc">.</span>step<span class="sc">}</span><span class="ss"> - </span><span class="sc">{</span>run<span class="sc">.</span>status<span class="sc">}</span><span class="ss">&quot;</span>)</span></code></pre></div>
+<h3
+id="hglogstarget-tail50--hgtagtarget-name"><code>hg.logs(target, tail=50)</code>
+&amp; <code>hg.tag(target, name)</code></h3>
+<p>Inspects output logs or tags runs:</p>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>lines <span class="op">=</span> hg.logs(<span class="st">&quot;runs/experiment_1&quot;</span>, tail<span class="op">=</span><span class="dv">100</span>)</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>hg.tag(<span class="st">&quot;runs/experiment_1&quot;</span>, <span class="st">&quot;baseline_v1&quot;</span>)</span></code></pre></div>
+<hr />
+<h2 id="6-sampling--deployment">6. Sampling &amp; Deployment</h2>
+<h3 id="hgsample---sample"><code>hg.sample(...) -&gt; Sample</code></h3>
+<p>Generates samples from a checkpoint or run directory:</p>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>sample <span class="op">=</span> hg.sample(</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;runs/experiment_1&quot;</span>,</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>    count<span class="op">=</span><span class="dv">16</span>,</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>    seed<span class="op">=</span><span class="dv">42</span>,</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>    output<span class="op">=</span><span class="st">&quot;samples/grid.png&quot;</span>,</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>    device<span class="op">=</span><span class="st">&quot;cuda&quot;</span></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">&quot;Saved sample to:&quot;</span>, sample.path)</span></code></pre></div>
+<h3 id="hgexport"><code>hg.export(...)</code></h3>
+<p>Exports a trained run to a standalone format:</p>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>hg.export(<span class="st">&quot;runs/experiment_1&quot;</span>, output<span class="op">=</span><span class="st">&quot;models/gen.pt&quot;</span>, <span class="bu">format</span><span class="op">=</span><span class="st">&quot;bundle&quot;</span>)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>hg.export(<span class="st">&quot;runs/experiment_1&quot;</span>, output<span class="op">=</span><span class="st">&quot;models/gen.safetensors&quot;</span>, <span class="bu">format</span><span class="op">=</span><span class="st">&quot;safetensors&quot;</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>hg.export(<span class="st">&quot;runs/experiment_1&quot;</span>, output<span class="op">=</span><span class="st">&quot;models/gen.onnx&quot;</span>, <span class="bu">format</span><span class="op">=</span><span class="st">&quot;onnx&quot;</span>)</span></code></pre></div>
+<h3
+id="hgload_bundle---loadedgenerator"><code>hg.load_bundle(...) -&gt; LoadedGenerator</code></h3>
+<p>Loads an exported <code>.pt</code> bundle as an autonomous
+<code>torch.nn.Module</code>:</p>
+<div class="sourceCode" id="cb17"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>generator <span class="op">=</span> hg.load_bundle(<span class="st">&quot;models/gen.pt&quot;</span>, device<span class="op">=</span><span class="st">&quot;cuda&quot;</span>)</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>images <span class="op">=</span> generator.sample(count<span class="op">=</span><span class="dv">8</span>, seed<span class="op">=</span><span class="dv">42</span>)</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>walk <span class="op">=</span> generator.interpolate(seed_a<span class="op">=</span><span class="dv">100</span>, seed_b<span class="op">=</span><span class="dv">200</span>, steps<span class="op">=</span><span class="dv">10</span>, mode<span class="op">=</span><span class="st">&quot;slerp&quot;</span>)</span></code></pre></div>
+<hr />
+<h2 id="7-typed-dataclass-reference">7. Typed Dataclass Reference</h2>
+<h3 id="run"><code>Run</code></h3>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span>(frozen<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Run:</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>    path: Path</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>    manifest: <span class="bu">dict</span></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>    status: Optional[<span class="bu">str</span>]</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>    step: Optional[<span class="bu">int</span>]</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>    stop_reason: Optional[<span class="bu">str</span>]</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>    config: Optional[<span class="bu">dict</span>]</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>    fingerprint: Optional[<span class="bu">str</span>]</span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>    run_id: <span class="bu">str</span></span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>    short_id: <span class="bu">str</span></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>    name: <span class="bu">str</span></span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>    slug: <span class="bu">str</span></span></code></pre></div>
+<h3 id="runhandle"><code>RunHandle</code></h3>
+<div class="sourceCode" id="cb19"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> RunHandle:</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>    run_dir: Path</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>    run: Run</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>    run_info: RunInfo</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> is_alive(<span class="va">self</span>) <span class="op">-&gt;</span> <span class="bu">bool</span>: ...</span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> is_running(<span class="va">self</span>) <span class="op">-&gt;</span> <span class="bu">bool</span>: ...  <span class="co"># Alias for is_alive</span></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> wait(<span class="va">self</span>, timeout: Optional[<span class="bu">float</span>] <span class="op">=</span> <span class="va">None</span>) <span class="op">-&gt;</span> Run: ...</span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> join(<span class="va">self</span>, timeout: Optional[<span class="bu">float</span>] <span class="op">=</span> <span class="va">None</span>) <span class="op">-&gt;</span> Run: ...  <span class="co"># Alias for wait</span></span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> stop(<span class="va">self</span>, timeout: <span class="bu">float</span> <span class="op">=</span> <span class="fl">15.0</span>) <span class="op">-&gt;</span> <span class="va">None</span>: ...</span></code></pre></div>
+<h3 id="validationwarning"><code>ValidationWarning</code></h3>
+<div class="sourceCode" id="cb20"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> ValidationWarning(<span class="bu">str</span>):</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>    message: <span class="bu">str</span></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>    field: Optional[<span class="bu">str</span>] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>    level: <span class="bu">str</span> <span class="op">=</span> <span class="st">&quot;warning&quot;</span></span></code></pre></div>
+<p><em>(Subclasses <code>str</code> for backward compatibility with
+string-based assertions and formatting).</em></p>
+<h3 id="runstatus"><code>RunStatus</code></h3>
+<div class="sourceCode" id="cb21"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> RunStatus(<span class="bu">dict</span>):</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>    run_id: <span class="bu">str</span></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>    status: <span class="bu">str</span>              <span class="co"># &quot;running&quot;, &quot;completed&quot;, &quot;stopped&quot;, &quot;failed&quot;</span></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>    step: Optional[<span class="bu">int</span>] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>    total_steps: Optional[<span class="bu">int</span>] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>    percent: Optional[<span class="bu">float</span>] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>    steps_per_sec: Optional[<span class="bu">float</span>] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>    eta_seconds: Optional[<span class="bu">float</span>] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>    devices: <span class="bu">str</span> <span class="op">=</span> <span class="st">&quot;cpu&quot;</span></span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>    best_metric: Optional[<span class="bu">dict</span>[<span class="bu">str</span>, Any]] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>    recent_checkpoints: <span class="bu">list</span>[<span class="bu">dict</span>[<span class="bu">str</span>, Any]] <span class="op">=</span> field(default_factory<span class="op">=</span><span class="bu">list</span>)</span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>    warnings: <span class="bu">list</span>[<span class="bu">str</span>] <span class="op">=</span> field(default_factory<span class="op">=</span><span class="bu">list</span>)</span>
+<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a>    slug: Optional[<span class="bu">str</span>] <span class="op">=</span> <span class="va">None</span></span></code></pre></div>
+<p><em>(Subclasses <code>dict</code> with <code>__getattr__</code>
+attribute access for <code>slug</code>, <code>step</code>,
+<code>status</code>, <code>device</code>, <code>pid</code>,
+etc.).</em></p>
+<h3 id="pssnapshot"><code>PsSnapshot</code></h3>
+<div class="sourceCode" id="cb22"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> PsSnapshot(<span class="bu">dict</span>):</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>    runs: <span class="bu">list</span>[RunStatus]</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>    queued: <span class="bu">list</span>[<span class="bu">dict</span>[<span class="bu">str</span>, Any]]</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>    active_count: <span class="bu">int</span></span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>    total_known: <span class="bu">int</span></span></code></pre></div>
+<p><em>(Implements dictionary mapping protocol, <code>__len__</code>,
+and property aliases <code>total_count</code> and
+<code>completed_count</code>).</em></p>
+<h3 id="trainresult"><code>TrainResult</code></h3>
+<div class="sourceCode" id="cb23"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> TrainResult:</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>    run: Any</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>    step: <span class="bu">int</span> <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>    status: <span class="bu">str</span> <span class="op">=</span> <span class="st">&quot;completed&quot;</span></span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>    metrics: <span class="bu">dict</span>[<span class="bu">str</span>, Any] <span class="op">=</span> field(default_factory<span class="op">=</span><span class="bu">dict</span>)</span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>    checkpoint_path: Optional[Path] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>    stop_reason: Optional[<span class="bu">str</span>] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>    run_dir: <span class="bu">str</span>             <span class="co"># Property</span></span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>    run_id: <span class="bu">str</span>              <span class="co"># Property</span></span>
+<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a>    summary: <span class="bu">dict</span>[<span class="bu">str</span>, Any]  <span class="co"># Property alias for metrics</span></span></code></pre></div>
+<h3 id="sample--sampleresult"><code>Sample</code> &amp;
+<code>SampleResult</code></h3>
+<div class="sourceCode" id="cb24"><pre
+class="sourceCode python"><code class="sourceCode python"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span>(frozen<span class="op">=</span><span class="va">True</span>)</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Sample:</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>    step: <span class="bu">int</span></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>    name: <span class="bu">str</span></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>    data: Optional[Any]      <span class="co"># torch.Tensor</span></span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>    inputs: <span class="bu">dict</span>[<span class="bu">str</span>, Any]</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>    path: Path</span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>    png: Optional[<span class="bu">bytes</span>] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a><span class="at">@dataclass</span></span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> SampleResult:</span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>    path: Path</span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>    count: <span class="bu">int</span> <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a>    step: <span class="bu">int</span> <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a>    png: <span class="bu">bytes</span> <span class="op">|</span> <span class="va">None</span> <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a>    data: Optional[Any] <span class="op">=</span> <span class="va">None</span></span>
+<span id="cb24-17"><a href="#cb24-17" aria-hidden="true" tabindex="-1"></a>    inputs: <span class="bu">dict</span>[<span class="bu">str</span>, Any] <span class="op">=</span> field(default_factory<span class="op">=</span><span class="bu">dict</span>)</span></code></pre></div>
+</body>
+</html>

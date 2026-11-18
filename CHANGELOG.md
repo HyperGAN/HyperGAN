@@ -4,6 +4,9 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- Verify reviewed API documentation and public release assets for append-only
+  publication to the versioned HyperGAN S3 archives from `master`.
+
 ## 2.0.0 — 2026-11-18
 
 HyperGAN 2.0.0 is the first stable release of the TOML and HNDL training runtime. Install with `python -m pip install "hypergan[all]==2.0.0"` after installing the matching Torch wheels for your hardware. [Installation](https://github.com/HyperGAN/HyperGAN/blob/v2.0.0/README.md#install)

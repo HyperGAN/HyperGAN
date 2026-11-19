@@ -164,6 +164,49 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true
+      - name: Verify the tested distributions on PyPI
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import time
+          from urllib.error import HTTPError
+          from urllib.parse import quote
+          from urllib.request import urlopen
+
+          version = os.environ['VERSION']
+          expected = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                      for path in Path('dist').iterdir() if path.is_file()}
+          if not expected:
+              raise SystemExit('The tested distribution directory is empty')
+          url = f'https://pypi.org/pypi/hypergan/{quote(version, safe="")}/json'
+          missing = expected.keys()
+          for wait in (0, 2, 2, 2, 2):
+              time.sleep(wait)
+              try:
+                  with urlopen(url, timeout=10) as response:
+                      release = json.load(response)
+              except HTTPError as error:
+                  if error.code == 404:
+                      continue
+                  raise
+              if (release['info']['name'], release['info']['version']) != ('hypergan', version):
+                  raise SystemExit('PyPI returned a different project or version')
+              public = {file['filename']: file['digests']['sha256'] for file in release['urls']}
+              mismatched = [name for name in expected.keys() & public.keys() if expected[name] != public[name]]
+              if mismatched:
+                  raise SystemExit('PyPI has different bytes for ' + ', '.join(sorted(mismatched)))
+              missing = expected.keys() - public.keys()
+              if not missing:
+                  print(f'Verified {len(expected)} tested HyperGAN {version} distributions on PyPI')
+                  break
+          else:
+              raise SystemExit('PyPI did not list the tested distributions ' + ', '.join(sorted(missing)))
+          PY
 
   github-release:
     name: Sync GitHub Release

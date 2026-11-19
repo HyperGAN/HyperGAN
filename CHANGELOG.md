@@ -5,6 +5,7 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 ## Unreleased
 
 - Preserve the Git tag when updating an existing GitHub release or prerelease.
+- Build a GitBook preview from reviewed documentation changes on `master`.
 - Verify reviewed API documentation and public release assets for append-only
   publication to the versioned HyperGAN S3 archives from `master`.
 

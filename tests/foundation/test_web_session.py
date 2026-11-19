@@ -1,5 +1,6 @@
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -88,10 +89,14 @@ def test_credentials_failed_serialization_leaves_no_publication(tmp_path, monkey
 
 
 def test_expired_sessions_reject_both_clients(tmp_path, monkeypatch):
+    import hypergan.web_session as module
+
+    now = 100.0
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: now))
     session = LocalSession(8123, auth="token", lifetime=1)
     token = json.loads(session.write_credentials(tmp_path / "credentials").read_text())["token"]
     cookie = session.exchange(token)
-    monkeypatch.setattr("hypergan.web_session.time.monotonic", lambda: session._expires + 1)
+    now += 2.0
     assert not session.active
     assert not session.authenticated(cookie=cookie)
     assert not session.authenticated(authorization="Bearer " + token)

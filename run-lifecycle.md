@@ -1,0 +1,31 @@
+# Shared training lifecycle
+
+The public `hypergan train` and `hypergan resume` commands use one internal run controller (`RunController`). The controller owns the run lock, attempts, manifests, events, stop budgets, control requests (checkpoint, sample, stop), sample reservations and terminal status. It supports single-process CPU and single-GPU (`cuda`) execution as well as multi-GPU replicated execution (`--devices 0,1` / `--profile cuda-replicated-nccl` and `cpu-replicated-gloo`).
+
+The [replicated run service](replicated-run-service.md) uses that same controller with persistent workers and parent checkpoint publication, so single-GPU, multi-GPU, and CPU runs share one lifecycle, recovery, and bounded observation contract.
+
+## Ownership and completion
+
+The controller receives completed steps and metrics from the execution adapter. It makes checkpoint, preview and stop decisions only between complete logical updates. A failed update can leave numerical state partially changed; failure handling does not save that state.
+
+The single-process adapter performs construction and strict recovery, numerical updates, checkpoint serialization, preview rendering and inference export. It also isolates callback RNG and restores the caller's CPU thread setting. The replicated adapter keeps numerical state and thread settings in its supervised workers. The controller does not access model tensors, optimizers or batches and can be imported without the optional training dependencies.
+
+Successful adapter shutdown precedes terminal success. Failure cleanup occurs before the terminal failure event while the controller still owns the run lock. Required persistence, shutdown or training RNG/thread-restoration failures fail the attempt; an observer failure remains isolated only where the existing observation contract allows it.
+
+The public signatures, event and artifact formats, checkpoint intervals, request receipts and preview counters are unchanged. See [recovery](recovery.md) and [observation](observation.md) for the supported user workflow.
+
+## Source compatibility
+
+Full recovery uses the explicit HyperGAN checkpoint compatibility version described in [recovery](recovery.md). HyperGAN Git SHAs and source hashes remain provenance and do not block resume across compatible releases. External component/dependency sources, configuration, data, numerical runtime and state integrity still receive strict validation. The earlier source-hash rejection policy was replaced on 2026-09-20 at the owner's request.
+
+Behavioral parity is measured by independently running the old and new implementations and comparing complete numerical state and lifecycle results. It does not imply cross-version checkpoint compatibility.
+
+## Internal replicated integration
+
+The [CPU execution profile and preflight](execution-profiles.md), [persistent worker command service](cpu-worker-service.md) and [parent checkpoint publication](distributed-recovery.md) are implemented as internal prerequisites. The command broker monitors and reaps numerical workers independently of the coordinator. A parent commit authority validates staged state after successful all-rank command completion and a fresh health check; the caller still owns the run lock.
+
+The controller creates an immutable candidate attempt identity in memory before strict restore and persists it only after restore succeeds. Numerical execution identity is recorded separately from mutable service deadlines. Native manifests without an explicit profile retain their native route; changing to a different execution strategy cannot bypass strict checkpoint validation.
+
+The replicated adapter validates agreed complete steps and global metrics, prepares checkpoints in workers, and publishes through the parent authority. Group and publication failures remain fatal during optional saves. It reuses filesystem events, checkpoint receipts and sample reservations; final artifacts when a completed/restored batch is available and worker shutdown precede terminal success. Replicated previews render copied snapshots in a supervised process without a training process group. Progress callbacks run in fresh bounded processes; failures are recorded without recursive delivery. See the [bounded observation contract](replicated-observation.md).
+
+See the [shared-service design](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/reports/archive/distributed-run-service-design-2026-09-19.md) and [current checkpoint](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/reports/archive/core-replicated-service-2026-09-19.md). GPU/NCCL and actual multi-node execution remain separate qualifications.

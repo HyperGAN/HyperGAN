@@ -1,0 +1,290 @@
+# Image-folder data (`image_folder`)
+
+`image_folder` loads local images into CPU batches with an explicit shape and preprocessing policy. It supports flat folders, recursive folders and named class directories. It does not download data or qualify image quality.
+
+For the qualified CIFAR-10 dataset (`hypergan.datasets:CIFAR10Data`), HyperGAN provides an explicit opt-in acquisition and verification command (`hypergan download-data`). Training itself never performs implicit network downloads:
+
+```sh
+hypergan download-data --list
+hypergan download-data cifar10 --info
+hypergan download-data cifar10 --output ./data
+```
+
+`hypergan download-data cifar10 --output ./data` verifies the archive size (`170,498,071` bytes) and SHA256 (`6d958be074577803d12ecdefd02955f39262c83c16fe9348329d7fe0b5c001ce`), safely extracts `cifar-10-batches-py/`, verifies each batch file's SHA256 digest, and writes `./data/dataset-manifest.json` with a ready-to-use `[data]` configuration snippet. Unqualified datasets (such as MNIST, CelebA, ImageNet, and COCO) are not advertised by `download-data`; prepare local image directories with `image_folder` instead.
+
+Install the optional decoder in your active Python environment:
+
+```sh
+python -m pip install '.[train,image]'
+```
+
+For data inspection alone, `.[image]` is sufficient; folder discovery, decoding and identity inspection do not import torch. These source-install commands refer to this unreleased checkout.
+
+## Automatic Project Scaffolding & Primary Schema (`format = "hypergan-model/1"`)
+
+When you pass `--dataset /path/to/images` to `hypergan new`, HyperGAN scans image headers (without decoding full pixel buffers into RAM), detects the median resolution (`32`, `64`, `128`, or `256`) and color mode (`RGB` or `L`), and generates a complete `format = "hypergan-model/1"` configuration with matching generator and discriminator architectures:
+
+```sh
+hypergan new --project my_gan --template dcgan --dataset /absolute/path/to/images
+```
+
+In `format = "hypergan-model/1"` model files, configure `[data]` (and optional `[evaluations.<id>.data]` for snapshot metrics run via `hypergan eval`) with `builtin = "image_folder"`:
+
+```toml
+format = "hypergan-model/1"
+name = "dcgan"
+defaults = "particlegan"
+
+[data]
+builtin = "image_folder"
+[data.args]
+root = "/absolute/path/to/images"
+height = 64
+width = 64
+mode = "RGB"
+resize = "center_crop"
+interpolation = "bilinear"
+fill = 0
+recursive = true
+labels = false
+shuffle = true
+
+[prior]
+kind = "particles"
+initialization_seed = 2
+z_dim = 128
+[prior.args]
+num_particles = 10000
+
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+input_shape = ["B", 128]
+output_shape = ["B", 3, 64, 64]
+source = """..."""
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 64, 64]
+output_shape = ["B", 1]
+source = """..."""
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[[losses]]
+type = "prior"
+
+[train]
+steps = 200000
+batch_size = 64
+seed = 0
+device = "cuda"
+
+[metrics]
+every_steps = 10
+
+# Optional snapshot evaluation metric (used by `hypergan eval <run>`)
+[evaluations.sample_diversity]
+factory = "hypergan.colorization_metrics:SampleDiversityRatio"
+device = "cuda"
+samples = 64
+batch_size = 16
+seed = 123
+[evaluations.sample_diversity.data]
+builtin = "image_folder"
+[evaluations.sample_diversity.data.args]
+root = "/absolute/path/to/images"
+height = 64
+width = 64
+mode = "RGB"
+resize = "center_crop"
+shuffle = false  # reference images are used once each, never repeated
+```
+
+When lowered to the low-level engine recipe schema, `builtin = "image_folder"` resolves to `factory = "image_folder"` under `[data]`:
+
+```toml
+[data]
+factory = "image_folder"
+[data.args]
+root = "/absolute/path/to/images"
+height = 160
+width = 320
+mode = "RGB"
+resize = "pad"
+interpolation = "bilinear"
+fill = 0
+recursive = true
+labels = false
+shuffle = true
+```
+
+The generator and discriminator must have compatible image shapes (`["B", C, H, W]`). Substituting `[data]` into the default 2D Gaussian recipe without an image generator/discriminator does not create an image model. Height and width are mandatory; there is no silent 64×64 fallback. Relative roots resolve against the process working directory (or `${paths.data}` when configured in `hypergan.toml`), so absolute or workspace-anchored paths are easiest to reproduce.
+
+Inspect and verify the actual image files before training using `hypergan validate --data` (or `hypergan data-check`):
+
+```sh
+hypergan validate path/to/config.toml --data
+hypergan validate path/to/config.toml --data --output data-manifest.json
+hypergan data-check path/to/config.toml --output data-manifest.json
+```
+
+The command reports the inventory, class map, preprocessing and content identity without importing the training runtime. Output files are created exclusively, so an existing manifest is not overwritten. The Python equivalent is `hg.check_data(model)` or `ImageFolder(**args).resume_identity()` plus its `inventory` attribute.
+
+## Shape and preprocessing
+
+The callable `data(batch_size, generator=cpu_generator)` returns `real`, a contiguous CPU float32 tensor shaped **N,C,H,W**, scaled as `pixel / 127.5 - 1` into `[-1,1]`. `mode="RGB"` produces three channels; `mode="L"` produces one grayscale channel. Conversion from RGB to grayscale or grayscale to RGB follows the explicit output mode.
+
+| Setting | Behavior |
+| --- | --- |
+| `resize="none"` (default) | Require the exact declared width and height after EXIF orientation; never resize implicitly |
+| `resize="stretch"` | Resize directly to width/height, changing aspect ratio |
+| `resize="center_crop"` | Preserve aspect ratio while filling the requested rectangle, cropping centrally |
+| `resize="pad"` | Preserve aspect ratio while fitting inside the rectangle; center with padding |
+| `interpolation` | `nearest`, `bilinear` (default), `bicubic` or `lanczos`; used when resizing |
+| `fill` | Padding intensity, integer 0–255 applied to every output channel; defaults to 0 and only accepts a nonzero value with `pad` |
+
+Resize modes can enlarge small inputs. EXIF orientation is applied before resizing. JPEG, PNG, BMP, WebP and TIFF extensions are recognized case-insensitively. Sources must be single-frame RGB or grayscale; palette, alpha, CMYK, higher-bit-depth and animated/multi-frame inputs fail with conversion guidance. In particular, alpha is never silently discarded. Source mode/dimensions, decoder version and every preprocessing option enter the identity.
+
+`max_pixels` defaults to 16,777,216 for both decoded and output images, and `max_file_bytes` to 67,108,864 per file. Override them explicitly for larger data. Pillow's own decompression limits also apply. These bounds limit each decode; batch memory still scales with the chosen batch size and output dimensions.
+
+## Folder discovery and labels
+
+With `recursive=true` (default), all ordinary image files beneath the root are inventoried in relative POSIX-path lexical order. `recursive=false` considers root-level files only. Unsupported extensions are reported as ignored paths and counts; they are not decoded. Symlinks are rejected so inventory membership is explicit.
+
+With `labels=true`, every accepted image must sit beneath a named top-level class directory, such as `cats/a.png` and `zebras/nested/b.jpg`. Class directory names need not be numeric. Recursive discovery is required, and root-level images fail with layout guidance. The vocabulary is the sorted set of class names containing accepted images; empty directories do not create classes. Output adds `labels`, an int64 tensor shaped `[N]`; bind it explicitly as `batch.labels` in a compatible conditional recipe. Classification losses and multi-attribute labels are separate recipe concerns.
+
+Preflight reads, hashes, fully decodes and validates every accepted image. A zero-byte, unreadable, truncated or incompatible image stops preflight with its relative path and corrective guidance. Nothing is silently skipped or retried. An empty dataset reports supported extensions and discovered/ignored counts. There is no quarantine mode.
+
+Preflight results are cached per file, so later constructions (resume, every distributed rank, every evaluation worker) only list and `stat` the folder. A file is inspected again unless its size, mtime, ctime and inode all match the cached record, and records written within a few seconds of a file's last change are never trusted. The cache cannot change the identity or the pixels: every training read still checks the file against its inventory SHA-256. The cache lives in `$HYPERGAN_CACHE_DIR/image-folder` (default `$XDG_CACHE_HOME/hypergan`, else `~/.cache/hypergan`) and is safe to delete. `manifest_cache = "path"` in `[data.args]` moves it; `manifest_cache = false` inspects every file on every construction.
+
+## Background loading
+
+`ImageFolder` and `ColorizationData` default to four persistent decoder threads
+and one batch of lookahead. Workers read, verify, decode and resize individual
+images concurrently. While the GPU trains, they prepare the next images in the
+already-selected permutation. CPU tensor assembly and normalization happen once
+per batch on the caller thread. Workers never use Torch or advance any RNG.
+
+For new configurations, optional `[data.args]` settings `workers = 4` and
+`prefetch_batches = 1` make these defaults explicit. `workers = 0` selects serial
+loading; `prefetch_batches = 0` disables lookahead while retaining parallel batch
+decoding. Both must be nonnegative integers. Existing configs that omit these
+arguments pick up the defaults after restarting with the updated code; leave their
+config unchanged to preserve the run's exact configuration check on resume.
+
+Lookahead stores immutable uint8 pixels, bounded by the requested batch size times
+`prefetch_batches`, plus active decoder working memory. At batch 64 and 128px RGB,
+one full prefetched batch contains 3 MiB of pixels. There is no full-dataset RAM
+cache. Prefetched sources are read and hashed when consumed, so a changed file
+or symlink is still rejected. Lookahead stops at the epoch
+boundary rather than speculatively drawing the next permutation; the first batch
+and epoch transitions can therefore wait longer.
+
+Sampler state records only consumed images. Restore discards speculative work;
+worker completion order never affects batch order, pixels, labels, or RNG state.
+Standalone callers can use `data.close()` to drain work and release threads; a
+later call recreates the pool. Single-process training closes it at shutdown,
+and discarded loaders release idle workers automatically.
+
+## Resized-pixel disk cache
+
+The manifest-backed `hypergan.colorization_data:ColorizationData` loader accepts
+an optional cache directory, disabled by default:
+
+```toml
+[data.args]
+cache_dir = "./cache/logos-128"
+```
+
+Workers save the exact preprocessed RGB uint8 bytes on first access. Later
+accesses avoid Pillow decoding, alpha composition and resizing. The cache grows
+as training encounters images; it does not scan the dataset at startup or load
+it all into RAM. Initial misses still pay the decoding cost and an additional
+cache write. For 404,757 unique 128px images, payloads occupy about 18.5 GiB;
+allow roughly 20 GiB with filesystem allocation overhead. Use a directory
+outside the source dataset, on a disk with enough room.
+
+Entries are keyed by source SHA256 and a namespace containing preprocessing,
+Pillow version and cache-format version. Each has an exact length and a checksum
+binding its pixels to the source and namespace. Missing, truncated or corrupt
+cache entries are regenerated from the verified source. Publication is atomic,
+so decoder threads and independent loaders can share the directory. A cache
+write failure logs a warning and disables further writes for that loader;
+training continues using source decoding and any readable existing entries.
+
+**Every consumed source is still read, hashed and checked for unsafe paths.**
+A warm cache never hides a deleted or changed source from the error/skip policy.
+For speculative cache hits, that source check happens at consumption; cold
+prefetch also verifies the source before decoding. Cache failures never count
+as damaged training images. The cache is disposable derived data and can be
+removed; missing entries are rebuilt. It is not included in checkpoints.
+
+Enabling, moving or disabling `cache_dir` on resume is allowed for this pinned
+loader. Pixels, sample order, RNG and sampler state remain identical; all other
+recipe compatibility rules still apply. New checkpoints record the actual
+configuration. This cache option is separate from `ImageFolder`, which still
+inventories its sources at construction.
+
+## Skipping damaged training sources
+
+The manifest-backed `hypergan.colorization_data:ColorizationData` loader supports
+an opt-in policy for **shuffled training only**:
+
+```toml
+[data.args]
+bad_image_policy = "skip"
+max_bad_images = 100
+max_consecutive_bad_images = 8
+```
+
+These are the default limits; the default policy remains `"error"`. Limits must
+be positive integers. Missing, unreadable, changed-content, unsafe-path and
+undecodable sources are excluded when encountered, with their path and reason
+logged as a warning. Workers only report failures: the sampler consumes results
+in order, records exclusions and draws subsequent usable entries to fill the
+batch. Speculative failures do not exclude an image until it is requested.
+Ordinary programming/runtime errors still propagate. Nothing is deleted or
+rewritten, and no changed image is accepted under its original manifest hash.
+
+Training stops on the **101st excluded image**, the **8th consecutive new source
+failure**, or exhaustion of all usable entries, with the defaults above. A good
+image resets the consecutive-failure counter. Fatal batches roll back sampler,
+RNG and exclusions to the pre-call boundary; their warnings remain visible.
+
+Checkpoint sampler schema 2 stores excluded indices, paths and reasons along
+with the failure counter. Restoring preserves exclusions even if a source has
+since been repaired. Legacy schema-1 checkpoints load with no exclusions.
+Exclusions discovered after the latest durable checkpoint must be rediscovered
+if the process crashes; exact continuation assumes the remaining sources have
+not changed. The policy is recorded in the resolved run/checkpoint configuration.
+
+An existing pinned training run can explicitly enable skipping by adding these
+settings to its config and rerunning its launcher. This is a narrow allowed
+resume change: manifest, preprocessing, model, optimizer and other recipe fields
+must still match. Disabling skipping or changing its limits after enabling it
+requires a new run. Healthy-source sampling and legacy fingerprints are unchanged.
+
+Held-out and finite sequential evaluation remain strict. `ImageFolder` also
+remains strict: it rebuilds its inventory during construction, so safely resuming
+after deletion requires the separate pinned manifest supplied by
+`ColorizationData`. Manifest preparation still validates sources and requires
+explicit approval for initial rejections; this option handles later training
+failures without a cleanup script.
+
+## Exact sampling and resume
+
+Shuffle uses only the caller-provided CPU `torch.Generator`. Each epoch is a permutation of the stable inventory. Batches crossing an epoch boundary wrap into the next epoch, so every batch has its requested size; there is no drop-last or replacement sampling within an epoch. Unshuffled mode repeats inventory order without consuming RNG. A fresh loader starts at epoch zero; the first generated permutation advances to epoch one.
+
+Checkpoint both `data.state_dict()` and `generator.get_state()` at the same safe training boundary, then restore with `data.load_state_dict(...)` and `generator.set_state(...)`. The loader's JSON-compatible state contains its schema, identity hash, permutation, cursor and epoch. It does not own or serialize the generator. Invalid permutations and mismatched identities fail before changing the sampler. On a batch read/decode failure, both sampler and supplied RNG return to their pre-call state.
+
+`resume_identity()` returns a JSON descriptor containing sorted relative filenames and SHA256 content hashes, original sizes/modes, the class map, discovery/shuffle options and preprocessing/decoder metadata. Instantiate a new loader before resume to re-inventory the dataset, then compare identities before restoring state. Each sampled file's hash is checked again during loading to catch edits after preflight. Additions require a new inventory; do not modify a dataset during a run.
+
+The data identity omits the absolute root, so identical relocated folders have identical *data* identities. End-to-end exact resume also checks the resolved recipe, including its root argument; changing the configured root is not currently a supported relocation workflow. Changing bytes, filenames, labels, preprocessing or decoder version changes the identity and requires restoring the original dataset or starting a new run. The identity describes data compatibility, not permission to transfer old optimizer state to a different task.
+
+The fixtures cover grayscale and rectangular pixels, aspect policies and EXIF orientation, named classes, corrupt inputs, content/class-map changes, optional dependency isolation, and bitwise sampler continuation across epoch boundaries. These establish the data contract on CPU; they do not establish a qualified image generator or distributed data sharding.

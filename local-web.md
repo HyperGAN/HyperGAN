@@ -1,0 +1,503 @@
+# Web Observatory, Local Browser & Streaming API (`hypergan view`)
+
+Install `hypergan[web]`, then launch the Web Observatory for a runs directory (or any specific run by path, `<slug>`, `<short_id>`, or custom `<tag>`):
+
+```sh
+# Start the Global Runs Dashboard for the workspace runs_root (or current directory)
+hypergan view
+hypergan view my_gan/runs --port 8765 --open
+
+# Or target a specific run directly by slug, short ID, custom tag, or directory
+hypergan view fleet-hawk --port 8765
+
+# Inspect or stop a running dashboard instance
+hypergan view --status
+hypergan view --stop
+```
+
+You can also run the standalone projection service and a single-run viewer independently:
+
+```sh
+hypergan project runs/example --follow
+# In another terminal:
+hypergan view runs/example --open
+```
+
+This page uses `hypergan view` throughout. `hypergan serve`, which `--help` does not
+list, starts the same foreground server for a run or runs root with the same
+options; it adds `--session-file` and has no `--status` or `--stop`.
+
+`hypergan view` listens on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
+working across restarts. A port that is already in use is an error naming the process
+that holds it, never a silent move to another port; when that process is the dashboard
+`hypergan train` started for the same root, `hypergan view` prints and opens its URL
+instead. Select another address with `--host 127.0.0.1`, a fixed port with
+`--port 8123`, or an OS-assigned port with `--port 0`. For a wildcard bind, a viewer
+that `hypergan view` starts prints a `127.0.0.1` URL, while
+`hypergan train`, `hypergan resume` and a `hypergan view` that reuses a running
+dashboard print `localhost`; `localhost`, `127.0.0.1` and `[::1]` are the same
+loopback authority. Browser requests remain same-origin.
+
+A wildcard bind accepts a `Host` that is an IP address, a loopback name, or this
+machine's own host name (with or without its domain, and its mDNS name
+`<host>.local`). Any other DNS name is refused, so a website that rebinds
+its own name to this machine (DNS rebinding) cannot read runs or post controls. To
+reach the viewer directly under another name, such as a MagicDNS name, list it in
+`HYPERGAN_VIEWER_HOSTS` (comma separated); a TLS proxy uses `--public-origin`.
+
+## Global Runs Dashboard & Live Control Endpoints
+
+A training step is one complete global discriminator/generator update. All ranks
+share that step counter: two GPUs completing update 250 still report step 250.
+Progress, chart axes, preview history, FID source steps, checkpoints and sampling
+cadences use that same unit. Steps/s measures completed global training updates;
+samples/s multiplies that rate by the global batch size, which already includes
+every rank.
+
+When serving a workspace or runs directory (or when runs are registered in the global registry), the Web Observatory exposes both the multi-run dashboard and per-run observatories:
+
+- **`GET /` (Global Runs Dashboard)**: Lists discovered and registered runs with labeled search (name, slug, or ID), status filters, result counts, and clear-filter feedback. Complete includes `completed`; Stopped includes `interrupted` and cancelled runs. Creation times appear in the browser's time zone, with UTC timestamps in tooltips; missing recorded times show `Unknown`. Sort newest first (default), oldest first, or by name. The responsive table becomes run cards on narrow screens. While the tab is visible, `/api/runs` refreshes every 3 seconds, including empty dashboards, adding and removing runs and updating progress, throughput (`it/s`), disk usage, and available controls without resetting filters. A Refresh button and visible failure/retry messages support recovery. FID columns are omitted from this overview.
+- **`GET /api/runs` and `GET /api/v1/runs`**: Returns a JSON array of all discovered/registered runs with their `run_id`, `short_id`, `slug`, `name`, `status`, `active`, `running`, `pid`, `created_at`, `step`, `total_steps`, `steps_per_second`, `latest_fid`, `best_fid`, `best_step`, `disk_bytes`, `disk_formatted`, `run_dir`, and `url`. `created_at` is an ISO 8601 UTC timestamp from recorded creation metadata or the first launch receipt (`launch/0001.json`), or `null` when unavailable. It does not use the manifest's modification time, which changes during training. FID fields remain available to API clients.
+- **`GET /runs/<id_or_slug_or_tag>`**: Opens the per-run Web Observatory UI for any run addressed by its full `run_id`, 8-character `short_id`, Docker-style `slug` (e.g. `fleet-hawk`), custom tag (`hypergan tag <run> <tag>`, stored in the run's `tag.json`), or directory name. Automatically ensures built-in scalar projections are up to date before serving.
+- **`POST /api/runs/<id>/checkpoint` (and `POST /api/v1/runs/<id>/checkpoint`)**: Submits an idempotent, attempt-bound durable checkpoint request to an active run at the next completed update boundary (returns HTTP 400 if the run is not active). Accepts an optional JSON body `{"request_id": "...", "attempt_id": "..."}`.
+- **`POST /api/runs/<id>/sample` (and `POST /api/v1/runs/<id>/sample`)**: Submits an idempotent, attempt-bound bounded preview sample request to an active run at the next completed update boundary without disturbing training RNG or optimizer state (returns HTTP 400 if the run is not active). Accepts an optional JSON body `{"request_id": "...", "attempt_id": "..."}`.
+- **`POST /api/runs/<id>/stop` (and `POST /api/v1/runs/<id>/stop`)**: Submits an idempotent, attempt-bound graceful stop request (and signals local runs via SIGINT when running on the same host) so the trainer saves a boundary checkpoint and halts cleanly at the next completed update boundary (returns HTTP 400 if the run is not active).
+- **`GET /api/runs/<id>/requests/<request_id>` (and `GET /api/v1/runs/<id>/requests/<request_id>`)**: Reads the durable status or receipt (`pending`, `succeeded`, `failed`, or `rejected`) for a control request (`checkpoint`, `sample`, or `stop`).
+
+From the terminal, the commands that change or delete a run, `hypergan stop`,
+`hypergan tag`, `hypergan gc` and `hypergan rm`, resolve their target strictly. It
+must be exactly a run ID or 8-character short ID, a slug, a tag, a run directory
+name, or a path to a run directory (one whose `manifest.json` or `summary.json`
+records a `run_id`). There is no prefix or substring matching: a reference that
+matches several runs is an error listing the candidates, and workspace roots,
+runs roots, `$HOME`, `/` and symbolic links are refused. `hypergan gc --all` needs a
+workspace or an explicit root (`hypergan gc --all <runs-root>`). Tags live in the
+run's `tag.json`, which the trainer never rewrites, so tagging an active run is
+allowed. The [README](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/README.md#which-run-rm-gc-stop-and-tag-act-on) has the
+full rules.
+
+### Headless cluster attachment and file-backed control requests
+
+Scheduled and multi-node cluster jobs run headlessly by default (`--no-server` or no local viewer per rank), with only the designated writer publishing global progress, events, and preview artifacts to the run directory. Attach `hypergan view` to a shared or synchronized run directory from a login node or local workstation (or tunnel to a single service on the allocated host via SSH or `--public-origin`):
+
+```sh
+# Attach to a headless cluster run on a shared filesystem without importing torch
+hypergan view /shared/experiments/runs/cluster-run --host 127.0.0.1 --port 8765 --auth token
+```
+
+When a run's `.run.lock`, `launch/*.json`, `manifest.json`, or `summary.json` records a `hostname` different from the viewer host while the run is in `running` or `initializing` state, HyperGAN marks the run as active and remote (`remote: true`, `active: true`). Viewer disconnection never cancels or signals the remote training job. Control actions (`checkpoint`, `sample`, and `stop`) use the file-backed request queue under `checkpoint_requests/pending/` and `checkpoint_requests/receipts/` rather than local PID signals, so idempotent control requests and receipts work identically for local and headless cluster runs. When `--auth token` is enabled, every API route except `POST /api/v1/session` requires a valid session cookie or `Authorization: Bearer <token>` header: reads, SSE streams and controls, under both `/api/v1/runs/*` and `/api/runs/*`. Only the HTML shell, its static assets and the sign-in exchange are public; the dashboard then shows a sign-in form and no run data until the browser has a session.
+
+### Remote browsers over plain HTTP
+
+Opening the viewer from another machine, for example `http://mlserver:8123` over a
+Tailscale or LAN address, needs no TLS. Browsers expose the Web Crypto API
+(`crypto.subtle`) only to secure contexts, so the reducer host verifies the bundled
+WebAssembly module with `crypto.subtle` where it exists and with an equivalent
+portable SHA-256 otherwise. The integrity check therefore still runs, and still
+refuses a modified module, on the insecure origin a plain-HTTP host other than
+`localhost` receives. The viewer uses no other secure-context-only browser API.
+
+### HTTPS through your own TLS proxy
+
+HTTPS remains the recommendation outside a trusted private network. The viewer
+does not terminate TLS; put the port behind a proxy you control and tell the
+viewer which public origin that proxy serves:
+
+```sh
+tailscale serve --bg 8765
+hypergan train project/config.toml --run-dir runs/example \
+    --public-origin https://mlserver.tail1234.ts.net
+# or for an existing run / dashboard:
+hypergan view runs --public-origin https://mlserver.tail1234.ts.net
+hypergan view runs/example --public-origin https://mlserver.tail1234.ts.net
+```
+
+`tailscale serve --bg 8765` publishes `https://<machine>.<tailnet>.ts.net` on
+port 443 and forwards to the local port. Without `--public-origin` the browser's
+`https://` `Origin` and proxied `Host` are rejected, so token sign-in and every
+run request fail; the option is what makes that one origin acceptable.
+
+`--public-origin` takes an absolute `http://` or `https://` URL with a host and
+an optional port and nothing else. A path, query, fragment, username or password
+is refused with an error naming the value, and `https://host:443/` is the same
+origin as `https://host`. `train`, `resume` and `view` all accept it, and, like
+`--server-host` and `--auth`, naming it requires the viewer rather than leaving
+it optional. The supervised viewer is a detached subprocess, so the value
+travels in that viewer's private registry state; `hypergan view --status`, `hypergan server-status RUN`,
+the startup JSON and the private credential file all report `public_origin`
+beside the direct `origin`.
+
+What the viewer trusts with a public origin configured:
+
+- A request whose `Host` is exactly that origin's authority, and whose `Origin`,
+  when the browser sends one, is exactly that origin. `tailscale serve` forwards
+  the public `Host` unchanged, so this is the normal path.
+- A proxy that rewrites `Host` to the local authority instead: its `Host` must
+  still be one the server would have accepted directly, and `X-Forwarded-Host`
+  must name the public authority. `X-Forwarded-Proto`, when present, must then
+  match the public origin's scheme.
+- The direct `http://<host>:<port>` access above, unchanged and undiminished.
+
+What it does not trust: any other `Origin`, `https` or not; any other `Host`;
+and `X-Forwarded-Host` or `X-Forwarded-Proto` at all unless `--public-origin` is
+set, because any client can send them. There is no wildcard and no permissive
+CORS. The session cookie is marked `Secure` on the https channel, and stays
+HttpOnly and `SameSite=strict` on both; browsers key cookies by host, so the
+proxied and the direct authority hold separate sessions and a plain-HTTP
+loopback login keeps working while the proxy is configured. Every URL the page
+requests is relative, so the `'self'` content-security-policy resolves to
+whichever origin served the page and no host is pinned for the proxy.
+
+Authentication defaults to `none`. Select `--auth token` to require a private
+bearer token. Startup JSON identifies the browser origin, server incarnation and
+private session file outside the run. In token mode, paste that file's token into
+the browser login, or send `Authorization: Bearer <token>` from an external client.
+Tokens never enter URLs or run artifacts. Credentials last for that server
+incarnation and rotate on restart. Browser cookies are scoped by port so multiple
+experiments do not overwrite each other's credentials. These APIs neither start
+training nor execute custom Python maps or numerical metric factories.
+
+`hypergan metrics RUN` reads the current catalog. `hypergan contributions RUN`
+reads bounded mapped frames without installing the web or reducer runtime. Custom maps use the [event-view contract](event-views.md).
+
+## REST & Streaming API Routes (`/api/v1/*` and `/api/runs/*`)
+
+The `/api/v1/openapi.json` endpoint contains OpenAPI 3.1 routes, query
+parameters and JSON schemas for source events, projection frames, catalogs,
+bootstrap state and SSE envelopes. Every per-run route is served with full parity under both `/api/v1/runs/{run_id}/*` and `/api/runs/{run_id}/*`, where `{run_id}` accepts the run's `run_id`, `short_id`, `slug`, custom tag (`name`), or directory name:
+
+- `/api/v1/capabilities`: server incarnation, selected run, reducer digest and limits.
+- `/api/runs` & `/api/v1/runs`: list all discovered and registered runs with live status summaries.
+- `/api/runs/{run_id}` & `/api/v1/runs/{run_id}` (and `/status`): public observed/durable progress manifest.
+- `/api/runs/{run_id}/summary` & `/api/v1/runs/{run_id}/summary` (and `/api/runs/{run_id}/metrics` & `/api/v1/runs/{run_id}/metrics`): cached or live run metrics summary (`step`, `steps_per_second`, `latest_fid`, `best_fid`, etc.).
+- `/api/runs/{run_id}/metrics/catalog` & `/api/v1/runs/{run_id}/metrics/catalog?revision=...`: current or historical metric definition catalog.
+- `/api/runs/{run_id}/contributions` & `/api/v1/runs/{run_id}/contributions`: one bounded page of mapped scalar contribution frames (`limit` 1..1000, default 100); pass the returned `cursor` while `has_more` is true.
+- `/api/runs/{run_id}/model` & `/api/v1/runs/{run_id}/model` (and `/architecture`): GAN formulation, losses, optimizers, and HNDL network descriptions.
+- `/api/runs/{run_id}/events` & `/api/v1/runs/{run_id}/events?stream_id=...&cursor=...&limit=100`: bounded raw event pages.
+- `/api/runs/{run_id}/views` & `/api/v1/runs/{run_id}/views`: built-in view and registered streams.
+- `/api/runs/{run_id}/views/{map_revision}/bootstrap` & `/api/v1/runs/{run_id}/views/{map_revision}/bootstrap?series=loss%2Fg_total&bucket_steps=100`: historical envelope states.
+- `/api/runs/{run_id}/stream` & `/api/v1/runs/{run_id}/stream?stream_id=projection:{map_revision}&cursor=...`: SSE continuation.
+- `/api/runs/{run_id}/artifacts` & `/api/v1/runs/{run_id}/artifacts`: bounded artifact index; append `/{artifact_id}` to download a digest-verified entry.
+- `POST /api/runs/{run_id}/checkpoint` & `POST /api/v1/runs/{run_id}/checkpoint`: trigger an immediate checkpoint on an active run.
+- `POST /api/runs/{run_id}/sample` & `POST /api/v1/runs/{run_id}/sample`: trigger an immediate preview sample on an active run at the next completed update boundary.
+- `POST /api/runs/{run_id}/stop` & `POST /api/v1/runs/{run_id}/stop`: gracefully stop an active run at the next completed update boundary.
+- `GET /api/runs/{run_id}/requests/{request_id}` & `GET /api/v1/runs/{run_id}/requests/{request_id}`: inspect the pending or acknowledged receipt for a `checkpoint`, `sample`, or `stop` request.
+
+The global `/api/v1/stream` also reports run creation and future stream
+registrations. This lets an automatically started viewer wait for the first run
+manifest without browser polling. A standalone `hypergan view RUN` requires an existing run.
+Selectors are `training`, `projection:<map_revision>`, `evaluation:<id>`, or `*` for
+future matching streams. A replay cursor requires one explicit stream. Without a
+cursor, an SSE subscriber starts at the current committed watermark; source
+history remains available through the paginated API.
+
+A bootstrap returns HTTP 202 while the source lineage index catches up or a
+historical job runs. Keep the SSE subscription open and refetch on
+`bootstrap_ready`. There is no polling fallback. One bounded background job
+reduces through a captured committed projection watermark H using the bundled
+WASM module. Its result contains mathematical state, module/view/lineage identity,
+bucket alignment, the exact cursor H and projection sequence. The browser's
+worker continues those states with frames strictly after H using the same module.
+
+Completed historical jobs are shared by compatible queries. A result has a
+five-second completion lease, and its first fetch is guaranteed that result.
+Afterward an explicit query can replace it when more than 4096 projection frames
+behind, or when over 30 seconds old with a changed head. Pending work remains one
+fixed-H job even while training advances. Unchanged history is reused indefinitely.
+Live updates never refresh or reduce the cache; changing buckets, selected series,
+range or recovery lineage requests a separate bounded job. `step_from` and
+`step_to` are inclusive optional query limits. Historical caches are derived state
+kept outside the run, under `$HYPERGAN_VIEWER_CACHE` (default
+`~/.cache/hypergan/viewer`), bounded to the 16 most recent per run and the 64 most
+recently viewed runs, so a read-only run that was projected beforehand still charts.
+Projection is the viewer's own background work: a request never projects, and history
+for a run that is still being projected answers 202 until the projection is announced.
+When the viewer's projector fails on a run (for example a read-only run that was never
+projected), history answers 404 with the projector's error, also when the projector runs
+in its own process beside the server (the dashboard `hypergan train` starts keeps the
+error in `.projection-failures/` under the viewer cache); the projector retries when
+the event log grows or after 30 seconds.
+
+SSE sends unchanged `frame` envelopes and control events: `stream_added`,
+`metadata`, `heartbeat`, `bootstrap_ready`, `artifacts`, `gap` and
+`reset_required`. One tail per file performs live fanout for all subscribers.
+Registration and replay watermarks are captured without yielding; bounded replay
+through H is followed by queued live frames, with overlap discarded before
+consumer reduction. A client records its cursor only after applying the complete
+frame. SSE received IDs are deliberately not treated as application commits.
+
+Resource bounds are explicit: 32 subscribers, 1 MiB/256 queued messages per
+subscriber, 4096 frames per reconnect replay, 4096 registered streams (and `ObservationTap(max_events=4096)` stream buffer capacity), 4096 lineage
+attempts, eight cached/pending history jobs with one reducer job active, 32 selected
+metrics and 2048 grouped states per bootstrap. Responses cap bootstrap state at
+1 MiB; history jobs have a 180-second runtime budget, reported in capabilities.
+The limit can be set explicitly when constructing the server. A slow subscriber receives a
+visible gap and disconnects instead of delaying training. A five-second ASGI send
+deadline also closes a socket consumer that stops reading before it can receive
+the gap; cleanup removes its subscription. Increase bucket size or
+narrow step bounds if a requested view exceeds its state budget. Replay-budget gaps preserve the browser reducer and its acknowledged cursor.
+The browser drains queued work and reconnects promptly, making progress through
+bounded replay segments even when cold history has a large live suffix. Changed
+stream generation or history still requires a fresh bootstrap. These finite limits are
+v1 policy, not claims of arbitrary experiment scale.
+
+Current selected lineage includes ancestor attempts only through the checkpoint
+used by their child, even when the new attempt performs zero updates. Abandoned
+future measurements remain in raw logs. Late evaluation source streams retain the
+evaluated attempt and step; registration does not change them to publish time.
+Learning curves charts the training stream only. Snapshot metrics never appear
+in its metric list, default selection, charts or data table; they belong to the
+**Snapshot evaluations** panel, which loads its own results. Numerical evaluation
+stream production and any additional projection are independent services.
+
+The **Snapshot evaluations** panel shows one tile per snapshot metric id --
+configured, published, or both -- and hides itself when a run has none. A tile is
+its label, the metric id only when that differs from the label, one status line,
+the chart, and one collapsed **Details**. The status line is the cadence and the
+schedule state in as few words as they take: `Every 10000 steps · next at 20000`,
+`Manual`, `Every 10000 steps · running since step 10000`, `Manual · last at step
+6`. Cadence comes from the catalog `specification` and the state from the run's
+`evaluation_schedule`. A metric that has published nothing yet replaces the chart
+with one quiet line -- `No evaluations yet · first at step 10000`, or `No
+evaluations yet · run hypergan evaluate` for a manual metric -- so a run at step
+zero is a short list, not a wall of text.
+
+Results are shown by metric, not by stream. Each snapshot metric with completed
+scalar results gets one chart, drawn with the same echarts style as the training
+curves, with the evaluated **source step** on the horizontal axis and one visible
+point per evaluation; a metric with a single result is a chart with one point.
+Results from different definition hashes or protocol digests stay separate series
+and are never averaged. A new evaluation stream extends the chart in place, in
+step order, and no earlier result is dropped. Failed and cancelled evaluations
+appear as one compact status line each (source step, status and the recorded
+reason) under their metric, never as a text card. Everything else -- evaluation
+device, the busy policy, skipped counts, the last recorded reason, and the
+per-result source step, value, status, duration, sample count, attempt and
+evaluation ID -- is behind that one **Details** expansion, which also holds
+each result's raw export link, its recorded protocol document and, for histogram
+metrics, its bar plot and exact bin table. The panel reads at most the 4096
+registered observation streams the server admits, and builds those tables, plots
+and protocol documents only when a list is expanded. When every one
+of them sets `trigger = "manual"` and the run records no schedule, the panel
+also shows a persistent notice above those tiles: it names the manual metrics,
+states that no evaluation runs however far training gets, and gives the exact
+edit (remove `trigger = "manual"`, or set `trigger = "interval"` with
+`every_steps`, then `hypergan resume RUN --config CONFIG`). The notice is
+derived from the catalog and run payloads the browser already reads, needs no
+extra request, and is hidden as soon as one metric is scheduled or the run has
+any scheduler state. The same condition prints a `hint:` line at launch and a
+periodic `reminder:` line in the terminal; see
+[configuration](configuration.md).
+
+Preview publication records a SHA256 in the existing retained preview index. The
+server exposes these sample descriptors without rereading every sample payload.
+Each descriptor adds a short stable `name` (`g` generated, `x` real, or an
+explicit index entry's own name) beside its unchanged digest artifact ID, and
+the browser groups a name's retained versions behind one history slider showing
+the newest by default. The retained history spans the whole run - `--preview-keep`
+thins the older samples rather than dropping the beginning - so that slider
+reaches the first sample of the run; while it shows the newest
+sample it follows new publications, and an earlier pick is held by its step. The
+listing stays bounded: at most 4,096 indexed previews (read under a 16 MiB index
+budget) and 256 explicit artifact entries.
+A final JSON sample is indexed once in a background file task, capped at 16 MiB;
+oversized/unavailable samples receive an explicit unavailable descriptor. Model
+checkpoints are never deserialized by serving. Generic explicit
+`artifacts/index.json` entries may also describe sample, measurement or diagnostic
+outputs. Downloads traverse only indexed paths inside the run, reject links and
+verify size/hash. The browser's artifact role does not imply that every modality
+has a built-in renderer.
+
+The local server rejects unexpected Host/Origin, uses no permissive CORS, keeps
+sessions HttpOnly/SameSite (and `Secure` on a configured https public origin),
+serves its chart/reducer assets offline, and accepts exactly one proxied origin,
+only when `--public-origin` names it. The API returns a public run summary instead of paths and
+full recipe arguments. Trusted owner-controlled run files remain the data source;
+this is not a multi-tenant service. A corrupt or replaced stream fails visibly and
+requires restoring/rebuilding valid history and reconnecting the server; the server
+never edits a source to repair a chart.
+
+Run the optional large-log proof explicitly:
+
+```sh
+python scripts/metrics_server_proof.py --events 1000000 --output /tmp/server-proof.json
+```
+
+It generates and removes a synthetic run, measures shared source/projection
+indexing, historical bootstrap, warm query serialization and five-viewer live
+continuation, and asserts no live reducer calls. It measures standalone serving,
+not training overhead or image quality.
+
+## Automatic viewer during CLI training
+
+With the `web` extra installed, `hypergan train` and `hypergan resume` automatically
+bind port `8765` on `0.0.0.0` and launch a supervised local viewer. A restarted run reuses the same port, so the viewer
+URL stays stable instead of changing on every start. Startup
+runs concurrently with training; there is no browser launch or readiness wait by
+default. Without the extra, these commands remain silently headless. The Python
+`train()` and `resume()` APIs never start a viewer.
+
+```sh
+hypergan train project/config.toml --run-dir runs/example --open
+hypergan resume runs/example --server --port 8123
+hypergan train project/config.toml --run-dir runs/headless --no-server
+```
+
+`--server` requires dependencies, an available port and a ready
+server before numerical imports or training begin. `--port`, `--server-host`, `--auth` and `--open`
+also imply that requirement. `--port` names an exact port and fails if it is occupied,
+rather than searching upward as the default does; `--port 0` asks the operating system
+for any free port, and `--server-port` remains accepted as its original spelling.
+`--server-host` selects the bind address; `--auth token`
+enables token authentication with the same behavior as standalone `hypergan view`;
+`--public-origin` names a TLS proxy in front of the viewer, described under
+[HTTPS through your own TLS proxy](#https-through-your-own-tls-proxy). Only `--open` launches a browser. `--no-server`
+performs no web imports or socket setup and conflicts with these explicit viewer options.
+Viewer diagnostics go to stderr; stdout and `--progress-json` remain machine
+readable. Token mode prints the private credential path on stderr for signing in.
+
+The supervised HTTP server and built-in scalar projection producer run in
+separate spawned processes. The producer reads at most 100 documents per page;
+HTTP requests never run Python maps. Custom maps and expensive metric evaluators
+remain explicit independent commands. The viewer can wait for a run manifest
+without creating the trainer's run directory. Once a manifest exists, a nonsecret
+`observations/viewer-<instance>.json` receipt records launch mode, process IDs and
+health, independently of numerical configuration/checkpoint identity.
+
+Optional startup errors and failures after startup produce warnings without
+failing training. Required startup failure prevents numerical work. The detached
+supervisor keeps the server and projection producer running after completion,
+bounded stops, numerical failures, SIGINT, SIGTERM and even abrupt training-process
+death. You can continue inspecting the same URL and existing browser session.
+
+`resume` reconnects to the same per-run viewer, without starting another server
+or projection writer. Private registry state lives outside the experiment under
+the operating system's temporary directory. An OS lifetime lock and a checked
+server incarnation identify the running service; recorded PIDs are diagnostic,
+never used to signal a process. Omitted bind/auth options inherit the active
+server settings. Explicit conflicting options fail with an instruction to stop
+the existing viewer before choosing new settings.
+
+Startup immediately prints a discovery command even when a short training
+attempt ends before optional HTTP startup has finished. Read the connection URL,
+private session path, health and log location, or stop the automatic viewer:
+
+```sh
+hypergan server-status runs/example
+hypergan stop-server runs/example
+```
+
+This command can run from another terminal and is safe to repeat. It stops only
+the registered incarnation, removes its private credentials, drains one final
+bounded projection page and joins children within bounded deadlines. A large
+backlog may remain resumable with `hypergan project RUN`. If the supervisor itself
+dies, its children exit independently; the next launch safely replaces stale
+registry state and rotates credentials. A standalone `hypergan view` remains a
+foreground command; stop that command with Ctrl-C.
+
+### Headline run summary
+
+The summary tiles above the learning curves read the run payload, so they stay
+current from stream heartbeats without selecting a metric: completed step,
+**steps per second** (a trailing average of recent updates), **time training**
+(cumulative wall clock across attempts, as `1h 23m`), **samples seen**
+(completed updates × global batch size) and the durable checkpoint, followed by
+the latest generator and discriminator loss. A run that has not published a
+value yet shows `—`. The same three progress metrics are chartable under
+Learning curves and printed on the CLI progress line; see
+[observation](observation.md#training-progress-metrics) for their definitions.
+
+### Model tab
+
+Beside **Metrics**, the **Model** tab (`#model` links straight to it) shows what
+the run trains, read from the configuration recorded in its manifest:
+
+- **GAN formulation**: ParticleGAN as the formulation provider, its recorded
+  package version and recipe-snapshot status, plus the prior. Formulation
+  equations and technique selection belong to ParticleGAN.
+- **Losses**: each player's terms with weights, bindings and detach points.
+  Every term names the metric series that records it; select one to chart it
+  under Metrics. When the view already charts 8 series, the one selected
+  longest ago makes room and a notice names it. Several adversarial terms share
+  one summed series, and the tab says so.
+- **Optimizers & hyperparameters**: generator, prior and critic groups,
+  learning-rate schedule, noise and EMA. A Gaussian or frozen
+  (`learnable = false`) prior has no prior group.
+- **Networks**: one card per component with its role, input → output contract,
+  matched source file, parameter totals, a per-layer table (op, output shape,
+  parameters, source line, grouped by the source's comment paragraphs) and the
+  raw HNDL source.
+- **Data & training**: the remaining settings and configuration warnings.
+
+The per-layer table needs torch and hndl, so the viewer never computes it:
+training writes `RUN/model.json` when it builds the networks. For runs started
+before that, record it once with
+
+```bash
+hypergan model RUN --write      # builds each component on the meta device
+hypergan model RUN              # prints the description without writing
+```
+
+A `model.json` recorded for a different configuration is ignored. Absolute
+local paths (data roots, weight files, paths inside argument strings such as
+`--root=/…` or `file:///…`, and paths in HNDL source and comments) are shown as
+`…/basename`. The data
+comes from `GET /api/v1/runs/{run_id}/model`.
+
+### Checkpoint metrics and projection progress
+
+Run responses and stream heartbeats expose `durable_event_boundary` when the
+training controller recorded one. `metric_consistency` compares its event byte
+boundary with the built-in metric projection's source cursor. `pending` means
+the projection has not reached that committed boundary; `caught_up` means the
+server has observed projection frames through it. `unavailable` means the run
+has no recorded boundary or its projection cannot be read. The response includes
+`committed_step`, `committed_offset`, and `projected_offset`.
+
+This readout does not revalidate checkpoint durability or acknowledge that a
+particular browser has rendered the frames. Projection progress is independent
+of the training event tail, and uses byte offsets so restoring an earlier step
+does not accidentally look caught up. Projection-only changes emit a heartbeat
+even after training and its manifest have stopped changing.
+
+## Viewer development mode
+
+Changing the browser UI never requires stopping and resuming training. Enable
+viewer development mode and the server reads every browser asset from disk on
+each request, so a plain refresh shows the current files:
+
+```sh
+hypergan train config.toml --run-dir runs/example --dev
+hypergan view runs/example --dev
+HYPERGAN_VIEWER_DEV=1 hypergan resume runs/example
+```
+
+`HYPERGAN_VIEWER_DEV` is the switch. Both flags only set it, because the
+automatic viewer runs in a detached supervised subprocess that inherits the
+environment; exporting the variable therefore works for every launch path,
+including one started earlier in a shell. Accepted values are `1/0`,
+`true/false`, `yes/no` and `on/off`; anything else is rejected rather than
+silently treated as off. `--dev` (alias `--viewer-dev`) selects where assets come from and does
+not require a viewer, so it cannot be combined with `--no-server`.
+
+In development mode:
+
+- Static and reducer responses carry `Cache-Control: no-store` and no `ETag` or
+  `Last-Modified`, so no refresh can be answered from cache or with a 304.
+- The resolved asset directories are printed once at startup.
+- Assets are served from the checkout containing `frontend/build.mjs`, found
+  from the working directory, in preference to the installed package. This
+  matters when an editable install points at a different checkout or worktree.
+  `HYPERGAN_VIEWER_ASSETS` names an explicit directory instead.
+- `/dev/version` reports the identity of the served assets and `/dev/reload.js`
+  is a small same-origin module, injected into `index.html`, that polls it once
+  a second and reloads the page when they change. Neither route is registered
+  outside development mode.
+
+Normal mode is unchanged: assets come from the installed package and the
+existing server-wide `no-store` policy applies.
+
+`app.js` is bundled from `frontend/src`; `index.html`, `style.css` and
+`view-worker.js` are served as they are. Rebuild the bundle on every edit with
+`npm run --prefix frontend watch`, described in the
+[viewer source README](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/frontend/README.md).

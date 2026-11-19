@@ -1,0 +1,283 @@
+# CIFAR with a frozen pretrained critic
+
+The CIFAR recipe ports Martyn
+Garcia's ParticleGAN experiment at commit
+`9e9ce96c96948197e21e1171c8394e3819bb0013`, branch
+`feat/cifar-ae-gan-pretrained-encoder`. The source files are
+`experiments/train_cifar_ae_sagan.py`, `lib/image_particle_autoencoder.py`,
+`lib/image_moonshots.py`, and `lib/image_ddgan.py`. The recipe follows
+`configs/cifar_particle_ae/sagan_gd_16k_200k/sagan_gd_16k.yaml`.
+The owner authorized distribution of the port under HyperGAN's MIT license on
+2026-09-20 and confirmed that no additional attribution is required: the projects
+share authorship. These source references remain for reproducibility; the existing
+[MIT license](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/LICENSE) applies to the port. This permission covers the source
+components, not a redistribution or relicensing of pretrained weights or data.
+
+The wheel packages two CIFAR-10 recipes. `cifar10-tiny-transformer` pairs a 64-token transformer generator with a frozen ResNet-18 feature critic and 16,384 particles in 64 latent dimensions. `cifar10-transgan` trains both its generator and multi-scale transformer discriminator from scratch. The earlier [pretrained SAGAN ablation](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/cifar-pretrained-sagan.toml) is in the source archive.
+
+These runs used two RTX A6000s at global batch 256. Each score is the best recorded FID against 50,000 training references.
+
+| Model | Recorded ParticleGAN preset | Best FID-50k | Step | Run ID |
+| --- | --- | ---: | ---: | --- |
+| Tiny transformer | 0.9.7 BISPF | 14.56 | 15,000 | `117ab950` |
+| Tiny transformer | 0.10.0 EMPF | 15.16 | 12,500 | `3e046470` |
+| Scratch TransGAN | 0.10.0 EMPF | 51.30 | 22,500 | `f2cce6c4` |
+
+The EMPF tiny-transformer run recorded 16.06 at 25,000 steps. GA's public 0.10.1 dependency resolves the same recipe fields at batch 256 as the recorded 0.10.0 EMPF runs. A short two-GPU check with 0.10.1 verified checkpoint and resume. [Run revisions and qualification results](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/reports/astra-audit-2026-11-17.md)
+
+Install `hypergan[all]` or `hypergan[train,image,cifar,web,fid]` with a matching CUDA PyTorch/TorchVision installation. Prepare the verified CIFAR-10 batches once into `~/.hypergan/cache/cifar10` with `hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10`; pretrained Inception-v3 (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) and ResNet-18 (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) weights are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand (or verified strictly offline when `HYPERGAN_OFFLINE=1`). Missing files or corrupt checksums fail explicitly.
+
+The ResNet-18 feature-critic CIFAR examples define the complete discriminator in
+[`networks/cifar-discriminator-32.hndl`](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/networks/cifar-discriminator-32.hndl)
+with `factory = "hndl"`. Its three pixel residual blocks, 16px attention,
+64px bilinear feature resize, ImageNet normalization, fixed zero-image context,
+three pretrained feature heads and final score combination all live in that
+file. No discriminator `network_files` table or Python architecture assembler
+is used. The encoder still uses its existing routing adapter.
+
+This migration changes parameter names, initialization order, and the
+discriminator's former independent attention initialization stream. Start a
+fresh run with the new recipe; old training checkpoints are not compatible with
+it. Numerical parity tests copy identical trainable weights and compare scores,
+first and second input derivatives, and parameter gradients. They do not claim
+identical initialization or a reproduced training trajectory. The older adapter
+remains available for saved recipes and the separate 256px configuration.
+
+
+## CLI walkthrough
+
+### Packaged CIFAR-10 workflows (zero-copy)
+
+With `hypergan[all]` (or `hypergan[train,image,cifar,web,fid]`) installed, acquire and SHA-256 verify CIFAR-10 into `~/.hypergan/cache/cifar10`, then run either packaged CIFAR-10 recipe (`cifar10-tiny-transformer` for the fast frozen ResNet-18 critic + 64-token transformer generator, or `cifar10-transgan` for pure-transformer generation and discrimination) directly without copying `.toml` or `.hndl` files:
+
+```sh
+hypergan download-data cifar10 --info
+hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10
+hypergan validate cifar10-tiny-transformer
+hypergan train cifar10-tiny-transformer --steps 200000
+```
+
+During training and interval FID evaluations, HyperGAN downloads and SHA-256 verifies the pinned ResNet-18 (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) and Inception-v3 (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) weights into `~/.hypergan/cache/` on demand. Once CIFAR-10 and the required weight files are cached under `~/.hypergan/cache/`, set `HYPERGAN_OFFLINE=1` for air-gapped or strictly offline runs:
+
+```sh
+HYPERGAN_OFFLINE=1 hypergan train cifar10-tiny-transformer --steps 200000
+```
+
+### Historical `cifar-pretrained-sagan` ablation walkthrough
+
+From a repository checkout, install the optional dependencies into your chosen
+CUDA environment with `python -m pip install '.[train,cifar,web,fid]'`.
+Copy `examples/archive/cifar-pretrained-sagan.toml` to `cifar.toml`, keeping its relative
+HNDL file references valid (copy `examples/networks/` alongside it or adjust `hndl` paths if
+moving the recipe). Put the already
+obtained official Python-format CIFAR batches under `./data/cifar-10-batches-py/`,
+or acquire and verify them explicitly with the opt-in downloader before training
+(training itself never downloads dataset archives implicitly):
+
+```sh
+hypergan download-data cifar10 --info
+hypergan download-data cifar10 --output ./data
+```
+
+Alternatively, edit all three `root` entries to an existing local directory. Paths are relative
+to the command's working directory; use absolute paths if you run commands from
+multiple locations. The example uses the conventional torch checkpoint cache for
+both ResNet18 and Inception; change both Inception entries if your cache differs.
+The pinned Inception file is `weights-inception-2015-12-05-6726825d.pth`, SHA256
+`6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`.
+
+The following shell session selects physical GPU 1. Choose your device before
+training and keep its visibility consistent when resuming. The recipe uses
+logical `cuda` within that selection.
+
+```sh
+export CUDA_VISIBLE_DEVICES=1
+hypergan validate cifar.toml
+hypergan preflight cifar.toml --runtime
+hypergan train cifar.toml --run-dir runs/cifar-smoke --stop-after-steps 7 --checkpoint-every 7 --preview-every 4
+hypergan resume runs/cifar-smoke --stop-after-steps 9
+hypergan sample runs/cifar-smoke --count 64 --seed 34002 --output samples.png
+hypergan evaluate runs/cifar-smoke --metric fid_smoke
+```
+
+This crosses lazy-penalty boundaries and ends at update 16 while preserving the
+full 200k training schedule. `fid_smoke` uses only 128 samples and checks the
+metric workflow, not image quality. A new longer run uses a separate directory:
+
+```sh
+hypergan train cifar.toml --run-dir runs/cifar --stop-after-steps 10000 --checkpoint-every 1000 --preview-every 500
+hypergan resume runs/cifar --stop-after-steps 10000 --checkpoint-every 1000 --preview-every 500
+```
+
+Periodic previews publish the generated grid as sample `g` and the comparable
+real batch as `x`; the viewer shows each name's newest image with a slider over
+the retained history (`--preview-keep`, default: 128).
+
+The example automatically evaluates FID at steps 10,000, 20,000 and so on.
+A stopped run can also be evaluated explicitly with
+`hypergan evaluate runs/cifar --metric fid50k_train`.
+`fid50k_train` evaluates EMA against all 50,000 unaugmented training references
+with 50,000 generated images, seed 34002 and batch 128. Optional automatic viewer
+startup prints its URL and private token-file path; `--no-server` disables it.
+For a viewer that persists across stopped segments, run `hypergan serve runs/cifar`
+and `hypergan project runs/cifar --follow` in separate terminals. Training prints
+per-update D/G losses to stderr; redirect stderr to a log for `tail -F`.
+
+The [execution report](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/reports/archive/image-training-execution-2026-09-20.md) records
+the exact installed CUDA smoke/recovery proofs and the first 40k measurements.
+Keep the installed environment used by a run for supported recovery; source and
+package identity are intentionally checked strictly. The public example retains the measured numerical settings, changes artifact
+locations and schedules FID evaluations automatically.
+
+The generator projects to 256×4×4, then uses three deconvolutions, hidden
+GroupNorm/ReLU and a final tanh. SAGAN-style attention appears at 16×16 in
+both the generator and the pixel critic. It uses unscaled dot products,
+bias-free projections and an active residual of one. There is no learned
+gate, spectral normalization or attention warmup. The feature critic combines
+pixel scores with frozen ImageNet ResNet18 layer1–layer3 features. Candidate
+images are bilinearly resized to 64×64 and normalized with ImageNet mean and
+standard deviation, without clamping. Frozen feature parameters and BatchNorm
+statistics remain fixed, while input gradients and the penalty's double
+backward pass through the feature extractor.
+
+Constructor order is generator, discriminator, encoder. The native HNDL
+discriminator uses the caller's initialization RNG; it does not reproduce the
+historical Python adapter's private attention stream. The prior initializes on
+CPU with seed `24003`, then transfers to the execution device. Runtime recovery
+uses HyperGAN's complete current-run checkpoints. The discriminator concatenates
+candidate and context along the batch axis, evaluates one shared frozen backbone,
+then splits the feature maps. Context features are recomputed each forward instead
+of held in a Python cache; frozen BatchNorm keeps the two halves independent.
+
+Training uses independent real and prior draws for D and G. CIFAR sampling draws
+indices with replacement, converts uint8 NCHW bytes using `float()/127.5-1`, and
+then draws one horizontal-flip decision per image. Both random operations use
+the caller's execution-device generator, in that order. CIFAR Python batch files
+are checked against published-byte SHA256 identities before deserialization.
+The batch order follows `data_batch_1` through `data_batch_5` without a shuffle
+or split. Labels are available but are not inputs to this unconditional recipe.
+
+The reconstruction alias temporarily freezes G's parameters while preserving
+the input gradient to E. E detaches the prior means internally. Its hard nearest
+particle selection uses a soft straight-through query gradient and a bounded
+offset. The ordinary MSE objective contributes only to E; G and the learned prior
+still receive their adversarial gradients. The prior regularizer sees all raw
+rows. Adam uses fused PyTorch updates, G/E learning rate 0.0003, D 0.00045, prior
+0.003, G/D betas `(0, .999)`, prior betas `(.5, .999)`, and constant learning rate.
+The bounded candidate penalty is evaluated every eighth update. EMA is `.995`.
+Multi-GPU replicated execution (for example `--devices 0,1` with `accumulation_steps = 1`)
+supports `phase_draws = "independent"`, execution-device data RNG, and fused Adam updates.
+
+For FID reference batches, use `hypergan.image_data:CIFAR10Data` with
+`split="train"`, `sampling="sequential"` and `horizontal_flip=false`.
+Each new evaluator starts at index zero; 50,000 samples consume the full training
+set without replacement. Sequential data never wraps. Evaluation has its own
+data instance and generator and does not advance training data state. The
+standard metrics preset records training scalars; Inception FID is a separately
+configured, pinned-weight snapshot evaluator. The example schedules
+`fid50k_train` every 10,000 completed training steps using `trigger="interval"`,
+`every_steps=10000` and `on_busy="skip"` — the snapshot defaults, written out so
+the cadence is visible. A snapshot metric that omits `trigger` gets the same
+schedule, so a copied recipe evaluates FID without extra fields; `fid_smoke`
+opts out explicitly with `trigger="manual"` because it is a 128-sample protocol
+check. A configuration whose snapshot metrics are all manual records an empty
+evaluation schedule, never publishes FID, and is reported as a startup warning.
+Each accepted FID evaluation runs asynchronously from an immutable EMA snapshot
+and reports its original training step. Busy intervals are recorded as skipped.
+The example's explicit `evaluation.device="cuda"` shares the default visible GPU
+with training, which costs training throughput and peak memory during each
+evaluation and is reported as a warning; set another available visible device
+such as `"cuda:1"` when appropriate. Interval evaluation never falls back to CPU
+or to an implicit device: `evaluation.device` must be named. See
+[snapshot scheduling](configuration.md#custom-metrics-and-explicit-snapshot-evaluation)
+for timeout, failure, shutdown and resume behavior.
+
+Architecture parity compares matched weights under the same backend policy.
+The example runs the source's accelerated backend: TF32 and cuDNN
+benchmarking on, nondeterministic kernels allowed.
+Measured on the earlier Python-adapter recipe on one RTX A6000
+(2026-09-20, batch 64), that policy runs the step in
+41 ms against 61 ms under the strict deterministic variant below, matching the
+source trainer's throughput on the same card. Resume restores the complete
+state either way; only bit-exact replay of a run needs the strict variant.
+Those historical timings do not measure the new single-file graph, which also
+recomputes context features. The migration tests compare matched-weight CPU
+outputs and derivatives within explicit floating-point tolerances.
+
+## Historical deterministic feature execution variant
+
+The original Python recipe exposed `deterministic_features=true` to select this
+variant. Current native HNDL feature heads use deterministic adaptive pooling
+directly; the single-file discriminator has no `deterministic_features` argument.
+The following records the earlier implementation and validation.
+The source CUDA adaptive-average-pool backward uses nondeterministic accumulation;
+identical training replays diverged after Adam updates. Strict deterministic
+algorithms rejected that backward operation. The failed historical source-weight
+comparison remains evidence of a failed gate; its tolerance is not widened.
+
+The deterministic variant keeps all initialized weights, buffers, module state
+keys and forward calculations unchanged. Each feature head still calls the source
+adaptive-average-pool forward to produce 4×4 output. For the actual 16×16, 8×8
+and 4×4 inputs, its backward repeats each output gradient into its nonoverlapping
+input cell and divides by the cell area. This analytical adjoint supports higher
+derivatives without CUDA atomic accumulation. Bilinear resize retains the native
+PyTorch operation: the installed CUDA runtime supports its forward, first backward
+and second backward with strict deterministic algorithms enabled.
+
+The strict variant pairs `deterministic_features=true` with this backend table,
+which enables strict deterministic algorithms and deterministic cuDNN, disables
+TF32 and cuDNN benchmarking, and sets the cuBLAS workspace before CUDA
+initialization:
+
+```toml
+[train.backend]
+deterministic_algorithms = true
+cudnn_deterministic = true
+cudnn_benchmark = false
+matmul_allow_tf32 = false
+cudnn_allow_tf32 = false
+cublas_workspace_config = ":4096:8"
+```
+
+This is a declared deterministic execution variant, not a claim of identical
+trained weights to the historical nondeterministic TF32/benchmark run. CPU float64 tests retain exact forward and
+first-derivative equality for all three actual feature-map shapes and compare
+second derivatives at `1e-14` absolute/relative tolerance. Complete CUDA replay
+and current-run checkpoint recovery must be qualified separately under this
+strict policy. `deterministic_features=false` retains historical adaptive pooling
+for source comparisons and carries no CUDA recovery qualification. Neither
+variant changes the pinned pretrained weights.
+
+## Compact TransGAN generator comparison
+
+[The CIFAR TransGAN recipe](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/cifar-transgan.toml) replaces only the
+baseline generator and run name. It retains the multiscale frozen ResNet18 plus
+pixel discriminator, routing encoder, encoder-only reconstruction, 16,384
+particles in 64 dimensions, fixed sigma, batch 64, optimizer settings, and FID
+protocol. The discriminator and encoder still load their declared HNDL sources.
+Changing G changes the initialization RNG draws before D and E are built, so
+this preserves their architecture and settings, not their initial tensor values.
+
+Edit [transgan-generator-32.hndl](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/networks/transgan-generator-32.hndl)
+to change the generator. It projects the existing 64-dimensional latent to an
+8×8 grid with 256 channels, then uses pixel shuffle for 16×16/64 channels and
+32×32/16 channels. Each stage has two PixelNorm/attention/MLP blocks, four
+attention heads, and learned absolute and relative positions. Linear layers use
+the corrected explicit default initialization; the final RGB projection uses
+Xavier weights and tanh. It has 2,836,747 parameters versus 61,662,491 in the
+128px variant. No extra noise is introduced. This compact adaptation
+is intended for faster iteration, not as an exact reproduction of the TransGAN
+paper or a claimed solution to collapse.
+
+Use the same local data and checkpoint paths as the baseline. Start a new run:
+
+```sh
+hypergan validate examples/archive/cifar-transgan.toml
+hypergan train examples/archive/cifar-transgan.toml --run-dir runs/cifar-transgan \
+  --preview-every 100 --checkpoint-every 1000
+```
+
+Each preview publishes within-batch diversity and pooled 4×4 diversity relative
+to the real batch. FID remains scheduled every 10,000 steps. These measurements
+help separate loss of sample variation from slow improvement in sample quality;
+finite adversarial losses alone do not show that a collapsed run is recovering.

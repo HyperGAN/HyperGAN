@@ -224,7 +224,7 @@ jobs:
               if is_legacy_rc or is_prior_major_pre:
                   subprocess.run(
                       ["gh", "api", "-X", "PATCH", f"repos/{repo}/releases/{rel['id']}", "--input", "-"],
-                      input=json.dumps({"prerelease": True}),
+                      input=json.dumps({"tag_name": rel_tag, "prerelease": True}),
                       text=True,
                       check=True,
                   )
@@ -257,6 +257,7 @@ jobs:
                   check=True,
               )
               payload = {
+                  "tag_name": tag,
                   "name": title,
                   "body": notes,
                   "draft": False,

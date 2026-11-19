@@ -74,3 +74,23 @@ token. Configure the PyPI Trusted Publisher at
    Install the public wheel into a fresh environment with the README's tested
    Torch wheels, check `hypergan --version`, and confirm that GitHub's Latest
    release points to the stable tag.
+
+## GitBook preview
+
+The [GitBook preview workflow](../.github/workflows/gitbook-preview.yml)
+builds the tracked `docs/` pages and assets. It pins links outside the book to
+the build's GitHub commit. Once the workflow reaches `master`, documentation
+merges advance `gitbook-preview` with the generated book and its
+`SOURCE_REVISION`. Use the GitHub source for edits to the generated book.
+
+1. Open a separate preview space as a GitBook owner. Connect the GitBook
+   GitHub app to `HyperGAN/HyperGAN` and select `gitbook-preview`, with
+   GitHub to GitBook as the initial sync direction.
+2. Check the table of contents, images, and the installation and CLI links.
+   Confirm the current preview matches `SOURCE_REVISION`, then verify the
+   next reviewed docs merge updates the preview through Git Sync.
+3. Keep the legacy space and its URLs available. Before publishing the new
+   preview as a site version, verify its navigation and the legacy routes.
+   Revert the relevant source changes on `master` to restore preview content.
+
+[Git Sync setup](https://gitbook.com/docs/guides/editing-and-publishing-documentation/import-or-migrate-your-content-to-gitbook-with-git-sync)

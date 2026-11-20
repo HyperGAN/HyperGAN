@@ -19,6 +19,13 @@ def test_compact_saved_recipe_keeps_its_recorded_formulation():
     assert restored_rhbi.critic_formulation == 'rhbi'
     assert restored_rhbi.rhbi_weight == 1.0
 
+    saved_v11 = particlegan.get_recipe('unified_v11', batch_size=16).to_dict()
+    restored_v11 = restore_particlegan_recipe(saved_v11)
+    assert restored_v11.to_dict() == saved_v11
+    assert restored_v11.critic_formulation == 'unified_v11'
+    assert restored_v11.optimizer_family == 'unified_v11_equil'
+    assert restored_v11.prior_regularizer == 'unified_v11'
+
 
 def test_modern_restoration_never_calls_a_partial_constructor(monkeypatch):
     saved = {'lr': 0.003}

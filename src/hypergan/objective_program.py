@@ -222,7 +222,8 @@ def score_candidate(term, candidate, context, graph, phase, *, module=None, nois
             live["prior"] = dict(context["prior"])
             live["candidate"] = candidate
         kwargs[route.argument] = graph.resolve(route.path, live)
-    return (term.module if module is None else module)(**kwargs)
+    from .recipes import _call_component
+    return _call_component(term.module if module is None else module, kwargs)
 
 
 def _sample_tensor(graph, context, binding):
@@ -306,7 +307,7 @@ def _rhbi_generator_context(trainer, terms):
 
     if len(terms) != 1:
         return None, False, False
-    rhbi = getattr(terms[0].gan, "rhbi", None)
+    rhbi = getattr(terms[0].gan, "t1c", None) or getattr(terms[0].gan, "rhbi", None)
     if rhbi is None or not hasattr(rhbi, "bind_discrete_prior_step"):
         return None, False, False
     is_discrete = type(trainer.prior) is ParticlePrior

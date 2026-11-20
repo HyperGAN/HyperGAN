@@ -193,6 +193,15 @@ def generation_particle_ids(graph, context, prior_ids, sampling):
     return ids
 
 
+def _call_component(model, kwargs):
+    """Call single-input HNDL/MLP components positionally so dependency forward hooks see args[0]."""
+    if len(kwargs) == 1 and not getattr(model, "named_inputs", False):
+        from .hndl_networks import HNDLNetwork
+        if isinstance(model, (HNDLNetwork, MLP)):
+            return model(next(iter(kwargs.values())))
+    return model(**kwargs)
+
+
 class ComponentGraph(nn.Module):
     """Auxiliary components execute on demand; all trainable auxiliaries belong to G.
 
@@ -248,7 +257,7 @@ class ComponentGraph(nn.Module):
             if spec.get('freeze_parameters', False):
                 model.requires_grad_(False)
             try:
-                value = model(**kwargs)
+                value = _call_component(model, kwargs)
             finally:
                 if spec.get('freeze_parameters', False):
                     for parameter, flag in zip(model.parameters(), flags):
@@ -273,7 +282,7 @@ class ComponentGraph(nn.Module):
         for arg, path in self.specs["discriminator"]["inputs"].items():
             value = self.resolve(path, fixed)
             kwargs[arg] = value if path == "candidate" else detach(value)
-        return (self.models["discriminator"] if module is None else module)(**kwargs)
+        return _call_component(self.models["discriminator"] if module is None else module, kwargs)
 
     def generator_parameters(self):
         return [p for name, model in self.models.items() if name != "discriminator" for p in model.parameters() if p.requires_grad]

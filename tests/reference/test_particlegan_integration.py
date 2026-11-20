@@ -313,3 +313,33 @@ def test_named_particlegan_preset_selector_resolves_empf_without_overwriting_hyp
     _, batch = resumed.update()
     equal(wanted, trainer_state(resumed, batch))
 
+
+def test_unified_v11_live_capture_cleanup_releases_input_tensors():
+    import gc
+    import weakref
+    torch.set_num_threads(1)
+    cfg = resolve_config({
+        'defaults': 'particlegan:unified_v11',
+        'components': {
+            'generator': {'factory': 'hndl', 'args': {
+                'source': 'linear(1200)\nreshape(3,20,20)\ntanh()',
+                'input_shape': ['B', 4], 'output_shape': ['B', 3, 20, 20]}, 'inputs': {'x': 'latent'}},
+            'discriminator': {'factory': 'hndl', 'args': {
+                'source': 'flatten()\nlinear(1)',
+                'input_shape': ['B', 3, 20, 20], 'output_shape': ['B', 1]}, 'inputs': {'x': 'candidate'}}},
+        'data': {'factory': 'hypergan.recipes:GaussianGrid'},
+        'prior': {'kind': 'mog', 'fixed_sigma': 0.2, 'args': {'num_particles': 32, 'z_dim': 4}, 'initialization_seed': 2},
+        'training': {'steps': 10, 'seed': 0, 'batch_size': 4, 'initialization': 'deterministic_orthogonal'},
+    })
+    trainer = ReferenceTrainer(cfg)
+    refs = []
+    for _ in range(6):
+        real = torch.randn(4, 3, 20, 20)
+        refs.append(weakref.ref(real))
+        trainer.update({'real': real})
+        del real
+    gc.collect()
+    alive = sum(1 for ref in refs if ref() is not None)
+    assert alive == 0, f'Expected all past input batches to be released, {alive} remained alive'
+
+

@@ -279,6 +279,23 @@ def noise_levels(trainer, completed_steps):
 NOISE_SEED_OFFSET = 5
 
 
+def _clear_transient_captures_breaking_cycles(record):
+    """Release cached input/output tensors in _live_captures entries before clearing the list.
+
+    ParticleGAN 0.11.0 registers a backward hook closing over each _live_captures entry list
+    whose slots [3] (x_act) and [4] (unscaled output) pin the input batch and autograd node
+    in a C++/Python reference cycle unless cleared before dropping the list reference.
+    """
+    captures = getattr(record, '_live_captures', None)
+    if captures:
+        for entry in captures:
+            if isinstance(entry, list) and len(entry) >= 5:
+                entry[3] = None
+                entry[4] = None
+        captures.clear()
+    record._last_probe_actual_input = None
+
+
 class ReferenceTrainer:
     """Small inspectable state machine; future distributed strategies wrap this contract."""
     def __init__(self, config):
@@ -365,12 +382,15 @@ class ReferenceTrainer:
                 from particlegan.bispf import bind_thermal_source
                 bind_thermal_source(record, self.gan, self.spread)
             elif formulation == 'unified_v11':
+                import types
                 from particlegan.unified_v11 import (
                     _attach_unified_v11_generator_hook,
                     bind_unified_v11_record,
                     collect_conv_layouts,
                 )
                 bind_unified_v11_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
+                if hasattr(record, 'clear_transient_captures'):
+                    record.clear_transient_captures = types.MethodType(_clear_transient_captures_breaking_cycles, record)
                 self.opt_g._unified_v11_record = record
                 self.opt_d._unified_v11_record = record
                 self.opt_g._unified_record = record
@@ -390,12 +410,15 @@ class ReferenceTrainer:
                         self.opt_g._gen_param_ids = {id(p) for p in gen_model.parameters()}
                     _attach_unified_v11_generator_hook(gen_model, record)
             elif formulation in ('unified_v4', 'r4_autograd_critic'):
+                import types
                 from particlegan.unified_v4 import (
                     _attach_unified_v4_generator_hook,
                     bind_unified_v4_record,
                     collect_conv_layouts,
                 )
                 bind_unified_v4_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
+                if hasattr(record, 'clear_transient_captures'):
+                    record.clear_transient_captures = types.MethodType(_clear_transient_captures_breaking_cycles, record)
                 self.opt_g._unified_v4_record = record
                 self.opt_d._unified_v4_record = record
                 self.opt_g._unified_record = record
@@ -415,8 +438,11 @@ class ReferenceTrainer:
                         self.opt_g._gen_param_ids = {id(p) for p in gen_model.parameters()}
                     _attach_unified_v4_generator_hook(gen_model, record)
             elif formulation == 'unified':
+                import types
                 from particlegan.unified import bind_unified_record
                 bind_unified_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
+                if hasattr(record, 'clear_transient_captures'):
+                    record.clear_transient_captures = types.MethodType(_clear_transient_captures_breaking_cycles, record)
                 self.opt_g._unified_record = record
                 self.opt_d._unified_record = record
                 self.opt_g._t1c_record = record

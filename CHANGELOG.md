@@ -4,6 +4,7 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- Break the C++/Python autograd hook reference cycle in ParticleGAN 0.11.0 `unified_v11` / `unified_v4` / `unified` `_live_captures` entries during `clear_transient_captures()`, eliminating a ~3 MB/GPU/step VRAM leak on high-resolution image runs.
 - Gate the `Shared reducer` (Playwright/browser) CI matrix in `.github/workflows/ci.yml` to `develop`, `master`, release validation, and manual dispatches (with a 15-minute job timeout) so feature-branch PR CI stays fast.
 - Upgraded the `train` and `all` dependency extras to `particlegan>=0.11.0,<0.12` (`DEFAULT_RECIPE = "unified_v11"`, Unified 4-Law with zero-`autograd.grad` secant critic penalty, `UnifiedV11EquilibratedOptimizer` with analytic `direction_blend`, and `UnifiedV11PriorRegularizer`), added stateful `prior_regularizer` checkpoint save/restore across single-device and distributed checkpoints, added positional single-input HNDL/MLP dispatch for live-endpoint capture reuse, and added multi-GPU `UnifiedV11StepRecord` / secant-probe / `t1c` coupling synchronization in `ReplicatedTrainer` and `aggregation.py`.
 - Preserve the Git tag when updating an existing GitHub release or prerelease.

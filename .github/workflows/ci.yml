@@ -170,7 +170,9 @@ jobs:
         run: python -I -m pytest "${{ github.workspace }}/tests/reference" "${{ github.workspace }}/tests/unit" "${{ github.workspace }}/tests/e2e" --import-mode=importlib -m heavy
 
   reducers:
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || github.base_ref == 'master' || inputs.source_ref != '' || github.event_name == 'workflow_dispatch'
     name: Shared reducer (${{ matrix.os }})
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -258,6 +260,7 @@ jobs:
           HEAVY_REQUIRED: ${{ github.ref == 'refs/heads/master' || github.base_ref == 'master' || inputs.source_ref != '' }}
           HEAVY_LIGHTWEIGHT_RESULT: ${{ needs['heavy-lightweight'].result }}
           HEAVY_REFERENCE_RESULT: ${{ needs['heavy-reference'].result }}
+          REDUCERS_REQUIRED: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || github.base_ref == 'master' || inputs.source_ref != '' || github.event_name == 'workflow_dispatch' }}
           REDUCERS_RESULT: ${{ needs.reducers.result }}
           WEB_RESULT: ${{ needs.web.result }}
         run: |
@@ -270,7 +273,11 @@ jobs:
             test "$HEAVY_LIGHTWEIGHT_RESULT" = skipped
             test "$HEAVY_REFERENCE_RESULT" = skipped
           fi
-          test "$REDUCERS_RESULT" = success
+          if [ "$REDUCERS_REQUIRED" = true ]; then
+            test "$REDUCERS_RESULT" = success
+          else
+            test "$REDUCERS_RESULT" = skipped
+          fi
           test "$WEB_RESULT" = success
 
   distributions:

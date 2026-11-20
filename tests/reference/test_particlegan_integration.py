@@ -200,8 +200,8 @@ def test_public_initialization_preserves_loaded_trunk_and_effective_flags(traina
     assert not torch.equal(head_before, head.weight)
 
 
-@pytest.mark.parametrize('delta', [{'prior_proximal_strength': 0.1},
-                                  {'constraint_geometry_mode': 'strict_progress'},
+@pytest.mark.parametrize('delta', [{'optimizer_family': 'dualnorm', 'prior_proximal_strength': 0.1},
+                                  {'optimizer_family': 'dualnorm', 'constraint_geometry_mode': 'strict_progress'},
                                   {'conditioning': 'ucd', 'num_classes': 2},
                                   {'model': 'ddgan'}])
 def test_unimplemented_recipe_mechanisms_fail_before_training(delta):

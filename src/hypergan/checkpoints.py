@@ -99,6 +99,12 @@ def trainer_state(trainer, last_batch):
                      trainable={name: {key: value.requires_grad for key, value in getattr(trainer, name).named_parameters()} for name in modules},
                      modes={name: {key: module.training for key, module in getattr(trainer, name).named_modules()} for name in modules},
                      last_batch=last_batch)
+        recipe = getattr(trainer, 'recipe', None)
+        spread = getattr(trainer, 'spread', None)
+        if recipe is not None and callable(getattr(recipe, 'prior_regularizer_checkpoint', None)):
+            prior_reg_ckpt = recipe.prior_regularizer_checkpoint(spread)
+            if prior_reg_ckpt:
+                state['prior_regularizer'] = prior_reg_ckpt['prior_regularizer']
         _portable(state)
         return state
     finally:
@@ -110,7 +116,7 @@ def _restore_trainer(trainer, state):
     import torch
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
-    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation'}:
+    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer'}:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if getattr(trainer, 'device', torch.device('cpu')).type == 'cuda':
         rng = state['rng']
@@ -168,6 +174,12 @@ def _restore_trainer(trainer, state):
             validate(saved)
     if state['base_lrs'] != trainer.base_lrs:
         raise ValueError('Checkpoint base learning rates differ from original configuration')
+    saved_prior_reg = state.get('prior_regularizer')
+    recipe = getattr(trainer, 'recipe', None)
+    if recipe is not None and callable(getattr(recipe, 'restore_prior_regularizer', None)):
+        recipe.restore_prior_regularizer(getattr(trainer, 'spread', None), saved_prior_reg, validate_only=True)
+    elif saved_prior_reg is not None:
+        raise ValueError('Checkpoint contains prior_regularizer state unsupported by trainer')
     for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
         module = getattr(trainer, name)
         module.load_state_dict(state[name], strict=True)
@@ -180,6 +192,8 @@ def _restore_trainer(trainer, state):
             child.training = state['modes'][name][key]
     for optimizer, saved in zip((trainer.opt_g, trainer.opt_d), state['optimizers']):
         optimizer.load_state_dict(saved)
+    if recipe is not None and callable(getattr(recipe, 'restore_prior_regularizer', None)):
+        recipe.restore_prior_regularizer(getattr(trainer, 'spread', None), saved_prior_reg)
     trainer.base_lrs = state['base_lrs']
     trainer.step = state['step']
     for name, stream in trainer.streams.items():
@@ -242,7 +256,7 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
 
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
-    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation'}:
+    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer'}:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
         raise ValueError('Checkpoint step is outside the configured training schedule')
@@ -303,6 +317,12 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
         prepared_optimizers.append(saved_copy)
     if state['base_lrs'] != trainer.base_lrs:
         raise ValueError('Checkpoint base learning rates differ from original configuration')
+    saved_prior_reg = move_tensors(state.get('prior_regularizer'), target_device) if state.get('prior_regularizer') is not None else None
+    recipe = getattr(trainer, 'recipe', None)
+    if recipe is not None and callable(getattr(recipe, 'restore_prior_regularizer', None)):
+        recipe.restore_prior_regularizer(getattr(trainer, 'spread', None), saved_prior_reg, validate_only=True)
+    elif saved_prior_reg is not None:
+        raise ValueError('Checkpoint contains prior_regularizer state unsupported by trainer')
 
     for name in ('graph', 'prior', 'ema_graph', 'ema_prior'):
         module = getattr(trainer, name)
@@ -326,6 +346,8 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
                     p_state['step'] = p_state['step'].to(step_device)
         if target_device.type == 'cpu':
             _skip_cpu_capture_guard(optimizer)
+    if recipe is not None and callable(getattr(recipe, 'restore_prior_regularizer', None)):
+        recipe.restore_prior_regularizer(getattr(trainer, 'spread', None), saved_prior_reg)
 
     trainer.base_lrs = copy.deepcopy(state['base_lrs'])
     trainer.step = state['step']

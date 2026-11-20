@@ -258,6 +258,8 @@ def _synchronize_optimizer_regularizers(
 
             if hasattr(rec, "proto_initialized"):
                 sync_empf_record(rec, comm_device, world_size)
+            elif hasattr(rec, "t1c_ell_initialized"):
+                sync_unified_v11_record(rec, comm_device, world_size)
             else:
                 # Synchronize ema_residual and ema_data_scale
                 if hasattr(rec, "ema_residual") and hasattr(rec, "ema_data_scale"):
@@ -432,6 +434,153 @@ def sync_empf_record(rec: Any, comm_device: torch.device, world_size: int) -> No
         rec.proto_initialized = False
         rec.proto_sum = None
         rec.proto_count = None
+
+
+def sync_unified_v11_record(rec: Any, comm_device: torch.device, world_size: int) -> None:
+    """Synchronize Unified-v11 / t1_coupling critic step record scalars, charts, and fiber bank across ranks."""
+    if rec is None or world_size <= 1 or not hasattr(rec, "t1c_ell_initialized"):
+        return
+    flags = torch.tensor(
+        [
+            int(bool(rec.t1c_ell_initialized)),
+            int(bool(rec.t1c_thermal_initialized)),
+            int(bool(rec.t1c_cond_initialized)),
+            int(bool(rec.t1c_het_initialized)),
+            int(bool(rec.chart_initialized)),
+            int(bool(getattr(rec, "margin_initialized", False))),
+        ],
+        dtype=torch.int32,
+        device=comm_device,
+    )
+    dist.all_reduce(flags, op=dist.ReduceOp.MAX)
+    f_vals = flags.tolist()
+    rec.t1c_ell_initialized = bool(f_vals[0])
+    rec.t1c_thermal_initialized = bool(f_vals[1])
+    rec.t1c_cond_initialized = bool(f_vals[2])
+    rec.t1c_het_initialized = bool(f_vals[3])
+    chart_flag = bool(f_vals[4])
+    if hasattr(rec, "margin_initialized"):
+        rec.margin_initialized = bool(f_vals[5])
+
+    scalars = torch.tensor(
+        [
+            float(rec.t1c_ell_ema),
+            float(rec.t1c_ema_ed),
+            float(rec.t1c_ema_mu_sq),
+            float(rec.t1c_ema_spread),
+            float(rec.t1c_ema_q90),
+            float(rec.t1c_ema_hmax),
+            float(rec.t1c_ema_tail),
+            float(rec.t1c_cond_ema),
+            float(rec.t1c_het_ema),
+            float(rec._thermal_scale),
+            float(rec.ema_data_scale),
+            float(getattr(rec, "_step_scale", 1.0)),
+            float(getattr(rec, "ema_margin", 0.0)),
+            float(getattr(rec, "ema_push_res", 1.0)),
+        ],
+        dtype=torch.float64,
+        device=comm_device,
+    )
+    dist.all_reduce(scalars, op=dist.ReduceOp.SUM)
+    scalars /= world_size
+    s_vals = scalars.tolist()
+    rec.t1c_ell_ema = max(0.0, float(s_vals[0]))
+    rec.t1c_ema_ed = float(s_vals[1])
+    rec.t1c_ema_mu_sq = float(s_vals[2])
+    rec.t1c_ema_spread = float(s_vals[3])
+    rec.t1c_ema_q90 = float(s_vals[4])
+    rec.t1c_ema_hmax = float(s_vals[5])
+    rec.t1c_ema_tail = float(s_vals[6])
+    rec.t1c_cond_ema = float(s_vals[7])
+    rec.t1c_het_ema = float(s_vals[8])
+    rec._thermal_scale = max(1e-6, min(1.0, float(s_vals[9])))
+    rec.ema_data_scale = max(1e-6, float(s_vals[10]))
+    if hasattr(rec, "_step_scale"):
+        rec._step_scale = max(1e-6, min(1.0, float(s_vals[11])))
+    if hasattr(rec, "ema_margin"):
+        rec.ema_margin = float(s_vals[12])
+    if hasattr(rec, "ema_push_res"):
+        rec.ema_push_res = max(0.0, float(s_vals[13]))
+
+    phase_meta = torch.tensor(
+        [float(rec.t1c_chord_phase), float(rec.revival_phase), float(int(rec.revivals))],
+        dtype=torch.float64,
+        device=comm_device,
+    )
+    dist.broadcast(phase_meta, src=0)
+    p_vals = phase_meta.tolist()
+    rec.t1c_chord_phase = float(p_vals[0]) % 1.0
+    rec.revival_phase = float(p_vals[1]) % 1.0
+    rec.revivals = max(0, int(round(p_vals[2])))
+
+    if chart_flag:
+        has_local = bool(
+            rec.chart_initialized
+            and isinstance(rec.chart_sum, torch.Tensor)
+            and isinstance(rec.chart_count, torch.Tensor)
+            and isinstance(rec.chart_sq_dev, torch.Tensor)
+            and isinstance(rec.chart_fake_mass, torch.Tensor)
+        )
+        shape_info = torch.tensor(
+            [
+                int(has_local),
+                int(rec.chart_sum.shape[0]) if has_local else 0,
+                int(rec.chart_sum.shape[1]) if has_local else 0,
+            ],
+            dtype=torch.int64,
+            device=comm_device,
+        )
+        all_shapes = [torch.zeros_like(shape_info) for _ in range(world_size)]
+        dist.all_gather(all_shapes, shape_info)
+        shapes_list = [t.tolist() for t in all_shapes]
+        if shapes_list[0][0] == 1:
+            k_n, d_n = int(shapes_list[0][1]), int(shapes_list[0][2])
+            orig_dev = rec.chart_sum.device if has_local else comm_device
+            if all(row == shapes_list[0] for row in shapes_list):
+                c_sum = rec.chart_sum.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+                c_cnt = rec.chart_count.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+                c_sq = rec.chart_sq_dev.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+                c_fm = rec.chart_fake_mass.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+                dist.all_reduce(c_sum, op=dist.ReduceOp.SUM)
+                dist.all_reduce(c_cnt, op=dist.ReduceOp.SUM)
+                dist.all_reduce(c_sq, op=dist.ReduceOp.SUM)
+                dist.all_reduce(c_fm, op=dist.ReduceOp.SUM)
+                c_sum /= world_size
+                c_cnt = (c_cnt / world_size).clamp_min(1e-8)
+                c_sq = (c_sq / world_size).clamp_min(1e-8)
+                c_fm = (c_fm / world_size).clamp_min(0.0)
+            else:
+                is_root = dist.get_rank() == 0
+                c_sum = rec.chart_sum.detach().to(device=comm_device, dtype=torch.float32).contiguous() if is_root else torch.empty((k_n, d_n), dtype=torch.float32, device=comm_device)
+                c_cnt = rec.chart_count.detach().to(device=comm_device, dtype=torch.float32).contiguous() if is_root else torch.empty((k_n,), dtype=torch.float32, device=comm_device)
+                c_sq = rec.chart_sq_dev.detach().to(device=comm_device, dtype=torch.float32).contiguous() if is_root else torch.empty((k_n,), dtype=torch.float32, device=comm_device)
+                c_fm = rec.chart_fake_mass.detach().to(device=comm_device, dtype=torch.float32).contiguous() if is_root else torch.empty((k_n,), dtype=torch.float32, device=comm_device)
+                dist.broadcast(c_sum, src=0)
+                dist.broadcast(c_cnt, src=0)
+                dist.broadcast(c_sq, src=0)
+                dist.broadcast(c_fm, src=0)
+            rec.chart_sum = c_sum.to(device=orig_dev)
+            rec.chart_count = c_cnt.to(device=orig_dev)
+            rec.chart_sq_dev = c_sq.to(device=orig_dev)
+            rec.chart_fake_mass = c_fm.to(device=orig_dev)
+            rec.chart_initialized = True
+    else:
+        rec.chart_initialized = False
+        rec.chart_sum = None
+        rec.chart_count = None
+        rec.chart_sq_dev = None
+        rec.chart_fake_mass = None
+
+    bank = getattr(rec, "cond_fiber_bank", None)
+    if bank is not None and hasattr(bank, "to_packet") and hasattr(bank, "load_packet"):
+        has_strata = torch.tensor([int(bool(getattr(bank, "strata", None)))], dtype=torch.int32, device=comm_device)
+        dist.all_reduce(has_strata, op=dist.ReduceOp.MAX)
+        if int(has_strata.item()) > 0:
+            pkt = [bank.to_packet() if dist.get_rank() == 0 else None]
+            dist.broadcast_object_list(pkt, src=0)
+            if pkt[0] is not None and dist.get_rank() != 0:
+                bank.load_packet(pkt[0])
 
 
 def _average_modules(modules: List[torch.nn.Module], world_size: int, *, parameters: bool = True) -> None:

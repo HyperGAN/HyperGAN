@@ -247,6 +247,16 @@ def _synchronize_optimizer_regularizers(
                 dist.all_reduce(data, op=dist.ReduceOp.SUM)
                 hist.data.copy_(data / world_size)
 
+        # 1b. Synchronize Unified-v11 function-space conditioning scalars on optimizers
+        if hasattr(opt, "_ema_func_gain"):
+            fg = torch.tensor([float(opt._ema_func_gain)], dtype=torch.float64, device=comm_device)
+            dist.all_reduce(fg, op=dist.ReduceOp.SUM)
+            opt._ema_func_gain = max(1e-6, min(1.0, float((fg / world_size).item())))
+        if hasattr(opt, "last_step_gain"):
+            lg = torch.tensor([float(opt.last_step_gain)], dtype=torch.float64, device=comm_device)
+            dist.all_reduce(lg, op=dist.ReduceOp.SUM)
+            opt.last_step_gain = max(1e-6, float((lg / world_size).item()))
+
         # 2. Synchronize critic step record scalar records (opt_d.record)
         rec = getattr(opt, "record", None)
         if rec is not None:

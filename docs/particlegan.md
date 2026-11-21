@@ -2,7 +2,7 @@
 
 HyperGAN consumes ParticleGAN's released GAN recipe through
 `defaults = "particlegan"`. The `train` and `all` extras require ParticleGAN
-`>=0.11.0,<0.12`; 0.11.0 is the current released compatibility baseline.
+`>=0.11.1,<0.12`; 0.11.1 is the current released compatibility baseline.
 ParticleGAN owns the formulation and its selected
 loss, learning rates, hyperparameters, normalization, regularizers and optimizer
 implementations. HyperGAN owns networks and bindings, datasets, task objectives,
@@ -24,7 +24,7 @@ loss, penalty, prior policy, regularization, schedules and optimizer constructio
 to the recipe's public factories. The Model tab identifies ParticleGAN as the
 provider and shows host settings, loss metrics and networks.
 
-ParticleGAN 0.11.0 selects `unified_v11` (Unified 4-Law) by default. Select a specific preset with, for example, `defaults = "particlegan:empf"` or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Unified-v11 and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
+ParticleGAN 0.11.1 selects `unified_v11` (Unified 4-Law) by default. Select a specific preset with, for example, `defaults = "particlegan:empf"` or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Unified-v11 and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
 
 The integration supports one critic network per resolved recipe. Combine feature heads inside that network.
 
@@ -55,7 +55,7 @@ and retains the legacy restoration fallback for 0.9.4. Install the current
 release from PyPI:
 
 ```sh
-python -m pip install --upgrade 'particlegan>=0.11.0,<0.12'
+python -m pip install --upgrade 'particlegan>=0.11.1,<0.12'
 ```
 
 Fresh parameter initialization uses ParticleGAN's public initializer when

@@ -341,5 +341,3 @@ def test_unified_v11_live_capture_cleanup_releases_input_tensors():
     gc.collect()
     alive = sum(1 for ref in refs if ref() is not None)
     assert alive == 0, f'Expected all past input batches to be released, {alive} remained alive'
-
-

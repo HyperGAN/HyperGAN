@@ -1,5 +1,7 @@
 """Small torch component registry and explicit forward bindings."""
 import importlib
+import random
+import sys
 import torch
 from torch import nn
 from .data import ImageFolder
@@ -202,6 +204,127 @@ def _call_component(model, kwargs):
     return model(**kwargs)
 
 
+class _GeneratorProbeModule(nn.Module):
+    """Replay the complete generator computation from original latent and conditioning to configured output.
+
+    Held outside ``ComponentGraph._modules`` so ``graph.state_dict()`` and
+    ``graph.named_modules()`` remain unchanged for checkpoints and resume.
+    """
+    def __init__(self, graph, output_path='generated', prior=None):
+        super().__init__()
+        models, trainable_names, batch_keys, prior_keys = graph.output_subgraph(output_path)
+        object.__setattr__(self, '_graph', graph)
+        object.__setattr__(self, '_output_path', output_path)
+        object.__setattr__(self, '_prior', prior)
+        object.__setattr__(self, '_trainable_names', tuple(trainable_names))
+        object.__setattr__(self, '_batch_keys', batch_keys)
+        object.__setattr__(self, '_prior_keys', tuple(prior_keys))
+        self._components = nn.ModuleDict(models)
+
+    def trainable_parameters(self, *, allowed_param_ids=None):
+        seen = set()
+        params = []
+        for name in self._trainable_names:
+            module = self._components[name]
+            for parameter in module.parameters():
+                pid = id(parameter)
+                if not parameter.requires_grad or pid in seen:
+                    continue
+                if allowed_param_ids is not None and pid not in allowed_param_ids:
+                    continue
+                seen.add(pid)
+                params.append(parameter)
+        return tuple(params)
+
+    def has_training_component(self):
+        names = self._trainable_names or tuple(self._components.keys())
+        return any(self._components[name].training for name in names)
+
+    def capture_inputs(self, latent, batch, context):
+        kwargs = {}
+        if self._batch_keys is None:
+            kwargs['batch'] = batch
+        elif self._batch_keys:
+            kwargs['batch'] = {key: batch[key] for key in self._batch_keys if key in batch}
+        if self._prior_keys:
+            prior_ctx = context.get('prior') or {}
+            captured_prior = {}
+            for key in self._prior_keys:
+                if key in prior_ctx:
+                    captured_prior[key] = detach(prior_ctx[key])
+                elif self._prior is not None:
+                    captured_prior[key] = detach(self._prior.means() if key == 'means' else self._prior.sigma)
+            if captured_prior:
+                kwargs['prior'] = captured_prior
+        return (latent,), kwargs
+
+    def forward(self, latent, *, batch=None, prior=None):
+        cpu_rng = torch.get_rng_state()
+        py_rng = random.getstate()
+        np_mod = sys.modules.get('numpy')
+        np_rng = np_mod.random.get_state() if np_mod is not None and hasattr(np_mod, 'random') else None
+        cuda_rng = None
+        cuda_dev = None
+        if torch.cuda.is_initialized():
+            cuda_dev = torch.cuda.current_device()
+            cuda_rng = torch.cuda.get_rng_state(cuda_dev)
+        try:
+            context = {
+                'latent': latent,
+                'batch': {} if batch is None else batch,
+                'components': {},
+                'prior': {} if prior is None else dict(prior),
+                '_prior': self._prior,
+            }
+            if self._output_path == 'generated' or self._output_path.startswith('generated.'):
+                context['generated'] = self._graph.call('generator', context)
+                return self._graph.resolve(self._output_path, context)
+            return self._graph.resolve(self._output_path, context)
+        finally:
+            torch.set_rng_state(cpu_rng)
+            if cuda_rng is not None and cuda_dev is not None:
+                torch.cuda.set_rng_state(cuda_rng, cuda_dev)
+            random.setstate(py_rng)
+            if np_rng is not None and np_mod is not None:
+                np_mod.random.set_state(np_rng)
+
+
+def _eval_probe_with_preserved_state(module, args, kwargs, record):
+    """Fallback RNG/mode/BN-safe probe evaluator when ParticleGAN lacks ``record_unified_v11_generator_probe``."""
+    modes = [(m, m.training) for m in module.modules()]
+    prev_probe = bool(getattr(record, '_in_probe', False)) if record is not None else False
+    cpu_rng = torch.get_rng_state()
+    py_rng = random.getstate()
+    np_mod = sys.modules.get('numpy')
+    np_rng = np_mod.random.get_state() if np_mod is not None and hasattr(np_mod, 'random') else None
+    cuda_rng = None
+    cuda_dev = None
+    if torch.cuda.is_initialized():
+        cuda_dev = torch.cuda.current_device()
+        cuda_rng = torch.cuda.get_rng_state(cuda_dev)
+    if record is not None:
+        record._in_probe = True
+    try:
+        with torch.no_grad():
+            module.eval()
+            out = module(*args, **kwargs)
+            target = out[0] if isinstance(out, (tuple, list)) and out else out
+            if not isinstance(target, torch.Tensor):
+                return None
+            return target.detach().to(dtype=torch.float32)
+    finally:
+        if record is not None:
+            record._in_probe = prev_probe
+        for m, flag in modes:
+            m.training = flag
+        torch.set_rng_state(cpu_rng)
+        if cuda_rng is not None and cuda_dev is not None:
+            torch.cuda.set_rng_state(cuda_rng, cuda_dev)
+        random.setstate(py_rng)
+        if np_rng is not None and np_mod is not None:
+            np_mod.random.set_state(np_rng)
+
+
 class ComponentGraph(nn.Module):
     """Auxiliary components execute on demand; all trainable auxiliaries belong to G.
 
@@ -226,6 +349,58 @@ class ComponentGraph(nn.Module):
                 module.eval()
             modules[name] = module
         self.models = nn.ModuleDict(modules)
+        self._probe_hook = None
+
+    def output_subgraph(self, output_path='generated'):
+        """Trace unique component modules and external conditioning inputs feeding ``output_path``."""
+        if output_path == 'generated' or output_path.startswith('generated.'):
+            root = 'generator'
+        elif output_path.startswith('components.'):
+            parts = output_path.split('.')
+            if len(parts) < 2 or parts[1] not in self.specs:
+                raise ValueError(f"Unavailable output component binding '{output_path}'")
+            root = parts[1]
+        else:
+            raise ValueError(f"Unsupported generated output binding '{output_path}'")
+
+        models = {}
+        trainable_names = []
+        trainable_seen = set()
+        batch_all = False
+        batch_keys = set()
+        prior_keys = set()
+        visited = set()
+
+        def walk(name, frozen_edge):
+            nonlocal batch_all
+            key = (name, frozen_edge)
+            if key in visited:
+                return
+            visited.add(key)
+            spec = self.specs[name]
+            edge_frozen = frozen_edge or bool(spec.get('freeze_parameters', False)) or not spec.get('trainable', True)
+            for path in spec.get('inputs', {}).values():
+                if path == 'batch':
+                    batch_all = True
+                elif path.startswith('batch.'):
+                    batch_keys.add(path.split('.', 2)[1])
+                elif path.startswith('prior.'):
+                    prior_keys.add(path.split('.', 2)[1])
+                elif path.startswith('components.'):
+                    walk(path.split('.', 2)[1], frozen_edge)
+            model_name = spec.get('reuse', name)
+            if model_name not in models:
+                models[model_name] = self.models[model_name]
+            if not edge_frozen and model_name not in trainable_seen:
+                trainable_seen.add(model_name)
+                trainable_names.append(model_name)
+
+        walk(root, False)
+        return models, trainable_names, (None if batch_all else tuple(sorted(batch_keys))), tuple(sorted(prior_keys))
+
+    def build_generator_probe(self, output_path='generated', *, prior=None):
+        """Construct a non-submodule replay adapter for the configured generated output."""
+        return _GeneratorProbeModule(self, output_path=output_path, prior=prior)
 
     def resolve(self, path, context, active=None):
         parts = path.split(".")
@@ -270,6 +445,8 @@ class ComponentGraph(nn.Module):
     def generate(self, latent, batch, *, prior=None):
         context = {"latent": latent, "batch": batch, "components": {}, 'prior': {}, '_prior': prior}
         context["generated"] = self.call("generator", context)
+        if self._probe_hook is not None:
+            self._probe_hook(latent, batch, context, prior)
         return context
 
     def critic(self, candidate, context, module=None):

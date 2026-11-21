@@ -268,22 +268,24 @@ def _prior_table(config):
 def _losses(config):
     terms = _adversarial_terms(config)
     several = len(terms) > 1
-    penalty = _section(config, 'gradient_penalty')
-    def series(metric):
+    def series(metric, per_term=None):
         if several:
+            if per_term:
+                return {'metric': per_term, 'metric_note': None}
             return {'metric': None, 'metric_note': f'every term is summed in {metric}; no per-term series'}
         return {'metric': metric, 'metric_note': None}
 
     discriminator, generator = [], []
     for term in terms:
-        discriminator.append({'id': term['id'], 'kind': 'adversarial_d', 'critic': term['critic'], 'weight': term.get('critic_weight', term['weight']),
+        tid = term['id']
+        discriminator.append({'id': tid, 'kind': 'adversarial_d', 'critic': term['critic'], 'weight': term.get('critic_weight', term['weight']),
                               'real': term['real'], 'fake': term['fake'], 'detach': ['fake sample'],
-                              **series('loss/d_adversarial')})
+                              **series('loss/d_adversarial', f'loss/critics/{tid}/d_adversarial')})
         if term['penalty_coeff'] is not None:
-            discriminator.append({'id': f"{term['id']}:penalty", 'kind': 'critic_regularizer', 'critic': term['critic'],
+            discriminator.append({'id': f"{tid}:penalty", 'kind': 'critic_regularizer', 'critic': term['critic'],
                                   'coeff': term['penalty_coeff'],
-                                  **series('loss/gradient_penalty')})
-        generator.append({'id': term['id'], 'kind': 'adversarial_g', 'critic': term['critic'], 'weight': term.get('generator_weight', term['weight']),
+                                  **series('loss/gradient_penalty', f'loss/critics/{tid}/gradient_penalty')})
+        generator.append({'id': tid, 'kind': 'adversarial_g', 'critic': term['critic'], 'weight': term.get('generator_weight', term['weight']),
                           'real': term['real'], 'fake': term['fake'], 'detach': ['real score'],
                           **series('loss/g_adversarial')})
     spread = _section(config, 'prior_regularizer')

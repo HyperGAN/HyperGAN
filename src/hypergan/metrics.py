@@ -69,7 +69,44 @@ def objective_id(term):
     return term.get('id') or 'objective-' + digest(term)[:16]
 
 
+def adversarial_terms_spec(config):
+    """Ordered adversarial term descriptors (primary first, then extra adversarial_terms)."""
+    primary = config.get('adversarial') or {}
+    penalty = config.get('gradient_penalty') or {}
+    lazy_k = penalty.get('lazy_k', 1)
+    primary_coeff = penalty.get('coeff', 0.0)
+    terms = [{
+        'id': primary.get('id') or 'adversarial',
+        'critic': 'discriminator',
+        'weight': primary.get('weight', 1.0),
+        'critic_weight': primary.get('critic_weight', primary.get('weight', 1.0)),
+        'generator_weight': primary.get('generator_weight', primary.get('weight', 1.0)),
+        'penalty': True,
+        'penalty_coeff': primary_coeff,
+        'lazy_k': lazy_k,
+        'primary': True,
+    }]
+    for spec in config.get('adversarial_terms') or ():
+        if not isinstance(spec, dict) or not isinstance(spec.get('id'), str) or not spec['id']:
+            continue
+        has_penalty = bool(spec.get('penalty', False))
+        terms.append({
+            'id': spec['id'],
+            'critic': spec.get('component', 'discriminator'),
+            'weight': spec.get('weight', 1.0),
+            'critic_weight': spec.get('critic_weight', spec.get('weight', 1.0)),
+            'generator_weight': spec.get('generator_weight', spec.get('weight', 1.0)),
+            'penalty': has_penalty,
+            'penalty_coeff': spec.get('penalty_coeff', primary_coeff) if has_penalty else 0.0,
+            'lazy_k': lazy_k,
+            'primary': False,
+        })
+    return terms
+
+
 def _available(config):
+    adv_terms = adversarial_terms_spec(config)
+    primary_id = adv_terms[0]['id']
     specs = {
         'loss/d_total': ('d_loss', 'Discriminator total', 'loss'),
         'loss/g_total': ('g_loss', 'Generator total', 'loss'),
@@ -85,16 +122,30 @@ def _available(config):
         'timing/training_seconds': ('training_seconds', 'Time spent training', 'seconds'),
         'throughput/steps_per_second': ('steps_per_second', 'Steps per second', 'steps/second'),
         'progress/samples_seen': ('samples_seen', 'Samples seen', 'samples'),
-        'critic/real_mean': ('critic/real_mean', 'Critic real score mean', 'score'),
-        'critic/fake_mean': ('critic/fake_mean', 'Critic fake score mean', 'score'),
-        'critic/margin': ('critic/margin', 'Critic score margin E[D(x)] - E[D(G(z))]', 'score'),
-        'critic/accuracy': ('critic/accuracy', 'Critic ranking accuracy', 'ratio'),
+        'critic/real_mean': ('critic/real_mean', f'Critic real score mean ({primary_id})', 'score'),
+        'critic/fake_mean': ('critic/fake_mean', f'Critic fake score mean ({primary_id})', 'score'),
+        'critic/margin': ('critic/margin', f'Critic score margin ({primary_id}) E[D(x)] - E[D(G(z))]', 'score'),
+        'critic/accuracy': ('critic/accuracy', f'Critic ranking accuracy ({primary_id})', 'ratio'),
         'grad_norm/critic': ('grad_norm/critic', 'Critic L2 gradient norm', 'norm'),
         'grad_norm/generator': ('grad_norm/generator', 'Generator L2 gradient norm', 'norm'),
         'grad_norm/prior': ('grad_norm/prior', 'Prior L2 gradient norm', 'norm'),
         'optimizer/d_guard_ratio': ('optimizer/d_guard_ratio', 'Discriminator guard ratio', 'ratio'),
         'prior/particle_rms': ('prior/particle_rms', 'Particle table RMS', 'rms'),
     }
+    for term in adv_terms:
+        tid = term['id']
+        specs[f'loss/critics/{tid}/d_adversarial'] = (
+            f'loss/critics/{tid}/d_adversarial', f'D adversarial contribution ({tid})', 'loss')
+        specs[f'loss/critics/{tid}/gradient_penalty'] = (
+            f'loss/critics/{tid}/gradient_penalty', f'D gradient penalty contribution ({tid})', 'loss')
+        specs[f'loss/critics/{tid}/d_total'] = (
+            f'loss/critics/{tid}/d_total', f'Discriminator total ({tid})', 'loss')
+        specs[f'critic/{tid}/real_mean'] = (
+            f'critic/{tid}/real_mean', f'Critic real score mean ({tid})', 'score')
+        specs[f'critic/{tid}/fake_mean'] = (
+            f'critic/{tid}/fake_mean', f'Critic fake score mean ({tid})', 'score')
+        specs[f'critic/{tid}/margin'] = (
+            f'critic/{tid}/margin', f'Critic score margin ({tid}) E[D(x)] - E[D(G(z))]', 'score')
     for term in config['objectives']:
         name = objective_id(term)
         specs['loss/objectives/' + name] = ('objective:' + name, name + ' contribution', 'loss')
@@ -230,6 +281,9 @@ def metric_catalog(config):
     from .config import fingerprint
     spec = config['metrics']
     metrics = {}
+    adv_terms = adversarial_terms_spec(config)
+    adv_by_id = {term['id']: term for term in adv_terms}
+    primary_term = adv_terms[0]
     for name, (source, label, unit) in _available(config).items():
         enabled = spec['overrides'].get(name, {}).get('enabled', spec['preset'] == 'standard')
         if not enabled or name in spec['disable']:
@@ -237,12 +291,47 @@ def metric_catalog(config):
         definition = {'kind': 'scalar', 'source': source, 'label': label, 'unit': unit,
                       'numerical_sha256': fingerprint(config), 'preset_version': PRESET_VERSION,
                       'direction': 'none', 'scope': 'complete_update',
-                      'owner': 'discriminator' if name.startswith(('loss/d_', 'loss/gradient', 'critic/', 'optimizer/d_guard_ratio', 'grad_norm/critic')) else
+                      'owner': 'discriminator' if name.startswith(('loss/d_', 'loss/gradient', 'loss/critics/', 'critic/', 'optimizer/d_guard_ratio', 'grad_norm/critic')) else
                                'generator' if name.startswith(('loss/g_', 'loss/prior', 'loss/objectives/', 'grad_norm/generator', 'grad_norm/prior', 'prior/particle_rms')) else 'run',
                       'view': {'panel': 'Loss' if name.startswith('loss/') else 'Diagnostics' if name.startswith(('critic/', 'grad_norm/')) else 'Progress'}}
         if name == 'loss/total':
             definition['formula'] = 'loss/d_total + loss/g_total'
             definition['description'] = 'Diagnostic sum; not a joint optimization objective or quality score.'
+        if name in ('critic/real_mean', 'critic/fake_mean', 'critic/margin', 'critic/accuracy'):
+            definition.update(term_id=primary_term['id'], critic=primary_term['critic'])
+            if name == 'critic/margin':
+                definition['formula'] = 'critic/real_mean - critic/fake_mean'
+        if name.startswith('loss/critics/'):
+            parts = name.split('/')
+            tid, metric_kind = parts[2], parts[3]
+            term = adv_by_id[tid]
+            definition.update(term_id=tid, critic=term['critic'])
+            if metric_kind == 'd_adversarial':
+                definition['coefficient'] = term['critic_weight']
+                definition['description'] = f"Weighted discriminator adversarial contribution for term '{tid}' on critic '{term['critic']}'."
+            elif metric_kind == 'gradient_penalty':
+                definition.update(
+                    coefficient=term['penalty_coeff'],
+                    lazy_k=term['lazy_k'],
+                    penalty_enabled=term['penalty'],
+                    raw_available=False,
+                    description=f"Applied discriminator gradient penalty contribution for term '{tid}' on critic '{term['critic']}'.",
+                )
+            elif metric_kind == 'd_total':
+                definition['formula'] = f'loss/critics/{tid}/d_adversarial + loss/critics/{tid}/gradient_penalty'
+                definition['description'] = f"Total discriminator loss contribution for term '{tid}' on critic '{term['critic']}'."
+        elif name.startswith('critic/') and name.count('/') == 2:
+            parts = name.split('/')
+            tid, metric_kind = parts[1], parts[2]
+            term = adv_by_id[tid]
+            definition.update(term_id=tid, critic=term['critic'])
+            if metric_kind == 'margin':
+                definition['formula'] = f'critic/{tid}/real_mean - critic/{tid}/fake_mean'
+                definition['description'] = f"Mean real minus fake critic score margin for term '{tid}' on critic '{term['critic']}'."
+            elif metric_kind == 'real_mean':
+                definition['description'] = f"Mean real critic score from the training forward pass for term '{tid}' on critic '{term['critic']}'."
+            elif metric_kind == 'fake_mean':
+                definition['description'] = f"Mean fake critic score from the training forward pass for term '{tid}' on critic '{term['critic']}'."
         if source.startswith('preview:'):
             definition.update(scope='preview', owner='generator', view={'panel': 'Diversity'},
                 formula=('generated_rms / reference_rms' if name.endswith('ratio') else
@@ -263,7 +352,7 @@ def metric_catalog(config):
                                          'the total; time between attempts is not counted.')
         if name == 'progress/samples_seen':
             definition['description'] = SAMPLES_SEEN_DEFINITION
-        if 'adversarial' in name:
+        if name in ('loss/d_adversarial', 'loss/g_adversarial', 'loss/d_adversarial_raw', 'loss/g_adversarial_raw'):
             phase_weight = 'critic_weight' if name.startswith('loss/d_') else 'generator_weight'
             terms = [config['adversarial'], *config.get('adversarial_terms', [])]
             weights = [term.get(phase_weight, term['weight']) for term in terms]
@@ -383,6 +472,7 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
             values[primary] = values[alt]
         elif primary in values and alt not in values:
             values[alt] = values[primary]
+    adv_by_id = {term['id']: term for term in adversarial_terms_spec(config)}
     metrics, statuses = {}, {}
     for name, definition in catalog['metrics'].items():
         source = definition['source']
@@ -405,6 +495,13 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
             applied = step % penalty['lazy_k'] == 0
             statuses[name] = {'status': 'available', 'applied': applied,
                               'effective_coefficient': penalty['coeff'] * penalty['lazy_k'] if applied else 0.0}
+        elif name.startswith('loss/critics/') and name.endswith('/gradient_penalty'):
+            tid = name.split('/')[2]
+            term = adv_by_id.get(tid)
+            if term is not None:
+                applied = bool(term['penalty']) and (step % term['lazy_k'] == 0)
+                statuses[name] = {'status': 'available', 'applied': applied,
+                                  'effective_coefficient': term['penalty_coeff'] * term['lazy_k'] if applied else 0.0}
     return metrics, statuses, 'sampled' if metrics or statuses else 'disabled'
 
 
@@ -443,6 +540,10 @@ def validate_update_scalars(row, objective_count):
     ):
         if name in row and (type(row[name]) not in (int, float) or not math.isfinite(row[name])):
             raise ValueError(f'Invalid finite global metric: {name}')
+    for name, value in row.items():
+        if isinstance(name, str) and name.startswith(('loss/critics/', 'critic/')):
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f'Invalid finite global metric: {name}')
     objectives = row.get('objectives')
     if (type(objectives) is not list or len(objectives) != objective_count
             or any(type(value) not in (int, float) or not math.isfinite(value) for value in objectives)):

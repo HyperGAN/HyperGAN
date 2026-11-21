@@ -137,13 +137,17 @@ def _resolve_adversarial_terms(result):
     ``[adversarial]`` stays the implicit legacy term. These tables are further
     terms only, so they are not part of ``DEFAULT`` and do not change a legacy fingerprint.
     """
+    primary_id = result["adversarial"].get("id", "adversarial")
+    if "id" in result["adversarial"]:
+        if not isinstance(primary_id, str) or _TERM_ID.fullmatch(primary_id) is None:
+            raise ValueError("adversarial.id must be 1–128 letters, digits, dots, underscores or hyphens")
     if "adversarial_terms" not in result:
         return
     terms = result["adversarial_terms"]
     if not isinstance(terms, list) or not terms or any(not isinstance(term, dict) for term in terms):
         raise ValueError("adversarial_terms must be a non-empty list of tables")
     components = result["components"]
-    seen = set()
+    seen = {primary_id}
     for index, term in enumerate(terms):
         location = f"adversarial_terms[{index}]"
         _keys(term, _ADVERSARIAL_TERM_FIELDS, location)
@@ -437,6 +441,7 @@ def resolve_config(raw):
         objective_ids.append(objective_id(term))
     if len(set(objective_ids)) != len(objective_ids):
         raise ValueError('Objective IDs must be unique; give repeated objectives explicit IDs')
+    _resolve_adversarial_terms(result)
     validate_metrics(result)
     if result['recipe']:
         # Persist effective values, including the scalar-section overrides,
@@ -532,7 +537,6 @@ def resolve_config(raw):
                    or not isinstance(column['binding'], str) or not column['binding']
                    for column in comparison)):
         raise ValueError('sampling.comparison requires two to four labelled image bindings')
-    _resolve_adversarial_terms(result)
     _resolve_samplers(result)
     paths = [p for c in components.values() for p in c["inputs"].values()] + [p for t in result["objectives"] for p in t["inputs"].values()]
     adv_cfg = result.get("adversarial", {})

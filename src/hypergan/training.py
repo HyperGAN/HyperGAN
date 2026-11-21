@@ -381,6 +381,7 @@ class ReferenceTrainer:
         self.lr_roles.extend(['critic'] * len(optimizer.param_groups) for optimizer in self.critic_optimizers.values())
         self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in self.optimizers]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)
+        self.ema_graph._probe_hook = None
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
         data_device = self.device if settings['data_rng_device'] == 'execution' else 'cpu'
         self.streams = {"data": torch.Generator(device=data_device).manual_seed(settings["seed"] + settings['data_seed_offset']), "prior": torch.Generator(device=self.device).manual_seed(settings["seed"] + settings['prior_seed_offset']), "penalty": torch.Generator(device=self.device).manual_seed(settings["seed"] + 3),
@@ -406,15 +407,16 @@ class ReferenceTrainer:
             from particlegan.bispf import bind_thermal_source
             bind_thermal_source(record, loss, self.spread if primary else None)
         elif formulation in ('unified_v11', 'unified_v4', 'r4_autograd_critic', 'unified', 'empf'):
+            record_probe = None
             if formulation == 'unified_v11':
-                from particlegan.unified_v11 import (
-                    bind_unified_v11_record as bind, _attach_unified_v11_generator_hook as attach,
-                    collect_conv_layouts,
-                )
+                import particlegan.unified_v11 as v11
+                bind = v11.bind_unified_v11_record
+                collect_conv_layouts = v11.collect_conv_layouts
+                record_probe = getattr(v11, 'record_unified_v11_generator_probe', None)
                 attrs = ('_unified_v11_record', '_unified_record', '_t1c_record', '_t2_record')
             elif formulation in ('unified_v4', 'r4_autograd_critic'):
                 from particlegan.unified_v4 import (
-                    bind_unified_v4_record as bind, _attach_unified_v4_generator_hook as attach,
+                    bind_unified_v4_record as bind,
                     collect_conv_layouts,
                 )
                 attrs = ('_unified_v4_record', '_unified_record', '_t1c_record', '_t2_record')
@@ -434,14 +436,87 @@ class ReferenceTrainer:
             if primary and formulation in ('unified_v11', 'unified_v4', 'r4_autograd_critic'):
                 if hasattr(self.opt_g, '_conv_layouts'):
                     self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
-                generator = self.graph.models['generator']
-                if hasattr(self.opt_g, '_gen_param_ids'):
-                    self.opt_g._gen_param_ids = {id(p) for p in generator.parameters()}
-                attach(generator, record)
+                self._bind_generator_probe(record, record_probe=record_probe)
         elif (formulation == 'rhbi' or getattr(self.recipe, 'rhbi_weight', 0) > 0
               or getattr(self.recipe, 'rhbi_critic_weight', 0) > 0):
             from particlegan.rhbi import bind_rhbi_record
             bind_rhbi_record(record, loss, optimizer, *shared[:2])
+
+    def _bind_generator_probe(self, record, *, record_probe=None):
+        """Attach a full-graph generator secant probe for the configured generated output."""
+        from .recipes import _eval_probe_with_preserved_state
+        output_path = self.config.get('sampling', {}).get('generated', 'generated')
+        probe_module = self.graph.build_generator_probe(output_path, prior=self.prior)
+        allowed_gen_ids = {id(p) for p in self.program.generator_parameters}
+        probe_params = probe_module.trainable_parameters(allowed_param_ids=allowed_gen_ids)
+        if hasattr(self.opt_g, 'set_generator_probe_parameters'):
+            self.opt_g.set_generator_probe_parameters(probe_params)
+        elif hasattr(self.opt_g, '_gen_param_ids'):
+            self.opt_g._gen_param_ids = {id(p) for p in probe_params}
+        probe_module._unified_v11_record = record
+        probe_module._unified_v11_gen_has_bn = any(
+            isinstance(m, (torch.nn.modules.batchnorm._BatchNorm, torch.nn.modules.dropout._DropoutNd))
+            for m in probe_module.modules()
+        )
+        self._generator_probe = probe_module
+        self._generator_probe_params = probe_params
+
+        def _slice_fallback(val, b_full, b_probe):
+            if isinstance(val, torch.Tensor):
+                if val.ndim >= 1 and val.shape[0] == b_full:
+                    return val.detach()[:b_probe]
+                return val.detach()
+            if isinstance(val, dict):
+                return {k: _slice_fallback(v, b_full, b_probe) for k, v in val.items()}
+            if isinstance(val, tuple):
+                return tuple(_slice_fallback(v, b_full, b_probe) for v in val)
+            if isinstance(val, list):
+                return [_slice_fallback(v, b_full, b_probe) for v in val]
+            return val
+
+        def _capture(latent, batch, context, prior):
+            del prior
+            if (
+                not probe_params
+                or not torch.is_grad_enabled()
+                or getattr(record, '_in_probe', False)
+                or getattr(record, '_in_penalty', False)
+                or getattr(record, '_in_protected_probe', False)
+                or not getattr(record, '_enable_secant_probe', True)
+                or not probe_module.has_training_component()
+            ):
+                return
+            output = self.graph.resolve(output_path, context)
+            p_args, p_kwargs = probe_module.capture_inputs(latent, batch, context)
+            if record_probe is not None:
+                record_probe(probe_module, p_args, p_kwargs, output, record, require_module_training=False)
+                return
+            raw_out = output[0] if isinstance(output, (tuple, list)) and output else output
+            if (
+                not isinstance(raw_out, torch.Tensor)
+                or not raw_out.is_floating_point()
+                or not raw_out.requires_grad
+                or raw_out.ndim < 2
+                or raw_out.shape[0] < 1
+            ):
+                return
+            import torch.autograd.forward_ad as fwAD
+            if fwAD.unpack_dual(raw_out).tangent is not None:
+                return
+            b_full = int(raw_out.shape[0])
+            out_dim = max(1, int(raw_out[0].numel()))
+            b_p = min(b_full, max(2, min(16, 8192 // out_dim)))
+            s_args = tuple(_slice_fallback(a, b_full, b_p) for a in p_args)
+            s_kwargs = {k: _slice_fallback(v, b_full, b_p) for k, v in p_kwargs.items()}
+            if probe_module._unified_v11_gen_has_bn:
+                y_pre = _eval_probe_with_preserved_state(probe_module, s_args, s_kwargs, record)
+                if y_pre is None:
+                    return
+            else:
+                y_pre = raw_out.detach()[:b_p].to(dtype=torch.float32)
+            record._g_probe_cache = (probe_module, s_args, s_kwargs, y_pre)
+
+        self.graph._probe_hook = _capture
 
     def batch(self):
         batch = self.data(self.config["training"]["batch_size"], generator=self.streams["data"])

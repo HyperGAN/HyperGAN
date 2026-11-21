@@ -752,6 +752,19 @@ class ReplicatedTrainer(ReferenceTrainer):
                 synced.append((p_args, p_kwargs, d_pre))
         rec._d_probe_list = synced
 
+    def _gather_probe_value(self, value, b_local, b_probe):
+        if isinstance(value, torch.Tensor):
+            if value.ndim >= 1 and value.shape[0] == b_local:
+                return self._all_gather_coupled(value.detach())[:b_probe]
+            return value.detach()
+        if isinstance(value, dict):
+            return {k: self._gather_probe_value(v, b_local, b_probe) for k, v in value.items()}
+        if isinstance(value, tuple):
+            return tuple(self._gather_probe_value(v, b_local, b_probe) for v in value)
+        if isinstance(value, list):
+            return [self._gather_probe_value(v, b_local, b_probe) for v in value]
+        return value
+
     def _sync_unified_v11_g_probe(self):
         """Gather element-budgeted generator secant probe slice across ranks so all ranks compute identical alpha_gain."""
         rec = getattr(self.opt_d, 'record', None)
@@ -762,10 +775,11 @@ class ReplicatedTrainer(ReferenceTrainer):
         g_mod, p_args, p_kwargs, y_pre = cache
         out_dim = max(1, int(y_pre[0].numel()))
         b_p = max(2, min(_PROBE_SLICE, 8192 // out_dim))
-        if len(p_args) == 1 and not p_kwargs and isinstance(p_args[0], torch.Tensor):
-            gz = self._all_gather_coupled(p_args[0].detach())[:b_p]
-            gy = self._all_gather_coupled(y_pre.detach())[:b_p]
-            rec._g_probe_cache = (_BroadcastProbeProxy(g_mod, gy), (gz,), {}, gy)
+        b_local = int(y_pre.shape[0])
+        g_args = self._gather_probe_value(p_args, b_local, b_p)
+        g_kwargs = self._gather_probe_value(p_kwargs, b_local, b_p)
+        gy = self._all_gather_coupled(y_pre.detach())[:b_p]
+        rec._g_probe_cache = (_BroadcastProbeProxy(g_mod, gy), g_args, g_kwargs, gy)
 
     def _gather_rhbi_pair(self, fake_score, real_score, rec):
         """Gather critic logits and RHBI input/conditioning captures across all ranks."""
@@ -923,6 +937,24 @@ class ReplicatedTrainer(ReferenceTrainer):
         row["prior/particle_rms"] = particle_rms
         row["diversity/ratio"] = diversity_ratio
 
+    @staticmethod
+    def _populate_per_critic_metrics(row, terms, per_term_values):
+        for idx, term in enumerate(terms):
+            offset = idx * 5
+            d_adv_w_v, d_pen_v, d_tot_v, r_mean_v, f_mean_v = per_term_values[offset:offset + 5]
+            r_m = float(r_mean_v) if math.isfinite(r_mean_v) else 0.0
+            f_m = float(f_mean_v) if math.isfinite(f_mean_v) else 0.0
+            margin_v = r_m - f_m
+            if not math.isfinite(margin_v):
+                margin_v = 0.0
+            tid = term.id
+            row[f"loss/critics/{tid}/d_adversarial"] = float(d_adv_w_v)
+            row[f"loss/critics/{tid}/gradient_penalty"] = float(d_pen_v)
+            row[f"loss/critics/{tid}/d_total"] = float(d_tot_v)
+            row[f"critic/{tid}/real_mean"] = r_m
+            row[f"critic/{tid}/fake_mean"] = f_m
+            row[f"critic/{tid}/margin"] = margin_v
+
     def update(self, batch=None, latent_draw=None):
         try:
             self._agree('update boundary', {'step': self.step, 'ready': self.checkpoint_ready, 'poisoned': self._poisoned})
@@ -1027,30 +1059,45 @@ class ReplicatedTrainer(ReferenceTrainer):
             unweighted = []
             weighted = []
             penalties = []
-            last_fake = None
-            last_real = None
-            last_r_sc = None
-            last_f_sc = None
-            for term in terms:
+            per_term_tensors = []
+            first_fake = None
+            first_real = None
+            first_r_sc = None
+            first_f_sc = None
+            for index, term in enumerate(terms):
                 r_s, f_s, r_sc, f_sc = _bound_scores(
                     term, context, self.graph, "critic", term.critic_phase, first="real", noise=noise)
                 r_sc, f_sc = self._logits(r_sc, f_sc)
                 loss = term.gan.d_loss(r_sc, f_sc)
+                weighted_t = term.critic_weight * loss
                 unweighted.append(loss)
-                weighted.append(term.critic_weight * loss)
-                last_real = r_s
-                last_fake = f_s
-                last_r_sc = r_sc
-                last_f_sc = f_sc
+                weighted.append(weighted_t)
                 if term.penalty_fn is not None:
-                    penalties.append(penalty_fn(term, r_s, f_s))
+                    pen_t = penalty_fn(term, r_s, f_s)
+                    penalties.append(pen_t)
+                else:
+                    pen_t = f_s.new_zeros(())
+                tot_t = weighted_t + pen_t
+                r_mean_t, f_mean_t, _ = self._critic_score_scalars(r_sc, f_sc)
+                per_term_tensors.extend((
+                    weighted_t.detach().reshape(()),
+                    pen_t.detach().reshape(()),
+                    tot_t.detach().reshape(()),
+                    r_mean_t,
+                    f_mean_t,
+                ))
+                if index == 0:
+                    first_real = r_s
+                    first_fake = f_s
+                    first_r_sc = r_sc
+                    first_f_sc = f_sc
             d_adv = _sum_tensors(unweighted)
             d_adv_weighted = _sum_tensors(weighted)
-            d_pen = _sum_tensors(penalties) if penalties else (last_fake.new_zeros(()) if last_fake is not None else real.new_zeros(()))
+            d_pen = _sum_tensors(penalties) if penalties else (first_fake.new_zeros(()) if first_fake is not None else real.new_zeros(()))
             d_tot = d_adv_weighted + d_pen
-            score_stats = self._critic_score_scalars(last_r_sc, last_f_sc)
-            moment_stats = self._sample_moment_scalars(last_fake, last_real)
-            return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
+            score_stats = self._critic_score_scalars(first_r_sc, first_f_sc)
+            moment_stats = self._sample_moment_scalars(first_fake, first_real)
+            return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats, per_term_tensors
 
         for optimizer in self.critic_optimizers.values():
             optimizer.zero_grad(set_to_none=True)
@@ -1077,35 +1124,50 @@ class ReplicatedTrainer(ReferenceTrainer):
                 unweighted = []
                 weighted = []
                 penalties = []
-                last_fake = None
-                last_real = None
-                last_r_sc = None
-                last_f_sc = None
-                for term, (r_s, f_s, r_sc, f_sc), g_pair in zip(terms, d_scored, d_global_pairs):
+                per_term_tensors = []
+                first_fake = None
+                first_real = None
+                first_r_sc = None
+                first_f_sc = None
+                for index, (term, (r_s, f_s, r_sc, f_sc), g_pair) in enumerate(zip(terms, d_scored, d_global_pairs)):
                     if g_pair is not None:
                         gf_sc, gr_sc = g_pair
                         loss = self._scale_coupled_backward(term.gan.d_loss(gr_sc, gf_sc))
                     else:
                         r_sc_l, f_sc_l = self._logits(r_sc, f_sc)
                         loss = term.gan.d_loss(r_sc_l, f_sc_l)
+                    weighted_t = term.critic_weight * loss
                     unweighted.append(loss)
-                    weighted.append(term.critic_weight * loss)
-                    last_real = r_s
-                    last_fake = f_s
-                    last_r_sc = r_sc
-                    last_f_sc = f_sc
+                    weighted.append(weighted_t)
                     if term.penalty_fn is not None:
-                        penalties.append(penalty_fn(term, r_s, f_s))
+                        pen_t = penalty_fn(term, r_s, f_s)
+                        penalties.append(pen_t)
+                    else:
+                        pen_t = f_s.new_zeros(())
+                    tot_t = weighted_t + pen_t
+                    r_mean_t, f_mean_t, _ = self._critic_score_scalars(r_sc, f_sc)
+                    per_term_tensors.extend((
+                        weighted_t.detach().reshape(()),
+                        pen_t.detach().reshape(()),
+                        tot_t.detach().reshape(()),
+                        r_mean_t,
+                        f_mean_t,
+                    ))
+                    if index == 0:
+                        first_real = r_s
+                        first_fake = f_s
+                        first_r_sc = r_sc
+                        first_f_sc = f_sc
                 d_adv = _sum_tensors(unweighted)
                 d_adv_weighted = _sum_tensors(weighted)
-                d_pen = _sum_tensors(penalties) if penalties else (last_fake.new_zeros(()) if last_fake is not None else real.new_zeros(()))
+                d_pen = _sum_tensors(penalties) if penalties else (first_fake.new_zeros(()) if first_fake is not None else real.new_zeros(()))
                 d_tot = d_adv_weighted + d_pen
-                score_stats = self._critic_score_scalars(last_r_sc, last_f_sc)
-                moment_stats = self._sample_moment_scalars(last_fake, last_real)
-                return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
+                score_stats = self._critic_score_scalars(first_r_sc, first_f_sc)
+                moment_stats = self._sample_moment_scalars(first_fake, first_real)
+                return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats, per_term_tensors
 
             with self._folded('discriminator backward'):
-                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
+                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats, per_term_tensors = self._phase(
                     'discriminator forward and penalty', discriminator_coupled_loss)
                 critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
                 fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
@@ -1113,7 +1175,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 self._phase('discriminator backward', d_loss.backward)
         else:
             with self._folded('discriminator backward'):
-                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
+                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats, per_term_tensors = self._phase(
                     'discriminator forward and penalty', discriminator_forward)
                 critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
                 fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
@@ -1279,6 +1341,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             particle_rms_t,
             fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
             d_guard_ratio_t,
+            *per_term_tensors,
         ])
         values = self._complete(step, transferred)
         self.step = step
@@ -1287,12 +1350,14 @@ class ReplicatedTrainer(ReferenceTrainer):
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
         row.update(event='train', step=step, objectives=values[8:8 + n_objectives], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size, world_size=self.world_size)
+        telemetry_start = 8 + n_objectives
         self._populate_telemetry(
             row,
-            values[8 + n_objectives:],
+            values[telemetry_start:telemetry_start + 12],
             local_fake_numel * self.world_size,
             local_real_numel * self.world_size,
         )
+        self._populate_per_critic_metrics(row, terms, values[telemetry_start + 12:])
         return row, detach(batch)
 
     def _scored_critic(self, context, input_noise=(0, None)):
@@ -1447,21 +1512,22 @@ class ReplicatedTrainer(ReferenceTrainer):
             local_z = z.detach()[start:start + self.microbatch_size].requires_grad_(z.requires_grad)
             context = detach(generate(local_z, local_batch))
             term_records = []
-            last_real = None
-            last_fake = None
-            for term in terms:
+            first_real = None
+            first_fake = None
+            for t_idx, term in enumerate(terms):
                 r_s, f_s, r_sc, f_sc = _bound_scores(
                     term, context, self.graph, "critic", term.critic_phase, first="real", noise=acc_noise)
                 self._micro_logits(r_sc, f_sc)
-                last_real = r_s
-                last_fake = f_s
+                if t_idx == 0:
+                    first_real = r_s
+                    first_fake = f_s
                 if term.penalty_fn is not None:
                     pen = penalty_fn_acc(term, r_s, f_s, context)
                 else:
                     pen = f_s.new_zeros(())
                 term_records.append((r_sc, f_sc, pen))
             if capture_moments:
-                return term_records, self._digest(context['generated']), self._sample_moment_scalars(last_fake, last_real)
+                return term_records, self._digest(context['generated']), self._sample_moment_scalars(first_fake, first_real)
             return term_records, self._digest(context['generated'])
 
         with self._folded('discriminator backward'):
@@ -1638,7 +1704,14 @@ class ReplicatedTrainer(ReferenceTrainer):
                     parameter.requires_grad_(flag)
         g_loss = weighted_adversarial.detach() + prior_loss + sum(objective_losses)
         critic_real_mean_t, critic_fake_mean_t, critic_acc_t = self._critic_score_scalars(
-            all_dr[-1] if all_dr else None, all_df[-1] if all_df else None)
+            all_dr[0] if all_dr else None, all_df[0] if all_df else None)
+        acc_per_term_tensors = []
+        for t, term in enumerate(terms):
+            d_adv_w_t = weighted[t].detach().reshape(())
+            d_pen_t = sum(rec[1][0][t][2] / self.accumulation_steps for rec in d_records).detach().reshape(())
+            d_tot_t = (d_adv_w_t + d_pen_t).reshape(())
+            r_mean_t, f_mean_t, _ = self._critic_score_scalars(all_dr[t], all_df[t])
+            acc_per_term_tensors.extend((d_adv_w_t, d_pen_t, d_tot_t, r_mean_t, f_mean_t))
         micro_moments = [rec[1][2] for rec in d_records]
         fake_mean_t = (sum(m[0] for m in micro_moments) / self.accumulation_steps).reshape(())
         fake_sq_mean_t = (sum(m[1] for m in micro_moments) / self.accumulation_steps).reshape(())
@@ -1657,6 +1730,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             particle_rms_t,
             fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
             d_guard_ratio_t,
+            *acc_per_term_tensors,
         ])
         values = self._complete(step, transferred)
         self.step, self.checkpoint_ready = step, True
@@ -1665,12 +1739,14 @@ class ReplicatedTrainer(ReferenceTrainer):
         row.update(event='train', step=step, objectives=values[8:8 + n_objectives], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size,
                    world_size=self.world_size, accumulation_steps=self.accumulation_steps, microbatch_size=self.microbatch_size)
+        telemetry_start = 8 + n_objectives
         self._populate_telemetry(
             row,
-            values[8 + n_objectives:],
+            values[telemetry_start:telemetry_start + 12],
             local_fake_numel * self.world_size,
             local_real_numel * self.world_size,
         )
+        self._populate_per_critic_metrics(row, terms, values[telemetry_start + 12:])
         return row, detach(batch)
 
     @staticmethod

@@ -387,6 +387,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     terms = program.adversarial_terms
     for optimizer in trainer.critic_optimizers.values():
         optimizer.zero_grad(set_to_none=True)
+    per_term_records = []
     if len(terms) == 1:
         term = terms[0]
         real, fake, real_score, fake_score = _bound_scores(
@@ -398,24 +399,33 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             d_penalty = fake.new_zeros(())
         d_adversarial_weighted = term.critic_weight * d_adversarial
         d_loss = d_adversarial_weighted + d_penalty
+        per_term_records.append((term.id, d_adversarial_weighted, d_penalty, d_loss, real_score, fake_score))
+        d_real_score, d_fake_score, d_real_samples, d_fake_samples = real_score, fake_score, real, fake
     else:
         unweighted = []
         weighted = []
         penalties = []
-        fake = None
-        for term in terms:
+        d_real_score = d_fake_score = d_real_samples = d_fake_samples = None
+        for index, term in enumerate(terms):
             real, fake, real_score, fake_score = _bound_scores(
                 term, context, trainer.graph, "critic", term.critic_phase, first="real", noise=noise)
             loss = term.gan.d_loss(real_score, fake_score)
+            weighted_t = term.critic_weight * loss
             unweighted.append(loss)
-            weighted.append(term.critic_weight * loss)
+            weighted.append(weighted_t)
             if term.penalty_fn is not None:
-                penalties.append(penalty(term, real, fake))
+                pen_t = penalty(term, real, fake)
+                penalties.append(pen_t)
+            else:
+                pen_t = fake.new_zeros(())
+            tot_t = weighted_t + pen_t
+            per_term_records.append((term.id, weighted_t, pen_t, tot_t, real_score, fake_score))
+            if index == 0:
+                d_real_score, d_fake_score, d_real_samples, d_fake_samples = real_score, fake_score, real, fake
         d_adversarial = _sum_tensors(unweighted)
         d_adversarial_weighted = _sum_tensors(weighted)
-        d_penalty = _sum_tensors(penalties) if penalties else fake.new_zeros(())
+        d_penalty = _sum_tensors(penalties) if penalties else d_fake_samples.new_zeros(())
         d_loss = d_adversarial_weighted + d_penalty
-    d_real_score, d_fake_score, d_real_samples, d_fake_samples = real_score, fake_score, real, fake
     d_loss.backward()
     if len(terms) == 1:
         critic_checked = list(terms[0].module.parameters())
@@ -442,13 +452,22 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         try:
             rs = d_real_score.detach()
             fs = d_fake_score.detach()
-            critic_real_mean_t = rs.mean().reshape(())
-            critic_fake_mean_t = fs.mean().reshape(())
+            critic_real_mean_t = rs.double().mean().reshape(())
+            critic_fake_mean_t = fs.double().mean().reshape(())
             critic_accuracy_t = (rs > fs).float().mean().reshape(())
         except Exception:
             critic_real_mean_t = zero_scalar
             critic_fake_mean_t = zero_scalar
             critic_accuracy_t = half_scalar
+        per_term_tensors = []
+        for _, w_t, p_t, tot_t, r_sc_t, f_sc_t in per_term_records:
+            per_term_tensors.extend((
+                w_t.detach().reshape(()),
+                p_t.detach().reshape(()),
+                tot_t.detach().reshape(()),
+                r_sc_t.detach().double().mean().reshape(()),
+                f_sc_t.detach().double().mean().reshape(()),
+            ))
     explicit_guard = getattr(trainer.opt_d, 'd_guard_ratio', None)
     for optimizer in trainer.critic_optimizers.values():
         optimizer.step()
@@ -556,12 +575,14 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         except Exception:
             diversity_ratio_t = one_scalar
 
+    n_objectives = len(objective_losses)
     values = trainer._metric_transfer([d_loss, d_adversarial, d_adversarial_weighted,
         g_adversarial_weighted, g_loss, g_adversarial, prior_loss, d_penalty,
         critic_real_mean_t, critic_fake_mean_t, critic_accuracy_t,
         critic_grad_norm_t, post_critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
         particle_rms_t, diversity_ratio_t,
-        *objective_losses])
+        *objective_losses,
+        *per_term_tensors])
     row = dict(zip(("d_loss", "d_adversarial", "d_adversarial_weighted",
                     "g_adversarial_weighted", "g_loss", "g_adversarial",
                     "prior_loss", "gradient_penalty"), values[:8]))
@@ -587,7 +608,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         d_guard_ratio = 1.0
 
     row.update(
-        event="train", step=step, objectives=values[17:], lr_scale=scale,
+        event="train", step=step, objectives=values[17:17 + n_objectives], lr_scale=scale,
         critic_real_mean=critic_real_mean,
         critic_fake_mean=critic_fake_mean,
         critic_margin=critic_margin,
@@ -609,4 +630,19 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     row["optimizer/d_guard_ratio"] = d_guard_ratio
     row["prior/particle_rms"] = particle_rms
     row["diversity/ratio"] = diversity_ratio
+    per_term_values = values[17 + n_objectives:]
+    for idx, (tid, _, _, _, _, _) in enumerate(per_term_records):
+        offset = idx * 5
+        d_adv_w_v, d_pen_v, d_tot_v, r_mean_v, f_mean_v = per_term_values[offset:offset + 5]
+        r_m = float(r_mean_v) if math.isfinite(r_mean_v) else 0.0
+        f_m = float(f_mean_v) if math.isfinite(f_mean_v) else 0.0
+        margin_v = r_m - f_m
+        if not math.isfinite(margin_v):
+            margin_v = 0.0
+        row[f"loss/critics/{tid}/d_adversarial"] = float(d_adv_w_v)
+        row[f"loss/critics/{tid}/gradient_penalty"] = float(d_pen_v)
+        row[f"loss/critics/{tid}/d_total"] = float(d_tot_v)
+        row[f"critic/{tid}/real_mean"] = r_m
+        row[f"critic/{tid}/fake_mean"] = f_m
+        row[f"critic/{tid}/margin"] = margin_v
     return row, detach(batch)

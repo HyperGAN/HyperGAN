@@ -753,6 +753,9 @@ def explain(model):
     eff_d_lr = eff_lr * eff_d_mult if isinstance(eff_lr, (int, float)) and isinstance(eff_d_mult, (int, float)) else None
     g_lr_str = f'optimizer.lr ({eff_lr:g})' if isinstance(eff_lr, (int, float)) else 'optimizer.lr'
     d_lr_str = f'optimizer.lr * d_lr_mult ({eff_d_lr:g})' if isinstance(eff_d_lr, (int, float)) else 'optimizer.lr * d_lr_mult'
+    from .particlegan_integration import is_particlegan_defaults
+    recipe_critics = rec_cfg or is_particlegan_defaults(recipe.get('defaults'))
+    critic_group = 'ParticleGAN optimizer for this critic' if recipe_critics else 'critic Adam (shared by all critics)'
     reach = {name: [] for name in components}
     for term in recipe.get('objectives', []):
         detached = set(term.get('detach', ['target'] if 'target' in term.get('inputs', {}) else []))
@@ -786,7 +789,7 @@ def explain(model):
             spec = components.get(comp_name, {})
             factory = spec.get('factory', net_spec.get('hndl') or net_spec.get('file') or net_spec.get('module') or 'unknown')
             if role == 'critic':
-                group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
+                group = f'{critic_group}, lr = {d_lr_str}'
             elif 'reuse' in net_spec or 'reuse' in spec:
                 reuse_target = net_spec.get('reuse') or spec.get('reuse')
                 group = f'parameters of {reuse_target}'
@@ -810,7 +813,7 @@ def explain(model):
             factory = spec.get('factory', 'reuse')
             role = inferred[name]
             if role == 'critic':
-                group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
+                group = f'{critic_group}, lr = {d_lr_str}'
             else:
                 group = f'generator-side Adam, lr = {g_lr_str}'
             lines.append(f'{orig_name} [{role}] {factory}')

@@ -588,10 +588,40 @@ class ReplicatedTrainer(ReferenceTrainer):
                 parameter.grad = None
             raise ValueError('Nonfinite reduced gradient; optimizer step refused')
 
-    def _average_critic_statistics(self):
+    def _step_critics(self, terms):
+        for name, optimizer in self.critic_optimizers.items():
+            self._reduce_gradients(optimizer, name)
+        critic_params = self._critic_checked_parameters(terms)
+        critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+        explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
+        for name, optimizer in self.critic_optimizers.items():
+            rec_d = getattr(optimizer, 'record', None)
+            if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
+                if hasattr(rec_d, 'proto_initialized'):
+                    from .aggregation import sync_empf_record
+                    sync_empf_record(rec_d, self.device, self.world_size)
+                elif hasattr(rec_d, 't1c_ell_initialized'):
+                    from .aggregation import sync_unified_v11_record
+                    sync_unified_v11_record(rec_d, self.device, self.world_size)
+            self._sync_unified_v11_d_probes(rec_d)
+            self._optimizer_step(optimizer, name)
+            self._average_critic_statistics(rec_d)
+        if explicit_guard is not None:
+            d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
+        elif getattr(self.opt_d, 'guard', None) is not None:
+            post_critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+            d_guard_ratio_t = torch.where(
+                critic_grad_norm_t > 0.0,
+                post_critic_grad_norm_t / critic_grad_norm_t.clamp_min(1e-30),
+                torch.ones_like(critic_grad_norm_t),
+            )
+        else:
+            d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
+        return critic_grad_norm_t, d_guard_ratio_t
+
+    def _average_critic_statistics(self, rec):
         # KA2 controller statistics come from rank-local critic scores.
         # t1c / unified_v11 records expose ema_residual as a read-only property and sync via coupled pairs or sync_unified_v11_record.
-        rec = getattr(self.opt_d, 'record', None)
         if rec is None or hasattr(rec, 't1c_ell_initialized'):
             return
         if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
@@ -668,11 +698,10 @@ class ReplicatedTrainer(ReferenceTrainer):
             return True
         return False
 
-    def _gather_t1c_pair(self, fake_score, real_score):
+    def _gather_t1c_pair(self, fake_score, real_score, rec):
         """Gather critic logits and t1c/unified_v11 input/conditioning captures across all ranks."""
         from particlegan._t1_coupling.critic import _lookup_t1c_capture_parts
 
-        rec = getattr(self.opt_d, 'record', None)
         x_f, cond_f, rec_f, cc_f, parts_f = _lookup_t1c_capture_parts(fake_score, rec)
         x_r, cond_r, rec_r, cc_r, parts_r = _lookup_t1c_capture_parts(
             real_score, rec_f if rec_f is not None else rec
@@ -702,13 +731,13 @@ class ReplicatedTrainer(ReferenceTrainer):
         return global_f_sc, global_r_sc
 
     def _gather_coupled_pair(self, term, fake_score, real_score):
+        rec = getattr(term.gan, 'record', None)
         if hasattr(term.gan, 't1c'):
-            return self._gather_t1c_pair(fake_score, real_score)
-        return self._gather_rhbi_pair(fake_score, real_score)
+            return self._gather_t1c_pair(fake_score, real_score, rec)
+        return self._gather_rhbi_pair(fake_score, real_score, rec)
 
-    def _sync_unified_v11_d_probes(self):
+    def _sync_unified_v11_d_probes(self, rec):
         """Gather critic secant probe slices across ranks so all ranks compute identical alpha_gain."""
-        rec = getattr(self.opt_d, 'record', None)
         probes = getattr(rec, '_d_probe_list', None)
         if not probes or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
             return
@@ -738,11 +767,10 @@ class ReplicatedTrainer(ReferenceTrainer):
             gy = self._all_gather_coupled(y_pre.detach())[:b_p]
             rec._g_probe_cache = (_BroadcastProbeProxy(g_mod, gy), (gz,), {}, gy)
 
-    def _gather_rhbi_pair(self, fake_score, real_score):
+    def _gather_rhbi_pair(self, fake_score, real_score, rec):
         """Gather critic logits and RHBI input/conditioning captures across all ranks."""
         from particlegan._rhbi.critic import _lookup_rhbi_capture_parts
 
-        rec = getattr(self.opt_d, 'record', None)
         x_f, cond_f, rec_f, cc_f, parts_f = _lookup_rhbi_capture_parts(fake_score, rec)
         x_r, cond_r, rec_r, cc_r, parts_r = _lookup_rhbi_capture_parts(
             real_score, rec_f if rec_f is not None else rec
@@ -958,7 +986,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 raise ValueError('Prior IDs must be an int64 vector of local_batch_size')
             context = self.graph.generate(z, local_batch, prior=self.prior)
             raw_fake, real = context['generated'], local_batch['real']
-            if not isinstance(raw_fake, torch.Tensor) or raw_fake.shape != real.shape or not torch.isfinite(raw_fake).all():
+            if not self._valid_generated_shape(raw_fake, real) or not torch.isfinite(raw_fake).all():
                 raise ValueError('Generator output must be finite and match local real data shape')
             fake = with_noise(raw_fake, output_std, noise_stream)
             context['generated'] = fake
@@ -1024,7 +1052,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             moment_stats = self._sample_moment_scalars(last_fake, last_real)
             return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
 
-        self.opt_d.zero_grad(set_to_none=True)
+        for optimizer in self.critic_optimizers.values():
+            optimizer.zero_grad(set_to_none=True)
         coupled_d = bool(
             getattr(self.aggregation_strategy, 'reduces_gradients', False)
             and any(self._uses_coupled_critic_loss(term, real) for term in terms)
@@ -1090,32 +1119,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
                 self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
                 self._phase('discriminator backward', d_loss.backward)
-        self._reduce_gradients(self.opt_d, 'discriminator')
-        critic_params = self._critic_checked_parameters(terms)
-        critic_grad_norm_t = self._grad_norm_scalar(critic_params)
-        rec_d = getattr(self.opt_d, 'record', None)
-        if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
-            if hasattr(rec_d, 'proto_initialized'):
-                from .aggregation import sync_empf_record
-                sync_empf_record(rec_d, self.device, self.world_size)
-            elif hasattr(rec_d, 't1c_ell_initialized'):
-                from .aggregation import sync_unified_v11_record
-                sync_unified_v11_record(rec_d, self.device, self.world_size)
-        self._sync_unified_v11_d_probes()
-        explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
-        self._optimizer_step(self.opt_d, 'discriminator')
-        if explicit_guard is not None:
-            d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
-        elif getattr(self.opt_d, 'guard', None) is not None:
-            post_critic_grad_norm_t = self._grad_norm_scalar(critic_params)
-            d_guard_ratio_t = torch.where(
-                critic_grad_norm_t > 0.0,
-                post_critic_grad_norm_t / critic_grad_norm_t.clamp_min(1e-30),
-                torch.ones_like(critic_grad_norm_t),
-            )
-        else:
-            d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
-        self._average_critic_statistics()
+        critic_grad_norm_t, d_guard_ratio_t = self._step_critics(terms)
 
         saved_flags = []
         seen_modules = set()
@@ -1415,13 +1419,13 @@ class ReplicatedTrainer(ReferenceTrainer):
         generation_rng, d_records = [], []
         # The penalty record counts calls. Discovery and replay evaluate one
         # logical penalty per microbatch; keep the count of the plain update.
-        record, logical_calls = self.opt_d.record, None
-        calls_before = record.calls
+        records = [optimizer.record for optimizer in self.critic_optimizers.values()]
+        logical_calls = None
 
         def generate(local_z, local_batch):
             context = self.graph.generate(local_z, local_batch, prior=self.prior)
             fake = context['generated']
-            if not isinstance(fake, torch.Tensor) or fake.shape != local_batch['real'].shape or not torch.isfinite(fake).all():
+            if not self._valid_generated_shape(fake, local_batch['real']) or not torch.isfinite(fake).all():
                 raise ValueError('Generator output must be finite and match local real data shape')
             return context
 
@@ -1474,7 +1478,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                     return [(r_sc.detach(), f_sc.detach(), pen.detach()) for r_sc, f_sc, pen in term_records], fake_digest, sample_moments
                 d_records.append((rng, self._phase(f'D micro {index} discovery', prepass)))
                 if logical_calls is None:
-                    logical_calls = record.calls
+                    logical_calls = [record.calls for record in records]
             all_dr, all_df = [], []
             unweighted, weighted = [], []
             for t, term in enumerate(terms):
@@ -1496,7 +1500,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             d_penalty = sum(rec[1][0][t][2] / self.accumulation_steps for rec in d_records for t in range(len(terms)))
             d_loss = d_adversarial.detach() + d_penalty
             self._phase('accumulated D total loss', lambda: self._finite_loss(d_loss))
-            self.opt_d.zero_grad(set_to_none=True)
+            for optimizer in self.critic_optimizers.values():
+                optimizer.zero_grad(set_to_none=True)
             for index, start in enumerate(starts):
                 rng, expected = d_records[index]
                 def replay():
@@ -1512,33 +1517,9 @@ class ReplicatedTrainer(ReferenceTrainer):
                         step_loss = step_loss + term_loss
                     step_loss.backward()
                 self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
-            record.calls = calls_before if logical_calls is None else logical_calls
-        self._reduce_gradients(self.opt_d, 'discriminator')
-        critic_params = self._critic_checked_parameters(terms)
-        critic_grad_norm_t = self._grad_norm_scalar(critic_params)
-        rec_d = getattr(self.opt_d, 'record', None)
-        if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
-            if hasattr(rec_d, 'proto_initialized'):
-                from .aggregation import sync_empf_record
-                sync_empf_record(rec_d, self.device, self.world_size)
-            elif hasattr(rec_d, 't1c_ell_initialized'):
-                from .aggregation import sync_unified_v11_record
-                sync_unified_v11_record(rec_d, self.device, self.world_size)
-        self._sync_unified_v11_d_probes()
-        explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
-        self._optimizer_step(self.opt_d, 'discriminator')
-        if explicit_guard is not None:
-            d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
-        elif getattr(self.opt_d, 'guard', None) is not None:
-            post_critic_grad_norm_t = self._grad_norm_scalar(critic_params)
-            d_guard_ratio_t = torch.where(
-                critic_grad_norm_t > 0.0,
-                post_critic_grad_norm_t / critic_grad_norm_t.clamp_min(1e-30),
-                torch.ones_like(critic_grad_norm_t),
-            )
-        else:
-            d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
-        self._average_critic_statistics()
+            for record, calls in zip(records, logical_calls):
+                record.calls = calls
+        critic_grad_norm_t, d_guard_ratio_t = self._step_critics(terms)
         saved_flags = []
         seen_modules = set()
         for term in terms:

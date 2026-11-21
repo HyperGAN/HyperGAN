@@ -99,6 +99,8 @@ def trainer_state(trainer, last_batch):
                      trainable={name: {key: value.requires_grad for key, value in getattr(trainer, name).named_parameters()} for name in modules},
                      modes={name: {key: module.training for key, module in getattr(trainer, name).named_modules()} for name in modules},
                      last_batch=last_batch)
+        if len(trainer.critic_optimizers) > 1:
+            state['critic_names'] = list(trainer.critic_optimizers)
         recipe = getattr(trainer, 'recipe', None)
         spread = getattr(trainer, 'spread', None)
         if recipe is not None and callable(getattr(recipe, 'prior_regularizer_checkpoint', None)):
@@ -111,12 +113,21 @@ def trainer_state(trainer, last_batch):
         restore_rng(rng)
 
 
+def _validate_optimizer_inventory(trainer, state):
+    expected_names = list(trainer.critic_optimizers)
+    if len(expected_names) > 1 or 'critic_names' in state:
+        if state.get('critic_names') != expected_names:
+            raise ValueError('Checkpoint critic optimizer names differ from the configured critics')
+    if len(state['optimizers']) != len(trainer.optimizers) or len(state['base_lrs']) != len(trainer.optimizers):
+        raise ValueError('Checkpoint requires matching optimizer states and base learning rates')
+
+
 def _restore_trainer(trainer, state):
     import numpy as np
     import torch
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
-    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer'}:
+    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer', 'critic_names'}:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if getattr(trainer, 'device', torch.device('cpu')).type == 'cuda':
         rng = state['rng']
@@ -130,8 +141,7 @@ def _restore_trainer(trainer, state):
                 raise ValueError('Checkpoint CUDA RNG tensor is incompatible')
     if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
         raise ValueError('Checkpoint step is outside the configured training schedule')
-    if len(state['optimizers']) != len(trainer.optimizers) or len(state['base_lrs']) != len(trainer.optimizers):
-        raise ValueError('Checkpoint requires matching optimizer states and base learning rates')
+    _validate_optimizer_inventory(trainer, state)
     if set(state['streams']) != set(trainer.streams):
         raise ValueError('Checkpoint named RNG streams differ from trainer')
     # Validate consumed RNG streams before any model or optimizer is restored.
@@ -256,12 +266,11 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
 
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
-    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer'}:
+    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer', 'critic_names'}:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
         raise ValueError('Checkpoint step is outside the configured training schedule')
-    if len(state['optimizers']) != len(trainer.optimizers) or len(state['base_lrs']) != len(trainer.optimizers):
-        raise ValueError('Checkpoint requires matching optimizer states and base learning rates')
+    _validate_optimizer_inventory(trainer, state)
     if not isinstance(state['streams'], dict):
         raise ValueError('Checkpoint named RNG streams must be a dictionary')
     if set(state['modes']) != {'graph', 'prior', 'ema_graph', 'ema_prior'}:
@@ -1189,6 +1198,116 @@ def prune_checkpoints(
     return _prune_report(run_dir, dry_run, retained, deleted, failed, skipped)
 
 
+def _retention_candidates(run_dir, checkpoints, tip, m_data, policy):
+    retained_reasons = defaultdict(set)
+    for c in checkpoints:
+        if c['path'].is_symlink():
+            retained_reasons[c['name']].add('symlink')
+
+    if policy.get('latest_only'):
+        # Only a published generation can replace the recovery point. A directory
+        # left by a writer that failed before publishing latest.json cannot win.
+        if tip is None or tip['path'].is_symlink() or not _read_json(tip['path'] / 'manifest.json'):
+            raise ValueError('Latest-only pruning requires a published checkpoint')
+        retained_reasons[tip['name']].add('latest')
+        return retained_reasons, [c for c in checkpoints if c['name'] not in retained_reasons]
+
+    branch = _live_branch(run_dir, checkpoints, tip)
+    max_step = max(c['step'] for c in checkpoints)
+    for c in checkpoints:
+        if c is tip or (tip is None and c['step'] == max_step):
+            retained_reasons[c['name']].add('latest')
+    live = [c for c in checkpoints if branch is None or c['name'] in branch]
+    live_names = {c['name'] for c in live}
+
+    # S2: Pin active interval evaluations
+    pinned_steps = set()
+    schedule = m_data.get('evaluation_schedule')
+    for item in (schedule.values() if isinstance(schedule, dict) else []):
+        if isinstance(item, dict) and item.get('status') == 'running' and type(item.get('source_step')) is int:
+            pinned_steps.add(item['source_step'])
+
+    eval_root = run_dir / 'metrics' / 'evaluations'
+    if eval_root.is_dir():
+        for r_file in eval_root.glob('*/receipt.json'):
+            receipt = _read_json(r_file) or {}
+            if receipt.get('status') == 'running':
+                s = receipt.get('source_step') if receipt.get('source_step') is not None else receipt.get('step')
+                if type(s) is int:
+                    pinned_steps.add(s)
+
+    for c in checkpoints:
+        if c['step'] in pinned_steps:
+            retained_reasons[c['name']].add('active_evaluation')
+
+    # S3: Retain step 0 (initial state)
+    for c in checkpoints:
+        if c['step'] == 0:
+            retained_reasons[c['name']].add('step_zero')
+
+    # S4: Keep milestones (keep_every)
+    keep_every = policy.get('keep_every')
+    if keep_every and keep_every > 0:
+        for c in checkpoints:
+            if c['step'] % keep_every == 0:
+                retained_reasons[c['name']].add(f'milestone(step={c["step"]})')
+
+    # S5: Keep the best checkpoints of the run's one primary metric, ranked
+    # exactly as summary "best" and resolve_checkpoint('best') rank them.
+    keep_best = policy.get('keep_best')
+    if isinstance(keep_best, dict) and keep_best.get('count', 0) > 0:
+        from .summary import collect_evaluations
+        metric, _, ranked = _rank_best(run_dir, collect_evaluations(run_dir), policy)
+        matches = _checkpoints_for_records(checkpoints, ranked)
+        remaining = keep_best['count']
+        for record in ranked:
+            names = [c['name'] for c in matches[id(record)] if f'best({metric})' not in retained_reasons[c['name']]]
+            if not names:
+                continue
+            for name in names:
+                retained_reasons[name].add(f'best({metric})')
+            remaining -= 1
+            if remaining == 0:
+                break
+
+    # Keep last N checkpoints of the live branch
+    keep_last = policy.get('keep_last', 3)
+    if keep_last > 0:
+        last_steps = set(sorted({c['step'] for c in live})[-keep_last:])
+        recovery_ckpt = (m_data.get('recovery_parent') or {}).get('checkpoint_id')
+        for c in checkpoints:
+            if (c['name'] in live_names and c['step'] in last_steps) or (recovery_ckpt and c['name'] == recovery_ckpt):
+                retained_reasons[c['name']].add('keep_last')
+
+    # The newest checkpoint of each attempt off the live branch stays as that
+    # abandoned branch's tip; it no longer counts toward keep_last. An attempt
+    # can hold several checkpoints at its last step (a periodic one and the
+    # final one), so "newest" is the one written last (event sequence), then
+    # the one its manifest last recorded, never the random name suffix.
+    recorded = _attempt_checkpoints(run_dir)
+    abandoned = defaultdict(list)
+    for c in checkpoints:
+        if c['name'] not in live_names:
+            abandoned[c['attempt_id']].append(c)
+    for attempt, owned in abandoned.items():
+        newest = max(owned, key=lambda c: (c['step'], c['sequence'], c['name'] == recorded.get(attempt), c['name']))
+        retained_reasons[newest['name']].add('abandoned_tip')
+
+    # S3: Require a newer durable checkpoint before deleting older. Off the
+    # live branch, the retained live tip is that newer durable checkpoint.
+    deleted_candidates = []
+    for c in checkpoints:
+        if c['name'] in retained_reasons:
+            continue
+        has_newer = c['name'] not in live_names or any(other['step'] > c['step'] for other in live)
+        if not has_newer:
+            retained_reasons[c['name']].add('s3_no_newer_durable')
+        else:
+            deleted_candidates.append(c)
+
+    return retained_reasons, deleted_candidates
+
+
 def _prune_run_checkpoints(run_dir, policy=None, dry_run=False, manifest=None):
     """Retention for one run whose lock the caller holds, adhering to Invariants S1-S5.
 
@@ -1240,9 +1359,6 @@ def _prune_run_checkpoints(run_dir, policy=None, dry_run=False, manifest=None):
             retained = [{'step': c['step'], 'name': c['name'], 'reasons': ['single_checkpoint']} for c in checkpoints]
             return _prune_report(run_dir, dry_run, retained)
 
-        # 3. Retain map: name -> set of reasons
-        retained_reasons = defaultdict(set)
-
         # S1: Never delete latest. Compare pointers across roots so the newest tip wins.
         m_data = manifest if isinstance(manifest, dict) else (_read_json(run_dir / 'manifest.json') or {})
         tip_candidates = []
@@ -1254,106 +1370,14 @@ def _prune_run_checkpoints(run_dir, policy=None, dry_run=False, manifest=None):
                 cand = next((c for c in checkpoints if c['path'].parent == ckpt_root and c['name'] == latest_name), None)
                 if cand is not None:
                     tip_candidates.append((_checkpoint_sort_key(cand['path'], m_data), cand))
-        tip_candidates.sort(key=lambda item: item[0], reverse=True)
+        if policy.get('latest_only'):
+            # Across topology changes a new attempt can publish a lower step.
+            # Event order and the run's published path identify the live generation.
+            tip_candidates.sort(key=lambda item: (item[1]['sequence'], item[0][2], item[0]), reverse=True)
+        else:
+            tip_candidates.sort(key=lambda item: item[0], reverse=True)
         tip = tip_candidates[0][1] if tip_candidates else None
-        branch = _live_branch(run_dir, checkpoints, tip)
-        max_step = max(c['step'] for c in checkpoints)
-        for c in checkpoints:
-            if c is tip or (tip is None and c['step'] == max_step):
-                retained_reasons[c['name']].add('latest')
-        live = [c for c in checkpoints if branch is None or c['name'] in branch]
-        live_names = {c['name'] for c in live}
-
-        # S2: Pin active interval evaluations
-        pinned_steps = set()
-        schedule = m_data.get('evaluation_schedule')
-        for item in (schedule.values() if isinstance(schedule, dict) else []):
-            if isinstance(item, dict) and item.get('status') == 'running' and type(item.get('source_step')) is int:
-                pinned_steps.add(item['source_step'])
-
-        eval_root = run_dir / 'metrics' / 'evaluations'
-        if eval_root.is_dir():
-            for r_file in eval_root.glob('*/receipt.json'):
-                receipt = _read_json(r_file) or {}
-                if receipt.get('status') == 'running':
-                    s = receipt.get('source_step') if receipt.get('source_step') is not None else receipt.get('step')
-                    if type(s) is int:
-                        pinned_steps.add(s)
-
-        for c in checkpoints:
-            if c['step'] in pinned_steps:
-                retained_reasons[c['name']].add('active_evaluation')
-
-        # S3: Retain step 0 (initial state)
-        for c in checkpoints:
-            if c['step'] == 0:
-                retained_reasons[c['name']].add('step_zero')
-
-        # S4: Keep milestones (keep_every)
-        keep_every = policy.get('keep_every')
-        if keep_every and keep_every > 0:
-            for c in checkpoints:
-                if c['step'] % keep_every == 0:
-                    retained_reasons[c['name']].add(f'milestone(step={c["step"]})')
-
-        # S5: Keep the best checkpoints of the run's one primary metric, ranked
-        # exactly as summary "best" and resolve_checkpoint('best') rank them.
-        keep_best = policy.get('keep_best')
-        if isinstance(keep_best, dict) and keep_best.get('count', 0) > 0:
-            from .summary import collect_evaluations
-            metric, _, ranked = _rank_best(run_dir, collect_evaluations(run_dir), policy)
-            matches = _checkpoints_for_records(checkpoints, ranked)
-            remaining = keep_best['count']
-            for record in ranked:
-                names = [c['name'] for c in matches[id(record)] if f'best({metric})' not in retained_reasons[c['name']]]
-                if not names:
-                    continue
-                for name in names:
-                    retained_reasons[name].add(f'best({metric})')
-                remaining -= 1
-                if remaining == 0:
-                    break
-
-        # Keep last N checkpoints of the live branch
-        keep_last = policy.get('keep_last', 3)
-        if keep_last > 0:
-            last_steps = set(sorted({c['step'] for c in live})[-keep_last:])
-            recovery_ckpt = (m_data.get('recovery_parent') or {}).get('checkpoint_id')
-            for c in checkpoints:
-                if (c['name'] in live_names and c['step'] in last_steps) or (recovery_ckpt and c['name'] == recovery_ckpt):
-                    retained_reasons[c['name']].add('keep_last')
-
-        # The newest checkpoint of each attempt off the live branch stays as that
-        # The newest checkpoint of each attempt off the live branch stays as that
-        # abandoned branch's tip; it no longer counts toward keep_last. An attempt
-        # can hold several checkpoints at its last step (a periodic one and the
-        # final one), so "newest" is the one written last (event sequence), then
-        # the one its manifest last recorded, never the random name suffix.
-        recorded = _attempt_checkpoints(run_dir)
-        abandoned = defaultdict(list)
-        for c in checkpoints:
-            if c['name'] not in live_names:
-                abandoned[c['attempt_id']].append(c)
-        for attempt, owned in abandoned.items():
-            newest = max(owned, key=lambda c: (c['step'], c['sequence'], c['name'] == recorded.get(attempt), c['name']))
-            retained_reasons[newest['name']].add('abandoned_tip')
-
-        # Prune never deletes through a symbolic link; its target may be outside the run.
-        for c in checkpoints:
-            if c['path'].is_symlink():
-                retained_reasons[c['name']].add('symlink')
-
-        # S3: Require a newer durable checkpoint before deleting older. Off the
-        # live branch, the retained live tip is that newer durable checkpoint.
-        deleted_candidates = []
-        for c in checkpoints:
-            if c['name'] in retained_reasons:
-                continue
-            has_newer = c['name'] not in live_names or any(other['step'] > c['step'] for other in live)
-            if not has_newer:
-                retained_reasons[c['name']].add('s3_no_newer_durable')
-            else:
-                deleted_candidates.append(c)
+        retained_reasons, deleted_candidates = _retention_candidates(run_dir, checkpoints, tip, m_data, policy)
 
         # Execute deletion if not dry_run. A checkpoint whose deletion raises is
         # reported as failed, not as deleted or reclaimed.

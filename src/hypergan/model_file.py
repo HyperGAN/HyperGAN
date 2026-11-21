@@ -64,7 +64,7 @@ FORMAT = 'hypergan-model/1'
 TOP_LEVEL = {'format', 'name', 'description', 'defaults', 'recipe', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
              'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'aggregation', 'extends'}
 
-CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
+CHECKPOINT_FIELDS = {'latest_only', 'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
 ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
 RESERVED = {'latent', 'batch', 'generated', 'candidate', 'prior', 'components', 'update', 'evaluation',
             'reference'}
@@ -109,9 +109,15 @@ def normalize_checkpoint_policy(policy=None):
     if not isinstance(policy, dict):
         raise ValueError(f"Checkpoint retention policy must be a dict, got {type(policy).__name__}")
 
-    unknown = set(policy) - {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
+    unknown = set(policy) - CHECKPOINT_FIELDS
     if unknown:
         raise ValueError(f"Unknown field(s) in checkpoint retention policy: {', '.join(sorted(unknown))}")
+
+    latest_only = policy.get('latest_only', False)
+    if type(latest_only) is not bool:
+        raise ValueError("latest_only must be boolean")
+    if latest_only:
+        return {'latest_only': True, 'keep_last': 1, 'keep_best': None, 'keep_every': 0, 'export_bundle': 'never'}
 
     defaults = DEFAULT_CHECKPOINT_POLICY
     keep_last = policy.get('keep_last', defaults['keep_last'])
@@ -272,7 +278,7 @@ class _Lowering:
             _table(spec, f'networks.{name}', NETWORK_FIELDS)
             if 'optimizer' in spec:
                 role = spec.get('role')
-                group = 'critic Adam (shared by all critics)' if role == 'critic' else 'generator-side Adam'
+                group = 'the configured critic optimizer' if role == 'critic' else 'generator-side Adam'
                 raise ModelFileError(f"Engine limit: networks.{name} is trained by {group}; per-network optimizers are not yet supported. Remove optimizer= from {name}.")
             role = spec.get('role')
             if role not in ROLES:
@@ -483,11 +489,6 @@ class _Lowering:
                 weights.update({key: loss[key] for key in ('critic_weight', 'generator_weight') if key in loss})
                 if loss['critic'] == self.primary and 'adversarial' not in recipe:
                     real_raw, fake_raw = loss.get('real', 'batch.real'), loss.get('fake', 'generated')
-                    disc_inputs = self.networks[self.primary].get('inputs', {})
-                    cond_vals = {v for v in disc_inputs.values() if v != 'candidate' and not str(v).startswith('candidate.')}
-                    if real_raw != 'batch.real' and real_raw in cond_vals and 'inputs' not in loss:
-                        raise ModelFileError(f'{location}: the first adversarial loss compares batch.real with generated '
-                                             'through its critic\'s own inputs (engine limit); put other comparisons in later adversarial losses')
                     adv = weights
                     if 'id' in loss:
                         if not isinstance(loss['id'], str) or _ID.fullmatch(loss['id']) is None:
@@ -517,9 +518,7 @@ class _Lowering:
                     term['penalty_coeff'] = penalty
                 if 'inputs' in loss:
                     bound_inputs = self.bind_all(loss['inputs'], f'{location}.inputs')
-                    non_cand = {k: v for k, v in bound_inputs.items() if v != 'candidate' and not v.startswith('candidate.')}
-                    if non_cand:
-                        term['inputs'] = non_cand
+                    term['inputs'] = {**recipe['components'][term['component']]['inputs'], **bound_inputs}
                 if term['id'] in seen_ids:
                     raise ModelFileError(f'{location}: loss id {term["id"]!r} is repeated; give each loss an id')
                 seen_ids.add(term['id'])

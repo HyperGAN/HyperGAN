@@ -23,6 +23,7 @@ class SampleBinding:
     path: str
     detach_sample: bool
     detach_score: bool
+    use_draw_cache: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,12 +92,12 @@ def _ordered_unique(parameters):
     return tuple(ordered)
 
 
-def _phases(real, fake):
+def _phases(real, fake, *, shared_fake=False):
     # Critic step detaches the fake sample before the forward. Generator step
     # detaches the real score after the forward. Those cuts are not the same.
     critic = PhaseSamples(
         SampleBinding(real, detach_sample=False, detach_score=False),
-        SampleBinding(fake, detach_sample=True, detach_score=False))
+        SampleBinding(fake, detach_sample=True, detach_score=False, use_draw_cache=shared_fake))
     generator = PhaseSamples(
         SampleBinding(real, detach_sample=False, detach_score=True),
         SampleBinding(fake, detach_sample=False, detach_score=False))
@@ -121,20 +122,23 @@ def compile_objective_program(graph, prior, config, objectives, gan, penalty, sp
     """
     discriminator = graph.models["discriminator"]
     primary = config["adversarial"]
-    critic_phase, generator_phase = _phases(primary.get("real", "batch.real"), primary.get("fake", "generated"))
-    terms = [AdversarialTerm(
-        discriminator, _routes(graph.specs["discriminator"]["inputs"]), primary["weight"],
-        primary.get("critic_weight", primary["weight"]), primary.get("generator_weight", primary["weight"]),
-        True, penalty, gan, critic_phase, generator_phase, primary.get("id", "adversarial"))]
-    for spec in config.get("adversarial_terms") or ():
-        module = graph.models[spec["component"]]
-        extra_critic, extra_generator = _phases(spec["real"], spec["fake"])
-        term_gan, term_penalty = extra_term(spec)
-        terms.append(AdversarialTerm(
-            module, _routes(spec["inputs"]), spec["weight"],
-            spec.get("critic_weight", spec["weight"]), spec.get("generator_weight", spec["weight"]), bool(spec["penalty"]),
-            term_penalty, term_gan,
-            extra_critic, extra_generator, spec["id"]))
+    extra_specs = config.get("adversarial_terms") or ()
+    shared_fake = bool(config.get("recipe")) and any(spec["component"] != "discriminator" for spec in extra_specs)
+
+    def compile_term(spec, module, routes, loss, penalty_fn):
+        critic_phase, generator_phase = _phases(
+            spec.get("real", "batch.real"), spec.get("fake", "generated"), shared_fake=shared_fake)
+        return AdversarialTerm(
+            module=module, routes=_routes(routes), weight=spec["weight"],
+            critic_weight=spec.get("critic_weight", spec["weight"]),
+            generator_weight=spec.get("generator_weight", spec["weight"]),
+            penalty=penalty_fn is not None, penalty_fn=penalty_fn, gan=loss,
+            critic_phase=critic_phase, generator_phase=generator_phase, id=spec.get("id", "adversarial"))
+
+    terms = [compile_term(primary, discriminator, graph.specs["discriminator"]["inputs"], gan, penalty)]
+    for spec in extra_specs:
+        loss, term_penalty = extra_term(spec)
+        terms.append(compile_term(spec, graph.models[spec["component"]], spec["inputs"], loss, term_penalty))
     terms = tuple(terms)
     if len(terms) == 1:
         # The discriminator's own parameter objects, in module order. Do not filter
@@ -248,7 +252,10 @@ def _bound_scores(term, context, graph, phase_name, phase, *, first, noise):
     output_noise, input_noise = noise
     sample_context = _sample_context(context, phase_name)
     real = _sample_tensor(graph, sample_context, phase.real)
-    fake = with_noise(_sample_tensor(graph, sample_context, phase.fake), *output_noise)
+    # Independent critics reading a generated mask must see the same mask,
+    # including stochastic component outputs. The critic detaches this sample.
+    fake_context = context if phase.fake.use_draw_cache else sample_context
+    fake = with_noise(_sample_tensor(graph, fake_context, phase.fake), *output_noise)
 
     def score(sample, binding):
         value = score_candidate(term, sample, context, graph, phase_name, noise=input_noise)

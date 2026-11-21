@@ -32,6 +32,43 @@ from .objective_program import (
 DEFAULT_BUCKET_CAP_BYTES = 25 * 1024 * 1024  # 25 MB default bucket size
 
 
+class _BroadcastProbeProxy:
+    """Evaluate a post-step secant probe on rank 0 and broadcast the result bitwise to all ranks.
+
+    Prevents ~1e-6 cuDNN/TF32 nondeterminism on identical probe inputs from causing
+    divergent ``alpha_gain`` / ``_ema_func_gain`` updates across CUDA replicas.
+    """
+
+    __slots__ = ("_module", "_ref_shape", "_device")
+
+    def __init__(self, module, ref_tensor):
+        self._module = module
+        self._ref_shape = tuple(ref_tensor.shape)
+        self._device = ref_tensor.device
+
+    def modules(self):
+        return self._module.modules()
+
+    def eval(self):
+        return self._module.eval()
+
+    def parameters(self, recurse=True):
+        return self._module.parameters(recurse=recurse)
+
+    def __getattr__(self, name):
+        return getattr(self._module, name)
+
+    def __call__(self, *args, **kwargs):
+        if dist.get_rank() == 0:
+            out = self._module(*args, **kwargs)
+            target = out[0] if isinstance(out, (tuple, list)) and out else out
+            buf = target.detach().to(device=self._device, dtype=torch.float32).contiguous()
+        else:
+            buf = torch.empty(self._ref_shape, dtype=torch.float32, device=self._device)
+        dist.broadcast(buf, src=0)
+        return buf
+
+
 def _bucket_parameters(parameters, bucket_cap_bytes=DEFAULT_BUCKET_CAP_BYTES):
     """Partition parameters into memory-contiguous buckets grouped by (device, dtype)."""
     buckets = []
@@ -670,10 +707,10 @@ class ReplicatedTrainer(ReferenceTrainer):
         return self._gather_rhbi_pair(fake_score, real_score)
 
     def _sync_unified_v11_d_probes(self):
-        """Gather low-D critic secant probe slices across ranks so all ranks compute identical alpha_gain."""
+        """Gather critic secant probe slices across ranks so all ranks compute identical alpha_gain."""
         rec = getattr(self.opt_d, 'record', None)
         probes = getattr(rec, '_d_probe_list', None)
-        if not probes or self.world_size <= 1:
+        if not probes or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
             return
         from particlegan._unified_v11.critic import _PROBE_SLICE
         synced = []
@@ -687,17 +724,19 @@ class ReplicatedTrainer(ReferenceTrainer):
         rec._d_probe_list = synced
 
     def _sync_unified_v11_g_probe(self):
-        """Gather low-D generator secant probe slice across ranks so all ranks compute identical alpha_gain."""
+        """Gather element-budgeted generator secant probe slice across ranks so all ranks compute identical alpha_gain."""
         rec = getattr(self.opt_d, 'record', None)
         cache = getattr(rec, '_g_probe_cache', None)
-        if cache is None or self.world_size <= 1:
+        if cache is None or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
             return
         from particlegan._unified_v11.critic import _PROBE_SLICE
         g_mod, p_args, p_kwargs, y_pre = cache
+        out_dim = max(1, int(y_pre[0].numel()))
+        b_p = max(2, min(_PROBE_SLICE, 8192 // out_dim))
         if len(p_args) == 1 and not p_kwargs and isinstance(p_args[0], torch.Tensor):
-            gz = self._all_gather_coupled(p_args[0].detach())[:_PROBE_SLICE]
-            gy = self._all_gather_coupled(y_pre.detach())[:_PROBE_SLICE]
-            rec._g_probe_cache = (g_mod, (gz,), {}, gy)
+            gz = self._all_gather_coupled(p_args[0].detach())[:b_p]
+            gy = self._all_gather_coupled(y_pre.detach())[:b_p]
+            rec._g_probe_cache = (_BroadcastProbeProxy(g_mod, gy), (gz,), {}, gy)
 
     def _gather_rhbi_pair(self, fake_score, real_score):
         """Gather critic logits and RHBI input/conditioning captures across all ranks."""
@@ -1055,9 +1094,13 @@ class ReplicatedTrainer(ReferenceTrainer):
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
         rec_d = getattr(self.opt_d, 'record', None)
-        if rec_d is not None and hasattr(rec_d, 'proto_initialized'):
-            from .aggregation import sync_empf_record
-            sync_empf_record(rec_d, self.device, self.world_size)
+        if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            if hasattr(rec_d, 'proto_initialized'):
+                from .aggregation import sync_empf_record
+                sync_empf_record(rec_d, self.device, self.world_size)
+            elif hasattr(rec_d, 't1c_ell_initialized'):
+                from .aggregation import sync_unified_v11_record
+                sync_unified_v11_record(rec_d, self.device, self.world_size)
         self._sync_unified_v11_d_probes()
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
         self._optimizer_step(self.opt_d, 'discriminator')
@@ -1474,9 +1517,13 @@ class ReplicatedTrainer(ReferenceTrainer):
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
         rec_d = getattr(self.opt_d, 'record', None)
-        if rec_d is not None and hasattr(rec_d, 'proto_initialized'):
-            from .aggregation import sync_empf_record
-            sync_empf_record(rec_d, self.device, self.world_size)
+        if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            if hasattr(rec_d, 'proto_initialized'):
+                from .aggregation import sync_empf_record
+                sync_empf_record(rec_d, self.device, self.world_size)
+            elif hasattr(rec_d, 't1c_ell_initialized'):
+                from .aggregation import sync_unified_v11_record
+                sync_unified_v11_record(rec_d, self.device, self.world_size)
         self._sync_unified_v11_d_probes()
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
         self._optimizer_step(self.opt_d, 'discriminator')

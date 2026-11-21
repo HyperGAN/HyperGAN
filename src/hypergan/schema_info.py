@@ -615,6 +615,18 @@ MODEL_SCHEMA: Dict[str, Any] = {
                     "type": "integer",
                     "description": "Deterministic RNG seed for evaluation draws.",
                 },
+                "prior_seed": {
+                    "type": "integer",
+                    "description": "Seed for the evaluation prior generator (default seed + 2).",
+                },
+                "data_seed": {
+                    "type": "integer",
+                    "description": "Seed for the evaluation data generator (default seed + 1).",
+                },
+                "inputs": {
+                    "type": "object",
+                    "description": "Bind plugin inputs to generated, reference or named EMA network outputs.",
+                },
                 "device": {
                     "type": "string",
                     "description": "Execution device for the evaluation worker ('cuda', 'cuda:0', 'cpu').",

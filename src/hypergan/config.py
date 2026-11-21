@@ -992,5 +992,10 @@ def sampling_bindings(sampling, *, preview=False):
 
 def evaluation_bindings(config):
     """Explicit snapshot output overrides; omitted values use sampling output."""
-    return [spec['evaluation']['generated'] for spec in config['metrics']['custom'].values()
-            if spec['mode'] == 'snapshot' and 'generated' in spec['evaluation']]
+    paths = []
+    for spec in config['metrics']['custom'].values():
+        if spec['mode'] == 'snapshot':
+            if 'generated' in spec['evaluation']:
+                paths.append(spec['evaluation']['generated'])
+            paths.extend(path for path in spec['inputs'].values() if path.startswith('components.'))
+    return paths

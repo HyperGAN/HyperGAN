@@ -5,11 +5,13 @@ execution and cleanup and reaps its worker when the coordinator dies. Plugin
 allocations, hidden external state and plugin-created descendants are not a
 security sandbox. No live trainer or sampler crosses this boundary.
 """
+from collections.abc import Mapping
 import hashlib
 import importlib
 import inspect
 import json
 import math
+from numbers import Integral, Real
 import os
 from pathlib import Path
 import queue
@@ -36,11 +38,44 @@ def finite_json(value):
     return json.loads(encoded)
 
 
+METRIC_ID = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9_./-]{0,127}')
+
+
+def scalar_outputs(outputs):
+    """Normalize a snapshot plugin's local output IDs and presentation metadata."""
+    if not isinstance(outputs, dict) or not 1 <= len(outputs) <= MAX_CUSTOM_METRICS:
+        raise ValueError('Snapshot outputs must declare 1–32 named scalars')
+    result = {}
+    for key, metadata in outputs.items():
+        if not isinstance(key, str) or not METRIC_ID.fullmatch(key):
+            raise ValueError(f'Invalid snapshot output ID: {key!r}')
+        if not isinstance(metadata, dict) or metadata.keys() - {'label', 'unit', 'direction', 'description'}:
+            raise ValueError(f'Invalid presentation metadata for snapshot output {key}')
+        result[key] = _presentation(dict(metadata, kind='scalar'), key)
+    return result
+
+
+def scalar_values(value, outputs):
+    if not isinstance(value, Mapping) or set(value) != set(outputs):
+        raise ValueError('Snapshot result must match the declared output IDs exactly')
+    result = {}
+    for key, number in value.items():
+        # NumPy scalars and zero-dimensional tensors expose item(). Keep the
+        # public import path free of numerical runtime dependencies.
+        if getattr(number, 'ndim', None) == 0 and callable(getattr(number, 'item', None)):
+            number = number.item()
+        if (isinstance(number, bool) or not isinstance(number, Real)
+                or not -sys.float_info.max <= number <= sys.float_info.max):
+            raise ValueError(f'Snapshot output {key!r} must be a finite real scalar')
+        result[key] = int(number) if isinstance(number, Integral) else float(number)
+    return finite_json(result)
+
+
 def validate_custom(specs):
     if not isinstance(specs, dict) or len(specs) > MAX_CUSTOM_METRICS:
         raise ValueError('metrics.custom must be a table with at most 32 metrics')
     for name, spec in specs.items():
-        if not isinstance(name, str) or re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_./-]{0,127}', name) is None:
+        if not isinstance(name, str) or METRIC_ID.fullmatch(name) is None:
             raise ValueError('Custom metric IDs must be 1–128 letters, digits, dots, underscores, slashes or hyphens')
         allowed = {'factory', 'args', 'inputs', 'mode', 'every_steps', 'timeout', 'on_error', 'trigger', 'evaluation', 'on_busy'}
         if not isinstance(spec, dict) or set(spec) - allowed:
@@ -87,11 +122,12 @@ def validate_custom(specs):
                     raise ValueError(f'{name}.on_busy must be skip for interval evaluation')
             elif {'every_steps', 'on_busy'} & set(spec):
                 raise ValueError(f'{name}: manual snapshot metrics do not accept every_steps or on_busy')
-            if set(inputs.values()) - {'evaluation.generated', 'evaluation.reference'}:
-                raise ValueError(f'{name}.inputs must select evaluation.generated or evaluation.reference')
+            if any(source not in ('evaluation.generated', 'evaluation.reference')
+                   and not (source.startswith('components.') and all(source.split('.'))) for source in inputs.values()):
+                raise ValueError(f'{name}.inputs must select generated, reference or a network output')
             evaluation = spec.get('evaluation')
             required = {'data', 'sample_count', 'batch_size', 'seed'}
-            if not isinstance(evaluation, dict) or not required <= set(evaluation) or set(evaluation) - required - {'device', 'generated'}:
+            if not isinstance(evaluation, dict) or not required <= set(evaluation) or set(evaluation) - required - {'device', 'generated', 'prior_seed', 'data_seed'}:
                 raise ValueError(f'{name}.evaluation requires explicit data, sample_count, batch_size and seed')
             if 'generated' in evaluation:
                 binding = evaluation['generated']
@@ -110,6 +146,9 @@ def validate_custom(specs):
             for field, lower, upper in [('sample_count', 1, 1000000), ('batch_size', 1, 1024), ('seed', 0, 2**32-1)]:
                 if type(evaluation[field]) is not int or not lower <= evaluation[field] <= upper:
                     raise ValueError(f'{name}.evaluation.{field} must be an integer in [{lower}, {upper}]')
+            for field in ('data_seed', 'prior_seed'):
+                if field in evaluation and (type(evaluation[field]) is not int or not 0 <= evaluation[field] < 2**32):
+                    raise ValueError(f'{name}.evaluation.{field} requires an integer in [0, 2**32-1]')
             data = evaluation['data']
             if not isinstance(data, dict) or set(data) != {'factory', 'args'} or not isinstance(data['factory'], str) or not isinstance(data['args'], dict):
                 raise ValueError(f'{name}.evaluation.data requires factory and args')
@@ -162,17 +201,27 @@ def _factory(reference, args):
     if not callable(getattr(instance, 'describe', None)) or not callable(getattr(instance, 'evaluate', None)):
         raise ValueError('Metric factory must provide describe() and evaluate()')
     descriptor = finite_json(instance.describe())
+    if isinstance(descriptor, dict) and descriptor.get('kind') == 'scalars':
+        if set(descriptor) != {'kind', 'outputs'}:
+            raise ValueError('A scalars descriptor requires kind and outputs')
+        descriptor['outputs'] = scalar_outputs(descriptor['outputs'])
+    else:
+        descriptor = _presentation(descriptor, qualname)
+    return instance, {'descriptor': descriptor, 'factory_sources': files, 'protocol': 'hypergan-metric/v1'}
+
+
+def _presentation(descriptor, default_label):
     allowed = {'kind', 'label', 'unit', 'direction', 'description'}
     if not isinstance(descriptor, dict) or set(descriptor) - allowed or descriptor.get('kind') not in ('scalar', 'histogram'):
         raise ValueError('Metric describe() requires scalar or histogram kind and presentation metadata only')
     if any(not isinstance(value, str) or len(value) > 1000 for value in descriptor.values()):
         raise ValueError('Metric descriptions must contain bounded text')
-    descriptor.setdefault('label', qualname)
+    descriptor.setdefault('label', default_label)
     descriptor.setdefault('unit', 'value')
     descriptor.setdefault('direction', 'none')
     if descriptor['direction'] not in ('none', 'minimize', 'maximize'):
         raise ValueError('Metric direction must be none, minimize or maximize')
-    return instance, {'descriptor': descriptor, 'factory_sources': files, 'protocol': 'hypergan-metric/v1'}
+    return descriptor
 
 
 def cpu_observation_resources():

@@ -397,6 +397,8 @@ horizontal_flip = false
 | `samples` | `int` | Total number of generated and reference examples to evaluate (required). |
 | `batch_size` | `int` | Batch size per evaluation forward pass (required). |
 | `seed` | `int` | Deterministic RNG seed for evaluation latent draws and dataset iteration (required). |
+| `prior_seed`, `data_seed` | `int` | Optional explicit seeds for the prior and data generators. Their defaults are `seed + 2` and `seed + 1`. |
+| `inputs` | `table` | Maps each plugin argument to `generated`, `reference`, or a named network output. Dotted paths select fields of structured network outputs. |
 | `device` | `string` | Execution device for the evaluation worker (`"cuda"`, `"cuda:1"`, `"cpu"`). |
 | `data` | `table` / `string` | Required evaluation dataset specification (`builtin`, `dataset`, or `factory` + `args`), or `"train"` (or `{ extends = "train", ... }`) to explicitly reuse the model's `[data]` table with deterministic evaluation defaults (`shuffle = false` / `sampling = "sequential"`, `horizontal_flip = false`). Evaluations never implicitly fall back to training data. |
 | `output` / `target` | `string` | Generator output binding to evaluate (defaults to `sampling.output` or `"generated"`, or bind a specific network such as `"reconstruction"`). |
@@ -410,6 +412,81 @@ metrics are pending, the one that has waited longest goes first, so a short
 cadence cannot starve a longer one such as FID. Further due points of a metric
 that is still pending are coalesced into that single evaluation and counted as
 `skipped_busy` in the run's `evaluation_schedule`.
+
+#### Several scores from one EMA sample population
+
+An evaluation factory can describe up to 32 scalar outputs. This model gives
+the evaluator full generated values and their paired masks. Each sampling batch
+uses one learned-prior draw and caches each EMA network's forward result.
+The worker calls `evaluate` once for the whole population, including the final
+short batch. The project supplies the scoring function.
+
+```toml
+[evaluations.misgan]
+factory = "my_project.scoring:Scores"
+every = 1000
+device = "cpu"
+samples = 2048
+batch_size = 128
+seed = 41
+prior_seed = 41
+data = "train"
+inputs = { values = "gx", mask = "gm" }
+```
+
+```python
+import torch
+from my_project.protocol import compute_scores
+
+class Scores:
+    def describe(self):
+        return {"kind": "scalars", "outputs": {
+            "value_error": {"label": "Value error", "unit": "distance", "direction": "minimize"},
+            "mask_score": {"label": "Mask score", "unit": "score", "direction": "maximize"},
+        }}
+
+    def evaluate(self, *, batches, context):
+        values, masks = [], []
+        for batch in batches:
+            values.append(batch["values"])
+            masks.append(batch["mask"])
+        return compute_scores(torch.cat(values), torch.cat(masks))
+```
+
+Return a mapping with exactly the declared keys and a finite real scalar for
+each. Python numbers, NumPy scalars, and zero-dimensional PyTorch tensors are supported. Supported directions are `minimize`, `maximize`, and `none`. The viewer
+plots each output under its full ID, such as `misgan/value_error`. A failed
+evaluation records the reason for each output. A successful retry at the same
+run, attempt, source step and protocol reuses the original result. A conflict
+preserves the first result and reports the error.
+
+Run `hypergan evaluate RUN --metric misgan --checkpoint latest --devices cpu`
+for a manual evaluation. Scheduled and manual results share the same history.
+With `checkpoints.latest_only = true`, that history survives pruning and resume.
+Evaluation weights are temporary.
+
+#### Importing historical scores
+
+Use the public Python API with the original source step and the same local
+output IDs. The import works after the source checkpoint has been pruned and
+can run alongside training. Supply any known attempt ID, snapshot identity,
+snapshot SHA-256, and evaluation protocol. Omitted provenance stays unknown.
+
+```python
+import hypergan as hg
+
+receipt = hg.import_evaluation(
+    "runs/misgan", "misgan", step=1000,
+    outputs=Scores().describe()["outputs"],
+    values={"value_error": 0.18, "mask_score": 0.92},
+    attempt_id=original_attempt_id,
+    snapshot_sha256=original_weights_sha256,
+    protocol={"scorer_version": "v1", "sample_count": 2048, "prior_seed": 41},
+)
+```
+
+Repeated imports of the same scores and provenance return the original receipt.
+The stock viewer and `hg.evaluations(run)` read the resulting history.
 
 ### Scalar Training Metrics (`[metrics]`)
 

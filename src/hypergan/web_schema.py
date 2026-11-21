@@ -37,7 +37,7 @@ def schemas():
         'steps_per_second': {'type': 'number', 'minimum': 0,
                              'description': 'Trailing-window throughput; absent until a positive duration is measured.'},
         'distributions':{'type': 'object', 'additionalProperties': ref('Histogram')},
-        'evaluation_id': {'type': 'string', 'pattern': '^[0-9a-f]{32}$'},
+        'evaluation_id': {'type': 'string', 'pattern': r'^(?:step-\d+-[A-Za-z0-9_.-]+|[0-9a-f]{32})$'},
         'status': {'enum': ['complete', 'failed', 'cancelled']},
         'source_position_known': {'type': 'boolean', 'description': 'False on failures before snapshot load; step is not a measurement position.'},
         'snapshot_sha256': HASH, 'snapshot_identity': {'type': 'object'}, 'protocol_sha256': HASH,

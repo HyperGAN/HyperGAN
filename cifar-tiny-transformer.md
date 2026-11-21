@@ -3,7 +3,7 @@
 The [128px logo adaptation](logos-tiny-transformer-features.md) embeds both
 networks in one config and retains this recipe's latent, prior, and optimizer.
 
-The [recipe](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/cifar-tiny-transformer-resnet-features.toml) pairs the
+The [recipe](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/cifar-tiny-transformer-resnet-features.toml) pairs the
 simplified transformer with a discriminator that uses only pretrained ResNet18
 features. This tests whether the pair can learn CIFAR at 32px before another
 128px experiment. It changes both networks, so it does not isolate the effect
@@ -11,14 +11,14 @@ of removing the pixel branch from the previous TransGAN run.
 
 ## Networks
 
-The [generator](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/networks/tiny-transformer-generator-32.hndl) adapts
+The [generator](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/networks/tiny-transformer-generator-32.hndl) adapts
 the tiny 128px generator to CIFAR's existing 64-dimensional latent. One linear
 projection produces an 8x8 grid of 256-dimensional tokens. Two pre-LayerNorm
 transformer blocks have four heads and 512-wide GELU FFNs. Nearest-neighbor
 upsampling and 3x3 convolutions produce 128 channels at 16px and 64 at 32px,
 followed by a 3x3 RGB convolution and tanh. It has 2,489,731 parameters.
 
-The [discriminator](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/networks/resnet18-features-discriminator-32.hndl)
+The [discriminator](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/networks/resnet18-features-discriminator-32.hndl)
 retains CIFAR's bilinear 32-to-64px resize, ImageNet normalization, frozen
 ResNet18 layer1/2/3 features, and all three original feature heads. Each head
 concatenates candidate and fixed midgray-context features, applies a 1x1
@@ -73,7 +73,7 @@ for the user to launch. This is a fresh architecture, not a checkpoint resume.
 
 ## ParticleGAN 0.7 viewer demo
 
-The local [pg07/lr2e-4 demo config](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.toml)
+The local [pg07/lr2e-4 demo config](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.toml)
 preserves the original pg07 run's networks, 65,536 particles, 128-dimensional
 latent, batch 64, seeds, 200,000-step schedule and evaluation protocols. Its
 learning rate is `0.0002`; other defaults come from ParticleGAN 0.7.0.
@@ -83,7 +83,7 @@ bash scripts/start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh --
 bash scripts/start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh
 ```
 
-The [launcher](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/scripts/start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh)
+The [launcher](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/scripts/start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh)
 works directly from this repository. It uses `particlegan07-env` and the
 existing `worktrees/develop-pg07-lazy16` checkout, which preserves the 0.7
 trainer while retaining the viewer's sample history and Model tab. Current

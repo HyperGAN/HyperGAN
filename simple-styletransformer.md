@@ -3,9 +3,9 @@
 For the subsequent two-block transformer with a convolutional decoder, see
 [the tiny transformer experiment](tiny-transformer.md).
 
-The [recipe](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/simple-styletransformer-resnet-128-low-g-lr.toml)
+The [recipe](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/simple-styletransformer-resnet-128-low-g-lr.toml)
 replaces the 151,512,455-parameter TransGAN with a 19,036,935-parameter
-[HNDL generator](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/networks/simple-styletransformer-generator-128.hndl)
+[HNDL generator](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/networks/simple-styletransformer-generator-128.hndl)
 and lowers the generator learning rate by ten. It retains the ResNet18
 multiscale/pixel critic, disables DiffAug, and preserves the previous prior,
 losses, penalties, batch size, seeds, and schedule.
@@ -110,7 +110,7 @@ Training is left for the user to launch; convergence has not been evaluated.
 
 ## Normal generator learning rate comparison
 
-The [normal-rate recipe](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/simple-styletransformer-resnet-128-normal-g-lr.toml)
+The [normal-rate recipe](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/simple-styletransformer-resnet-128-normal-g-lr.toml)
 uses the same generator and training settings, restoring G to `0.0002`.
 Its `[train]` optimizer settings are `lr=0.0002`, `d_lr_mult=1`, and `prior_lr_mult=10`,
 so D remains at `0.0002` and the learned prior remains at `0.002`.

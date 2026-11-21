@@ -1,6 +1,6 @@
 # TransGAN 128px with the section 3.4 recipe
 
-[`examples/archive/transgan-projected-dinov3-128-stable.toml`](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/transgan-projected-dinov3-128-stable.toml)
+[`examples/archive/transgan-projected-dinov3-128-stable.toml`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/transgan-projected-dinov3-128-stable.toml)
 combines the three techniques in [TransGAN section 3.4](https://arxiv.org/html/2102.07074v4#S3.SS4):
 
 - Differentiable color, translation and cutout augmentation on real and generated
@@ -91,7 +91,7 @@ implementation checks; the prepared training run has not been launched.
 
 ## Matched run without DiffAug
 
-[`transgan-projected-dinov3-128-no-diffaug.toml`](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/transgan-projected-dinov3-128-no-diffaug.toml)
+[`transgan-projected-dinov3-128-no-diffaug.toml`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/transgan-projected-dinov3-128-no-diffaug.toml)
 uses the same generator, discriminator weights and architecture, optimizer, loss,
 batch size and seeds. Its only numerical configuration difference is an empty
 DiffAug transform list: the operation becomes identity and consumes no RNG.
@@ -110,7 +110,7 @@ Checkpoint, preview and metric cadences match the augmented configuration.
 
 ## Full-depth generator with a ResNet critic
 
-[`transgan-resnet-multiscale-128-stable.toml`](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/transgan-resnet-multiscale-128-stable.toml)
+[`transgan-resnet-multiscale-128-stable.toml`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/transgan-resnet-multiscale-128-stable.toml)
 replaces the no-DiffAug variant's entire discriminator with the existing
 `resnet18-multiscale-discriminator-128.hndl`. It uses a SHA256-pinned frozen
 ImageNet ResNet18, native layer1/2/3 feature maps, trainable feature heads and
@@ -145,7 +145,7 @@ start a training run.
 
 ## E2 residual scaling with the ResNet critic
 
-[`transgan-resnet-multiscale-128-e2.toml`](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/transgan-resnet-multiscale-128-e2.toml)
+[`transgan-resnet-multiscale-128-e2.toml`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/transgan-resnet-multiscale-128-e2.toml)
 adapts E2 to TransGAN. Each transformer block already has identity bypasses
 around attention and the feed-forward network. This variant scales the learned
 branches before adding them to those bypasses:
@@ -186,7 +186,7 @@ Training is left for the user to launch.
 
 ## E3-style latent shortcuts on the other GPU
 
-[`transgan-resnet-multiscale-128-e3.toml`](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/transgan-resnet-multiscale-128-e3.toml)
+[`transgan-resnet-multiscale-128-e3.toml`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/transgan-resnet-multiscale-128-e3.toml)
 gives the 32px and 64px stages direct access to the original 512-dimensional
 latent vector. After each stage's position embedding, a separate bias-free
 projection of `z` is added to every token of that image:
@@ -229,7 +229,7 @@ E2 remains on GPU 0. Training is left for the user to launch.
 
 ## Equalized linear projections
 
-[`transgan-resnet-multiscale-128-equalized.toml`](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/transgan-resnet-multiscale-128-equalized.toml)
+[`transgan-resnet-multiscale-128-equalized.toml`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/transgan-resnet-multiscale-128-equalized.toml)
 sets HNDL's `equalized=True` on the stem, attention, feed-forward and RGB
 operators. All 128 affine projections use:
 

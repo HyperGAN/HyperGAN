@@ -3,8 +3,8 @@
 The subsequent [CIFAR experiment](cifar-tiny-transformer.md) adapts this
 generator to 32px and removes the discriminator's pixel branch.
 
-The [recipe](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/tiny-transformer-resnet-128.toml) replaces the style
-transformer with a [9,851,555-parameter generator](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/networks/tiny-transformer-generator-128.hndl).
+The [recipe](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/tiny-transformer-resnet-128.toml) replaces the style
+transformer with a [9,851,555-parameter generator](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/networks/tiny-transformer-generator-128.hndl).
 It keeps the normal-rate recipe's ResNet18 multiscale/pixel critic, no DiffAug,
 learned prior, losses, penalties, batch size, seeds, and schedule. Effective
 learning rates remain G=0.0002, D=0.0002, and prior=0.002.

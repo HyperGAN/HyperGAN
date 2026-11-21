@@ -73,7 +73,7 @@ matches several runs is an error listing the candidates, and workspace roots,
 runs roots, `$HOME`, `/` and symbolic links are refused. `hypergan gc --all` needs a
 workspace or an explicit root (`hypergan gc --all <runs-root>`). Tags live in the
 run's `tag.json`, which the trainer never rewrites, so tagging an active run is
-allowed. The [README](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/README.md#which-run-rm-gc-stop-and-tag-act-on) has the
+allowed. The [README](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/README.md#which-run-rm-gc-stop-and-tag-act-on) has the
 full rules.
 
 ### Headless cluster attachment and file-backed control requests
@@ -500,4 +500,4 @@ existing server-wide `no-store` policy applies.
 `app.js` is bundled from `frontend/src`; `index.html`, `style.css` and
 `view-worker.js` are served as they are. Rebuild the bundle on every edit with
 `npm run --prefix frontend watch`, described in the
-[viewer source README](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/frontend/README.md).
+[viewer source README](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/frontend/README.md).

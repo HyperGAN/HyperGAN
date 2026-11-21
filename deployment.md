@@ -22,7 +22,7 @@ For an HNDL generator, install CPU Torch, HyperGAN, NumPy and HNDL. HyperGAN reb
 
 ```sh
 python -m pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
-python -m pip install "hypergan==2.0.0" "hndl==0.11.0" "numpy>=1.26,<3"
+python -m pip install "hypergan==2.1.0" "hndl==0.11.0" "numpy>=1.26,<3"
 ```
 
 ```python
@@ -38,7 +38,7 @@ with torch.inference_mode():
     walk = generator.interpolate(seed_a=100, seed_b=200, steps=20, mode="slerp")
 ```
 
-For conditional models, pass the model's named batch inputs to `generator.sample(count=..., inputs={...})`. A model binding `batch.gray` expects a batch under the key `gray`. For offline sampling directly from a run, see the [sampling guide](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/README.md#sampling-evaluation--standalone-export).
+For conditional models, pass the model's named batch inputs to `generator.sample(count=..., inputs={...})`. A model binding `batch.gray` expects a batch under the key `gray`. For offline sampling directly from a run, see the [sampling guide](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/README.md#sampling-evaluation--standalone-export).
 
 ## PyTorch exported program (PT2)
 

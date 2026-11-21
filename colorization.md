@@ -6,7 +6,7 @@ _Assets: [128×128 grayscale HG input (`assets/hg-bw-128.png`)](assets/hg-bw-128
 
 ## Packaged 128×128 colorization
 
-The wheel's `colorization-128` recipe accepts an RGB image folder. It composites transparency onto white, derives luminance in an auxiliary graph, and conditions the generator on luminance and a 128-dimensional latent from a 10,000-particle prior. Run it by name or edit the [matching source recipe](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/image-folder-colorization.toml).
+The wheel's `colorization-128` recipe accepts an RGB image folder. It composites transparency onto white, derives luminance in an auxiliary graph, and conditions the generator on luminance and a 128-dimensional latent from a 10,000-particle prior. Run it by name or edit the [matching source recipe](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/image-folder-colorization.toml).
 
 ```sh
 hypergan validate colorization-128
@@ -15,14 +15,14 @@ hypergan train colorization-128 --set data.args.root=/path/to/images
 
 ## 256×256 DINOv3 source example
 
-From a source checkout, configure the [256px DINOv3 recipe](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/examples/archive/logos-colorization-dinov3-256.toml). Keep its relative HNDL paths intact. Set the image root, manifest path and digest in the training and held-out evaluation tables. Point the critic at the specified DINOv3 source revision and ViT-S/16 weights that match its recorded SHA-256. The data preparation section below describes how to generate the manifest.
+From a source checkout, configure the [256px DINOv3 recipe](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/logos-colorization-dinov3-256.toml). Keep its relative HNDL paths intact. Set the image root, manifest path and digest in the training and held-out evaluation tables. Point the critic at the specified DINOv3 source revision and ViT-S/16 weights that match its recorded SHA-256. The data preparation section below describes how to generate the manifest.
 
 ```sh
 hypergan validate examples/archive/logos-colorization-dinov3-256.toml --data
 hypergan train examples/archive/logos-colorization-dinov3-256.toml --devices 0,1
 ```
 
-Run `d1eef023` on two RTX A6000s with ParticleGAN 0.9.7 BISPF reached held-out FID-10k **6.37** at step 2,500. Between steps 4,000 and 4,027 it recorded chroma distance 0.01353, structure error 2.61e-7, diversity 0.09285 and random spread 0.9940. Training was interrupted at step 4,447. A fresh run with the 2.0.0 defaults selects EMPF. [Recorded run and metric steps](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/reports/astra-audit-2026-11-17.md)
+Run `d1eef023` on two RTX A6000s with ParticleGAN 0.9.7 BISPF reached held-out FID-10k **6.37** at step 2,500. Between steps 4,000 and 4,027 it recorded chroma distance 0.01353, structure error 2.61e-7, diversity 0.09285 and random spread 0.9940. Training was interrupted at step 4,447. A fresh run with the 2.0.0 defaults selects EMPF. [Recorded run and metric steps](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/reports/astra-audit-2026-11-17.md)
 
 ### Why the earlier 256×256 particle-routing recipe collapsed
 
@@ -181,7 +181,7 @@ when changing architecture):
   spectral normalization. It has no pretrained backbone.
 
 The DINOv3 token and normalization audit, controlled comparisons, and their limits
-are recorded in [the collapse report](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/reports/archive/colorization-collapse-2026-09-21.md).
+are recorded in [the collapse report](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/reports/archive/colorization-collapse-2026-09-21.md).
 The working CIFAR critic combines a learned pixel path with multiscale pretrained
 ResNet features, so it is not a pretrained-only counterpart to the original
 single-map DINO critic.

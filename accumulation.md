@@ -1,6 +1,6 @@
 # CPU gradient accumulation
 
-The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/reports/archive/resurrection-status.md) for the current combined scope.
+The [local CUDA/NCCL extension](replicated-cuda.md) now applies this contract to rank-owned GPUs. CPU-specific examples and original qualification evidence below remain explicit correctness fixtures; consult the [execution ledger](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/reports/archive/resurrection-status.md) for the current combined scope.
 
 `ReplicatedCPUTrainer(config, world_size=2, accumulation_steps=2)` divides each rank's effective local batch into equal microbatches. The factor must be a positive integer dividing `training.batch_size / world_size`. Every nonscalar input tensor must retain the local batch dimension; critic outputs must retain the microbatch dimension. Batch size still means the global number of samples in one complete D → G/prior/auxiliary → EMA update. Learning rates, lazy-penalty frequency and update counts retain their configured meaning.
 
@@ -24,7 +24,7 @@ Components must treat samples independently along the batch dimension for accumu
 
 Built-in MSE/L1 objectives with `reduction="mean"` or `"sum"` have known aggregation semantics. Custom scalar objectives must declare `accumulation_reduction = "mean"` or `"sum"`: this promises an additive per-sample objective whose full-local-batch value is the corresponding weighted mean or sum of microbatch values. A covariance, contrastive population loss or other cross-sample objective does not satisfy that promise merely by returning a scalar. Missing or unsupported reduction semantics fail explicitly when accumulation is enabled; accumulation one retains the existing custom-objective behavior.
 
-The [session report](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/reports/archive/core-accumulation-2026-09-19.md) records numerical, memory and recovery evidence.
+The [session report](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/reports/archive/core-accumulation-2026-09-19.md) records numerical, memory and recovery evidence.
 
 ## Recovery
 

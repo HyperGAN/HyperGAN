@@ -1,6 +1,6 @@
 # Container Profile (`Dockerfile`)
 
-HyperGAN provides a pinned, multi-stage OCI container profile in [`Dockerfile`](https://github.com/HyperGAN/HyperGAN/blob/73570ab17c3eb04ea843551bd7300aca34c29a38/Dockerfile) built from the installed wheel rather than a raw repository checkout.
+HyperGAN provides a pinned, multi-stage OCI container profile in [`Dockerfile`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/Dockerfile) built from the installed wheel rather than a raw repository checkout.
 
 ## Container Contract
 

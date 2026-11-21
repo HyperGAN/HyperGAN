@@ -38,7 +38,7 @@ class PairedScores:
         if self.fail:
             return {'score0': 1.0}
         rows = torch.cat(means)
-        return {f'score{i}': rows[i].item() for i in range(12)}
+        return {f'score{i}': rows[i] for i in range(12)}
 
 
 def score_model(model, tmp_path, device='cpu'):

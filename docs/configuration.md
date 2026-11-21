@@ -453,8 +453,8 @@ class Scores:
         return compute_scores(torch.cat(values), torch.cat(masks))
 ```
 
-Return a mapping with exactly the declared keys and a finite Python number for
-each. Supported directions are `minimize`, `maximize`, and `none`. The viewer
+Return a mapping with exactly the declared keys and a finite real scalar for
+each. Python numbers, NumPy scalars, and zero-dimensional PyTorch tensors are supported. Supported directions are `minimize`, `maximize`, and `none`. The viewer
 plots each output under its full ID, such as `misgan/value_error`. A failed
 evaluation records the reason for each output. A successful retry at the same
 run, attempt, source step and protocol reuses the original result. A conflict

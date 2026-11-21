@@ -11,6 +11,7 @@ import importlib
 import inspect
 import json
 import math
+from numbers import Integral, Real
 import os
 from pathlib import Path
 import queue
@@ -57,10 +58,17 @@ def scalar_outputs(outputs):
 def scalar_values(value, outputs):
     if not isinstance(value, Mapping) or set(value) != set(outputs):
         raise ValueError('Snapshot result must match the declared output IDs exactly')
-    for number in value.values():
-        if type(number) not in (int, float) or not -sys.float_info.max <= number <= sys.float_info.max:
-            raise ValueError('Each snapshot output must be a finite Python number')
-    return finite_json(dict(value))
+    result = {}
+    for key, number in value.items():
+        # NumPy scalars and zero-dimensional tensors expose item(). Keep the
+        # public import path free of numerical runtime dependencies.
+        if getattr(number, 'ndim', None) == 0 and callable(getattr(number, 'item', None)):
+            number = number.item()
+        if (isinstance(number, bool) or not isinstance(number, Real)
+                or not -sys.float_info.max <= number <= sys.float_info.max):
+            raise ValueError(f'Snapshot output {key!r} must be a finite real scalar')
+        result[key] = int(number) if isinstance(number, Integral) else float(number)
+    return finite_json(result)
 
 
 def validate_custom(specs):

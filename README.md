@@ -7,7 +7,7 @@
 
 Train generative models. Follow their progress. Export the result.
 
-HyperGAN 2.0.0 trains generative models from declarative TOML files using HNDL networks and ParticleGAN recipes. Use the CLI or typed Python API (`import hypergan as hg`) to train, checkpoint, inspect runs in the Web Observatory, and export generators for serving.
+HyperGAN 2.1.0 trains generative models from declarative TOML files using HNDL networks and ParticleGAN recipes. Use the CLI or typed Python API (`import hypergan as hg`) to train, checkpoint, inspect runs in the Web Observatory, and export generators for serving.
 
 The wheel includes two CIFAR-10 architectures and a 128×128 colorizer. A 256×256 DINOv3 logo colorizer is available as a source example. [CIFAR recipes and measured results](https://github.com/HyperGAN/HyperGAN/blob/master/docs/cifar-recipe.md) · [Colorization setup](https://github.com/HyperGAN/HyperGAN/blob/master/docs/colorization.md)
 
@@ -17,13 +17,13 @@ The wheel includes two CIFAR-10 architectures and a 128×128 colorizer. A 256×2
 
 Use Python 3.12+ for the tested training runtime. Lightweight package checks cover Python 3.11–3.14 on Linux, macOS and Windows; the CPU reference profile is tested on Linux. The `train` extra accepts `torch>=2.6,<3`, but CI tests only `torch==2.14.0`, the version the commands below install; other versions are untested.
 
-Install HyperGAN 2.0.0 from PyPI.
+Install HyperGAN 2.1.0 from PyPI.
 
 ```sh
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
-python -m pip install "hypergan[all]==2.0.0"
+python -m pip install "hypergan[all]==2.1.0"
 hypergan --help
 python -m hypergan --version
 ```
@@ -32,7 +32,7 @@ For NVIDIA GPU acceleration:
 
 ```sh
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cu130
-python -m pip install "hypergan[all]==2.0.0"
+python -m pip install "hypergan[all]==2.1.0"
 ```
 
 Or install from a source checkout:

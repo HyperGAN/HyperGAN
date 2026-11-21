@@ -3,7 +3,7 @@
 Reviewed [VITA-Group/TransGAN](https://github.com/VITA-Group/TransGAN/tree/6b85440ca56716fd7a60bac964466cc0296ce663)
 at commit `6b85440ca56716fd7a60bac964466cc0296ce663` on 2026-09-23.
 The comparison target is our
-[`transgan-projected-dinov3-128-stable.toml`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/transgan-projected-dinov3-128-stable.toml).
+[`transgan-projected-dinov3-128-stable.toml`](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/examples/archive/transgan-projected-dinov3-128-stable.toml).
 
 The official checkout has no dedicated 128px launcher. Its released high-resolution
 launchers use 256px variants, with additional mechanisms beyond paper section 3.4.

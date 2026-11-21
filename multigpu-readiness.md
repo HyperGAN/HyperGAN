@@ -2,7 +2,7 @@
 
 HyperGAN launches one supervised worker per GPU on a single host, using NCCL and a replicated float32 model, prior, optimizer and EMA. Select devices with `hypergan train MODEL --run-dir RUN --devices 0,1 --no-server`, or supply an execution profile. The parent launches the ranks; do not wrap this command in `torchrun`.
 
-On the 2.0 release candidate with ParticleGAN 0.10.1 and HNDL 0.11.0, two RTX A6000s completed the NCCL qualification with replica agreement. The packaged CIFAR tiny transformer saved a batch-256 checkpoint at step 2 and resumed on fresh workers to step 3 on the same host. The two-node result below used an earlier software stack. [November qualification and environment](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/reports/astra-audit-2026-11-17.md)
+On the 2.0 release candidate with ParticleGAN 0.10.1 and HNDL 0.11.0, two RTX A6000s completed the NCCL qualification with replica agreement. The packaged CIFAR tiny transformer saved a batch-256 checkpoint at step 2 and resumed on fresh workers to step 3 on the same host. The two-node result below used an earlier software stack. [November qualification and environment](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/reports/astra-audit-2026-11-17.md)
 
 ## Supported execution and limits
 
@@ -77,7 +77,7 @@ The [bounded scaling harness](scaling-benchmark.md) measures warm trainer update
 
 ### Tiny real two-node smoke
 
-The optional [Modal runner](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/scripts/modal_multinode_smoke.py) requests two managed A10 nodes, with four GPUs per node. [Modal clusters require whole GPU nodes](https://modal.com/docs/guide/multi-node-clusters); this gate uses eight GPUs total with RDMA disabled. The runner has no automatic retries or warm containers, a 120-second function timeout, a 90-second worker budget and a 240-second call wait limit. Allow roughly $1 for the gate, including startup and image building, at current A10 pricing.
+The optional [Modal runner](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/scripts/modal_multinode_smoke.py) requests two managed A10 nodes, with four GPUs per node. [Modal clusters require whole GPU nodes](https://modal.com/docs/guide/multi-node-clusters); this gate uses eight GPUs total with RDMA disabled. The runner has no automatic retries or warm containers, a 120-second function timeout, a 90-second worker budget and a 240-second call wait limit. Allow roughly $1 for the gate, including startup and image building, at current A10 pricing.
 
 Authenticate Modal locally, build exactly one current wheel into `dist/`, and run:
 
@@ -86,7 +86,7 @@ python -m build --wheel --outdir dist
 modal run scripts/modal_multinode_smoke.py --output reports/modal-multinode-smoke/modal.json
 ```
 
-The [worker](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/scripts/multinode_smoke_worker.py) performs three fixed-initialization small GAN updates. Every rank checks finite losses, changed generator/discriminator/prior/EMA state and exact complete-state replica agreement; a final NCCL object collective returns evidence for every global rank. There are no dataset downloads, previews or seed sweeps. Success receipts contain every rank's evidence; allocation or training failures write a failure receipt, cancel the call and exit unsuccessfully.
+The [worker](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/scripts/multinode_smoke_worker.py) performs three fixed-initialization small GAN updates. Every rank checks finite losses, changed generator/discriminator/prior/EMA state and exact complete-state replica agreement; a final NCCL object collective returns evidence for every global rank. There are no dataset downloads, previews or seed sweeps. Success receipts contain every rank's evidence; allocation or training failures write a failure receipt, cancel the call and exit unsuccessfully.
 
 This deliberately small gate exercises the internal replicated trainer across managed nodes. It does not qualify the public multi-node supervisor, shared checkpoint storage, restart, RDMA, image quality or scaling performance. The worker can also run with Gloo to validate the fixture locally; separate masked CUDA processes on the local two-GPU host remain a single-physical-host check.
 

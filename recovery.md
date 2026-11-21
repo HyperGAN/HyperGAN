@@ -66,7 +66,7 @@ incomplete trailing row is removed before appending. Resume events record the
 parent attempt/checkpoint and restored step, so abandoned updates remain
 distinguishable from resumed history.
 
-Every resume, including repeating `train`, creates a new attempt with a monotonic index and unique identifier. Repeating a completed run without extending its target validates and restores it without additional training updates; it still records a new attempt and final artifacts. Existing attempt artifacts are never overwritten. `sample RUN_DIR` uses the bundle selected by the run manifest, and repeated sampling uses unique filenames. Explicit `--output` refuses an existing file. Older checkpoints remain available through `resume RUN_DIR --checkpoint PATH`; replaying one creates a new attempt without replacing earlier samples. Use `inspect` to select the checkpoint's recorded path.
+Every resume, including repeating `train`, creates a new attempt with a monotonic index and unique identifier. Repeating a completed run without extending its target validates and restores it without additional training updates; it still records a new attempt and final artifacts. Existing attempt artifacts are never overwritten. `sample RUN_DIR` uses the bundle selected by the run manifest, and repeated sampling uses unique filenames. Explicit `--output` refuses an existing file. Checkpoints retained by the run’s policy remain available through `resume RUN_DIR --checkpoint PATH`; replaying one creates a new attempt without replacing earlier samples. Use `inspect` to select the checkpoint's recorded path.
 
 The checkpoint includes generator/discriminator/auxiliary state, prior, EMA, Adam states and original learning rates, update counters, named RNG streams, global CPU Torch/Python/NumPy RNG states, and the declared data state. Resume validates the saved configuration and execution/data identity before continuing. `--config CONFIG` must remain numerically compatible, with the constant-learning-rate target extension allowed above; it does not replace saved model or optimizer state.
 
@@ -87,6 +87,8 @@ and records a resume warning. Unknown source changes, a downgrade, or other
 dependency versions are not qualified by this exception. Fixed-sigma configs
 avoid calibration during construction before restore; legacy relative-noise
 configs still explicitly calibrate before their saved buffers are restored.
+
+With `latest_only = true` under `[checkpoints]`, each save publishes the new recovery point before pruning the previous one. This includes step zero, duplicate saves at the same step and checkpoints from earlier attempts. A failed payload write leaves the previous recovery point loadable. Metrics and events from every attempt stay in the run history.
 
 For process managers, `--progress-json` writes cadence-filtered JSONL progress and immediate lifecycle events to stdout, followed by a `result` event containing the final manifest. Diagnostics remain on stderr. Without that flag, routine updates go to stderr every 100 steps and the final manifest goes to stdout. Change the interval with `--progress-every N`; collected metrics are unaffected. The Python API starts no server. CLI output is bounded best-effort delivery; the event journal is authoritative. The CLI can launch the optional browser viewer.
 

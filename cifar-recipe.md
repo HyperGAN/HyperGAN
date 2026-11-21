@@ -10,10 +10,10 @@ Garcia's ParticleGAN experiment at commit
 The owner authorized distribution of the port under HyperGAN's MIT license on
 2026-09-20 and confirmed that no additional attribution is required: the projects
 share authorship. These source references remain for reproducibility; the existing
-[MIT license](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/LICENSE) applies to the port. This permission covers the source
+[MIT license](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/LICENSE) applies to the port. This permission covers the source
 components, not a redistribution or relicensing of pretrained weights or data.
 
-The wheel packages two CIFAR-10 recipes. `cifar10-tiny-transformer` pairs a 64-token transformer generator with a frozen ResNet-18 feature critic and 16,384 particles in 64 latent dimensions. `cifar10-transgan` trains both its generator and multi-scale transformer discriminator from scratch. The earlier [pretrained SAGAN ablation](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/cifar-pretrained-sagan.toml) is in the source archive.
+The wheel packages two CIFAR-10 recipes. `cifar10-tiny-transformer` pairs a 64-token transformer generator with a frozen ResNet-18 feature critic and 16,384 particles in 64 latent dimensions. `cifar10-transgan` trains both its generator and multi-scale transformer discriminator from scratch. The earlier [pretrained SAGAN ablation](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/examples/archive/cifar-pretrained-sagan.toml) is in the source archive.
 
 These runs used two RTX A6000s at global batch 256. Each score is the best recorded FID against 50,000 training references.
 
@@ -23,12 +23,12 @@ These runs used two RTX A6000s at global batch 256. Each score is the best recor
 | Tiny transformer | 0.10.0 EMPF | 15.16 | 12,500 | `3e046470` |
 | Scratch TransGAN | 0.10.0 EMPF | 51.30 | 22,500 | `f2cce6c4` |
 
-The EMPF tiny-transformer run recorded 16.06 at 25,000 steps. GA's public 0.10.1 dependency resolves the same recipe fields at batch 256 as the recorded 0.10.0 EMPF runs. A short two-GPU check with 0.10.1 verified checkpoint and resume. [Run revisions and qualification results](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/reports/astra-audit-2026-11-17.md)
+The EMPF tiny-transformer run recorded 16.06 at 25,000 steps. GA's public 0.10.1 dependency resolves the same recipe fields at batch 256 as the recorded 0.10.0 EMPF runs. A short two-GPU check with 0.10.1 verified checkpoint and resume. [Run revisions and qualification results](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/reports/astra-audit-2026-11-17.md)
 
 Install `hypergan[all]` or `hypergan[train,image,cifar,web,fid]` with a matching CUDA PyTorch/TorchVision installation. Prepare the verified CIFAR-10 batches once into `~/.hypergan/cache/cifar10` with `hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10`; pretrained Inception-v3 (`weights-inception-2015-12-05-6726825d.pth`, SHA256 `6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2`) and ResNet-18 (`resnet18-f37072fd.pth`, SHA256 `f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec`) weights are automatically downloaded and SHA-256 verified into `~/.hypergan/cache/` on demand (or verified strictly offline when `HYPERGAN_OFFLINE=1`). Missing files or corrupt checksums fail explicitly.
 
 The ResNet-18 feature-critic CIFAR examples define the complete discriminator in
-[`networks/cifar-discriminator-32.hndl`](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/networks/cifar-discriminator-32.hndl)
+[`networks/cifar-discriminator-32.hndl`](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/examples/networks/cifar-discriminator-32.hndl)
 with `factory = "hndl"`. Its three pixel residual blocks, 16px attention,
 64px bilinear feature resize, ImageNet normalization, fixed zero-image context,
 three pretrained feature heads and final score combination all live in that
@@ -123,7 +123,7 @@ For a viewer that persists across stopped segments, run `hypergan serve runs/cif
 and `hypergan project runs/cifar --follow` in separate terminals. Training prints
 per-update D/G losses to stderr; redirect stderr to a log for `tail -F`.
 
-The [execution report](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/reports/archive/image-training-execution-2026-09-20.md) records
+The [execution report](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/reports/archive/image-training-execution-2026-09-20.md) records
 the exact installed CUDA smoke/recovery proofs and the first 40k measurements.
 Keep the installed environment used by a run for supported recovery; source and
 package identity are intentionally checked strictly. The public example retains the measured numerical settings, changes artifact
@@ -250,7 +250,7 @@ variant changes the pinned pretrained weights.
 
 ## Compact TransGAN generator comparison
 
-[The CIFAR TransGAN recipe](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/archive/cifar-transgan.toml) replaces only the
+[The CIFAR TransGAN recipe](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/examples/archive/cifar-transgan.toml) replaces only the
 baseline generator and run name. It retains the multiscale frozen ResNet18 plus
 pixel discriminator, routing encoder, encoder-only reconstruction, 16,384
 particles in 64 dimensions, fixed sigma, batch 64, optimizer settings, and FID
@@ -258,7 +258,7 @@ protocol. The discriminator and encoder still load their declared HNDL sources.
 Changing G changes the initialization RNG draws before D and E are built, so
 this preserves their architecture and settings, not their initial tensor values.
 
-Edit [transgan-generator-32.hndl](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/examples/networks/transgan-generator-32.hndl)
+Edit [transgan-generator-32.hndl](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/examples/networks/transgan-generator-32.hndl)
 to change the generator. It projects the existing 64-dimensional latent to an
 8×8 grid with 256 channels, then uses pixel shuffle for 16×16/64 channels and
 32×32/16 channels. Each stage has two PixelNorm/attention/MLP blocks, four

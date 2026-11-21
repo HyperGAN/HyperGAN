@@ -1,6 +1,6 @@
 # HyperGAN documentation
 
-Start with the [README](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/README.md) for installation and the CLI tour, and the [glossary](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/GLOSSARY.md) for terms. Pages below are grouped by who they are for.
+Start with the [README](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/README.md) for installation and the CLI tour, and the [glossary](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/GLOSSARY.md) for terms. Pages below are grouped by who they are for.
 
 ## User guide
 
@@ -58,4 +58,4 @@ Contracts for contributors working on the engine, distributed execution and stor
 - [CI and PyPI releases](releasing.md)
 - [Versioned API docs and assets on S3](s3-releases.md)
 
-The test layout and how to run each tier are in [tests/README.md](https://github.com/HyperGAN/HyperGAN/blob/edb1cb69743052b947035ea30071d5122c56004f/tests/README.md). Dated design notes and experiment reports are in [reports/](https://github.com/HyperGAN/HyperGAN/tree/edb1cb69743052b947035ea30071d5122c56004f/reports), with older ones under `reports/archive/`.
+The test layout and how to run each tier are in [tests/README.md](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/tests/README.md). Dated design notes and experiment reports are in [reports/](https://github.com/HyperGAN/HyperGAN/tree/69116e009d81ebefa5a8253784650f83f809d77b/reports), with older ones under `reports/archive/`.

@@ -4,14 +4,14 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
-- Run Foundation CI automatically for integration branches and use one lightweight job per supported Python version. Shard CPU tests and reuse their installed wheels for heavy checks. Ordinary feature PRs keep Repository integrity and can run Foundation CI on demand.
-- Upgraded the `train` and `all` dependency extras to `particlegan>=0.11.1,<0.12` (universal 1st-order `fwAD` Law 2 critic penalty, rank-agnostic `ema_margin` / `ema_data_scale` / `ema_push_res` + scalar logit relativistic Law 3 coupling, element-budgeted generator secant probe + envelope-tracked `_ema_func_gain` / `peak_rms` Law 4 optimizer, and upstream `_live_captures` autograd-hook VRAM leak fix), synchronized `UnifiedV11StepRecord` and element-budgeted generator probes across multi-GPU ranks on every high-res step, synchronized optimizer `_ema_func_gain` / `last_step_gain` in `aggregation.py`, and removed the temporary `0.11.0` capture-cycle monkeypatch.
-- Gate the `Shared reducer` (Playwright/browser) CI matrix in `.github/workflows/ci.yml` to `develop`, `master`, release validation, and manual dispatches (with a 15-minute job timeout) so feature-branch PR CI stays fast.
-- Upgraded the `train` and `all` dependency extras to `particlegan>=0.11.0,<0.12` (`DEFAULT_RECIPE = "unified_v11"`, Unified 4-Law with zero-`autograd.grad` secant critic penalty, `UnifiedV11EquilibratedOptimizer` with analytic `direction_blend`, and `UnifiedV11PriorRegularizer`), added stateful `prior_regularizer` checkpoint save/restore across single-device and distributed checkpoints, added positional single-input HNDL/MLP dispatch for live-endpoint capture reuse, and added multi-GPU `UnifiedV11StepRecord` / secant-probe / `t1c` coupling synchronization in `ReplicatedTrainer` and `aggregation.py`.
-- Preserve the Git tag when updating an existing GitHub release or prerelease.
-- Build a GitBook preview from reviewed documentation changes on `master`.
-- Verify reviewed API documentation and public release assets for append-only
-  publication to the versioned HyperGAN S3 archives from `master`.
+## 2.1.0 — 2026-11-20
+
+HyperGAN 2.1.0 upgrades the default training formulation to **ParticleGAN `0.11.1`** (`DEFAULT_RECIPE = "unified_v11"`, Unified 4-Law) with stateful prior-regularizer checkpoints and full multi-GPU replica synchronization. Install with `python -m pip install "hypergan[all]==2.1.0"` after installing the matching Torch wheels for your hardware. [Installation](https://github.com/HyperGAN/HyperGAN/blob/v2.1.0/README.md#install)
+
+- **ParticleGAN `0.11.1` (`unified_v11`) upgrade.** Upgraded the `train` and `all` extras to `particlegan>=0.11.1,<0.12` (universal 1st-order `fwAD` Law 2 Born-Infeld critic penalty with zero `torch.autograd.grad`, rank-agnostic `ema_margin` / `ema_data_scale` / `ema_push_res` and scalar logit relativistic Law 3 coupling, element-budgeted generator secant probe + envelope-tracked `_ema_func_gain` / `peak_rms` Law 4 equilibrated optimizer with analytic `direction_blend`, `UnifiedV11PriorRegularizer`, and upstream `_live_captures` autograd-hook VRAM leak fix). [ParticleGAN integration](https://github.com/HyperGAN/HyperGAN/blob/v2.1.0/docs/particlegan.md)
+- **Stateful prior checkpoints & live-endpoint dispatch.** Added stateful `prior_regularizer` checkpoint save/validate/restore across single-device and distributed checkpoints (`checkpoints.py`, `distributed_checkpoints.py`, `_replica_digest`), plus positional single-input HNDL/MLP dispatch in `recipes.py` and `objective_program.py` so ParticleGAN forward hooks reuse live critic endpoints cleanly.
+- **Multi-GPU `unified_v11` synchronization.** Added `sync_unified_v11_record`, `_gather_t1c_pair`, element-budgeted generator/critic secant probe synchronization, `_BroadcastProbeProxy` bitwise post-step probe broadcast across CUDA replicas, and optimizer `_ema_func_gain` / `last_step_gain` synchronization in `ReplicatedTrainer` and `aggregation.py`.
+- **CI, docs & release automation.** Streamlined `Foundation CI` (sharded CPU runs, wheel reuse for heavy checks, integration-branch scoping, gated `Shared reducer` browser matrix), preserved Git tags on GitHub Release updates, added GitBook preview publishing, and added append-only S3 release archive verification from `master`.
 
 ## 2.0.0 — 2026-11-18
 

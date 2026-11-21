@@ -254,6 +254,14 @@ MODEL_SCHEMA: Dict[str, Any] = {
                         "description": "Critic gradient penalty coefficient (for type='adversarial'; 0 disables).",
                         "default": 1.0,
                     },
+                    "critic_weight": {
+                        "type": "number",
+                        "description": "Critic-phase adversarial multiplier. Defaults to weight.",
+                    },
+                    "generator_weight": {
+                        "type": "number",
+                        "description": "Generator-phase adversarial multiplier. Defaults to weight.",
+                    },
                     "weight": {
                         "type": "number",
                         "description": "Scalar multiplier on this loss term.",
@@ -455,6 +463,11 @@ MODEL_SCHEMA: Dict[str, Any] = {
             "type": "object",
             "description": "Model checkpoint creation and retention policies.",
             "fields": {
+                "latest_only": {
+                    "type": "boolean",
+                    "description": "Retain only the latest published training checkpoint across all attempts.",
+                    "default": False,
+                },
                 "keep_last": {
                     "type": "integer",
                     "description": "Number of most recent checkpoints to retain.",
@@ -601,6 +614,18 @@ MODEL_SCHEMA: Dict[str, Any] = {
                 "seed": {
                     "type": "integer",
                     "description": "Deterministic RNG seed for evaluation draws.",
+                },
+                "prior_seed": {
+                    "type": "integer",
+                    "description": "Seed for the evaluation prior generator (default seed + 2).",
+                },
+                "data_seed": {
+                    "type": "integer",
+                    "description": "Seed for the evaluation data generator (default seed + 1).",
+                },
+                "inputs": {
+                    "type": "object",
+                    "description": "Bind plugin inputs to generated, reference or named EMA network outputs.",
                 },
                 "device": {
                     "type": "string",

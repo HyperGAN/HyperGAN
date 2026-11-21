@@ -7,7 +7,7 @@
 
 Train generative models. Follow their progress. Export the result.
 
-HyperGAN 2.1.0 trains generative models from declarative TOML files using HNDL networks and ParticleGAN recipes. Use the CLI or typed Python API (`import hypergan as hg`) to train, checkpoint, inspect runs in the Web Observatory, and export generators for serving.
+HyperGAN 2.1.1 trains generative models from declarative TOML files using HNDL networks and ParticleGAN recipes. Use the CLI or typed Python API (`import hypergan as hg`) to train, checkpoint, inspect runs in the Web Observatory, and export generators for serving.
 
 The wheel includes two CIFAR-10 architectures and a 128×128 colorizer. A 256×256 DINOv3 logo colorizer is available as a source example. [CIFAR recipes and measured results](https://github.com/HyperGAN/HyperGAN/blob/master/docs/cifar-recipe.md) · [Colorization setup](https://github.com/HyperGAN/HyperGAN/blob/master/docs/colorization.md)
 
@@ -17,13 +17,13 @@ The wheel includes two CIFAR-10 architectures and a 128×128 colorizer. A 256×2
 
 Use Python 3.12+ for the tested training runtime. Lightweight package checks cover Python 3.11–3.14 on Linux, macOS and Windows; the CPU reference profile is tested on Linux. The `train` extra accepts `torch>=2.6,<3`, but CI tests only `torch==2.14.0`, the version the commands below install; other versions are untested.
 
-Install HyperGAN 2.1.0 from PyPI.
+Install HyperGAN 2.1.1 from PyPI.
 
 ```sh
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
-python -m pip install "hypergan[all]==2.1.0"
+python -m pip install "hypergan[all]==2.1.1"
 hypergan --help
 python -m hypergan --version
 ```
@@ -32,7 +32,7 @@ For NVIDIA GPU acceleration:
 
 ```sh
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cu130
-python -m pip install "hypergan[all]==2.1.0"
+python -m pip install "hypergan[all]==2.1.1"
 ```
 
 Or install from a source checkout:
@@ -330,14 +330,14 @@ See:
 
 ## Development and migration
 
-HyperGAN uses **Foldlite DB** (`foldlitedb>=0.1.2,<0.2`) for append-only event journals, `.fold` views, and shared Rust/WASM reducers:
+HyperGAN uses **Foldlite DB** (`foldlitedb>=0.4.2,<0.5`) for append-only event journals, `.fold` views, and shared Rust/WASM reducers:
 
 ```sh
-python -m pip install "foldlitedb>=0.1.2,<0.2"
+python -m pip install "foldlitedb>=0.4.2,<0.5"
 python -m pip install -e '.[dev,web]'
 ```
 
-For testing unpublished Foldlite revisions in CI or local development, set `FOLDLITEDB_SOURCE` to an accessible wheel URL, a pip source reference pinned to an exact revision, or a local Foldlite checkout path; when unset, `foldlitedb>=0.1.2,<0.2` is installed from the configured package index. See the [Foldlite integration and cache contract](https://github.com/HyperGAN/HyperGAN/blob/master/docs/foldlitedb.md).
+For testing unpublished Foldlite revisions in CI or local development, set `FOLDLITEDB_SOURCE` to an accessible wheel URL, a pip source reference pinned to an exact revision, or a local Foldlite checkout path; when unset, `foldlitedb>=0.4.2,<0.5` is installed from the configured package index. See the [Foldlite integration and cache contract](https://github.com/HyperGAN/HyperGAN/blob/master/docs/foldlitedb.md).
 
 Install `.[dev,train,image,web]` in the tested runtime environment, then run `python -m pytest` for CPU and lightweight correctness tests. That default selection deselects the `heavy` marker, which gates the tests that start real subprocesses, multi-rank jobs and worker services; run those deliberately with `python -m pytest -m heavy`. The default run covers `tests/foundation`, `tests/reference`, `tests/unit`, `tests/playbooks`, `tests/e2e` and `tests/e2e_integration`; the viewer, browser, reducer and CUDA tiers need extra dependencies or hardware and are run by path. [tests/README.md](https://github.com/HyperGAN/HyperGAN/blob/master/tests/README.md) lists every tier and how to run it; see also [CUDA execution and validation](https://github.com/HyperGAN/HyperGAN/blob/master/docs/cuda.md) and [CI and PyPI releases](https://github.com/HyperGAN/HyperGAN/blob/master/docs/releasing.md). All guides are indexed in [docs/README.md](https://github.com/HyperGAN/HyperGAN/blob/master/docs/README.md), and [CONTRIBUTING.md](https://github.com/HyperGAN/HyperGAN/blob/master/CONTRIBUTING.md) covers the pull-request workflow.
 

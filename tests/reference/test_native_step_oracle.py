@@ -90,7 +90,10 @@ _TELEMETRY_KEYS = {
 
 
 def _assert_rows(produced, reference):
-    filtered_produced = {k: v for k, v in produced.items() if k not in _TELEMETRY_KEYS}
+    filtered_produced = {
+        k: v for k, v in produced.items()
+        if k not in _TELEMETRY_KEYS and not k.startswith(("loss/critics/", "critic/"))
+    }
     assert filtered_produced.keys() == reference.keys()
     for key, value in filtered_produced.items():
         assert value == reference[key]

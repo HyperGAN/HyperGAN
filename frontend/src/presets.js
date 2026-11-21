@@ -39,20 +39,41 @@ export function presetMetrics(presetName, catalogMetrics = {}) {
   const pick = (candidates) =>
     [...new Set(candidates.filter(has))].slice(0, MAX_CHART_SERIES);
 
+  const perCriticTotals = allIds.filter((id) =>
+    /^loss\/critics\/[^/]+\/d_total$/.test(id),
+  );
+  const perCriticMargins = allIds.filter((id) =>
+    /^critic\/[^/]+\/margin$/.test(id),
+  );
+  const multiCritic = perCriticTotals.length > 1 || perCriticMargins.length > 1;
+
   switch (presetName) {
     case "defaults":
       return defaultMetrics(metrics);
     case "losses": {
-      const priority = [
-        "loss/g_total",
-        "loss/d_total",
-        "loss/gradient_penalty",
-        "loss/prior_regularizer",
-        "loss/g_adversarial",
-        "loss/d_adversarial",
-        "critic/accuracy",
-        "critic/margin",
-      ];
+      const priority = multiCritic
+        ? [
+            "loss/g_total",
+            "loss/d_total",
+            ...perCriticTotals,
+            "loss/gradient_penalty",
+            "loss/prior_regularizer",
+            "loss/g_adversarial",
+            "loss/d_adversarial",
+            ...perCriticMargins,
+            "critic/accuracy",
+            "critic/margin",
+          ]
+        : [
+            "loss/g_total",
+            "loss/d_total",
+            "loss/gradient_penalty",
+            "loss/prior_regularizer",
+            "loss/g_adversarial",
+            "loss/d_adversarial",
+            "critic/accuracy",
+            "critic/margin",
+          ];
       const matching = allIds.filter(
         (id) => id.startsWith("loss/") || id.startsWith("critic/"),
       );
@@ -65,11 +86,18 @@ export function presetMetrics(presetName, catalogMetrics = {}) {
           id.startsWith("grad_norm/") ||
           id.startsWith("health/"),
       );
-      const critic = [
-        "critic/accuracy",
-        "critic/margin",
-        ...allIds.filter((id) => id.startsWith("critic/")),
-      ];
+      const critic = multiCritic
+        ? [
+            ...perCriticMargins,
+            "critic/accuracy",
+            "critic/margin",
+            ...allIds.filter((id) => id.startsWith("critic/")),
+          ]
+        : [
+            "critic/accuracy",
+            "critic/margin",
+            ...allIds.filter((id) => id.startsWith("critic/")),
+          ];
       return pick([
         "grad_norm/generator",
         "grad_norm/critic",

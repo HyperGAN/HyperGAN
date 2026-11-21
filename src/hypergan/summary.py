@@ -82,15 +82,13 @@ def collect_evaluations(run_dir: Path) -> list[dict]:
     results = []
     if not eval_root.is_dir():
         return results
+    from .evaluation_results import receipt_values
     catalogs = {}
 
     for receipt_path in eval_root.glob("*/receipt.json"):
         try:
             receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
             if receipt.get("status") != "complete" or "result" not in receipt:
-                continue
-            val = receipt["result"].get("value")
-            if not isinstance(val, (int, float)) or isinstance(val, bool) or not math.isfinite(val):
                 continue
             step = receipt.get("source_step")
             if step is None:
@@ -100,27 +98,29 @@ def collect_evaluations(run_dir: Path) -> list[dict]:
             if step is None:
                 continue
 
-            metric_id = receipt.get("metric_id") or receipt.get("metric", "")
             ts = receipt.get("timestamp")
             if ts is None:
                 try:
                     ts = datetime.fromtimestamp(receipt_path.stat().st_mtime, timezone.utc).isoformat()
                 except OSError:
                     ts = None
-            definition = {}
+            definitions = {}
             if isinstance(receipt.get("catalog"), str):
-                definition = _catalog_definitions(run_dir, receipt["catalog"], catalogs).get(metric_id) or {}
-
-            results.append({
-                "step": int(step),
-                "metric": str(metric_id),
-                "value": float(val),
-                "dir": receipt_path.parent.name,
-                "timestamp": ts,
-                "attempt_id": receipt.get("attempt_id"),
-                "direction": definition.get("direction"),
-                "unit": definition.get("unit"),
-            })
+                definitions = _catalog_definitions(run_dir, receipt["catalog"], catalogs)
+            for metric_id, val in receipt_values(receipt).items():
+                if type(val) not in (int, float) or not math.isfinite(val):
+                    continue
+                definition = definitions.get(metric_id) or {}
+                results.append({
+                    "step": int(step),
+                    "metric": str(metric_id),
+                    "value": float(val),
+                    "dir": receipt_path.parent.name,
+                    "timestamp": ts,
+                    "attempt_id": receipt.get("attempt_id"),
+                    "direction": definition.get("direction"),
+                    "unit": definition.get("unit"),
+                })
         except Exception:
             continue
 

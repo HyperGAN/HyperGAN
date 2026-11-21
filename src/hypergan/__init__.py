@@ -4,7 +4,7 @@ Training dependencies are loaded only when a training or sampling API is used.
 """
 from typing import TYPE_CHECKING
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 if TYPE_CHECKING:
     from . import metrics as metrics
@@ -60,6 +60,7 @@ if TYPE_CHECKING:
         get_cache_dir as get_cache_dir,
         hndl as hndl,
         image as image,
+        import_evaluation as import_evaluation,
         import_path as import_path,
         init_project as init_project,
         inspect as inspect,

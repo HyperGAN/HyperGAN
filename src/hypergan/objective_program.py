@@ -23,6 +23,7 @@ class SampleBinding:
     path: str
     detach_sample: bool
     detach_score: bool
+    use_draw_cache: bool = False
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,8 @@ class AdversarialTerm:
     module: object
     routes: tuple
     weight: float
+    critic_weight: float
+    generator_weight: float
     penalty: bool
     penalty_fn: object
     gan: object
@@ -89,21 +92,16 @@ def _ordered_unique(parameters):
     return tuple(ordered)
 
 
-def _phases(real, fake):
+def _phases(real, fake, *, shared_fake=False):
     # Critic step detaches the fake sample before the forward. Generator step
     # detaches the real score after the forward. Those cuts are not the same.
     critic = PhaseSamples(
         SampleBinding(real, detach_sample=False, detach_score=False),
-        SampleBinding(fake, detach_sample=True, detach_score=False))
+        SampleBinding(fake, detach_sample=True, detach_score=False, use_draw_cache=shared_fake))
     generator = PhaseSamples(
         SampleBinding(real, detach_sample=False, detach_score=True),
         SampleBinding(fake, detach_sample=False, detach_score=False))
     return critic, generator
-
-
-def _discriminator_phases():
-    """The implicit discriminator term scores the real batch against the generated sample."""
-    return _phases("batch.real", "generated")
 
 
 def _routes(inputs):
@@ -115,16 +113,7 @@ def _routes(inputs):
     return routes
 
 
-def _penalty_for_term(spec, make_penalty):
-    """A new penalty with the term's coefficient, paired with the shared critic optimizer."""
-    if not spec["penalty"]:
-        return None
-    if make_penalty is None:
-        raise ValueError("A penalized adversarial term needs a penalty factory")
-    return make_penalty(spec["penalty_coeff"])
-
-
-def compile_objective_program(graph, prior, config, objectives, gan, penalty, spread, make_penalty=None):
+def compile_objective_program(graph, prior, config, objectives, gan, penalty, spread, extra_term=None):
     """Compile the configured objectives into the ``d-then-g-v1`` program the trainer runs.
 
     The implicit first term reads the discriminator and its inputs. Optional
@@ -132,17 +121,24 @@ def compile_objective_program(graph, prior, config, objectives, gan, penalty, sp
     These records are not another training method.
     """
     discriminator = graph.models["discriminator"]
-    critic_phase, generator_phase = _discriminator_phases()
-    terms = [AdversarialTerm(
-        discriminator, _routes(graph.specs["discriminator"]["inputs"]), config["adversarial"]["weight"],
-        True, penalty, gan, critic_phase, generator_phase, "adversarial")]
-    for spec in config.get("adversarial_terms") or ():
-        module = graph.models[spec["component"]]
-        extra_critic, extra_generator = _phases(spec["real"], spec["fake"])
-        terms.append(AdversarialTerm(
-            module, _routes(spec["inputs"]), spec["weight"], bool(spec["penalty"]),
-            _penalty_for_term(spec, make_penalty), gan,
-            extra_critic, extra_generator, spec["id"]))
+    primary = config["adversarial"]
+    extra_specs = config.get("adversarial_terms") or ()
+    shared_fake = bool(config.get("recipe")) and any(spec["component"] != "discriminator" for spec in extra_specs)
+
+    def compile_term(spec, module, routes, loss, penalty_fn):
+        critic_phase, generator_phase = _phases(
+            spec.get("real", "batch.real"), spec.get("fake", "generated"), shared_fake=shared_fake)
+        return AdversarialTerm(
+            module=module, routes=_routes(routes), weight=spec["weight"],
+            critic_weight=spec.get("critic_weight", spec["weight"]),
+            generator_weight=spec.get("generator_weight", spec["weight"]),
+            penalty=penalty_fn is not None, penalty_fn=penalty_fn, gan=loss,
+            critic_phase=critic_phase, generator_phase=generator_phase, id=spec.get("id", "adversarial"))
+
+    terms = [compile_term(primary, discriminator, graph.specs["discriminator"]["inputs"], gan, penalty)]
+    for spec in extra_specs:
+        loss, term_penalty = extra_term(spec)
+        terms.append(compile_term(spec, graph.models[spec["component"]], spec["inputs"], loss, term_penalty))
     terms = tuple(terms)
     if len(terms) == 1:
         # The discriminator's own parameter objects, in module order. Do not filter
@@ -256,7 +252,10 @@ def _bound_scores(term, context, graph, phase_name, phase, *, first, noise):
     output_noise, input_noise = noise
     sample_context = _sample_context(context, phase_name)
     real = _sample_tensor(graph, sample_context, phase.real)
-    fake = with_noise(_sample_tensor(graph, sample_context, phase.fake), *output_noise)
+    # Independent critics reading a generated mask must see the same mask,
+    # including stochastic component outputs. The critic detaches this sample.
+    fake_context = context if phase.fake.use_draw_cache else sample_context
+    fake = with_noise(_sample_tensor(graph, fake_context, phase.fake), *output_noise)
 
     def score(sample, binding):
         value = score_candidate(term, sample, context, graph, phase_name, noise=input_noise)
@@ -371,22 +370,24 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     stream = trainer.streams["noise"]
     noise = ((output_std, stream), (input_std, stream))
 
+    from .particlegan_runtime import invoke_critic_penalty
+
     def penalty(term, real, fake):
         critic = ScoredCritic(term.module, lambda module, value: score_candidate(
             term, value, context, trainer.graph, "critic", module=module, noise=(input_std, stream)))
-        try:
-            from torch.nn.attention import SDPBackend, sdpa_kernel
-            with sdpa_kernel(SDPBackend.MATH):
-                return term.penalty_fn(critic, real, fake)
-        except Exception:
-            return term.penalty_fn(critic, real, fake)
+        return invoke_critic_penalty(term.penalty_fn, critic, real, fake)
+    thermal_coordinator = getattr(trainer, "thermal_coordinator", None)
+    if thermal_coordinator is not None:
+        thermal_coordinator.synchronize()
     if independent:
         with torch.no_grad():
             batch, ids, context = trainer._draw(batch, latent_draw)
     else:
         batch, ids, context = trainer._draw(batch, latent_draw)
     terms = program.adversarial_terms
-    trainer.opt_d.zero_grad(set_to_none=True)
+    for optimizer in trainer.critic_optimizers.values():
+        optimizer.zero_grad(set_to_none=True)
+    per_term_records = []
     if len(terms) == 1:
         term = terms[0]
         real, fake, real_score, fake_score = _bound_scores(
@@ -396,26 +397,35 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             d_penalty = penalty(term, real, fake)
         else:
             d_penalty = fake.new_zeros(())
-        d_adversarial_weighted = term.weight * d_adversarial
+        d_adversarial_weighted = term.critic_weight * d_adversarial
         d_loss = d_adversarial_weighted + d_penalty
+        per_term_records.append((term.id, d_adversarial_weighted, d_penalty, d_loss, real_score, fake_score))
+        d_real_score, d_fake_score, d_real_samples, d_fake_samples = real_score, fake_score, real, fake
     else:
         unweighted = []
         weighted = []
         penalties = []
-        fake = None
-        for term in terms:
+        d_real_score = d_fake_score = d_real_samples = d_fake_samples = None
+        for index, term in enumerate(terms):
             real, fake, real_score, fake_score = _bound_scores(
                 term, context, trainer.graph, "critic", term.critic_phase, first="real", noise=noise)
             loss = term.gan.d_loss(real_score, fake_score)
+            weighted_t = term.critic_weight * loss
             unweighted.append(loss)
-            weighted.append(term.weight * loss)
+            weighted.append(weighted_t)
             if term.penalty_fn is not None:
-                penalties.append(penalty(term, real, fake))
+                pen_t = penalty(term, real, fake)
+                penalties.append(pen_t)
+            else:
+                pen_t = fake.new_zeros(())
+            tot_t = weighted_t + pen_t
+            per_term_records.append((term.id, weighted_t, pen_t, tot_t, real_score, fake_score))
+            if index == 0:
+                d_real_score, d_fake_score, d_real_samples, d_fake_samples = real_score, fake_score, real, fake
         d_adversarial = _sum_tensors(unweighted)
         d_adversarial_weighted = _sum_tensors(weighted)
-        d_penalty = _sum_tensors(penalties) if penalties else fake.new_zeros(())
+        d_penalty = _sum_tensors(penalties) if penalties else d_fake_samples.new_zeros(())
         d_loss = d_adversarial_weighted + d_penalty
-    d_real_score, d_fake_score, d_real_samples, d_fake_samples = real_score, fake_score, real, fake
     d_loss.backward()
     if len(terms) == 1:
         critic_checked = list(terms[0].module.parameters())
@@ -442,15 +452,25 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         try:
             rs = d_real_score.detach()
             fs = d_fake_score.detach()
-            critic_real_mean_t = rs.mean().reshape(())
-            critic_fake_mean_t = fs.mean().reshape(())
+            critic_real_mean_t = rs.double().mean().reshape(())
+            critic_fake_mean_t = fs.double().mean().reshape(())
             critic_accuracy_t = (rs > fs).float().mean().reshape(())
         except Exception:
             critic_real_mean_t = zero_scalar
             critic_fake_mean_t = zero_scalar
             critic_accuracy_t = half_scalar
+        per_term_tensors = []
+        for _, w_t, p_t, tot_t, r_sc_t, f_sc_t in per_term_records:
+            per_term_tensors.extend((
+                w_t.detach().reshape(()),
+                p_t.detach().reshape(()),
+                tot_t.detach().reshape(()),
+                r_sc_t.detach().double().mean().reshape(()),
+                f_sc_t.detach().double().mean().reshape(()),
+            ))
     explicit_guard = getattr(trainer.opt_d, 'd_guard_ratio', None)
-    trainer.opt_d.step()
+    for optimizer in trainer.critic_optimizers.values():
+        optimizer.step()
     with torch.no_grad():
         if explicit_guard is None and getattr(trainer.opt_d, 'guard', None) is not None:
             try:
@@ -470,66 +490,69 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         term.module.requires_grad_(False)
         saved_flags.append((term.module, flags))
     rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(trainer, terms)
+    import contextlib
+    thermal_scope = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
     try:
-        if independent:
-            batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
-        trainer.opt_g.zero_grad(set_to_none=True)
-        if rhbi_mod is not None:
-            simplicial_active = bool(
-                use_rhbi_simplex
-                and getattr(trainer.recipe, "rhbi_simplex_chart_weight", 0.0) > 0.0
-                and getattr(trainer.recipe, "rhbi_simplex_macro_settle", False)
-            )
-            rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
-        simplex_loss = None
-        if len(terms) == 1:
-            term = terms[0]
-            real, fake, real_score, fake_score = _bound_scores(
-                term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
-            g_adversarial = term.gan.g_loss(fake_score, real_score)
-            prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
-            if use_rhbi_simplex and rhbi_mod is not None:
-                unique_ids = ids.unique() if ids is not None else None
-                simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
-            g_adversarial_weighted = term.weight * g_adversarial
-        else:
-            unweighted = []
-            weighted = []
-            fake = None
-            for term in terms:
+        with thermal_scope:
+            if independent:
+                batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
+            trainer.opt_g.zero_grad(set_to_none=True)
+            if rhbi_mod is not None:
+                simplicial_active = bool(
+                    use_rhbi_simplex
+                    and getattr(trainer.recipe, "rhbi_simplex_chart_weight", 0.0) > 0.0
+                    and getattr(trainer.recipe, "rhbi_simplex_macro_settle", False)
+                )
+                rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
+            simplex_loss = None
+            if len(terms) == 1:
+                term = terms[0]
                 real, fake, real_score, fake_score = _bound_scores(
                     term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
-                loss = term.gan.g_loss(fake_score, real_score)
-                unweighted.append(loss)
-                weighted.append(term.weight * loss)
-            g_adversarial = _sum_tensors(unweighted)
-            prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
-            g_adversarial_weighted = _sum_tensors(weighted)
-        g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-        if simplex_loss is not None:
-            g_loss = g_loss + simplex_loss
-        from particlegan.optim.constraint_geometry import constraint_geometry_backward
-        set_rows = getattr(trainer.opt_g, 'set_sampled_rows', None)
-        if set_rows is not None and ids is not None and program.prior_parameters:
-            set_rows(trainer.prior.z, ids)
-        constraint_geometry_backward(g_loss, trainer.opt_g, (g_adversarial_weighted,))
-        gen_checked = list(program.generator_parameters)
-        prior_checked = list(program.prior_checked) if program.prior_checked else []
-        trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
-                                  [("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
-                                   ("Nonfinite prior gradient; run stopped", prior_checked)])
-        with torch.no_grad():
-            try:
-                g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
-                gen_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in g_grads)).reshape(()) if g_grads else zero_scalar
-            except Exception:
-                gen_grad_norm_t = zero_scalar
-            try:
-                p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
-                prior_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in p_grads)).reshape(()) if p_grads else zero_scalar
-            except Exception:
-                prior_grad_norm_t = zero_scalar
-        trainer.opt_g.step()
+                g_adversarial = term.gan.g_loss(fake_score, real_score)
+                prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+                if use_rhbi_simplex and rhbi_mod is not None:
+                    unique_ids = ids.unique() if ids is not None else None
+                    simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
+                g_adversarial_weighted = term.generator_weight * g_adversarial
+            else:
+                unweighted = []
+                weighted = []
+                fake = None
+                for term in terms:
+                    real, fake, real_score, fake_score = _bound_scores(
+                        term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
+                    loss = term.gan.g_loss(fake_score, real_score)
+                    unweighted.append(loss)
+                    weighted.append(term.generator_weight * loss)
+                g_adversarial = _sum_tensors(unweighted)
+                prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+                g_adversarial_weighted = _sum_tensors(weighted)
+            g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+            if simplex_loss is not None:
+                g_loss = g_loss + simplex_loss
+            from particlegan.optim.constraint_geometry import constraint_geometry_backward
+            set_rows = getattr(trainer.opt_g, 'set_sampled_rows', None)
+            if set_rows is not None and ids is not None and program.prior_parameters:
+                set_rows(trainer.prior.z, ids)
+            constraint_geometry_backward(g_loss, trainer.opt_g, (g_adversarial_weighted,))
+            gen_checked = list(program.generator_parameters)
+            prior_checked = list(program.prior_checked) if program.prior_checked else []
+            trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
+                                      [("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
+                                       ("Nonfinite prior gradient; run stopped", prior_checked)])
+            with torch.no_grad():
+                try:
+                    g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
+                    gen_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in g_grads)).reshape(()) if g_grads else zero_scalar
+                except Exception:
+                    gen_grad_norm_t = zero_scalar
+                try:
+                    p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
+                    prior_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in p_grads)).reshape(()) if p_grads else zero_scalar
+                except Exception:
+                    prior_grad_norm_t = zero_scalar
+            trainer.opt_g.step()
     finally:
         if rhbi_mod is not None:
             rhbi_mod.bind_discrete_prior_step(False)
@@ -555,12 +578,14 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         except Exception:
             diversity_ratio_t = one_scalar
 
+    n_objectives = len(objective_losses)
     values = trainer._metric_transfer([d_loss, d_adversarial, d_adversarial_weighted,
         g_adversarial_weighted, g_loss, g_adversarial, prior_loss, d_penalty,
         critic_real_mean_t, critic_fake_mean_t, critic_accuracy_t,
         critic_grad_norm_t, post_critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
         particle_rms_t, diversity_ratio_t,
-        *objective_losses])
+        *objective_losses,
+        *per_term_tensors])
     row = dict(zip(("d_loss", "d_adversarial", "d_adversarial_weighted",
                     "g_adversarial_weighted", "g_loss", "g_adversarial",
                     "prior_loss", "gradient_penalty"), values[:8]))
@@ -586,7 +611,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         d_guard_ratio = 1.0
 
     row.update(
-        event="train", step=step, objectives=values[17:], lr_scale=scale,
+        event="train", step=step, objectives=values[17:17 + n_objectives], lr_scale=scale,
         critic_real_mean=critic_real_mean,
         critic_fake_mean=critic_fake_mean,
         critic_margin=critic_margin,
@@ -602,10 +627,33 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     row["critic/fake_mean"] = critic_fake_mean
     row["critic/margin"] = critic_margin
     row["critic/accuracy"] = critic_accuracy
+    row["critic/thermal_scale"] = (
+        thermal_coordinator.effective_scale() if thermal_coordinator is not None else 1.0
+    )
     row["grad_norm/critic"] = critic_grad_norm
     row["grad_norm/generator"] = gen_grad_norm
     row["grad_norm/prior"] = prior_grad_norm
     row["optimizer/d_guard_ratio"] = d_guard_ratio
     row["prior/particle_rms"] = particle_rms
     row["diversity/ratio"] = diversity_ratio
+    per_term_values = values[17 + n_objectives:]
+    for idx, (tid, _, _, _, _, _) in enumerate(per_term_records):
+        offset = idx * 5
+        d_adv_w_v, d_pen_v, d_tot_v, r_mean_v, f_mean_v = per_term_values[offset:offset + 5]
+        r_m = float(r_mean_v) if math.isfinite(r_mean_v) else 0.0
+        f_m = float(f_mean_v) if math.isfinite(f_mean_v) else 0.0
+        margin_v = r_m - f_m
+        if not math.isfinite(margin_v):
+            margin_v = 0.0
+        eff_th, raw_th = (
+            thermal_coordinator.term_scales(terms[idx]) if thermal_coordinator is not None else (1.0, 1.0)
+        )
+        row[f"loss/critics/{tid}/d_adversarial"] = float(d_adv_w_v)
+        row[f"loss/critics/{tid}/gradient_penalty"] = float(d_pen_v)
+        row[f"loss/critics/{tid}/d_total"] = float(d_tot_v)
+        row[f"critic/{tid}/real_mean"] = r_m
+        row[f"critic/{tid}/fake_mean"] = f_m
+        row[f"critic/{tid}/margin"] = margin_v
+        row[f"critic/{tid}/thermal_scale"] = eff_th
+        row[f"critic/{tid}/raw_thermal_scale"] = raw_th
     return row, detach(batch)

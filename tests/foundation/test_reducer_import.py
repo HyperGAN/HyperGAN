@@ -9,11 +9,11 @@ import sys
 from hypergan.metrics_reducer import Reducer, descriptor
 assert 'torch' not in sys.modules and 'wasmtime' not in sys.modules
 assert descriptor()['abi'] == 1
-sys.modules['wasmtime'] = None
+sys.modules['foldlitedb._native'] = None
 try:
     Reducer()
 except RuntimeError as error:
-    assert 'foldlitedb[reducers]' in str(error)
+    assert 'foldlitedb._native' in str(error)
 else:
     raise AssertionError('Missing runtime must not silently fall back')
 """], capture_output=True, text=True)

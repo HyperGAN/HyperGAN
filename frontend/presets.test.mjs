@@ -96,6 +96,22 @@ test("presetMetrics covers losses, health, and diversity bounded to 8 scalar tra
   const diversity = presetMetrics("diversity", STANDARD_GAN_CATALOG);
   assert.equal(diversity.length, 6);
   assert.ok(diversity.every((id) => id.startsWith("diversity/")));
+
+  const multiCriticCatalog = {
+    ...STANDARD_GAN_CATALOG,
+    "loss/critics/primary/d_total": { kind: "scalar", label: "Discriminator total (primary)" },
+    "loss/critics/aux/d_total": { kind: "scalar", label: "Discriminator total (aux)" },
+    "critic/primary/margin": { kind: "scalar", label: "Critic score margin (primary) E[D(x)] - E[D(G(z))]" },
+    "critic/aux/margin": { kind: "scalar", label: "Critic score margin (aux) E[D(x)] - E[D(G(z))]" },
+  };
+  const multiLosses = presetMetrics("losses", multiCriticCatalog);
+  assert.ok(multiLosses.includes("loss/g_total"));
+  assert.ok(multiLosses.includes("loss/d_total"));
+  assert.ok(multiLosses.includes("loss/critics/primary/d_total"));
+  assert.ok(multiLosses.includes("loss/critics/aux/d_total"));
+  const multiHealth = presetMetrics("health", multiCriticCatalog);
+  assert.ok(multiHealth.includes("critic/primary/margin"));
+  assert.ok(multiHealth.includes("critic/aux/margin"));
 });
 
 test("reducedSelection pins loss/g_total and loss/d_total when selected is non-empty and returns [] when empty", () => {

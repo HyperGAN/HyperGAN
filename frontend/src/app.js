@@ -1804,8 +1804,10 @@ function render() {
       element.append(heading, description, canvas, note);
       $("charts").append(element);
       const chart = init(canvas, null, { renderer: "canvas" });
-      card = { element, chart, value, note };
+      card = { element, chart, title, value, note };
       state.charts.set(metric, card);
+    } else if (card.title) {
+      card.title.textContent = metricDefinitions()[metric]?.label || metric;
     }
     const alpha = Number($("smoothing").value);
     const series = [];

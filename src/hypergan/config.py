@@ -122,7 +122,13 @@ def _spec(value, location, objectives=False):
 
 
 _TERM_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}")
-_ADVERSARIAL_TERM_FIELDS = {"id", "component", "weight", "penalty", "penalty_coeff", "real", "fake", "inputs"}
+_ADVERSARIAL_TERM_FIELDS = {"id", "component", "weight", "critic_weight", "generator_weight", "penalty", "penalty_coeff", "real", "fake", "inputs"}
+
+
+def _validate_adversarial_weights(term, location):
+    for key in ("weight", "critic_weight", "generator_weight"):
+        if key in term:
+            _positive(term[key], f"{location}.{key}", zero=True)
 
 
 def _resolve_adversarial_terms(result):
@@ -131,13 +137,17 @@ def _resolve_adversarial_terms(result):
     ``[adversarial]`` stays the implicit legacy term. These tables are further
     terms only, so they are not part of ``DEFAULT`` and do not change a legacy fingerprint.
     """
+    primary_id = result["adversarial"].get("id", "adversarial")
+    if "id" in result["adversarial"]:
+        if not isinstance(primary_id, str) or _TERM_ID.fullmatch(primary_id) is None:
+            raise ValueError("adversarial.id must be 1–128 letters, digits, dots, underscores or hyphens")
     if "adversarial_terms" not in result:
         return
     terms = result["adversarial_terms"]
     if not isinstance(terms, list) or not terms or any(not isinstance(term, dict) for term in terms):
         raise ValueError("adversarial_terms must be a non-empty list of tables")
     components = result["components"]
-    seen = set()
+    seen = {primary_id}
     for index, term in enumerate(terms):
         location = f"adversarial_terms[{index}]"
         _keys(term, _ADVERSARIAL_TERM_FIELDS, location)
@@ -151,7 +161,7 @@ def _resolve_adversarial_terms(result):
         if not isinstance(component, str) or component not in components or "reuse" in components[component]:
             raise ValueError(f"{location}.component must name an existing non-reuse component")
         term.setdefault("weight", 1.0)
-        _positive(term["weight"], f"{location}.weight", zero=True)
+        _validate_adversarial_weights(term, location)
         term.setdefault("penalty", False)
         if type(term["penalty"]) is not bool:
             raise ValueError(f"{location}.penalty must be boolean")
@@ -310,7 +320,7 @@ def resolve_config(raw):
             extra = (
                 {'particle_ids', 'generated', 'views', 'comparison'}
                 if key == 'sampling'
-                else ({'id', 'real', 'fake', 'inputs'} if key == 'adversarial' else set())
+                else ({'id', 'real', 'fake', 'inputs', 'critic_weight', 'generator_weight'} if key == 'adversarial' else set())
             )
             allowed = set(result[key]) | extra
             _keys(value, allowed, key)
@@ -408,7 +418,7 @@ def resolve_config(raw):
         elif latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
             raise ModelFileError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
 
-    _positive(result["adversarial"]["weight"], "adversarial.weight", zero=True)
+    _validate_adversarial_weights(result["adversarial"], "adversarial")
     penalty = result["gradient_penalty"]
     for key in ("coeff", "kappa", "anchor_weight"):
         _positive(penalty[key], f"gradient_penalty.{key}", zero=True)
@@ -431,6 +441,7 @@ def resolve_config(raw):
         objective_ids.append(objective_id(term))
     if len(set(objective_ids)) != len(objective_ids):
         raise ValueError('Objective IDs must be unique; give repeated objectives explicit IDs')
+    _resolve_adversarial_terms(result)
     validate_metrics(result)
     if result['recipe']:
         # Persist effective values, including the scalar-section overrides,
@@ -526,7 +537,6 @@ def resolve_config(raw):
                    or not isinstance(column['binding'], str) or not column['binding']
                    for column in comparison)):
         raise ValueError('sampling.comparison requires two to four labelled image bindings')
-    _resolve_adversarial_terms(result)
     _resolve_samplers(result)
     paths = [p for c in components.values() for p in c["inputs"].values()] + [p for t in result["objectives"] for p in t["inputs"].values()]
     adv_cfg = result.get("adversarial", {})
@@ -986,5 +996,10 @@ def sampling_bindings(sampling, *, preview=False):
 
 def evaluation_bindings(config):
     """Explicit snapshot output overrides; omitted values use sampling output."""
-    return [spec['evaluation']['generated'] for spec in config['metrics']['custom'].values()
-            if spec['mode'] == 'snapshot' and 'generated' in spec['evaluation']]
+    paths = []
+    for spec in config['metrics']['custom'].values():
+        if spec['mode'] == 'snapshot':
+            if 'generated' in spec['evaluation']:
+                paths.append(spec['evaluation']['generated'])
+            paths.extend(path for path in spec['inputs'].values() if path.startswith('components.'))
+    return paths

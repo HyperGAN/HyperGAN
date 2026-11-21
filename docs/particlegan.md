@@ -2,7 +2,7 @@
 
 HyperGAN consumes ParticleGAN's released GAN recipe through
 `defaults = "particlegan"`. The `train` and `all` extras require ParticleGAN
-`>=0.11.1,<0.12`; 0.11.1 is the current released compatibility baseline.
+`>=0.11.2,<0.12`; 0.11.2 is the current released compatibility baseline.
 ParticleGAN owns the formulation and its selected
 loss, learning rates, hyperparameters, normalization, regularizers and optimizer
 implementations. HyperGAN owns networks and bindings, datasets, task objectives,
@@ -24,9 +24,34 @@ loss, penalty, prior policy, regularization, schedules and optimizer constructio
 to the recipe's public factories. The Model tab identifies ParticleGAN as the
 provider and shows host settings, loss metrics and networks.
 
-ParticleGAN 0.11.1 selects `unified_v11` (Unified 4-Law) by default. Select a specific preset with, for example, `defaults = "particlegan:empf"` or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Unified-v11 and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
+ParticleGAN 0.11.2 selects `unified_v11` (Unified 4-Law) by default. Select a specific preset with, for example, `defaults = "particlegan:empf"` or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Unified-v11 and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
 
-The integration supports one critic network per resolved recipe. Combine feature heads inside that network.
+Each distinct critic named by an adversarial loss gets its own recipe loss, optimizer, penalty and step record. Each optimizer steps once per critic phase. Repeated terms for the same critic share its optimizer and record. During the generator phase all critics are frozen. Their weighted objectives and the single shared prior regularizer feed one backward pass and one generator/prior optimizer step. The first critic supplies the recipe record read by that shared optimizer and regularizer.
+
+Under multi-critic training with thermal step records (such as Unified-v11), each critic retains its own domain-specific residual EMAs while HyperGAN enforces the `coupled_max` thermal policy across all critics (`MultiCriticThermalCoordinator`): every critic holds a single synchronized effective thermal scale `s_shared = max_i s_i` throughout each step and advances together at the step boundary. This prevents a faster-cooling critic from silently drifting its relative gradient weight into the shared generator/prior or prematurely cooling the shared generator optimizer and prior regularizer while another critic is still unconverged. The synchronized scale and per-term raw/effective scales are published as `critic/thermal_scale`, `critic/<term_id>/thermal_scale`, and `critic/<term_id>/raw_thermal_scale`.
+
+Critic penalties run inside `critic_penalty_context()`, which enables the math SDPA backend and a thread-local `DualSafeSoftmaxMode` (`TorchFunctionMode`) that computes exact analytic forward-mode AD JVPs for `torch.softmax`, `F.softmax`, `F.log_softmax`, `F.softmin`, `F.scaled_dot_product_attention`, and `nn.MultiheadAttention` whenever forward-AD dual tensors are present. This avoids PyTorch's inplace `Exp` version-counter failure during `backward()` through `fwAD` softmax ops (`pytorch#162350`) while preserving zero-`autograd.grad` single-pass forward-AD critic penalties.
+
+For a MisGAN model, bind both generator networks to `latent`. Declare one as the primary `generator` and the other as an `auxiliary` network. The following losses assume `batch.real` contains the masked features concatenated with their mask, `masked_pair` builds that pair from the generator outputs, and `gm` generates the mask.
+
+```toml
+[[losses]]
+type = "adversarial"
+critic = "dx"
+real = "batch.real"
+fake = "masked_pair"
+critic_weight = 1.0
+generator_weight = 0.2
+
+[[losses]]
+type = "adversarial"
+critic = "dm"
+real = "batch.mask"
+fake = "gm"
+
+[[losses]]
+type = "prior"
+```
 
 Existing concrete configurations can still be loaded with their explicit
 settings. Without a recipe snapshot, construction uses ParticleGAN's public
@@ -55,7 +80,7 @@ and retains the legacy restoration fallback for 0.9.4. Install the current
 release from PyPI:
 
 ```sh
-python -m pip install --upgrade 'particlegan>=0.11.1,<0.12'
+python -m pip install --upgrade 'particlegan>=0.11.2,<0.12'
 ```
 
 Fresh parameter initialization uses ParticleGAN's public initializer when

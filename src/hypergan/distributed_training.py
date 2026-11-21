@@ -385,7 +385,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 state[name] = {'state': module.state_dict(), 'buffers': dict(module.named_buffers()),
                                'trainable': {key: p.requires_grad for key, p in module.named_parameters()},
                                'modes': {key: child.training for key, child in module.named_modules()}}
-            state['optimizers'] = [self.opt_g.state_dict(), self.opt_d.state_dict()]
+            state['optimizers'] = [optimizer.state_dict() for optimizer in self.optimizers]
             state['base_lrs'] = self.base_lrs
             prior_reg_ckpt = self.recipe.prior_regularizer_checkpoint(self.spread) if callable(getattr(self.recipe, 'prior_regularizer_checkpoint', None)) else {}
             if prior_reg_ckpt:
@@ -588,10 +588,45 @@ class ReplicatedTrainer(ReferenceTrainer):
                 parameter.grad = None
             raise ValueError('Nonfinite reduced gradient; optimizer step refused')
 
-    def _average_critic_statistics(self):
+    def _step_critics(self, terms):
+        for name, optimizer in self.critic_optimizers.items():
+            self._reduce_gradients(optimizer, name)
+        critic_params = self._critic_checked_parameters(terms)
+        critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+        explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
+        for name, optimizer in self.critic_optimizers.items():
+            rec_d = getattr(optimizer, 'record', None)
+            if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
+                if hasattr(rec_d, 'proto_initialized'):
+                    from .aggregation import sync_empf_record
+                    sync_empf_record(rec_d, self.device, self.world_size)
+                elif hasattr(rec_d, 't1c_ell_initialized'):
+                    from .aggregation import sync_unified_v11_record
+                    sync_unified_v11_record(rec_d, self.device, self.world_size)
+        thermal_coordinator = getattr(self, 'thermal_coordinator', None)
+        if thermal_coordinator is not None:
+            thermal_coordinator.synchronize()
+        for name, optimizer in self.critic_optimizers.items():
+            rec_d = getattr(optimizer, 'record', None)
+            self._sync_unified_v11_d_probes(rec_d)
+            self._optimizer_step(optimizer, name)
+            self._average_critic_statistics(rec_d)
+        if explicit_guard is not None:
+            d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
+        elif getattr(self.opt_d, 'guard', None) is not None:
+            post_critic_grad_norm_t = self._grad_norm_scalar(critic_params)
+            d_guard_ratio_t = torch.where(
+                critic_grad_norm_t > 0.0,
+                post_critic_grad_norm_t / critic_grad_norm_t.clamp_min(1e-30),
+                torch.ones_like(critic_grad_norm_t),
+            )
+        else:
+            d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
+        return critic_grad_norm_t, d_guard_ratio_t
+
+    def _average_critic_statistics(self, rec):
         # KA2 controller statistics come from rank-local critic scores.
         # t1c / unified_v11 records expose ema_residual as a read-only property and sync via coupled pairs or sync_unified_v11_record.
-        rec = getattr(self.opt_d, 'record', None)
         if rec is None or hasattr(rec, 't1c_ell_initialized'):
             return
         if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
@@ -636,10 +671,28 @@ class ReplicatedTrainer(ReferenceTrainer):
         return loss
 
     @staticmethod
+    def _term_real_sample(phase, context):
+        path = phase.real.path
+        if path == 'generated':
+            return context.get('generated')
+        if path == 'latent':
+            return context.get('latent')
+        if path.startswith('batch.'):
+            batch = context.get('batch')
+            if isinstance(batch, dict):
+                return batch.get(path.split('.', 1)[1])
+        components = context.get('components')
+        if isinstance(components, dict):
+            key = path.split('.', 1)[1] if path.startswith('components.') else path
+            if key in components:
+                return components[key]
+        return None
+
+    @staticmethod
     def _is_highres_image_term(term, sample):
         return (
             isinstance(sample, torch.Tensor)
-            and sample.ndim >= 4
+            and sample.ndim >= 2
             and sample.shape[0] > 0
             and sample[0].numel() > 1024
             and len(term.routes) == 1
@@ -668,11 +721,10 @@ class ReplicatedTrainer(ReferenceTrainer):
             return True
         return False
 
-    def _gather_t1c_pair(self, fake_score, real_score):
+    def _gather_t1c_pair(self, fake_score, real_score, rec):
         """Gather critic logits and t1c/unified_v11 input/conditioning captures across all ranks."""
         from particlegan._t1_coupling.critic import _lookup_t1c_capture_parts
 
-        rec = getattr(self.opt_d, 'record', None)
         x_f, cond_f, rec_f, cc_f, parts_f = _lookup_t1c_capture_parts(fake_score, rec)
         x_r, cond_r, rec_r, cc_r, parts_r = _lookup_t1c_capture_parts(
             real_score, rec_f if rec_f is not None else rec
@@ -702,13 +754,13 @@ class ReplicatedTrainer(ReferenceTrainer):
         return global_f_sc, global_r_sc
 
     def _gather_coupled_pair(self, term, fake_score, real_score):
+        rec = getattr(term.gan, 'record', None)
         if hasattr(term.gan, 't1c'):
-            return self._gather_t1c_pair(fake_score, real_score)
-        return self._gather_rhbi_pair(fake_score, real_score)
+            return self._gather_t1c_pair(fake_score, real_score, rec)
+        return self._gather_rhbi_pair(fake_score, real_score, rec)
 
-    def _sync_unified_v11_d_probes(self):
+    def _sync_unified_v11_d_probes(self, rec):
         """Gather critic secant probe slices across ranks so all ranks compute identical alpha_gain."""
-        rec = getattr(self.opt_d, 'record', None)
         probes = getattr(rec, '_d_probe_list', None)
         if not probes or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
             return
@@ -716,12 +768,27 @@ class ReplicatedTrainer(ReferenceTrainer):
         synced = []
         for p_args, p_kwargs, d_pre in probes:
             if len(p_args) == 1 and not p_kwargs and isinstance(p_args[0], torch.Tensor):
-                gx = self._all_gather_coupled(p_args[0].detach())[:_PROBE_SLICE]
-                gd = self._all_gather_coupled(d_pre.detach())[:_PROBE_SLICE]
+                in_dim = max(1, int(p_args[0][0].numel())) if p_args[0].shape[0] > 0 else 1
+                b_p = max(2, min(_PROBE_SLICE, 8192 // in_dim))
+                gx = self._all_gather_coupled(p_args[0].detach())[:b_p]
+                gd = self._all_gather_coupled(d_pre.detach())[:b_p]
                 synced.append(((gx,), {}, gd))
             else:
                 synced.append((p_args, p_kwargs, d_pre))
         rec._d_probe_list = synced
+
+    def _gather_probe_value(self, value, b_local, b_probe):
+        if isinstance(value, torch.Tensor):
+            if value.ndim >= 1 and value.shape[0] == b_local:
+                return self._all_gather_coupled(value.detach())[:b_probe]
+            return value.detach()
+        if isinstance(value, dict):
+            return {k: self._gather_probe_value(v, b_local, b_probe) for k, v in value.items()}
+        if isinstance(value, tuple):
+            return tuple(self._gather_probe_value(v, b_local, b_probe) for v in value)
+        if isinstance(value, list):
+            return [self._gather_probe_value(v, b_local, b_probe) for v in value]
+        return value
 
     def _sync_unified_v11_g_probe(self):
         """Gather element-budgeted generator secant probe slice across ranks so all ranks compute identical alpha_gain."""
@@ -733,16 +800,16 @@ class ReplicatedTrainer(ReferenceTrainer):
         g_mod, p_args, p_kwargs, y_pre = cache
         out_dim = max(1, int(y_pre[0].numel()))
         b_p = max(2, min(_PROBE_SLICE, 8192 // out_dim))
-        if len(p_args) == 1 and not p_kwargs and isinstance(p_args[0], torch.Tensor):
-            gz = self._all_gather_coupled(p_args[0].detach())[:b_p]
-            gy = self._all_gather_coupled(y_pre.detach())[:b_p]
-            rec._g_probe_cache = (_BroadcastProbeProxy(g_mod, gy), (gz,), {}, gy)
+        b_local = int(y_pre.shape[0])
+        g_args = self._gather_probe_value(p_args, b_local, b_p)
+        g_kwargs = self._gather_probe_value(p_kwargs, b_local, b_p)
+        gy = self._all_gather_coupled(y_pre.detach())[:b_p]
+        rec._g_probe_cache = (_BroadcastProbeProxy(g_mod, gy), g_args, g_kwargs, gy)
 
-    def _gather_rhbi_pair(self, fake_score, real_score):
+    def _gather_rhbi_pair(self, fake_score, real_score, rec):
         """Gather critic logits and RHBI input/conditioning captures across all ranks."""
         from particlegan._rhbi.critic import _lookup_rhbi_capture_parts
 
-        rec = getattr(self.opt_d, 'record', None)
         x_f, cond_f, rec_f, cc_f, parts_f = _lookup_rhbi_capture_parts(fake_score, rec)
         x_r, cond_r, rec_r, cc_r, parts_r = _lookup_rhbi_capture_parts(
             real_score, rec_f if rec_f is not None else rec
@@ -895,6 +962,32 @@ class ReplicatedTrainer(ReferenceTrainer):
         row["prior/particle_rms"] = particle_rms
         row["diversity/ratio"] = diversity_ratio
 
+    @staticmethod
+    def _populate_per_critic_metrics(row, terms, per_term_values, *, thermal_coordinator=None):
+        row["critic/thermal_scale"] = (
+            thermal_coordinator.effective_scale() if thermal_coordinator is not None else 1.0
+        )
+        for idx, term in enumerate(terms):
+            offset = idx * 5
+            d_adv_w_v, d_pen_v, d_tot_v, r_mean_v, f_mean_v = per_term_values[offset:offset + 5]
+            r_m = float(r_mean_v) if math.isfinite(r_mean_v) else 0.0
+            f_m = float(f_mean_v) if math.isfinite(f_mean_v) else 0.0
+            margin_v = r_m - f_m
+            if not math.isfinite(margin_v):
+                margin_v = 0.0
+            eff_th, raw_th = (
+                thermal_coordinator.term_scales(term) if thermal_coordinator is not None else (1.0, 1.0)
+            )
+            tid = term.id
+            row[f"loss/critics/{tid}/d_adversarial"] = float(d_adv_w_v)
+            row[f"loss/critics/{tid}/gradient_penalty"] = float(d_pen_v)
+            row[f"loss/critics/{tid}/d_total"] = float(d_tot_v)
+            row[f"critic/{tid}/real_mean"] = r_m
+            row[f"critic/{tid}/fake_mean"] = f_m
+            row[f"critic/{tid}/margin"] = margin_v
+            row[f"critic/{tid}/thermal_scale"] = eff_th
+            row[f"critic/{tid}/raw_thermal_scale"] = raw_th
+
     def update(self, batch=None, latent_draw=None):
         try:
             self._agree('update boundary', {'step': self.step, 'ready': self.checkpoint_ready, 'poisoned': self._poisoned})
@@ -958,7 +1051,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 raise ValueError('Prior IDs must be an int64 vector of local_batch_size')
             context = self.graph.generate(z, local_batch, prior=self.prior)
             raw_fake, real = context['generated'], local_batch['real']
-            if not isinstance(raw_fake, torch.Tensor) or raw_fake.shape != real.shape or not torch.isfinite(raw_fake).all():
+            if not self._valid_generated_shape(raw_fake, real) or not torch.isfinite(raw_fake).all():
                 raise ValueError('Generator output must be finite and match local real data shape')
             fake = with_noise(raw_fake, output_std, noise_stream)
             context['generated'] = fake
@@ -985,49 +1078,65 @@ class ReplicatedTrainer(ReferenceTrainer):
         terms = self.program.adversarial_terms
         noise = ((output_std, noise_stream), (input_std, noise_stream))
 
+        from .particlegan_runtime import invoke_critic_penalty
+        thermal_coordinator = getattr(self, 'thermal_coordinator', None)
+        if thermal_coordinator is not None:
+            thermal_coordinator.synchronize()
+
         def penalty_fn(term, real_sample, fake_sample):
             critic_fn = ScoredCritic(term.module, lambda module, value: score_candidate(
                 term, value, context, self.graph, "critic", module=module, noise=(input_std, noise_stream)))
-            try:
-                from torch.nn.attention import SDPBackend, sdpa_kernel
-                with sdpa_kernel(SDPBackend.MATH):
-                    return term.penalty_fn(critic_fn, real_sample, fake_sample)
-            except Exception:
-                return term.penalty_fn(critic_fn, real_sample, fake_sample)
+            return invoke_critic_penalty(term.penalty_fn, critic_fn, real_sample, fake_sample)
 
         def discriminator_forward():
             unweighted = []
             weighted = []
             penalties = []
-            last_fake = None
-            last_real = None
-            last_r_sc = None
-            last_f_sc = None
-            for term in terms:
+            per_term_tensors = []
+            first_fake = None
+            first_real = None
+            first_r_sc = None
+            first_f_sc = None
+            for index, term in enumerate(terms):
                 r_s, f_s, r_sc, f_sc = _bound_scores(
                     term, context, self.graph, "critic", term.critic_phase, first="real", noise=noise)
                 r_sc, f_sc = self._logits(r_sc, f_sc)
                 loss = term.gan.d_loss(r_sc, f_sc)
+                weighted_t = term.critic_weight * loss
                 unweighted.append(loss)
-                weighted.append(term.weight * loss)
-                last_real = r_s
-                last_fake = f_s
-                last_r_sc = r_sc
-                last_f_sc = f_sc
+                weighted.append(weighted_t)
                 if term.penalty_fn is not None:
-                    penalties.append(penalty_fn(term, r_s, f_s))
+                    pen_t = penalty_fn(term, r_s, f_s)
+                    penalties.append(pen_t)
+                else:
+                    pen_t = f_s.new_zeros(())
+                tot_t = weighted_t + pen_t
+                r_mean_t, f_mean_t, _ = self._critic_score_scalars(r_sc, f_sc)
+                per_term_tensors.extend((
+                    weighted_t.detach().reshape(()),
+                    pen_t.detach().reshape(()),
+                    tot_t.detach().reshape(()),
+                    r_mean_t,
+                    f_mean_t,
+                ))
+                if index == 0:
+                    first_real = r_s
+                    first_fake = f_s
+                    first_r_sc = r_sc
+                    first_f_sc = f_sc
             d_adv = _sum_tensors(unweighted)
             d_adv_weighted = _sum_tensors(weighted)
-            d_pen = _sum_tensors(penalties) if penalties else (last_fake.new_zeros(()) if last_fake is not None else real.new_zeros(()))
+            d_pen = _sum_tensors(penalties) if penalties else (first_fake.new_zeros(()) if first_fake is not None else real.new_zeros(()))
             d_tot = d_adv_weighted + d_pen
-            score_stats = self._critic_score_scalars(last_r_sc, last_f_sc)
-            moment_stats = self._sample_moment_scalars(last_fake, last_real)
-            return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
+            score_stats = self._critic_score_scalars(first_r_sc, first_f_sc)
+            moment_stats = self._sample_moment_scalars(first_fake, first_real)
+            return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats, per_term_tensors
 
-        self.opt_d.zero_grad(set_to_none=True)
+        for optimizer in self.critic_optimizers.values():
+            optimizer.zero_grad(set_to_none=True)
         coupled_d = bool(
             getattr(self.aggregation_strategy, 'reduces_gradients', False)
-            and any(self._uses_coupled_critic_loss(term, real) for term in terms)
+            and any(self._uses_coupled_critic_loss(term, self._term_real_sample(term.critic_phase, context)) for term in terms)
         )
         if coupled_d:
             def discriminator_scores_only():
@@ -1040,43 +1149,58 @@ class ReplicatedTrainer(ReferenceTrainer):
             with self._folded('discriminator scores'):
                 d_scored = self._phase('discriminator scores', discriminator_scores_only)
             d_global_pairs = [
-                self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_critic_loss(term, real) else None
-                for term, (_, _, r_sc, f_sc) in zip(terms, d_scored)
+                self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_critic_loss(term, r_s) else None
+                for term, (r_s, _, r_sc, f_sc) in zip(terms, d_scored)
             ]
 
             def discriminator_coupled_loss():
                 unweighted = []
                 weighted = []
                 penalties = []
-                last_fake = None
-                last_real = None
-                last_r_sc = None
-                last_f_sc = None
-                for term, (r_s, f_s, r_sc, f_sc), g_pair in zip(terms, d_scored, d_global_pairs):
+                per_term_tensors = []
+                first_fake = None
+                first_real = None
+                first_r_sc = None
+                first_f_sc = None
+                for index, (term, (r_s, f_s, r_sc, f_sc), g_pair) in enumerate(zip(terms, d_scored, d_global_pairs)):
                     if g_pair is not None:
                         gf_sc, gr_sc = g_pair
                         loss = self._scale_coupled_backward(term.gan.d_loss(gr_sc, gf_sc))
                     else:
                         r_sc_l, f_sc_l = self._logits(r_sc, f_sc)
                         loss = term.gan.d_loss(r_sc_l, f_sc_l)
+                    weighted_t = term.critic_weight * loss
                     unweighted.append(loss)
-                    weighted.append(term.weight * loss)
-                    last_real = r_s
-                    last_fake = f_s
-                    last_r_sc = r_sc
-                    last_f_sc = f_sc
+                    weighted.append(weighted_t)
                     if term.penalty_fn is not None:
-                        penalties.append(penalty_fn(term, r_s, f_s))
+                        pen_t = penalty_fn(term, r_s, f_s)
+                        penalties.append(pen_t)
+                    else:
+                        pen_t = f_s.new_zeros(())
+                    tot_t = weighted_t + pen_t
+                    r_mean_t, f_mean_t, _ = self._critic_score_scalars(r_sc, f_sc)
+                    per_term_tensors.extend((
+                        weighted_t.detach().reshape(()),
+                        pen_t.detach().reshape(()),
+                        tot_t.detach().reshape(()),
+                        r_mean_t,
+                        f_mean_t,
+                    ))
+                    if index == 0:
+                        first_real = r_s
+                        first_fake = f_s
+                        first_r_sc = r_sc
+                        first_f_sc = f_sc
                 d_adv = _sum_tensors(unweighted)
                 d_adv_weighted = _sum_tensors(weighted)
-                d_pen = _sum_tensors(penalties) if penalties else (last_fake.new_zeros(()) if last_fake is not None else real.new_zeros(()))
+                d_pen = _sum_tensors(penalties) if penalties else (first_fake.new_zeros(()) if first_fake is not None else real.new_zeros(()))
                 d_tot = d_adv_weighted + d_pen
-                score_stats = self._critic_score_scalars(last_r_sc, last_f_sc)
-                moment_stats = self._sample_moment_scalars(last_fake, last_real)
-                return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats
+                score_stats = self._critic_score_scalars(first_r_sc, first_f_sc)
+                moment_stats = self._sample_moment_scalars(first_fake, first_real)
+                return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats, per_term_tensors
 
             with self._folded('discriminator backward'):
-                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
+                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats, per_term_tensors = self._phase(
                     'discriminator forward and penalty', discriminator_coupled_loss)
                 critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
                 fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
@@ -1084,38 +1208,13 @@ class ReplicatedTrainer(ReferenceTrainer):
                 self._phase('discriminator backward', d_loss.backward)
         else:
             with self._folded('discriminator backward'):
-                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats = self._phase(
+                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats, per_term_tensors = self._phase(
                     'discriminator forward and penalty', discriminator_forward)
                 critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
                 fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
                 self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
                 self._phase('discriminator backward', d_loss.backward)
-        self._reduce_gradients(self.opt_d, 'discriminator')
-        critic_params = self._critic_checked_parameters(terms)
-        critic_grad_norm_t = self._grad_norm_scalar(critic_params)
-        rec_d = getattr(self.opt_d, 'record', None)
-        if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
-            if hasattr(rec_d, 'proto_initialized'):
-                from .aggregation import sync_empf_record
-                sync_empf_record(rec_d, self.device, self.world_size)
-            elif hasattr(rec_d, 't1c_ell_initialized'):
-                from .aggregation import sync_unified_v11_record
-                sync_unified_v11_record(rec_d, self.device, self.world_size)
-        self._sync_unified_v11_d_probes()
-        explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
-        self._optimizer_step(self.opt_d, 'discriminator')
-        if explicit_guard is not None:
-            d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
-        elif getattr(self.opt_d, 'guard', None) is not None:
-            post_critic_grad_norm_t = self._grad_norm_scalar(critic_params)
-            d_guard_ratio_t = torch.where(
-                critic_grad_norm_t > 0.0,
-                post_critic_grad_norm_t / critic_grad_norm_t.clamp_min(1e-30),
-                torch.ones_like(critic_grad_norm_t),
-            )
-        else:
-            d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
-        self._average_critic_statistics()
+        critic_grad_norm_t, d_guard_ratio_t = self._step_critics(terms)
 
         saved_flags = []
         seen_modules = set()
@@ -1127,137 +1226,139 @@ class ReplicatedTrainer(ReferenceTrainer):
             term.module.requires_grad_(False)
             saved_flags.append((term.module, flags))
         rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(self, terms)
+        thermal_scope = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
         try:
-            if independent:
-                with self._folded('generator batch and forward'):
-                    gen_batch = self.batch()
-                    gen_batch, gen_context, gen_fake, gen_real, gen_ids = self._phase(
-                        'generator batch and forward', lambda: prepare(gen_batch, None))
-                gen_selected = None if gen_ids is None else self.collectives.unique_indices(gen_ids, num_rows=len(self.prior.z))
-            else:
-                gen_batch, gen_context, gen_fake, gen_real, gen_selected, gen_ids = batch, context, fake, real, selected, ids
+            with thermal_scope:
+                if independent:
+                    with self._folded('generator batch and forward'):
+                        gen_batch = self.batch()
+                        gen_batch, gen_context, gen_fake, gen_real, gen_ids = self._phase(
+                            'generator batch and forward', lambda: prepare(gen_batch, None))
+                    gen_selected = None if gen_ids is None else self.collectives.unique_indices(gen_ids, num_rows=len(self.prior.z))
+                else:
+                    gen_batch, gen_context, gen_fake, gen_real, gen_selected, gen_ids = batch, context, fake, real, selected, ids
 
-            self.opt_g.zero_grad(set_to_none=True)
-            if rhbi_mod is not None:
-                simplicial_active = bool(
-                    use_rhbi_simplex
-                    and getattr(self.recipe, 'rhbi_simplex_chart_weight', 0.0) > 0.0
-                    and getattr(self.recipe, 'rhbi_simplex_macro_settle', False)
-                )
-                rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
+                self.opt_g.zero_grad(set_to_none=True)
+                if rhbi_mod is not None:
+                    simplicial_active = bool(
+                        use_rhbi_simplex
+                        and getattr(self.recipe, 'rhbi_simplex_chart_weight', 0.0) > 0.0
+                        and getattr(self.recipe, 'rhbi_simplex_macro_settle', False)
+                    )
+                    rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
 
-            def generator_adversarial_forward():
-                unweighted = []
-                weighted = []
-                for term in terms:
-                    r_s, f_s, r_sc, f_sc = _bound_scores(
-                        term, gen_context, self.graph, "generator", term.generator_phase, first="fake", noise=noise)
-                    r_sc, f_sc = self._logits(r_sc, f_sc)
-                    loss = term.gan.g_loss(f_sc, r_sc)
-                    unweighted.append(loss)
-                    weighted.append(term.weight * loss)
-                return _sum_tensors(unweighted), _sum_tensors(weighted)
-
-            def remaining_losses(simplex_real=None):
-                rows = None if gen_selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[gen_selected]
-                prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else gen_fake.new_zeros(())
-                simplex_loss = (
-                    _rhbi_simplex_loss(self, rhbi_mod, gen_selected, simplex_real)
-                    if (use_rhbi_simplex and rhbi_mod is not None and simplex_real is not None)
-                    else None
-                )
-                objective_losses = []
-                for term_spec, objective in zip(cfg['objectives'], self.objectives):
-                    inputs = {arg: self.graph.resolve(path, gen_context) for arg, path in term_spec['inputs'].items()}
-                    for arg in term_spec['detach']:
-                        inputs[arg] = detach(inputs[arg])
-                    value = objective(**inputs)
-                    if not isinstance(value, torch.Tensor) or value.numel() != 1:
-                        raise ValueError('Each objective must return one scalar tensor')
-                    objective_losses.append(term_spec['weight'] * value)
-                return prior_loss, simplex_loss, objective_losses
-
-            from particlegan.optim.constraint_geometry import constraint_geometry_backward
-            coupled_g = bool(
-                getattr(self.aggregation_strategy, 'reduces_gradients', False)
-                and any(self._uses_coupled_generator_loss(term, gen_real) for term in terms)
-            )
-            if coupled_g:
-                def generator_scores_only():
-                    return [
-                        _bound_scores(term, gen_context, self.graph, "generator", term.generator_phase, first="fake", noise=noise)
-                        for term in terms
-                    ]
-
-                with self._folded('generator critic scores'):
-                    g_scored = self._phase('generator critic scores', generator_scores_only)
-                g_global_pairs = [
-                    self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_generator_loss(term, gen_real) else None
-                    for term, (_, _, r_sc, f_sc) in zip(terms, g_scored)
-                ]
-                global_simplex_real = (
-                    self._all_gather_coupled(gen_real.detach())
-                    if (use_rhbi_simplex and rhbi_mod is not None)
-                    else None
-                )
-
-                def generator_coupled_adversarial():
+                def generator_adversarial_forward():
                     unweighted = []
                     weighted = []
-                    for term, (_, _, r_sc, f_sc), g_pair in zip(terms, g_scored, g_global_pairs):
-                        if g_pair is not None:
-                            gf_sc, gr_sc = g_pair
-                            loss = self._scale_coupled_backward(term.gan.g_loss(gf_sc, gr_sc))
-                        else:
-                            r_sc_l, f_sc_l = self._logits(r_sc, f_sc)
-                            loss = term.gan.g_loss(f_sc_l, r_sc_l)
+                    for term in terms:
+                        r_s, f_s, r_sc, f_sc = _bound_scores(
+                            term, gen_context, self.graph, "generator", term.generator_phase, first="fake", noise=noise)
+                        r_sc, f_sc = self._logits(r_sc, f_sc)
+                        loss = term.gan.g_loss(f_sc, r_sc)
                         unweighted.append(loss)
-                        weighted.append(term.weight * loss)
+                        weighted.append(term.generator_weight * loss)
                     return _sum_tensors(unweighted), _sum_tensors(weighted)
 
-                with self._folded('generator backward'):
-                    g_adversarial, g_adversarial_weighted = self._phase(
-                        'generator critic forward', generator_coupled_adversarial)
-                    prior_loss, simplex_loss, objective_losses = self._phase(
-                        'generator regularizers and objectives', lambda: remaining_losses(global_simplex_real))
-                    g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-                    if simplex_loss is not None:
-                        g_loss = g_loss + simplex_loss
-                    set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
-                    if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
-                        set_rows(self.prior.z, gen_selected)
-                    self._phase('generator loss', lambda: self._finite_loss(g_loss))
-                    self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
-            else:
-                simplex_real_local = gen_real if (use_rhbi_simplex and rhbi_mod is not None) else None
-                with self._folded('generator backward'):
-                    g_adversarial, g_adversarial_weighted = self._phase(
-                        'generator critic forward', generator_adversarial_forward)
-                    prior_loss, simplex_loss, objective_losses = self._phase(
-                        'generator regularizers and objectives', lambda: remaining_losses(simplex_real_local))
-                    g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-                    if simplex_loss is not None:
-                        g_loss = g_loss + simplex_loss
-                    set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
-                    if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
-                        set_rows(self.prior.z, gen_selected)
-                    self._phase('generator loss', lambda: self._finite_loss(g_loss))
-                    self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
+                def remaining_losses(simplex_real=None):
+                    rows = None if gen_selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[gen_selected]
+                    prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else gen_fake.new_zeros(())
+                    simplex_loss = (
+                        _rhbi_simplex_loss(self, rhbi_mod, gen_selected, simplex_real)
+                        if (use_rhbi_simplex and rhbi_mod is not None and simplex_real is not None)
+                        else None
+                    )
+                    objective_losses = []
+                    for term_spec, objective in zip(cfg['objectives'], self.objectives):
+                        inputs = {arg: self.graph.resolve(path, gen_context) for arg, path in term_spec['inputs'].items()}
+                        for arg in term_spec['detach']:
+                            inputs[arg] = detach(inputs[arg])
+                        value = objective(**inputs)
+                        if not isinstance(value, torch.Tensor) or value.numel() != 1:
+                            raise ValueError('Each objective must return one scalar tensor')
+                        objective_losses.append(term_spec['weight'] * value)
+                    return prior_loss, simplex_loss, objective_losses
 
-            if getattr(self.opt_g, '_protected', None) is not None:
-                if getattr(self.aggregation_strategy, 'reduces_gradients', False):
-                    dist.all_reduce(self.opt_g._protected)
-                    self.opt_g._protected /= self.world_size
+                from particlegan.optim.constraint_geometry import constraint_geometry_backward
+                coupled_g = bool(
+                    getattr(self.aggregation_strategy, 'reduces_gradients', False)
+                    and any(self._uses_coupled_generator_loss(term, self._term_real_sample(term.generator_phase, gen_context)) for term in terms)
+                )
+                if coupled_g:
+                    def generator_scores_only():
+                        return [
+                            _bound_scores(term, gen_context, self.graph, "generator", term.generator_phase, first="fake", noise=noise)
+                            for term in terms
+                        ]
 
-            self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
-            gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
-            prior_grad_norm_t = (
-                self._grad_norm_scalar(self.program.prior_checked)
-                if self.program.prior_checked
-                else torch.zeros((), dtype=torch.float64, device=self.device)
-            )
-            self._sync_unified_v11_g_probe()
-            self._optimizer_step(self.opt_g, 'generator')
+                    with self._folded('generator critic scores'):
+                        g_scored = self._phase('generator critic scores', generator_scores_only)
+                    g_global_pairs = [
+                        self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_generator_loss(term, r_s) else None
+                        for term, (r_s, _, r_sc, f_sc) in zip(terms, g_scored)
+                    ]
+                    global_simplex_real = (
+                        self._all_gather_coupled(gen_real.detach())
+                        if (use_rhbi_simplex and rhbi_mod is not None)
+                        else None
+                    )
+
+                    def generator_coupled_adversarial():
+                        unweighted = []
+                        weighted = []
+                        for term, (_, _, r_sc, f_sc), g_pair in zip(terms, g_scored, g_global_pairs):
+                            if g_pair is not None:
+                                gf_sc, gr_sc = g_pair
+                                loss = self._scale_coupled_backward(term.gan.g_loss(gf_sc, gr_sc))
+                            else:
+                                r_sc_l, f_sc_l = self._logits(r_sc, f_sc)
+                                loss = term.gan.g_loss(f_sc_l, r_sc_l)
+                            unweighted.append(loss)
+                            weighted.append(term.generator_weight * loss)
+                        return _sum_tensors(unweighted), _sum_tensors(weighted)
+
+                    with self._folded('generator backward'):
+                        g_adversarial, g_adversarial_weighted = self._phase(
+                            'generator critic forward', generator_coupled_adversarial)
+                        prior_loss, simplex_loss, objective_losses = self._phase(
+                            'generator regularizers and objectives', lambda: remaining_losses(global_simplex_real))
+                        g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+                        if simplex_loss is not None:
+                            g_loss = g_loss + simplex_loss
+                        set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
+                        if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
+                            set_rows(self.prior.z, gen_selected)
+                        self._phase('generator loss', lambda: self._finite_loss(g_loss))
+                        self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
+                else:
+                    simplex_real_local = gen_real if (use_rhbi_simplex and rhbi_mod is not None) else None
+                    with self._folded('generator backward'):
+                        g_adversarial, g_adversarial_weighted = self._phase(
+                            'generator critic forward', generator_adversarial_forward)
+                        prior_loss, simplex_loss, objective_losses = self._phase(
+                            'generator regularizers and objectives', lambda: remaining_losses(simplex_real_local))
+                        g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+                        if simplex_loss is not None:
+                            g_loss = g_loss + simplex_loss
+                        set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
+                        if set_rows is not None and gen_selected is not None and self.program.prior_parameters:
+                            set_rows(self.prior.z, gen_selected)
+                        self._phase('generator loss', lambda: self._finite_loss(g_loss))
+                        self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
+
+                if getattr(self.opt_g, '_protected', None) is not None:
+                    if getattr(self.aggregation_strategy, 'reduces_gradients', False):
+                        dist.all_reduce(self.opt_g._protected)
+                        self.opt_g._protected /= self.world_size
+
+                self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
+                gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
+                prior_grad_norm_t = (
+                    self._grad_norm_scalar(self.program.prior_checked)
+                    if self.program.prior_checked
+                    else torch.zeros((), dtype=torch.float64, device=self.device)
+                )
+                self._sync_unified_v11_g_probe()
+                self._optimizer_step(self.opt_g, 'generator')
         finally:
             if rhbi_mod is not None:
                 rhbi_mod.bind_discrete_prior_step(False)
@@ -1275,6 +1376,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             particle_rms_t,
             fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
             d_guard_ratio_t,
+            *per_term_tensors,
         ])
         values = self._complete(step, transferred)
         self.step = step
@@ -1283,11 +1385,15 @@ class ReplicatedTrainer(ReferenceTrainer):
         row = dict(zip(('d_loss', 'g_loss', 'g_adversarial', 'prior_loss', 'gradient_penalty', 'd_adversarial', 'd_adversarial_weighted', 'g_adversarial_weighted'), values[:8]))
         row.update(event='train', step=step, objectives=values[8:8 + n_objectives], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size, world_size=self.world_size)
+        telemetry_start = 8 + n_objectives
         self._populate_telemetry(
             row,
-            values[8 + n_objectives:],
+            values[telemetry_start:telemetry_start + 12],
             local_fake_numel * self.world_size,
             local_real_numel * self.world_size,
+        )
+        self._populate_per_critic_metrics(
+            row, terms, values[telemetry_start + 12:], thermal_coordinator=thermal_coordinator
         )
         return row, detach(batch)
 
@@ -1415,49 +1521,50 @@ class ReplicatedTrainer(ReferenceTrainer):
         generation_rng, d_records = [], []
         # The penalty record counts calls. Discovery and replay evaluate one
         # logical penalty per microbatch; keep the count of the plain update.
-        record, logical_calls = self.opt_d.record, None
-        calls_before = record.calls
+        records = [optimizer.record for optimizer in self.critic_optimizers.values()]
+        logical_calls = None
 
         def generate(local_z, local_batch):
             context = self.graph.generate(local_z, local_batch, prior=self.prior)
             fake = context['generated']
-            if not isinstance(fake, torch.Tensor) or fake.shape != local_batch['real'].shape or not torch.isfinite(fake).all():
+            if not self._valid_generated_shape(fake, local_batch['real']) or not torch.isfinite(fake).all():
                 raise ValueError('Generator output must be finite and match local real data shape')
             return context
 
         terms = self.program.adversarial_terms
         acc_noise = ((0, None), (0, None))
 
+        from .particlegan_runtime import invoke_critic_penalty
+        thermal_coordinator = getattr(self, 'thermal_coordinator', None)
+        if thermal_coordinator is not None:
+            thermal_coordinator.synchronize()
+
         def penalty_fn_acc(term, real_sample, fake_sample, micro_context):
             critic_fn = ScoredCritic(term.module, lambda module, value: score_candidate(
                 term, value, micro_context, self.graph, "critic", module=module, noise=(0, None)))
-            try:
-                from torch.nn.attention import SDPBackend, sdpa_kernel
-                with sdpa_kernel(SDPBackend.MATH):
-                    return term.penalty_fn(critic_fn, real_sample, fake_sample)
-            except Exception:
-                return term.penalty_fn(critic_fn, real_sample, fake_sample)
+            return invoke_critic_penalty(term.penalty_fn, critic_fn, real_sample, fake_sample)
 
         def discriminator_micro(index, start, *, capture_moments=False):
             local_batch = self._microbatch(batch, start)
             local_z = z.detach()[start:start + self.microbatch_size].requires_grad_(z.requires_grad)
             context = detach(generate(local_z, local_batch))
             term_records = []
-            last_real = None
-            last_fake = None
-            for term in terms:
+            first_real = None
+            first_fake = None
+            for t_idx, term in enumerate(terms):
                 r_s, f_s, r_sc, f_sc = _bound_scores(
                     term, context, self.graph, "critic", term.critic_phase, first="real", noise=acc_noise)
                 self._micro_logits(r_sc, f_sc)
-                last_real = r_s
-                last_fake = f_s
+                if t_idx == 0:
+                    first_real = r_s
+                    first_fake = f_s
                 if term.penalty_fn is not None:
                     pen = penalty_fn_acc(term, r_s, f_s, context)
                 else:
                     pen = f_s.new_zeros(())
                 term_records.append((r_sc, f_sc, pen))
             if capture_moments:
-                return term_records, self._digest(context['generated']), self._sample_moment_scalars(last_fake, last_real)
+                return term_records, self._digest(context['generated']), self._sample_moment_scalars(first_fake, first_real)
             return term_records, self._digest(context['generated'])
 
         with self._folded('discriminator backward'):
@@ -1474,7 +1581,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                     return [(r_sc.detach(), f_sc.detach(), pen.detach()) for r_sc, f_sc, pen in term_records], fake_digest, sample_moments
                 d_records.append((rng, self._phase(f'D micro {index} discovery', prepass)))
                 if logical_calls is None:
-                    logical_calls = record.calls
+                    logical_calls = [record.calls for record in records]
             all_dr, all_df = [], []
             unweighted, weighted = [], []
             for t, term in enumerate(terms):
@@ -1483,7 +1590,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 global_dr_t, global_df_t = self._logits(dr_t, df_t)
                 loss_raw = term.gan.d_loss(global_dr_t, global_df_t)
                 unweighted.append(loss_raw)
-                weighted.append(term.weight * loss_raw)
+                weighted.append(term.critic_weight * loss_raw)
                 all_dr.append(dr_t)
                 all_df.append(df_t)
             d_adversarial_raw = _sum_tensors(unweighted)
@@ -1496,7 +1603,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             d_penalty = sum(rec[1][0][t][2] / self.accumulation_steps for rec in d_records for t in range(len(terms)))
             d_loss = d_adversarial.detach() + d_penalty
             self._phase('accumulated D total loss', lambda: self._finite_loss(d_loss))
-            self.opt_d.zero_grad(set_to_none=True)
+            for optimizer in self.critic_optimizers.values():
+                optimizer.zero_grad(set_to_none=True)
             for index, start in enumerate(starts):
                 rng, expected = d_records[index]
                 def replay():
@@ -1512,33 +1620,9 @@ class ReplicatedTrainer(ReferenceTrainer):
                         step_loss = step_loss + term_loss
                     step_loss.backward()
                 self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
-            record.calls = calls_before if logical_calls is None else logical_calls
-        self._reduce_gradients(self.opt_d, 'discriminator')
-        critic_params = self._critic_checked_parameters(terms)
-        critic_grad_norm_t = self._grad_norm_scalar(critic_params)
-        rec_d = getattr(self.opt_d, 'record', None)
-        if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
-            if hasattr(rec_d, 'proto_initialized'):
-                from .aggregation import sync_empf_record
-                sync_empf_record(rec_d, self.device, self.world_size)
-            elif hasattr(rec_d, 't1c_ell_initialized'):
-                from .aggregation import sync_unified_v11_record
-                sync_unified_v11_record(rec_d, self.device, self.world_size)
-        self._sync_unified_v11_d_probes()
-        explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
-        self._optimizer_step(self.opt_d, 'discriminator')
-        if explicit_guard is not None:
-            d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
-        elif getattr(self.opt_d, 'guard', None) is not None:
-            post_critic_grad_norm_t = self._grad_norm_scalar(critic_params)
-            d_guard_ratio_t = torch.where(
-                critic_grad_norm_t > 0.0,
-                post_critic_grad_norm_t / critic_grad_norm_t.clamp_min(1e-30),
-                torch.ones_like(critic_grad_norm_t),
-            )
-        else:
-            d_guard_ratio_t = torch.ones((), dtype=torch.float64, device=self.device)
-        self._average_critic_statistics()
+            for record, calls in zip(records, logical_calls):
+                record.calls = calls
+        critic_grad_norm_t, d_guard_ratio_t = self._step_critics(terms)
         saved_flags = []
         seen_modules = set()
         for term in terms:
@@ -1548,116 +1632,125 @@ class ReplicatedTrainer(ReferenceTrainer):
             flags = [p.requires_grad for p in term.module.parameters()]
             term.module.requires_grad_(False)
             saved_flags.append((term.module, flags))
+        thermal_scope_acc = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
         try:
-            def generator_micro(index, start):
-                local_batch = self._microbatch(batch, start)
-                local_z = z.detach()[start:start + self.microbatch_size].requires_grad_(z.requires_grad)
-                # Recreate precisely the fake used during D, without consuming a
-                # second generator RNG trajectory in the logical update.
-                context = self._isolated_replay(generation_rng[index], lambda: generate(local_z, local_batch))
-                fake = context['generated']
-                if self._digest(fake) != d_records[index][1][1]:
-                    raise ValueError('Generator replay did not reproduce the fake used by the discriminator')
-                term_records = []
-                for term in terms:
-                    r_s, f_s, r_sc, f_sc = _bound_scores(
-                        term, context, self.graph, "generator", term.generator_phase, first="fake", noise=acc_noise)
-                    self._micro_logits(f_sc, r_sc)
-                    term_records.append((f_sc, r_sc.detach()))
-                objectives = []
-                for term_spec, objective in zip(cfg['objectives'], self.objectives):
-                    inputs = {arg: self.graph.resolve(path, context) for arg, path in term_spec['inputs'].items()}
-                    for arg in term_spec['detach']:
-                        inputs[arg] = detach(inputs[arg])
-                    value = objective(**inputs)
-                    if not isinstance(value, torch.Tensor) or value.numel() != 1:
-                        raise ValueError('Each objective must return one scalar tensor')
-                    objectives.append(term_spec['weight'] * value)
-                return term_records, objectives, local_z, self._digest(fake)
+            with thermal_scope_acc:
+                def generator_micro(index, start):
+                    local_batch = self._microbatch(batch, start)
+                    local_z = z.detach()[start:start + self.microbatch_size].requires_grad_(z.requires_grad)
+                    # Recreate precisely the fake used during D, without consuming a
+                    # second generator RNG trajectory in the logical update.
+                    context = self._isolated_replay(generation_rng[index], lambda: generate(local_z, local_batch))
+                    fake = context['generated']
+                    if self._digest(fake) != d_records[index][1][1]:
+                        raise ValueError('Generator replay did not reproduce the fake used by the discriminator')
+                    term_records = []
+                    for term in terms:
+                        r_s, f_s, r_sc, f_sc = _bound_scores(
+                            term, context, self.graph, "generator", term.generator_phase, first="fake", noise=acc_noise)
+                        self._micro_logits(f_sc, r_sc)
+                        term_records.append((f_sc, r_sc.detach()))
+                    objectives = []
+                    for term_spec, objective in zip(cfg['objectives'], self.objectives):
+                        inputs = {arg: self.graph.resolve(path, context) for arg, path in term_spec['inputs'].items()}
+                        for arg in term_spec['detach']:
+                            inputs[arg] = detach(inputs[arg])
+                        value = objective(**inputs)
+                        if not isinstance(value, torch.Tensor) or value.numel() != 1:
+                            raise ValueError('Each objective must return one scalar tensor')
+                        objectives.append(term_spec['weight'] * value)
+                    return term_records, objectives, local_z, self._digest(fake)
 
-            with self._folded('generator backward'):
-                g_records = []
-                for index, start in enumerate(starts):
-                    rng = self._accumulation_rng()
-                    def prepass():
-                        term_records, terms_obj, _, fake_digest = self._immutable_forward(lambda: generator_micro(index, start))
-                        for value in terms_obj:
-                            self._finite_loss(value)
-                        return (
-                            [(gf.detach(), gr.detach()) for gf, gr in term_records],
-                            detach(terms_obj),
-                            fake_digest
-                        )
-                    g_records.append((rng, self._phase(f'G micro {index} discovery', prepass)))
-                all_gf = []
-                g_unweighted, g_weighted = [], []
-                for t, term in enumerate(terms):
-                    gf_t = torch.cat([rec[1][0][t][0] for rec in g_records]).requires_grad_(True)
-                    gr_t = torch.cat([rec[1][0][t][1] for rec in g_records])
-                    global_gr_t, global_gf_t = self._logits(gr_t, gf_t)
-                    loss_raw = term.gan.g_loss(global_gf_t, global_gr_t)
-                    g_unweighted.append(loss_raw)
-                    g_weighted.append(term.weight * loss_raw)
-                    all_gf.append(gf_t)
-                g_adversarial = _sum_tensors(g_unweighted)
-                weighted_adversarial = _sum_tensors(g_weighted)
-                self._phase('accumulated G objective', lambda: self._finite_loss(weighted_adversarial))
-                g_cotangents = self._phase('accumulated G logit derivatives', lambda: torch.autograd.grad(weighted_adversarial, tuple(all_gf)))
-                objective_factors = [1 / self.accumulation_steps if reduction == 'mean' else 1 for reduction in self._objective_reductions]
-                objective_losses = [sum(record[1][1][i] * factor for record in g_records) for i, factor in enumerate(objective_factors)]
-                self.opt_g.zero_grad(set_to_none=True)
-                z_cotangent = torch.zeros_like(z) if z.requires_grad else None
-                any_z_gradient = False
-                for index, start in enumerate(starts):
-                    rng, expected = g_records[index]
-                    def replay():
-                        nonlocal any_z_gradient
-                        current = self._immutable_forward(lambda: generator_micro(index, start))
-                        term_records, objectives, local_z, fake_digest = current
-                        if fake_digest != expected[2]:
-                            raise ValueError('Generator microbatch replay differs from discovery outputs')
-                        step_loss = 0
-                        for t, (gf_m, _) in enumerate(term_records):
-                            gf_slice = g_cotangents[t][start:start + self.microbatch_size]
-                            step_loss = step_loss + (gf_m * gf_slice).sum()
-                        step_loss = step_loss + sum(value * factor for value, factor in zip(objectives, objective_factors))
-                        step_loss.backward()
-                        if z_cotangent is not None and local_z.grad is not None:
-                            any_z_gradient = True
-                            z_cotangent[start:start + self.microbatch_size].copy_(local_z.grad)
-                    self._phase(f'G micro {index} replay', lambda: self._isolated_replay(rng, replay))
-                def prior_backward():
-                    rows = None if selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[selected]
-                    prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else z.new_zeros(())
-                    self._finite_loss(prior_loss)
-                    self._finite_loss(weighted_adversarial.detach() + prior_loss.detach() + sum(objective_losses))
-                    outputs, gradients = [], []
-                    if any_z_gradient:
-                        outputs.append(z)
-                        gradients.append(z_cotangent)
-                    if prior_loss.requires_grad:
-                        outputs.append(prior_loss)
-                        gradients.append(torch.ones_like(prior_loss))
-                    if outputs:
-                        torch.autograd.backward(outputs, gradients)
-                    return prior_loss.detach()
-                prior_loss = self._phase('global prior regularizer and latent backward', prior_backward)
-            self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
-            gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
-            prior_grad_norm_t = (
-                self._grad_norm_scalar(self.program.prior_checked)
-                if self.program.prior_checked
-                else torch.zeros((), dtype=torch.float64, device=self.device)
-            )
-            self._sync_unified_v11_g_probe()
-            self._optimizer_step(self.opt_g, 'generator')
+                with self._folded('generator backward'):
+                    g_records = []
+                    for index, start in enumerate(starts):
+                        rng = self._accumulation_rng()
+                        def prepass():
+                            term_records, terms_obj, _, fake_digest = self._immutable_forward(lambda: generator_micro(index, start))
+                            for value in terms_obj:
+                                self._finite_loss(value)
+                            return (
+                                [(gf.detach(), gr.detach()) for gf, gr in term_records],
+                                detach(terms_obj),
+                                fake_digest
+                            )
+                        g_records.append((rng, self._phase(f'G micro {index} discovery', prepass)))
+                    all_gf = []
+                    g_unweighted, g_weighted = [], []
+                    for t, term in enumerate(terms):
+                        gf_t = torch.cat([rec[1][0][t][0] for rec in g_records]).requires_grad_(True)
+                        gr_t = torch.cat([rec[1][0][t][1] for rec in g_records])
+                        global_gr_t, global_gf_t = self._logits(gr_t, gf_t)
+                        loss_raw = term.gan.g_loss(global_gf_t, global_gr_t)
+                        g_unweighted.append(loss_raw)
+                        g_weighted.append(term.generator_weight * loss_raw)
+                        all_gf.append(gf_t)
+                    g_adversarial = _sum_tensors(g_unweighted)
+                    weighted_adversarial = _sum_tensors(g_weighted)
+                    self._phase('accumulated G objective', lambda: self._finite_loss(weighted_adversarial))
+                    g_cotangents = self._phase('accumulated G logit derivatives', lambda: torch.autograd.grad(weighted_adversarial, tuple(all_gf)))
+                    objective_factors = [1 / self.accumulation_steps if reduction == 'mean' else 1 for reduction in self._objective_reductions]
+                    objective_losses = [sum(record[1][1][i] * factor for record in g_records) for i, factor in enumerate(objective_factors)]
+                    self.opt_g.zero_grad(set_to_none=True)
+                    z_cotangent = torch.zeros_like(z) if z.requires_grad else None
+                    any_z_gradient = False
+                    for index, start in enumerate(starts):
+                        rng, expected = g_records[index]
+                        def replay():
+                            nonlocal any_z_gradient
+                            current = self._immutable_forward(lambda: generator_micro(index, start))
+                            term_records, objectives, local_z, fake_digest = current
+                            if fake_digest != expected[2]:
+                                raise ValueError('Generator microbatch replay differs from discovery outputs')
+                            step_loss = 0
+                            for t, (gf_m, _) in enumerate(term_records):
+                                gf_slice = g_cotangents[t][start:start + self.microbatch_size]
+                                step_loss = step_loss + (gf_m * gf_slice).sum()
+                            step_loss = step_loss + sum(value * factor for value, factor in zip(objectives, objective_factors))
+                            step_loss.backward()
+                            if z_cotangent is not None and local_z.grad is not None:
+                                any_z_gradient = True
+                                z_cotangent[start:start + self.microbatch_size].copy_(local_z.grad)
+                        self._phase(f'G micro {index} replay', lambda: self._isolated_replay(rng, replay))
+                    def prior_backward():
+                        rows = None if selected is None else self.prior.z if cfg['prior_regularizer']['rows'] == 'full' else self.prior.z[selected]
+                        prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else z.new_zeros(())
+                        self._finite_loss(prior_loss)
+                        self._finite_loss(weighted_adversarial.detach() + prior_loss.detach() + sum(objective_losses))
+                        outputs, gradients = [], []
+                        if any_z_gradient:
+                            outputs.append(z)
+                            gradients.append(z_cotangent)
+                        if prior_loss.requires_grad:
+                            outputs.append(prior_loss)
+                            gradients.append(torch.ones_like(prior_loss))
+                        if outputs:
+                            torch.autograd.backward(outputs, gradients)
+                        return prior_loss.detach()
+                    prior_loss = self._phase('global prior regularizer and latent backward', prior_backward)
+                self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
+                gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
+                prior_grad_norm_t = (
+                    self._grad_norm_scalar(self.program.prior_checked)
+                    if self.program.prior_checked
+                    else torch.zeros((), dtype=torch.float64, device=self.device)
+                )
+                self._sync_unified_v11_g_probe()
+                self._optimizer_step(self.opt_g, 'generator')
         finally:
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)
         g_loss = weighted_adversarial.detach() + prior_loss + sum(objective_losses)
         critic_real_mean_t, critic_fake_mean_t, critic_acc_t = self._critic_score_scalars(
-            all_dr[-1] if all_dr else None, all_df[-1] if all_df else None)
+            all_dr[0] if all_dr else None, all_df[0] if all_df else None)
+        acc_per_term_tensors = []
+        for t, term in enumerate(terms):
+            d_adv_w_t = weighted[t].detach().reshape(())
+            d_pen_t = sum(rec[1][0][t][2] / self.accumulation_steps for rec in d_records).detach().reshape(())
+            d_tot_t = (d_adv_w_t + d_pen_t).reshape(())
+            r_mean_t, f_mean_t, _ = self._critic_score_scalars(all_dr[t], all_df[t])
+            acc_per_term_tensors.extend((d_adv_w_t, d_pen_t, d_tot_t, r_mean_t, f_mean_t))
         micro_moments = [rec[1][2] for rec in d_records]
         fake_mean_t = (sum(m[0] for m in micro_moments) / self.accumulation_steps).reshape(())
         fake_sq_mean_t = (sum(m[1] for m in micro_moments) / self.accumulation_steps).reshape(())
@@ -1676,6 +1769,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             particle_rms_t,
             fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
             d_guard_ratio_t,
+            *acc_per_term_tensors,
         ])
         values = self._complete(step, transferred)
         self.step, self.checkpoint_ready = step, True
@@ -1684,11 +1778,15 @@ class ReplicatedTrainer(ReferenceTrainer):
         row.update(event='train', step=step, objectives=values[8:8 + n_objectives], lr_scale=scale,
                    global_batch_size=self.global_batch_size, local_batch_size=self.local_batch_size,
                    world_size=self.world_size, accumulation_steps=self.accumulation_steps, microbatch_size=self.microbatch_size)
+        telemetry_start = 8 + n_objectives
         self._populate_telemetry(
             row,
-            values[8 + n_objectives:],
+            values[telemetry_start:telemetry_start + 12],
             local_fake_numel * self.world_size,
             local_real_numel * self.world_size,
+        )
+        self._populate_per_critic_metrics(
+            row, terms, values[telemetry_start + 12:], thermal_coordinator=thermal_coordinator
         )
         return row, detach(batch)
 

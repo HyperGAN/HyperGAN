@@ -9,7 +9,7 @@ import uuid
 import warnings
 
 from .cpu_worker_service import CPUServiceCancelled
-from .metric_evaluation import _evaluate_pinned, _write_catalog, _recover_abandoned
+from .metric_evaluation import _evaluate_pinned, _write_catalog, _recover_abandoned, _running_outputs, _retire_running
 from .metric_plugins import enabled_custom
 from .metrics import metric_catalog
 from .run_state import atomic_json
@@ -58,17 +58,18 @@ class EvaluationWorker:
                     raise TimeoutError('Evaluation snapshot persistence deadline exceeded')
                 directory = Path(root) / 'metrics' / 'evaluations' / identity['evaluation_id']
                 directory.mkdir(parents=True, exist_ok=False)
-                revision = _write_catalog(Path(root), metric_catalog(selected))
+                catalog = metric_catalog(selected)
                 atomic_json(directory / 'receipt.json', {'schema_version': 1, 'status': 'running',
                     **identity, 'snapshot_sha256': descriptor['sha256'], 'metric_id': metric_id,
-                    'catalog': revision})
+                    'catalog': _write_catalog(Path(root), catalog), **_running_outputs(catalog)})
                 # The numerical protocol retains configured timeout. The service
                 # receives only the remaining wall-time budget after persistence.
                 result = _evaluate_pinned(Path(root), selected, metric_id, directory,
                     Path(temporary.name) / 'snapshot.pt', descriptor['sha256'], identity,
                     cancellation_event=self.cancel, timeout=remaining)
-                if (isinstance(result, dict)
-                        and result.get('status') == 'complete'
+                if result.get('evaluation_id', directory.name) != directory.name:
+                    _retire_running(directory)
+                if (result.get('status') == 'complete'
                         and isinstance(selected.get('checkpoints'), dict)
                         and selected['checkpoints'].get('export_bundle') == 'on_eval'):
                     try:

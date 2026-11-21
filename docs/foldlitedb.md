@@ -39,7 +39,9 @@ documents need ingesting. This is
 bounded cursor validation under the immutable-source contract, not a full history
 checksum on every query. Complete corruption encountered by readers fails visibly.
 
-Source files remain authoritative. To regenerate these views, stop observers using
+Source files remain authoritative. New derived caches use Foldlite DB's `FOLDLOG2`
+format; if upgrading from `foldlitedb 0.1.x`, remove any existing disposable `FOLDLOG1`
+viewer cache files so they regenerate cleanly. To regenerate these views, stop observers using
 the cache and remove the viewer cache directory (`~/.cache/hypergan/viewer`, or
 `$HYPERGAN_VIEWER_CACHE` when set; removing one `<owner>/` subdirectory resets a single
 run); the next explicit historical
@@ -60,7 +62,7 @@ connected viewers reduce their live suffix through the same Foldlite WASM module
 Install `foldlitedb` before or alongside HyperGAN:
 
 ```sh
-python -m pip install "foldlitedb>=0.1.2,<0.2"
+python -m pip install "foldlitedb>=0.4.2,<0.5"
 python -m pip install -e '.[web,test]'
 python -m pytest tests/foundation/test_run_state.py tests/foundation/test_event_views.py tests/web
 ```

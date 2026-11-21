@@ -53,7 +53,7 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
            'train', 'resume', 'launch', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
-           'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
+           'samples', 'sample', 'load_inference', 'view', 'evaluate', 'import_evaluation', 'image', 'audio',
            'lift', 'load_recipe', 'describe', 'data_check',
            'download_dataset', 'dataset_info', 'list_datasets',
            'get_cache_dir', 'ensure_cached_url', 'resolve_or_cache', 'OfflineError',
@@ -753,6 +753,9 @@ def explain(model):
     eff_d_lr = eff_lr * eff_d_mult if isinstance(eff_lr, (int, float)) and isinstance(eff_d_mult, (int, float)) else None
     g_lr_str = f'optimizer.lr ({eff_lr:g})' if isinstance(eff_lr, (int, float)) else 'optimizer.lr'
     d_lr_str = f'optimizer.lr * d_lr_mult ({eff_d_lr:g})' if isinstance(eff_d_lr, (int, float)) else 'optimizer.lr * d_lr_mult'
+    from .particlegan_integration import is_particlegan_defaults
+    recipe_critics = rec_cfg or is_particlegan_defaults(recipe.get('defaults'))
+    critic_group = 'ParticleGAN optimizer for this critic' if recipe_critics else 'critic Adam (shared by all critics)'
     reach = {name: [] for name in components}
     for term in recipe.get('objectives', []):
         detached = set(term.get('detach', ['target'] if 'target' in term.get('inputs', {}) else []))
@@ -786,7 +789,7 @@ def explain(model):
             spec = components.get(comp_name, {})
             factory = spec.get('factory', net_spec.get('hndl') or net_spec.get('file') or net_spec.get('module') or 'unknown')
             if role == 'critic':
-                group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
+                group = f'{critic_group}, lr = {d_lr_str}'
             elif 'reuse' in net_spec or 'reuse' in spec:
                 reuse_target = net_spec.get('reuse') or spec.get('reuse')
                 group = f'parameters of {reuse_target}'
@@ -810,7 +813,7 @@ def explain(model):
             factory = spec.get('factory', 'reuse')
             role = inferred[name]
             if role == 'critic':
-                group = f'critic Adam (shared by all critics), lr = {d_lr_str}'
+                group = f'{critic_group}, lr = {d_lr_str}'
             else:
                 group = f'generator-side Adam, lr = {g_lr_str}'
             lines.append(f'{orig_name} [{role}] {factory}')
@@ -913,10 +916,11 @@ def sampler(fn, *, inputs=None, count=None, seed=None, **args):
     return entry
 
 
-def adversarial(critic, *, weight=1.0, penalty=1.0, real=None, fake=None, inputs=None, id=None):
+def adversarial(critic, *, weight=1.0, critic_weight=None, generator_weight=None, penalty=1.0, real=None, fake=None, inputs=None, id=None):
     """Define an adversarial loss term binding a critic network to real and generated inputs."""
     loss = {'type': 'adversarial', 'critic': critic, 'weight': weight, 'penalty': penalty}
-    for key, value in (('real', real), ('fake', fake), ('inputs', inputs), ('id', id)):
+    for key, value in (('critic_weight', critic_weight), ('generator_weight', generator_weight),
+                       ('real', real), ('fake', fake), ('inputs', inputs), ('id', id)):
         if value is not None:
             loss[key] = value
     return loss
@@ -1336,15 +1340,26 @@ def metrics(run, names=None):
 
 def evaluations(run):
     """Snapshot evaluation results: ``{metric_id: [{step, value, status, ...}, ...]}``."""
+    from .evaluation_results import receipt_values
     run = _run(run)
     results = {}
-    for receipt in sorted((run.path / 'metrics' / 'evaluations').glob('*/receipt.json')):
-        data = json.loads(receipt.read_text())
+    for path in sorted((run.path / 'metrics' / 'evaluations').glob('*/receipt.json')):
+        try:
+            data = json.loads(path.read_text())
+        except FileNotFoundError:
+            continue  # A concurrent evaluator retired its temporary receipt.
+        if data.get('published_as'):
+            continue
         result = data.get('result') or {}
-        results.setdefault(data.get('metric_id'), []).append({
-            'step': result.get('step', data.get('source_step')), 'value': result.get('value'),
-            'status': data.get('status'), 'evaluation_id': data.get('evaluation_id'),
-            'error': result.get('error')})
+        provenance = {}
+        if 'output_ids' in data:
+            provenance = {key: data[key] for key in ('run_id', 'attempt_id', 'snapshot_sha256', 'imported') if key in data}
+            provenance.update(snapshot_identity=result.get('snapshot_identity'), evaluation_protocol=result.get('protocol'))
+        for key, value in receipt_values(data).items():
+            results.setdefault(key, []).append({
+                'step': result.get('step', data.get('source_step')), 'value': value,
+                'status': data.get('status'), 'evaluation_id': data.get('evaluation_id'),
+                'error': result.get('error'), **provenance})
     for rows in results.values():
         rows.sort(key=lambda row: (row['step'] is None, row['step'] or 0))
     return results
@@ -1603,6 +1618,20 @@ def evaluate(run, metric_id=None, *, checkpoint=None, devices=None, model=None, 
     config_p = lower(model) if model is not None else config
     return run_evaluation(run.path, metric_id, checkpoint=checkpoint, devices=devices,
                           config_path=config_p, bundle=bundle)
+
+
+def import_evaluation(run, evaluator_id, *, step, values, outputs, attempt_id=None,
+                      snapshot_identity=None, snapshot_sha256=None, protocol=None):
+    """Import measured scores at their source step without a checkpoint or plugin.
+
+    ``outputs`` maps the local IDs in ``values`` to label, unit and direction.
+    Original attempt, snapshot and protocol metadata may be supplied when known.
+    Repeating an identical import returns the existing receipt.
+    """
+    from .evaluation_results import import_scores
+    return import_scores(_run(run).path, evaluator_id, step=step, values=values, outputs=outputs,
+                         attempt_id=attempt_id, snapshot_identity=snapshot_identity,
+                         snapshot_sha256=snapshot_sha256, protocol=protocol)
 
 
 def resolve_run_target(target=None, *, cwd=None, allow_latest=True, require_active=False):
@@ -2054,7 +2083,12 @@ def lift(raw, *, base=None):
     adv_idx = None
     if 'adversarial' in raw:
         adv_idx = len(losses)
-        losses.append({'type': 'adversarial', 'critic': 'discriminator', 'weight': raw['adversarial'].get('weight', 1.0)})
+        term = raw['adversarial']
+        entry = {'type': 'adversarial', 'critic': 'discriminator', 'weight': term.get('weight', 1.0)}
+        for key in ('critic_weight', 'generator_weight', 'id', 'real', 'fake'):
+            if key in term:
+                entry[key] = _lift_binding(term[key]) if key in ('real', 'fake') else term[key]
+        losses.append(entry)
     elif 'discriminator' in components:
         adv_idx = len(losses)
         losses.append({'type': 'adversarial', 'critic': 'discriminator', 'weight': 1.0})
@@ -2064,7 +2098,7 @@ def lift(raw, *, base=None):
 
     for term in raw.get('adversarial_terms', []):
         entry = {'type': 'adversarial', 'critic': term['component'], 'weight': term.get('weight', 1.0)}
-        for k in ('real', 'fake', 'id'):
+        for k in ('real', 'fake', 'id', 'critic_weight', 'generator_weight'):
             if k in term:
                 entry[k] = _lift_binding(term[k]) if k in ('real', 'fake') else term[k]
         if 'inputs' in term and isinstance(term['inputs'], dict):
@@ -2176,7 +2210,7 @@ def lift(raw, *, base=None):
                         elif iv == 'evaluation.reference':
                             norm_inputs[ik] = 'reference'
                         else:
-                            norm_inputs[ik] = iv
+                            norm_inputs[ik] = _lift_binding(iv)
                     eval_entry['inputs'] = norm_inputs
                 if metric.get('trigger') == 'interval' and 'every_steps' in metric:
                     eval_entry['every'] = metric['every_steps']
@@ -2216,6 +2250,9 @@ def lift(raw, *, base=None):
                     eval_entry['seed'] = proto['seed']
                 elif 'seed' in metric:
                     eval_entry['seed'] = metric['seed']
+                for field in ('prior_seed', 'data_seed'):
+                    if field in proto:
+                        eval_entry[field] = proto[field]
                 proto_data = proto.get('data') or metric.get('data')
                 if proto_data is not None:
                     d = deepcopy(proto_data)
@@ -2223,7 +2260,9 @@ def lift(raw, *, base=None):
                         eval_entry['data'] = {'dataset': d['args']['dataset'], **{k: v for k, v in d['args'].items() if k != 'dataset'}}
                     else:
                         eval_entry['data'] = d
-                if 'output' in proto:
+                if 'generated' in proto:
+                    eval_entry['output'] = _lift_binding(proto['generated'])
+                elif 'output' in proto:
                     eval_entry['output'] = proto['output']
                 elif 'output' in metric:
                     eval_entry['output'] = metric['output']

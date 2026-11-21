@@ -55,12 +55,21 @@ def test_every_example_describes(path):
         config['optimizer']['lr'] * config['optimizer']['d_lr_mult'])
 
 
-def test_multi_critic_terms_are_listed_without_a_per_term_series():
+def test_multi_critic_terms_publish_per_term_discriminator_series():
     config = load_config(next(p for p in EXAMPLES if p.stem == 'color-words'))
     result = describe_config(config)
     critics = [t['critic'] for t in result['losses']['discriminator'] if t['kind'] == 'adversarial_d']
     assert critics == ['discriminator'] + [t['component'] for t in config['adversarial_terms']]
-    assert all(t['metric'] is None and 'summed' in t['metric_note'] for t in result['losses']['discriminator'])
+    for term in result['losses']['discriminator']:
+        if term['kind'] == 'adversarial_d':
+            assert term['metric'] == f"loss/critics/{term['id']}/d_adversarial"
+            assert term['metric_note'] is None
+        elif term['kind'] == 'critic_regularizer':
+            base_id = term['id'].removesuffix(':penalty')
+            assert term['metric'] == f"loss/critics/{base_id}/gradient_penalty"
+            assert term['metric_note'] is None
+    assert all(t['metric'] is None and 'summed' in t['metric_note']
+               for t in result['losses']['generator'] if t['kind'] == 'adversarial_g')
     assert set(result['optimizers']['critic']['components']) == set(critics)
     assert any(e['role'] == 'alias' and e['reuse_of'] for e in result['networks'])
 

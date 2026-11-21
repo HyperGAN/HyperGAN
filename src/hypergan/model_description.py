@@ -236,11 +236,11 @@ def _formulation(config, manifest):
 def _adversarial_terms(config):
     penalty, adversarial = _section(config, 'gradient_penalty'), _section(config, 'adversarial')
     discriminator = config['components'].get('discriminator') or {}
-    terms = [{'id': 'adversarial', 'critic': 'discriminator', 'weight': adversarial.get('weight', 1.0),
-              'real': 'batch.real', 'fake': 'generated', 'inputs': discriminator.get('inputs') or {},
+    terms = [{**adversarial, 'id': adversarial.get('id', 'adversarial'), 'critic': 'discriminator', 'weight': adversarial.get('weight', 1.0),
+              'real': adversarial.get('real', 'batch.real'), 'fake': adversarial.get('fake', 'generated'), 'inputs': discriminator.get('inputs') or {},
               'penalty_coeff': penalty.get('coeff'), 'implicit': True}]
     for term in config.get('adversarial_terms') or ():
-        terms.append({'id': term.get('id'), 'critic': term.get('component'), 'weight': term.get('weight', 1.0),
+        terms.append({**term, 'id': term.get('id'), 'critic': term.get('component'), 'weight': term.get('weight', 1.0),
                       'real': term.get('real'), 'fake': term.get('fake'), 'inputs': term.get('inputs') or {},
                       'penalty_coeff': term.get('penalty_coeff', penalty.get('coeff')) if term.get('penalty') else None,
                       'implicit': False})
@@ -268,22 +268,24 @@ def _prior_table(config):
 def _losses(config):
     terms = _adversarial_terms(config)
     several = len(terms) > 1
-    penalty = _section(config, 'gradient_penalty')
-    def series(metric):
+    def series(metric, per_term=None):
         if several:
+            if per_term:
+                return {'metric': per_term, 'metric_note': None}
             return {'metric': None, 'metric_note': f'every term is summed in {metric}; no per-term series'}
         return {'metric': metric, 'metric_note': None}
 
     discriminator, generator = [], []
     for term in terms:
-        discriminator.append({'id': term['id'], 'kind': 'adversarial_d', 'critic': term['critic'], 'weight': term['weight'],
+        tid = term['id']
+        discriminator.append({'id': tid, 'kind': 'adversarial_d', 'critic': term['critic'], 'weight': term.get('critic_weight', term['weight']),
                               'real': term['real'], 'fake': term['fake'], 'detach': ['fake sample'],
-                              **series('loss/d_adversarial')})
+                              **series('loss/d_adversarial', f'loss/critics/{tid}/d_adversarial')})
         if term['penalty_coeff'] is not None:
-            discriminator.append({'id': f"{term['id']}:penalty", 'kind': 'critic_regularizer', 'critic': term['critic'],
+            discriminator.append({'id': f"{tid}:penalty", 'kind': 'critic_regularizer', 'critic': term['critic'],
                                   'coeff': term['penalty_coeff'],
-                                  **series('loss/gradient_penalty')})
-        generator.append({'id': term['id'], 'kind': 'adversarial_g', 'critic': term['critic'], 'weight': term['weight'],
+                                  **series('loss/gradient_penalty', f'loss/critics/{tid}/gradient_penalty')})
+        generator.append({'id': tid, 'kind': 'adversarial_g', 'critic': term['critic'], 'weight': term.get('generator_weight', term['weight']),
                           'real': term['real'], 'fake': term['fake'], 'detach': ['real score'],
                           **series('loss/g_adversarial')})
     spread = _section(config, 'prior_regularizer')

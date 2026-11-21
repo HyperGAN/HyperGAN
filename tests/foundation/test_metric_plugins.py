@@ -52,6 +52,21 @@ def test_snapshot_rejects_unknown_schedules_and_requires_evaluation_data():
             resolve_config({'metrics': {'custom': {'color': spec}}})
 
 
+@pytest.mark.parametrize('size', [0, -1, True, 2.0, '2048'])
+def test_snapshot_batch_size_requires_a_positive_integer(size):
+    spec = snapshot()
+    spec['evaluation']['batch_size'] = size
+    with pytest.raises(ValueError, match=r'color\.evaluation\.batch_size'):
+        resolve_config({'metrics': {'custom': {'color': spec}}})
+
+
+def test_snapshot_sample_count_still_has_an_upper_bound():
+    spec = snapshot()
+    spec['evaluation'].update(sample_count=1_000_001, batch_size=2048)
+    with pytest.raises(ValueError, match=r'color\.evaluation\.sample_count'):
+        resolve_config({'metrics': {'custom': {'color': spec}}})
+
+
 def test_custom_cannot_replace_builtin_but_can_be_disabled():
     with pytest.raises(ValueError, match='replace'):
         resolve_config({'metrics': {'custom': {'loss/total': scalar()}}})

@@ -816,3 +816,22 @@ def test_diversity_preset_persists_url_and_keeps_foldlitedb_wasm_pinned_headline
     assert page.locator('input[value="diversity/ratio"]').is_checked()
     assert page.locator('#charts .chart-card').count() == 1
     assert not errors
+
+
+def test_live_named_scores_backfill_retry_and_reload(real_viewer):
+    from hypergan import import_evaluation
+    experiment, session, token, page, _, errors, _ = real_viewer
+    experiment.create()
+    sign_in(page, session, token)
+    outputs = {f'score{i}': {'label': f'Score {i}', 'unit': 'distance', 'direction': 'minimize'}
+               for i in range(12)}
+    for step in (2, 1, 2):
+        import_evaluation(experiment.root, 'paired', step=step, outputs=outputs,
+                          values={key: step for key in outputs}, attempt_id='previous')
+    for _ in range(2):
+        cards = page.locator('#evaluation-items > li[data-steps="1,2"]')
+        cards.nth(11).wait_for(timeout=15000)
+        assert sorted(cards.locator('h3').all_text_contents()) == sorted(v['label'] for v in outputs.values())
+        assert cards.locator('.chart-canvas canvas').count() == 12
+        page.reload()
+    assert not errors

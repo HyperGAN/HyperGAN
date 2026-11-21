@@ -856,8 +856,13 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 from .checkpoints import _prune_run_checkpoints
                 pruned = _prune_run_checkpoints(run_dir, policy=retention_policy, dry_run=False, manifest=manifest)
                 for item in pruned['failed']:
-                    warnings.warn(f"Automatic checkpoint pruning could not delete {item['name']}: {item['error']}", RuntimeWarning)
+                    message = f"Automatic checkpoint pruning could not delete {item['name']}: {item['error']}"
+                    if (retention_policy or {}).get('latest_only'):
+                        raise OSError(message)
+                    warnings.warn(message, RuntimeWarning)
             except Exception as exc:
+                if (retention_policy or {}).get('latest_only'):
+                    raise
                 warnings.warn(f'Automatic checkpoint pruning failed: {exc}', RuntimeWarning)
             write_summary_json(run_dir, manifest)
             return path, None

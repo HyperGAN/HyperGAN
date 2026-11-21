@@ -64,7 +64,7 @@ FORMAT = 'hypergan-model/1'
 TOP_LEVEL = {'format', 'name', 'description', 'defaults', 'recipe', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
              'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'aggregation', 'extends'}
 
-CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
+CHECKPOINT_FIELDS = {'latest_only', 'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
 ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
 RESERVED = {'latent', 'batch', 'generated', 'candidate', 'prior', 'components', 'update', 'evaluation',
             'reference'}
@@ -82,7 +82,7 @@ RUN_CADENCE_FIELDS = {'checkpoint_every', 'preview_every', 'progress_every'}
 RUN_FIELDS = {'devices', 'nodes', 'node_rank', 'rendezvous', 'ranks_per_node', 'strategy', 'sync_every', 'sync_every_steps', 'env', 'viewer', 'cpu_threads', *RUN_CADENCE_FIELDS}
 PENALTY_FIELDS = {'kappa', 'lazy_k', 'anchor_weight', 'anchor_decay'}
 _EVAL_FIELDS = {'fn', 'factory', 'args', 'inputs', 'every', 'every_steps', 'device', 'samples', 'batch_size',
-                'seed', 'data', 'output', 'target', 'timeout', 'on_error', 'on_busy', 'label', 'unit',
+                'seed', 'prior_seed', 'data_seed', 'data', 'output', 'target', 'timeout', 'on_error', 'on_busy', 'label', 'unit',
                 'direction', 'description', 'reduce', 'kind'}
 _PATH_KEYS = {'hndl', 'file', 'root', 'manifest', 'cache_dir', 'weights_path', 'source_path', 'path', 'network_files'}
 PRIOR_FIELDS = {'kind', 'initialization_device', 'initialization_seed', 'fixed_sigma'}
@@ -109,9 +109,15 @@ def normalize_checkpoint_policy(policy=None):
     if not isinstance(policy, dict):
         raise ValueError(f"Checkpoint retention policy must be a dict, got {type(policy).__name__}")
 
-    unknown = set(policy) - {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
+    unknown = set(policy) - CHECKPOINT_FIELDS
     if unknown:
         raise ValueError(f"Unknown field(s) in checkpoint retention policy: {', '.join(sorted(unknown))}")
+
+    latest_only = policy.get('latest_only', False)
+    if type(latest_only) is not bool:
+        raise ValueError("latest_only must be boolean")
+    if latest_only:
+        return {'latest_only': True, 'keep_last': 1, 'keep_best': None, 'keep_every': 0, 'export_bundle': 'never'}
 
     defaults = DEFAULT_CHECKPOINT_POLICY
     keep_last = policy.get('keep_last', defaults['keep_last'])
@@ -272,7 +278,7 @@ class _Lowering:
             _table(spec, f'networks.{name}', NETWORK_FIELDS)
             if 'optimizer' in spec:
                 role = spec.get('role')
-                group = 'critic Adam (shared by all critics)' if role == 'critic' else 'generator-side Adam'
+                group = 'the configured critic optimizer' if role == 'critic' else 'generator-side Adam'
                 raise ModelFileError(f"Engine limit: networks.{name} is trained by {group}; per-network optimizers are not yet supported. Remove optimizer= from {name}.")
             role = spec.get('role')
             if role not in ROLES:
@@ -464,7 +470,7 @@ class _Lowering:
             _table(loss, location)
             kind = loss.get('type')
             if kind == 'adversarial':
-                _table(loss, location, {'type', 'id', 'critic', 'weight', 'penalty', 'real', 'fake', 'inputs'} | PENALTY_FIELDS)
+                _table(loss, location, {'type', 'id', 'critic', 'weight', 'critic_weight', 'generator_weight', 'penalty', 'real', 'fake', 'inputs'} | PENALTY_FIELDS)
                 raw_penalty = loss.get('penalty', 1.0)
                 penalty_extra = {k: deepcopy(loss[k]) for k in PENALTY_FIELDS if k in loss}
                 if isinstance(raw_penalty, dict):
@@ -479,14 +485,11 @@ class _Lowering:
                     raise ModelFileError(f'{location}.penalty is the critic regularization coefficient: a nonnegative number (0 disables it)')
                 if penalty_extra:
                     recipe.setdefault('gradient_penalty', {}).update(penalty_extra)
+                weights = {'weight': loss.get('weight', 1.0)}
+                weights.update({key: loss[key] for key in ('critic_weight', 'generator_weight') if key in loss})
                 if loss['critic'] == self.primary and 'adversarial' not in recipe:
                     real_raw, fake_raw = loss.get('real', 'batch.real'), loss.get('fake', 'generated')
-                    disc_inputs = self.networks[self.primary].get('inputs', {})
-                    cond_vals = {v for v in disc_inputs.values() if v != 'candidate' and not str(v).startswith('candidate.')}
-                    if real_raw != 'batch.real' and real_raw in cond_vals and 'inputs' not in loss:
-                        raise ModelFileError(f'{location}: the first adversarial loss compares batch.real with generated '
-                                             'through its critic\'s own inputs (engine limit); put other comparisons in later adversarial losses')
-                    adv = {'weight': loss.get('weight', 1.0)}
+                    adv = weights
                     if 'id' in loss:
                         if not isinstance(loss['id'], str) or _ID.fullmatch(loss['id']) is None:
                             raise ModelFileError(f'{location}.id is required: it names the loss in metrics')
@@ -508,16 +511,14 @@ class _Lowering:
                     recipe.setdefault('gradient_penalty', {})['coeff'] = penalty
                     continue
                 term = {'id': loss.get('id', loss['critic']), 'component': self.names[loss['critic']],
-                        'weight': loss.get('weight', 1.0), 'penalty': penalty > 0,
+                        **weights, 'penalty': penalty > 0,
                         'real': self.bind(loss.get('real', 'batch.real'), f'{location}.real'),
                         'fake': self.bind(loss.get('fake', 'generated'), f'{location}.fake')}
                 if penalty > 0:
                     term['penalty_coeff'] = penalty
                 if 'inputs' in loss:
                     bound_inputs = self.bind_all(loss['inputs'], f'{location}.inputs')
-                    non_cand = {k: v for k, v in bound_inputs.items() if v != 'candidate' and not v.startswith('candidate.')}
-                    if non_cand:
-                        term['inputs'] = non_cand
+                    term['inputs'] = {**recipe['components'][term['component']]['inputs'], **bound_inputs}
                 if term['id'] in seen_ids:
                     raise ModelFileError(f'{location}: loss id {term["id"]!r} is repeated; give each loss an id')
                 seen_ids.add(term['id'])
@@ -692,7 +693,9 @@ class _Lowering:
                 tgt = evaluation.pop('target')
                 evaluation.setdefault('output', tgt)
             inputs = evaluation.get('inputs', {'generated': 'generated', 'reference': 'reference'})
-            inputs = {key: value if value.startswith('evaluation.') else 'evaluation.' + value
+            inputs = {key: ('evaluation.' + value if value in ('generated', 'reference')
+                            else value if value in ('evaluation.generated', 'evaluation.reference')
+                            else self.bind(value, f'{location}.inputs.{key}'))
                       for key, value in _table(inputs, f'{location}.inputs').items()}
             if 'data' not in evaluation:
                 raise ModelFileError(f'{location}.data is required: evaluations never fall back to training data (set data = "train" or a data table)')
@@ -726,8 +729,9 @@ class _Lowering:
                         'seed': evaluation.get('seed')}
             if any(value is None for value in protocol.values()):
                 raise ModelFileError(f'{location} requires samples, batch_size and seed')
-            if 'device' in evaluation:
-                protocol['device'] = evaluation['device']
+            for field in ('device', 'prior_seed', 'data_seed'):
+                if field in evaluation:
+                    protocol[field] = evaluation[field]
             if 'output' in evaluation:
                 output = evaluation['output']
                 protocol['generated'] = 'generated' if output == 'generated' else self.bind(output, f'{location}.output')

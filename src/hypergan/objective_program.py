@@ -370,15 +370,15 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     stream = trainer.streams["noise"]
     noise = ((output_std, stream), (input_std, stream))
 
+    from .particlegan_runtime import invoke_critic_penalty
+
     def penalty(term, real, fake):
         critic = ScoredCritic(term.module, lambda module, value: score_candidate(
             term, value, context, trainer.graph, "critic", module=module, noise=(input_std, stream)))
-        try:
-            from torch.nn.attention import SDPBackend, sdpa_kernel
-            with sdpa_kernel(SDPBackend.MATH):
-                return term.penalty_fn(critic, real, fake)
-        except Exception:
-            return term.penalty_fn(critic, real, fake)
+        return invoke_critic_penalty(term.penalty_fn, critic, real, fake)
+    thermal_coordinator = getattr(trainer, "thermal_coordinator", None)
+    if thermal_coordinator is not None:
+        thermal_coordinator.synchronize()
     if independent:
         with torch.no_grad():
             batch, ids, context = trainer._draw(batch, latent_draw)
@@ -490,66 +490,69 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         term.module.requires_grad_(False)
         saved_flags.append((term.module, flags))
     rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(trainer, terms)
+    import contextlib
+    thermal_scope = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
     try:
-        if independent:
-            batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
-        trainer.opt_g.zero_grad(set_to_none=True)
-        if rhbi_mod is not None:
-            simplicial_active = bool(
-                use_rhbi_simplex
-                and getattr(trainer.recipe, "rhbi_simplex_chart_weight", 0.0) > 0.0
-                and getattr(trainer.recipe, "rhbi_simplex_macro_settle", False)
-            )
-            rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
-        simplex_loss = None
-        if len(terms) == 1:
-            term = terms[0]
-            real, fake, real_score, fake_score = _bound_scores(
-                term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
-            g_adversarial = term.gan.g_loss(fake_score, real_score)
-            prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
-            if use_rhbi_simplex and rhbi_mod is not None:
-                unique_ids = ids.unique() if ids is not None else None
-                simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
-            g_adversarial_weighted = term.generator_weight * g_adversarial
-        else:
-            unweighted = []
-            weighted = []
-            fake = None
-            for term in terms:
+        with thermal_scope:
+            if independent:
+                batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
+            trainer.opt_g.zero_grad(set_to_none=True)
+            if rhbi_mod is not None:
+                simplicial_active = bool(
+                    use_rhbi_simplex
+                    and getattr(trainer.recipe, "rhbi_simplex_chart_weight", 0.0) > 0.0
+                    and getattr(trainer.recipe, "rhbi_simplex_macro_settle", False)
+                )
+                rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
+            simplex_loss = None
+            if len(terms) == 1:
+                term = terms[0]
                 real, fake, real_score, fake_score = _bound_scores(
                     term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
-                loss = term.gan.g_loss(fake_score, real_score)
-                unweighted.append(loss)
-                weighted.append(term.generator_weight * loss)
-            g_adversarial = _sum_tensors(unweighted)
-            prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
-            g_adversarial_weighted = _sum_tensors(weighted)
-        g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-        if simplex_loss is not None:
-            g_loss = g_loss + simplex_loss
-        from particlegan.optim.constraint_geometry import constraint_geometry_backward
-        set_rows = getattr(trainer.opt_g, 'set_sampled_rows', None)
-        if set_rows is not None and ids is not None and program.prior_parameters:
-            set_rows(trainer.prior.z, ids)
-        constraint_geometry_backward(g_loss, trainer.opt_g, (g_adversarial_weighted,))
-        gen_checked = list(program.generator_parameters)
-        prior_checked = list(program.prior_checked) if program.prior_checked else []
-        trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
-                                  [("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
-                                   ("Nonfinite prior gradient; run stopped", prior_checked)])
-        with torch.no_grad():
-            try:
-                g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
-                gen_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in g_grads)).reshape(()) if g_grads else zero_scalar
-            except Exception:
-                gen_grad_norm_t = zero_scalar
-            try:
-                p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
-                prior_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in p_grads)).reshape(()) if p_grads else zero_scalar
-            except Exception:
-                prior_grad_norm_t = zero_scalar
-        trainer.opt_g.step()
+                g_adversarial = term.gan.g_loss(fake_score, real_score)
+                prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+                if use_rhbi_simplex and rhbi_mod is not None:
+                    unique_ids = ids.unique() if ids is not None else None
+                    simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
+                g_adversarial_weighted = term.generator_weight * g_adversarial
+            else:
+                unweighted = []
+                weighted = []
+                fake = None
+                for term in terms:
+                    real, fake, real_score, fake_score = _bound_scores(
+                        term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
+                    loss = term.gan.g_loss(fake_score, real_score)
+                    unweighted.append(loss)
+                    weighted.append(term.generator_weight * loss)
+                g_adversarial = _sum_tensors(unweighted)
+                prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+                g_adversarial_weighted = _sum_tensors(weighted)
+            g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+            if simplex_loss is not None:
+                g_loss = g_loss + simplex_loss
+            from particlegan.optim.constraint_geometry import constraint_geometry_backward
+            set_rows = getattr(trainer.opt_g, 'set_sampled_rows', None)
+            if set_rows is not None and ids is not None and program.prior_parameters:
+                set_rows(trainer.prior.z, ids)
+            constraint_geometry_backward(g_loss, trainer.opt_g, (g_adversarial_weighted,))
+            gen_checked = list(program.generator_parameters)
+            prior_checked = list(program.prior_checked) if program.prior_checked else []
+            trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
+                                      [("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
+                                       ("Nonfinite prior gradient; run stopped", prior_checked)])
+            with torch.no_grad():
+                try:
+                    g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
+                    gen_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in g_grads)).reshape(()) if g_grads else zero_scalar
+                except Exception:
+                    gen_grad_norm_t = zero_scalar
+                try:
+                    p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
+                    prior_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in p_grads)).reshape(()) if p_grads else zero_scalar
+                except Exception:
+                    prior_grad_norm_t = zero_scalar
+            trainer.opt_g.step()
     finally:
         if rhbi_mod is not None:
             rhbi_mod.bind_discrete_prior_step(False)
@@ -624,6 +627,9 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     row["critic/fake_mean"] = critic_fake_mean
     row["critic/margin"] = critic_margin
     row["critic/accuracy"] = critic_accuracy
+    row["critic/thermal_scale"] = (
+        thermal_coordinator.effective_scale() if thermal_coordinator is not None else 1.0
+    )
     row["grad_norm/critic"] = critic_grad_norm
     row["grad_norm/generator"] = gen_grad_norm
     row["grad_norm/prior"] = prior_grad_norm
@@ -639,10 +645,15 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         margin_v = r_m - f_m
         if not math.isfinite(margin_v):
             margin_v = 0.0
+        eff_th, raw_th = (
+            thermal_coordinator.term_scales(terms[idx]) if thermal_coordinator is not None else (1.0, 1.0)
+        )
         row[f"loss/critics/{tid}/d_adversarial"] = float(d_adv_w_v)
         row[f"loss/critics/{tid}/gradient_penalty"] = float(d_pen_v)
         row[f"loss/critics/{tid}/d_total"] = float(d_tot_v)
         row[f"critic/{tid}/real_mean"] = r_m
         row[f"critic/{tid}/fake_mean"] = f_m
         row[f"critic/{tid}/margin"] = margin_v
+        row[f"critic/{tid}/thermal_scale"] = eff_th
+        row[f"critic/{tid}/raw_thermal_scale"] = raw_th
     return row, detach(batch)

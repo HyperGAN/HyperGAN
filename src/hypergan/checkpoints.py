@@ -202,6 +202,9 @@ def _restore_trainer(trainer, state):
             child.training = state['modes'][name][key]
     for optimizer, saved in zip(trainer.optimizers, state['optimizers']):
         optimizer.load_state_dict(saved)
+    thermal_coordinator = getattr(trainer, 'thermal_coordinator', None)
+    if thermal_coordinator is not None:
+        thermal_coordinator.synchronize()
     if recipe is not None and callable(getattr(recipe, 'restore_prior_regularizer', None)):
         recipe.restore_prior_regularizer(getattr(trainer, 'spread', None), saved_prior_reg)
     trainer.base_lrs = state['base_lrs']
@@ -355,6 +358,9 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
                     p_state['step'] = p_state['step'].to(step_device)
         if target_device.type == 'cpu':
             _skip_cpu_capture_guard(optimizer)
+    thermal_coordinator = getattr(trainer, 'thermal_coordinator', None)
+    if thermal_coordinator is not None:
+        thermal_coordinator.synchronize()
     if recipe is not None and callable(getattr(recipe, 'restore_prior_regularizer', None)):
         recipe.restore_prior_regularizer(getattr(trainer, 'spread', None), saved_prior_reg)
 

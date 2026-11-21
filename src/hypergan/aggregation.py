@@ -340,6 +340,11 @@ def _synchronize_optimizer_regularizers(
         if ema_critic is not None and isinstance(ema_critic, torch.nn.Module):
             _average_modules([ema_critic], world_size)
 
+    if trainer is not None:
+        thermal_coordinator = getattr(trainer, "thermal_coordinator", None)
+        if thermal_coordinator is not None:
+            thermal_coordinator.synchronize()
+
 
 def sync_empf_record(rec: Any, comm_device: torch.device, world_size: int) -> None:
     """Synchronize EMPF e-means prototype bank, phases, and thermal/step scales across ranks."""

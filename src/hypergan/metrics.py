@@ -126,6 +126,7 @@ def _available(config):
         'critic/fake_mean': ('critic/fake_mean', f'Critic fake score mean ({primary_id})', 'score'),
         'critic/margin': ('critic/margin', f'Critic score margin ({primary_id}) E[D(x)] - E[D(G(z))]', 'score'),
         'critic/accuracy': ('critic/accuracy', f'Critic ranking accuracy ({primary_id})', 'ratio'),
+        'critic/thermal_scale': ('critic/thermal_scale', 'Synchronized critic thermal scale', 'ratio'),
         'grad_norm/critic': ('grad_norm/critic', 'Critic L2 gradient norm', 'norm'),
         'grad_norm/generator': ('grad_norm/generator', 'Generator L2 gradient norm', 'norm'),
         'grad_norm/prior': ('grad_norm/prior', 'Prior L2 gradient norm', 'norm'),
@@ -146,6 +147,10 @@ def _available(config):
             f'critic/{tid}/fake_mean', f'Critic fake score mean ({tid})', 'score')
         specs[f'critic/{tid}/margin'] = (
             f'critic/{tid}/margin', f'Critic score margin ({tid}) E[D(x)] - E[D(G(z))]', 'score')
+        specs[f'critic/{tid}/thermal_scale'] = (
+            f'critic/{tid}/thermal_scale', f'Effective critic thermal scale ({tid})', 'ratio')
+        specs[f'critic/{tid}/raw_thermal_scale'] = (
+            f'critic/{tid}/raw_thermal_scale', f'Pre-coupling critic thermal scale ({tid})', 'ratio')
     for term in config['objectives']:
         name = objective_id(term)
         specs['loss/objectives/' + name] = ('objective:' + name, name + ' contribution', 'loss')
@@ -301,6 +306,11 @@ def metric_catalog(config):
             definition.update(term_id=primary_term['id'], critic=primary_term['critic'])
             if name == 'critic/margin':
                 definition['formula'] = 'critic/real_mean - critic/fake_mean'
+        if name == 'critic/thermal_scale':
+            definition['description'] = (
+                'Effective ParticleGAN thermal scale applied across critics '
+                '(under multi-critic training, conservatively synchronized as max_i s_i so relative weights do not drift).'
+            )
         if name.startswith('loss/critics/'):
             parts = name.split('/')
             tid, metric_kind = parts[2], parts[3]
@@ -332,6 +342,14 @@ def metric_catalog(config):
                 definition['description'] = f"Mean real critic score from the training forward pass for term '{tid}' on critic '{term['critic']}'."
             elif metric_kind == 'fake_mean':
                 definition['description'] = f"Mean fake critic score from the training forward pass for term '{tid}' on critic '{term['critic']}'."
+            elif metric_kind == 'thermal_scale':
+                definition['description'] = (
+                    f"Effective synchronized thermal scale applied to term '{tid}' on critic '{term['critic']}'."
+                )
+            elif metric_kind == 'raw_thermal_scale':
+                definition['description'] = (
+                    f"Pre-coupling per-critic candidate thermal scale observed for term '{tid}' on critic '{term['critic']}'."
+                )
         if source.startswith('preview:'):
             definition.update(scope='preview', owner='generator', view={'panel': 'Diversity'},
                 formula=('generated_rms / reference_rms' if name.endswith('ratio') else

@@ -4,6 +4,8 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- **Track ParticleGAN `develop` on HyperGAN `develop` (`pyproject.toml`, `.github/scripts/install_particlegan.py`).** Point the `train` and `all` extras and CI's default ParticleGAN installer back to `git+https://github.com/HyperGAN/ParticleGAN.git@develop` following the `2.1.1` release while `master` remains pinned to `particlegan>=0.11.2,<0.12`.
+
 ## 2.1.1 — 2026-11-21
 
 HyperGAN 2.1.1 upgrades the training dependency baseline to **ParticleGAN `0.11.2`** (`>=0.11.2,<0.12`), **HNDL `0.12.0`** (`>=0.12.0,<1`), and **Foldlite DB `0.4.2`** (`>=0.4.2,<0.5`), adding independent multi-critic training with coupled thermal coordination, dual-safe `fwAD` softmax critic penalties, full-graph Unified-v11 composite generator probing, per-critic telemetry, multi-output snapshot evaluations, and `checkpoints.latest_only`. Install with `python -m pip install "hypergan[all]==2.1.1"` after installing the matching Torch wheels for your hardware. [Installation](https://github.com/HyperGAN/HyperGAN/blob/v2.1.1/README.md#install)

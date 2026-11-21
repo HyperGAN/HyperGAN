@@ -71,3 +71,45 @@ def test_live_manual_evaluation_is_not_recovered_as_abandoned(tmp_path):
     # A dead owner releases the lock, and the directory is then recoverable.
     _recover_abandoned(tmp_path,'run')
     assert json.loads((directory/'receipt.json').read_text())['status']=='failed'
+
+
+def test_import_scores_without_checkpoint_or_factory_is_atomic_and_idempotent(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import hypergan as hg
+    from hypergan.summary import collect_evaluations
+
+    atomic_json(tmp_path/'manifest.json', {'run_id': 'run', 'attempt_id': 'current', 'status': 'running'})
+    outputs = {'x': {'label': 'Full values', 'unit': 'distance', 'direction': 'minimize'},
+               'm': {'label': 'Masks', 'unit': 'score', 'direction': 'maximize'}}
+    values = {'x': 2, 'm': 0.5}
+    def publish(scores):
+        return hg.import_evaluation(tmp_path, 'paired', outputs=outputs, values=scores, step=1000,
+            snapshot_identity={'attempt_id': 'old', 'source_file': 'archived'}, snapshot_sha256='a'*64,
+            protocol={'scorer': 'v2', 'sample_count': 2048})
+
+    with ThreadPoolExecutor(max_workers=4) as writers:
+        results = list(writers.map(publish, [values]*8))
+    assert all(result == results[0] for result in results)
+    receipt = results[0]
+    assert receipt['attempt_id'] == 'old'
+    assert receipt['source_step'] == 1000
+    assert receipt['snapshot_sha256'] == 'a'*64
+    assert receipt['result']['protocol']['sample_count'] == 2048
+    with pytest.raises(ValueError, match='Conflicting'):
+        publish(dict(values, m=3))
+    for invalid in ({'x': 2}, dict(values, extra=1), dict(values, m=True), dict(values, x=float('nan'))):
+        with pytest.raises(ValueError):
+            publish(invalid)
+    assert len(list((tmp_path/'metrics/evaluations').iterdir())) == 1
+    assert [(r['metric'], r['unit'], r['direction']) for r in collect_evaluations(tmp_path)] == [
+        ('paired/m', 'score', 'maximize'), ('paired/x', 'distance', 'minimize')]
+    assert hg.evaluations(tmp_path)['paired/m'][0]['value'] == 0.5
+
+
+def test_interrupted_named_evaluation_reports_every_output(tmp_path):
+    directory, receipt = pending(tmp_path)
+    atomic_json(directory/'receipt.json', dict(receipt, output_ids=['x', 'm'], source_step=12))
+    _recover_abandoned(tmp_path, 'run')
+    event = json.loads((directory/'events.jsonl').read_text())
+    assert set(event['measurement_status']) == {'quality/x', 'quality/m'}
+    assert event['step'] == 12 and event['metrics'] == {}

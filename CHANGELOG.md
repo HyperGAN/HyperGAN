@@ -4,6 +4,8 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- Snapshot evaluators can score a shared population of named EMA outputs in one call. Each named scalar has its own chart and source-step history. Use `hypergan.import_evaluation` to backfill measured scores after checkpoint pruning. [Model configuration and Python examples](docs/configuration.md#several-scores-from-one-ema-sample-population)
+
 - Train multiple ParticleGAN critics from one `hypergan-model/1` file. Each distinct critic has independent training and checkpoint state. Adversarial losses accept `critic_weight` and `generator_weight`, each defaulting to `weight`.
 - Set `checkpoints.latest_only = true` to retain one published training checkpoint across saves and resumes while preserving metric and event histories.
 

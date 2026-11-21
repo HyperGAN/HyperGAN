@@ -1,5 +1,6 @@
 """Public MisGAN evaluation from paired EMA outputs, including actual worker publication."""
 import json
+from pathlib import Path
 
 import pytest
 import torch
@@ -9,12 +10,19 @@ from tests.reference.test_misgan import model
 
 
 class PairedScores:
+    def __init__(self, calls=None, fail=False):
+        self.calls = calls
+        self.fail = fail
+
     def describe(self):
         return {'kind': 'scalars', 'outputs': {
             f'score{i}': {'label': f'Paired score {i}', 'unit': 'value', 'direction': 'minimize'}
             for i in range(12)}}
 
     def evaluate(self, *, batches, context):
+        if self.calls:
+            with Path(self.calls).open('a') as stream:
+                print(context['step'], file=stream)
         means = []
         sizes = []
         for tensors in batches:
@@ -27,6 +35,8 @@ class PairedScores:
             means.append(x.mean(dim=1))
         assert sizes == [127] * 16 + [16]
         assert sum(sizes) == context['sample_count'] == 2048
+        if self.fail:
+            return {'score0': 1.0}
         rows = torch.cat(means)
         return {f'score{i}': rows[i].item() for i in range(12)}
 
@@ -36,7 +46,8 @@ def score_model(model, tmp_path, device='cpu'):
     spec = hg.override(model, {'train.device': device, 'train.steps': 2,
         'sampling.output': 'pair',
         'evaluations.paired': {
-            'factory': __name__ + ':PairedScores', 'every': 1, 'device': 'cpu',
+            'factory': __name__ + ':PairedScores', 'args': {'calls': str(tmp_path / 'calls')},
+            'every': 1, 'device': 'cpu',
             'samples': 2048, 'batch_size': 127, 'seed': 123, 'prior_seed': 7,
             'inputs': {'x': 'gx', 'mask': 'gm', 'critic_input': 'pair'},
             'data': {'builtin': 'gaussian_grid'}, 'timeout': 60,
@@ -71,6 +82,7 @@ def test_scheduled_scores_resume_manual_retry_and_pruning(model, tmp_path):
     for rows in histories.values():
         assert [row['step'] for row in rows] == [1, 2]
         assert all(row['status'] == 'complete' for row in rows)
+    assert (tmp_path / 'calls').read_text().splitlines() == ['1', '2']
     receipt = hg.evaluate(root, 'paired', checkpoint=2, devices='cpu')
     assert receipt['evaluation_id'] == histories['paired/score0'][-1]['evaluation_id']
     check_stream(root, receipt)
@@ -78,6 +90,17 @@ def test_scheduled_scores_resume_manual_retry_and_pruning(model, tmp_path):
     assert len(list((root / 'checkpoints').glob('*-step-*'))) == 1
     assert len(list((root / 'metrics/evaluations').iterdir())) == 2
     assert not list(root.rglob('snapshot.pt'))
+
+    failed_model = hg.override(hg.load(config), {'evaluations.paired.args.fail': True,
+                                                  'evaluations.paired.on_error': 'disable'})
+    failure = hg.evaluate(root, 'paired', model=failed_model, devices='cpu')
+    assert failure['status'] == 'failed'
+    path = root / 'metrics/evaluations' / failure['evaluation_id']
+    event = json.loads((path / 'events.jsonl').read_text())
+    assert event['metrics'] == {} and event['step'] == 2
+    assert set(event['measurement_status']) == set(histories)
+    assert all('declared output IDs' in problem['reason'] for problem in event['measurement_status'].values())
+    assert path.joinpath('stream.json').is_file() and not path.joinpath('snapshot.pt').exists()
 
 
 @pytest.mark.heavy

@@ -99,6 +99,8 @@ def trainer_state(trainer, last_batch):
                      trainable={name: {key: value.requires_grad for key, value in getattr(trainer, name).named_parameters()} for name in modules},
                      modes={name: {key: module.training for key, module in getattr(trainer, name).named_modules()} for name in modules},
                      last_batch=last_batch)
+        if len(trainer.critic_optimizers) > 1:
+            state['critic_names'] = list(trainer.critic_optimizers)
         recipe = getattr(trainer, 'recipe', None)
         spread = getattr(trainer, 'spread', None)
         if recipe is not None and callable(getattr(recipe, 'prior_regularizer_checkpoint', None)):
@@ -111,12 +113,21 @@ def trainer_state(trainer, last_batch):
         restore_rng(rng)
 
 
+def _validate_optimizer_inventory(trainer, state):
+    expected_names = list(trainer.critic_optimizers)
+    if len(expected_names) > 1 or 'critic_names' in state:
+        if state.get('critic_names') != expected_names:
+            raise ValueError('Checkpoint critic optimizer names differ from the configured critics')
+    if len(state['optimizers']) != len(trainer.optimizers) or len(state['base_lrs']) != len(trainer.optimizers):
+        raise ValueError('Checkpoint requires matching optimizer states and base learning rates')
+
+
 def _restore_trainer(trainer, state):
     import numpy as np
     import torch
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
-    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer'}:
+    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer', 'critic_names'}:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if getattr(trainer, 'device', torch.device('cpu')).type == 'cuda':
         rng = state['rng']
@@ -130,8 +141,7 @@ def _restore_trainer(trainer, state):
                 raise ValueError('Checkpoint CUDA RNG tensor is incompatible')
     if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
         raise ValueError('Checkpoint step is outside the configured training schedule')
-    if len(state['optimizers']) != len(trainer.optimizers) or len(state['base_lrs']) != len(trainer.optimizers):
-        raise ValueError('Checkpoint requires matching optimizer states and base learning rates')
+    _validate_optimizer_inventory(trainer, state)
     if set(state['streams']) != set(trainer.streams):
         raise ValueError('Checkpoint named RNG streams differ from trainer')
     # Validate consumed RNG streams before any model or optimizer is restored.
@@ -256,12 +266,11 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
 
     required = {'graph', 'prior', 'ema_graph', 'ema_prior', 'optimizers', 'base_lrs',
                 'step', 'streams', 'rng', 'data', 'modes', 'buffers', 'trainable', 'last_batch'}
-    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer'}:
+    if not isinstance(state, dict) or not required <= set(state) <= required | {'aggregation', 'prior_regularizer', 'critic_names'}:
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
         raise ValueError('Checkpoint step is outside the configured training schedule')
-    if len(state['optimizers']) != len(trainer.optimizers) or len(state['base_lrs']) != len(trainer.optimizers):
-        raise ValueError('Checkpoint requires matching optimizer states and base learning rates')
+    _validate_optimizer_inventory(trainer, state)
     if not isinstance(state['streams'], dict):
         raise ValueError('Checkpoint named RNG streams must be a dictionary')
     if set(state['modes']) != {'graph', 'prior', 'ema_graph', 'ema_prior'}:

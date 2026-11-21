@@ -259,8 +259,9 @@ anchor_decay = 0.999
 1. **`type = "adversarial"`**:
    - `critic`: Name of a `[networks.<name>]` entry with `role = "critic"`.
    - `weight`: Scalar multiplier on the adversarial loss (default `1.0`).
+   - `critic_weight` and `generator_weight` independently scale the adversarial contribution to each phase. Each omitted field inherits `weight`. All three weights accept finite, nonnegative numbers.
    - `penalty`: Critic gradient penalty coefficient (`>= 0`, default `1.0`; `0` disables the gradient penalty for this term).
-   - `real`, `fake`: Sample bindings (defaults to `real = "batch.real"` and `fake = "generated"`). Additional adversarial terms can score custom bindings or override `inputs` for multi-critic training.
+   - `real`, `fake`: Sample bindings (defaults to `real = "batch.real"` and `fake = "generated"`). Each critic scores the pair bound by its loss.
    - `id`: Unique identifier for additional adversarial terms (the primary adversarial loss publishes as `loss/d_adversarial` and `loss/g_adversarial`).
 
 2. **`type = "prior"`**:
@@ -490,6 +491,7 @@ export_bundle = "on_eval"         # "on_eval" | "on_checkpoint" | "never"
 
 | Field | Type | Description |
 | --- | --- | --- |
+| `latest_only` | `bool` | Set `true` to retain exactly the latest durable training checkpoint across attempts. This overrides the other retention and automatic export settings. The next successful save replaces step zero, same-step saves, and earlier recovery points. Metric and event histories stay available. Defaults to `false`. |
 | `keep_last` | `int` | Number of most recent complete checkpoints to retain during pruning (default `3`). |
 | `keep_every` | `int` | Milestone step interval whose checkpoints are permanently retained (default `50000`). |
 | `keep_best` | `int` / `table` | Retain the checkpoints of the `count` best evaluations of the run's primary metric (`{ metric = "fid50k_train", mode = "min" | "max", count = 2 }`, or an integer `count` shorthand for `fid50k_train`). `count` defaults to `2`, also when the table names only `metric` or `mode`. Set `false` or `0` to disable. |

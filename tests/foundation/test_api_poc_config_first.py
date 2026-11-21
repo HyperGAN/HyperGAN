@@ -180,7 +180,6 @@ def test_override_addresses_losses_by_id_and_merges_sections():
     ({'networks.encoder.role': 'generator'}, 'Exactly one network'),
     ({'losses.0.critic': 'encoder'}, 'critic must name'),
     ({'networks.decoder.inputs.condition': 'encodr'}, "'encodr' is neither a network"),
-    ({'losses.0.real': 'batch.condition'}, 'first adversarial loss'),
     ({'losses.reconstruction.id': None}, 'id is required'),
     ({'networks.encoder.colour': 'red'}, 'Unknown networks.encoder field'),
     ({'train.learning_rate': 1.0}, 'Unknown train field'),

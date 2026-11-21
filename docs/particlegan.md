@@ -26,7 +26,28 @@ provider and shows host settings, loss metrics and networks.
 
 ParticleGAN 0.11.1 selects `unified_v11` (Unified 4-Law) by default. Select a specific preset with, for example, `defaults = "particlegan:empf"` or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Unified-v11 and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
 
-The integration supports one critic network per resolved recipe. Combine feature heads inside that network.
+Each distinct critic named by an adversarial loss gets its own recipe loss, optimizer, penalty and step record. Each optimizer steps once per critic phase. Repeated terms for the same critic share its optimizer and record. During the generator phase all critics are frozen. Their weighted objectives and the single shared prior regularizer feed one backward pass and one generator/prior optimizer step. The first critic supplies the recipe record read by that shared optimizer and regularizer.
+
+For a MisGAN model, bind both generator networks to `latent`. Declare one as the primary `generator` and the other as an `auxiliary` network. The following losses assume `batch.real` contains the masked features concatenated with their mask, `masked_pair` builds that pair from the generator outputs, and `gm` generates the mask.
+
+```toml
+[[losses]]
+type = "adversarial"
+critic = "dx"
+real = "batch.real"
+fake = "masked_pair"
+critic_weight = 1.0
+generator_weight = 0.2
+
+[[losses]]
+type = "adversarial"
+critic = "dm"
+real = "batch.mask"
+fake = "gm"
+
+[[losses]]
+type = "prior"
+```
 
 Existing concrete configurations can still be loaded with their explicit
 settings. Without a recipe snapshot, construction uses ParticleGAN's public

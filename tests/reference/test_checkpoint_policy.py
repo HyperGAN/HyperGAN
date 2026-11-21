@@ -618,3 +618,26 @@ keep_best = 2
         "not divisible by checkpoint_every (3)" in w and "keep_best" in w
         for w in lowered["warnings"]
     )
+
+
+def test_latest_only_supersedes_other_retention_rules(tmp_path):
+    policy = normalize_checkpoint_policy({'latest_only': True, 'keep_every': 1, 'keep_best': 5, 'keep_last': 3})
+    assert policy == {'latest_only': True, 'keep_last': 1, 'keep_best': None, 'keep_every': 0, 'export_bundle': 'never'}
+    assert normalize_checkpoint_policy(policy) == policy
+    with pytest.raises(ValueError, match='latest_only'):
+        normalize_checkpoint_policy({'latest_only': 'true'})
+
+    run = tmp_path / 'run'
+    root = run / 'checkpoints'
+    for name, step, attempt in [('initial', 0, 'first'), ('abandoned', 3, 'first'),
+                                ('same-step', 2, 'second'), ('current', 2, 'second')]:
+        _make_dummy_checkpoint(root / name, step, attempt_id=attempt)
+    (root / 'latest.json').write_text(json.dumps({'schema_version': 1, 'checkpoint': 'current', 'step': 2}))
+    (run / 'manifest.json').write_text(json.dumps({
+        'config': {'checkpoints': policy},
+        'recovery_parent': {'checkpoint_id': 'initial'},
+        'evaluation_schedule': {'test': {'status': 'running', 'source_step': 3}},
+    }))
+    report = prune_checkpoints(run)
+    assert [entry['name'] for entry in report['retained']] == ['current']
+    assert {entry['name'] for entry in report['deleted']} == {'initial', 'abandoned', 'same-step'}

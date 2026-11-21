@@ -51,9 +51,9 @@ def _worker_command(state, operation, payload):
     return evaluate_snapshot(*state)
 
 
-def _running_outputs(config, metric_id):
-    descriptor = config['_metric_runtime'][metric_id]['descriptor']
-    return {'output_ids': list(descriptor['outputs'])} if 'outputs' in descriptor else {}
+def _running_outputs(catalog):
+    ids = [d['output_id'] for d in catalog['metrics'].values() if 'output_id' in d]
+    return {'output_ids': ids} if ids else {}
 
 
 def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_path=None, bundle=None):
@@ -187,8 +187,11 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
     directory = root / 'metrics' / 'evaluations' / dir_name
     directory.mkdir(parents=True, exist_ok=False)
     with file_lock(directory, name=OWNER_LOCK):
-        receipt = _evaluate_owned(root, manifest, selected, metric_id, directory, dir_name, step,
-                                  attempt_id, source_file, bundle_dict, warnings_list)
+        try:
+            receipt = _evaluate_owned(root, manifest, selected, metric_id, directory, dir_name, step,
+                                      attempt_id, source_file, bundle_dict, warnings_list)
+        finally:
+            (directory / 'snapshot.pt').unlink(missing_ok=True)
     if receipt.get('evaluation_id', dir_name) != dir_name:
         _retire_running(directory)
     return receipt
@@ -207,20 +210,17 @@ def _evaluate_owned(root, manifest, selected, metric_id, directory, evaluation_i
                 'source_bundle': source_bundle_str}
     if 'attempt_index' in bundle_dict['identity']:
         identity['attempt_index'] = bundle_dict['identity']['attempt_index']
-    initial_catalog = _write_catalog(root, metric_catalog(selected))
+    catalog = metric_catalog(selected)
     receipt_running = {
         'schema_version': 1, 'status': 'running', **identity,
         'snapshot_sha256': expected_hash, 'metric_id': metric_id,
-        'catalog': initial_catalog, **_running_outputs(selected, metric_id),
+        'catalog': _write_catalog(root, catalog), **_running_outputs(catalog),
     }
     if warnings_list:
         receipt_running['warnings'] = warnings_list
     atomic_json(directory / 'receipt.json', receipt_running)
 
-    try:
-        return _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, warnings=warnings_list)
-    finally:
-        snapshot.unlink(missing_ok=True)
+    return _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, warnings=warnings_list)
 
 
 def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_hash, identity, *, cancellation_event=None, timeout=None, warnings=None):
@@ -229,17 +229,16 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
     spec = selected['metrics']['custom'][metric_id]
     evaluation_id = identity['evaluation_id']
     timeout = spec['timeout'] if timeout is None else timeout
-    manifest = {'run_id': identity['run_id']}
     started = time.monotonic()
     service = CPUWorkerService(_worker_factory, _worker_command,
         args=(spec, selected['_metric_runtime'][metric_id], str(snapshot), expected_hash, identity),
-        run_id=manifest['run_id'], attempt_id=evaluation_id, world_size=1, initialize_process_group=False,
+        run_id=identity['run_id'], attempt_id=evaluation_id, world_size=1, initialize_process_group=False,
         cancellation_event=cancellation_event,
         startup_timeout=timeout, command_timeout=timeout,
         collective_timeout=timeout, total_timeout=timeout)
     catalog = metric_catalog(selected)
     definitions = catalog['metrics']
-    outputs = _running_outputs(selected, metric_id)
+    outputs = _running_outputs(catalog)
     known = type(identity.get('source_step')) is int and identity.get('attempt_id') is not None
     event = {'schema_version': 2, 'event': 'evaluation', 'run_id': identity['run_id'],
              'attempt_id': identity.get('attempt_id', evaluation_id), 'sequence': 1,
@@ -273,20 +272,24 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
         else:
             modality = descriptor['kind']
             success['distributions' if modality == 'histogram' else 'metrics'] = {metric_id: result['value']}
-            write_result(directory, success, completed, modality)
             receipt = completed
-        status = 'complete'
     except BaseException as error:
         failure = error
         status = 'cancelled' if isinstance(error, CPUServiceCancelled) else 'failed'
-        reason = f'{type(error).__name__}: {error}'[:1000]
+        # Leave space for the shared source identity and all output IDs even
+        # when a plugin raises an exception containing non-ASCII text.
+        reason_limit = min(1000, 48000 // (12 * len(definitions)))
+        reason = f'{type(error).__name__}: {error}'[:reason_limit]
         revision = _write_catalog(root, catalog)
         elapsed = time.monotonic() - started
         event.update(status=status, seconds=elapsed, catalog=revision,
                      measurement_status={k: {'status': status, 'reason': reason} for k in definitions})
         receipt.update(status=status, seconds=elapsed, catalog=revision, result={'error': reason})
         write_result(directory, event, receipt, next(iter(definitions.values()))['kind'])
-    if status == 'complete':
+    else:
+        status = 'complete'
+        if not outputs:
+            write_result(directory, success, receipt, modality)
         try:
             from .summary import write_summary_json
             write_summary_json(root)
@@ -318,6 +321,8 @@ def _owner_alive(path):
             return False
     except RuntimeError:
         return True
+    except FileNotFoundError:
+        return False
 
 
 def _recover_abandoned(root, run_id=None):
@@ -347,6 +352,8 @@ def _recover_abandoned(root, run_id=None):
     for path in directory.iterdir():
         if not _EVAL_DIR_RE.match(path.name):
             continue
+        if not path.exists() and not path.is_symlink():
+            continue
         if path.is_symlink() or not path.is_dir():
             raise ValueError('Evaluation entries must be ordinary directories')
         receipt_path = path / 'receipt.json'
@@ -358,9 +365,13 @@ def _recover_abandoned(root, run_id=None):
         if not receipt_path.exists():
             (path / 'snapshot.pt').unlink(missing_ok=True)
             continue
-        if receipt_path.is_symlink() or receipt_path.stat().st_size > 65536:
-            raise ValueError('Evaluation receipt must be a bounded ordinary file')
-        receipt = json.loads(receipt_path.read_text())
+        try:
+            if receipt_path.is_symlink() or receipt_path.stat().st_size > 65536:
+                raise ValueError('Evaluation receipt must be a bounded ordinary file')
+            receipt = json.loads(receipt_path.read_text())
+        except FileNotFoundError:
+            # A manual evaluator retired its running receipt after publication.
+            continue
         effective_run_id = run_id if run_id is not None else receipt.get('run_id')
         if run_id is not None and receipt.get('run_id') != run_id:
             raise ValueError('Abandoned evaluation identity differs from its run')

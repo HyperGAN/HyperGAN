@@ -18,7 +18,13 @@ def write_catalog(root, catalog):
         if read_catalog(root, revision) != catalog:
             raise ValueError('Existing catalog differs from evaluation definition')
     else:
-        atomic_json(path, catalog)
+        try:
+            atomic_json(path, catalog)
+        except PermissionError:
+            # On Windows another publisher can win the race and open the revision
+            # while our identical staged file is being renamed.
+            if not path.is_file() or read_catalog(root, revision) != catalog:
+                raise
     return revision
 
 
@@ -63,13 +69,20 @@ def publish_scores(root, evaluator, event, receipt, *, running=None):
             if not (target / 'stream.json').is_file():
                 raise
             existing = json.loads((target / 'receipt.json').read_text())
-            if (existing['result']['values'] != receipt['result']['values']
-                    or existing['catalog'] != receipt['catalog']
-                    or existing.get('import_provenance') != receipt.get('import_provenance')):
+            if (_score_identity(existing) != _score_identity(receipt)
+                    or existing['result']['values'] != receipt['result']['values']):
                 raise ValueError('Conflicting scores or provenance for this evaluation position and protocol')
-            return existing
+            receipt = existing
         sync_directory(parent)
     return receipt
+
+
+def _score_identity(receipt):
+    # Live retries can pin different transport bytes for the same EMA source.
+    # Imports supply stable archival provenance, which must agree on a retry.
+    if receipt.get('imported'):
+        return receipt['catalog'], receipt.get('snapshot_sha256'), receipt['result']['snapshot_identity']
+    return None
 
 
 def receipt_values(receipt):
@@ -87,15 +100,13 @@ def import_scores(root, evaluator, *, step, values, outputs, attempt_id, snapsho
         raise ValueError('Invalid evaluator ID')
     if type(step) is not int or not 0 <= step < 2**53:
         raise ValueError('Source step must be a nonnegative safe integer')
-    if attempt_id is not None and (not isinstance(attempt_id, str) or not 1 <= len(attempt_id) <= 128):
-        raise ValueError('Invalid source attempt ID')
     if snapshot_sha256 is not None and (not isinstance(snapshot_sha256, str) or not re.fullmatch('[a-f0-9]{64}', snapshot_sha256)):
         raise ValueError('Invalid snapshot SHA-256')
     if any(v is not None and not isinstance(v, dict) for v in (snapshot_identity, protocol)):
         raise ValueError('Snapshot identity and protocol must be mappings')
     snapshot = finite_json(snapshot_identity or {})
     run_id = manifest['run_id']
-    if any(k in snapshot and snapshot[k] != v for k, v in [('run_id', run_id), ('source_step', step)]):
+    if snapshot.get('run_id', run_id) != run_id or snapshot.get('source_step', step) != step:
         raise ValueError('Snapshot identity differs from its run or source step')
     if 'attempt_id' in snapshot:
         if attempt_id is not None and snapshot['attempt_id'] != attempt_id:
@@ -119,15 +130,14 @@ def import_scores(root, evaluator, *, step, values, outputs, attempt_id, snapsho
     result = {'step': step, 'values': values, 'protocol': protocol, 'snapshot_identity': snapshot}
     receipt = {'schema_version': 1, 'status': 'complete', **identity, 'catalog': revision,
                'output_ids': list(descriptors), 'metric_id': evaluator, 'result': result,
-               'import_provenance': snapshot}
+               'imported': True}
     event = {'schema_version': 2, 'event': 'evaluation', 'status': 'complete', 'run_id': run_id,
              'attempt_id': identity['attempt_id'], 'sequence': 1, 'step': step, 'catalog': revision,
-             'metrics': {f'{evaluator}/{key}': v for key, v in values.items()}, 'measurement_status': {},
+             'metrics': {f'{evaluator}/{key}': v for key, v in values.items()}, 'measurement_status': {}, 'imported': True,
              'snapshot_identity': snapshot, 'source_position_known': True, 'evaluation_protocol': protocol,
              'protocol_sha256': digest(protocol)}
     if snapshot_sha256 is not None:
         receipt['snapshot_sha256'] = event['snapshot_sha256'] = snapshot_sha256
-        receipt['import_provenance'] = dict(snapshot_identity=snapshot, snapshot_sha256=snapshot_sha256)
     receipt = publish_scores(root, evaluator, event, receipt)
     from .summary import write_summary_json
     write_summary_json(root)

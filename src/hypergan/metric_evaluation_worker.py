@@ -125,7 +125,7 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
         raise ValueError('Metric source or descriptor changed since runtime preflight')
     constructors = [evaluation['data'], *saved['components'].values()]
     factory_modules = [importlib.import_module(value['factory'].split(':', 1)[0])
-                       for value in constructors if ':' in value['factory']]
+                       for value in constructors if ':' in value.get('factory', '')]
     code = _sources([type(data), type(prior), *[type(module) for module in graph.modules()],
                      *factory_modules, evaluate_snapshot, apply_backend_policy])
     # Everything that fixes the reference images and the backend their features
@@ -169,9 +169,10 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
             runtime['backend'] = effective_backend
             graph_context = graph.generate(z, batch, prior=prior)
             tensors = {path: graph.resolve(path, graph_context) for path in dict.fromkeys(bindings.values())}
-            if (any(not isinstance(t, torch.Tensor) or t.ndim < 1 or len(t) != size for t in tensors.values())
-                    or sum(t.numel() for t in tensors.values() if t is not batch['real']) > MAX_BATCH_ELEMENTS
-                    or any(not torch.isfinite(t).all() for t in tensors.values())
+            generated = [tensor for path, tensor in tensors.items() if path != 'batch.real']
+            if (any(not isinstance(t, torch.Tensor) or t.ndim < 1 or len(t) != size for t in generated)
+                    or sum(t.numel() for t in generated) > MAX_BATCH_ELEMENTS
+                    or any(not torch.isfinite(t).all() for t in generated)
                     or not torch.isfinite(batch['real']).all()):
                 raise ValueError('Evaluation generated/reference tensors must be finite and bounded')
             count += size

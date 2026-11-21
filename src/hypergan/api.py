@@ -1344,13 +1344,22 @@ def evaluations(run):
     run = _run(run)
     results = {}
     for path in sorted((run.path / 'metrics' / 'evaluations').glob('*/receipt.json')):
-        data = json.loads(path.read_text())
+        try:
+            data = json.loads(path.read_text())
+        except FileNotFoundError:
+            continue  # A concurrent evaluator retired its temporary receipt.
+        if data.get('published_as'):
+            continue
         result = data.get('result') or {}
+        provenance = {}
+        if 'output_ids' in data:
+            provenance = {key: data[key] for key in ('run_id', 'attempt_id', 'snapshot_sha256', 'imported') if key in data}
+            provenance.update(snapshot_identity=result.get('snapshot_identity'), evaluation_protocol=result.get('protocol'))
         for key, value in receipt_values(data).items():
             results.setdefault(key, []).append({
                 'step': result.get('step', data.get('source_step')), 'value': value,
                 'status': data.get('status'), 'evaluation_id': data.get('evaluation_id'),
-                'error': result.get('error')})
+                'error': result.get('error'), **provenance})
     for rows in results.values():
         rows.sort(key=lambda row: (row['step'] is None, row['step'] or 0))
     return results

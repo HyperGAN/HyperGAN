@@ -161,6 +161,7 @@ function resultBlocks(label, records) {
       content.replaceChildren();
       if (provenance.open) content.append(node('pre', JSON.stringify({evaluation_id: event.evaluation_id,
         catalog: event.catalog, definition_hash: definition.definition_hash, definition,
+        imported: event.imported,
         protocol_sha256: event.protocol_sha256, snapshot_sha256: event.snapshot_sha256,
         snapshot_identity: event.snapshot_identity, evaluation_protocol: event.evaluation_protocol},
         null, 2), 'numeric-preview'));
@@ -192,9 +193,10 @@ export function evaluationShelf(api, base) {
   function renderUnscheduled(snapshots) {
     const target = document.getElementById('evaluation-unscheduled');
     if (!target) return;
-    const manual = snapshots.filter(([, definition]) => (definition.specification || {}).trigger !== 'interval').map(([id]) => id);
-    const scheduled = Object.keys(run.evaluation_schedule || {}).length > 0;
-    if (!snapshots.length || manual.length !== snapshots.length || scheduled) {
+    const manual = [...new Set(snapshots.map(([id, definition]) => definition.evaluator_id || id))];
+    const scheduled = Object.keys(run.evaluation_schedule || {}).length > 0
+      || snapshots.some(([, definition]) => definition.specification?.trigger === 'interval');
+    if (!snapshots.length || scheduled) {
       target.replaceChildren();
       target.hidden = true;
       return;

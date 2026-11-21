@@ -58,10 +58,10 @@ class EvaluationWorker:
                     raise TimeoutError('Evaluation snapshot persistence deadline exceeded')
                 directory = Path(root) / 'metrics' / 'evaluations' / identity['evaluation_id']
                 directory.mkdir(parents=True, exist_ok=False)
-                revision = _write_catalog(Path(root), metric_catalog(selected))
+                catalog = metric_catalog(selected)
                 atomic_json(directory / 'receipt.json', {'schema_version': 1, 'status': 'running',
                     **identity, 'snapshot_sha256': descriptor['sha256'], 'metric_id': metric_id,
-                    'catalog': revision, **_running_outputs(selected, metric_id)})
+                    'catalog': _write_catalog(Path(root), catalog), **_running_outputs(catalog)})
                 # The numerical protocol retains configured timeout. The service
                 # receives only the remaining wall-time budget after persistence.
                 result = _evaluate_pinned(Path(root), selected, metric_id, directory,
@@ -69,8 +69,7 @@ class EvaluationWorker:
                     cancellation_event=self.cancel, timeout=remaining)
                 if result.get('evaluation_id', directory.name) != directory.name:
                     _retire_running(directory)
-                if (isinstance(result, dict)
-                        and result.get('status') == 'complete'
+                if (result.get('status') == 'complete'
                         and isinstance(selected.get('checkpoints'), dict)
                         and selected['checkpoints'].get('export_bundle') == 'on_eval'):
                     try:

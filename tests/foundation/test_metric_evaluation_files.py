@@ -113,3 +113,22 @@ def test_interrupted_named_evaluation_reports_every_output(tmp_path):
     event = json.loads((directory/'events.jsonl').read_text())
     assert set(event['measurement_status']) == {'quality/x', 'quality/m'}
     assert event['step'] == 12 and event['metrics'] == {}
+
+
+def test_interrupted_import_does_not_expose_partial_scores(tmp_path, monkeypatch):
+    from pathlib import Path
+    from hypergan import import_evaluation
+
+    atomic_json(tmp_path/'manifest.json', {'run_id': 'run'})
+    kwargs = dict(step=9, outputs={'x': {}, 'm': {}}, values={'x': 0, 'm': 1})
+    def interrupt(*args):
+        raise OSError('simulated write failure')
+    with monkeypatch.context() as fault:
+        fault.setattr(Path, 'rename', interrupt)
+        with pytest.raises(OSError, match='simulated'):
+            import_evaluation(tmp_path, 'paired', **kwargs)
+    assert not list((tmp_path/'metrics/evaluations').iterdir())
+    receipt = import_evaluation(tmp_path, 'paired', **kwargs)
+    assert receipt['result']['values'] == kwargs['values']
+    assert receipt['attempt_id'] == 'unknown'
+    assert 'snapshot_sha256' not in receipt

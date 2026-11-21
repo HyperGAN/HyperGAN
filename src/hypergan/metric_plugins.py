@@ -57,8 +57,9 @@ def scalar_outputs(outputs):
 def scalar_values(value, outputs):
     if not isinstance(value, Mapping) or set(value) != set(outputs):
         raise ValueError('Snapshot result must match the declared output IDs exactly')
-    if any(type(number) not in (float, int) or not math.isfinite(number) for number in value.values()):
-        raise ValueError('Each snapshot output must be a finite Python number')
+    for number in value.values():
+        if type(number) not in (int, float) or not -sys.float_info.max <= number <= sys.float_info.max:
+            raise ValueError('Each snapshot output must be a finite Python number')
     return finite_json(dict(value))
 
 

@@ -375,6 +375,8 @@ class ReferenceTrainer:
             groups, modules=self.graph, latent_table=latent_table, **optimizer_options))
         for name, optimizer in self.critic_optimizers.items():
             self._bind_critic_record(optimizer, losses[name], primary=name == "discriminator")
+        from .particlegan_runtime import MultiCriticThermalCoordinator
+        self.thermal_coordinator = MultiCriticThermalCoordinator(self.critic_optimizers)
         prior_ids = {id(parameter) for parameter in self.program.prior_parameters}
         self.lr_roles = [[group.get('role', 'prior' if all(id(parameter) in prior_ids for parameter in group['params']) else 'generator')
                           for group in self.opt_g.param_groups]]
@@ -401,6 +403,9 @@ class ReferenceTrainer:
             return
         # ParticleGAN's shared generator optimizer and prior read one record.
         # Bind those once to the first critic, and every loss to its own critic.
+        # When multiple critics own thermal step records, self.thermal_coordinator
+        # enforces the coupled_max policy (shared s_shared = max_i s_i) so relative
+        # generator/prior weights cannot silently drift between critics.
         shared = (self.spread, self.opt_g, self.prior) if primary else ()
         formulation = getattr(self.recipe, 'effective_critic_formulation', None)
         if formulation == 'bispf':

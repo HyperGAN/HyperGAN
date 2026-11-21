@@ -323,7 +323,8 @@ class ReferenceTrainer:
         opt = config["optimizer"]
         optimizer_options = ({'fused': True} if opt['implementation'] == 'torch_fused_adam'
                              and self.recipe.optimizer_family in ('formulation', 'adam') else {})
-        names = list(dict.fromkeys(["discriminator", *(term["component"] for term in config.get("adversarial_terms", ())) ]))
+        names = ["discriminator", *(term["component"] for term in config.get("adversarial_terms", ()))]
+        names = list(dict.fromkeys(names))
         if config.get('recipe'):
             # Recipe hooks attach to the network that actually scores the pair.
             critics = {name: self.graph.models[name] for name in names}
@@ -435,12 +436,12 @@ class ReferenceTrainer:
                     self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
                 generator = self.graph.models['generator']
                 if hasattr(self.opt_g, '_gen_param_ids'):
-                    self.opt_g._gen_param_ids = {id(p) for p in self.program.generator_parameters}
+                    self.opt_g._gen_param_ids = {id(p) for p in generator.parameters()}
                 attach(generator, record)
         elif (formulation == 'rhbi' or getattr(self.recipe, 'rhbi_weight', 0) > 0
               or getattr(self.recipe, 'rhbi_critic_weight', 0) > 0):
             from particlegan.rhbi import bind_rhbi_record
-            bind_rhbi_record(record, loss, optimizer, *(shared[:2]))
+            bind_rhbi_record(record, loss, optimizer, *shared[:2])
 
     def batch(self):
         batch = self.data(self.config["training"]["batch_size"], generator=self.streams["data"])
@@ -466,13 +467,21 @@ class ReferenceTrainer:
                 return result
         return self._update(batch, latent_draw, generator_batch=generator_batch, generator_latent_draw=generator_latent_draw)
 
+    def _valid_generated_shape(self, fake, real):
+        if not isinstance(fake, torch.Tensor):
+            return False
+        primary = self.program.adversarial_terms[0].critic_phase
+        if primary.real.path == 'batch.real' and primary.fake.path == 'generated':
+            return fake.shape == real.shape
+        return fake.ndim > 0 and len(fake) == len(real)
+
     def _draw(self, batch, latent_draw):
         batch = self.batch() if batch is None else move_tensors(batch, self.device)
         if len(batch['real']) != self.config['training']['batch_size']:
             raise ValueError('Data batch length must match training.batch_size')
         z, ids = self.prior.sample(len(batch['real']), generator=self.streams['prior']) if latent_draw is None else move_tensors(latent_draw, self.device)
         context = self.graph.generate(z, batch, prior=self.prior)
-        if not isinstance(context['generated'], torch.Tensor) or context['generated'].shape != batch['real'].shape:
+        if not self._valid_generated_shape(context['generated'], batch['real']):
             raise ValueError(f"Generator output must match real data shape {tuple(batch['real'].shape)}")
         return batch, ids, context
 

@@ -226,10 +226,7 @@ def _synchronize_optimizer_regularizers(
     if optimizers is not None:
         opts = optimizers if isinstance(optimizers, (list, tuple)) else [optimizers]
     elif trainer is not None:
-        for opt_name in ("opt_g", "opt_d"):
-            opt = getattr(trainer, opt_name, None)
-            if opt is not None:
-                opts.append(opt)
+        opts = _strategy_optimizers(trainer)
 
     comm_device = _resolve_comm_device(trainer, opts)
 
@@ -615,7 +612,8 @@ def _strategy_optimizers(trainer: Any = None, optimizers: Any = None) -> List[An
         return list(optimizers) if isinstance(optimizers, (list, tuple)) else [optimizers]
     if trainer is None:
         return []
-    return [opt for opt in (getattr(trainer, "opt_g", None), getattr(trainer, "opt_d", None))
+    defaults = (getattr(trainer, "opt_g", None), getattr(trainer, "opt_d", None))
+    return [opt for opt in getattr(trainer, "optimizers", defaults)
             if opt is not None and hasattr(opt, "state")]
 
 

@@ -64,7 +64,7 @@ FORMAT = 'hypergan-model/1'
 TOP_LEVEL = {'format', 'name', 'description', 'defaults', 'recipe', 'data', 'dataset', 'prior', 'networks', 'losses', 'penalty', 'train',
              'sampling', 'samplers', 'metrics', 'evaluations', 'checkpoints', 'run', 'aggregation', 'extends'}
 
-CHECKPOINT_FIELDS = {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
+CHECKPOINT_FIELDS = {'latest_only', 'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
 ROLES = ('generator', 'critic', 'encoder', 'auxiliary')
 RESERVED = {'latent', 'batch', 'generated', 'candidate', 'prior', 'components', 'update', 'evaluation',
             'reference'}
@@ -109,9 +109,15 @@ def normalize_checkpoint_policy(policy=None):
     if not isinstance(policy, dict):
         raise ValueError(f"Checkpoint retention policy must be a dict, got {type(policy).__name__}")
 
-    unknown = set(policy) - {'keep_last', 'keep_best', 'keep_every', 'export_bundle'}
+    unknown = set(policy) - CHECKPOINT_FIELDS
     if unknown:
         raise ValueError(f"Unknown field(s) in checkpoint retention policy: {', '.join(sorted(unknown))}")
+
+    latest_only = policy.get('latest_only', False)
+    if type(latest_only) is not bool:
+        raise ValueError("latest_only must be boolean")
+    if latest_only:
+        return {'latest_only': True, 'keep_last': 1, 'keep_best': None, 'keep_every': 0, 'export_bundle': 'never'}
 
     defaults = DEFAULT_CHECKPOINT_POLICY
     keep_last = policy.get('keep_last', defaults['keep_last'])

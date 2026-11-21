@@ -395,7 +395,7 @@ horizontal_flip = false
 | `factory` / `fn` | `string` | Importable Python evaluator class (`factory = "pkg.mod:Class"`) or function (`fn = "pkg.mod:func"`). |
 | `every` / `every_steps` | `int` | Interval in global training steps for automatic background evaluation. Omit to configure the metric as `manual` (run only via `hypergan eval`). |
 | `samples` | `int` | Total number of generated and reference examples to evaluate (required). |
-| `batch_size` | `int` | Batch size per evaluation forward pass (required). |
+| `batch_size` | `int` | Positive number of rows per evaluation forward pass (required). The worker draws the smaller of this size and the remaining sample count. |
 | `seed` | `int` | Deterministic RNG seed for evaluation latent draws and dataset iteration (required). |
 | `prior_seed`, `data_seed` | `int` | Optional explicit seeds for the prior and data generators. Their defaults are `seed + 2` and `seed + 1`. |
 | `inputs` | `table` | Maps each plugin argument to `generated`, `reference`, or a named network output. Dotted paths select fields of structured network outputs. |

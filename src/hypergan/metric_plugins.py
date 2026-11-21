@@ -143,7 +143,9 @@ def validate_custom(specs):
             evaluation.setdefault('device', 'cuda')
             if not isinstance(evaluation['device'], str) or re.fullmatch(r'cpu|cuda(?::(?:0|[1-9][0-9]*))?', evaluation['device']) is None:
                 raise ValueError(f'{name}.evaluation.device requires cpu or cuda[:N]')
-            for field, lower, upper in [('sample_count', 1, 1000000), ('batch_size', 1, 1024), ('seed', 0, 2**32-1)]:
+            if type(evaluation['batch_size']) is not int or evaluation['batch_size'] <= 0:
+                raise ValueError(f'{name}.evaluation.batch_size must be a positive integer')
+            for field, lower, upper in [('sample_count', 1, 1000000), ('seed', 0, 2**32-1)]:
                 if type(evaluation[field]) is not int or not lower <= evaluation[field] <= upper:
                     raise ValueError(f'{name}.evaluation.{field} must be an integer in [{lower}, {upper}]')
             for field in ('data_seed', 'prior_seed'):

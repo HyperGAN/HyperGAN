@@ -22,7 +22,7 @@ For an HNDL generator, install CPU Torch, HyperGAN, NumPy and HNDL. HyperGAN reb
 
 ```sh
 python -m pip install "torch==2.14.0" --index-url https://download.pytorch.org/whl/cpu
-python -m pip install "hypergan==2.1.0" "hndl==0.12.0" "numpy>=1.26,<3"
+python -m pip install "hypergan==2.1.1" "hndl==0.12.0" "numpy>=1.26,<3"
 ```
 
 ```python

@@ -671,6 +671,24 @@ class ReplicatedTrainer(ReferenceTrainer):
         return loss
 
     @staticmethod
+    def _term_real_sample(phase, context):
+        path = phase.real.path
+        if path == 'generated':
+            return context.get('generated')
+        if path == 'latent':
+            return context.get('latent')
+        if path.startswith('batch.'):
+            batch = context.get('batch')
+            if isinstance(batch, dict):
+                return batch.get(path.split('.', 1)[1])
+        components = context.get('components')
+        if isinstance(components, dict):
+            key = path.split('.', 1)[1] if path.startswith('components.') else path
+            if key in components:
+                return components[key]
+        return None
+
+    @staticmethod
     def _is_highres_image_term(term, sample):
         return (
             isinstance(sample, torch.Tensor)
@@ -1118,7 +1136,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             optimizer.zero_grad(set_to_none=True)
         coupled_d = bool(
             getattr(self.aggregation_strategy, 'reduces_gradients', False)
-            and any(self._uses_coupled_critic_loss(term, real) for term in terms)
+            and any(self._uses_coupled_critic_loss(term, self._term_real_sample(term.critic_phase, context)) for term in terms)
         )
         if coupled_d:
             def discriminator_scores_only():
@@ -1131,8 +1149,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             with self._folded('discriminator scores'):
                 d_scored = self._phase('discriminator scores', discriminator_scores_only)
             d_global_pairs = [
-                self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_critic_loss(term, real) else None
-                for term, (_, _, r_sc, f_sc) in zip(terms, d_scored)
+                self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_critic_loss(term, r_s) else None
+                for term, (r_s, _, r_sc, f_sc) in zip(terms, d_scored)
             ]
 
             def discriminator_coupled_loss():
@@ -1263,7 +1281,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 from particlegan.optim.constraint_geometry import constraint_geometry_backward
                 coupled_g = bool(
                     getattr(self.aggregation_strategy, 'reduces_gradients', False)
-                    and any(self._uses_coupled_generator_loss(term, gen_real) for term in terms)
+                    and any(self._uses_coupled_generator_loss(term, self._term_real_sample(term.generator_phase, gen_context)) for term in terms)
                 )
                 if coupled_g:
                     def generator_scores_only():
@@ -1275,8 +1293,8 @@ class ReplicatedTrainer(ReferenceTrainer):
                     with self._folded('generator critic scores'):
                         g_scored = self._phase('generator critic scores', generator_scores_only)
                     g_global_pairs = [
-                        self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_generator_loss(term, gen_real) else None
-                        for term, (_, _, r_sc, f_sc) in zip(terms, g_scored)
+                        self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_generator_loss(term, r_s) else None
+                        for term, (r_s, _, r_sc, f_sc) in zip(terms, g_scored)
                     ]
                     global_simplex_real = (
                         self._all_gather_coupled(gen_real.detach())

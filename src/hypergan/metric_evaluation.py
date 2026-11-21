@@ -20,6 +20,7 @@ import uuid
 from foldlitedb.fileio import file_lock
 
 from .config import fingerprint, load_config
+from .evaluation_results import publish_scores, receipt_values, write_result, write_catalog as _write_catalog
 from .metric_plugins import enabled_custom, finite_json, prepare_custom
 from .metrics import digest, metric_catalog, normalize_device, same_gpu
 from .run_state import atomic_json
@@ -50,16 +51,9 @@ def _worker_command(state, operation, payload):
     return evaluate_snapshot(*state)
 
 
-def _write_catalog(root, catalog):
-    revision = digest(catalog)
-    path = root / 'metrics' / f'catalog-{revision}.json'
-    if path.exists():
-        from .metrics import read_catalog
-        if read_catalog(root, revision) != catalog:
-            raise ValueError('Existing catalog differs from evaluation definition')
-    else:
-        atomic_json(path, catalog)
-    return revision
+def _running_outputs(config, metric_id):
+    descriptor = config['_metric_runtime'][metric_id]['descriptor']
+    return {'output_ids': list(descriptor['outputs'])} if 'outputs' in descriptor else {}
 
 
 def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_path=None, bundle=None):
@@ -165,14 +159,14 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
             ckpt_manifest = json.loads(ckpt_manifest_path.read_text(encoding='utf-8')) if ckpt_manifest_path.is_file() else manifest
             step = ckpt_manifest.get('step', 0)
             attempt_id = ckpt_manifest.get('attempt_id', attempt_id)
-            bundle_dict = extract_ema_bundle(checkpoint_dir, manifest=ckpt_manifest)
+            bundle_dict = extract_ema_bundle(checkpoint_dir, manifest=dict(ckpt_manifest, config=config))
         elif rank0_file.is_file():
             source_file = rank0_file
             ckpt_manifest_path = checkpoint_dir / 'manifest.json'
             ckpt_manifest = json.loads(ckpt_manifest_path.read_text(encoding='utf-8')) if ckpt_manifest_path.is_file() else manifest
             step = ckpt_manifest.get('step', 0)
             attempt_id = ckpt_manifest.get('attempt_id', attempt_id)
-            bundle_dict = extract_ema_bundle(checkpoint_dir, manifest=ckpt_manifest)
+            bundle_dict = extract_ema_bundle(checkpoint_dir, manifest=dict(ckpt_manifest, config=config))
         elif model_file.is_file():
             source_file = model_file
             bundle_dict = torch.load(model_file, map_location='cpu', weights_only=True)
@@ -193,8 +187,11 @@ def evaluate(run_dir, metric_id=None, *, checkpoint=None, devices=None, config_p
     directory = root / 'metrics' / 'evaluations' / dir_name
     directory.mkdir(parents=True, exist_ok=False)
     with file_lock(directory, name=OWNER_LOCK):
-        return _evaluate_owned(root, manifest, selected, metric_id, directory, dir_name, step,
-                               attempt_id, source_file, bundle_dict, warnings_list)
+        receipt = _evaluate_owned(root, manifest, selected, metric_id, directory, dir_name, step,
+                                  attempt_id, source_file, bundle_dict, warnings_list)
+    if receipt.get('evaluation_id', dir_name) != dir_name:
+        _retire_running(directory)
+    return receipt
 
 
 def _evaluate_owned(root, manifest, selected, metric_id, directory, evaluation_id, step,
@@ -214,7 +211,7 @@ def _evaluate_owned(root, manifest, selected, metric_id, directory, evaluation_i
     receipt_running = {
         'schema_version': 1, 'status': 'running', **identity,
         'snapshot_sha256': expected_hash, 'metric_id': metric_id,
-        'catalog': initial_catalog,
+        'catalog': initial_catalog, **_running_outputs(selected, metric_id),
     }
     if warnings_list:
         receipt_running['warnings'] = warnings_list
@@ -240,58 +237,55 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
         cancellation_event=cancellation_event,
         startup_timeout=timeout, command_timeout=timeout,
         collective_timeout=timeout, total_timeout=timeout)
+    catalog = metric_catalog(selected)
+    definitions = catalog['metrics']
+    outputs = _running_outputs(selected, metric_id)
+    known = type(identity.get('source_step')) is int and identity.get('attempt_id') is not None
+    event = {'schema_version': 2, 'event': 'evaluation', 'run_id': identity['run_id'],
+             'attempt_id': identity.get('attempt_id', evaluation_id), 'sequence': 1,
+             'stream_id': 'evaluation:' + evaluation_id, 'stream_generation': evaluation_id,
+             'step': identity.get('source_step', 0), 'source_position_known': known,
+             'metrics': {}, 'measurement_status': {}, 'evaluation_id': evaluation_id,
+             'snapshot_sha256': expected_hash, 'snapshot_identity': identity if known else {}}
+    receipt = {'schema_version': 1, **identity, 'metric_id': metric_id, **outputs,
+               'snapshot_sha256': expected_hash}
+    if warnings:
+        receipt['warnings'] = warnings
     failure = None
     try:
         with service:
             result = finite_json(service.command('evaluate')['results'][0])
+        protocol = result['protocol']
+        if not outputs:
+            descriptor = definitions[metric_id]
+            descriptor['evaluation_protocol'] = protocol
+            descriptor['definition_hash'] = digest({k: v for k, v in descriptor.items() if k != 'definition_hash'})
+        revision = _write_catalog(root, catalog)
+        elapsed = time.monotonic() - started
+        success = dict(event, status='complete', step=result['step'], source_position_known=True,
+                       seconds=elapsed, catalog=revision, evaluation_protocol=protocol,
+                       protocol_sha256=digest(protocol), snapshot_identity=result['snapshot_identity'],
+                       attempt_id=result['snapshot_identity']['attempt_id'])
+        completed = dict(receipt, status='complete', seconds=elapsed, catalog=revision, result=result)
+        if outputs:
+            success['metrics'] = {f'{metric_id}/{key}': v for key, v in result['values'].items()}
+            receipt = publish_scores(root, metric_id, success, completed, running=directory)
+        else:
+            modality = descriptor['kind']
+            success['distributions' if modality == 'histogram' else 'metrics'] = {metric_id: result['value']}
+            write_result(directory, success, completed, modality)
+            receipt = completed
         status = 'complete'
     except BaseException as error:
         failure = error
         status = 'cancelled' if isinstance(error, CPUServiceCancelled) else 'failed'
-        result = {'error': f'{type(error).__name__}: {error}'[:1000]}
-    elapsed = time.monotonic() - started
-    catalog = metric_catalog(selected)
-    descriptor = catalog['metrics'][metric_id]
-    if status == 'complete':
-        descriptor['evaluation_protocol'] = result['protocol']
-        descriptor['definition_hash'] = digest({k: v for k, v in descriptor.items() if k != 'definition_hash'})
-    revision = _write_catalog(root, catalog)
-    # The pinned bundle's owning attempt and update are read by the
-    # numerical worker. Failures before load have explicitly unknown
-    # source position and cannot be mistaken for current-run measures.
-    known_source = type(identity.get('source_step')) is int and identity.get('attempt_id') is not None
-    owner = result.get('snapshot_identity', identity if known_source else {})
-    event = {'schema_version': 2, 'event': 'evaluation', 'run_id': manifest['run_id'],
-             'attempt_id': owner.get('attempt_id', evaluation_id), 'sequence': 1,
-             'stream_id': 'evaluation:' + evaluation_id, 'stream_generation': evaluation_id,
-             'step': result.get('step', identity.get('source_step', 0)), 'seconds': elapsed, 'catalog': revision,
-             'metrics': {}, 'measurement_status': {}, 'evaluation_id': evaluation_id,
-             'snapshot_sha256': expected_hash, 'snapshot_identity': owner, 'status': status,
-             'source_position_known': status == 'complete' or known_source}
-    if status == 'complete':
-        target = 'metrics' if descriptor['kind'] == 'scalar' else 'distributions'
-        event.setdefault(target, {})[metric_id] = result['value']
-        event['evaluation_protocol'] = result['protocol']
-        event['protocol_sha256'] = digest(result['protocol'])
-    else:
-        event['measurement_status'][metric_id] = {'status': status, 'reason': result['error']}
-    encoded = json.dumps(event, allow_nan=False, separators=(',', ':')).encode() + b'\n'
-    if len(encoded) > 65536:
-        raise ValueError('Evaluation event exceeds 64 KiB')
-    with (directory / 'events.jsonl').open('xb') as stream:
-        stream.write(encoded)
-        stream.flush()
-        os.fsync(stream.fileno())
-    receipt = {'schema_version': 1, 'status': status, **identity, 'metric_id': metric_id,
-               'catalog': revision, 'snapshot_sha256': expected_hash, 'seconds': elapsed,
-               'result': result, 'event_sha256': hashlib.sha256(encoded).hexdigest()}
-    if warnings:
-        receipt['warnings'] = warnings
-    atomic_json(directory / 'receipt.json', receipt)
-    atomic_json(directory / 'stream.json', {'schema_version': 1,
-        'stream_id': event['stream_id'], 'stream_generation': evaluation_id,
-        'run_id': manifest['run_id'], 'path': (directory / 'events.jsonl').relative_to(root).as_posix(),
-        'role': 'measurement', 'modality': descriptor['kind']})
+        reason = f'{type(error).__name__}: {error}'[:1000]
+        revision = _write_catalog(root, catalog)
+        elapsed = time.monotonic() - started
+        event.update(status=status, seconds=elapsed, catalog=revision,
+                     measurement_status={k: {'status': status, 'reason': reason} for k in definitions})
+        receipt.update(status=status, seconds=elapsed, catalog=revision, result={'error': reason})
+        write_result(directory, event, receipt, next(iter(definitions.values()))['kind'])
     if status == 'complete':
         try:
             from .summary import write_summary_json
@@ -301,8 +295,18 @@ def _evaluate_pinned(root, selected, metric_id, directory, snapshot, expected_ha
     if isinstance(failure, (KeyboardInterrupt, SystemExit)):
         raise failure
     if status == 'failed' and spec['on_error'] == 'fail':
-        raise RuntimeError(f'Metric evaluation failed; receipt: {directory / "receipt.json"}: {result["error"]}') from failure
+        raise RuntimeError(f'Metric evaluation failed; receipt: {directory / "receipt.json"}: {receipt["result"]["error"]}') from failure
     return receipt
+
+
+def _retire_running(path):
+    # A named score set has its own immutable, protocol-addressed stream.
+    for name in ('receipt.json', 'snapshot.pt', OWNER_LOCK):
+        (path / name).unlink(missing_ok=True)
+    try:
+        path.rmdir()
+    except FileNotFoundError:
+        pass
 
 
 def _owner_alive(path):
@@ -346,7 +350,10 @@ def _recover_abandoned(root, run_id=None):
         if path.is_symlink() or not path.is_dir():
             raise ValueError('Evaluation entries must be ordinary directories')
         receipt_path = path / 'receipt.json'
-        if (path / 'stream.json').exists() or _owner_alive(path):
+        if _owner_alive(path):
+            continue
+        if (path / 'stream.json').exists():
+            (path / 'snapshot.pt').unlink(missing_ok=True)
             continue
         if not receipt_path.exists():
             (path / 'snapshot.pt').unlink(missing_ok=True)
@@ -368,6 +375,12 @@ def _recover_abandoned(root, run_id=None):
                 expected_names.add(path.name)
         if path.name not in expected_names:
             raise ValueError('Abandoned evaluation identity differs from its run')
+
+        published = receipt.get('published_as')
+        if (receipt.get('status') == 'running' and isinstance(published, str) and _EVAL_DIR_RE.fullmatch(published)
+                and (directory / published / 'stream.json').is_file()):
+            _retire_running(path)
+            continue
 
         if receipt.get('status') in ('complete', 'failed', 'cancelled'):
             event_path = path / 'events.jsonl'
@@ -394,7 +407,7 @@ def _recover_abandoned(root, run_id=None):
                  'step': receipt.get('source_step', 0), 'seconds': 0.0, 'metrics': {}, 'status': 'failed',
                  'source_position_known': type(receipt.get('source_step')) is int, 'evaluation_id': path.name,
                  'snapshot_sha256': receipt['snapshot_sha256'], 'snapshot_identity': {},
-                 'measurement_status': {receipt['metric_id']: {'status': 'failed', 'reason': reason}}}
+                 'measurement_status': {key: {'status': 'failed', 'reason': reason} for key in receipt_values(receipt)}}
         # No registry exists: any interrupted pre-registration event is not an
         # externally committed result. Publish one explicit failed replacement.
         event_path = path / 'events.jsonl'

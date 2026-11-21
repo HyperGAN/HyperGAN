@@ -280,15 +280,24 @@ def metric_catalog(config):
             definition['coefficient'] = term['weight']
             definition['raw_available'] = False
         metrics[name] = dict(definition, definition_hash=digest(definition))
+    reserved = _available(config).keys() | spec['custom'].keys()
     for name, custom in enabled_custom(config).items():
         runtime = config.get('_metric_runtime', {}).get(name)
         if runtime is None:
             raise ValueError('Custom metric catalogs require bounded runtime preflight')
-        definition = dict(runtime['descriptor'], source='custom:' + name, factory=custom['factory'],
-                          factory_sources=runtime['factory_sources'], protocol=runtime['protocol'],
-                          specification=deepcopy(custom), numerical_sha256=fingerprint(config),
-                          scope='snapshot' if custom['mode'] == 'snapshot' else 'complete_update')
-        metrics[name] = dict(definition, definition_hash=digest(definition))
+        descriptor = runtime['descriptor']
+        outputs = descriptor.get('outputs')
+        for key, presentation in (outputs or {name: descriptor}).items():
+            metric_id = f'{name}/{key}' if outputs else name
+            if outputs and (len(metric_id) > 128 or metric_id in reserved or metric_id in metrics):
+                raise ValueError(f'Duplicate or overlong snapshot output ID: {metric_id}')
+            definition = dict(presentation, source='custom:' + name, factory=custom['factory'],
+                              factory_sources=runtime['factory_sources'], protocol=runtime['protocol'],
+                              specification=deepcopy(custom), numerical_sha256=fingerprint(config),
+                              scope='snapshot' if custom['mode'] == 'snapshot' else 'complete_update')
+            if outputs:
+                definition.update(evaluator_id=name, output_id=key)
+            metrics[metric_id] = dict(definition, definition_hash=digest(definition))
     catalog = {'schema_version': 1, 'preset_version': PRESET_VERSION,
                'observation': deepcopy(spec), 'metrics': metrics}
     if len(json.dumps(catalog).encode()) > MAX_CATALOG_BYTES:

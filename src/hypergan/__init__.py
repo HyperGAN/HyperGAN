@@ -60,6 +60,7 @@ if TYPE_CHECKING:
         get_cache_dir as get_cache_dir,
         hndl as hndl,
         image as image,
+        import_evaluation as import_evaluation,
         import_path as import_path,
         init_project as init_project,
         inspect as inspect,

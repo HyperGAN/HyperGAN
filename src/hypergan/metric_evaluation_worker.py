@@ -12,7 +12,7 @@ import torch
 from .artifacts import _restore_buffers
 from .config import resolve_config
 from .data import EvaluationDataExhausted
-from .metric_plugins import _factory, check_evaluation_data, finite_json
+from .metric_plugins import _factory, check_evaluation_data, finite_json, scalar_values
 from .recipes import ComponentGraph, construct, execution_device, make_prior, move_tensors
 
 MAX_BATCH_ELEMENTS = 16 * 1024 * 1024
@@ -91,9 +91,12 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
         raise ValueError('Interval snapshot differs from the requested source step or attempt identity')
     config = resolve_config(saved['config'])
     generated_binding = evaluation.get('generated', config['sampling'].get('generated', 'generated'))
-    if (generated_binding.startswith('components.')
-            and generated_binding.split('.')[1] not in saved['components']):
-        raise ValueError(f'Snapshot does not contain evaluation.generated component: {generated_binding}')
+    bindings = {name: (generated_binding if source == 'evaluation.generated' else
+                       'batch.real' if source == 'evaluation.reference' else source)
+                for name, source in spec['inputs'].items()}
+    for binding in bindings.values():
+        if binding.startswith('components.') and binding.split('.')[1] not in saved['components']:
+            raise ValueError(f'Snapshot does not contain evaluation.generated component: {binding}')
     apply_backend_policy({'training': {**config['training'], 'device': evaluation['device']}})
     device = execution_device(evaluation['device'])
     graph = ComponentGraph(saved['components']).float().eval().requires_grad_(False)
@@ -137,8 +140,11 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
     if reference_identity is not None and ':' in evaluation['data']['factory']:
         module = evaluation['data']['factory'].split(':', 1)[0]
         reference_identity['data_sources'][module] = code[module]
-    data_rng = torch.Generator().manual_seed(seed + 1)
-    prior_rng = torch.Generator(device=device).manual_seed(seed + 2)
+    data_seed = evaluation.get('data_seed', seed + 1)
+    if reference_identity is not None and 'data_seed' in evaluation:
+        reference_identity['data_seed'] = data_seed
+    data_rng = torch.Generator().manual_seed(data_seed)
+    prior_rng = torch.Generator(device=device).manual_seed(evaluation.get('prior_seed', seed + 2))
     count = 0
     observed_backend = None
     runtime = {'torch': torch.__version__, 'numpy': np.__version__, 'device': str(device),
@@ -161,14 +167,15 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                 raise ValueError('Evaluation backend settings changed between generated batches')
             observed_backend = effective_backend
             runtime['backend'] = effective_backend
-            generated = graph.resolve(generated_binding, graph.generate(z, batch, prior=prior))
-            if (not isinstance(generated, torch.Tensor) or generated.ndim < 1 or len(generated) != size
-                    or generated.numel() > MAX_BATCH_ELEMENTS or not torch.isfinite(generated).all()
+            graph_context = graph.generate(z, batch, prior=prior)
+            tensors = {path: graph.resolve(path, graph_context) for path in dict.fromkeys(bindings.values())}
+            if (any(not isinstance(t, torch.Tensor) or t.ndim < 1 or len(t) != size for t in tensors.values())
+                    or sum(t.numel() for t in tensors.values() if t is not batch['real']) > MAX_BATCH_ELEMENTS
+                    or any(not torch.isfinite(t).all() for t in tensors.values())
                     or not torch.isfinite(batch['real']).all()):
                 raise ValueError('Evaluation generated/reference tensors must be finite and bounded')
-            context = {'evaluation.generated': generated, 'evaluation.reference': batch['real']}
             count += size
-            yield {key: context[source] for key, source in spec['inputs'].items()}
+            yield {name: tensors[path] for name, path in bindings.items()}
     protocol = {'schema_version': 1, 'metric_factory': spec['factory'], 'factory_sources': description['factory_sources'],
                 'args': spec['args'], 'inputs': spec['inputs'], 'data_identity': data_identity,
                 'evaluation': evaluation, 'ema': True, 'sources': code,
@@ -181,6 +188,9 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                                   'reference_identity': reference_identity})
     if count != evaluation['sample_count']:
         raise ValueError('Snapshot metric did not consume its complete declared evaluation sample count')
+    if description['descriptor']['kind'] == 'scalars':
+        values = scalar_values(value, description['descriptor']['outputs'])
+        return finite_json({'values': values, 'protocol': protocol, 'snapshot_identity': owner, 'step': saved['step']})
     value = finite_json(value)
     if description['descriptor']['kind'] == 'scalar':
         if type(value) not in (int, float):

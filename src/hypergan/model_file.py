@@ -82,7 +82,7 @@ RUN_CADENCE_FIELDS = {'checkpoint_every', 'preview_every', 'progress_every'}
 RUN_FIELDS = {'devices', 'nodes', 'node_rank', 'rendezvous', 'ranks_per_node', 'strategy', 'sync_every', 'sync_every_steps', 'env', 'viewer', 'cpu_threads', *RUN_CADENCE_FIELDS}
 PENALTY_FIELDS = {'kappa', 'lazy_k', 'anchor_weight', 'anchor_decay'}
 _EVAL_FIELDS = {'fn', 'factory', 'args', 'inputs', 'every', 'every_steps', 'device', 'samples', 'batch_size',
-                'seed', 'data', 'output', 'target', 'timeout', 'on_error', 'on_busy', 'label', 'unit',
+                'seed', 'prior_seed', 'data_seed', 'data', 'output', 'target', 'timeout', 'on_error', 'on_busy', 'label', 'unit',
                 'direction', 'description', 'reduce', 'kind'}
 _PATH_KEYS = {'hndl', 'file', 'root', 'manifest', 'cache_dir', 'weights_path', 'source_path', 'path', 'network_files'}
 PRIOR_FIELDS = {'kind', 'initialization_device', 'initialization_seed', 'fixed_sigma'}
@@ -693,7 +693,9 @@ class _Lowering:
                 tgt = evaluation.pop('target')
                 evaluation.setdefault('output', tgt)
             inputs = evaluation.get('inputs', {'generated': 'generated', 'reference': 'reference'})
-            inputs = {key: value if value.startswith('evaluation.') else 'evaluation.' + value
+            inputs = {key: ('evaluation.' + value if value in ('generated', 'reference')
+                            else value if value in ('evaluation.generated', 'evaluation.reference')
+                            else self.bind(value, f'{location}.inputs.{key}'))
                       for key, value in _table(inputs, f'{location}.inputs').items()}
             if 'data' not in evaluation:
                 raise ModelFileError(f'{location}.data is required: evaluations never fall back to training data (set data = "train" or a data table)')
@@ -727,8 +729,9 @@ class _Lowering:
                         'seed': evaluation.get('seed')}
             if any(value is None for value in protocol.values()):
                 raise ModelFileError(f'{location} requires samples, batch_size and seed')
-            if 'device' in evaluation:
-                protocol['device'] = evaluation['device']
+            for field in ('device', 'prior_seed', 'data_seed'):
+                if field in evaluation:
+                    protocol[field] = evaluation[field]
             if 'output' in evaluation:
                 output = evaluation['output']
                 protocol['generated'] = 'generated' if output == 'generated' else self.bind(output, f'{location}.output')

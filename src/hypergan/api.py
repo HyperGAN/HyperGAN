@@ -53,7 +53,7 @@ __all__ = ['Model', 'Run', 'Sample', 'Image', 'Audio', 'ModelFileError', 'Config
            'fingerprint', 'explain', 'import_path', 'plain', 'hndl', 'module', 'sampler', 'adversarial',
            'reconstruction', 'objective', 'prior_loss', 'prepare', 'prepare_resume',
            'train', 'resume', 'launch', 'open_run', 'inspect', 'metrics', 'evaluations', 'observations', 'catalog', 'events',
-           'samples', 'sample', 'load_inference', 'view', 'evaluate', 'image', 'audio',
+           'samples', 'sample', 'load_inference', 'view', 'evaluate', 'import_evaluation', 'image', 'audio',
            'lift', 'load_recipe', 'describe', 'data_check',
            'download_dataset', 'dataset_info', 'list_datasets',
            'get_cache_dir', 'ensure_cached_url', 'resolve_or_cache', 'OfflineError',
@@ -1340,15 +1340,17 @@ def metrics(run, names=None):
 
 def evaluations(run):
     """Snapshot evaluation results: ``{metric_id: [{step, value, status, ...}, ...]}``."""
+    from .evaluation_results import receipt_values
     run = _run(run)
     results = {}
-    for receipt in sorted((run.path / 'metrics' / 'evaluations').glob('*/receipt.json')):
-        data = json.loads(receipt.read_text())
+    for path in sorted((run.path / 'metrics' / 'evaluations').glob('*/receipt.json')):
+        data = json.loads(path.read_text())
         result = data.get('result') or {}
-        results.setdefault(data.get('metric_id'), []).append({
-            'step': result.get('step', data.get('source_step')), 'value': result.get('value'),
-            'status': data.get('status'), 'evaluation_id': data.get('evaluation_id'),
-            'error': result.get('error')})
+        for key, value in receipt_values(data).items():
+            results.setdefault(key, []).append({
+                'step': result.get('step', data.get('source_step')), 'value': value,
+                'status': data.get('status'), 'evaluation_id': data.get('evaluation_id'),
+                'error': result.get('error')})
     for rows in results.values():
         rows.sort(key=lambda row: (row['step'] is None, row['step'] or 0))
     return results
@@ -1607,6 +1609,20 @@ def evaluate(run, metric_id=None, *, checkpoint=None, devices=None, model=None, 
     config_p = lower(model) if model is not None else config
     return run_evaluation(run.path, metric_id, checkpoint=checkpoint, devices=devices,
                           config_path=config_p, bundle=bundle)
+
+
+def import_evaluation(run, evaluator_id, *, step, values, outputs, attempt_id=None,
+                      snapshot_identity=None, snapshot_sha256=None, protocol=None):
+    """Import measured scores at their source step without a checkpoint or plugin.
+
+    ``outputs`` maps the local IDs in ``values`` to label, unit and direction.
+    Original attempt, snapshot and protocol metadata may be supplied when known.
+    Repeating an identical import returns the existing receipt.
+    """
+    from .evaluation_results import import_scores
+    return import_scores(_run(run).path, evaluator_id, step=step, values=values, outputs=outputs,
+                         attempt_id=attempt_id, snapshot_identity=snapshot_identity,
+                         snapshot_sha256=snapshot_sha256, protocol=protocol)
 
 
 def resolve_run_target(target=None, *, cwd=None, allow_latest=True, require_active=False):
@@ -2185,7 +2201,7 @@ def lift(raw, *, base=None):
                         elif iv == 'evaluation.reference':
                             norm_inputs[ik] = 'reference'
                         else:
-                            norm_inputs[ik] = iv
+                            norm_inputs[ik] = _lift_binding(iv)
                     eval_entry['inputs'] = norm_inputs
                 if metric.get('trigger') == 'interval' and 'every_steps' in metric:
                     eval_entry['every'] = metric['every_steps']
@@ -2225,6 +2241,9 @@ def lift(raw, *, base=None):
                     eval_entry['seed'] = proto['seed']
                 elif 'seed' in metric:
                     eval_entry['seed'] = metric['seed']
+                for field in ('prior_seed', 'data_seed'):
+                    if field in proto:
+                        eval_entry[field] = proto[field]
                 proto_data = proto.get('data') or metric.get('data')
                 if proto_data is not None:
                     d = deepcopy(proto_data)
@@ -2232,7 +2251,9 @@ def lift(raw, *, base=None):
                         eval_entry['data'] = {'dataset': d['args']['dataset'], **{k: v for k, v in d['args'].items() if k != 'dataset'}}
                     else:
                         eval_entry['data'] = d
-                if 'output' in proto:
+                if 'generated' in proto:
+                    eval_entry['output'] = _lift_binding(proto['generated'])
+                elif 'output' in proto:
                     eval_entry['output'] = proto['output']
                 elif 'output' in metric:
                     eval_entry['output'] = metric['output']

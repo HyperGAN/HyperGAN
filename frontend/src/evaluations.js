@@ -51,10 +51,13 @@ function validateValue(value, kind) {
       || !value.edges.every((x, i) => !i || x > value.edges[i-1])) throw new Error('Invalid evaluation value');
 }
 // One terminal document per evaluation: reject anything else before it is plotted.
-function readResult(event, catalog, path) {
+function readResults(event, catalog, path) {
   const ids = [...new Set([...Object.keys(event.metrics || {}), ...Object.keys(event.distributions || {}), ...Object.keys(event.measurement_status || {})])];
-  if (ids.length !== 1) throw new Error('Expected one metric per evaluation');
-  const id = ids[0], definition = catalog.metrics[id];
+  if (!ids.length || ids.length > 32) throw new Error('Expected 1–32 metrics per evaluation');
+  return ids.map(id => readOutput(id, event, catalog, path));
+}
+function readOutput(id, event, catalog, path) {
+  const definition = catalog.metrics[id];
   if (!definition) throw new Error('Evaluation definition is missing from its source catalog');
   const failed = event.status === 'failed', cancelled = event.status === 'cancelled';
   if (!failed && !cancelled && event.status !== 'complete') throw new Error('Evaluation is not terminal');
@@ -251,7 +254,7 @@ export function evaluationShelf(api, base) {
     const label = definition.label || id;
     card.label = label;
     const spec = definition.specification || {};
-    const schedule = run.evaluation_schedule?.[id] || {};
+    const schedule = run.evaluation_schedule?.[definition.evaluator_id || id] || {};
     const complete = entries.filter(record => record.status === 'complete');
     const scalars = complete.filter(record => record.definition.kind === 'scalar');
     const children = [node('h3', label)];
@@ -320,9 +323,9 @@ export function evaluationShelf(api, base) {
     renderUnscheduled(snapshots);
     const catalogued = new Map(snapshots);
     const grouped = new Map();
-    for (const entry of ready()) {
-      if (!grouped.has(entry.record.id)) grouped.set(entry.record.id, []);
-      grouped.get(entry.record.id).push(entry.record);
+    for (const record of ready().flatMap(entry => entry.outputs)) {
+      if (!grouped.has(record.id)) grouped.set(record.id, []);
+      grouped.get(record.id).push(record);
     }
     const ids = [...new Set([...catalogued.keys(), ...grouped.keys()])].sort((a, b) => a.localeCompare(b));
     const drawn = [];
@@ -402,7 +405,7 @@ export function evaluationShelf(api, base) {
               if (event.catalog) catalogs.set(event.catalog, catalog);
             }
             if (path !== base()) { again = true; break; }
-            Object.assign(entry, {status: 'ready', event, catalog, record: readResult(event, catalog, eventsPath)});
+            Object.assign(entry, {status: 'ready', event, catalog, outputs: readResults(event, catalog, eventsPath)});
             renderPanel();
           } catch (error) {
             Object.assign(entry, {status: 'error', retry: true, message: error.message});

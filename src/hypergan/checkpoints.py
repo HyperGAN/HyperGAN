@@ -88,7 +88,7 @@ def trainer_state(trainer, last_batch):
     try:
         modules = ('graph', 'prior', 'ema_graph', 'ema_prior')
         state = {name: getattr(trainer, name).state_dict() for name in modules}
-        state.update(optimizers=[trainer.opt_g.state_dict(), trainer.opt_d.state_dict()],
+        state.update(optimizers=[optimizer.state_dict() for optimizer in trainer.optimizers],
                      base_lrs=trainer.base_lrs, step=trainer.step,
                      streams={name: stream.get_state() for name, stream in trainer.streams.items()},
                      rng=rng, data=trainer.data.state_dict() if callable(getattr(trainer.data, 'state_dict', None)) else None,
@@ -130,8 +130,8 @@ def _restore_trainer(trainer, state):
                 raise ValueError('Checkpoint CUDA RNG tensor is incompatible')
     if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
         raise ValueError('Checkpoint step is outside the configured training schedule')
-    if len(state['optimizers']) != 2 or len(state['base_lrs']) != 2:
-        raise ValueError('Checkpoint requires both optimizer states and base learning rates')
+    if len(state['optimizers']) != len(trainer.optimizers) or len(state['base_lrs']) != len(trainer.optimizers):
+        raise ValueError('Checkpoint requires matching optimizer states and base learning rates')
     if set(state['streams']) != set(trainer.streams):
         raise ValueError('Checkpoint named RNG streams differ from trainer')
     # Validate consumed RNG streams before any model or optimizer is restored.
@@ -161,7 +161,7 @@ def _restore_trainer(trainer, state):
             raise ValueError('Checkpoint nested module mode inventory differs from trainer')
         if any(type(value) is not bool for value in (*state['modes'][name].values(), *state['trainable'][name].values())):
             raise ValueError('Checkpoint module modes and trainability must be boolean')
-    for optimizer, saved, rates in zip((trainer.opt_g, trainer.opt_d), state['optimizers'], state['base_lrs']):
+    for optimizer, saved, rates in zip(trainer.optimizers, state['optimizers'], state['base_lrs']):
         # The recipe's optimizers keep their regularization state (EMA critic,
         # LR record, latent-damping history) under 'regularizer'.
         if set(saved) != set(optimizer.state_dict()) or len(saved['param_groups']) != len(optimizer.param_groups) or len(rates) != len(optimizer.param_groups):
@@ -190,7 +190,7 @@ def _restore_trainer(trainer, state):
             parameter.requires_grad_(state['trainable'][name][key])
         for key, child in module.named_modules():
             child.training = state['modes'][name][key]
-    for optimizer, saved in zip((trainer.opt_g, trainer.opt_d), state['optimizers']):
+    for optimizer, saved in zip(trainer.optimizers, state['optimizers']):
         optimizer.load_state_dict(saved)
     if recipe is not None and callable(getattr(recipe, 'restore_prior_regularizer', None)):
         recipe.restore_prior_regularizer(getattr(trainer, 'spread', None), saved_prior_reg)
@@ -260,8 +260,8 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
         raise ValueError('Checkpoint training state fields are incomplete or unsupported')
     if type(state['step']) is not int or not 0 <= state['step'] <= trainer.config['training']['steps']:
         raise ValueError('Checkpoint step is outside the configured training schedule')
-    if len(state['optimizers']) != 2 or len(state['base_lrs']) != 2:
-        raise ValueError('Checkpoint requires both optimizer states and base learning rates')
+    if len(state['optimizers']) != len(trainer.optimizers) or len(state['base_lrs']) != len(trainer.optimizers):
+        raise ValueError('Checkpoint requires matching optimizer states and base learning rates')
     if not isinstance(state['streams'], dict):
         raise ValueError('Checkpoint named RNG streams must be a dictionary')
     if set(state['modes']) != {'graph', 'prior', 'ema_graph', 'ema_prior'}:
@@ -293,7 +293,7 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
 
     target_device = torch.device(getattr(trainer, 'device', 'cpu'))
     prepared_optimizers = []
-    for optimizer, saved, rates in zip((trainer.opt_g, trainer.opt_d), state['optimizers'], state['base_lrs']):
+    for optimizer, saved, rates in zip(trainer.optimizers, state['optimizers'], state['base_lrs']):
         if (
             set(saved) != set(optimizer.state_dict())
             or len(saved['param_groups']) != len(optimizer.param_groups)
@@ -335,7 +335,7 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
         for key, child in module.named_modules():
             child.training = state['modes'][name][key]
 
-    for optimizer, saved_copy in zip((trainer.opt_g, trainer.opt_d), prepared_optimizers):
+    for optimizer, saved_copy in zip(trainer.optimizers, prepared_optimizers):
         optimizer.load_state_dict(saved_copy)
         for group in optimizer.param_groups:
             use_device_step = bool(group.get('fused') or group.get('capturable')) and target_device.type != 'cpu'

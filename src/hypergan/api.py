@@ -913,10 +913,11 @@ def sampler(fn, *, inputs=None, count=None, seed=None, **args):
     return entry
 
 
-def adversarial(critic, *, weight=1.0, penalty=1.0, real=None, fake=None, inputs=None, id=None):
+def adversarial(critic, *, weight=1.0, critic_weight=None, generator_weight=None, penalty=1.0, real=None, fake=None, inputs=None, id=None):
     """Define an adversarial loss term binding a critic network to real and generated inputs."""
     loss = {'type': 'adversarial', 'critic': critic, 'weight': weight, 'penalty': penalty}
-    for key, value in (('real', real), ('fake', fake), ('inputs', inputs), ('id', id)):
+    for key, value in (('critic_weight', critic_weight), ('generator_weight', generator_weight),
+                       ('real', real), ('fake', fake), ('inputs', inputs), ('id', id)):
         if value is not None:
             loss[key] = value
     return loss
@@ -2054,7 +2055,12 @@ def lift(raw, *, base=None):
     adv_idx = None
     if 'adversarial' in raw:
         adv_idx = len(losses)
-        losses.append({'type': 'adversarial', 'critic': 'discriminator', 'weight': raw['adversarial'].get('weight', 1.0)})
+        term = raw['adversarial']
+        entry = {'type': 'adversarial', 'critic': 'discriminator', 'weight': term.get('weight', 1.0)}
+        for key in ('critic_weight', 'generator_weight', 'id', 'real', 'fake'):
+            if key in term:
+                entry[key] = _lift_binding(term[key]) if key in ('real', 'fake') else term[key]
+        losses.append(entry)
     elif 'discriminator' in components:
         adv_idx = len(losses)
         losses.append({'type': 'adversarial', 'critic': 'discriminator', 'weight': 1.0})
@@ -2064,7 +2070,7 @@ def lift(raw, *, base=None):
 
     for term in raw.get('adversarial_terms', []):
         entry = {'type': 'adversarial', 'critic': term['component'], 'weight': term.get('weight', 1.0)}
-        for k in ('real', 'fake', 'id'):
+        for k in ('real', 'fake', 'id', 'critic_weight', 'generator_weight'):
             if k in term:
                 entry[k] = _lift_binding(term[k]) if k in ('real', 'fake') else term[k]
         if 'inputs' in term and isinstance(term['inputs'], dict):

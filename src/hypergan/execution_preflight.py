@@ -156,7 +156,7 @@ def _runtime_worker(rank, world_size, config, profile, directory):
                 state[name] = {'state': module.state_dict(), 'buffers': dict(module.named_buffers()),
                                'modes': {key: child.training for key, child in module.named_modules()},
                                'trainable': {key: value.requires_grad for key, value in module.named_parameters()}}
-            state['optimizers'] = [trainer.opt_g.state_dict(), trainer.opt_d.state_dict()]
+            state['optimizers'] = [optimizer.state_dict() for optimizer in trainer.optimizers]
             state['base_lrs'] = trainer.base_lrs
             from .recipes import move_tensors
             initial_state = _digest(move_tensors(state, 'cpu'))

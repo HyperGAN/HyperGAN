@@ -39,6 +39,6 @@ python -m pytest tests/cuda -m ""      # both fast and heavy CUDA tests; two NVI
 
 The default `testpaths` are `foundation`, `reference`, `unit`, `playbooks`, `e2e` and `e2e_integration`. The `web`, `browser`, `reducers` and `cuda` directories run only when you name them.
 
-CI runs these against the built wheel from outside the checkout (`python -I -m pytest <abs path> --import-mode=importlib`): the lightweight job runs `foundation` on Linux, macOS and Windows for Python 3.11–3.14; the CPU reference job runs `reference`, `unit`, `playbooks` and `e2e`; the heavy jobs run the `heavy` half for `master` pull requests and releases. See [.github/workflows/ci.yml](../.github/workflows/ci.yml).
+CI tests the built wheel from outside the checkout. Lightweight jobs run `foundation` once per Python version from 3.11 through 3.14 across Linux, macOS and Windows. Four Python 3.12 CPU shards run `reference`, `unit`, `playbooks` and `e2e`. The lightweight and CPU jobs also run their gated `heavy` selections for `master` checks, releases and full manual runs. See [.github/workflows/ci.yml](../.github/workflows/ci.yml).
 
 When you add a test that starts subprocesses, time it with `--durations=0` and mark it `heavy` if it takes a second or more.

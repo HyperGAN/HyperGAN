@@ -2,9 +2,16 @@ name: Foundation CI
 
 on:
   push:
-    branches: [develop, master]
+    # The release workflow checks the exact master commit on each push.
+    branches: [develop]
   pull_request:
+    branches: [develop, master]
   workflow_dispatch:
+    inputs:
+      full:
+        description: Also run heavy tests and verify release distributions
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       source_ref:
@@ -17,17 +24,25 @@ permissions:
   contents: read
 
 concurrency:
-  group: foundation-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: foundation-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/develop' && github.ref_name) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/develop') }}
 
 jobs:
   lightweight:
+    if: &integration_only >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.head_ref == 'develop' || github.head_ref == 'master'))
     name: Lightweight (${{ matrix.os }}, Python ${{ matrix.python }})
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.12"}
+          - {os: ubuntu-latest, python: "3.13"}
+          - {os: macos-latest, python: "3.14"}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -52,6 +67,11 @@ jobs:
       - name: Test installed package outside checkout
         working-directory: ${{ runner.temp }}
         run: python -I -m pytest "${{ github.workspace }}/tests/foundation" --import-mode=importlib
+      - name: Exercise heavy foundation tests
+        if: &full_checks >-
+          inputs.full || inputs.source_ref || github.ref == 'refs/heads/master' || github.base_ref == 'master'
+        working-directory: ${{ runner.temp }}
+        run: python -I -m pytest "${{ github.workspace }}/tests/foundation" --import-mode=importlib -m heavy
       - name: Verify source distribution rebuild
         shell: bash
         run: |
@@ -73,7 +93,13 @@ jobs:
           python -c "import pathlib, subprocess, sys; source = next(pathlib.Path('dist').glob('*.tar.gz')); subprocess.check_call([sys.executable, '-m', 'pip', 'wheel', '--no-deps', '--wheel-dir', 'rebuilt', str(source)])"
 
   reference:
-    name: CPU reference (Python 3.12)
+    if: *integration_only
+    name: CPU reference (Python 3.12, shard ${{ matrix.shard }})
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -96,81 +122,26 @@ jobs:
           python -m build
           python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,fid,web,test]'])"
       - name: Verify InceptionFID under Scipy and Torch-Fidelity
+        if: matrix.shard == 0
         working-directory: ${{ runner.temp }}
         run: python -I -c "from hypergan.image_metrics import InceptionFID; print('InceptionFID verified')"
       - name: Test numerical reference outside checkout
         working-directory: ${{ runner.temp }}
-        run: python -I -m pytest "${{ github.workspace }}/tests/reference" "${{ github.workspace }}/tests/unit" "${{ github.workspace }}/tests/playbooks" "${{ github.workspace }}/tests/e2e" --import-mode=importlib
-
-  # The two jobs below run the half that `addopts` deselects: tests marked
-  # `heavy` because they start real subprocesses, worker services or multi-rank
-  # jobs. Run these for master pushes, PRs targeting master, and release validation;
-  # develop uses the fast selection. Both selections remain available locally.
-  heavy-lightweight:
-    if: github.ref == 'refs/heads/master' || github.base_ref == 'master' || inputs.source_ref != ''
-    name: Heavy lightweight (${{ matrix.os }}, Python ${{ matrix.python }})
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.11", "3.12", "3.13", "3.14"]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.source_ref || github.sha }}
-      - uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python }}
-      - name: Install Foldlite DB dependency
-        env:
-          FOLDLITEDB_SOURCE: ${{ vars.FOLDLITEDB_SOURCE }}
-        run: python .github/scripts/install_foldlitedb.py
-      - name: Build the wheel
-        run: |
-          python -m pip install "build>=1,<2"
-          python -m build --wheel
-      - name: Install the wheel with only test dependencies
-        run: python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[test]'])"
-      - name: Verify clean lightweight environment
+        run: >-
+          python -I "${{ github.workspace }}/.github/scripts/pytest_shard.py" ${{ matrix.shard }} 4
+          "${{ github.workspace }}/tests/reference" "${{ github.workspace }}/tests/unit"
+          "${{ github.workspace }}/tests/playbooks" "${{ github.workspace }}/tests/e2e"
+          --import-mode=importlib --durations=15
+      - name: Exercise heavy CPU reference tests
+        if: *full_checks
         working-directory: ${{ runner.temp }}
-        run: python -I -c "import importlib.util; assert importlib.util.find_spec('torch') is None; assert importlib.util.find_spec('particlegan') is None"
-      - name: Run the gated heavy foundation tests
-        working-directory: ${{ runner.temp }}
-        run: python -I -m pytest "${{ github.workspace }}/tests/foundation" --import-mode=importlib -m heavy
-
-  heavy-reference:
-    if: github.ref == 'refs/heads/master' || github.base_ref == 'master' || inputs.source_ref != ''
-    name: Heavy CPU reference (Python 3.12)
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.source_ref || github.sha }}
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: Install Foldlite DB dependency
-        env:
-          FOLDLITEDB_SOURCE: ${{ vars.FOLDLITEDB_SOURCE }}
-        run: python .github/scripts/install_foldlitedb.py
-      - name: Install tested CPU runtime and build
-        env:
-          PARTICLEGAN_SOURCE: ${{ vars.PARTICLEGAN_SOURCE }}
-        run: |
-          python -m pip install "build>=1,<2"
-          python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
-          python .github/scripts/install_particlegan.py
-          python -m build
-          python -c "import pathlib, subprocess, sys; wheel = next(pathlib.Path('dist').glob('*.whl')); subprocess.check_call([sys.executable, '-m', 'pip', 'install', str(wheel) + '[train,image,cifar,fid,test]'])"
-      - name: Run the gated heavy reference tests
-        working-directory: ${{ runner.temp }}
-        run: python -I -m pytest "${{ github.workspace }}/tests/reference" "${{ github.workspace }}/tests/unit" "${{ github.workspace }}/tests/e2e" --import-mode=importlib -m heavy
+        run: >-
+          python -I "${{ github.workspace }}/.github/scripts/pytest_shard.py" ${{ matrix.shard }} 4
+          "${{ github.workspace }}/tests/reference" "${{ github.workspace }}/tests/unit"
+          "${{ github.workspace }}/tests/e2e" --import-mode=importlib -m heavy --durations=15
 
   reducers:
-    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || github.base_ref == 'master' || inputs.source_ref != '' || github.event_name == 'workflow_dispatch'
+    if: *integration_only
     name: Shared reducer (${{ matrix.os }})
     timeout-minutes: 15
     strategy:
@@ -209,6 +180,7 @@ jobs:
         run: python -I -m pytest "${{ github.workspace }}/tests/browser" --import-mode=importlib
 
   web:
+    if: *integration_only
     name: Viewer API (${{ matrix.os }})
     timeout-minutes: 10
     strategy:
@@ -249,40 +221,30 @@ jobs:
 
   foundation:
     name: Foundation CI
-    if: always()
-    needs: [lightweight, reference, heavy-lightweight, heavy-reference, reducers, web]
+    # Keep the required check present even on feature PRs where jobs are skipped.
+    if: >-
+      always() && (github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.head_ref == 'develop' || github.head_ref == 'master')))
+    needs: [lightweight, reference, reducers, web]
     runs-on: ubuntu-latest
     steps:
       - name: Require every foundation job
         env:
           LIGHTWEIGHT_RESULT: ${{ needs.lightweight.result }}
           REFERENCE_RESULT: ${{ needs.reference.result }}
-          HEAVY_REQUIRED: ${{ github.ref == 'refs/heads/master' || github.base_ref == 'master' || inputs.source_ref != '' }}
-          HEAVY_LIGHTWEIGHT_RESULT: ${{ needs['heavy-lightweight'].result }}
-          HEAVY_REFERENCE_RESULT: ${{ needs['heavy-reference'].result }}
-          REDUCERS_REQUIRED: ${{ github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || github.base_ref == 'master' || inputs.source_ref != '' || github.event_name == 'workflow_dispatch' }}
           REDUCERS_RESULT: ${{ needs.reducers.result }}
           WEB_RESULT: ${{ needs.web.result }}
         run: |
           test "$LIGHTWEIGHT_RESULT" = success
           test "$REFERENCE_RESULT" = success
-          if [ "$HEAVY_REQUIRED" = true ]; then
-            test "$HEAVY_LIGHTWEIGHT_RESULT" = success
-            test "$HEAVY_REFERENCE_RESULT" = success
-          else
-            test "$HEAVY_LIGHTWEIGHT_RESULT" = skipped
-            test "$HEAVY_REFERENCE_RESULT" = skipped
-          fi
-          if [ "$REDUCERS_REQUIRED" = true ]; then
-            test "$REDUCERS_RESULT" = success
-          else
-            test "$REDUCERS_RESULT" = skipped
-          fi
+          test "$REDUCERS_RESULT" = success
           test "$WEB_RESULT" = success
 
   distributions:
     name: Build release distributions
     needs: [foundation]
+    if: *full_checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

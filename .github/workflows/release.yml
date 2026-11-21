@@ -114,7 +114,6 @@ jobs:
   checks:
     name: Test and build release
     needs: validate-release
-    if: needs.validate-release.outputs.publish == 'true'
     uses: ./.github/workflows/ci.yml
     with:
       source_ref: ${{ needs.validate-release.outputs.source_sha }}
@@ -122,6 +121,7 @@ jobs:
   bind-tag:
     name: Bind the release tag to the tested commit
     needs: [validate-release, checks]
+    if: needs.validate-release.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

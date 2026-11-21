@@ -236,11 +236,11 @@ def _formulation(config, manifest):
 def _adversarial_terms(config):
     penalty, adversarial = _section(config, 'gradient_penalty'), _section(config, 'adversarial')
     discriminator = config['components'].get('discriminator') or {}
-    terms = [{'id': 'adversarial', 'critic': 'discriminator', 'weight': adversarial.get('weight', 1.0),
-              'real': 'batch.real', 'fake': 'generated', 'inputs': discriminator.get('inputs') or {},
+    terms = [{**adversarial, 'id': adversarial.get('id', 'adversarial'), 'critic': 'discriminator', 'weight': adversarial.get('weight', 1.0),
+              'real': adversarial.get('real', 'batch.real'), 'fake': adversarial.get('fake', 'generated'), 'inputs': discriminator.get('inputs') or {},
               'penalty_coeff': penalty.get('coeff'), 'implicit': True}]
     for term in config.get('adversarial_terms') or ():
-        terms.append({'id': term.get('id'), 'critic': term.get('component'), 'weight': term.get('weight', 1.0),
+        terms.append({**term, 'id': term.get('id'), 'critic': term.get('component'), 'weight': term.get('weight', 1.0),
                       'real': term.get('real'), 'fake': term.get('fake'), 'inputs': term.get('inputs') or {},
                       'penalty_coeff': term.get('penalty_coeff', penalty.get('coeff')) if term.get('penalty') else None,
                       'implicit': False})
@@ -276,14 +276,14 @@ def _losses(config):
 
     discriminator, generator = [], []
     for term in terms:
-        discriminator.append({'id': term['id'], 'kind': 'adversarial_d', 'critic': term['critic'], 'weight': term['weight'],
+        discriminator.append({'id': term['id'], 'kind': 'adversarial_d', 'critic': term['critic'], 'weight': term.get('critic_weight', term['weight']),
                               'real': term['real'], 'fake': term['fake'], 'detach': ['fake sample'],
                               **series('loss/d_adversarial')})
         if term['penalty_coeff'] is not None:
             discriminator.append({'id': f"{term['id']}:penalty", 'kind': 'critic_regularizer', 'critic': term['critic'],
                                   'coeff': term['penalty_coeff'],
                                   **series('loss/gradient_penalty')})
-        generator.append({'id': term['id'], 'kind': 'adversarial_g', 'critic': term['critic'], 'weight': term['weight'],
+        generator.append({'id': term['id'], 'kind': 'adversarial_g', 'critic': term['critic'], 'weight': term.get('generator_weight', term['weight']),
                           'real': term['real'], 'fake': term['fake'], 'detach': ['real score'],
                           **series('loss/g_adversarial')})
     spread = _section(config, 'prior_regularizer')

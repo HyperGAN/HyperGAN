@@ -385,7 +385,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 state[name] = {'state': module.state_dict(), 'buffers': dict(module.named_buffers()),
                                'trainable': {key: p.requires_grad for key, p in module.named_parameters()},
                                'modes': {key: child.training for key, child in module.named_modules()}}
-            state['optimizers'] = [self.opt_g.state_dict(), self.opt_d.state_dict()]
+            state['optimizers'] = [optimizer.state_dict() for optimizer in self.optimizers]
             state['base_lrs'] = self.base_lrs
             prior_reg_ckpt = self.recipe.prior_regularizer_checkpoint(self.spread) if callable(getattr(self.recipe, 'prior_regularizer_checkpoint', None)) else {}
             if prior_reg_ckpt:
@@ -1009,7 +1009,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 r_sc, f_sc = self._logits(r_sc, f_sc)
                 loss = term.gan.d_loss(r_sc, f_sc)
                 unweighted.append(loss)
-                weighted.append(term.weight * loss)
+                weighted.append(term.critic_weight * loss)
                 last_real = r_s
                 last_fake = f_s
                 last_r_sc = r_sc
@@ -1060,7 +1060,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                         r_sc_l, f_sc_l = self._logits(r_sc, f_sc)
                         loss = term.gan.d_loss(r_sc_l, f_sc_l)
                     unweighted.append(loss)
-                    weighted.append(term.weight * loss)
+                    weighted.append(term.critic_weight * loss)
                     last_real = r_s
                     last_fake = f_s
                     last_r_sc = r_sc
@@ -1155,7 +1155,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                     r_sc, f_sc = self._logits(r_sc, f_sc)
                     loss = term.gan.g_loss(f_sc, r_sc)
                     unweighted.append(loss)
-                    weighted.append(term.weight * loss)
+                    weighted.append(term.generator_weight * loss)
                 return _sum_tensors(unweighted), _sum_tensors(weighted)
 
             def remaining_losses(simplex_real=None):
@@ -1212,7 +1212,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                             r_sc_l, f_sc_l = self._logits(r_sc, f_sc)
                             loss = term.gan.g_loss(f_sc_l, r_sc_l)
                         unweighted.append(loss)
-                        weighted.append(term.weight * loss)
+                        weighted.append(term.generator_weight * loss)
                     return _sum_tensors(unweighted), _sum_tensors(weighted)
 
                 with self._folded('generator backward'):
@@ -1483,7 +1483,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 global_dr_t, global_df_t = self._logits(dr_t, df_t)
                 loss_raw = term.gan.d_loss(global_dr_t, global_df_t)
                 unweighted.append(loss_raw)
-                weighted.append(term.weight * loss_raw)
+                weighted.append(term.critic_weight * loss_raw)
                 all_dr.append(dr_t)
                 all_df.append(df_t)
             d_adversarial_raw = _sum_tensors(unweighted)
@@ -1597,7 +1597,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                     global_gr_t, global_gf_t = self._logits(gr_t, gf_t)
                     loss_raw = term.gan.g_loss(global_gf_t, global_gr_t)
                     g_unweighted.append(loss_raw)
-                    g_weighted.append(term.weight * loss_raw)
+                    g_weighted.append(term.generator_weight * loss_raw)
                     all_gf.append(gf_t)
                 g_adversarial = _sum_tensors(g_unweighted)
                 weighted_adversarial = _sum_tensors(g_weighted)

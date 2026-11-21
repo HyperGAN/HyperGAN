@@ -45,6 +45,8 @@ class AdversarialTerm:
     module: object
     routes: tuple
     weight: float
+    critic_weight: float
+    generator_weight: float
     penalty: bool
     penalty_fn: object
     gan: object
@@ -101,11 +103,6 @@ def _phases(real, fake):
     return critic, generator
 
 
-def _discriminator_phases():
-    """The implicit discriminator term scores the real batch against the generated sample."""
-    return _phases("batch.real", "generated")
-
-
 def _routes(inputs):
     routes = tuple(
         InputRoute(argument, path, path != "candidate", path != "candidate")
@@ -115,16 +112,7 @@ def _routes(inputs):
     return routes
 
 
-def _penalty_for_term(spec, make_penalty):
-    """A new penalty with the term's coefficient, paired with the shared critic optimizer."""
-    if not spec["penalty"]:
-        return None
-    if make_penalty is None:
-        raise ValueError("A penalized adversarial term needs a penalty factory")
-    return make_penalty(spec["penalty_coeff"])
-
-
-def compile_objective_program(graph, prior, config, objectives, gan, penalty, spread, make_penalty=None):
+def compile_objective_program(graph, prior, config, objectives, gan, penalty, spread, extra_term=None):
     """Compile the configured objectives into the ``d-then-g-v1`` program the trainer runs.
 
     The implicit first term reads the discriminator and its inputs. Optional
@@ -132,16 +120,20 @@ def compile_objective_program(graph, prior, config, objectives, gan, penalty, sp
     These records are not another training method.
     """
     discriminator = graph.models["discriminator"]
-    critic_phase, generator_phase = _discriminator_phases()
+    primary = config["adversarial"]
+    critic_phase, generator_phase = _phases(primary.get("real", "batch.real"), primary.get("fake", "generated"))
     terms = [AdversarialTerm(
-        discriminator, _routes(graph.specs["discriminator"]["inputs"]), config["adversarial"]["weight"],
-        True, penalty, gan, critic_phase, generator_phase, "adversarial")]
+        discriminator, _routes(graph.specs["discriminator"]["inputs"]), primary["weight"],
+        primary.get("critic_weight", primary["weight"]), primary.get("generator_weight", primary["weight"]),
+        True, penalty, gan, critic_phase, generator_phase, primary.get("id", "adversarial"))]
     for spec in config.get("adversarial_terms") or ():
         module = graph.models[spec["component"]]
         extra_critic, extra_generator = _phases(spec["real"], spec["fake"])
+        term_gan, term_penalty = extra_term(spec)
         terms.append(AdversarialTerm(
-            module, _routes(spec["inputs"]), spec["weight"], bool(spec["penalty"]),
-            _penalty_for_term(spec, make_penalty), gan,
+            module, _routes(spec["inputs"]), spec["weight"],
+            spec.get("critic_weight", spec["weight"]), spec.get("generator_weight", spec["weight"]), bool(spec["penalty"]),
+            term_penalty, term_gan,
             extra_critic, extra_generator, spec["id"]))
     terms = tuple(terms)
     if len(terms) == 1:
@@ -386,7 +378,8 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     else:
         batch, ids, context = trainer._draw(batch, latent_draw)
     terms = program.adversarial_terms
-    trainer.opt_d.zero_grad(set_to_none=True)
+    for optimizer in trainer.critic_optimizers.values():
+        optimizer.zero_grad(set_to_none=True)
     if len(terms) == 1:
         term = terms[0]
         real, fake, real_score, fake_score = _bound_scores(
@@ -396,7 +389,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             d_penalty = penalty(term, real, fake)
         else:
             d_penalty = fake.new_zeros(())
-        d_adversarial_weighted = term.weight * d_adversarial
+        d_adversarial_weighted = term.critic_weight * d_adversarial
         d_loss = d_adversarial_weighted + d_penalty
     else:
         unweighted = []
@@ -408,7 +401,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                 term, context, trainer.graph, "critic", term.critic_phase, first="real", noise=noise)
             loss = term.gan.d_loss(real_score, fake_score)
             unweighted.append(loss)
-            weighted.append(term.weight * loss)
+            weighted.append(term.critic_weight * loss)
             if term.penalty_fn is not None:
                 penalties.append(penalty(term, real, fake))
         d_adversarial = _sum_tensors(unweighted)
@@ -450,7 +443,8 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             critic_fake_mean_t = zero_scalar
             critic_accuracy_t = half_scalar
     explicit_guard = getattr(trainer.opt_d, 'd_guard_ratio', None)
-    trainer.opt_d.step()
+    for optimizer in trainer.critic_optimizers.values():
+        optimizer.step()
     with torch.no_grad():
         if explicit_guard is None and getattr(trainer.opt_d, 'guard', None) is not None:
             try:
@@ -491,7 +485,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             if use_rhbi_simplex and rhbi_mod is not None:
                 unique_ids = ids.unique() if ids is not None else None
                 simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
-            g_adversarial_weighted = term.weight * g_adversarial
+            g_adversarial_weighted = term.generator_weight * g_adversarial
         else:
             unweighted = []
             weighted = []
@@ -501,7 +495,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                     term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
                 loss = term.gan.g_loss(fake_score, real_score)
                 unweighted.append(loss)
-                weighted.append(term.weight * loss)
+                weighted.append(term.generator_weight * loss)
             g_adversarial = _sum_tensors(unweighted)
             prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
             g_adversarial_weighted = _sum_tensors(weighted)

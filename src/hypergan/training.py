@@ -263,7 +263,7 @@ def schedule_learning_rates(trainer, completed_steps):
     critic penalty's handover reads the critic LR this sets.
     """
     network, prior = learning_rate_scales(completed_steps, trainer.recipe)
-    for optimizer, rates, roles in zip((trainer.opt_g, trainer.opt_d), trainer.base_lrs, trainer.lr_roles):
+    for optimizer, rates, roles in zip(trainer.optimizers, trainer.base_lrs, trainer.lr_roles):
         for group, rate, role in zip(optimizer.param_groups, rates, roles):
             group['lr'] = rate * (prior if role == 'prior' else network)
     return network
@@ -323,26 +323,40 @@ class ReferenceTrainer:
         opt = config["optimizer"]
         optimizer_options = ({'fused': True} if opt['implementation'] == 'torch_fused_adam'
                              and self.recipe.optimizer_family in ('formulation', 'adam') else {})
-        # Every scoring module, in term order, under one root: one critic
-        # optimizer, one EMA critic (the penalty's anchor) and one handover.
-        names = ["discriminator"] + [term["component"] for term in config.get("adversarial_terms") or ()]
-        names = list(dict.fromkeys(names))
+        names = list(dict.fromkeys(["discriminator", *(term["component"] for term in config.get("adversarial_terms", ())) ]))
         if config.get('recipe'):
-            if len(names) != 1:
-                raise ValueError('The ParticleGAN integration currently requires one critic network; combine feature heads inside that network')
-            # Pass the actual scoring module to the public factory so any
-            # dependency-owned forward hooks run during scoring.
-            self.critic = self.graph.models[names[0]]
+            # Recipe hooks attach to the network that actually scores the pair.
+            critics = {name: self.graph.models[name] for name in names}
         else:
-            self.critic = torch.nn.ModuleDict({name: self.graph.models[name] for name in names})
-        ema_critic = copy.deepcopy(self.critic).eval() if config["gradient_penalty"]["anchor_weight"] else None
-        self.opt_d = _skip_cpu_capture_guard(self.recipe.make_critic_optimizer(self.critic, ema_critic=ema_critic, **optimizer_options))
+            # Preserve the shared optimizer, anchor and parameter order of legacy recipes.
+            critics = {"discriminator": torch.nn.ModuleDict({name: self.graph.models[name] for name in names})}
+        self.critic = critics["discriminator"]
+        self.critic_optimizers = {}
+        losses = {}
+        owned_parameters = set()
+        for name, module in critics.items():
+            parameters = {id(p) for p in module.parameters() if p.requires_grad}
+            if owned_parameters.intersection(parameters):
+                raise ValueError("Independent critic networks cannot share trainable parameters")
+            owned_parameters.update(parameters)
+            ema_critic = copy.deepcopy(module).eval() if config["gradient_penalty"]["anchor_weight"] else None
+            optimizer = self.recipe.make_critic_optimizer(module, ema_critic=ema_critic, **optimizer_options)
+            self.critic_optimizers[name] = _skip_cpu_capture_guard(optimizer)
+            losses[name] = self.gan if name == "discriminator" else self.recipe.make_loss()
+        self.opt_d = self.critic_optimizers["discriminator"]
         if not config.get('recipe') and getattr(self.opt_d, 'anchor', None) is not None:
             self.opt_d.anchor.decay = config['gradient_penalty']['anchor_decay']
         self.penalty = self.recipe.make_critic_penalty(self.opt_d)
-        make_penalty = lambda coeff: self.recipe.make_critic_penalty(self.opt_d, coeff=coeff)
+
+        def extra_term(spec):
+            name = spec["component"] if config.get("recipe") else "discriminator"
+            penalty = None
+            if spec["penalty"]:
+                penalty = self.recipe.make_critic_penalty(self.critic_optimizers[name], coeff=spec["penalty_coeff"])
+            return losses[name], penalty
+
         self.program = compile_objective_program(
-            self.graph, self.prior, config, self.objectives, self.gan, self.penalty, self.spread, make_penalty)
+            self.graph, self.prior, config, self.objectives, self.gan, self.penalty, self.spread, extra_term)
         groups = [{"params": list(self.program.generator_parameters), "lr": opt["lr"]}]
         if config.get('recipe'):
             groups[0]['role'] = 'generator'
@@ -358,91 +372,13 @@ class ReferenceTrainer:
                                  and self.program.prior_parameters == (table,)) else None
         self.opt_g = _skip_cpu_capture_guard(self.recipe.make_generator_optimizer(
             groups, modules=self.graph, latent_table=latent_table, **optimizer_options))
-        record = getattr(self.opt_d, 'record', None)
-        if record is not None:
-            formulation = getattr(self.recipe, 'effective_critic_formulation', None)
-            if formulation == 'bispf':
-                from particlegan.bispf import bind_thermal_source
-                bind_thermal_source(record, self.gan, self.spread)
-            elif formulation == 'unified_v11':
-                from particlegan.unified_v11 import (
-                    _attach_unified_v11_generator_hook,
-                    bind_unified_v11_record,
-                    collect_conv_layouts,
-                )
-                bind_unified_v11_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
-                self.opt_g._unified_v11_record = record
-                self.opt_d._unified_v11_record = record
-                self.opt_g._unified_record = record
-                self.opt_d._unified_record = record
-                self.opt_g._t1c_record = record
-                self.opt_d._t1c_record = record
-                self.opt_g._t2_record = record
-                self.opt_d._t2_record = record
-                self.prior._unified_v11_record = record
-                self.prior._unified_record = record
-                self.prior._t1c_record = record
-                if hasattr(self.opt_g, '_conv_layouts'):
-                    self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
-                gen_model = self.graph.models['generator'] if 'generator' in self.graph.models else None
-                if gen_model is not None:
-                    if hasattr(self.opt_g, '_gen_param_ids'):
-                        self.opt_g._gen_param_ids = {id(p) for p in gen_model.parameters()}
-                    _attach_unified_v11_generator_hook(gen_model, record)
-            elif formulation in ('unified_v4', 'r4_autograd_critic'):
-                from particlegan.unified_v4 import (
-                    _attach_unified_v4_generator_hook,
-                    bind_unified_v4_record,
-                    collect_conv_layouts,
-                )
-                bind_unified_v4_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
-                self.opt_g._unified_v4_record = record
-                self.opt_d._unified_v4_record = record
-                self.opt_g._unified_record = record
-                self.opt_d._unified_record = record
-                self.opt_g._t1c_record = record
-                self.opt_d._t1c_record = record
-                self.opt_g._t2_record = record
-                self.opt_d._t2_record = record
-                self.prior._unified_v4_record = record
-                self.prior._unified_record = record
-                self.prior._t1c_record = record
-                if hasattr(self.opt_g, '_conv_layouts'):
-                    self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
-                gen_model = self.graph.models['generator'] if 'generator' in self.graph.models else None
-                if gen_model is not None:
-                    if hasattr(self.opt_g, '_gen_param_ids'):
-                        self.opt_g._gen_param_ids = {id(p) for p in gen_model.parameters()}
-                    _attach_unified_v4_generator_hook(gen_model, record)
-            elif formulation == 'unified':
-                from particlegan.unified import bind_unified_record
-                bind_unified_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
-                self.opt_g._unified_record = record
-                self.opt_d._unified_record = record
-                self.opt_g._t1c_record = record
-                self.opt_d._t1c_record = record
-                self.opt_g._t2_record = record
-                self.opt_d._t2_record = record
-                self.prior._unified_record = record
-                self.prior._t1c_record = record
-            elif formulation == 'empf':
-                from particlegan.empf import bind_empf_record
-                bind_empf_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
-                self.opt_g._empf_record = record
-                self.opt_d._empf_record = record
-                self.prior._empf_record = record
-            elif (
-                formulation == 'rhbi'
-                or getattr(self.recipe, 'rhbi_weight', 0) > 0
-                or getattr(self.recipe, 'rhbi_critic_weight', 0) > 0
-            ):
-                from particlegan.rhbi import bind_rhbi_record
-                bind_rhbi_record(record, self.gan, self.spread, self.opt_g, self.opt_d)
+        for name, optimizer in self.critic_optimizers.items():
+            self._bind_critic_record(optimizer, losses[name], primary=name == "discriminator")
         prior_ids = {id(parameter) for parameter in self.program.prior_parameters}
         self.lr_roles = [[group.get('role', 'prior' if all(id(parameter) in prior_ids for parameter in group['params']) else 'generator')
-                          for group in self.opt_g.param_groups],
-                         ['critic'] * len(self.opt_d.param_groups)]
-        self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in (self.opt_g, self.opt_d)]
+                          for group in self.opt_g.param_groups]]
+        self.lr_roles.extend(['critic'] * len(optimizer.param_groups) for optimizer in self.critic_optimizers.values())
+        self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in self.optimizers]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
         data_device = self.device if settings['data_rng_device'] == 'execution' else 'cpu'
@@ -451,6 +387,60 @@ class ReferenceTrainer:
         self.step = 0
         self._metric_transfer = _MetricScalarTransfer(self.device)
         self._unscale_scalars = {}
+
+    @property
+    def optimizers(self):
+        """Checkpoint and schedule order: generator/prior, then critics in declaration order."""
+        return (self.opt_g, *self.critic_optimizers.values())
+
+    def _bind_critic_record(self, optimizer, loss, *, primary):
+        record = getattr(optimizer, 'record', None)
+        if record is None:
+            return
+        # ParticleGAN's shared generator optimizer and prior read one record.
+        # Bind those once to the first critic, and every loss to its own critic.
+        shared = (self.spread, self.opt_g, self.prior) if primary else ()
+        formulation = getattr(self.recipe, 'effective_critic_formulation', None)
+        if formulation == 'bispf':
+            from particlegan.bispf import bind_thermal_source
+            bind_thermal_source(record, loss, self.spread if primary else None)
+        elif formulation in ('unified_v11', 'unified_v4', 'r4_autograd_critic', 'unified', 'empf'):
+            if formulation == 'unified_v11':
+                from particlegan.unified_v11 import (
+                    bind_unified_v11_record as bind, _attach_unified_v11_generator_hook as attach,
+                    collect_conv_layouts,
+                )
+                attrs = ('_unified_v11_record', '_unified_record', '_t1c_record', '_t2_record')
+            elif formulation in ('unified_v4', 'r4_autograd_critic'):
+                from particlegan.unified_v4 import (
+                    bind_unified_v4_record as bind, _attach_unified_v4_generator_hook as attach,
+                    collect_conv_layouts,
+                )
+                attrs = ('_unified_v4_record', '_unified_record', '_t1c_record', '_t2_record')
+            elif formulation == 'unified':
+                from particlegan.unified import bind_unified_record as bind
+                attrs = ('_unified_record', '_t1c_record', '_t2_record')
+            else:
+                from particlegan.empf import bind_empf_record as bind
+                attrs = ('_empf_record',)
+            bind(record, loss, optimizer, *shared)
+            for attr in attrs:
+                setattr(optimizer, attr, record)
+                if primary:
+                    setattr(self.opt_g, attr, record)
+                    if attr != '_t2_record':
+                        setattr(self.prior, attr, record)
+            if primary and formulation in ('unified_v11', 'unified_v4', 'r4_autograd_critic'):
+                if hasattr(self.opt_g, '_conv_layouts'):
+                    self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
+                generator = self.graph.models['generator']
+                if hasattr(self.opt_g, '_gen_param_ids'):
+                    self.opt_g._gen_param_ids = {id(p) for p in self.program.generator_parameters}
+                attach(generator, record)
+        elif (formulation == 'rhbi' or getattr(self.recipe, 'rhbi_weight', 0) > 0
+              or getattr(self.recipe, 'rhbi_critic_weight', 0) > 0):
+            from particlegan.rhbi import bind_rhbi_record
+            bind_rhbi_record(record, loss, optimizer, *(shared[:2]))
 
     def batch(self):
         batch = self.data(self.config["training"]["batch_size"], generator=self.streams["data"])
@@ -562,10 +552,10 @@ def _implementation(trainer):
                hypergan.run_controller, hypergan.single_execution, hypergan.numerical_policy, ReferenceTrainer,
                type(trainer.recipe), learning_rate_scales, input_noise_std,
                type(trainer.penalty), type(trainer.gan), type(trainer.spread),
-               *[type(optimizer) for optimizer in (trainer.opt_g, trainer.opt_d)],
+               *[type(optimizer) for optimizer in trainer.optimizers],
                type(trainer.data), type(trainer.prior), *[type(x) for x in trainer.graph.modules()],
                *[x if inspect.isfunction(x) else type(x) for x in trainer.objectives]]
-    for optimizer in (trainer.opt_g, trainer.opt_d):
+    for optimizer in trainer.optimizers:
         objects.extend(type(optimizer).__mro__)
     # Dependency internals are opaque; include all its implementation bytes.
     specifications = [trainer.config['data'], *trainer.config['components'].values(), *trainer.config['objectives']]

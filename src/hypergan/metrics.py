@@ -264,7 +264,11 @@ def metric_catalog(config):
         if name == 'progress/samples_seen':
             definition['description'] = SAMPLES_SEEN_DEFINITION
         if 'adversarial' in name:
-            definition['coefficient'] = config['adversarial']['weight']
+            phase_weight = 'critic_weight' if name.startswith('loss/d_') else 'generator_weight'
+            terms = [config['adversarial'], *config.get('adversarial_terms', [])]
+            weights = [term.get(phase_weight, term['weight']) for term in terms]
+            if len(set(weights)) == 1:
+                definition['coefficient'] = weights[0]
         if name == 'loss/gradient_penalty':
             definition.update(coefficient=config['gradient_penalty']['coeff'], lazy_k=config['gradient_penalty']['lazy_k'],
                               raw_available=False, description='Applied weighted contribution; raw penalty is not exposed by the upstream callable.')

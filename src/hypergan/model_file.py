@@ -464,7 +464,7 @@ class _Lowering:
             _table(loss, location)
             kind = loss.get('type')
             if kind == 'adversarial':
-                _table(loss, location, {'type', 'id', 'critic', 'weight', 'penalty', 'real', 'fake', 'inputs'} | PENALTY_FIELDS)
+                _table(loss, location, {'type', 'id', 'critic', 'weight', 'critic_weight', 'generator_weight', 'penalty', 'real', 'fake', 'inputs'} | PENALTY_FIELDS)
                 raw_penalty = loss.get('penalty', 1.0)
                 penalty_extra = {k: deepcopy(loss[k]) for k in PENALTY_FIELDS if k in loss}
                 if isinstance(raw_penalty, dict):
@@ -479,6 +479,8 @@ class _Lowering:
                     raise ModelFileError(f'{location}.penalty is the critic regularization coefficient: a nonnegative number (0 disables it)')
                 if penalty_extra:
                     recipe.setdefault('gradient_penalty', {}).update(penalty_extra)
+                weights = {'weight': loss.get('weight', 1.0)}
+                weights.update({key: loss[key] for key in ('critic_weight', 'generator_weight') if key in loss})
                 if loss['critic'] == self.primary and 'adversarial' not in recipe:
                     real_raw, fake_raw = loss.get('real', 'batch.real'), loss.get('fake', 'generated')
                     disc_inputs = self.networks[self.primary].get('inputs', {})
@@ -486,7 +488,7 @@ class _Lowering:
                     if real_raw != 'batch.real' and real_raw in cond_vals and 'inputs' not in loss:
                         raise ModelFileError(f'{location}: the first adversarial loss compares batch.real with generated '
                                              'through its critic\'s own inputs (engine limit); put other comparisons in later adversarial losses')
-                    adv = {'weight': loss.get('weight', 1.0)}
+                    adv = weights
                     if 'id' in loss:
                         if not isinstance(loss['id'], str) or _ID.fullmatch(loss['id']) is None:
                             raise ModelFileError(f'{location}.id is required: it names the loss in metrics')
@@ -508,7 +510,7 @@ class _Lowering:
                     recipe.setdefault('gradient_penalty', {})['coeff'] = penalty
                     continue
                 term = {'id': loss.get('id', loss['critic']), 'component': self.names[loss['critic']],
-                        'weight': loss.get('weight', 1.0), 'penalty': penalty > 0,
+                        **weights, 'penalty': penalty > 0,
                         'real': self.bind(loss.get('real', 'batch.real'), f'{location}.real'),
                         'fake': self.bind(loss.get('fake', 'generated'), f'{location}.fake')}
                 if penalty > 0:

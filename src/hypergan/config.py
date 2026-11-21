@@ -122,7 +122,13 @@ def _spec(value, location, objectives=False):
 
 
 _TERM_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}")
-_ADVERSARIAL_TERM_FIELDS = {"id", "component", "weight", "penalty", "penalty_coeff", "real", "fake", "inputs"}
+_ADVERSARIAL_TERM_FIELDS = {"id", "component", "weight", "critic_weight", "generator_weight", "penalty", "penalty_coeff", "real", "fake", "inputs"}
+
+
+def _validate_adversarial_weights(term, location):
+    for key in ("weight", "critic_weight", "generator_weight"):
+        if key in term:
+            _positive(term[key], f"{location}.{key}", zero=True)
 
 
 def _resolve_adversarial_terms(result):
@@ -151,7 +157,7 @@ def _resolve_adversarial_terms(result):
         if not isinstance(component, str) or component not in components or "reuse" in components[component]:
             raise ValueError(f"{location}.component must name an existing non-reuse component")
         term.setdefault("weight", 1.0)
-        _positive(term["weight"], f"{location}.weight", zero=True)
+        _validate_adversarial_weights(term, location)
         term.setdefault("penalty", False)
         if type(term["penalty"]) is not bool:
             raise ValueError(f"{location}.penalty must be boolean")
@@ -310,7 +316,7 @@ def resolve_config(raw):
             extra = (
                 {'particle_ids', 'generated', 'views', 'comparison'}
                 if key == 'sampling'
-                else ({'id', 'real', 'fake', 'inputs'} if key == 'adversarial' else set())
+                else ({'id', 'real', 'fake', 'inputs', 'critic_weight', 'generator_weight'} if key == 'adversarial' else set())
             )
             allowed = set(result[key]) | extra
             _keys(value, allowed, key)
@@ -408,7 +414,7 @@ def resolve_config(raw):
         elif latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
             raise ModelFileError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
 
-    _positive(result["adversarial"]["weight"], "adversarial.weight", zero=True)
+    _validate_adversarial_weights(result["adversarial"], "adversarial")
     penalty = result["gradient_penalty"]
     for key in ("coeff", "kappa", "anchor_weight"):
         _positive(penalty[key], f"gradient_penalty.{key}", zero=True)

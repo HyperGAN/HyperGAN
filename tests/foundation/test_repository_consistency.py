@@ -146,15 +146,13 @@ def test_no_hndl_blocks_erroneously_tagged_as_python():
     assert not failures, 'HNDL DSL snippets erroneously tagged as ```python:\n' + '\n'.join(failures)
 
 
-def _ci_matrices():
-    return re.findall(r'^\s*python: \[([^\]]*)\]', _read('.github/workflows/ci.yml'), re.M)
-
-
 def test_python_classifiers_match_the_ci_lightweight_matrix_and_readme():
-    matrices = [sorted(re.findall(r'"(3\.\d+)"', row)) for row in _ci_matrices()]
-    assert len(matrices) == 2, 'expected the lightweight and heavy-lightweight matrices'
-    assert matrices[0] == matrices[1]
-    tested = matrices[0]
+    workflow = _read('.github/workflows/ci.yml')
+    lightweight = workflow.split('\n  lightweight:\n', 1)[1].split('\n  reference:\n', 1)[0]
+    pairs = re.findall(r'\{os: ([\w-]+), python: "(3\.\d+)"\}', lightweight)
+    tested = sorted(version for _, version in pairs)
+    assert {os for os, _ in pairs} == {'ubuntu-latest', 'windows-latest', 'macos-latest'}
+    assert 'tests/foundation" --import-mode=importlib -m heavy' in lightweight
     project = _pyproject()['project']
     classified = sorted(c.rsplit(' :: ', 1)[1] for c in project['classifiers']
                         if re.fullmatch(r'Programming Language :: Python :: 3\.\d+', c))

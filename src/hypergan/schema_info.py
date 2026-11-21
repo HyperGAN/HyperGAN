@@ -28,7 +28,7 @@ MODEL_SCHEMA: Dict[str, Any] = {
         "defaults": {
             "type": "string",
             "description": "Numerical formulation preset ('particlegan', 'particlegan:<preset>', or 'hypergan').",
-            "choices": ["particlegan", "particlegan:empf", "particlegan:bispf_optimized", "particlegan:rhbi_optimized", "hypergan"],
+            "choices": ["particlegan", "particlegan:unified_v11", "particlegan:empf", "particlegan:bispf_optimized", "particlegan:rhbi_optimized", "hypergan"],
             "default": "particlegan",
         },
         "extends": {

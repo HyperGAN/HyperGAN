@@ -63,7 +63,7 @@ def _split_trainer_state(state):
     """Split full trainer state into shared (numerical weights) and rank-local components."""
     if not isinstance(state, dict):
         raise ValueError('Trainer state must be a dictionary')
-    shared = {key: state[key] for key in (*_SHARED, 'aggregation') if key in state}
+    shared = {key: state[key] for key in (*_SHARED, 'aggregation', 'prior_regularizer') if key in state}
     local = {key: state[key] for key in _LOCAL if key in state}
     return shared, local
 
@@ -234,7 +234,8 @@ def _digest(value):
 
 
 def _shared_digest(state):
-    return _digest({key: state[key] for key in _SHARED})
+    keys = [key for key in (*_SHARED, 'prior_regularizer') if key in state]
+    return _digest({key: state[key] for key in keys})
 
 
 def _distributed_checkpoint_identity(trainer):

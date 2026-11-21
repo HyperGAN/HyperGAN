@@ -310,8 +310,8 @@ class ReferenceTrainer:
             self.recipe.apply_prior_policy(self.prior)
         self.gan = self.recipe.make_loss()
         self.spread = self.recipe.make_prior_regularizer(prior=self.prior)
-        if self.recipe.prior_regularizer_checkpoint(self.spread):
-            raise ValueError('HyperGAN does not implement stateful prior regularizer checkpoints')
+        if self.spread is not None and getattr(self.spread, '_bound_device', None) is None:
+            self.spread._bound_device = self.device
         self.objectives = [construct(term) for term in config["objectives"]]
         for objective in self.objectives:
             if isinstance(objective, torch.nn.Module):
@@ -364,6 +364,67 @@ class ReferenceTrainer:
             if formulation == 'bispf':
                 from particlegan.bispf import bind_thermal_source
                 bind_thermal_source(record, self.gan, self.spread)
+            elif formulation == 'unified_v11':
+                from particlegan.unified_v11 import (
+                    _attach_unified_v11_generator_hook,
+                    bind_unified_v11_record,
+                    collect_conv_layouts,
+                )
+                bind_unified_v11_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
+                self.opt_g._unified_v11_record = record
+                self.opt_d._unified_v11_record = record
+                self.opt_g._unified_record = record
+                self.opt_d._unified_record = record
+                self.opt_g._t1c_record = record
+                self.opt_d._t1c_record = record
+                self.opt_g._t2_record = record
+                self.opt_d._t2_record = record
+                self.prior._unified_v11_record = record
+                self.prior._unified_record = record
+                self.prior._t1c_record = record
+                if hasattr(self.opt_g, '_conv_layouts'):
+                    self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
+                gen_model = self.graph.models['generator'] if 'generator' in self.graph.models else None
+                if gen_model is not None:
+                    if hasattr(self.opt_g, '_gen_param_ids'):
+                        self.opt_g._gen_param_ids = {id(p) for p in gen_model.parameters()}
+                    _attach_unified_v11_generator_hook(gen_model, record)
+            elif formulation in ('unified_v4', 'r4_autograd_critic'):
+                from particlegan.unified_v4 import (
+                    _attach_unified_v4_generator_hook,
+                    bind_unified_v4_record,
+                    collect_conv_layouts,
+                )
+                bind_unified_v4_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
+                self.opt_g._unified_v4_record = record
+                self.opt_d._unified_v4_record = record
+                self.opt_g._unified_record = record
+                self.opt_d._unified_record = record
+                self.opt_g._t1c_record = record
+                self.opt_d._t1c_record = record
+                self.opt_g._t2_record = record
+                self.opt_d._t2_record = record
+                self.prior._unified_v4_record = record
+                self.prior._unified_record = record
+                self.prior._t1c_record = record
+                if hasattr(self.opt_g, '_conv_layouts'):
+                    self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
+                gen_model = self.graph.models['generator'] if 'generator' in self.graph.models else None
+                if gen_model is not None:
+                    if hasattr(self.opt_g, '_gen_param_ids'):
+                        self.opt_g._gen_param_ids = {id(p) for p in gen_model.parameters()}
+                    _attach_unified_v4_generator_hook(gen_model, record)
+            elif formulation == 'unified':
+                from particlegan.unified import bind_unified_record
+                bind_unified_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)
+                self.opt_g._unified_record = record
+                self.opt_d._unified_record = record
+                self.opt_g._t1c_record = record
+                self.opt_d._t1c_record = record
+                self.opt_g._t2_record = record
+                self.opt_d._t2_record = record
+                self.prior._unified_record = record
+                self.prior._t1c_record = record
             elif formulation == 'empf':
                 from particlegan.empf import bind_empf_record
                 bind_empf_record(record, self.gan, self.spread, self.opt_g, self.opt_d, self.prior)

@@ -14,26 +14,30 @@ from that exact commit.
 ## CI
 
 [Foundation CI](https://github.com/HyperGAN/HyperGAN/actions/workflows/ci.yml)
-runs on pull requests and pushes to `develop` and `master`, manual dispatches,
-and release workflow calls against an immutable source SHA:
+runs on `develop` pushes, PRs between this repository's `develop` and `master`
+branches, manual dispatches, and release workflow calls against an immutable
+source SHA. `release.yml` owns the checks on `master` pushes. Feature PRs keep
+the required Repository integrity check and can dispatch Foundation CI with
+`gh workflow run ci.yml --ref <branch>`. Add `-f full=true` to include heavy
+tests and release distribution verification.
 
-- **Lightweight (`ubuntu-latest`, `windows-latest`, `macos-latest`, Python 3.11–3.14):**
-  Builds the wheel and source distribution, verifies a Torch-free and
+- **Lightweight.** One job per version from Python 3.11 through 3.14 across
+  Linux, Windows, and macOS. Builds the wheel and source distribution, verifies a Torch-free and
   ParticleGAN-free environment, runs `tests/foundation` against the installed
   wheel outside the checkout, and verifies clean sdist rebuilds.
-- **CPU reference (`ubuntu-latest`, Python 3.12):**
+- **CPU reference (`ubuntu-latest`, Python 3.12).**
   Installs the tested CPU runtime (`[train,image,cifar,fid,web,test]`) and runs
   `tests/reference`, `tests/unit`, `tests/playbooks`, and `tests/e2e` outside the
-  checkout.
-- **Heavy lightweight & Heavy CPU reference:**
-  Run the subprocess, worker-service, and multi-rank tests marked `heavy` on
-  pushes/PRs targeting `master` and on every release workflow call.
+  checkout across four file shards.
+- **Heavy tests.** Lightweight and CPU reference jobs reuse their installed
+  wheels for the `heavy` selection on `master` checks, release calls and full
+  manual runs.
 - **Shared reducer & Viewer API (`ubuntu-latest`, `windows-latest`, `macos-latest`):**
   Verify the Foldlite DB shared WASM reducer (`tests/reducers`,
   `tests/e2e_integration`), Chromium Playwright live browser continuation
   (`tests/browser`), reproducible offline frontend bundle checks (`frontend`),
   and Web Observatory API (`tests/web`).
-- **Distributions (`ubuntu-latest`, Python 3.12):**
+- **Distributions (`ubuntu-latest`, Python 3.12).**
   After `Foundation CI` passes, builds the wheel and source archive from the
   exact tested commit, verifies that no research/docs/worktree artifacts leak
   into distributions, verifies that `_build_provenance.json` stamps the exact
@@ -59,10 +63,10 @@ token. Configure the PyPI Trusted Publisher at
 1. Merge reviewed changes into `develop`, including `__version__` in
    `src/hypergan/__init__.py`, `CHANGELOG.md` (`## <version> — YYYY-MM-DD`), and
    `README.md`.
-2. Merge `develop` into `master`. `release.yml` checks whether PyPI already
-   has files for the version. If the version is unpublished, it extracts the
-   matching notes from `CHANGELOG.md` and runs Foundation CI and the
-   distribution build against the exact merge commit.
+2. Merge `develop` into `master`. `release.yml` runs Foundation CI and the
+   distribution build against the exact merge commit. If PyPI has no files for
+   the version, the workflow extracts the matching notes from `CHANGELOG.md`
+   and proceeds to publish after the checks pass.
 3. Monitor the release run. It creates or verifies `v<version>` at the tested
    commit, publishes the tested wheel and sdist to PyPI, and attaches those
    same files and the notes to the GitHub Release. If an upload or GitHub

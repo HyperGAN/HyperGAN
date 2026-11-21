@@ -32,6 +32,43 @@ from .objective_program import (
 DEFAULT_BUCKET_CAP_BYTES = 25 * 1024 * 1024  # 25 MB default bucket size
 
 
+class _BroadcastProbeProxy:
+    """Evaluate a post-step secant probe on rank 0 and broadcast the result bitwise to all ranks.
+
+    Prevents ~1e-6 cuDNN/TF32 nondeterminism on identical probe inputs from causing
+    divergent ``alpha_gain`` / ``_ema_func_gain`` updates across CUDA replicas.
+    """
+
+    __slots__ = ("_module", "_ref_shape", "_device")
+
+    def __init__(self, module, ref_tensor):
+        self._module = module
+        self._ref_shape = tuple(ref_tensor.shape)
+        self._device = ref_tensor.device
+
+    def modules(self):
+        return self._module.modules()
+
+    def eval(self):
+        return self._module.eval()
+
+    def parameters(self, recurse=True):
+        return self._module.parameters(recurse=recurse)
+
+    def __getattr__(self, name):
+        return getattr(self._module, name)
+
+    def __call__(self, *args, **kwargs):
+        if dist.get_rank() == 0:
+            out = self._module(*args, **kwargs)
+            target = out[0] if isinstance(out, (tuple, list)) and out else out
+            buf = target.detach().to(device=self._device, dtype=torch.float32).contiguous()
+        else:
+            buf = torch.empty(self._ref_shape, dtype=torch.float32, device=self._device)
+        dist.broadcast(buf, src=0)
+        return buf
+
+
 def _bucket_parameters(parameters, bucket_cap_bytes=DEFAULT_BUCKET_CAP_BYTES):
     """Partition parameters into memory-contiguous buckets grouped by (device, dtype)."""
     buckets = []
@@ -350,6 +387,9 @@ class ReplicatedTrainer(ReferenceTrainer):
                                'modes': {key: child.training for key, child in module.named_modules()}}
             state['optimizers'] = [self.opt_g.state_dict(), self.opt_d.state_dict()]
             state['base_lrs'] = self.base_lrs
+            prior_reg_ckpt = self.recipe.prior_regularizer_checkpoint(self.spread) if callable(getattr(self.recipe, 'prior_regularizer_checkpoint', None)) else {}
+            if prior_reg_ckpt:
+                state['prior_regularizer'] = prior_reg_ckpt['prior_regularizer']
             return self._digest(state)
         finally:
             restore_rng(rng)
@@ -550,8 +590,11 @@ class ReplicatedTrainer(ReferenceTrainer):
 
     def _average_critic_statistics(self):
         # KA2 controller statistics come from rank-local critic scores.
+        # t1c / unified_v11 records expose ema_residual as a read-only property and sync via coupled pairs or sync_unified_v11_record.
         rec = getattr(self.opt_d, 'record', None)
-        if rec is not None and hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
+        if rec is None or hasattr(rec, 't1c_ell_initialized'):
+            return
+        if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
             stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
             dist.all_reduce(stats)
             stats /= self.world_size
@@ -593,15 +636,107 @@ class ReplicatedTrainer(ReferenceTrainer):
         return loss
 
     @staticmethod
-    def _uses_coupled_critic_loss(term):
-        return hasattr(term.gan, 'rhbi') and (
-            getattr(term.gan, 'critic_weight', 0.0) > 0.0
-            or getattr(term.gan, 'fibre_rel_blend', 0.0) > 0.0
+    def _is_highres_image_term(term, sample):
+        return (
+            isinstance(sample, torch.Tensor)
+            and sample.ndim >= 4
+            and sample.shape[0] > 0
+            and sample[0].numel() > 1024
+            and len(term.routes) == 1
         )
 
-    @staticmethod
-    def _uses_coupled_generator_loss(term):
-        return hasattr(term.gan, 'rhbi') and getattr(term.gan.rhbi, 'weight', 0.0) > 0.0
+    @classmethod
+    def _uses_coupled_critic_loss(cls, term, sample=None):
+        if hasattr(term.gan, 'rhbi') and (
+            getattr(term.gan, 'critic_weight', 0.0) > 0.0
+            or getattr(term.gan, 'fibre_rel_blend', 0.0) > 0.0
+        ):
+            return True
+        if hasattr(term.gan, 't1c') and not cls._is_highres_image_term(term, sample):
+            return bool(
+                getattr(term.gan, 'critic_weight', 0.0) > 0.0
+                or getattr(term.gan, 'fibre_rel_blend', 0.0) > 0.0
+                or hasattr(getattr(term.gan, 'record', None), 'observe_margin_and_scale')
+            )
+        return False
+
+    @classmethod
+    def _uses_coupled_generator_loss(cls, term, sample=None):
+        if hasattr(term.gan, 'rhbi') and getattr(term.gan.rhbi, 'weight', 0.0) > 0.0:
+            return True
+        if hasattr(term.gan, 't1c') and getattr(term.gan.t1c, 'weight', 0.0) > 0.0 and not cls._is_highres_image_term(term, sample):
+            return True
+        return False
+
+    def _gather_t1c_pair(self, fake_score, real_score):
+        """Gather critic logits and t1c/unified_v11 input/conditioning captures across all ranks."""
+        from particlegan._t1_coupling.critic import _lookup_t1c_capture_parts
+
+        rec = getattr(self.opt_d, 'record', None)
+        x_f, cond_f, rec_f, cc_f, parts_f = _lookup_t1c_capture_parts(fake_score, rec)
+        x_r, cond_r, rec_r, cc_r, parts_r = _lookup_t1c_capture_parts(
+            real_score, rec_f if rec_f is not None else rec
+        )
+        eff_rec = rec_f if rec_f is not None else (rec_r if rec_r is not None else rec)
+        global_f_sc = self._all_gather_coupled(fake_score)
+        global_r_sc = self._all_gather_coupled(real_score)
+        if x_f is not None and x_r is not None:
+            global_x_f = self._all_gather_coupled(x_f)
+            global_x_r = self._all_gather_coupled(x_r)
+            global_cond_f = self._all_gather_coupled(cond_f) if cond_f is not None else None
+            global_cond_r = self._all_gather_coupled(cond_r) if cond_r is not None else None
+            global_parts_f = tuple(self._all_gather_coupled(p) for p in parts_f) if parts_f is not None else None
+            global_parts_r = tuple(self._all_gather_coupled(p) for p in parts_r) if parts_r is not None else None
+            global_f_sc._t1c_input = global_x_f
+            global_f_sc._t1c_cond = global_cond_f
+            global_f_sc._t1c_cont_cond = cc_f
+            global_f_sc._t1c_parts = global_parts_f
+            global_f_sc._t1c_record = eff_rec
+            if getattr(fake_score, '_t1c_thermally_scaled', False):
+                global_f_sc._t1c_thermally_scaled = True
+            global_r_sc._t1c_input = global_x_r
+            global_r_sc._t1c_cond = global_cond_r
+            global_r_sc._t1c_cont_cond = cc_r
+            global_r_sc._t1c_parts = global_parts_r
+            global_r_sc._t1c_record = eff_rec
+        return global_f_sc, global_r_sc
+
+    def _gather_coupled_pair(self, term, fake_score, real_score):
+        if hasattr(term.gan, 't1c'):
+            return self._gather_t1c_pair(fake_score, real_score)
+        return self._gather_rhbi_pair(fake_score, real_score)
+
+    def _sync_unified_v11_d_probes(self):
+        """Gather critic secant probe slices across ranks so all ranks compute identical alpha_gain."""
+        rec = getattr(self.opt_d, 'record', None)
+        probes = getattr(rec, '_d_probe_list', None)
+        if not probes or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            return
+        from particlegan._unified_v11.critic import _PROBE_SLICE
+        synced = []
+        for p_args, p_kwargs, d_pre in probes:
+            if len(p_args) == 1 and not p_kwargs and isinstance(p_args[0], torch.Tensor):
+                gx = self._all_gather_coupled(p_args[0].detach())[:_PROBE_SLICE]
+                gd = self._all_gather_coupled(d_pre.detach())[:_PROBE_SLICE]
+                synced.append(((gx,), {}, gd))
+            else:
+                synced.append((p_args, p_kwargs, d_pre))
+        rec._d_probe_list = synced
+
+    def _sync_unified_v11_g_probe(self):
+        """Gather element-budgeted generator secant probe slice across ranks so all ranks compute identical alpha_gain."""
+        rec = getattr(self.opt_d, 'record', None)
+        cache = getattr(rec, '_g_probe_cache', None)
+        if cache is None or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            return
+        from particlegan._unified_v11.critic import _PROBE_SLICE
+        g_mod, p_args, p_kwargs, y_pre = cache
+        out_dim = max(1, int(y_pre[0].numel()))
+        b_p = max(2, min(_PROBE_SLICE, 8192 // out_dim))
+        if len(p_args) == 1 and not p_kwargs and isinstance(p_args[0], torch.Tensor):
+            gz = self._all_gather_coupled(p_args[0].detach())[:b_p]
+            gy = self._all_gather_coupled(y_pre.detach())[:b_p]
+            rec._g_probe_cache = (_BroadcastProbeProxy(g_mod, gy), (gz,), {}, gy)
 
     def _gather_rhbi_pair(self, fake_score, real_score):
         """Gather critic logits and RHBI input/conditioning captures across all ranks."""
@@ -892,7 +1027,7 @@ class ReplicatedTrainer(ReferenceTrainer):
         self.opt_d.zero_grad(set_to_none=True)
         coupled_d = bool(
             getattr(self.aggregation_strategy, 'reduces_gradients', False)
-            and any(self._uses_coupled_critic_loss(term) for term in terms)
+            and any(self._uses_coupled_critic_loss(term, real) for term in terms)
         )
         if coupled_d:
             def discriminator_scores_only():
@@ -905,7 +1040,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             with self._folded('discriminator scores'):
                 d_scored = self._phase('discriminator scores', discriminator_scores_only)
             d_global_pairs = [
-                self._gather_rhbi_pair(f_sc, r_sc) if self._uses_coupled_critic_loss(term) else None
+                self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_critic_loss(term, real) else None
                 for term, (_, _, r_sc, f_sc) in zip(terms, d_scored)
             ]
 
@@ -959,9 +1094,14 @@ class ReplicatedTrainer(ReferenceTrainer):
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
         rec_d = getattr(self.opt_d, 'record', None)
-        if rec_d is not None and hasattr(rec_d, 'proto_initialized'):
-            from .aggregation import sync_empf_record
-            sync_empf_record(rec_d, self.device, self.world_size)
+        if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            if hasattr(rec_d, 'proto_initialized'):
+                from .aggregation import sync_empf_record
+                sync_empf_record(rec_d, self.device, self.world_size)
+            elif hasattr(rec_d, 't1c_ell_initialized'):
+                from .aggregation import sync_unified_v11_record
+                sync_unified_v11_record(rec_d, self.device, self.world_size)
+        self._sync_unified_v11_d_probes()
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
         self._optimizer_step(self.opt_d, 'discriminator')
         if explicit_guard is not None:
@@ -1040,7 +1180,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             from particlegan.optim.constraint_geometry import constraint_geometry_backward
             coupled_g = bool(
                 getattr(self.aggregation_strategy, 'reduces_gradients', False)
-                and any(self._uses_coupled_generator_loss(term) for term in terms)
+                and any(self._uses_coupled_generator_loss(term, gen_real) for term in terms)
             )
             if coupled_g:
                 def generator_scores_only():
@@ -1052,7 +1192,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 with self._folded('generator critic scores'):
                     g_scored = self._phase('generator critic scores', generator_scores_only)
                 g_global_pairs = [
-                    self._gather_rhbi_pair(f_sc, r_sc) if self._uses_coupled_generator_loss(term) else None
+                    self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_generator_loss(term, gen_real) else None
                     for term, (_, _, r_sc, f_sc) in zip(terms, g_scored)
                 ]
                 global_simplex_real = (
@@ -1116,6 +1256,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 if self.program.prior_checked
                 else torch.zeros((), dtype=torch.float64, device=self.device)
             )
+            self._sync_unified_v11_g_probe()
             self._optimizer_step(self.opt_g, 'generator')
         finally:
             if rhbi_mod is not None:
@@ -1376,9 +1517,14 @@ class ReplicatedTrainer(ReferenceTrainer):
         critic_params = self._critic_checked_parameters(terms)
         critic_grad_norm_t = self._grad_norm_scalar(critic_params)
         rec_d = getattr(self.opt_d, 'record', None)
-        if rec_d is not None and hasattr(rec_d, 'proto_initialized'):
-            from .aggregation import sync_empf_record
-            sync_empf_record(rec_d, self.device, self.world_size)
+        if rec_d is not None and getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            if hasattr(rec_d, 'proto_initialized'):
+                from .aggregation import sync_empf_record
+                sync_empf_record(rec_d, self.device, self.world_size)
+            elif hasattr(rec_d, 't1c_ell_initialized'):
+                from .aggregation import sync_unified_v11_record
+                sync_unified_v11_record(rec_d, self.device, self.world_size)
+        self._sync_unified_v11_d_probes()
         explicit_guard = getattr(self.opt_d, 'd_guard_ratio', None)
         self._optimizer_step(self.opt_d, 'discriminator')
         if explicit_guard is not None:
@@ -1503,6 +1649,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 if self.program.prior_checked
                 else torch.zeros((), dtype=torch.float64, device=self.device)
             )
+            self._sync_unified_v11_g_probe()
             self._optimizer_step(self.opt_g, 'generator')
         finally:
             for module, flags in saved_flags:

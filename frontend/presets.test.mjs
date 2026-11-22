@@ -7,6 +7,7 @@ import {
   formatBatchPill,
   formatHostPill,
   formatTopologyPill,
+  groupCatalogMetrics,
   parseViewQuery,
   presetMetrics,
   reducedSelection,
@@ -36,31 +37,173 @@ const STANDARD_GAN_CATALOG = {
   fid50k_train: { kind: "scalar", scope: "snapshot", label: "FID-50k" },
 };
 
-test("defaultMetrics returns 8 balanced series, includes critic/accuracy, and excludes throughput", () => {
+test("defaultMetrics returns 4 core series for a clean 2x2 grid and excludes throughput/snapshots", () => {
   const defaults = defaultMetrics(STANDARD_GAN_CATALOG);
-  assert.equal(defaults.length, 8);
+  assert.equal(defaults.length, 4);
   assert.ok(!defaults.includes("throughput/steps_per_second"));
   assert.ok(!defaults.includes("fid50k_train"));
   assert.deepEqual(defaults, [
     "loss/g_total",
     "loss/d_total",
-    "loss/gradient_penalty",
-    "loss/prior_regularizer",
     "critic/accuracy",
-    "diversity/generated_rms",
     "diversity/ratio",
-    "diversity/pooled4_ratio",
   ]);
 });
 
-test("defaultMetrics falls back to critic/margin when critic/accuracy is absent", () => {
+test("defaultMetrics falls back to critic/margin and loss/gradient_penalty when primary slots are absent", () => {
   const withoutAccuracy = { ...STANDARD_GAN_CATALOG };
   delete withoutAccuracy["critic/accuracy"];
-  const defaults = defaultMetrics(withoutAccuracy);
-  assert.equal(defaults.length, 8);
-  assert.ok(defaults.includes("critic/margin"));
-  assert.ok(!defaults.includes("throughput/steps_per_second"));
-  assert.equal(defaults.filter((id) => id.startsWith("diversity/")).length, 3);
+  assert.deepEqual(defaultMetrics(withoutAccuracy), [
+    "loss/g_total",
+    "loss/d_total",
+    "critic/margin",
+    "diversity/ratio",
+  ]);
+
+  const withoutDiversity = { ...STANDARD_GAN_CATALOG };
+  delete withoutDiversity["diversity/ratio"];
+  assert.deepEqual(defaultMetrics(withoutDiversity), [
+    "loss/g_total",
+    "loss/d_total",
+    "critic/accuracy",
+    "loss/gradient_penalty",
+  ]);
+
+  const minimalCatalog = {
+    "loss/g_total": { kind: "scalar" },
+    "loss/d_total": { kind: "scalar" },
+    "loss/gradient_penalty": { kind: "scalar" },
+  };
+  assert.deepEqual(defaultMetrics(minimalCatalog), [
+    "loss/g_total",
+    "loss/d_total",
+    "loss/gradient_penalty",
+  ]);
+
+  assert.deepEqual(defaultMetrics({}), []);
+});
+
+test("groupCatalogMetrics categorizes scalar metrics into deterministic ordered groups and omits empties", () => {
+  const richCatalog = {
+    "custom/extra": { kind: "scalar", label: "Custom extra" },
+    "progress/epoch": { kind: "scalar", label: "Epoch" },
+    "throughput/steps_per_second": { kind: "scalar", label: "Steps/s" },
+    "timing/step_ms": { kind: "scalar", label: "Step ms" },
+    "optimizer/lr": { kind: "scalar", label: "LR" },
+    "critic/aux/real_mean": { kind: "scalar", label: "Aux real mean" },
+    "critic/primary/margin": { kind: "scalar", label: "Primary margin" },
+    "loss/critics/primary/d_total": { kind: "scalar", label: "Primary D total" },
+    "loss/critics/aux/d_total": { kind: "scalar", label: "Aux D total" },
+    "diversity/pooled4_ratio": { kind: "scalar", label: "Pooled4 ratio" },
+    "diversity/generated_rms": { kind: "scalar", label: "Generated RMS" },
+    "prior/sigma": { kind: "scalar", label: "Prior sigma" },
+    "health/nan_count": { kind: "scalar", label: "NaN count" },
+    "gradients/g_norm": { kind: "scalar", label: "G norm" },
+    "grad_norm/generator": { kind: "scalar", label: "Generator grad norm" },
+    "critic/real_mean": { kind: "scalar", label: "Critic real mean" },
+    "loss/g_adversarial": { kind: "scalar", label: "G adversarial" },
+    "loss/d_adversarial": { kind: "scalar", label: "D adversarial" },
+    "loss/objectives/l1": { kind: "scalar", label: "L1 objective" },
+    "loss/objectives/aux": { kind: "scalar", label: "Aux objective" },
+    "diversity/ratio": { kind: "scalar", label: "Diversity ratio" },
+    "critic/margin": { kind: "scalar", label: "Critic margin" },
+    "critic/accuracy": { kind: "scalar", label: "Critic accuracy" },
+    "loss/prior_regularizer": { kind: "scalar", label: "Prior regularizer" },
+    "loss/gradient_penalty": { kind: "scalar", label: "Gradient penalty" },
+    "loss/d_total": { kind: "scalar", label: "Discriminator total" },
+    "loss/g_total": { kind: "scalar", label: "Generator total" },
+    fid50k_train: { kind: "scalar", scope: "snapshot", label: "FID-50k" },
+    "hist/weights": { kind: "histogram", label: "Weights" },
+  };
+
+  const groups = groupCatalogMetrics(richCatalog);
+  assert.deepEqual(
+    groups.map((g) => ({
+      key: g.key,
+      title: g.title,
+      defaultOpen: g.defaultOpen,
+      ids: g.metrics.map((m) => m.id),
+    })),
+    [
+      {
+        key: "core",
+        title: "Core",
+        defaultOpen: true,
+        ids: [
+          "loss/g_total",
+          "loss/d_total",
+          "loss/gradient_penalty",
+          "loss/prior_regularizer",
+          "critic/accuracy",
+          "critic/margin",
+          "diversity/ratio",
+          "loss/objectives/aux",
+          "loss/objectives/l1",
+        ],
+      },
+      {
+        key: "losses",
+        title: "Losses",
+        defaultOpen: false,
+        ids: ["loss/d_adversarial", "loss/g_adversarial"],
+      },
+      {
+        key: "diagnostics",
+        title: "Critic & Gradients",
+        defaultOpen: false,
+        ids: [
+          "critic/real_mean",
+          "grad_norm/generator",
+          "gradients/g_norm",
+          "health/nan_count",
+          "prior/sigma",
+        ],
+      },
+      {
+        key: "diversity",
+        title: "Diversity",
+        defaultOpen: false,
+        ids: ["diversity/generated_rms", "diversity/pooled4_ratio"],
+      },
+      {
+        key: "per_critic",
+        title: "Per-critic",
+        defaultOpen: false,
+        ids: [
+          "critic/aux/real_mean",
+          "critic/primary/margin",
+          "loss/critics/aux/d_total",
+          "loss/critics/primary/d_total",
+        ],
+      },
+      {
+        key: "runtime",
+        title: "Runtime & Progress",
+        defaultOpen: false,
+        ids: [
+          "optimizer/lr",
+          "timing/step_ms",
+          "throughput/steps_per_second",
+          "progress/epoch",
+          "custom/extra",
+        ],
+      },
+    ],
+  );
+
+  // Omits empty groups and handles reversed key order identically.
+  const reversed = Object.fromEntries(Object.entries(richCatalog).reverse());
+  assert.deepEqual(groupCatalogMetrics(reversed), groups);
+
+  const sparse = groupCatalogMetrics({
+    "loss/g_total": { kind: "scalar" },
+    "throughput/steps_per_second": { kind: "scalar" },
+  });
+  assert.deepEqual(
+    sparse.map((g) => g.key),
+    ["core", "runtime"],
+  );
+  assert.deepEqual(groupCatalogMetrics(null), []);
 });
 
 test("presetMetrics covers losses, health, and diversity bounded to 8 scalar training metrics", () => {

@@ -1309,7 +1309,7 @@ def _introspect_ops_fallback(repo_root: Path) -> dict[str, Any]:
         in_catalog = False
 
         cat_re = re.compile(r"^###\s+2\.\d+\s+([A-Za-z]+)")
-        op_re = re.compile(r"^\d+\.\s+\*\*`([a-zA-Z0-9_]+)\(([^)]*)\)`\*\*:\s*(.*)$")
+        op_re = re.compile(r"^\d+\.\s+\*\*`([a-zA-Z0-9_]+)\((.*)\)`\*\*:\s*(.*)$")
 
         for line in lines:
             if line.startswith("## 2."):

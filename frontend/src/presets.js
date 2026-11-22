@@ -17,17 +17,108 @@ export function defaultMetrics(catalogMetrics = {}) {
   const metrics = catalogMetrics || {};
   const has = (id) => isScalarTrainingMetric(metrics[id]);
   const criticSlot = has("critic/accuracy") ? "critic/accuracy" : "critic/margin";
+  const fourthSlot = has("diversity/ratio")
+    ? "diversity/ratio"
+    : "loss/gradient_penalty";
   const preferred = [
     "loss/g_total",
     "loss/d_total",
-    "loss/gradient_penalty",
-    "loss/prior_regularizer",
     criticSlot,
-    "diversity/generated_rms",
-    "diversity/ratio",
-    "diversity/pooled4_ratio",
+    fourthSlot,
   ];
   return preferred.filter(has).slice(0, MAX_CHART_SERIES);
+}
+
+const CORE_METRIC_ORDER = [
+  "loss/g_total",
+  "loss/d_total",
+  "loss/gradient_penalty",
+  "loss/prior_regularizer",
+  "critic/accuracy",
+  "critic/margin",
+  "diversity/ratio",
+];
+const CORE_METRIC_SET = new Set(CORE_METRIC_ORDER);
+
+const CATALOG_GROUP_DEFS = [
+  { key: "core", title: "Core", defaultOpen: true },
+  { key: "losses", title: "Losses", defaultOpen: false },
+  { key: "diagnostics", title: "Critic & Gradients", defaultOpen: false },
+  { key: "diversity", title: "Diversity", defaultOpen: false },
+  { key: "per_critic", title: "Per-critic", defaultOpen: false },
+  { key: "runtime", title: "Runtime & Progress", defaultOpen: false },
+];
+
+const RUNTIME_PREFIXES = ["optimizer/", "timing/", "throughput/", "progress/"];
+
+function compareMetricIds(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function isPerCriticMetric(id) {
+  if (id.startsWith("loss/critics/")) return true;
+  return id.startsWith("critic/") && id.split("/").length >= 3;
+}
+
+function classifyCatalogGroup(id) {
+  if (CORE_METRIC_SET.has(id) || id.startsWith("loss/objectives/")) {
+    return "core";
+  }
+  if (isPerCriticMetric(id)) {
+    return "per_critic";
+  }
+  if (id.startsWith("loss/")) {
+    return "losses";
+  }
+  if (
+    id.startsWith("critic/") ||
+    id.startsWith("grad_norm/") ||
+    id.startsWith("gradients/") ||
+    id.startsWith("health/") ||
+    id.startsWith("prior/")
+  ) {
+    return "diagnostics";
+  }
+  if (id.startsWith("diversity/")) {
+    return "diversity";
+  }
+  return "runtime";
+}
+
+export function groupCatalogMetrics(catalogMetrics = {}) {
+  const metrics = catalogMetrics || {};
+  const buckets = new Map(CATALOG_GROUP_DEFS.map((def) => [def.key, []]));
+
+  for (const [id, definition] of Object.entries(metrics)) {
+    if (!isScalarTrainingMetric(definition)) continue;
+    buckets.get(classifyCatalogGroup(id)).push({ id, definition });
+  }
+
+  const coreRank = new Map(CORE_METRIC_ORDER.map((id, idx) => [id, idx]));
+  buckets.get("core").sort((a, b) => {
+    const ra = coreRank.has(a.id) ? coreRank.get(a.id) : CORE_METRIC_ORDER.length;
+    const rb = coreRank.has(b.id) ? coreRank.get(b.id) : CORE_METRIC_ORDER.length;
+    return ra - rb || compareMetricIds(a.id, b.id);
+  });
+
+  for (const key of ["losses", "diagnostics", "diversity", "per_critic"]) {
+    buckets.get(key).sort((a, b) => compareMetricIds(a.id, b.id));
+  }
+
+  const runtimeRank = (id) => {
+    const idx = RUNTIME_PREFIXES.findIndex((prefix) => id.startsWith(prefix));
+    return idx === -1 ? RUNTIME_PREFIXES.length : idx;
+  };
+  buckets.get("runtime").sort(
+    (a, b) => runtimeRank(a.id) - runtimeRank(b.id) || compareMetricIds(a.id, b.id),
+  );
+
+  return CATALOG_GROUP_DEFS.filter((def) => buckets.get(def.key).length > 0).map(
+    (def) => ({
+      ...def,
+      metrics: buckets.get(def.key),
+    }),
+  );
 }
 
 export function presetMetrics(presetName, catalogMetrics = {}) {

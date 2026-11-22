@@ -358,6 +358,18 @@ h3 {
   border-right: 1px solid var(--line);
   padding-right: 22px;
 }
+@media (min-width: 681px) {
+  .catalog {
+    position: sticky;
+    top: 56px;
+    align-self: start;
+  }
+  #metric-list {
+    max-height: calc(100vh - 270px);
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+}
 .section-title {
   display: flex;
   align-items: center;
@@ -417,14 +429,105 @@ h3 {
   border-color: var(--line-strong);
   background: var(--surface);
 }
+.metric-group-core {
+  margin-bottom: 8px;
+}
+.metric-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 4px 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.metric-group {
+  border-top: 1px solid var(--line);
+  padding: 2px 0;
+}
+.metric-group-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--ink);
+  user-select: none;
+}
+.metric-group-summary::-webkit-details-marker {
+  display: none;
+}
+.metric-group-summary:hover {
+  background: var(--surface);
+}
+.metric-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.metric-group-summary .metric-group-title::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+.metric-group[open] > .metric-group-summary .metric-group-title::before {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+.metric-group-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.metric-group-selected {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--accent);
+  background: rgb(215 255 63 / 10%);
+  border: 1px solid rgb(215 255 63 / 30%);
+  border-radius: 999px;
+  padding: 1px 6px;
+  line-height: 1.4;
+}
+.metric-group-count {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+.metric-group-items {
+  padding: 2px 0 6px 6px;
+}
+.metric-empty {
+  margin: 12px 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
 .metric-option {
   display: flex;
   align-items: flex-start;
-  gap: 9px;
+  gap: 8px;
   border-radius: 5px;
-  padding: 9px 3px;
+  padding: 5px 4px;
   cursor: pointer;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 .metric-option:hover {
   background: var(--surface);
@@ -432,7 +535,7 @@ h3 {
 .metric-option input {
   accent-color: var(--accent);
   flex-shrink: 0;
-  margin-top: 3px;
+  margin-top: 2px;
 }
 .metric-option span {
   font-size: 11px;
@@ -441,14 +544,15 @@ h3 {
 .metric-option small {
   display: block;
   color: var(--muted);
+  font-family: var(--mono);
   font-size: 9px;
-  margin-top: 3px;
+  margin-top: 1px;
 }
 .catalog-hint {
   font-size: 10px;
   line-height: 1.6;
   color: var(--muted);
-  margin-top: 24px;
+  margin-top: 14px;
 }
 .toolbar {
   display: flex;
@@ -517,17 +621,46 @@ select {
 .chart-heading {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 10px;
-  padding: 17px 18px 0;
+  padding: 15px 14px 0 18px;
 }
 .chart-heading h3 {
   font-size: 12px;
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chart-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 .chart-heading .value {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--accent);
+}
+.chart-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.chart-remove:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+  border-color: var(--line-strong);
 }
 .chart-description {
   color: var(--muted);
@@ -838,10 +971,9 @@ td:first-child {
     padding: 0 0 15px;
   }
   #metric-list {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    max-height: 190px;
-    overflow: auto;
+    display: block;
+    max-height: 240px;
+    overflow-y: auto;
   }
   .catalog-hint {
     margin: 10px 0 0;

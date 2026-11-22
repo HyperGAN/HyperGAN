@@ -16,6 +16,7 @@ import {
   formatBatchPill,
   formatHostPill,
   formatTopologyPill,
+  groupCatalogMetrics,
   isScalarTrainingMetric,
   parseViewQuery,
   presetMetrics,
@@ -29,6 +30,7 @@ const state = {
   catalog: null,
   map: null,
   selected: new Set(),
+  openMetricGroups: new Set(),
   groups: new Map(),
   charts: new Map(),
   worker: null,
@@ -1313,41 +1315,141 @@ async function numericalPreview(path, shape) {
     throw new Error("Artifact values differ from its shape.");
   return `${flat.slice(0, 128).map(String).join(", ")}${flat.length > 128 ? `\nShowing 128 of ${flat.length} values.` : ""}`;
 }
-function renderCatalog() {
-  const search = $("search").value.toLowerCase();
-  $("metric-count").textContent = Object.values(metricDefinitions()).filter(
-    (d) => isScalarTrainingMetric(d),
+function countScalarMetrics() {
+  return Object.values(metricDefinitions()).filter((d) =>
+    isScalarTrainingMetric(d),
   ).length;
-  $("metric-list").replaceChildren();
-  for (const [id, definition] of Object.entries(metricDefinitions())) {
-    if (!isScalarTrainingMetric(definition)) continue;
-    if (!`${id} ${definition.label}`.toLowerCase().includes(search)) continue;
-    const label = document.createElement("label");
-    label.className = "metric-option";
-    label.title = definition.description || "";
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = state.selected.has(id);
-    input.value = id;
-    input.setAttribute("aria-label", definition.label || id);
-    input.addEventListener("change", () => {
-      if (input.checked && state.selected.size >= MAX_CHART_SERIES) {
-        input.checked = false;
-        notice("Choose at most 8 metrics for this view.");
-        return;
+}
+function updateMetricCount(totalAvailable = countScalarMetrics()) {
+  const el = $("metric-count");
+  if (!el) return;
+  el.textContent = `${state.selected.size} / ${MAX_CHART_SERIES}`;
+  el.title = `${state.selected.size} selected of ${totalAvailable} available metrics`;
+  el.dataset.selected = String(state.selected.size);
+  el.dataset.total = String(totalAvailable);
+}
+function buildMetricOption(id, definition, onSelectionChange) {
+  const label = document.createElement("label");
+  label.className = "metric-option";
+  label.title = definition.description || "";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = state.selected.has(id);
+  input.value = id;
+  input.setAttribute("aria-label", definition.label || id);
+  input.addEventListener("change", () => {
+    if (input.checked && state.selected.size >= MAX_CHART_SERIES) {
+      input.checked = false;
+      notice("Choose at most 8 metrics for this view.");
+      return;
+    }
+    input.checked ? state.selected.add(id) : state.selected.delete(id);
+    onSelectionChange?.();
+    updateMetricCount();
+    updatePresetButtons();
+    syncUrlState();
+    reconfigure();
+  });
+  const text = document.createElement("span");
+  text.textContent = definition.label || id;
+  const small = document.createElement("small");
+  small.textContent = id;
+  text.append(small);
+  label.append(input, text);
+  return label;
+}
+function renderCatalog() {
+  const search = ($("search")?.value || "").trim().toLowerCase();
+  const groups = groupCatalogMetrics(metricDefinitions());
+  const totalAvailable = groups.reduce((acc, g) => acc + g.metrics.length, 0);
+  updateMetricCount(totalAvailable);
+
+  const list = $("metric-list");
+  list.replaceChildren();
+  let renderedCount = 0;
+
+  for (const group of groups) {
+    const matching = search
+      ? group.metrics.filter(({ id, definition }) =>
+          `${id} ${definition.label || ""}`.toLowerCase().includes(search),
+        )
+      : group.metrics;
+    if (!matching.length) continue;
+    renderedCount += matching.length;
+
+    if (group.key === "core") {
+      const container = document.createElement("div");
+      container.className = "metric-group-core";
+      container.dataset.group = group.key;
+      if (groups.length > 1) {
+        const heading = document.createElement("div");
+        heading.className = "metric-group-heading";
+        const title = document.createElement("span");
+        title.className = "metric-group-title";
+        title.textContent = group.title;
+        const countEl = document.createElement("span");
+        countEl.className = "metric-group-count";
+        countEl.textContent = String(matching.length);
+        heading.append(title, countEl);
+        container.append(heading);
       }
-      input.checked ? state.selected.add(id) : state.selected.delete(id);
-      updatePresetButtons();
-      syncUrlState();
-      reconfigure();
-    });
-    const text = document.createElement("span");
-    text.textContent = definition.label || id;
-    const small = document.createElement("small");
-    small.textContent = id;
-    text.append(small);
-    label.append(input, text);
-    $("metric-list").append(label);
+      for (const { id, definition } of matching) {
+        container.append(buildMetricOption(id, definition));
+      }
+      list.append(container);
+    } else {
+      const details = document.createElement("details");
+      details.className = "metric-group";
+      details.dataset.group = group.key;
+      details.open = Boolean(search) || state.openMetricGroups.has(group.key);
+
+      const summary = document.createElement("summary");
+      summary.className = "metric-group-summary";
+      const title = document.createElement("span");
+      title.className = "metric-group-title";
+      title.textContent = group.title;
+      const meta = document.createElement("span");
+      meta.className = "metric-group-meta";
+      const selectedBadge = document.createElement("span");
+      selectedBadge.className = "metric-group-selected";
+      const countEl = document.createElement("span");
+      countEl.className = "metric-group-count";
+      countEl.textContent = String(matching.length);
+
+      const syncGroupBadge = () => {
+        const selectedInGroup = matching.filter(({ id }) =>
+          state.selected.has(id),
+        ).length;
+        selectedBadge.textContent = `${selectedInGroup} selected`;
+        selectedBadge.hidden = selectedInGroup === 0;
+      };
+      syncGroupBadge();
+
+      meta.append(selectedBadge, countEl);
+      summary.append(title, meta);
+
+      const itemsEl = document.createElement("div");
+      itemsEl.className = "metric-group-items";
+      for (const { id, definition } of matching) {
+        itemsEl.append(buildMetricOption(id, definition, syncGroupBadge));
+      }
+
+      details.addEventListener("toggle", () => {
+        if (($("search")?.value || "").trim()) return;
+        if (details.open) state.openMetricGroups.add(group.key);
+        else state.openMetricGroups.delete(group.key);
+      });
+
+      details.append(summary, itemsEl);
+      list.append(details);
+    }
+  }
+
+  if (!renderedCount && search) {
+    const empty = document.createElement("p");
+    empty.className = "metric-empty";
+    empty.textContent = "No matching metrics.";
+    list.append(empty);
   }
   updatePresetButtons();
 }
@@ -1778,6 +1880,7 @@ function render() {
   for (const metric of state.selected) {
     const items = parts.filter((part) => part.metric === metric);
     active.add(metric);
+    const metricLabel = metricDefinitions()[metric]?.label || metric;
     let card = state.charts.get(metric);
     if (!card) {
       const element = document.createElement("article");
@@ -1785,10 +1888,26 @@ function render() {
       const heading = document.createElement("div");
       heading.className = "chart-heading";
       const title = document.createElement("h3");
-      title.textContent = metricDefinitions()[metric]?.label || metric;
+      title.textContent = metricLabel;
+      const headingActions = document.createElement("div");
+      headingActions.className = "chart-heading-actions";
       const value = document.createElement("span");
       value.className = "value";
-      heading.append(title, value);
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "chart-remove";
+      removeBtn.textContent = "×";
+      removeBtn.title = `Remove ${metricLabel}`;
+      removeBtn.setAttribute("aria-label", `Remove ${metricLabel}`);
+      removeBtn.addEventListener("click", () => {
+        if (!state.selected.has(metric)) return;
+        state.selected.delete(metric);
+        renderCatalog();
+        syncUrlState();
+        reconfigure();
+      });
+      headingActions.append(value, removeBtn);
+      heading.append(title, headingActions);
       const description = document.createElement("p");
       description.className = "chart-description";
       description.textContent = metric;
@@ -1804,14 +1923,19 @@ function render() {
       element.append(heading, description, canvas, note);
       $("charts").append(element);
       const chart = init(canvas, null, { renderer: "canvas" });
-      card = { element, chart, title, value, note };
+      card = { element, chart, title, value, note, removeBtn };
       state.charts.set(metric, card);
-    } else if (card.title) {
-      card.title.textContent = metricDefinitions()[metric]?.label || metric;
+    } else {
+      if (card.title) card.title.textContent = metricLabel;
+      if (card.removeBtn) {
+        card.removeBtn.title = `Remove ${metricLabel}`;
+        card.removeBtn.setAttribute("aria-label", `Remove ${metricLabel}`);
+      }
     }
     const alpha = Number($("smoothing").value);
     const series = [];
     let latest = null;
+    const singlePartition = items.length === 1;
     items.forEach((part, index) => {
       const points = part.points;
       if (
@@ -1827,9 +1951,11 @@ function render() {
         smooth.push([point.position[0], ema]);
         return [point.position[0], point.value];
       });
-      const name = `${part.attempt.slice(0, 8)} · ${part.definition.slice(0, 6)}`;
+      const baseName = `${part.attempt.slice(0, 8)} · ${part.definition.slice(0, 6)}`;
+      const rawName = singlePartition ? (alpha ? "Raw" : metricLabel) : baseName;
+      const emaName = singlePartition ? "EMA" : `${baseName} · EMA`;
       series.push({
-        name,
+        name: rawName,
         type: "line",
         showSymbol: raw.filter((point) => point[1] !== null).length === 1,
         symbolSize: 6,
@@ -1841,7 +1967,7 @@ function render() {
       });
       if (alpha)
         series.push({
-          name: `${name} · EMA`,
+          name: emaName,
           type: "line",
           showSymbol: smooth.filter((point) => point[1] !== null).length === 1,
           symbolSize: 6,

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en" data-root-prefix="{{ root_prefix }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ page_title }}</title>
+  <meta name="description" content="{{ page_description }}" />
+  <meta name="theme-color" content="#101110" />
+  <link rel="icon" type="image/png" href="{{ root_prefix }}assets/hypergan-logo.png" />
+  <link rel="stylesheet" href="{{ root_prefix }}assets/255labs-tokens.css" />
+  <link rel="stylesheet" href="{{ root_prefix }}assets/brand.css" />
+  <link rel="stylesheet" href="{{ root_prefix }}assets/pygments.css" />
+  <link rel="stylesheet" href="{{ root_prefix }}assets/site.css" />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("hg-theme");
+        if (saved === "light") {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="topbar-left">
+        {% if layout_mode in ('docs', 'reference') %}
+        <button class="icon-btn mobile-menu-btn" type="button" data-sidebar-toggle aria-label="Toggle navigation" aria-expanded="false">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" />
+          </svg>
+        </button>
+        {% endif %}
+        <a class="brand-link" href="{{ root_prefix }}index.html">
+          <img class="brand-mark" src="{{ root_prefix }}assets/hypergan-logo.png" alt="HyperGAN logo" width="28" height="28" />
+          <span>HyperGAN</span>
+        </a>
+        <span class="version-pill">v{{ meta.version }}</span>
+      </div>
+
+      <nav class="topbar-nav" aria-label="Primary navigation">
+        <a href="{{ root_prefix }}quickstart/index.html" class="{% if active_nav == 'quickstart' %}is-active{% endif %}">Quickstart</a>
+        <a href="{{ root_prefix }}{{ doc_slug_to_url.get('configuration', 'quickstart/index.html') }}" class="{% if active_nav == 'docs' %}is-active{% endif %}">Docs</a>
+        <a href="{{ root_prefix }}examples/index.html" class="{% if active_nav == 'examples' %}is-active{% endif %}">Examples</a>
+        <a href="{{ root_prefix }}reference/api/index.html" class="{% if active_nav == 'api' %}is-active{% endif %}">Python API</a>
+        <a href="{{ root_prefix }}reference/cli/index.html" class="{% if active_nav == 'cli' %}is-active{% endif %}">CLI</a>
+        <a href="{{ root_prefix }}reference/schema/index.html" class="{% if active_nav == 'schema' %}is-active{% endif %}">Schema</a>
+        <a href="{{ root_prefix }}reference/ops/index.html" class="{% if active_nav == 'ops' %}is-active{% endif %}">HNDL Ops</a>
+      </nav>
+
+      <div class="topbar-right">
+        <button class="search-trigger" type="button" data-search-open aria-label="Search documentation">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.8" stroke="currentColor" stroke-width="1.5" />
+            <path d="M10.7 10.7L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" />
+          </svg>
+          <span class="search-label">Search</span>
+          <kbd class="kbd">⌘K</kbd>
+        </button>
+
+        <button class="icon-btn" type="button" data-theme-toggle aria-label="Toggle color theme" title="Toggle Dark Ink / Light Paper">
+          <svg class="theme-icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.4" />
+            <path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="square" />
+          </svg>
+          <svg class="theme-icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M12.9 10.1A5.4 5.4 0 0 1 5.9 3.1a5.4 5.4 0 1 0 7 7Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+          </svg>
+        </button>
+
+        <a class="icon-btn" href="{{ meta.repo_url }}" target="_blank" rel="noopener" aria-label="HyperGAN on GitHub" title="GitHub Repository">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M8 1a7 7 0 0 0-2.21 13.64c.35.06.48-.15.48-.34 0-.17-.01-.72-.01-1.31-1.77.33-2.23-.43-2.37-.82-.08-.2-.42-.82-.72-.99-.25-.13-.6-.46-.01-.47.55-.01.95.51 1.08.72.63 1.06 1.64.76 2.04.58.06-.46.25-.76.45-.94-1.57-.18-3.22-.79-3.22-3.49 0-.77.28-1.4.73-1.89-.07-.18-.32-.9.07-1.87 0 0 .59-.19 1.93.72a6.55 6.55 0 0 1 3.5 0c1.34-.91 1.93-.72 1.93-.72.39.97.14 1.69.07 1.87.45.49.73 1.12.73 1.89 0 2.71-1.65 3.31-3.23 3.49.26.22.48.65.48 1.31 0 .95-.01 1.71-.01 1.95 0 .19.13.41.48.34A7 7 0 0 0 8 1Z" />
+          </svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  {% block body %}{% endblock %}
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div class="footer-brand">
+        <a class="footer-lockup" href="https://255labs.xyz" target="_blank" rel="noopener" aria-label="255labs">
+          <img class="lockup-dark" src="{{ root_prefix }}assets/255labs-lockup.svg" alt="255labs" width="112" height="24" />
+          <img class="lockup-light" src="{{ root_prefix }}assets/255labs-lockup-ink.svg" alt="255labs" width="112" height="24" />
+        </a>
+        <div class="footer-meta">
+          <div>HyperGAN v{{ meta.version }} · MIT License</div>
+          <div>Brand System v1.0 · Self-hosted Manrope Variable &amp; IBM Plex Mono</div>
+        </div>
+      </div>
+
+      <div class="footer-links">
+        <a href="{{ root_prefix }}quickstart/index.html">Quickstart</a>
+        <a href="{{ root_prefix }}examples/index.html">Examples</a>
+        <a href="{{ root_prefix }}reference/api/index.html">Python API</a>
+        <a href="{{ root_prefix }}reference/cli/index.html">CLI</a>
+        <a href="{{ root_prefix }}reference/schema/index.html">Schema</a>
+        <a href="{{ root_prefix }}reference/ops/index.html">HNDL Ops</a>
+        {% if doc_slug_to_url.get('glossary') %}
+        <a href="{{ root_prefix }}{{ doc_slug_to_url['glossary'] }}">Glossary</a>
+        {% endif %}
+        {% if doc_slug_to_url.get('changelog') %}
+        <a href="{{ root_prefix }}{{ doc_slug_to_url['changelog'] }}">Changelog</a>
+        {% endif %}
+        {% if has_llms_txt %}
+        <a href="{{ root_prefix }}llms.txt">llms.txt</a>
+        {% endif %}
+        <a href="{{ meta.repo_url }}" target="_blank" rel="noopener">GitHub</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Cmd+K / Ctrl+K / '/' Search Modal -->
+  <div id="search-modal" class="search-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Search HyperGAN documentation">
+    <div class="search-dialog">
+      <div class="search-input-wrap">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.8" stroke="currentColor" stroke-width="1.5" />
+          <path d="M10.7 10.7L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" />
+        </svg>
+        <input id="search-modal-input" type="search" placeholder="Search docs, Python API, CLI flags, TOML schema, HNDL ops, examples…" autocomplete="off" spellcheck="false" />
+        <kbd class="kbd">ESC</kbd>
+      </div>
+      <div id="search-modal-results" class="search-results" role="listbox"></div>
+      <div class="search-footer">
+        <span id="search-modal-status">Type to search</span>
+        <span>↑↓ navigate · ↵ open · esc close</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ root_prefix }}assets/site.js" defer></script>
+</body>
+</html>

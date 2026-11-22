@@ -1206,7 +1206,7 @@ td:first-child {
 
 .model-overview {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px 18px;
@@ -1216,13 +1216,18 @@ td:first-child {
   padding: 11px 16px;
   margin-bottom: 18px;
 }
+@media (max-width: 680px) {
+  .model-overview {
+    flex-wrap: wrap;
+  }
+}
 .model-overview-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 20px;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0;
 }
 .model-overview-item {
   display: flex;
@@ -1257,6 +1262,7 @@ td:first-child {
   overflow-wrap: anywhere;
 }
 .model-overview-jump {
+  flex-shrink: 0;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--accent);

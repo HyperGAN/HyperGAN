@@ -541,9 +541,9 @@ export function modelPanel(api, base, { catalog, onPlot }) {
     const dataHead = node("div", undefined, "model-flow-node-head");
     dataHead.append(node("strong", "Data"), node("span", "batch", "model-badge model-role-auxiliary"));
     const dataArgs = Object.entries(model.data?.args || {})
-      .filter(([, v]) => isNonEmpty(v) && typeof v !== "object")
+      .filter(([k, v]) => isNonEmpty(v) && typeof v !== "object" && !/(?:^|_)sha256$/i.test(k))
       .slice(0, 3)
-      .map(([k, v]) => `${k}=${show(v)}`);
+      .map(([k, v]) => `${k}=${brief(show(v), 42)}`);
     dataCard.append(dataHead, node("p", shortFactory(model.data?.factory), "model-flow-shape"));
     if (dataArgs.length) dataCard.append(node("p", dataArgs.join(" · "), "model-flow-meta"));
     stage1List.append(dataCard);

@@ -578,10 +578,24 @@ def test_model_section_plots_a_loss_when_the_view_already_holds_eight_series(vie
     control['catalog'] = {**METRICS, **{metric: metric for metric in extra}}
     control['model'] = model_document(control['catalog'])
     login(page)
-    # Default selection holds 8 learning metrics, includes critic/accuracy, and excludes throughput.
-    assert page.locator('#metric-list input:checked').count() == 8
-    assert page.locator('input[value="critic/accuracy"]').is_checked()
+    # Default selection holds 4 core metrics and excludes throughput.
+    assert page.locator('#metric-count').text_content() == '4 / 8'
+    assert page.locator('#metric-list input:checked').count() == 4
+    for default_id in ('loss/g_total', 'loss/d_total', 'critic/accuracy', 'diversity/ratio'):
+        assert page.locator(f'input[value="{default_id}"]').is_checked()
     assert not page.locator('input[value="throughput/steps_per_second"]').is_checked()
+
+    # Fill remaining 4 slots (2 in Core + 2 inside Diversity group) to reach 8 / 8.
+    page.locator('input[value="loss/gradient_penalty"]').check()
+    page.locator('input[value="loss/prior_regularizer"]').check()
+    diversity_group = page.locator('details.metric-group[data-group="diversity"]')
+    assert not diversity_group.evaluate('el => el.open')
+    diversity_group.locator('summary').click()
+    assert diversity_group.evaluate('el => el.open')
+    page.locator('input[value="diversity/generated_rms"]').check()
+    page.locator('input[value="diversity/pooled4_ratio"]').check()
+    assert page.locator('#metric-count').text_content() == '8 / 8'
+    assert page.locator('#metric-list input:checked').count() == 8
 
     btn = page.locator('.model-table button', has_text='loss/d_adversarial')
     btn.wait_for()
@@ -589,6 +603,7 @@ def test_model_section_plots_a_loss_when_the_view_already_holds_eight_series(vie
     assert page.locator('#learning-curves').is_visible()
     assert page.locator('input[value="loss/d_adversarial"]').is_checked()
     assert not page.locator('input[value="loss/g_total"]').is_checked()
+    assert page.locator('#metric-count').text_content() == '8 / 8'
     assert page.locator('#metric-list input:checked').count() == 8
     # The notice says what was replaced and outlives the view reload.
     notice = page.locator('#notice', has_text='in place of loss/g_total')
@@ -596,6 +611,256 @@ def test_model_section_plots_a_loss_when_the_view_already_holds_eight_series(vie
     page.wait_for_function("document.querySelector('#coverage').textContent === 'History loaded'")
     assert any('d_adversarial' in p for p in control['paths'] if '/bootstrap' in p)
     assert notice.is_visible()
+    assert not errors
+
+
+def test_metrics_rail_grouped_bounded_search_count_and_chart_remove(viewer):
+    page, control, condition, errors = viewer
+    catalog = {
+        **METRICS,
+        'loss/prior_regularizer': 'G prior regularizer',
+        'critic/accuracy': 'Critic ranking accuracy',
+        'critic/margin': 'Critic score margin',
+        'diversity/ratio': 'Generated/real diversity',
+        'loss/objectives/l1': 'L1 reconstruction',
+        'loss/d_adversarial': 'D adversarial',
+        'loss/g_adversarial': 'G adversarial',
+        'loss/d_real': 'D real loss',
+        'loss/d_fake': 'D fake loss',
+        'loss/critics/main/d_total': 'Main critic D total',
+        'loss/critics/main/d_adversarial': 'Main critic adversarial',
+        'loss/critics/patch/d_total': 'Patch critic D total',
+        'loss/critics/patch/gradient_penalty': 'Patch critic GP',
+        'critic/main/margin': 'Main critic margin',
+        'critic/patch/margin': 'Patch critic margin',
+        'grad_norm/generator': 'Generator grad norm',
+        'grad_norm/critic': 'Critic grad norm',
+        'grad_norm/prior': 'Prior grad norm',
+        'gradients/g_clip_ratio': 'G clip ratio',
+        'health/nan_count': 'NaN count',
+        'prior/sigma': 'Prior sigma',
+        'diversity/generated_rms': 'Generated RMS',
+        'diversity/reference_rms': 'Reference RMS',
+        'diversity/pooled4_ratio': 'Pooled4 diversity ratio',
+        'diversity/pooled4_generated_rms': 'Pooled4 generated RMS',
+        'timing/step_ms': 'Step time (ms)',
+        'timing/data_ms': 'Data time (ms)',
+        'timing/forward_ms': 'Forward time (ms)',
+        'throughput/steps_per_second': 'Steps per second',
+        'optimizer/lr_g': 'Generator LR',
+        'progress/epoch': 'Epoch',
+    }
+    assert len(catalog) >= 30
+    control['catalog'] = catalog
+    login(page)
+
+    # Core is open at top; all secondary <details class="metric-group"> groups start collapsed.
+    assert page.locator('.metric-group-core').is_visible()
+    assert page.locator('.metric-group-core .metric-option').count() == 8
+    groups = page.locator('#metric-list details.metric-group')
+    assert groups.count() == 5
+    assert groups.evaluate_all('els => els.every(el => !el.open)')
+
+    # Desktop catalog rail and metric list stay bounded in height.
+    catalog_box = page.locator('.catalog').bounding_box()
+    list_box = page.locator('#metric-list').bounding_box()
+    assert catalog_box['height'] < 900
+    assert list_box['height'] < 900
+
+    # Metric count starts at 4 / 8 and updates when toggling a metric.
+    assert page.locator('#metric-count').text_content() == '4 / 8'
+    assert page.locator('.chart-card').count() == 4
+    page.locator('input[value="loss/gradient_penalty"]').check()
+    assert page.locator('#metric-count').text_content() == '5 / 8'
+    page.locator('.chart-card').nth(4).wait_for()
+    assert page.locator('.chart-card').count() == 5
+
+    # Searching auto-expands matching groups and hides empty groups.
+    search = page.get_by_label('Search metrics')
+    search.fill('grad_norm')
+    visible_groups = page.locator('#metric-list details.metric-group')
+    assert visible_groups.count() == 1
+    assert visible_groups.first.get_attribute('data-group') == 'diagnostics'
+    assert visible_groups.first.evaluate('el => el.open') is True
+    assert page.locator('.metric-group-core').count() == 0
+    assert page.locator('.metric-option').count() == 3
+
+    search.fill('critics')
+    assert visible_groups.count() == 1
+    assert visible_groups.first.get_attribute('data-group') == 'per_critic'
+    assert visible_groups.first.evaluate('el => el.open') is True
+    assert page.locator('.metric-option').count() == 4
+
+    search.fill('')
+    assert page.locator('.metric-group-core').is_visible()
+    assert page.locator('#metric-list details.metric-group').count() == 5
+    assert page.locator('#metric-list details.metric-group').evaluate_all('els => els.every(el => !el.open)')
+
+    # Clicking .chart-remove removes that chart card cleanly and updates selection/count.
+    remove_btn = page.locator('.chart-remove[aria-label="Remove D gradient penalty contribution"]')
+    remove_btn.click()
+    assert page.locator('#metric-count').text_content() == '4 / 8'
+    assert page.locator('.chart-card').count() == 4
+    assert not page.locator('input[value="loss/gradient_penalty"]').is_checked()
+    assert not errors
+
+
+def test_model_overview_dataflow_networks_and_layer_args_toggle(viewer):
+    from hypergan.config import resolve_config
+    from hypergan.model_description import describe_run
+    page, control, condition, errors = viewer
+
+    config = resolve_config({})
+    config['name_map'] = {'generator': 'colorizer', 'discriminator': 'vision_critic'}
+    model = describe_run(
+        {'config': config, 'config_sha256': 'e' * 64, 'run_id': RUN},
+        catalog={'metrics': dict.fromkeys(METRICS, {})},
+    )
+
+    # Build >16 nodes for generator (mix of key layers with args/explicit and 0-param glue nodes)
+    gen_nodes = []
+    for i in range(6):
+        gen_nodes.append({
+            'id': f'conv_{i}', 'op': 'conv', 'category': 'convolution', 'line': 10 + i * 3,
+            'args': {'out_channels': 64 * (i + 1), 'kernel_size': [3, 3], 'stride': 1, 'padding': 1},
+            'explicit': ['out_channels', 'kernel_size', 'stride'],
+            'out': {'out': ['B', 64 * (i + 1), 32, 32]},
+            'params': 18432, 'trainable_params': 18432, 'trainable': True,
+        })
+        gen_nodes.append({
+            'id': f'act_{i}', 'op': 'leaky_relu', 'category': 'activation', 'line': 11 + i * 3,
+            'args': {'negative_slope': 0.2}, 'explicit': ['negative_slope'],
+            'out': {'out': ['B', 64 * (i + 1), 32, 32]},
+            'params': 0, 'trainable_params': 0, 'trainable': True,
+        })
+        gen_nodes.append({
+            'id': f'reshape_{i}', 'op': 'reshape', 'category': 'shape', 'line': 12 + i * 3,
+            'args': {'shape': [-1, 64]}, 'explicit': ['shape'],
+            'out': {'out': ['B', 64 * (i + 1), 32, 32]},
+            'params': 0, 'trainable_params': 0, 'trainable': True,
+        })
+    # 18 nodes total: 6 key layers + 12 glue nodes.
+    assert len(gen_nodes) == 18
+
+    # Build <=16 nodes for discriminator including a frozen pretrained backbone + trainable head.
+    disc_nodes = [
+        {
+            'id': 'backbone', 'op': 'pretrained', 'category': 'pretrained', 'line': 4,
+            'args': {'model': 'dinov3_vits16', 'freeze': True}, 'explicit': ['model', 'freeze'],
+            'out': {'out': ['B', 384, 16, 16]},
+            'params': 21_600_000, 'trainable_params': 0, 'trainable': False,
+        },
+        {
+            'id': 'head_conv', 'op': 'conv', 'category': 'convolution', 'line': 8,
+            'args': {'out_channels': 128, 'kernel_size': [3, 3]}, 'explicit': ['out_channels', 'kernel_size'],
+            'out': {'out': ['B', 128, 8, 8]},
+            'params': 442_368, 'trainable_params': 442_368, 'trainable': True,
+        },
+        {
+            'id': 'head_act', 'op': 'leaky_relu', 'category': 'activation', 'line': 9,
+            'args': {'negative_slope': 0.2}, 'explicit': ['negative_slope'],
+            'out': {'out': ['B', 128, 8, 8]},
+            'params': 0, 'trainable_params': 0, 'trainable': True,
+        },
+        {
+            'id': 'head_out', 'op': 'linear', 'category': 'core', 'line': 10,
+            'args': {'out_features': 1}, 'explicit': ['out_features'],
+            'out': {'out': ['B', 1]},
+            'params': 129, 'trainable_params': 129, 'trainable': True,
+        },
+    ]
+
+    model['networks'][0]['display_name'] = 'colorizer'
+    model['networks'][0]['graph'] = {
+        'status': 'built', 'origin': 'recorded',
+        'parameters': {'total': 110_592, 'trainable': 110_592, 'frozen': 0},
+        'subgraphs': [{'module_path': 'network', 'node_count': len(gen_nodes), 'nodes': gen_nodes}],
+    }
+    model['networks'][1]['display_name'] = 'vision_critic'
+    model['networks'][1]['graph'] = {
+        'status': 'built', 'origin': 'recorded',
+        'parameters': {'total': 22_042_497, 'trainable': 442_497, 'frozen': 21_600_000},
+        'subgraphs': [{'module_path': 'network', 'node_count': len(disc_nodes), 'nodes': disc_nodes}],
+    }
+    model['networks'].append({
+        'name': 'reconstruction', 'display_name': 'reconstruction', 'role': 'alias',
+        'reuse_of': 'generator', 'factory': 'reuse', 'optimizer_group': 'generator',
+        'inputs': {'z': 'components.encoder'}, 'graph': {'status': 'unavailable', 'reason': 'shares weights'},
+    })
+    model['losses']['generator'].append({
+        'id': 'l1_recon', 'kind': 'l1', 'weight': 5.0, 'metric': 'loss/objectives/l1_recon',
+        'inputs': {'input': 'components.reconstruction', 'target': 'batch.real'},
+        'detach': ['target'],
+    })
+    model['edges'].extend([
+        {'from': 'components.generator', 'to': 'components.reconstruction', 'port': 'weights', 'path': 'reuse'},
+        {'from': 'components.reconstruction', 'to': 'objective.l1_recon', 'port': 'input', 'path': 'components.reconstruction'},
+        {'from': 'data', 'to': 'objective.l1_recon', 'port': 'target', 'path': 'batch.real', 'detached': True},
+    ])
+
+    control['model'] = model
+    login(page)
+    page.locator('#model-overview:not([hidden])').wait_for()
+    page.locator('.model-network').first.wait_for()
+
+    # Top #model-overview displays prior, network display names + params, and optimizer LR summary.
+    overview_text = page.locator('#model-overview').inner_text()
+    assert 'Prior' in overview_text
+    assert 'colorizer' in overview_text
+    assert 'vision_critic' in overview_text
+    assert 'frozen' in overview_text
+    assert 'LR' in overview_text
+    assert 'Full model' in overview_text
+
+    # #model-content shows Architecture & Dataflow and Networks first.
+    headings = page.locator('#model-content > section.model-section > h2').all_text_contents()
+    assert headings[:2] == ['Architecture & Dataflow', 'Networks']
+
+    # Architecture & Dataflow renders reuse and objective edges (including detached marker).
+    flow_text = page.locator('.model-flow').inner_text()
+    assert 'colorizer' in flow_text
+    assert 'vision_critic' in flow_text
+    assert 'weights ← colorizer (reuse)' in flow_text
+    assert 'l1_recon' in flow_text
+    assert 'target ← batch.real · detached' in flow_text
+
+    # Network cards display display_name, trainable/frozen param split, and op chips.
+    gen_card = page.locator('#model-net-generator')
+    assert 'colorizer' in gen_card.locator('h3').inner_text()
+    assert '(generator)' in gen_card.locator('h3').inner_text()
+    assert '100% trainable' in gen_card.locator('.model-param-meter').inner_text()
+    assert '6× conv' in gen_card.locator('.model-op-chips').inner_text()
+
+    disc_card = page.locator('#model-net-discriminator')
+    assert 'vision_critic' in disc_card.locator('h3').inner_text()
+    assert 'trainable' in disc_card.locator('.model-param-split').inner_text()
+    assert 'frozen' in disc_card.locator('.model-param-split').inner_text()
+    assert '1× pretrained (frozen)' in disc_card.locator('.model-op-chips').inner_text()
+
+    # >16-node subgraph shows explicit Args and Key layers only / Show all N nodes toggle.
+    gen_layers = gen_card.locator('.model-layers')
+    gen_layers.locator('summary').click()
+    assert gen_layers.locator('.model-layers-count').text_content() == 'Showing 6 key layers of 18 nodes'
+    toggle = gen_layers.locator('.model-layers-toggle')
+    assert toggle.text_content() == 'Show all 18 nodes'
+    assert gen_layers.locator('tbody tr:not(.model-group)').count() == 6
+    assert 'ch=64, k=3, s=1' in gen_layers.locator('.model-args').first.text_content()
+
+    toggle.click()
+    assert gen_layers.locator('.model-layers-count').text_content() == 'Showing all 18 nodes'
+    assert toggle.text_content() == 'Key layers only (6)'
+    assert gen_layers.locator('tbody tr:not(.model-group)').count() == 18
+
+    toggle.click()
+    assert gen_layers.locator('tbody tr:not(.model-group)').count() == 6
+    assert toggle.text_content() == 'Show all 18 nodes'
+
+    # <=16-node subgraph shows all rows by default without a filter toggle.
+    disc_layers = disc_card.locator('.model-layers')
+    disc_layers.locator('summary').click()
+    assert disc_layers.locator('.model-layers-toggle').count() == 0
+    assert disc_layers.locator('tbody tr:not(.model-group)').count() == 4
+    assert 'model=dinov3_vits16, freeze=true' in disc_layers.locator('.model-args').first.text_content()
     assert not errors
 
 

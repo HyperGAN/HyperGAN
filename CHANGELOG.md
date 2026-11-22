@@ -4,6 +4,10 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- **Observatory UI metrics rail & model configuration clarity (`frontend/src/presets.js`, `frontend/src/app.js`, `frontend/src/model.js`, `src/hypergan/web_assets/index.html`, `src/hypergan/web_assets/style.css`, `src/hypergan/web_assets/app.js`).**
+  - Bounded and grouped the left metrics catalog (`Core` open by default; `Losses`, `Critic & Gradients`, `Diversity`, `Per-critic`, and `Runtime & Progress` collapsible with search auto-expand and selected-count badges) inside a sticky viewport-bounded rail so large catalogs never elongate the page.
+  - Tightened default Learning Curves selection from 8 to 4 core metrics (`loss/g_total`, `loss/d_total`, `critic/accuracy` → `critic/margin`, `diversity/ratio` → `loss/gradient_penalty`) for a 2×2 initial grid while preserving `8 / 8` capacity, FoldliteDB pinned headline losses, and preset buttons; added `#metric-count` (`selected / 8`), chart-card `×` removal buttons, and cleaner single-partition tooltip labels.
+  - Added an at-a-glance `#model-overview` architecture strip near the top of the run page (prior, primary networks with shapes and trainable/frozen parameter splits, optimizer LRs, and smooth jump link) and reordered `#model-section` to lead with a 3-stage **Architecture & Dataflow** diagram built from `model.edges` and enhanced **Networks** cards (`display_name`, trainable/frozen parameter bars, leading HNDL summary, parameterized/pretrained op-breakdown chips, explicit layer `Key args`, and a `Key layers only` / `Show all N nodes` filter for graphs with >16 nodes).
 - **Track ParticleGAN `develop` on HyperGAN `develop` (`pyproject.toml`, `.github/scripts/install_particlegan.py`).** Point the `train` and `all` extras and CI's default ParticleGAN installer back to `git+https://github.com/HyperGAN/ParticleGAN.git@develop` following the `2.1.1` release while `master` remains pinned to `particlegan>=0.11.2,<0.12`.
 
 ## 2.1.1 — 2026-11-21

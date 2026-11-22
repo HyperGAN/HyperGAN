@@ -27,11 +27,11 @@ This page uses `hypergan view` throughout. `hypergan serve`, which `--help` does
 list, starts the same foreground server for a run or runs root with the same
 options; it adds `--session-file` and has no `--status` or `--stop`.
 
-`hypergan view` listens on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
+`hypergan view` listens on `127.0.0.1` on port `8765` by default, so one bookmarked URL keeps
 working across restarts. A port that is already in use is an error naming the process
 that holds it, never a silent move to another port; when that process is the dashboard
 `hypergan train` started for the same root, `hypergan view` prints and opens its URL
-instead. Select another address with `--host 127.0.0.1`, a fixed port with
+instead. Select another address with `-b 0.0.0.0` (or `--host 0.0.0.0`), a fixed port with
 `--port 8123`, or an OS-assigned port with `--port 0`. For a wildcard bind, a viewer
 that `hypergan view` starts prints a `127.0.0.1` URL, while
 `hypergan train`, `hypergan resume` and a `hypergan view` that reuses a running
@@ -331,7 +331,7 @@ not training overhead or image quality.
 ## Automatic viewer during CLI training
 
 With the `web` extra installed, `hypergan train` and `hypergan resume` automatically
-bind port `8765` on `0.0.0.0` and launch a supervised local viewer. A restarted run reuses the same port, so the viewer
+bind port `8765` on `127.0.0.1` and launch a supervised local viewer. A restarted run reuses the same port, so the viewer
 URL stays stable instead of changing on every start. Startup
 runs concurrently with training; there is no browser launch or readiness wait by
 default. Without the extra, these commands remain silently headless. The Python

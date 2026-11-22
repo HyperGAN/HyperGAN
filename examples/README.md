@@ -1,6 +1,6 @@
 # HyperGAN Examples
 
-This directory provides canonical, minimal, verified recipes and scripts for training models with HyperGAN 2.0.
+This directory provides canonical, minimal, verified recipes and scripts for training models with HyperGAN 2.1.1. Browse the interactive gallery and packaged wheel recipes (`hypergan recipes`) in the [Examples documentation](https://hypergan.github.io/HyperGAN/examples/).
 
 ## Active Production Examples
 
@@ -14,6 +14,12 @@ This directory provides canonical, minimal, verified recipes and scripts for tra
 | [`image-folder-colorization.toml`](image-folder-colorization.toml) | 128×128 Conditional Colorizer (L → AB) with exact polytope luminance lock | Local image folder | GPU |
 | [`cifar10-tiny-transformer.toml`](cifar10-tiny-transformer.toml) | 32×32 CIFAR-10 Tiny Transformer generator with frozen ResNet-18 feature critic ([FID by preset](../docs/cifar-recipe.md)) | `hypergan download-data cifar10` | GPU |
 | [`cifar10-transgan.toml`](cifar10-transgan.toml) | 32×32 CIFAR-10 Pure Transformer TransGAN (scratch multi-scale transformer critic) | `hypergan download-data cifar10` | GPU |
+| [`cifar-transgan-resnet18.toml`](cifar-transgan-resnet18.toml) | 32×32 CIFAR-10 TransGAN generator with frozen pretrained ResNet-18 feature critic and routing encoder | `hypergan download-data cifar10` | GPU |
+| [`cifar-transgan-scratch.toml`](cifar-transgan-scratch.toml) | 32×32 CIFAR-10 Pure-Transformer TransGAN generator with scratch multi-scale TransGAN critic and routing encoder | `hypergan download-data cifar10` | GPU |
+
+## Packaged Wheel Recipes
+
+Five recipes also ship inside the installed `hypergan` wheel (`src/hypergan/models/`) and can be trained directly by name without copying a TOML file (`hypergan recipes`): `gaussian-grid`, `image-folder-128`, `colorization-128`, `cifar10-tiny-transformer`, and `cifar10-transgan`.
 
 ## Directory Structure
 

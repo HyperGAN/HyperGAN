@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="workspace-shell no-toc">
+  <aside id="site-sidebar" class="sidebar" aria-label="Documentation navigation">
+    {% for grp in nav_groups %}
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">{{ grp.title }}</h2>
+      <ul class="sidebar-list">
+        {% for item in grp["items"] %}
+        <li>
+          <a href="{{ root_prefix }}{{ item.url }}" class="{% if item.url == current_url %}is-active{% endif %}">
+            <span>{{ item.title }}</span>
+            {% if item.badge %}<span class="sidebar-badge">{{ item.badge }}</span>{% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </aside>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <main id="main-content" class="content-pane" data-filter-root>
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="{{ root_prefix }}index.html">Home</a>
+      <span class="sep">/</span>
+      <span>Recipes &amp; Examples</span>
+      <span class="sep">/</span>
+      <span>Gallery</span>
+    </nav>
+
+    <header class="ref-header">
+      <span class="eyebrow">Auto-Indexed From Wheel &amp; Repository</span>
+      <h1>Examples &amp; Packaged Recipes</h1>
+      <p>
+        Browse every packaged wheel recipe runnable by name, declarative <code>hypergan-model/1</code> TOML config,
+        config-first Python API script, reusable HNDL architecture, execution profile, and <code>hypergan new</code> starter template.
+      </p>
+      <div class="ref-stats">
+        <span class="badge badge-signal">{{ gallery_items | length }} total items</span>
+        {% for cat in gallery_categories %}
+        <span class="badge">{{ cat.count }} {{ cat.label }}</span>
+        {% endfor %}
+      </div>
+    </header>
+
+    <div class="filter-bar">
+      <div class="filter-row">
+        <input
+          class="filter-input"
+          type="search"
+          data-filter-input
+          placeholder="Search recipes, architectures, tags, or commands (e.g. colorization, cifar10, transgan, nccl, resnet)…"
+          aria-label="Filter examples and recipes"
+        />
+        <span class="filter-count" data-filter-count>{{ gallery_items | length }} / {{ gallery_items | length }} shown</span>
+      </div>
+      <div class="filter-pills" role="group" aria-label="Filter examples by category">
+        <button class="filter-pill is-active" type="button" data-filter-pill="all" aria-pressed="true">All ({{ gallery_items | length }})</button>
+        {% for cat in gallery_categories %}
+        <button class="filter-pill" type="button" data-filter-pill="{{ cat.id }}" aria-pressed="false">{{ cat.label }} ({{ cat.count }})</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="empty-filter-state" data-filter-empty>
+      No examples match the selected category and search query.
+    </div>
+
+    <div class="gallery-grid">
+      {% for item in gallery_items %}
+      {% set cat_badge = 'badge-signal' if item.filter_category == 'packaged' else 'badge-blue' if item.filter_category == 'python' else 'badge-warn' if item.filter_category == 'hndl' else 'badge-lilac' if item.filter_category == 'toml' else 'badge' %}
+      <article
+        id="{{ item.anchor_id }}"
+        class="example-card"
+        data-filter-item
+        data-filter-category="{{ item.filter_category }}"
+        data-filter-text="{{ item.title }} {{ item.category_label }} {{ item.path }} {{ item.summary }} {{ (item.tags or []) | join(' ') }} {{ item.run_command }}"
+      >
+        <div class="example-card-head">
+          <div class="example-card-top">
+            <span class="badge {{ cat_badge }}">{{ item.category_label }}</span>
+            <div class="ref-card-actions">
+              {% if item.doc_slug and doc_slug_to_url.get(item.doc_slug) %}
+              <a href="{{ root_prefix }}{{ doc_slug_to_url[item.doc_slug] }}">Guide →</a>
+              {% endif %}
+              {% if item.github_url %}
+              <a href="{{ item.github_url }}" target="_blank" rel="noopener">Source ↗</a>
+              {% endif %}
+              <a href="#{{ item.anchor_id }}" aria-label="Link to {{ item.title }}">#</a>
+            </div>
+          </div>
+          <h3>{{ item.title }}</h3>
+          {% if item.path %}
+          <div class="example-path">{{ item.path }}</div>
+          {% endif %}
+        </div>
+
+        <div class="example-card-body">
+          {% if item.summary %}
+          <p class="ref-summary">{{ item.summary }}</p>
+          {% endif %}
+
+          {% if item.tags %}
+          <div class="example-tags">
+            {% for tag in item.tags %}
+            <span class="badge">{{ tag }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if item.run_command %}
+          <div class="example-run">
+            <code>{{ item.run_command }}</code>
+            <button class="copy-btn" type="button" data-copy-text="{{ item.run_command }}">Copy</button>
+          </div>
+          {% endif %}
+
+          {% if item.code_html %}
+          <details class="example-code-details">
+            <summary>View source ({{ item.language }})</summary>
+            {{ item.code_html | safe }}
+          </details>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </main>
+</div>
+{% endblock %}

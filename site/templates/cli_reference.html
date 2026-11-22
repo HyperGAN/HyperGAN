@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% macro render_command(cmd, is_sub=false) %}
+<article
+  id="{{ cmd.anchor_id }}"
+  class="ref-card"
+  {% if not is_sub %}
+  data-filter-item
+  data-filter-category="command"
+  data-filter-text="{{ cmd.full_command }} {{ cmd.name }} {{ (cmd.aliases or []) | join(' ') }} {{ cmd.summary }} {{ cmd.description }} {% for o in (cmd.options or []) %}{{ o.flags }} {{ o.help }} {% endfor %}{% for s in (cmd.subcommands or []) %}{{ s.full_command }} {{ s.summary }} {% endfor %}"
+  {% endif %}
+>
+  <div class="ref-card-head">
+    <div class="ref-card-title">
+      {% if is_sub %}
+      <span class="badge badge-lilac">subcommand</span>
+      {% else %}
+      <span class="badge badge-blue">cmd</span>
+      {% endif %}
+      <h3>{{ cmd.full_command or ('hypergan ' ~ cmd.name) }}</h3>
+      {% for alias in (cmd.aliases or []) %}
+      <span class="badge">alias: {{ alias }}</span>
+      {% endfor %}
+    </div>
+    <div class="ref-card-actions">
+      <button class="copy-btn" type="button" data-copy-text="{{ cmd.full_command or ('hypergan ' ~ cmd.name) }}">Copy</button>
+      <a href="#{{ cmd.anchor_id }}" aria-label="Link to {{ cmd.full_command }}">#</a>
+    </div>
+  </div>
+
+  <div class="ref-card-body">
+    {% if cmd.summary %}
+    <p class="ref-summary">{{ cmd.summary }}</p>
+    {% endif %}
+    {% if cmd.description and cmd.description != cmd.summary %}
+    <p class="ref-doc" style="margin: 0;">{{ cmd.description }}</p>
+    {% endif %}
+
+    {% if cmd.usage %}
+    <pre class="sig-box">{{ cmd.usage }}</pre>
+    {% endif %}
+
+    {% if cmd.positionals %}
+    <div>
+      <div class="ref-subhead">Positional Arguments</div>
+      <table class="data-table" style="margin: 6px 0 0;">
+        <thead>
+          <tr>
+            <th>Argument</th>
+            <th>Required</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pos in cmd.positionals %}
+          <tr>
+            <td><code>{{ pos.metavar or pos.name }}</code></td>
+            <td>{% if pos.required %}<span class="badge badge-signal">required</span>{% else %}<span class="badge">optional</span>{% endif %}</td>
+            <td>{{ pos.help }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if cmd.options %}
+    <div>
+      <div class="ref-subhead">Options</div>
+      <table class="data-table" style="margin: 6px 0 0;">
+        <thead>
+          <tr>
+            <th>Flag</th>
+            <th>Default / Choices</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for opt in cmd.options %}
+          <tr>
+            <td><code>{{ opt.flags }}{% if opt.metavar %} {{ opt.metavar }}{% endif %}</code></td>
+            <td>
+              {% if opt.default %}<code>{{ opt.default }}</code>{% endif %}
+              {% if opt.choices %}
+              <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px;">
+                {% for ch in opt.choices %}<span class="badge">{{ ch }}</span>{% endfor %}
+              </div>
+              {% endif %}
+            </td>
+            <td>{{ opt.help }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if cmd.subcommands %}
+    <div>
+      <div class="ref-subhead">Subcommands ({{ cmd.subcommands | length }})</div>
+      <div class="subcommand-list">
+        {% for sub in cmd.subcommands %}
+        {{ render_command(sub, is_sub=true) }}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</article>
+{% endmacro %}
+
+{% block body %}
+<div class="workspace-shell no-toc">
+  <aside id="site-sidebar" class="sidebar" aria-label="CLI navigation">
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">CLI Command Groups</h2>
+      <ul class="sidebar-list">
+        {% for grp in cli.groups %}
+        <li>
+          <a href="#cli-group-{{ grp.id | slugify }}">
+            <span>{{ grp.title }}</span>
+            <span class="sidebar-badge">{{ grp.commands | length }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">All References</h2>
+      <ul class="sidebar-list">
+        <li><a href="{{ root_prefix }}reference/api/index.html"><span>Python API</span><span class="sidebar-badge">{{ meta.counts.api }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/cli/index.html" class="is-active"><span>CLI Reference</span><span class="sidebar-badge">{{ meta.counts.cli }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/schema/index.html"><span>TOML Schema</span><span class="sidebar-badge">{{ meta.counts.schema_sections }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/ops/index.html"><span>HNDL Operators</span><span class="sidebar-badge">{{ meta.counts.ops }}</span></a></li>
+        <li><a href="{{ root_prefix }}examples/index.html"><span>Examples Gallery</span></a></li>
+      </ul>
+    </div>
+  </aside>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <main id="main-content" class="content-pane" data-filter-root>
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="{{ root_prefix }}index.html">Home</a>
+      <span class="sep">/</span>
+      <span>Reference</span>
+      <span class="sep">/</span>
+      <span>CLI Reference</span>
+    </nav>
+
+    <header class="ref-header">
+      <span class="eyebrow">Auto-Generated From hypergan.cli._parser()</span>
+      <h1>CLI Reference</h1>
+      <p>
+        Complete command-line interface for <code>hypergan</code> covering project scaffolding,
+        static validation, training, run lifecycle management, sampling, evaluation, export,
+        job queues, and the local Web Observatory.
+      </p>
+      <div class="ref-stats">
+        <span class="badge badge-blue">{{ cli.total }} commands &amp; subcommands</span>
+        <span class="badge">{{ cli.groups | length }} workflow groups</span>
+      </div>
+    </header>
+
+    {% if cli.global_flags %}
+    <section class="global-flags-box" aria-label="Global CLI flags">
+      <h2>Global Flags</h2>
+      <table class="data-table" style="margin: 0;">
+        <thead>
+          <tr>
+            <th>Flag</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for flag in cli.global_flags %}
+          <tr>
+            <td><code>{{ flag.flags }}{% if flag.metavar %} {{ flag.metavar }}{% endif %}</code></td>
+            <td>{{ flag.help }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    <div class="filter-bar">
+      <div class="filter-row">
+        <input
+          class="filter-input"
+          type="search"
+          data-filter-input
+          placeholder="Filter CLI commands by name, alias, option flag (--json, --steps, --devices), or description…"
+          aria-label="Filter CLI commands"
+        />
+        <span class="filter-count" data-filter-count></span>
+      </div>
+    </div>
+
+    <div class="empty-filter-state" data-filter-empty>
+      No CLI commands match your search query.
+    </div>
+
+    {% for grp in cli.groups %}
+    <section id="cli-group-{{ grp.id | slugify }}" class="ref-group" data-filter-group>
+      <div class="ref-group-head">
+        <h2>{{ grp.title }}</h2>
+        <span class="badge">{{ grp.commands | length }} commands</span>
+      </div>
+      {% if grp.description %}
+      <p class="ref-group-desc">{{ grp.description }}</p>
+      {% endif %}
+
+      {% for cmd in grp.commands %}
+      {{ render_command(cmd) }}
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </main>
+</div>
+{% endblock %}

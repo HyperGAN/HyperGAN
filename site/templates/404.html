@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block body %}
+<main id="main-content" class="error-page">
+  <span class="eyebrow">HyperGAN Documentation</span>
+  <div class="error-code">404</div>
+  <h1>Page not found</h1>
+  <p>
+    The requested page does not exist or may have moved. Search across all guides,
+    Python API symbols, CLI commands, TOML schema fields, HNDL operators, and examples.
+  </p>
+  <div class="hero-actions" style="justify-content: center; margin-top: 8px;">
+    <button class="btn btn-primary" type="button" data-search-open>Search Documentation (⌘K)</button>
+    <a class="btn btn-secondary" href="{{ root_prefix }}index.html">Back to Home</a>
+    <a class="btn btn-ghost" href="{{ root_prefix }}quickstart/index.html">Quickstart</a>
+    <a class="btn btn-ghost" href="{{ root_prefix }}reference/api/index.html">Python API</a>
+  </div>
+</main>
+{% endblock %}

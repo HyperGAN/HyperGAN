@@ -87,7 +87,8 @@
 
       <div class="ref-card">
         <div class="ref-card-body" style="padding: 0;">
-          <table class="data-table" style="margin: 0; border: none; border-radius: 0;">
+          <div class="table-wrap table-flush">
+          <table class="data-table">
             <thead>
               <tr>
                 <th>Key</th>
@@ -122,6 +123,7 @@
               {% endfor %}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </section>
@@ -160,7 +162,8 @@
           {% endif %}
 
           {% if sec.fields %}
-          <table class="data-table" style="margin: 0;">
+          <div class="table-wrap" style="margin: 0;">
+          <table class="data-table">
             <thead>
               <tr>
                 <th>Field</th>
@@ -195,6 +198,7 @@
               {% endfor %}
             </tbody>
           </table>
+          </div>
           {% else %}
           <p class="ref-doc" style="margin: 0;">Dynamic table mapping named entries; see the <a href="{{ root_prefix }}{{ doc_slug_to_url.get('configuration', 'quickstart/index.html') }}">Configuration Guide</a> for usage examples.</p>
           {% endif %}

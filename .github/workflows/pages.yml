@@ -50,10 +50,17 @@ jobs:
         run: python site/build.py --out _site --strict
 
       - name: Configure GitHub Pages
-        if: github.repository == 'HyperGAN/HyperGAN'
+        if: >-
+          github.repository == 'HyperGAN/HyperGAN' &&
+          (github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')))
         uses: actions/configure-pages@v5
 
       - name: Upload GitHub Pages artifact
+        if: >-
+          github.repository == 'HyperGAN/HyperGAN' &&
+          (github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')))
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site

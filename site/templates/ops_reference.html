@@ -124,7 +124,8 @@
             {% endif %}
 
             {% if op.args %}
-            <table class="data-table" style="margin: 4px 0 0;">
+            <div class="table-wrap" style="margin: 4px 0 0;">
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>Arg</th>
@@ -145,6 +146,7 @@
                 {% endfor %}
               </tbody>
             </table>
+            </div>
             {% endif %}
           </div>
         </article>

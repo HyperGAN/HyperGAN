@@ -134,7 +134,8 @@
           {% if item.fields %}
           <div>
             <div class="ref-subhead">Fields</div>
-            <table class="data-table" style="margin: 6px 0 0;">
+            <div class="table-wrap" style="margin: 6px 0 0;">
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>Field</th>
@@ -152,13 +153,15 @@
                 {% endfor %}
               </tbody>
             </table>
+            </div>
           </div>
           {% endif %}
 
           {% if item.methods %}
           <div>
             <div class="ref-subhead">Methods</div>
-            <table class="data-table" style="margin: 6px 0 0;">
+            <div class="table-wrap" style="margin: 6px 0 0;">
+            <table class="data-table">
               <thead>
                 <tr>
                   <th>Method</th>
@@ -176,6 +179,7 @@
                 {% endfor %}
               </tbody>
             </table>
+            </div>
           </div>
           {% endif %}
         </div>

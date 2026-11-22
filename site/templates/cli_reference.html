@@ -43,7 +43,8 @@
     {% if cmd.positionals %}
     <div>
       <div class="ref-subhead">Positional Arguments</div>
-      <table class="data-table" style="margin: 6px 0 0;">
+      <div class="table-wrap" style="margin: 6px 0 0;">
+      <table class="data-table">
         <thead>
           <tr>
             <th>Argument</th>
@@ -61,13 +62,15 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </div>
     {% endif %}
 
     {% if cmd.options %}
     <div>
       <div class="ref-subhead">Options</div>
-      <table class="data-table" style="margin: 6px 0 0;">
+      <div class="table-wrap" style="margin: 6px 0 0;">
+      <table class="data-table">
         <thead>
           <tr>
             <th>Flag</th>
@@ -92,6 +95,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </div>
     {% endif %}
 
@@ -165,7 +169,8 @@
     {% if cli.global_flags %}
     <section class="global-flags-box" aria-label="Global CLI flags">
       <h2>Global Flags</h2>
-      <table class="data-table" style="margin: 0;">
+      <div class="table-wrap" style="margin: 0;">
+      <table class="data-table">
         <thead>
           <tr>
             <th>Flag</th>
@@ -181,6 +186,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </section>
     {% endif %}
 

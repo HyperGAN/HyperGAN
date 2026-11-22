@@ -40,13 +40,15 @@
         </div>
 
         <div class="install-panel is-active" data-tab-panel="cuda">
-          <pre class="install-cmd"><span class="prompt">$ </span>python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cu130
+          <pre class="install-cmd"><span class="prompt">$ </span>python -m pip install "torch==2.14.0" "torchvision==0.29.0" \
+    --index-url https://download.pytorch.org/whl/cu130
 <span class="prompt">$ </span>python -m pip install "hypergan[all]=={{ meta.version }}"</pre>
           <button class="copy-btn" type="button" data-copy-text='python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cu130&#10;python -m pip install "hypergan[all]=={{ meta.version }}"'>Copy</button>
         </div>
 
         <div class="install-panel" data-tab-panel="cpu">
-          <pre class="install-cmd"><span class="prompt">$ </span>python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
+          <pre class="install-cmd"><span class="prompt">$ </span>python -m pip install "torch==2.14.0" "torchvision==0.29.0" \
+    --index-url https://download.pytorch.org/whl/cpu
 <span class="prompt">$ </span>python -m pip install "hypergan[all]=={{ meta.version }}"</pre>
           <button class="copy-btn" type="button" data-copy-text='python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu&#10;python -m pip install "hypergan[all]=={{ meta.version }}"'>Copy</button>
         </div>

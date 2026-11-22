@@ -338,14 +338,14 @@ Explore the full documentation on [hypergan.github.io/HyperGAN](https://hypergan
 
 ## Development and Migration
 
-HyperGAN uses **Foldlite DB** (`foldlitedb>=0.4.2,<0.5`) for append-only event journals, `.fold` views, and shared Rust/WASM reducers:
+HyperGAN uses **Foldlite DB** (`foldlitedb>=0.5.0,<0.6`) for append-only event journals, `.fold` views, and shared Rust/WASM reducers:
 
 ```sh
-python -m pip install "foldlitedb>=0.4.2,<0.5"
+python -m pip install "foldlitedb>=0.5.0,<0.6"
 python -m pip install -e '.[dev,web]'
 ```
 
-For testing unpublished Foldlite revisions in CI or local development, set `FOLDLITEDB_SOURCE` to an accessible wheel URL, a pip source reference pinned to an exact revision, or a local Foldlite checkout path; when unset, `foldlitedb>=0.4.2,<0.5` is installed from the configured package index. See the [Foldlite integration and cache contract](https://github.com/HyperGAN/HyperGAN/blob/master/docs/foldlitedb.md).
+For testing unpublished Foldlite revisions in CI or local development, set `FOLDLITEDB_SOURCE` to an accessible wheel URL, a pip source reference pinned to an exact revision, or a local Foldlite checkout path; when unset, `foldlitedb>=0.5.0,<0.6` is installed from the configured package index. See the [Foldlite integration and cache contract](https://github.com/HyperGAN/HyperGAN/blob/master/docs/foldlitedb.md).
 
 Install `.[dev,train,image,web]` in the tested runtime environment, then run `python -m pytest` for CPU and lightweight correctness tests. That default selection deselects the `heavy` marker, which gates tests that start real subprocesses, multi-rank jobs, and worker services; run those deliberately with `python -m pytest -m heavy`. The default run covers `tests/foundation`, `tests/reference`, `tests/unit`, `tests/playbooks`, `tests/e2e`, and `tests/e2e_integration`; the viewer, browser, reducer, and CUDA tiers need extra dependencies or hardware and are run by path. [tests/README.md](https://github.com/HyperGAN/HyperGAN/blob/master/tests/README.md) lists every tier and how to run it; see also [CUDA execution and validation](https://github.com/HyperGAN/HyperGAN/blob/master/docs/cuda.md) and [CI and PyPI releases](https://github.com/HyperGAN/HyperGAN/blob/master/docs/releasing.md). All guides are indexed in [docs/README.md](https://github.com/HyperGAN/HyperGAN/blob/master/docs/README.md), and [CONTRIBUTING.md](https://github.com/HyperGAN/HyperGAN/blob/master/CONTRIBUTING.md) covers the pull-request workflow.
 

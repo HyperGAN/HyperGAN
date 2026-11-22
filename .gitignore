@@ -21,3 +21,4 @@ rebuilt/
 _build_provenance.json
 /data/
 /TODO.md
+/_site/

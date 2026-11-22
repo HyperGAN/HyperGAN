@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+
+{% block body %}
+<main id="main-content" class="landing-main">
+  <!-- Hero -->
+  <section class="hero-section">
+    <div>
+      <div class="hero-brand-row">
+        <span class="eyebrow">HyperGAN v{{ meta.version }}</span>
+        <a class="hero-byline" href="https://255labs.xyz" target="_blank" rel="noopener">
+          <span>by</span>
+          <img class="lockup-dark" src="{{ root_prefix }}assets/255labs-lockup.svg" alt="255labs" />
+          <img class="lockup-light" src="{{ root_prefix }}assets/255labs-lockup-ink.svg" alt="255labs" />
+        </a>
+      </div>
+
+      <h1 class="hero-title">
+        Train generative models. <span class="accent-word">Follow their progress.</span> Export the result.
+      </h1>
+
+      <p class="hero-subtitle">
+        Declarative <code>hypergan-model/1</code> TOML configs, pure HNDL neural network graphs,
+        ParticleGAN <code>unified_v11</code> optimization, a real-time Foldlite DB Web Observatory,
+        and standalone generator export from one CLI and typed Python API.
+      </p>
+
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="{{ root_prefix }}quickstart/index.html">Get Started</a>
+        <a class="btn btn-secondary" href="{{ root_prefix }}examples/index.html">Examples</a>
+        <a class="btn btn-ghost" href="{{ root_prefix }}reference/api/index.html">Python API</a>
+        <a class="btn btn-ghost" href="{{ meta.repo_url }}" target="_blank" rel="noopener">GitHub</a>
+      </div>
+
+      <!-- Interactive Install Bar -->
+      <div class="install-bar" data-tabs>
+        <div class="install-tabs" role="tablist" aria-label="Install methods">
+          <button class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-tab-target="cuda">PyPI · CUDA 13.0</button>
+          <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab-target="cpu">PyPI · CPU</button>
+          <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab-target="source">From Source</button>
+        </div>
+
+        <div class="install-panel is-active" data-tab-panel="cuda">
+          <pre class="install-cmd"><span class="prompt">$ </span>python -m pip install "torch==2.14.0" "torchvision==0.29.0" \
+    --index-url https://download.pytorch.org/whl/cu130
+<span class="prompt">$ </span>python -m pip install "hypergan[all]=={{ meta.version }}"</pre>
+          <button class="copy-btn" type="button" data-copy-text='python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cu130&#10;python -m pip install "hypergan[all]=={{ meta.version }}"'>Copy</button>
+        </div>
+
+        <div class="install-panel" data-tab-panel="cpu">
+          <pre class="install-cmd"><span class="prompt">$ </span>python -m pip install "torch==2.14.0" "torchvision==0.29.0" \
+    --index-url https://download.pytorch.org/whl/cpu
+<span class="prompt">$ </span>python -m pip install "hypergan[all]=={{ meta.version }}"</pre>
+          <button class="copy-btn" type="button" data-copy-text='python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu&#10;python -m pip install "hypergan[all]=={{ meta.version }}"'>Copy</button>
+        </div>
+
+        <div class="install-panel" data-tab-panel="source">
+          <pre class="install-cmd"><span class="prompt">$ </span>git clone https://github.com/HyperGAN/HyperGAN.git &amp;&amp; cd HyperGAN
+<span class="prompt">$ </span>python -m pip install -e ".[all]"</pre>
+          <button class="copy-btn" type="button" data-copy-text='git clone https://github.com/HyperGAN/HyperGAN.git && cd HyperGAN&#10;python -m pip install -e ".[all]"'>Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <figure class="hero-showcase" style="margin: 0;">
+      <div class="showcase-chrome">
+        <span class="showcase-status">
+          <span class="showcase-dot" aria-hidden="true"></span>
+          <span>colorization-128 · HNDL</span>
+        </span>
+        <span>L(G(gray, z)) == gray (&lt; 1e-5)</span>
+      </div>
+      <div class="showcase-media">
+        <img
+          src="{{ root_prefix }}assets/hypergan-colorizer-banner.png"
+          alt="128x128 HNDL particle colorizer conditioning a grayscale HG monogram into 16 diverse colorizations"
+        />
+      </div>
+      <figcaption class="showcase-caption">
+        <strong>Conditional L→AB Particle Colorization</strong>
+        <p>128×128 HNDL particle colorizer · 16 draws · exact 7-face polytope luminance lock · packaged in the wheel as <code>colorization-128</code>.</p>
+      </figcaption>
+    </figure>
+  </section>
+
+  <!-- Verified Measured Highlights Strip -->
+  <section class="metrics-strip" aria-label="Verified measured highlights">
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <span class="metric-kicker">256×256 Colorization</span>
+        <div class="metric-value">6.37<span class="unit">FID-10k</span></div>
+        <div class="metric-label">DINOv3 Logo Colorizer</div>
+        <p class="metric-provenance">2× RTX A6000 · ParticleGAN 0.9.7 BISPF · step 2,500 · luma err 2.61e-7</p>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-kicker">CIFAR-10 · 32×32</span>
+        <div class="metric-value">14.56<span class="unit">FID-50k</span></div>
+        <div class="metric-label">Tiny Transformer + ResNet-18 Critic</div>
+        <p class="metric-provenance">2× RTX A6000 · batch 256 · 15k steps BISPF (15.16 @ 12.5k EMPF)</p>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-kicker">Multi-GPU NCCL Scaling</span>
+        <div class="metric-value">2.20×<span class="unit">speedup</span></div>
+        <div class="metric-label">1,517.19 img/s on 2× RTX A6000</div>
+        <p class="metric-provenance">Global batch 256 (110.2% eff., 1.52 GiB VRAM/GPU; batch 64 was 0.79×)</p>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-kicker">Typed Surface &amp; Serving</span>
+        <div class="metric-value">{{ meta.counts.api or 129 }}<span class="unit">API symbols</span></div>
+        <div class="metric-label">Torch-free import · 4 export formats</div>
+        <p class="metric-provenance">Python 3.11–3.14 · bundle, pt2, onnx, safetensors · {{ meta.counts.ops or 85 }} HNDL ops</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Code Showcase -->
+  <section class="section-wrap">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">One Coherent Stack</span>
+        <h2>CLI, Python API, TOML, and HNDL — aligned by design.</h2>
+        <p>Every training run records its resolved recipe, network source, and telemetry stream so CLI runs and Python scripts share the same registry and export artifacts.</p>
+      </div>
+      <a class="btn btn-secondary btn-sm" href="{{ root_prefix }}reference/cli/index.html">Explore all {{ meta.counts.cli }} CLI commands →</a>
+    </div>
+
+    <div class="code-showcase" data-tabs>
+      <div class="code-showcase-bar">
+        <div class="code-showcase-tabs" role="tablist" aria-label="Code examples">
+          {% for tab in landing_tabs %}
+          <button
+            class="tab-btn {% if loop.first %}is-active{% endif %}"
+            type="button"
+            role="tab"
+            aria-selected="{{ 'true' if loop.first else 'false' }}"
+            data-tab-target="showcase-{{ tab.id }}"
+          >{{ tab.label }}</button>
+          {% endfor %}
+        </div>
+        <span class="badge">{{ meta.counts.schema_sections }} TOML sections · {{ meta.counts.ops }} HNDL ops</span>
+      </div>
+
+      {% for tab in landing_tabs %}
+      <div class="code-showcase-panel {% if loop.first %}is-active{% endif %}" data-tab-panel="showcase-{{ tab.id }}">
+        {{ tab.code_html | safe }}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Architecture & Capabilities Bento -->
+  <section class="section-wrap">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Architecture</span>
+        <h2>Built for reproducible generative research and deployment.</h2>
+      </div>
+    </div>
+
+    <div class="bento-grid">
+      <article class="bento-card">
+        <span class="bento-num">01 / DECLARATIVE</span>
+        <h3><code>hypergan-model/1</code> + HNDL</h3>
+        <p>Declare data, priors, multi-port HNDL networks (or custom PyTorch <code>nn.Module</code>s), losses, and evaluations in versioned TOML with static shape verification before allocating a GPU.</p>
+        <a class="card-link" href="{{ root_prefix }}reference/schema/index.html">Inspect {{ meta.counts.schema_fields }} schema fields →</a>
+      </article>
+
+      <article class="bento-card">
+        <span class="bento-num">02 / OPTIMIZATION</span>
+        <h3>ParticleGAN <code>unified_v11</code></h3>
+        <p>Learned latent particle tables with <code>coupled_max</code> multi-critic thermal coordination and dual-safe <code>fwAD</code> softmax penalties for mode coverage and stable convergence.</p>
+        <a class="card-link" href="{{ root_prefix }}{{ doc_slug_to_url.get('particlegan', 'quickstart/index.html') }}">Read integration boundary →</a>
+      </article>
+
+      <article class="bento-card">
+        <span class="bento-num">03 / OBSERVABILITY</span>
+        <h3>Web Observatory + Foldlite DB WASM</h3>
+        <p>Append-only Foldlite DB journals drive a local browser observatory with a shared Rust/WASM streaming reducer, live loss/FID curves, EMA preview sliders, and inline HNDL layer tables.</p>
+        <a class="card-link" href="{{ root_prefix }}{{ doc_slug_to_url.get('local-web', 'quickstart/index.html') }}">Web Observatory guide →</a>
+      </article>
+
+      <article class="bento-card">
+        <span class="bento-num">04 / SCALING</span>
+        <h3>Multi-GPU NCCL Scaling</h3>
+        <p>Launch single-host replicated training with <code>--devices 0,1</code>, bounded preview budgets, resumable checkpoints, and explicit execution profiles for CPU, CUDA, and Docker.</p>
+        <a class="card-link" href="{{ root_prefix }}{{ doc_slug_to_url.get('scaling-benchmark', 'quickstart/index.html') }}">View scaling measurements →</a>
+      </article>
+
+      <article class="bento-card">
+        <span class="bento-num">05 / DEPLOYMENT</span>
+        <h3>Standalone Generator Export</h3>
+        <p>Bake EMA generator weights with SHA-256 provenance into Python bundles (<code>bundle</code>), PyTorch <code>pt2</code>, <code>onnx</code>, or <code>safetensors</code> — with <code>sample()</code> and spherical <code>interpolate()</code>.</p>
+        <a class="card-link" href="{{ root_prefix }}{{ doc_slug_to_url.get('deployment', 'quickstart/index.html') }}">Deployment guide →</a>
+      </article>
+
+      <article class="bento-card">
+        <span class="bento-num">06 / OPERATIONS</span>
+        <h3>Docker-Style Run Registry &amp; Queue</h3>
+        <p>Daemonless global registry tracks every run by short ID, memorable slug (<code>fleet-hawk</code>), or custom tag. Control runs from any directory with <code>ps</code>, <code>status</code>, <code>logs</code>, <code>stop</code>, <code>gc</code>, and a multi-GPU job queue.</p>
+        <a class="card-link" href="{{ root_prefix }}reference/cli/index.html">CLI command reference →</a>
+      </article>
+    </div>
+  </section>
+
+  <!-- Curated Packaged Recipes Preview -->
+  <section class="section-wrap">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Shipped In The Wheel</span>
+        <h2>Zero-copy recipes ready to validate and train.</h2>
+        <p>Run any packaged wheel recipe by name or browse all TOML configs, Python API demos, HNDL networks, and execution profiles in the Examples Gallery.</p>
+      </div>
+      <a class="btn btn-primary btn-sm" href="{{ root_prefix }}examples/index.html">Browse all examples →</a>
+    </div>
+
+    <div class="recipe-grid">
+      {% for rec in packaged_recipes[:5] %}
+      <a class="recipe-card" href="{{ root_prefix }}examples/index.html#{{ rec.anchor_id }}">
+        <div class="recipe-card-head">
+          <h3>{{ rec.title }}</h3>
+          <span class="badge badge-signal">Wheel</span>
+        </div>
+        <p>{{ rec.summary }}</p>
+        {% if rec.run_command %}
+        <div class="recipe-cmd">{{ rec.run_command }}</div>
+        {% endif %}
+      </a>
+      {% else %}
+      <a class="recipe-card" href="{{ root_prefix }}examples/index.html">
+        <div class="recipe-card-head">
+          <h3>colorization-128</h3>
+          <span class="badge badge-signal">Wheel</span>
+        </div>
+        <p>128×128 conditional L→AB colorizer with U-Net + RoPE/SwiGLU Transformer palette cross-attention and exact 7-face polytope luminance lock.</p>
+        <div class="recipe-cmd">hypergan train colorization-128 --steps 1000</div>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- Documentation Pathways -->
+  <section class="section-wrap">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Documentation Pathways</span>
+        <h2>Jump straight to the surface you need.</h2>
+      </div>
+    </div>
+
+    <div class="pathways-grid">
+      <a class="pathway-link" href="{{ root_prefix }}quickstart/index.html">
+        <strong>Quickstart &amp; Install <span>→</span></strong>
+        <span>CUDA 13.0 / CPU setup, scaffolding, training, and export in 60 seconds.</span>
+      </a>
+      <a class="pathway-link" href="{{ root_prefix }}{{ doc_slug_to_url.get('configuration', 'quickstart/index.html') }}">
+        <strong>Guides &amp; Workflows <span>→</span></strong>
+        <span>{{ meta.counts.docs }} markdown guides covering custom images, FID, HNDL, CUDA, and recovery.</span>
+      </a>
+      <a class="pathway-link" href="{{ root_prefix }}reference/api/index.html">
+        <strong>Python API Reference <span>→</span></strong>
+        <span>{{ meta.counts.api }} Torch-free typed symbols with signatures, dataclasses, and source links.</span>
+      </a>
+      <a class="pathway-link" href="{{ root_prefix }}reference/cli/index.html">
+        <strong>CLI Reference <span>→</span></strong>
+        <span>{{ meta.counts.cli }} commands &amp; subcommands with global flags, options, and defaults.</span>
+      </a>
+      <a class="pathway-link" href="{{ root_prefix }}reference/schema/index.html">
+        <strong>TOML Model Schema <span>→</span></strong>
+        <span>{{ meta.counts.schema_sections }} sections and {{ meta.counts.schema_fields }} typed fields for <code>hypergan-model/1</code>.</span>
+      </a>
+      <a class="pathway-link" href="{{ root_prefix }}reference/ops/index.html">
+        <strong>HNDL Operators <span>→</span></strong>
+        <span>{{ meta.counts.ops }} neural network operators across 12 domains with port &amp; arg specs.</span>
+      </a>
+      {% if has_llms_txt %}
+      <a class="pathway-link" href="{{ root_prefix }}llms.txt">
+        <strong>llms.txt <span>→</span></strong>
+        <span>Machine-readable architecture &amp; documentation map for LLM coding agents.</span>
+      </a>
+      {% endif %}
+    </div>
+  </section>
+</main>
+{% endblock %}

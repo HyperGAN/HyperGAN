@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="workspace-shell no-toc">
+  <aside id="site-sidebar" class="sidebar" aria-label="Python API navigation">
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">Python API Sections</h2>
+      <ul class="sidebar-list">
+        {% for grp in api.groups %}
+        <li>
+          <a href="#group-{{ grp.id | slugify }}">
+            <span>{{ grp.title }}</span>
+            <span class="sidebar-badge">{{ grp["items"] | length }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">All References</h2>
+      <ul class="sidebar-list">
+        <li><a href="{{ root_prefix }}reference/api/index.html" class="is-active"><span>Python API</span><span class="sidebar-badge">{{ meta.counts.api }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/cli/index.html"><span>CLI Reference</span><span class="sidebar-badge">{{ meta.counts.cli }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/schema/index.html"><span>TOML Schema</span><span class="sidebar-badge">{{ meta.counts.schema_sections }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/ops/index.html"><span>HNDL Operators</span><span class="sidebar-badge">{{ meta.counts.ops }}</span></a></li>
+        <li><a href="{{ root_prefix }}examples/index.html"><span>Examples Gallery</span></a></li>
+      </ul>
+    </div>
+  </aside>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <main id="main-content" class="content-pane" data-filter-root>
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="{{ root_prefix }}index.html">Home</a>
+      <span class="sep">/</span>
+      <span>Reference</span>
+      <span class="sep">/</span>
+      <span>Python API</span>
+    </nav>
+
+    <header class="ref-header">
+      <span class="eyebrow">Auto-Generated From hypergan.__all__</span>
+      <h1>Python API Reference</h1>
+      <p>
+        Every public symbol exposed by <code>import hypergan as hg</code>, lazy-loaded so importing
+        <code>hypergan</code> stays Torch-free until training, sampling, or bundle loading runs.
+      </p>
+      <div class="ref-stats">
+        <span class="badge badge-signal">{{ api.total }} public symbols</span>
+        <span class="badge">{{ kind_counts.get('function', 0) }} functions</span>
+        <span class="badge badge-blue">{{ kind_counts.get('dataclass', 0) }} dataclasses</span>
+        <span class="badge badge-lilac">{{ kind_counts.get('class', 0) }} classes</span>
+        <span class="badge badge-danger">{{ kind_counts.get('exception', 0) }} exceptions</span>
+        {% if kind_counts.get('module', 0) %}
+        <span class="badge badge-warn">{{ kind_counts.get('module', 0) }} callable module</span>
+        {% endif %}
+      </div>
+    </header>
+
+    <div class="filter-bar">
+      <div class="filter-row">
+        <input
+          class="filter-input"
+          type="search"
+          data-filter-input
+          placeholder="Filter symbols by name, signature, alias, field, or docstring…"
+          aria-label="Filter Python API symbols"
+        />
+        <span class="filter-count" data-filter-count>{{ api.total }} / {{ api.total }} shown</span>
+      </div>
+      <div class="filter-pills" role="group" aria-label="Filter by symbol kind">
+        <button class="filter-pill is-active" type="button" data-filter-pill="all" aria-pressed="true">All ({{ api.total }})</button>
+        <button class="filter-pill" type="button" data-filter-pill="function" aria-pressed="false">Functions ({{ kind_counts.get('function', 0) }})</button>
+        <button class="filter-pill" type="button" data-filter-pill="dataclass" aria-pressed="false">Dataclasses ({{ kind_counts.get('dataclass', 0) }})</button>
+        <button class="filter-pill" type="button" data-filter-pill="class" aria-pressed="false">Classes ({{ kind_counts.get('class', 0) }})</button>
+        <button class="filter-pill" type="button" data-filter-pill="exception" aria-pressed="false">Exceptions ({{ kind_counts.get('exception', 0) }})</button>
+        {% if kind_counts.get('module', 0) %}
+        <button class="filter-pill" type="button" data-filter-pill="module" aria-pressed="false">Modules ({{ kind_counts.get('module', 0) }})</button>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="empty-filter-state" data-filter-empty>
+      No Python API symbols match the current filter.
+    </div>
+
+    {% for grp in api.groups %}
+    <section id="group-{{ grp.id | slugify }}" class="ref-group" data-filter-group>
+      <div class="ref-group-head">
+        <h2>{{ grp.title }}</h2>
+        <span class="badge">{{ grp["items"] | length }} symbols</span>
+      </div>
+      {% if grp.description %}
+      <p class="ref-group-desc">{{ grp.description }}</p>
+      {% endif %}
+
+      {% for item in grp["items"] %}
+      {% set kind_badge = 'badge-signal' if item.kind == 'function' else 'badge-blue' if item.kind == 'dataclass' else 'badge-lilac' if item.kind == 'class' else 'badge-danger' if item.kind == 'exception' else 'badge-warn' %}
+      <article
+        id="{{ item.anchor_id }}"
+        class="ref-card"
+        data-filter-item
+        data-filter-category="{{ item.kind }}"
+        data-filter-text="{{ item.name }} {{ item.kind }} {{ (item.aliases or []) | join(' ') }} {{ item.signature }} {{ item.summary }} {{ item.doc }}"
+      >
+        <div class="ref-card-head">
+          <div class="ref-card-title">
+            <span class="badge {{ kind_badge }}">{{ item.kind }}</span>
+            <h3>hg.{{ item.name }}</h3>
+            {% for alias in (item.aliases or []) %}
+            <span class="badge">alias: {{ alias }}</span>
+            {% endfor %}
+          </div>
+          <div class="ref-card-actions">
+            <a href="#{{ item.anchor_id }}" aria-label="Link to {{ item.name }}">#</a>
+            {% if item.source_url %}
+            <a href="{{ item.source_url }}" target="_blank" rel="noopener">{{ item.source_file }}{% if item.source_line %}:{{ item.source_line }}{% endif %} ↗</a>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="ref-card-body">
+          {% if item.signature %}
+          <pre class="sig-box">{{ item.signature }}</pre>
+          {% endif %}
+
+          {% if item.doc_html %}
+          <div class="ref-doc">{{ item.doc_html | safe }}</div>
+          {% elif item.summary %}
+          <p class="ref-summary">{{ item.summary }}</p>
+          {% endif %}
+
+          {% if item.fields %}
+          <div>
+            <div class="ref-subhead">Fields</div>
+            <div class="table-wrap" style="margin: 6px 0 0;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Field</th>
+                  <th>Type</th>
+                  <th>Default</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for f in item.fields %}
+                <tr>
+                  <td><code>{{ f.name }}</code></td>
+                  <td><code>{{ f.type or 'Any' }}</code></td>
+                  <td>{% if f.default %}<code>{{ f.default }}</code>{% else %}<span class="muted">required</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if item.methods %}
+          <div>
+            <div class="ref-subhead">Methods</div>
+            <div class="table-wrap" style="margin: 6px 0 0;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Method</th>
+                  <th>Signature</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for m in item.methods %}
+                <tr>
+                  <td><code>{{ m.name }}</code></td>
+                  <td><code>{{ m.signature }}</code></td>
+                  <td>{{ m.summary }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </main>
+</div>
+{% endblock %}

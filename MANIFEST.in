@@ -3,6 +3,7 @@ include setup.py
 include src/hypergan/py.typed
 include src/hypergan/_build_provenance.json
 prune docs
+prune site
 prune reports
 prune .agents
 prune .claude

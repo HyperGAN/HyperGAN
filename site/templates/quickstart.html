@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="workspace-shell">
+  <aside id="site-sidebar" class="sidebar" aria-label="Documentation navigation">
+    {% for grp in nav_groups %}
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">{{ grp.title }}</h2>
+      <ul class="sidebar-list">
+        {% for item in grp["items"] %}
+        <li>
+          <a href="{{ root_prefix }}{{ item.url }}" class="{% if item.url == current_url %}is-active{% endif %}">
+            <span>{{ item.title }}</span>
+            {% if item.badge %}<span class="sidebar-badge">{{ item.badge }}</span>{% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </aside>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <main id="main-content" class="content-pane">
+    <article class="doc-article prose">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="{{ root_prefix }}index.html">Home</a>
+        <span class="sep">/</span>
+        <span>Getting Started</span>
+        <span class="sep">/</span>
+        <span>Quickstart &amp; Install</span>
+      </nav>
+
+      <h1>Quickstart &amp; Install</h1>
+      <p>
+        Go from a clean virtual environment to a validated <code>hypergan-model/1</code> configuration,
+        live training telemetry in the Web Observatory, and a standalone exported generator in under a minute.
+      </p>
+
+      <div class="callout callout-note">
+        <div class="callout-title">Runtime &amp; Python Support</div>
+        <p>
+          Lightweight package commands (<code>new</code>, <code>validate</code>, <code>ps</code>, <code>status</code>, <code>logs</code>, <code>inspect</code>, <code>runs</code>, <code>queue</code>, <code>gc</code>, <code>rm</code>)
+          support <strong>Python 3.11–3.14</strong> on Linux, macOS, and Windows without importing PyTorch.
+          For training, CI tests <strong>Python 3.12+</strong> with <code>torch==2.14.0</code> and <code>torchvision==0.29.0</code>.
+        </p>
+      </div>
+
+      <h2 id="install">Install</h2>
+      <p>Choose PyPI with NVIDIA CUDA 13.0, PyPI CPU-only, or an editable source checkout:</p>
+
+      <div class="install-bar" data-tabs style="margin: 18px 0 24px;">
+        <div class="install-tabs" role="tablist" aria-label="Quickstart install tabs">
+          <button class="tab-btn is-active" type="button" role="tab" aria-selected="true" data-tab-target="qs-cuda">PyPI · CUDA 13.0</button>
+          <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab-target="qs-cpu">PyPI · CPU</button>
+          <button class="tab-btn" type="button" role="tab" aria-selected="false" data-tab-target="qs-src">From Source</button>
+        </div>
+
+        <div class="code-showcase-panel is-active" data-tab-panel="qs-cuda">
+          {{ qs_blocks.install_cuda.code_html | safe }}
+        </div>
+        <div class="code-showcase-panel" data-tab-panel="qs-cpu">
+          {{ qs_blocks.install_cpu.code_html | safe }}
+        </div>
+        <div class="code-showcase-panel" data-tab-panel="qs-src">
+          {{ qs_blocks.install_source.code_html | safe }}
+        </div>
+      </div>
+
+      <h2 id="sixty-second-quickstart">60-Second Quickstart</h2>
+      <p>
+        Scaffold a complete workspace (<code>hypergan.toml</code>, <code>runs/</code>, and <code>configs/&lt;template&gt;.toml</code>).
+        Pointing <code>--dataset</code> at an image folder reads only file headers, auto-detects resolution
+        (<code>32</code>, <code>64</code>, <code>128</code>, or <code>256</code>) and color mode, and sizes the HNDL networks automatically.
+      </p>
+      {{ qs_blocks.scaffold.code_html | safe }}
+
+      <h2 id="validate-and-train">Validate &amp; Train</h2>
+      <p>
+        Validate structure and HNDL shapes statically before allocating a GPU, override any TOML field with <code>-s KEY=VALUE</code>, and launch training:
+      </p>
+      {{ qs_blocks.validate_train.code_html | safe }}
+
+      <h2 id="live-run-management">Live Run Management &amp; Web Observatory</h2>
+      <p>
+        Every run registers in a daemonless global registry with a short ID, memorable Docker-style slug
+        (for example <code>fleet-hawk</code>), and optional tag. Control runs from any working directory
+        and inspect live curves and EMA preview sliders at <code>127.0.0.1:8765</code>:
+      </p>
+      {{ qs_blocks.manage_runs.code_html | safe }}
+
+      <h2 id="sampling-evaluation--standalone-export">Sampling, Evaluation &amp; Standalone Export</h2>
+      <p>
+        Draw grids from the EMA generator, run configured evaluations (FID, diversity, color moments),
+        and export standalone inference bundles with SHA-256 digests:
+      </p>
+      {{ qs_blocks.sample_export.code_html | safe }}
+      <p>
+        See the <a href="{{ root_prefix }}{{ doc_slug_to_url.get('deployment', 'quickstart/index.html') }}">Deployment Guide</a>
+        for serving <code>bundle</code>, <code>pt2</code>, <code>onnx</code>, and <code>safetensors</code> artifacts.
+      </p>
+
+      <h2 id="which-run-rm-gc-stop-and-tag-act-on">Which run <code>rm</code>, <code>gc</code>, <code>stop</code> and <code>tag</code> act on</h2>
+      <p>
+        Mutating commands resolve targets strictly to prevent accidental deletion: pass an exact run ID (or 8-character short ID),
+        slug, tag set via <code>hypergan tag</code>, run directory name, or path to a run directory (containing <code>manifest.json</code> or <code>summary.json</code>).
+        Prefix/substring matching, workspace roots, registered runs roots, <code>$HOME</code>, <code>/</code>, and symlinks are refused.
+        With no target, commands act on the current directory if it is a run; <code>stop</code> also stops a sole active run.
+      </p>
+
+      <h2 id="python-api-quickstart">Python API Quickstart</h2>
+      <p>
+        Everything in the CLI is exposed as typed, lazy-loaded functions under <code>import hypergan as hg</code>
+        (importing <code>hypergan</code> never imports PyTorch until training or sampling starts):
+      </p>
+      {{ qs_blocks.python_quickstart.code_html | safe }}
+
+      {% if next_page %}
+      <nav class="doc-pager" aria-label="Pagination">
+        <a class="pager-card pager-next" href="{{ root_prefix }}{{ next_page.url }}">
+          <span class="pager-dir">Next →</span>
+          <span class="pager-title">{{ next_page.title }}</span>
+        </a>
+      </nav>
+      {% endif %}
+    </article>
+  </main>
+
+  <aside class="toc-rail" aria-label="On this page">
+    <h2 class="toc-title">On This Page</h2>
+    <ul class="toc-list">
+      {% for h in toc %}
+      <li class="toc-h{{ h.level }}">
+        <a href="#{{ h.id }}">{{ h.title }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="toc-meta">
+      <a href="{{ root_prefix }}examples/index.html">Browse Examples →</a>
+      <a href="{{ root_prefix }}reference/cli/index.html">Full CLI Reference →</a>
+      <a href="{{ root_prefix }}reference/api/index.html">Full Python API →</a>
+    </div>
+  </aside>
+</div>
+{% endblock %}

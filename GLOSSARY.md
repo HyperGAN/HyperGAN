@@ -179,7 +179,7 @@ Trained generators can be exported into standalone formats for zero-dependency d
 
 | Format / Class | Command / File | Definition |
 | :--- | :--- | :--- |
-| **`bundle`** | `hypergan export --format bundle` | Self-contained PyTorch `.pt` bundle embedding generator weights, baked latent particle buffers, and configuration with zero ParticleGAN or HNDL runtime dependency. |
+| **`bundle`** | `hypergan export --format bundle` | Self-contained PyTorch `.pt` bundle embedding EMA generator weights, baked latent particle buffers, and configuration with zero ParticleGAN training dependency (loading an HNDL generator requires `hypergan`, `torch`, `numpy`, and `hndl`; see [deployment](docs/deployment.md)). |
 | **`safetensors`** | `hypergan export --format safetensors` | Memory-mapped, zero-copy tensor archive for high-throughput Rust, WebAssembly, and Hugging Face inference. |
 | **`pt2`** | `hypergan export --format pt2` | PyTorch 2.0 / TorchScript export format for embedded and C++ LibTorch production runtimes. |
 | **`onnx`** | `hypergan export --format onnx` | Open Neural Network Exchange model format for deployment with ONNX Runtime, TensorRT, or CoreML. |

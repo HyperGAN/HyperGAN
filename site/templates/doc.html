@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="workspace-shell{% if not toc %} no-toc{% endif %}">
+  <aside id="site-sidebar" class="sidebar" aria-label="Documentation navigation">
+    {% for grp in nav_groups %}
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">{{ grp.title }}</h2>
+      <ul class="sidebar-list">
+        {% for item in grp["items"] %}
+        <li>
+          <a href="{{ root_prefix }}{{ item.url }}" class="{% if item.url == current_url %}is-active{% endif %}">
+            <span>{{ item.title }}</span>
+            {% if item.badge %}<span class="sidebar-badge">{{ item.badge }}</span>{% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </aside>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <main id="main-content" class="content-pane">
+    <article class="doc-article prose">
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <a href="{{ root_prefix }}index.html">Home</a>
+        <span class="sep">/</span>
+        <span>{{ doc.group_title or "Docs" }}</span>
+        <span class="sep">/</span>
+        <span>{{ doc.title }}</span>
+      </nav>
+
+      {{ doc.html | safe }}
+
+      {% if prev_page or next_page %}
+      <nav class="doc-pager" aria-label="Pagination">
+        {% if prev_page %}
+        <a class="pager-card" href="{{ root_prefix }}{{ prev_page.url }}">
+          <span class="pager-dir">← Previous</span>
+          <span class="pager-title">{{ prev_page.title }}</span>
+        </a>
+        {% endif %}
+        {% if next_page %}
+        <a class="pager-card pager-next" href="{{ root_prefix }}{{ next_page.url }}">
+          <span class="pager-dir">Next →</span>
+          <span class="pager-title">{{ next_page.title }}</span>
+        </a>
+        {% endif %}
+      </nav>
+      {% endif %}
+    </article>
+  </main>
+
+  {% if toc %}
+  <aside class="toc-rail" aria-label="On this page">
+    <h2 class="toc-title">On This Page</h2>
+    <ul class="toc-list">
+      {% for h in toc %}
+      <li class="toc-h{{ h.level }}">
+        <a href="#{{ h.id }}">{{ h.title }}</a>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="toc-meta">
+      {% if doc.github_url %}
+      <a href="{{ doc.github_url }}" target="_blank" rel="noopener">Edit on GitHub ↗</a>
+      {% endif %}
+      {% if doc.source_path %}
+      <span class="mono" style="font-size: 11px; color: var(--muted);">{{ doc.source_path }}</span>
+      {% endif %}
+    </div>
+  </aside>
+  {% endif %}
+</div>
+{% endblock %}

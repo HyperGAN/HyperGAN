@@ -1,8 +1,8 @@
 # HyperGAN
 
-> HyperGAN 2.1.1: Declarative generative model training, live WebAssembly observation, and standalone export in PyTorch, HNDL, and ParticleGAN.
+> HyperGAN 2.2.0: Declarative generative model training, live WebAssembly observation, and standalone export in PyTorch, HNDL, and ParticleGAN.
 
-HyperGAN is a production-grade framework for training, inspecting, and deploying generative models. It combines declarative `format = "hypergan-model/1"` TOML model files, HNDL (`0.12.0`) neural network graphs, ParticleGAN (`0.11.2`, `unified_v11`) optimization with multi-critic coupled thermal coordination, single-host NCCL and experimental multi-node execution, a Foldlite DB (`0.5.0`) WebAssembly Web Observatory, a lazy-loaded typed Python API (`129` public symbols), and standalone generator export (`bundle`, `pt2`, `onnx`, `safetensors`).
+HyperGAN is a production-grade framework for training, inspecting, and deploying generative models. It combines declarative `format = "hypergan-model/1"` TOML model files, HNDL (`0.12.0`) neural network graphs, ParticleGAN (`0.12.0`, `unified_v12`) optimization with multi-critic coupled thermal coordination, single-host NCCL and experimental multi-node execution, a Foldlite DB (`0.5.0`) WebAssembly Web Observatory, a lazy-loaded typed Python API (`129` public symbols), and standalone generator export (`bundle`, `pt2`, `onnx`, `safetensors`).
 
 ## Canonical Documentation Site
 
@@ -18,7 +18,7 @@ HyperGAN is a production-grade framework for training, inspecting, and deploying
 
 - **Model Specification (`hypergan-model/1`)**: Declarative TOML describing data providers, latent priors, HNDL or Python networks, multi-critic adversarial/prior/reconstruction/objective losses, training schedules, retention policies, and snapshot evaluations.
 - **HNDL (`0.12.0`, HyperGAN Network Description Language)**: Declarative architecture DSL compiling to `torch.nn.Module` graphs with static symbolic shape inference, parameter sharing, pretrained foundation backbones (`pretrained`), and 85 built-in and augmentation operators across 12 categories.
-- **ParticleGAN (`0.11.2`, `unified_v11`)**: Unified 4-Law learned particle prior optimization with `coupled_max` multi-critic thermal coordination (`MultiCriticThermalCoordinator`), dual-safe `fwAD` softmax critic penalties (`DualSafeSoftmaxMode`), and full-graph composite generator probing.
+- **ParticleGAN (`0.12.0`, `unified_v12`)**: Energy-optimal Unified 4-Law learned particle prior optimization with `coupled_max` multi-critic thermal coordination (`MultiCriticThermalCoordinator`), dual-safe `fwAD` softmax critic penalties (`DualSafeSoftmaxMode`), and full-graph composite generator probing.
 - **Foldlite DB (`0.5.0`) & Web Observatory**: Append-only event journals, `.fold` projection views, and a shared Rust/WebAssembly streaming reducer powering the local dashboard (`hypergan view`, default `127.0.0.1:8765`), grouped learning-curve rail, retained EMA preview sliders, snapshot evaluation charts, and layer-by-layer Model inspection.
 - **Distributed Engine & Unified Checkpoints**: Single-host multi-GPU NCCL replicated training (`--devices 0,1`, measured `2.20×` scaling on 2× RTX A6000 at global batch 256) and experimental multi-node DDP/DiLoCo execution with unified `schema_version = 2` checkpoints (`state.pt` + per-rank RNG/sampler shards).
 - **Standalone Export (`hypergan export`)**: Privacy-clean EMA generator exports in `bundle` (`.pt`), PyTorch `pt2`, `onnx`, and `safetensors`, plus `hg.load_bundle()` (`LoadedGenerator`) for sampling and latent interpolation.
@@ -39,7 +39,7 @@ HyperGAN is a production-grade framework for training, inspecting, and deploying
 
 - [Configuration Guide](https://github.com/HyperGAN/HyperGAN/blob/master/docs/configuration.md): Complete `hypergan-model/1` TOML and runtime guide.
 - [Python API Guide](https://github.com/HyperGAN/HyperGAN/blob/master/docs/python-api.md): End-to-end config-first Python API patterns.
-- [ParticleGAN Integration](https://github.com/HyperGAN/HyperGAN/blob/master/docs/particlegan.md): `unified_v11`, named presets, and multi-critic thermal coordination.
+- [ParticleGAN Integration](https://github.com/HyperGAN/HyperGAN/blob/master/docs/particlegan.md): `unified_v12`, named presets, and multi-critic thermal coordination.
 - [HNDL Language Reference](https://github.com/HyperGAN/HyperGAN/blob/master/docs/hndl-reference.md): Grammar, shape inference, diagnostics, and 85-operator catalog.
 - [Web Observatory & Streaming API](https://github.com/HyperGAN/HyperGAN/blob/master/docs/local-web.md): Browser dashboard, auth, TLS proxy, and `/api/v1/*` REST/SSE routes.
 - [Deploying Exported Generators](https://github.com/HyperGAN/HyperGAN/blob/master/docs/deployment.md): Serving recipes for `bundle`, `pt2`, `onnx`, and `safetensors`.

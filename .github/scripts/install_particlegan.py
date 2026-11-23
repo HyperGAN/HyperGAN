@@ -1,14 +1,14 @@
 """Install ParticleGAN from an explicit source/wheel, PyPI, or pinned upstream commit.
 
-Uses PARTICLEGAN_SOURCE when configured, otherwise installs particlegan>=0.11.2,<0.12
-from the package index, falling back to the pinned HyperGAN/ParticleGAN v0.11.2 commit
-if the PyPI index does not yet serve 0.11.2.
+Uses PARTICLEGAN_SOURCE when configured, otherwise installs particlegan>=0.12.0,<0.13
+from the package index, falling back to the pinned HyperGAN/ParticleGAN v0.12.0 commit
+if the PyPI index does not yet serve 0.12.0.
 """
 import os
 import subprocess
 import sys
 
-PINNED_FALLBACK = 'git+https://github.com/HyperGAN/ParticleGAN.git@985d1cde661c0446c8f9d19e8f51773b9ebfe94b'
+PINNED_FALLBACK = 'git+https://github.com/HyperGAN/ParticleGAN.git@3256a05867688ab7ec0e5b4f50354c14d6972e6f'
 
 
 def main():
@@ -16,7 +16,7 @@ def main():
     if source:
         subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', source], check=True)
         return
-    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', 'particlegan>=0.11.2,<0.12'])
+    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', 'particlegan>=0.12.0,<0.13'])
     if result.returncode == 0:
         return
     subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', PINNED_FALLBACK], check=True)

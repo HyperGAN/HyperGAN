@@ -244,7 +244,7 @@ def _synchronize_optimizer_regularizers(
                 dist.all_reduce(data, op=dist.ReduceOp.SUM)
                 hist.data.copy_(data / world_size)
 
-        # 1b. Synchronize Unified-v11 function-space conditioning scalars on optimizers
+        # 1b. Synchronize Unified-v11 / Unified-v12 function-space conditioning scalars on optimizers
         if hasattr(opt, "_ema_func_gain"):
             fg = torch.tensor([float(opt._ema_func_gain)], dtype=torch.float64, device=comm_device)
             dist.all_reduce(fg, op=dist.ReduceOp.SUM)
@@ -253,6 +253,38 @@ def _synchronize_optimizer_regularizers(
             lg = torch.tensor([float(opt.last_step_gain)], dtype=torch.float64, device=comm_device)
             dist.all_reduce(lg, op=dist.ReduceOp.SUM)
             opt.last_step_gain = max(1e-6, float((lg / world_size).item()))
+        if hasattr(opt, "_ema_flip_cos"):
+            fc = torch.tensor([float(opt._ema_flip_cos)], dtype=torch.float64, device=comm_device)
+            dist.all_reduce(fc, op=dist.ReduceOp.SUM)
+            opt._ema_flip_cos = max(-1.0, min(1.0, float((fc / world_size).item())))
+        if hasattr(opt, "_prev_flip_sketch"):
+            sk = getattr(opt, "_prev_flip_sketch", None)
+            has_sk = isinstance(sk, torch.Tensor) and sk.ndim == 1 and sk.numel() > 0
+            sk_meta = torch.tensor([int(has_sk), int(sk.numel()) if has_sk else 0], dtype=torch.int64, device=comm_device)
+            all_sk_meta = [torch.zeros_like(sk_meta) for _ in range(world_size)]
+            dist.all_gather(all_sk_meta, sk_meta)
+            sk_rows = [t.tolist() for t in all_sk_meta]
+            if all(row[0] == 1 and row == sk_rows[0] for row in sk_rows):
+                orig_dev = sk.device
+                sk_buf = sk.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+                dist.all_reduce(sk_buf, op=dist.ReduceOp.SUM)
+                sk_nrm = sk_buf.norm()
+                if bool(torch.isfinite(sk_nrm)) and float(sk_nrm.item()) > 1e-30:
+                    opt._prev_flip_sketch = (sk_buf / sk_nrm).to(device=orig_dev)
+                else:
+                    opt._prev_flip_sketch = None
+            elif sk_rows[0][0] == 1:
+                dim_sk = int(sk_rows[0][1])
+                orig_dev = sk.device if has_sk else comm_device
+                sk_buf = (
+                    sk.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+                    if dist.get_rank() == 0
+                    else torch.empty((dim_sk,), dtype=torch.float32, device=comm_device)
+                )
+                dist.broadcast(sk_buf, src=0)
+                opt._prev_flip_sketch = sk_buf.to(device=orig_dev)
+            else:
+                opt._prev_flip_sketch = None
 
         # 2. Synchronize critic step record scalar records (opt_d.record)
         rec = getattr(opt, "record", None)
@@ -490,6 +522,7 @@ def sync_unified_v11_record(rec: Any, comm_device: torch.device, world_size: int
             float(getattr(rec, "_step_scale", 1.0)),
             float(getattr(rec, "ema_margin", 0.0)),
             float(getattr(rec, "ema_push_res", 1.0)),
+            float(getattr(rec, "_g_func_gain", 1.0)),
         ],
         dtype=torch.float64,
         device=comm_device,
@@ -514,6 +547,8 @@ def sync_unified_v11_record(rec: Any, comm_device: torch.device, world_size: int
         rec.ema_margin = float(s_vals[12])
     if hasattr(rec, "ema_push_res"):
         rec.ema_push_res = max(0.0, float(s_vals[13]))
+    if hasattr(rec, "_g_func_gain"):
+        rec._g_func_gain = max(1e-6, min(1.0, float(s_vals[14])))
 
     phase_meta = torch.tensor(
         [float(rec.t1c_chord_phase), float(rec.revival_phase), float(int(rec.revivals))],

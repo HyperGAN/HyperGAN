@@ -1,38 +1,48 @@
 # HyperGAN
 
-> HyperGAN 2.0: Modular Generative Adversarial Network training, inference, and analysis framework in PyTorch and HNDL.
+> HyperGAN 2.2.0: Declarative generative model training, live WebAssembly observation, and standalone export in PyTorch, HNDL, and ParticleGAN.
 
-HyperGAN is a production-grade machine learning system for training and deploying generative models. It features declarative TOML model configurations (`hypergan-model/1`), the pure architecture description language HNDL (HyperGAN Network Description Language), ParticleGAN latent table optimization, robust distributed multi-GPU and multi-node execution, a local Web Observatory, and standalone generator baking.
+HyperGAN is a production-grade framework for training, inspecting, and deploying generative models. It combines declarative `format = "hypergan-model/1"` TOML model files, HNDL (`0.12.0`) neural network graphs, ParticleGAN (`0.12.0`, `unified_v12`) optimization with multi-critic coupled thermal coordination, single-host NCCL and experimental multi-node execution, a Foldlite DB (`0.5.0`) WebAssembly Web Observatory, a lazy-loaded typed Python API (`129` public symbols), and standalone generator export (`bundle`, `pt2`, `onnx`, `safetensors`).
+
+## Canonical Documentation Site
+
+- [Documentation Home](https://hypergan.github.io/HyperGAN/): Overview, installation, measured highlights, and guides.
+- [Quickstart](https://hypergan.github.io/HyperGAN/quickstart/): Install, scaffold with `hypergan new`, validate, train, and observe.
+- [Examples Gallery](https://hypergan.github.io/HyperGAN/examples/): Packaged wheel recipes (`gaussian-grid`, `image-folder-128`, `colorization-128`, `cifar10-tiny-transformer`, `cifar10-transgan`), starter templates, TOML configs, Python API scripts, HNDL networks, and execution profiles.
+- [Python API Reference](https://hypergan.github.io/HyperGAN/reference/api/): Auto-generated reference for all 129 PEP 561 typed symbols in `hypergan.__all__`.
+- [CLI Reference](https://hypergan.github.io/HyperGAN/reference/cli/): Auto-generated command, subcommand, and flag reference from `hypergan.cli._parser()`.
+- [TOML Schema Reference](https://hypergan.github.io/HyperGAN/reference/schema/): Auto-generated `hypergan-model/1` schema (18 sections, 111 fields).
+- [HNDL Operators Reference](https://hypergan.github.io/HyperGAN/reference/ops/): Auto-generated catalog of all 85 HNDL operators across 12 categories.
 
 ## System Architecture
 
-- **Model Specification (`hypergan-model/1`)**: Declarative TOML describing data providers, latent priors, networks, loss formulations, optimizer guards, retention policies, and cluster execution settings.
-- **HNDL (HyperGAN Network Description Language)**: Torch-free architecture DSL compiling to pure PyTorch `nn.Module` graphs with static shape inference, parameter sharing, and support for all 85 built-in and augmentation operators.
-- **ParticleGAN**: Learned latent particle table optimization replacing Gaussian sampling, ensuring mode coverage and high sample fidelity.
-- **Distributed Engine**: Slurm/torchrun-native multi-GPU and multi-node DDP and DiLoCo training with coalesced collective bucketing and follower coordination without shared NFS requirements.
-- **Unified Run Metadata**: Canonical `RunInfo` dataclass and `read_run_info()` interface unifying `manifest.json`, `summary.json`, and `tag.json`.
-- **Telemetry & Health Monitoring**: Periodic tracking of critic margins, classification accuracy, gradient norms, particle RMS, and diversity ratios with automated advisory health alerts.
+- **Model Specification (`hypergan-model/1`)**: Declarative TOML describing data providers, latent priors, HNDL or Python networks, multi-critic adversarial/prior/reconstruction/objective losses, training schedules, retention policies, and snapshot evaluations.
+- **HNDL (`0.12.0`, HyperGAN Network Description Language)**: Declarative architecture DSL compiling to `torch.nn.Module` graphs with static symbolic shape inference, parameter sharing, pretrained foundation backbones (`pretrained`), and 85 built-in and augmentation operators across 12 categories.
+- **ParticleGAN (`0.12.0`, `unified_v12`)**: Energy-optimal Unified 4-Law learned particle prior optimization with `coupled_max` multi-critic thermal coordination (`MultiCriticThermalCoordinator`), dual-safe `fwAD` softmax critic penalties (`DualSafeSoftmaxMode`), and full-graph composite generator probing.
+- **Foldlite DB (`0.5.0`) & Web Observatory**: Append-only event journals, `.fold` projection views, and a shared Rust/WebAssembly streaming reducer powering the local dashboard (`hypergan view`, default `127.0.0.1:8765`), grouped learning-curve rail, retained EMA preview sliders, snapshot evaluation charts, and layer-by-layer Model inspection.
+- **Distributed Engine & Unified Checkpoints**: Single-host multi-GPU NCCL replicated training (`--devices 0,1`, measured `2.20×` scaling on 2× RTX A6000 at global batch 256) and experimental multi-node DDP/DiLoCo execution with unified `schema_version = 2` checkpoints (`state.pt` + per-rank RNG/sampler shards).
+- **Standalone Export (`hypergan export`)**: Privacy-clean EMA generator exports in `bundle` (`.pt`), PyTorch `pt2`, `onnx`, and `safetensors`, plus `hg.load_bundle()` (`LoadedGenerator`) for sampling and latent interpolation.
 
 ## Primary Interfaces
 
-- `hypergan.api`: Python API providing `load()`, `train()`, `resume()`, `status()`, `inspect()`, `read_run_info()`, `schema()`, `operators()`, and `export()`.
-- `hypergan.cli`: CLI entrypoint providing commands:
-  - `hypergan new`: Project scaffolding and template generation.
-  - `hypergan train`: Start model training with real-time telemetry and optional Web Observatory.
-  - `hypergan resume`: Resume training from an existing run directory or checkpoint.
-  - `hypergan validate`: Statically validate a model TOML configuration and HNDL network definitions.
-  - `hypergan schema`: Inspect `hypergan-model/1` tables, fields, types, and constraints (`--json` supported).
-  - `hypergan ops`: Inspect all 85 HNDL neural network operators and signatures (`--json` supported).
-  - `hypergan status`: Query active or completed run status, latest metrics, and health alerts.
-  - `hypergan export`: Export standalone generator bundles and weights (`safetensors`, `pt2`, `onnx`).
-  - `hypergan sample`: Generate sample images or latents from trained checkpoints or bundles.
+- `hypergan` (`import hypergan as hg`): Lazy-loaded top-level Python API exposing 129 typed symbols (`new`, `load`, `override`, `validate`, `train`, `resume`, `ps`, `list_runs`, `status`, `logs`, `inspect`, `read_run_info`, `tag`, `sample`, `evaluate`, `export`, `load_bundle`, `schema`, `ops`, `gc`, `rm`, and dataclasses such as `Model`, `Run`, `RunInfo`, `RunStatus`, `PsSnapshot`, `LoadedGenerator`).
+- `hypergan` CLI:
+  - `hypergan new` / `hypergan recipes`: Project scaffolding, starter templates, and 5 packaged wheel recipes.
+  - `hypergan validate` / `hypergan schema` / `hypergan ops`: Torch-free structural config validation and live schema/operator inspection (`--json` supported).
+  - `hypergan train` / `hypergan resume`: Launch or continue single-device or multi-GPU training with optional supervised Web Observatory.
+  - `hypergan ps` / `hypergan status` / `hypergan logs` / `hypergan inspect` / `hypergan model` / `hypergan tag`: Daemonless global run registry and live run management.
+  - `hypergan checkpoint` / `hypergan stop` / `hypergan gc` / `hypergan rm`: Durable boundary checkpointing, graceful shutdown, and strict target-resolved cleanup.
+  - `hypergan sample` / `hypergan evaluate` (`eval`) / `hypergan export`: EMA sampling, snapshot metrics (FID, color moments, diversity), and standalone generator export.
+  - `hypergan runs` / `hypergan queue` / `hypergan view`: Side-by-side run comparison, multi-GPU job queue, and local Web Observatory server.
 
-## Documentation Index
+## Deep-Dive Guides
 
-- [Configuration Guide](docs/configuration.md): Complete guide to TOML model files and runtime settings.
-- [HNDL Operator Reference](docs/hndl-reference.md): Exhaustive catalog of all 85 HNDL operators across 13 categories.
-- [Distributed Training](docs/distributed.md): Multi-GPU, multi-node, Slurm, and DiLoCo clustering documentation.
-- [Image Data](docs/image-data.md): ImageFolder dataset options, alpha compositing, and preprocessing pipelines.
-- [Execution Profiles](docs/execution-profiles.md): Memory policies, microbatch accumulation, and profiling.
-- [Image FID Evaluation](docs/image-fid.md): Inception-v3 FID calculation and evaluation cadences.
-- [Local Web Observatory](docs/local-web.md): Browser dashboard, telemetry graphs, and preview thumbnails.
+- [Configuration Guide](https://github.com/HyperGAN/HyperGAN/blob/master/docs/configuration.md): Complete `hypergan-model/1` TOML and runtime guide.
+- [Python API Guide](https://github.com/HyperGAN/HyperGAN/blob/master/docs/python-api.md): End-to-end config-first Python API patterns.
+- [ParticleGAN Integration](https://github.com/HyperGAN/HyperGAN/blob/master/docs/particlegan.md): `unified_v12`, named presets, and multi-critic thermal coordination.
+- [HNDL Language Reference](https://github.com/HyperGAN/HyperGAN/blob/master/docs/hndl-reference.md): Grammar, shape inference, diagnostics, and 85-operator catalog.
+- [Web Observatory & Streaming API](https://github.com/HyperGAN/HyperGAN/blob/master/docs/local-web.md): Browser dashboard, auth, TLS proxy, and `/api/v1/*` REST/SSE routes.
+- [Deploying Exported Generators](https://github.com/HyperGAN/HyperGAN/blob/master/docs/deployment.md): Serving recipes for `bundle`, `pt2`, `onnx`, and `safetensors`.
+- [Distributed Training & Scaling](https://github.com/HyperGAN/HyperGAN/blob/master/docs/distributed.md): Multi-GPU NCCL, execution profiles, aggregation, and scaling measurements.
+- [Image Data & FID Evaluation](https://github.com/HyperGAN/HyperGAN/blob/master/docs/image-data.md): `ImageFolder`, alpha compositing, colorization, and snapshot FID evaluation.
+- [Glossary](https://github.com/HyperGAN/HyperGAN/blob/master/GLOSSARY.md) · [Changelog](https://github.com/HyperGAN/HyperGAN/blob/master/CHANGELOG.md)

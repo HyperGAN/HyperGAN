@@ -62,7 +62,7 @@ connected viewers reduce their live suffix through the same Foldlite WASM module
 Install `foldlitedb` before or alongside HyperGAN:
 
 ```sh
-python -m pip install "foldlitedb>=0.4.2,<0.5"
+python -m pip install "foldlitedb>=0.5.0,<0.6"
 python -m pip install -e '.[web,test]'
 python -m pytest tests/foundation/test_run_state.py tests/foundation/test_event_views.py tests/web
 ```

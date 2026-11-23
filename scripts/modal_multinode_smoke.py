@@ -31,7 +31,7 @@ if modal.is_local():
     REMOTE_WHEEL = f'/opt/wheels/{WHEEL.name}'
     image = (modal.Image.debian_slim(python_version='3.12')
              .pip_install('torch==2.14.1', 'numpy==2.5.4', 'hndl==0.12.0',
-                          'particlegan==0.9.3', 'foldlitedb==0.4.2')
+                          'particlegan==0.9.3', 'foldlitedb==0.5.0')
              .add_local_file(WHEEL, remote_path=REMOTE_WHEEL, copy=True)
              .run_commands(f'python -m pip install --no-deps {REMOTE_WHEEL}')
              .add_local_file(ROOT / 'scripts' / 'multinode_smoke_worker.py',

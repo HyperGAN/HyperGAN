@@ -563,7 +563,8 @@ def test_evaluation_metrics_sort_snapshots_preserve_repeats_and_protocols(real_v
         'rows => rows.map(r => Number(r.dataset.step))') == [10000, 20000, 20000, 20000, 20000, 30000, 40000]
     # Learning curves counts, lists and charts the training stream only; every
     # protocol of a snapshot metric stays inside this one tile.
-    assert page.locator('#metric-count').inner_text() == '1'
+    assert page.locator('#metric-count').inner_text() == '1 / 8'
+    assert page.locator('#metric-count').get_attribute('data-total') == '1'
     assert page.get_by_role('checkbox', name='Snapshot quality', exact=False).count() == 0
     assert page.locator('.chart-card').filter(has_text='Snapshot quality').count() == 0
     assert card.locator('.chart-canvas canvas').count() == 1

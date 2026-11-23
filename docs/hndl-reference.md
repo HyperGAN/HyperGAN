@@ -36,7 +36,7 @@ Every HNDL network specifies explicit input and output shape contracts:
 
 ## 2. Operator Catalog (85 Operators)
 
-HyperGAN includes 85 registered operators categorized into 13 functional domains.
+HyperGAN includes 85 registered operators categorized into 12 functional domains.
 
 ### 2.1 Activation Operators (15)
 
@@ -144,10 +144,9 @@ Transformer attention blocks, positional embeddings, and state-space layers.
 59. **`pool_tokens(mode='mean')`**: Reduces sequence length via mean, max, or attention pooling.
 60. **`pos_embed(dim, max_len=1024)`**: Learnable 1D additive positional embeddings.
 61. **`rope(dim)`**: Rotary Position Embedding applied to query/key tensors.
-62. **`rope_2d(dim, height=None, width=None)`**: 2D Rotary Position Embedding applying sinusoidal frequency rotations across spatial height and width axes in vision transformers.
-63. **`sinusoidal_embed(dim, max_period=10000)`**: Fixed sinusoidal positional encodings.
-64. **`swiglu(dim)`**: Swish-Gated Linear Unit feed-forward block ($x \cdot \text{sigmoid}(\beta x) \otimes W_g x$).
-65. **`transformer_block(heads=8, mlp_ratio=4.0)`**: Complete transformer layer (norm, attention, residual, FFN).
+62. **`sinusoidal_embed(dim, max_period=10000)`**: Fixed sinusoidal positional encodings.
+63. **`swiglu(dim)`**: Swish-Gated Linear Unit feed-forward block ($x \cdot \text{sigmoid}(\beta x) \otimes W_g x$).
+64. **`transformer_block(heads=8, mlp_ratio=4.0)`**: Complete transformer layer (norm, attention, residual, FFN).
 
 ### 2.10 Shape & Layout Operators (10)
 

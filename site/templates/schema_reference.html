@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="workspace-shell no-toc">
+  <aside id="site-sidebar" class="sidebar" aria-label="TOML Schema navigation">
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">hypergan-model/1</h2>
+      <ul class="sidebar-list">
+        {% if schema.top_level %}
+        <li>
+          <a href="#schema-top-level">
+            <span>Top-Level Scalars</span>
+            <span class="sidebar-badge">{{ schema.top_level | length }}</span>
+          </a>
+        </li>
+        {% endif %}
+        {% for sec in schema.sections %}
+        <li>
+          <a href="#{{ sec.anchor_id }}">
+            <span class="mono">{{ sec.toml_header or ('[' ~ sec.name ~ ']') }}</span>
+            <span class="sidebar-badge">{{ sec.fields | length }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">All References</h2>
+      <ul class="sidebar-list">
+        <li><a href="{{ root_prefix }}reference/api/index.html"><span>Python API</span><span class="sidebar-badge">{{ meta.counts.api }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/cli/index.html"><span>CLI Reference</span><span class="sidebar-badge">{{ meta.counts.cli }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/schema/index.html" class="is-active"><span>TOML Schema</span><span class="sidebar-badge">{{ meta.counts.schema_sections }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/ops/index.html"><span>HNDL Operators</span><span class="sidebar-badge">{{ meta.counts.ops }}</span></a></li>
+        <li><a href="{{ root_prefix }}examples/index.html"><span>Examples Gallery</span></a></li>
+      </ul>
+    </div>
+  </aside>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <main id="main-content" class="content-pane" data-filter-root>
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="{{ root_prefix }}index.html">Home</a>
+      <span class="sep">/</span>
+      <span>Reference</span>
+      <span class="sep">/</span>
+      <span>TOML Model Schema</span>
+    </nav>
+
+    <header class="ref-header">
+      <span class="eyebrow">Auto-Generated From hypergan.schema_info.MODEL_SCHEMA</span>
+      <h1>TOML Schema Reference (<code>hypergan-model/1</code>)</h1>
+      <p>
+        Complete specification of every top-level scalar, table, array-of-tables, type, default,
+        constraint, and allowed value accepted by <code>hypergan validate</code> and <code>hypergan train</code>.
+      </p>
+      <div class="ref-stats">
+        <span class="badge badge-lilac">{{ schema.total_sections }} sections</span>
+        <span class="badge badge-signal">{{ schema.total_fields }} fields</span>
+        <span class="badge">CLI: hypergan schema --json</span>
+      </div>
+    </header>
+
+    <div class="filter-bar">
+      <div class="filter-row">
+        <input
+          class="filter-input"
+          type="search"
+          data-filter-input
+          placeholder="Search TOML sections or fields (e.g. batch_size, prior, evaluations, gradient_penalty, alpha)…"
+          aria-label="Filter TOML schema fields"
+        />
+        <span class="filter-count" data-filter-count></span>
+      </div>
+    </div>
+
+    <div class="empty-filter-state" data-filter-empty>
+      No TOML schema sections or fields match your query.
+    </div>
+
+    {% if schema.top_level %}
+    <section id="schema-top-level" class="ref-group" data-filter-group>
+      <div class="ref-group-head">
+        <h2>Top-Level Fields</h2>
+        <span class="badge">{{ schema.top_level | length }} fields</span>
+      </div>
+
+      <div class="ref-card">
+        <div class="ref-card-body" style="padding: 0;">
+          <div class="table-wrap table-flush">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Type &amp; Constraints</th>
+                <th>Default</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in schema.top_level %}
+              <tr
+                id="{{ f.anchor_id }}"
+                data-filter-item
+                data-filter-category="top-level"
+                data-filter-text="{{ f.name }} {{ f.type }} {{ f.default }} {{ (f.choices or []) | join(' ') }} {{ f.description }}"
+              >
+                <td>
+                  <code>{{ f.name }}</code>
+                  {% if f.required %}<div><span class="badge badge-signal" style="margin-top: 4px;">required</span></div>{% endif %}
+                </td>
+                <td>
+                  <span class="badge badge-blue">{{ f.type or 'any' }}</span>
+                  {% if f.choices %}
+                  <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px;">
+                    {% for ch in f.choices %}<span class="badge">{{ ch }}</span>{% endfor %}
+                  </div>
+                  {% endif %}
+                </td>
+                <td>{% if f.default %}<code>{{ f.default }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{{ f.description }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% for sec in schema.sections %}
+    {% set header_str = sec.toml_header or ('[' ~ sec.name ~ ']') %}
+    <section
+      id="{{ sec.anchor_id }}"
+      class="ref-group"
+      data-filter-group
+    >
+      <article
+        class="ref-card"
+        {% if not sec.fields %}
+        data-filter-item
+        data-filter-category="section"
+        data-filter-text="{{ sec.name }} {{ header_str }} {{ sec.description }}"
+        {% endif %}
+      >
+        <div class="ref-card-head">
+          <div class="ref-card-title">
+            <span class="badge badge-lilac">TOML</span>
+            <h3>{{ header_str }}</h3>
+            <span class="badge">{{ sec.fields | length }} field{% if sec.fields | length != 1 %}s{% endif %}</span>
+          </div>
+          <div class="ref-card-actions">
+            <button class="copy-btn" type="button" data-copy-text="{{ header_str }}">Copy header</button>
+            <a href="#{{ sec.anchor_id }}" aria-label="Link to {{ header_str }}">#</a>
+          </div>
+        </div>
+
+        <div class="ref-card-body">
+          {% if sec.description %}
+          <p class="ref-summary">{{ sec.description }}</p>
+          {% endif %}
+
+          {% if sec.fields %}
+          <div class="table-wrap" style="margin: 0;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Type &amp; Allowed Values</th>
+                <th>Default</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in sec.fields %}
+              <tr
+                id="{{ sec.anchor_id }}-{{ f.name | slugify }}"
+                data-filter-item
+                data-filter-category="field"
+                data-filter-text="{{ sec.name }} {{ header_str }} {{ f.name }} {{ f.type }} {{ f.default }} {{ (f.choices or []) | join(' ') }} {{ f.description }}"
+              >
+                <td>
+                  <code>{{ f.name }}</code>
+                  {% if f.required %}<div><span class="badge badge-signal" style="margin-top: 4px;">required</span></div>{% endif %}
+                </td>
+                <td>
+                  <span class="badge badge-blue">{{ f.type or 'any' }}</span>
+                  {% if f.choices %}
+                  <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px;">
+                    {% for ch in f.choices %}<span class="badge">{{ ch }}</span>{% endfor %}
+                  </div>
+                  {% endif %}
+                </td>
+                <td>{% if f.default %}<code>{{ f.default }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{{ f.description }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          </div>
+          {% else %}
+          <p class="ref-doc" style="margin: 0;">Dynamic table mapping named entries; see the <a href="{{ root_prefix }}{{ doc_slug_to_url.get('configuration', 'quickstart/index.html') }}">Configuration Guide</a> for usage examples.</p>
+          {% endif %}
+        </div>
+      </article>
+    </section>
+    {% endfor %}
+  </main>
+</div>
+{% endblock %}

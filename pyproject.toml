@@ -24,24 +24,24 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["foldlitedb>=0.4.2,<0.5"]
+dependencies = ["foldlitedb>=0.5.0,<0.6"]
 
 [project.optional-dependencies]
 # CI tests only torch==2.14.0 (.github/workflows/ci.yml); the rest of the range is untested.
-train = ["hndl>=0.12.0,<1", "particlegan>=0.11.2,<0.12", "torch>=2.6,<3", "numpy>=1.26,<3", "safetensors>=0.8,<1"]
+train = ["hndl>=0.12.0,<1", "particlegan>=0.12.0,<0.13", "torch>=2.6,<3", "numpy>=1.26,<3", "safetensors>=0.8,<1"]
 image = ["Pillow>=13.0.0,<14"]
 cifar = ["torchvision>=0.21,<1", "Pillow>=13.0.0,<14"]
 fid = ["torch-fidelity>=0.4.0,<0.5", "torchvision>=0.21,<1", "Pillow>=13.0.0,<14", "scipy>=1.10,<2.0"]
-reducers = ["foldlitedb[reducers]>=0.4.2,<0.5"]
-web = ["foldlitedb[reducers]>=0.4.2,<0.5", "starlette>=1.6,<2.0", "uvicorn>=0.53,<1.0"]
+reducers = ["foldlitedb[reducers]>=0.5.0,<0.6"]
+web = ["foldlitedb[reducers]>=0.5.0,<0.6", "starlette>=1.6,<2.0", "uvicorn>=0.53,<1.0"]
 safetensors = ["safetensors>=0.8,<1"]
 onnx = ["onnx>=1.16,<2.0"]
 all = [
-    "foldlitedb[reducers]>=0.4.2,<0.5",
+    "foldlitedb[reducers]>=0.5.0,<0.6",
     "hndl>=0.12.0,<1",
     "numpy>=1.26,<3",
     "onnx>=1.16,<2.0",
-    "particlegan>=0.11.2,<0.12",
+    "particlegan>=0.12.0,<0.13",
     "Pillow>=13.0.0,<14",
     "safetensors>=0.8,<1",
     "scipy>=1.10,<2.0",
@@ -58,8 +58,10 @@ dev = ["build>=1,<2", "pytest>=8,<10"]
 hypergan = "hypergan.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/HyperGAN/HyperGAN"
-Documentation = "https://github.com/HyperGAN/HyperGAN/tree/master/docs"
+Homepage = "https://hypergan.github.io/HyperGAN/"
+Documentation = "https://hypergan.github.io/HyperGAN/"
+Examples = "https://hypergan.github.io/HyperGAN/examples/"
+"API Reference" = "https://hypergan.github.io/HyperGAN/reference/api/"
 Repository = "https://github.com/HyperGAN/HyperGAN"
 Changelog = "https://github.com/HyperGAN/HyperGAN/blob/master/CHANGELOG.md"
 Issues = "https://github.com/HyperGAN/HyperGAN/issues"

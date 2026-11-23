@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="workspace-shell no-toc">
+  <aside id="site-sidebar" class="sidebar" aria-label="HNDL Operators navigation">
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">HNDL Categories</h2>
+      <ul class="sidebar-list">
+        {% for cat in ops.categories %}
+        <li>
+          <a href="#{{ cat.anchor_id }}">
+            <span>{{ cat.name }}</span>
+            <span class="sidebar-badge">{{ cat.count or (cat.ops | length) }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="sidebar-group">
+      <h2 class="sidebar-group-title">All References</h2>
+      <ul class="sidebar-list">
+        <li><a href="{{ root_prefix }}reference/api/index.html"><span>Python API</span><span class="sidebar-badge">{{ meta.counts.api }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/cli/index.html"><span>CLI Reference</span><span class="sidebar-badge">{{ meta.counts.cli }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/schema/index.html"><span>TOML Schema</span><span class="sidebar-badge">{{ meta.counts.schema_sections }}</span></a></li>
+        <li><a href="{{ root_prefix }}reference/ops/index.html" class="is-active"><span>HNDL Operators</span><span class="sidebar-badge">{{ meta.counts.ops }}</span></a></li>
+        <li><a href="{{ root_prefix }}examples/index.html"><span>Examples Gallery</span></a></li>
+      </ul>
+    </div>
+  </aside>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <main id="main-content" class="content-pane" data-filter-root>
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      <a href="{{ root_prefix }}index.html">Home</a>
+      <span class="sep">/</span>
+      <span>Reference</span>
+      <span class="sep">/</span>
+      <span>HNDL Operators</span>
+    </nav>
+
+    <header class="ref-header">
+      <span class="eyebrow">HNDL Operator Registry ({{ ops.mode or 'live' }})</span>
+      <h1>HNDL Operators Reference</h1>
+      <p>
+        Every neural network operator available in HNDL (HyperGAN Network Description Language),
+        including built-in HNDL operators and HyperGAN's <code>diff_augment</code> extension.
+        Inspect locally anytime with <code>hypergan ops --json</code>.
+      </p>
+      <div class="ref-stats">
+        <span class="badge badge-signal">{{ ops.total }} operators</span>
+        <span class="badge badge-warn">{{ ops.categories | length }} categories</span>
+        <span class="badge">introspection: {{ ops.mode or 'live' }}</span>
+      </div>
+    </header>
+
+    <div class="filter-bar">
+      <div class="filter-row">
+        <input
+          class="filter-input"
+          type="search"
+          data-filter-input
+          placeholder="Filter HNDL operators by name, category, port, or argument (e.g. transformer_block, resblock, adaptive_norm)…"
+          aria-label="Filter HNDL operators"
+        />
+        <span class="filter-count" data-filter-count>{{ ops.total }} / {{ ops.total }} shown</span>
+      </div>
+      <div class="filter-pills" role="group" aria-label="Filter by operator category">
+        <button class="filter-pill is-active" type="button" data-filter-pill="all" aria-pressed="true">All ({{ ops.total }})</button>
+        {% for cat in ops.categories %}
+        <button class="filter-pill" type="button" data-filter-pill="{{ cat.id | slugify }}" aria-pressed="false">{{ cat.name }} ({{ cat.count or (cat.ops | length) }})</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="empty-filter-state" data-filter-empty>
+      No HNDL operators match the selected category and search query.
+    </div>
+
+    {% for cat in ops.categories %}
+    {% set cat_slug = cat.id | slugify %}
+    <section id="{{ cat.anchor_id }}" class="ref-group" data-filter-group>
+      <div class="ref-group-head">
+        <h2>{{ cat.name }}</h2>
+        <span class="badge">{{ cat.count or (cat.ops | length) }} ops</span>
+      </div>
+
+      <div class="ops-grid">
+        {% for op in cat.ops %}
+        <article
+          id="{{ op.anchor_id }}"
+          class="ref-card"
+          data-filter-item
+          data-filter-category="{{ cat_slug }}"
+          data-filter-text="{{ op.name }} {{ cat.name }} {{ op.summary }} {{ op.description }} {{ (op.inputs or []) | join(' ') }} {{ (op.outputs or []) | join(' ') }} {% for a in (op.args or []) %}{{ a.name }} {{ a.help }} {% endfor %}"
+        >
+          <div class="ref-card-head">
+            <div class="ref-card-title">
+              <h3>{{ op.name }}</h3>
+              <span class="badge badge-warn">{{ cat.name }}</span>
+            </div>
+            <div class="ref-card-actions">
+              <a href="#{{ op.anchor_id }}" aria-label="Link to {{ op.name }}">#</a>
+            </div>
+          </div>
+
+          <div class="ref-card-body">
+            {% if op.inputs or op.outputs %}
+            <div class="ports-row">
+              {% if op.inputs %}
+              <span class="badge badge-blue">in: {{ op.inputs | join(', ') }}</span>
+              {% endif %}
+              {% if op.outputs %}
+              <span class="badge badge-signal">out: {{ op.outputs | join(', ') }}</span>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            {% if op.summary %}
+            <p class="ref-summary">{{ op.summary }}</p>
+            {% endif %}
+            {% if op.description and op.description != op.summary %}
+            <p class="ref-doc" style="margin: 0;">{{ op.description }}</p>
+            {% endif %}
+
+            {% if op.args %}
+            <div class="table-wrap" style="margin: 4px 0 0;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Arg</th>
+                  <th>Type / Default</th>
+                  <th>Help</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for a in op.args %}
+                <tr>
+                  <td><code>{{ a.name }}</code></td>
+                  <td>
+                    {% if a.type %}<span class="badge">{{ a.type }}</span>{% endif %}
+                    {% if a.default %} <code>={{ a.default }}</code>{% endif %}
+                  </td>
+                  <td>{{ a.help }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            </div>
+            {% endif %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  </main>
+</div>
+{% endblock %}

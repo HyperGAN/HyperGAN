@@ -1,6 +1,6 @@
 # Bounded training scaling benchmark
 
-The [local harness](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/scripts/benchmark_scaling.py) and [Modal runner](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/scripts/modal_scaling.py) measure complete native or replicated float32 trainer updates after warmup. They use one initialization, fixed architecture and a fixed 256-particle prior. The default workload uses the installed CIFAR generator and a pixel critic on synthetic resident 32×32 tensors, exercising convolution, attention, normalization and the critic's double backward. No dataset or pretrained weights are downloaded, and no seed sweeps run.
+The [local harness](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/scripts/benchmark_scaling.py) and [Modal runner](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/scripts/modal_scaling.py) measure complete native or replicated float32 trainer updates after warmup. They use one initialization, fixed architecture and a fixed 256-particle prior. The default workload uses the installed CIFAR generator and a pixel critic on synthetic resident 32×32 tensors, exercising convolution, attention, normalization and the critic's double backward. No dataset or pretrained weights are downloaded, and no seed sweeps run.
 
 ## Local validation
 

@@ -27,11 +27,11 @@ This page uses `hypergan view` throughout. `hypergan serve`, which `--help` does
 list, starts the same foreground server for a run or runs root with the same
 options; it adds `--session-file` and has no `--status` or `--stop`.
 
-`hypergan view` listens on `0.0.0.0` on port `8765` by default, so one bookmarked URL keeps
+`hypergan view` listens on `127.0.0.1` on port `8765` by default, so one bookmarked URL keeps
 working across restarts. A port that is already in use is an error naming the process
 that holds it, never a silent move to another port; when that process is the dashboard
 `hypergan train` started for the same root, `hypergan view` prints and opens its URL
-instead. Select another address with `--host 127.0.0.1`, a fixed port with
+instead. Select another address with `-b 0.0.0.0` (or `--host 0.0.0.0`), a fixed port with
 `--port 8123`, or an OS-assigned port with `--port 0`. For a wildcard bind, a viewer
 that `hypergan view` starts prints a `127.0.0.1` URL, while
 `hypergan train`, `hypergan resume` and a `hypergan view` that reuses a running
@@ -73,7 +73,7 @@ matches several runs is an error listing the candidates, and workspace roots,
 runs roots, `$HOME`, `/` and symbolic links are refused. `hypergan gc --all` needs a
 workspace or an explicit root (`hypergan gc --all <runs-root>`). Tags live in the
 run's `tag.json`, which the trainer never rewrites, so tagging an active run is
-allowed. The [README](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/README.md#which-run-rm-gc-stop-and-tag-act-on) has the
+allowed. The [README](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/README.md#which-run-rm-gc-stop-and-tag-act-on) has the
 full rules.
 
 ### Headless cluster attachment and file-backed control requests
@@ -331,7 +331,7 @@ not training overhead or image quality.
 ## Automatic viewer during CLI training
 
 With the `web` extra installed, `hypergan train` and `hypergan resume` automatically
-bind port `8765` on `0.0.0.0` and launch a supervised local viewer. A restarted run reuses the same port, so the viewer
+bind port `8765` on `127.0.0.1` and launch a supervised local viewer. A restarted run reuses the same port, so the viewer
 URL stays stable instead of changing on every start. Startup
 runs concurrently with training; there is no browser launch or readiness wait by
 default. Without the extra, these commands remain silently headless. The Python
@@ -500,4 +500,4 @@ existing server-wide `no-store` policy applies.
 `app.js` is bundled from `frontend/src`; `index.html`, `style.css` and
 `view-worker.js` are served as they are. Rebuild the bundle on every edit with
 `npm run --prefix frontend watch`, described in the
-[viewer source README](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/frontend/README.md).
+[viewer source README](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/frontend/README.md).

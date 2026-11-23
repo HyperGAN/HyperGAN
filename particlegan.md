@@ -2,7 +2,7 @@
 
 HyperGAN consumes ParticleGAN's released GAN recipe through
 `defaults = "particlegan"`. The `train` and `all` extras require ParticleGAN
-`>=0.11.2,<0.12`; 0.11.2 is the current released compatibility baseline.
+`>=0.12.0,<0.13`; 0.12.0 is the current released compatibility baseline.
 ParticleGAN owns the formulation and its selected
 loss, learning rates, hyperparameters, normalization, regularizers and optimizer
 implementations. HyperGAN owns networks and bindings, datasets, task objectives,
@@ -24,7 +24,7 @@ loss, penalty, prior policy, regularization, schedules and optimizer constructio
 to the recipe's public factories. The Model tab identifies ParticleGAN as the
 provider and shows host settings, loss metrics and networks.
 
-ParticleGAN 0.11.2 selects `unified_v11` (Unified 4-Law) by default. Select a specific preset with, for example, `defaults = "particlegan:empf"` or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Unified-v11 and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
+ParticleGAN 0.12.0 selects `unified_v12` (energy-optimal Unified 4-Law) by default. Select a specific preset with, for example, `defaults = "particlegan:unified_v11"`, `defaults = "particlegan:empf"`, or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Unified-v12, Unified-v11, and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
 
 Each distinct critic named by an adversarial loss gets its own recipe loss, optimizer, penalty and step record. Each optimizer steps once per critic phase. Repeated terms for the same critic share its optimizer and record. During the generator phase all critics are frozen. Their weighted objectives and the single shared prior regularizer feed one backward pass and one generator/prior optimizer step. The first critic supplies the recipe record read by that shared optimizer and regularizer.
 
@@ -65,7 +65,7 @@ previously omitted `defaults = "particlegan"`, so the Round 1 CIFAR runs
 (`amber-heron`, `marble-anchor`, `coral-crest`) used KA2 despite installing
 ParticleGAN 0.9.3/0.9.4. Their saved critic optimizer records explicitly contain
 `formulation = "ka2"`; their results do not evaluate BISPF. See the
-[QA report](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/reports/qa-2026-10-30.md). Fresh runs now inherit the dependency's
+[QA report](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/reports/qa-2026-10-30.md). Fresh runs now inherit the dependency's
 loss, optimizer, rates, penalty and prior regularization instead of the old
 model-specific overrides. Architecture, reconstruction objective and prior
 dimensions are still declared by the model. Use a new run directory to test
@@ -80,7 +80,7 @@ and retains the legacy restoration fallback for 0.9.4. Install the current
 release from PyPI:
 
 ```sh
-python -m pip install --upgrade 'particlegan>=0.11.2,<0.12'
+python -m pip install --upgrade 'particlegan>=0.12.0,<0.13'
 ```
 
 Fresh parameter initialization uses ParticleGAN's public initializer when

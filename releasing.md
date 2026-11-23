@@ -81,7 +81,7 @@ token. Configure the PyPI Trusted Publisher at
 
 ## GitBook preview
 
-The [GitBook preview workflow](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/.github/workflows/gitbook-preview.yml)
+The [GitBook preview workflow](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/.github/workflows/gitbook-preview.yml)
 builds the tracked `docs/` pages and assets. It pins links outside the book to
 the build's GitHub commit. Once the workflow reaches `master`, documentation
 merges advance `gitbook-preview` with the generated book and its

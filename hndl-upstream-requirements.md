@@ -155,7 +155,7 @@ The exact CIFAR-style feature heads concatenate candidate maps with the frozen
 features of a fixed zero-image context. HNDL 0.4.0 expresses this in one graph
 with one frozen backbone, including normalization and head connections.
 
-The full [128px discriminator](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/examples/networks/resnet18-multiscale-discriminator-128.hndl) uses:
+The full [128px discriminator](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/examples/networks/resnet18-multiscale-discriminator-128.hndl) uses:
 
 ```hndl
 context = constant(x, 3, 128, 128)
@@ -187,7 +187,7 @@ needed. There are no outstanding HNDL feature requests for this discriminator.
 ## Single-file CIFAR discriminator
 
 Both `cifar-pretrained-sagan.toml` and `cifar-transgan.toml` now select
-[`cifar-discriminator-32.hndl`](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/examples/networks/cifar-discriminator-32.hndl)
+[`cifar-discriminator-32.hndl`](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/examples/networks/cifar-discriminator-32.hndl)
 through `factory = "hndl"` and one `file` argument. The old eight-entry
 discriminator `network_files` table is no longer needed. The file explicitly
 defines three pixel residual blocks (32→64→128→128 channels), attention after

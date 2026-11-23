@@ -1,6 +1,6 @@
 # 128px logos with the CIFAR feature-only recipe
 
-The [single-file configuration](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/examples/archive/logos-tiny-transformer-resnet-features-128.toml)
+The [single-file configuration](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/examples/archive/logos-tiny-transformer-resnet-features-128.toml)
 embeds both complete G/D HNDL definitions inline in `source`. It adapts the
 working [CIFAR experiment](cifar-tiny-transformer.md) to logos while retaining
 its latent, prior, optimizer, adversarial objective, and regularization.

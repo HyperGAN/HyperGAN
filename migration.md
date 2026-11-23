@@ -19,7 +19,7 @@ generator = hg.load_bundle("models/alpha-generator.pt", device="cpu")
 points = generator.sample(count=4, seed=42)
 ```
 
-To train with GA's ParticleGAN preset, install `hypergan[all]==2.0.0` with the [documented Torch wheels](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/README.md#install) in a fresh environment. Start a new run directory with your model. For example, this creates a short Gaussian run:
+To train with GA's ParticleGAN preset, install `hypergan[all]==2.0.0` with the [documented Torch wheels](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/README.md#install) in a fresh environment. Start a new run directory with your model. For example, this creates a short Gaussian run:
 
 ```sh
 hypergan train gaussian-grid --device cpu --run-dir runs/ga-toy --stop-after-steps 2 --checkpoint-every 1 --no-server
@@ -27,4 +27,4 @@ hypergan train gaussian-grid --device cpu --run-dir runs/ga-toy --stop-after-ste
 
 ## Access a legacy 1.x experiment
 
-HyperGAN 2 uses TOML model files, HNDL networks and a HyperGAN-owned training loop. Legacy JSON configurations, dynamic layer strings, viewers and training checkpoints require the archived 1.x code and its original environment. Port the model and input bindings to a new configuration to train it under 2.0. [Preserved master commit](https://github.com/HyperGAN/HyperGAN/tree/291ddccda847e4f4ccb273bb26121a0a0d738164) · [Archive tags and preservation record](https://github.com/HyperGAN/HyperGAN/blob/69116e009d81ebefa5a8253784650f83f809d77b/reports/archive/resurrection-preservation-2026-09-18.md)
+HyperGAN 2 uses TOML model files, HNDL networks and a HyperGAN-owned training loop. Legacy JSON configurations, dynamic layer strings, viewers and training checkpoints require the archived 1.x code and its original environment. Port the model and input bindings to a new configuration to train it under 2.0. [Preserved master commit](https://github.com/HyperGAN/HyperGAN/tree/291ddccda847e4f4ccb273bb26121a0a0d738164) · [Archive tags and preservation record](https://github.com/HyperGAN/HyperGAN/blob/eed2e2272ab621df43c70d91ca5f4727a59fbf3b/reports/archive/resurrection-preservation-2026-09-18.md)

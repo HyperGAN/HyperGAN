@@ -7,7 +7,7 @@
 
 **Train generative models. Follow their progress. Export the result.**
 
-[![PyPI v2.1.1](https://img.shields.io/pypi/v/hypergan?label=PyPI&color=2563eb)](https://pypi.org/project/hypergan/)
+[![PyPI v2.2.0](https://img.shields.io/pypi/v/hypergan?label=PyPI&color=2563eb)](https://pypi.org/project/hypergan/)
 [![Python 3.11–3.14](https://img.shields.io/badge/Python-3.11%E2%80%933.14-3776ab)](https://pypi.org/project/hypergan/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-16a34a)](https://github.com/HyperGAN/HyperGAN/blob/master/LICENSE)
 [![CI](https://github.com/HyperGAN/HyperGAN/actions/workflows/ci.yml/badge.svg)](https://github.com/HyperGAN/HyperGAN/actions/workflows/ci.yml)
@@ -17,7 +17,7 @@
 
 ---
 
-HyperGAN 2.1.1 trains generative models from declarative `hypergan-model/1` TOML recipes using [HNDL](https://hypergan.github.io/HyperGAN/reference/ops/) neural graphs and [ParticleGAN](https://github.com/HyperGAN/HyperGAN/blob/master/docs/particlegan.md) (`unified_v11`, multi-critic coupled thermal coordination). Drive every workflow from the Docker-style CLI or lazy-loaded typed Python API (`import hypergan as hg`, 129 public symbols), watch training live in the Foldlite DB WebAssembly Observatory, and export standalone EMA generators for serving.
+HyperGAN 2.2.0 trains generative models from declarative `hypergan-model/1` TOML recipes using [HNDL](https://hypergan.github.io/HyperGAN/reference/ops/) neural graphs and [ParticleGAN](https://github.com/HyperGAN/HyperGAN/blob/master/docs/particlegan.md) (`unified_v12`, multi-critic coupled thermal coordination). Drive every workflow from the Docker-style CLI or lazy-loaded typed Python API (`import hypergan as hg`, 129 public symbols), watch training live in the Foldlite DB WebAssembly Observatory, and export standalone EMA generators for serving.
 
 ![HyperGAN logo colorization: grayscale HG to a 4×4 colorized grid](https://raw.githubusercontent.com/HyperGAN/HyperGAN/master/docs/assets/hypergan-colorizer-banner.png)
 
@@ -47,7 +47,7 @@ Use Python 3.12+ for the tested training runtime. Lightweight package checks cov
 python -m venv .venv
 . .venv/bin/activate
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cpu
-python -m pip install "hypergan[all]==2.1.1"
+python -m pip install "hypergan[all]==2.2.0"
 hypergan --help
 python -m hypergan --version
 ```
@@ -56,7 +56,7 @@ python -m hypergan --version
 
 ```sh
 python -m pip install "torch==2.14.0" "torchvision==0.29.0" --index-url https://download.pytorch.org/whl/cu130
-python -m pip install "hypergan[all]==2.1.1"
+python -m pip install "hypergan[all]==2.2.0"
 ```
 
 ### From a Source Checkout

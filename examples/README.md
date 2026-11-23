@@ -1,6 +1,6 @@
 # HyperGAN Examples
 
-This directory provides canonical, minimal, verified recipes and scripts for training models with HyperGAN 2.1.1. Browse the interactive gallery and packaged wheel recipes (`hypergan recipes`) in the [Examples documentation](https://hypergan.github.io/HyperGAN/examples/).
+This directory provides canonical, minimal, verified recipes and scripts for training models with HyperGAN 2.2.0. Browse the interactive gallery and packaged wheel recipes (`hypergan recipes`) in the [Examples documentation](https://hypergan.github.io/HyperGAN/examples/).
 
 ## Active Production Examples
 

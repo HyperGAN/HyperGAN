@@ -397,3 +397,103 @@ def test_replicated_unified_v11_highres_image_replica_agreement(tmp_path):
     assert r0 == r1
     assert r0["margin_initialized"] is True
     assert r0["ema_data_scale"] > 0.0
+
+
+def _unified_v12_highres_worker(rank, world_size, config_dict, full_batches, shared_dir):
+    """Run 3 high-res 4D image steps on 2 ranks with unified_v12 and test controller sync."""
+    from hypergan.aggregation import _synchronize_optimizer_regularizers
+
+    config = resolve_config(config_dict)
+    replicated = ReplicatedCPUTrainer(config, world_size=world_size, accumulation_steps=1)
+    assert replicated.recipe.name == "unified_v12"
+    assert replicated.recipe.optimizer_family == "unified_v12_equil"
+    for full_batch in full_batches:
+        local_batch = {"real": full_batch["real"].chunk(world_size)[rank]}
+        local_ids = full_batch["_ids"].chunk(world_size)[rank]
+        prior_arg = (replicated.prior.z[local_ids], local_ids)
+        replicated.update(local_batch, prior_arg)
+    replicated._assert_replicas("unified_v12 highres step 3")
+
+    # Exercise local-SGD regularizer synchronization for v12's _g_func_gain, _ema_flip_cos, and _prev_flip_sketch.
+    rec = replicated.opt_d.record
+    rec._g_func_gain = 0.4 if rank == 0 else 0.8
+    replicated.opt_g._ema_flip_cos = -0.2 if rank == 0 else -0.6
+    sketch = torch.zeros(67, dtype=torch.float32)
+    sketch[0] = 1.0 if rank == 0 else 0.6
+    sketch[1] = 0.0 if rank == 0 else 0.8
+    replicated.opt_g._prev_flip_sketch = sketch
+    _synchronize_optimizer_regularizers(replicated)
+    replicated._assert_replicas("unified_v12 synced v12 controller state")
+
+    torch.save(
+        {
+            "digest": replicated._replica_digest(),
+            "ema_margin": rec.ema_margin,
+            "ema_data_scale": rec.ema_data_scale,
+            "ema_push_res": rec.ema_push_res,
+            "margin_initialized": rec.margin_initialized,
+            "g_func_gain": rec._g_func_gain,
+            "opt_g_ema_func_gain": replicated.opt_g._ema_func_gain,
+            "opt_g_ema_flip_cos": replicated.opt_g._ema_flip_cos,
+            "opt_g_prev_flip_sketch": replicated.opt_g._prev_flip_sketch.tolist(),
+        },
+        Path(shared_dir) / f"rank-{rank}.pt",
+    )
+
+
+def test_replicated_unified_v12_highres_image_replica_agreement(tmp_path):
+    """2-rank unified_v12 (default preset) on 4D high-res images maintains exact replica agreement."""
+    config = {
+        "defaults": "particlegan",
+        "training": {
+            "steps": 3,
+            "batch_size": 8,
+            "device": "cpu",
+            "seed": 42,
+            "initialization": "deterministic_orthogonal",
+        },
+        "prior": {"kind": "mog", "fixed_sigma": 0.2, "args": {"num_particles": 16, "z_dim": 4}},
+        "components": {
+            "generator": {
+                "factory": "hndl",
+                "args": {
+                    "source": "linear(1200)\nreshape(3,20,20)\ntanh()",
+                    "input_shape": ["B", 4],
+                    "output_shape": ["B", 3, 20, 20],
+                },
+                "inputs": {"x": "latent"},
+            },
+            "discriminator": {
+                "factory": "hndl",
+                "args": {
+                    "source": "conv(8, kernel_size=3, padding=1)\nleaky_relu(0.2)\nadaptive_avg_pool(2)\nflatten()\nlinear(1)",
+                    "input_shape": ["B", 3, 20, 20],
+                    "output_shape": ["B", 1],
+                },
+                "inputs": {"x": "candidate"},
+            },
+        },
+    }
+    gen = torch.Generator().manual_seed(7)
+    full_batches = [
+        {
+            "real": torch.randn(8, 3, 20, 20, generator=gen),
+            "_ids": torch.arange(8, dtype=torch.long),
+        }
+        for _ in range(3)
+    ]
+    launch_cpu_workers(
+        _unified_v12_highres_worker,
+        args=(config, full_batches, str(tmp_path)),
+        world_size=2,
+        timeout=60,
+        collective_timeout=20,
+    )
+    r0 = torch.load(tmp_path / "rank-0.pt", weights_only=False)
+    r1 = torch.load(tmp_path / "rank-1.pt", weights_only=False)
+    assert r0 == r1
+    assert r0["margin_initialized"] is True
+    assert r0["ema_data_scale"] > 0.0
+    assert abs(r0["g_func_gain"] - 0.6) < 1e-6
+    assert abs(r0["opt_g_ema_flip_cos"] - (-0.4)) < 1e-6
+    assert len(r0["opt_g_prev_flip_sketch"]) == 67

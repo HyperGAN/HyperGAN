@@ -40,7 +40,7 @@ WEB_ASSET_FILES = (
     "logo.png",
 )
 
-# Verified landing-page showcase snippets (valid HyperGAN 2.1.1 usage).
+# Verified landing-page showcase snippets (valid HyperGAN 2.2.0 usage).
 LANDING_SNIPPETS: dict[str, dict[str, str]] = {
     "cli": {
         "label": "CLI Workflow",
@@ -725,7 +725,7 @@ def build_site(
 
     data = introspect.collect_site_data(repo_root)
     meta = dict(data.get("meta") or {})
-    meta.setdefault("version", "2.1.1")
+    meta.setdefault("version", "2.2.0")
     meta.setdefault("commit", "master")
     meta.setdefault("site_url", "https://hypergan.github.io/HyperGAN/")
     meta.setdefault("repo_url", "https://github.com/HyperGAN/HyperGAN")
@@ -864,7 +864,7 @@ def build_site(
         page_title=f"HyperGAN v{meta['version']} — Train generative models. Follow their progress. Export the result.",
         page_description=(
             "HyperGAN trains generative models from declarative hypergan-model/1 TOML files "
-            "using HNDL networks, ParticleGAN unified_v11, a real-time Web Observatory, and standalone export."
+            "using HNDL networks, ParticleGAN unified_v12, a real-time Web Observatory, and standalone export."
         ),
         active_nav="home",
         extra={
@@ -902,7 +902,7 @@ def build_site(
         "quickstart.html",
         "quickstart/index.html",
         page_title=f"Quickstart & Install — HyperGAN v{meta['version']}",
-        page_description="Install HyperGAN 2.1.1 with CUDA 13.0 or CPU PyTorch, scaffold a project, train, monitor in the Web Observatory, and export standalone generators.",
+        page_description="Install HyperGAN 2.2.0 with CUDA 13.0 or CPU PyTorch, scaffold a project, train, monitor in the Web Observatory, and export standalone generators.",
         active_nav="quickstart",
         extra={
             "layout_mode": "docs",

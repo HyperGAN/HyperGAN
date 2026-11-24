@@ -75,6 +75,7 @@ REMOTE_REPO_DIR = "/content/HyperGAN"
 REMOTE_RUNS_ROOT = "/content/runs"
 REMOTE_CONFIGS_ROOT = "/content/bench_configs"
 REMOTE_EVAL_ROOT = "/content/bench_eval"
+UPLOAD_CHUNK_BYTES = 32 * 1024 * 1024  # 32 MiB raw (~43 MiB base64 PUT, well under Colab's ~100 MiB HTTP limit)
 
 KNOWN_EVAL_FACTORIES: dict[str, str] = {
     "InceptionFID": "hypergan.image_metrics:InceptionFID",
@@ -1362,6 +1363,84 @@ class ColabBenchWorker:
             capture=capture,
         )
 
+    def _upload_file(
+        self,
+        local_path: str | Path,
+        remote_path: str,
+        *,
+        timeout: float = 300.0,
+        chunk_bytes: int | None = None,
+    ) -> tuple[int, str]:
+        """Upload a local file to Colab, automatically chunking large payloads (>32 MiB).
+
+        Colab's HTTP upload endpoint rejects large single-request PUT bodies (~100 MiB after base64),
+        causing `BrokenPipeError` on 150-250 MiB checkpoint resume tarballs. Chunked upload splits
+        files above `chunk_bytes`, uploads each part with a retry, reassembles on the VM via `cat`,
+        and verifies the reassembled byte length.
+        """
+        src = Path(local_path)
+        limit = UPLOAD_CHUNK_BYTES if chunk_bytes is None else max(1, int(chunk_bytes))
+        try:
+            total_size = src.stat().st_size
+        except OSError:
+            total_size = 0
+
+        if total_size <= limit:
+            return self._colab(["upload", "-s", self.worker_name, str(src), remote_path], timeout=timeout, capture=True)
+
+        num_parts = math.ceil(total_size / limit)
+        self._log(
+            f"Chunked upload for {src.name} ({total_size / (1024 * 1024):.1f} MiB -> "
+            f"{num_parts} part(s) of <= {limit / (1024 * 1024):.1f} MiB)..."
+        )
+        remote_parts: list[str] = []
+        per_part_timeout = max(120.0, timeout)
+        with tempfile.TemporaryDirectory(prefix="colab-upload-", dir=self.batch_dir) as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            with src.open("rb") as fh:
+                for idx in range(num_parts):
+                    data = fh.read(limit)
+                    if not data:
+                        break
+                    local_part = tmp_root / f"part{idx:04d}"
+                    local_part.write_bytes(data)
+                    remote_part = f"{remote_path}.part{idx:04d}"
+                    remote_parts.append(remote_part)
+
+                    last_rc, last_out = 1, ""
+                    for attempt in range(1, 3):
+                        last_rc, last_out = self._colab(
+                            ["upload", "-s", self.worker_name, str(local_part), remote_part],
+                            timeout=per_part_timeout,
+                            capture=True,
+                        )
+                        if last_rc == 0:
+                            break
+                        if attempt < 2:
+                            self._log(
+                                f"Chunk upload part {idx + 1}/{num_parts} failed (rc={last_rc}); retrying in 5s..."
+                            )
+                            time.sleep(5)
+                    if last_rc != 0:
+                        return last_rc, last_out
+                    local_part.unlink(missing_ok=True)
+
+        quoted_parts = " ".join(shlex.quote(p) for p in remote_parts)
+        quoted_dst = shlex.quote(remote_path)
+        reassemble_sh = (
+            f"set -euo pipefail; mkdir -p {shlex.quote(str(Path(remote_path).parent))}; "
+            f"cat {quoted_parts} > {quoted_dst}; rm -f {quoted_parts}; "
+            f"ACTUAL=$(stat -c%s {quoted_dst}); "
+            f"if [ \"$ACTUAL\" -ne {total_size} ]; then echo \"size mismatch: $ACTUAL != {total_size}\" >&2; exit 2; fi; "
+            f"touch /content/bench_heartbeat"
+        )
+        with self._ssh_lock:
+            return self._colab(
+                ["ssh", "-s", self.worker_name, "--", "bash", "-lc", reassemble_sh],
+                timeout=180,
+                capture=True,
+            )
+
     def wall_seconds(self) -> float:
         if self.started_mono is None:
             return 0.0
@@ -1459,10 +1538,7 @@ class ColabBenchWorker:
         # Upload optional source payloads (tarball, git bundle, dirty worktree overlay).
         if self.source_sync.get("tarball_path"):
             self._log("Uploading HyperGAN source tarball...")
-            rc, _ = self._colab(
-                ["upload", "-s", self.worker_name, self.source_sync["tarball_path"], "/content/hypergan-source.tar.gz"],
-                timeout=180,
-            )
+            rc, _ = self._upload_file(self.source_sync["tarball_path"], "/content/hypergan-source.tar.gz", timeout=180)
             if rc != 0:
                 raise RuntimeError(f"Failed to upload hypergan-source.tar.gz (rc={rc})")
         if self.source_sync.get("bundle_path"):
@@ -1615,7 +1691,7 @@ class ColabBenchWorker:
                 remote_tar = f"/content/dataset-{hashlib.sha256(key.encode()).hexdigest()[:8]}.tar.gz"
                 target_dir = job.dataset_target_dir or "/content/datasets"
                 self._log(f"Uploading dataset tarball {job.dataset_tarball} -> {target_dir}...")
-                rc, _ = self._colab(["upload", "-s", self.worker_name, job.dataset_tarball, remote_tar], timeout=600)
+                rc, _ = self._upload_file(job.dataset_tarball, remote_tar, timeout=600)
                 if rc != 0:
                     raise RuntimeError(f"Dataset tarball upload failed (rc={rc})")
                 extract_sh = (
@@ -2015,7 +2091,7 @@ class ColabBenchWorker:
             resume_tar = self.batch_dir / f"{job.run_name}-resume-upload.tar.gz"
             pack_local_run_for_resume(local_run_dir, resume_tar, remote_run_dir=remote_run_dir)
             remote_resume_tar = f"/content/resume-{job.run_name}.tar.gz"
-            rc, _ = self._colab(["upload", "-s", self.worker_name, str(resume_tar), remote_resume_tar], timeout=300)
+            rc, _ = self._upload_file(resume_tar, remote_resume_tar, timeout=300)
             if rc != 0:
                 raise RuntimeError(f"Resume tarball upload failed for {job.run_name} (rc={rc})")
             unpack_cmd = (
@@ -2283,7 +2359,7 @@ class ColabBenchWorker:
             bundle_id = sanitize_name(item.get("name") or local_bundle.parent.name or f"bundle-{idx}")
             remote_bundle = f"{REMOTE_EVAL_ROOT}/{bundle_id}.pt"
             self._log(f"Uploading EMA bundle {local_bundle} -> {remote_bundle}...")
-            rc, _ = self._colab(["upload", "-s", self.worker_name, str(local_bundle), remote_bundle], timeout=300)
+            rc, _ = self._upload_file(local_bundle, remote_bundle, timeout=300)
             if rc != 0:
                 raise RuntimeError(f"Failed to upload bundle {local_bundle} (rc={rc})")
             remote_manifest_items.append(

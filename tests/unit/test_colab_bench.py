@@ -967,3 +967,66 @@ def test_cpu_fallback_detection_in_telemetry(tmp_path):
     )
     tel = cb.analyze_run_telemetry(run_dir)
     assert tel["cpu_fallback_detected"] is True
+
+
+def test_ssh_broken_pipe_rc255_triggers_clean_reprovision_and_resume(tmp_path, monkeypatch):
+    assert cb._is_colab_disconnect(255, "client_loop: send disconnect: Broken pipe")
+    assert cb._is_colab_disconnect(1, "Connection to colab-runtime closed by remote host.")
+    assert cb._is_colab_disconnect(1, "Already-active SSH session (HTTP 429)")
+    assert not cb._is_colab_disconnect(1, "CUDA out of memory")
+
+    runs_dir = tmp_path / "runs"
+    state_dir = tmp_path / "colab_state"
+    booted: list[str] = []
+    ssh_calls: list[tuple[str, str]] = []
+    attempt = {"n": 0}
+
+    def fake_broken_pipe_then_resume(cmd, *, timeout_seconds, **kwargs):
+        cfg_idx = cmd.index("--config") + 1
+        subcmd = cmd[cfg_idx + 1]
+        sess = cmd[cmd.index("-s") + 1]
+        if subcmd == "new":
+            booted.append(sess)
+            return 0, "Session READY."
+        if subcmd == "ssh":
+            body = cmd[-1]
+            ssh_calls.append((sess, body))
+            if "hypergan train" in body or "hypergan resume" in body:
+                attempt["n"] += 1
+                if attempt["n"] == 1:
+                    return 255, "Connection to colab-runtime closed by remote host.\nclient_loop: send disconnect: Broken pipe"
+                return 0, "finished ok"
+            return 0, "COLAB_GPU_INFO: NVIDIA A100-SXM4-40GB, 40960 MiB, 580.82.07\n"
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            _make_run_tarball(dest, run_name="bp-run", step=50, status="stopped")
+            return 0, "downloaded"
+        return 0, ""
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_broken_pipe_then_resume)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    job = cb.BenchmarkJob(
+        run_name="bp-run",
+        config="cifar10-tiny-transformer",
+        gpu="A100",
+        stop_after_steps=50,
+        chunk_steps=25,
+        max_retries=2,
+    )
+    summary = cb.execute_benchmark_jobs(
+        repo_root=tmp_path,
+        runs_dir=runs_dir,
+        state_dir=state_dir,
+        jobs=[job],
+        workers=1,
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert summary["status"] == "complete"
+    assert len(booted) == 2
+    assert booted[1].endswith("-r1")
+    # Broken pipe on attempt 1 (booted[0]) must NOT invoke tar/pull on the dead SSH tunnel before reprovisioning.
+    assert not any("chunk1" in body for sess, body in ssh_calls if sess == booted[0])
+    assert any("chunk1" in body for sess, body in ssh_calls if sess == booted[1])

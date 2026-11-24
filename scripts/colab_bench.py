@@ -2286,15 +2286,21 @@ class ColabBenchWorker:
             """
         ).strip()
 
+        runner_local = self.batch_dir / "eval_runner.py"
+        runner_local.write_text(runner_py + "\n", encoding="utf-8")
+        up_rc, _ = self._colab(
+            ["upload", "-s", self.worker_name, str(runner_local), f"{REMOTE_EVAL_ROOT}/eval_runner.py"],
+            timeout=120,
+        )
+        if up_rc != 0:
+            raise RuntimeError(f"Failed to upload eval_runner.py (rc={up_rc})")
+
         eval_sh = textwrap.dedent(
             f"""
             set -euo pipefail
             rm -f /content/bench_job.done
             touch /content/bench_heartbeat
             cd {REMOTE_REPO_DIR}
-            cat <<'PY' > {REMOTE_EVAL_ROOT}/eval_runner.py
-            {runner_py}
-            PY
             python3 {REMOTE_EVAL_ROOT}/eval_runner.py 2>&1 | tee -a /content/bench_job.log
             tar -czf /content/eval-receipts.tar.gz -C {REMOTE_EVAL_ROOT}/receipts .
             touch /content/bench_heartbeat /content/bench_job.done
@@ -2317,6 +2323,7 @@ class ColabBenchWorker:
 
         imported: list[dict[str, Any]] = []
         if import_to_run:
+            allowed_output_meta = {"label", "unit", "direction", "description"}
             for rec in receipts:
                 if rec.get("status") != "complete" or not rec.get("local_run_dir"):
                     continue
@@ -2326,12 +2333,18 @@ class ColabBenchWorker:
                 try:
                     from hypergan.evaluation_results import import_scores
 
+                    raw_outputs = rec.get("outputs") or {}
+                    clean_outputs = {
+                        out_key: {mk: mv for mk, mv in meta.items() if mk in allowed_output_meta}
+                        for out_key, meta in raw_outputs.items()
+                        if isinstance(meta, dict)
+                    }
                     imp = import_scores(
                         target_run,
                         rec["metric_id"],
                         step=int(rec["step"]),
                         values=rec["values"],
-                        outputs=rec["outputs"],
+                        outputs=clean_outputs,
                         attempt_id=rec.get("attempt_id"),
                         snapshot_identity=rec.get("snapshot_identity"),
                         snapshot_sha256=rec.get("bundle_sha256"),

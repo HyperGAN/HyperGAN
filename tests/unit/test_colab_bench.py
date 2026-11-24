@@ -888,4 +888,58 @@ def test_boot_retries_recover_from_transient_503(tmp_path, monkeypatch):
     assert boot_calls["n"] == 2
 
 
+def test_ffhq64_auto_dataset_prep_and_fallback_gpu(tmp_path, monkeypatch):
+    # Real whitepaper FFHQ-64 config must auto-detect `ffhq64`.
+    ffhq_cfg = REPO_ROOT / "benchmarks" / "whitepaper" / "ffhq64-resnet-v12.toml"
+    assert ffhq_cfg.is_file()
+    job = cb.BenchmarkJob(run_name="wp-ffhq64", config=str(ffhq_cfg), gpu="L4", stop_after_steps=10)
+    assert cb.detect_job_dataset(job) == "ffhq64"
+
+    ssh_cmds: list[str] = []
+    boot_gpus: list[str] = []
+
+    def fake_fallback_and_ffhq(cmd, *, timeout_seconds, **kwargs):
+        cfg_idx = cmd.index("--config") + 1
+        subcmd = cmd[cfg_idx + 1]
+        if subcmd == "new":
+            gpu_arg = cmd[cmd.index("--gpu") + 1]
+            boot_gpus.append(gpu_arg)
+            if gpu_arg in ("L4", "A100"):
+                return 1, "503 Service Unavailable"
+            return 0, "Session READY."
+        if subcmd == "ssh":
+            ssh_cmds.append(cmd[-1])
+            return 0, "COLAB_GPU_INFO: Tesla T4, 15360 MiB, 580.82.07\n"
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            _make_run_tarball(dest, run_name="wp-ffhq64", step=10, status="stopped")
+            return 0, "downloaded"
+        return 0, "ok"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_fallback_and_ffhq)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    summary = cb.execute_benchmark_jobs(
+        repo_root=REPO_ROOT,
+        runs_dir=tmp_path / "runs",
+        state_dir=tmp_path / "state",
+        jobs=[job],
+        workers=1,
+        boot_retries=1,
+        fallback_gpus="A100,T4",
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert summary["status"] == "complete"
+    assert boot_gpus == ["L4", "A100", "T4"]
+    assert summary["results"][0]["requested_gpu"] == "L4"
+    assert summary["results"][0]["gpu"] == "T4"
+    assert summary["workers_cost"][0]["requested_gpu"] == "L4"
+    assert summary["workers_cost"][0]["gpu"] == "T4"
+    assert summary["workers_cost"][0]["cu_per_hr"] == pytest.approx(1.15)
+    assert any("scripts/prepare_benchmark_dataset.py --dataset ffhq64" in c for c in ssh_cmds)
+
+
+
 

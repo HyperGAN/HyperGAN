@@ -138,6 +138,24 @@ def normalize_gpu(gpu: str) -> str:
     return upper
 
 
+def parse_gpu_list(raw: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    """Parse an ordered comma-separated list (or sequence) of Colab GPU names."""
+    if raw is None:
+        return []
+    tokens: list[str] = []
+    if isinstance(raw, str):
+        tokens = [part.strip() for part in raw.split(",") if part.strip()]
+    else:
+        for item in raw:
+            tokens.extend(part.strip() for part in str(item).split(",") if part.strip())
+    result: list[str] = []
+    for tok in tokens:
+        norm = normalize_gpu(tok)
+        if norm not in result:
+            result.append(norm)
+    return result
+
+
 def validate_worker_count(
     workers: int,
     *,
@@ -758,8 +776,11 @@ def inspect_local_run(run_dir: Path, *, target_step: int | None = None) -> dict[
     }
 
 
+PREPARABLE_BENCHMARK_DATASETS = ("ffhq64", "flowers102")
+
+
 def detect_job_dataset(job: BenchmarkJob) -> str:
-    """Infer whether a job needs built-in CIFAR-10 preparation from CLI/manifest or TOML config."""
+    """Infer whether a job needs built-in CIFAR-10 or `prepare_benchmark_dataset.py` (`ffhq64`/`flowers102`)."""
     if job.dataset:
         return job.dataset.strip().lower()
     cfg_path = Path(job.config)
@@ -767,11 +788,22 @@ def detect_job_dataset(job: BenchmarkJob) -> str:
         try:
             doc = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
             data_tbl = doc.get("data") or {}
-            if isinstance(data_tbl, dict) and data_tbl.get("builtin"):
-                return str(data_tbl["builtin"]).strip().lower()
+            if isinstance(data_tbl, dict):
+                builtin = str(data_tbl.get("builtin") or "").strip().lower()
+                if builtin == "cifar10":
+                    return "cifar10"
+                args_tbl = data_tbl.get("args") if isinstance(data_tbl.get("args"), dict) else {}
+                root_val = str(args_tbl.get("root") or data_tbl.get("root") or "").lower()
+                for ds in PREPARABLE_BENCHMARK_DATASETS:
+                    if ds in root_val:
+                        return ds
         except (OSError, tomllib.TOMLDecodeError):
             pass
-    if "cifar10" in job.config.lower() or "cifar10" in job.run_name.lower():
+    lower_ref = f"{job.config} {job.run_name}".lower()
+    for ds in PREPARABLE_BENCHMARK_DATASETS:
+        if ds in lower_ref:
+            return ds
+    if "cifar10" in lower_ref:
         return "cifar10"
     return "none"
 
@@ -1227,6 +1259,7 @@ class ColabBenchWorker:
         colab_bin: str = "colab",
         boot_timeout: int = 260,
         boot_retries: int = 2,
+        fallback_gpus: list[str] | str | None = None,
         max_minutes: int = 240,
         idle_grace_minutes: int = 10,
         stall_minutes: int = 30,
@@ -1239,7 +1272,8 @@ class ColabBenchWorker:
         registry: ActiveSessionRegistry | None = None,
     ) -> None:
         self.worker_name = sanitize_name(worker_name, max_len=48)
-        self.gpu = normalize_gpu(gpu)
+        self.requested_gpu = normalize_gpu(gpu)
+        self.gpu = self.requested_gpu
         self.batch_dir = Path(batch_dir).resolve()
         self.state_dir = Path(state_dir).resolve()
         self.repo_root = Path(repo_root).resolve()
@@ -1248,6 +1282,7 @@ class ColabBenchWorker:
         self.colab_bin = colab_bin
         self.boot_timeout = boot_timeout
         self.boot_retries = max(1, int(boot_retries))
+        self.fallback_gpus = [g for g in parse_gpu_list(fallback_gpus) if g != self.requested_gpu]
         self.max_seconds = max_minutes * 60
         self.idle_grace_seconds = idle_grace_minutes * 60
         self.stall_seconds = stall_minutes * 60
@@ -1299,37 +1334,46 @@ class ColabBenchWorker:
     def cost_summary(self) -> dict[str, Any]:
         return {
             "worker": self.worker_name,
+            "requested_gpu": self.requested_gpu,
             **estimate_cost(self.gpu, self.wall_seconds(), actual_cuda_model=self.actual_cuda_model),
         }
 
     def start(self) -> None:
-        spec = COLAB_GPU_SPECS[self.gpu]
-        cmd = ["new", "-s", self.worker_name]
-        if spec["colab_flag"]:
-            cmd += ["--gpu", spec["colab_flag"]]
+        gpu_candidates = [self.requested_gpu, *self.fallback_gpus]
+
         self.started_mono = time.monotonic()
         last_rc = 1
         last_out = ""
-        for boot_attempt in range(1, self.boot_retries + 1):
-            self._log(
-                f"Provisioning Colab {self.gpu} VM (attempt {boot_attempt}/{self.boot_retries}, "
-                f"boot timeout {self.boot_timeout}s)..."
-            )
-            last_rc, last_out = self._colab(cmd, timeout=self.boot_timeout, capture=True)
+        for idx_g, candidate_gpu in enumerate(gpu_candidates):
+            spec = COLAB_GPU_SPECS[candidate_gpu]
+            cmd = ["new", "-s", self.worker_name]
+            if spec["colab_flag"]:
+                cmd += ["--gpu", spec["colab_flag"]]
+            for boot_attempt in range(1, self.boot_retries + 1):
+                self._log(
+                    f"Provisioning Colab {candidate_gpu} VM (attempt {boot_attempt}/{self.boot_retries}, "
+                    f"boot timeout {self.boot_timeout}s)..."
+                )
+                last_rc, last_out = self._colab(cmd, timeout=self.boot_timeout, capture=True)
+                if last_rc == 0:
+                    self.gpu = candidate_gpu
+                    break
+                # Best-effort stop in case Colab allocated the backend right as `colab new` timed out.
+                self._colab(["stop", "-s", self.worker_name], timeout=30)
+                if boot_attempt < self.boot_retries:
+                    self._log(
+                        f"colab new ({candidate_gpu}) attempt {boot_attempt}/{self.boot_retries} failed (rc={last_rc}); "
+                        "waiting 20s before retry..."
+                    )
+                    time.sleep(20)
             if last_rc == 0:
                 break
-            # Best-effort stop in case Colab allocated the backend right as `colab new` timed out.
-            self._colab(["stop", "-s", self.worker_name], timeout=30)
-            if boot_attempt < self.boot_retries:
-                self._log(
-                    f"colab new attempt {boot_attempt}/{self.boot_retries} failed (rc={last_rc}); "
-                    "waiting 20s before retry..."
-                )
-                time.sleep(20)
+            if idx_g + 1 < len(gpu_candidates):
+                self._log(f"Colab {candidate_gpu} allocation failed; falling back to {gpu_candidates[idx_g + 1]}...")
         if last_rc != 0:
             self.stopped_mono = time.monotonic()
             raise RuntimeError(
-                f"colab new failed for {self.worker_name} (gpu={self.gpu}, rc={last_rc}): {last_out[-400:]}"
+                f"colab new failed for {self.worker_name} (tried={gpu_candidates}, rc={last_rc}): {last_out[-400:]}"
             )
 
         self.alive = True
@@ -1503,6 +1547,24 @@ class ColabBenchWorker:
             if rc != 0:
                 raise RuntimeError(f"CIFAR-10 dataset prep failed on {self.worker_name} (rc={rc})")
             self._prepared_datasets.add("cifar10")
+
+        if dataset in PREPARABLE_BENCHMARK_DATASETS and dataset not in self._prepared_datasets:
+            self._log(f"Preparing cached {dataset} benchmark dataset on VM via scripts/prepare_benchmark_dataset.py...")
+            prep_sh = textwrap.dedent(
+                f"""
+                set -euo pipefail
+                cd {REMOTE_REPO_DIR}
+                touch /content/bench_heartbeat
+                if [ ! -f ~/.hypergan/cache/datasets/{dataset}/dataset-manifest.json ]; then
+                  python3 scripts/prepare_benchmark_dataset.py --dataset {shlex.quote(dataset)}
+                fi
+                touch /content/bench_heartbeat
+                """
+            ).strip()
+            rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=900)
+            if rc != 0:
+                raise RuntimeError(f"{dataset} dataset prep failed on {self.worker_name} (rc={rc})")
+            self._prepared_datasets.add(dataset)
 
         if job.dataset_tarball:
             key = f"tar:{job.dataset_tarball}:{job.dataset_target_dir or ''}"
@@ -1875,6 +1937,7 @@ class ColabBenchWorker:
         return {
             "run_name": job.run_name,
             "config": job.config,
+            "requested_gpu": self.requested_gpu,
             "gpu": self.gpu,
             "cuda_model": self.actual_cuda_model or COLAB_GPU_SPECS[self.gpu]["cuda_model"] or "CPU",
             "local_run_dir": str(local_run_dir),
@@ -1906,7 +1969,8 @@ class ColabBenchWorker:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Prepare dataset once on the VM.
-        dataset_name = str(dataset_config.get("builtin") or "none").lower()
+        dataset_name = str(dataset_config.get("_prepare_dataset") or dataset_config.get("builtin") or "none").lower()
+        clean_dataset_config = {k: v for k, v in dataset_config.items() if not k.startswith("_")}
         prep_job = BenchmarkJob(
             run_name="eval-prep",
             config="eval-prep",
@@ -1959,7 +2023,7 @@ class ColabBenchWorker:
             "metrics": resolved_metrics,
             "cli_metrics": cli_metrics,
             "custom_metrics": custom_metrics,
-            "dataset": dataset_config,
+            "dataset": clean_dataset_config,
             "samples": samples,
             "batch_size": batch_size,
             "seed": seed,
@@ -2052,7 +2116,7 @@ class ColabBenchWorker:
                         ]
                     elif data_cfg.get("factory") == "image_folder":
                         d_args = data_cfg.get("args") or {{}}
-                        cli_cmd += ["--data-folder", str(d_args["root"])]
+                        cli_cmd += ["--data-folder", str(Path(str(d_args["root"])).expanduser())]
                         if d_args.get("width") is not None:
                             cli_cmd += ["--width", str(d_args["width"])]
                         if d_args.get("height") is not None:
@@ -2297,6 +2361,7 @@ def execute_benchmark_jobs(
     stagger_seconds: float = DEFAULT_STAGGER_SECONDS,
     boot_timeout: int = 260,
     boot_retries: int = 2,
+    fallback_gpus: list[str] | str | None = None,
     max_minutes: int = 240,
     idle_grace_minutes: int = 10,
     stall_minutes: int = 30,
@@ -2438,6 +2503,7 @@ def execute_benchmark_jobs(
                 colab_bin=colab_bin,
                 boot_timeout=boot_timeout,
                 boot_retries=boot_retries,
+                fallback_gpus=fallback_gpus,
                 max_minutes=max_minutes,
                 idle_grace_minutes=idle_grace_minutes,
                 stall_minutes=stall_minutes,
@@ -2628,6 +2694,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         stagger_seconds=args.stagger_seconds,
         boot_timeout=args.boot_timeout,
         boot_retries=args.boot_retries,
+        fallback_gpus=args.fallback_gpus,
         max_minutes=args.max_minutes,
         idle_grace_minutes=args.idle_grace_minutes,
         stall_minutes=args.stall_minutes,
@@ -2689,6 +2756,7 @@ def execute_eval_bundles(
     import_to_run: bool = False,
     boot_timeout: int = 260,
     boot_retries: int = 2,
+    fallback_gpus: list[str] | str | None = None,
     max_minutes: int = 120,
     idle_grace_minutes: int = 10,
     stall_minutes: int = 25,
@@ -2725,6 +2793,7 @@ def execute_eval_bundles(
         colab_bin=colab_bin,
         boot_timeout=boot_timeout,
         boot_retries=boot_retries,
+        fallback_gpus=fallback_gpus,
         max_minutes=max_minutes,
         idle_grace_minutes=idle_grace_minutes,
         stall_minutes=stall_minutes,
@@ -2786,6 +2855,19 @@ def cmd_eval_bundles(args: argparse.Namespace) -> int:
                 "horizontal_flip": False,
             },
         }
+    elif args.dataset.strip().lower() in PREPARABLE_BENCHMARK_DATASETS:
+        ds = args.dataset.strip().lower()
+        dataset_config = {
+            "factory": "image_folder",
+            "args": {
+                "root": f"~/.hypergan/cache/datasets/{ds}",
+                "width": args.image_size,
+                "height": args.image_size,
+                "sampling": "sequential",
+                "horizontal_flip": False,
+            },
+            "_prepare_dataset": ds,
+        }
     else:
         dataset_config = {
             "builtin": args.dataset,
@@ -2820,6 +2902,7 @@ def cmd_eval_bundles(args: argparse.Namespace) -> int:
         import_to_run=args.import_to_run,
         boot_timeout=args.boot_timeout,
         boot_retries=args.boot_retries,
+        fallback_gpus=args.fallback_gpus,
         max_minutes=args.max_minutes,
         idle_grace_minutes=args.idle_grace_minutes,
         stall_minutes=args.stall_minutes,
@@ -2989,6 +3072,13 @@ def build_parser() -> argparse.ArgumentParser:
         sp.set_defaults(gpu_explicit=False)
         sp.add_argument("--boot-timeout", type=int, default=260, help="Seconds to wait for `colab new`")
         sp.add_argument("--boot-retries", type=int, default=2, help="Outer `colab new` retries on transient 503 bursts")
+        sp.add_argument(
+            "--fallback-gpus",
+            "--fallback-gpu",
+            dest="fallback_gpus",
+            default=None,
+            help="Optional comma-separated fallback accelerator list on repeated 503 allocation failures (e.g. A100,L4,T4 or L4,T4)",
+        )
         sp.add_argument("--max-minutes", type=int, default=240, help="Hard VM-side watchdog wall-clock cap (minutes)")
         sp.add_argument(
             "--idle-grace-minutes",

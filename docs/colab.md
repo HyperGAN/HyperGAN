@@ -10,7 +10,7 @@
   1. Local `try/finally`, `atexit`, `SIGINT`, and `SIGTERM` handlers stop every provisioned VM immediately and persist session metadata under `runs/colab/sessions/`.
   2. Immediately after boot, a detached VM-side `/content/watchdog.py` is armed (with 3 retries; failure terminates the VM) and sends `POST http://$TBE_RUNTIME_ADDR/unassign` if the local controller disconnects after job completion (`--idle-grace-minutes`), training logs/events stall (`--stall-minutes`), or total wall time exceeds `--max-minutes`.
 - **OS process-group hard timeouts**: every `colab` CLI subprocess runs in its own session (`start_new_session=True`) with guaranteed `SIGTERM -> SIGKILL` process-group cleanup so hung websocket threads never leak idle GPU credits.
-- **Cost & hardware telemetry**: records actual CUDA model, wall seconds, GPU-hours, and estimated Compute Units (CU) per worker and per batch in `runs/colab/<batch>/summary.json`.
+- **Cost & hardware telemetry**: records requested and actual assigned CUDA model, wall seconds, GPU-hours, and estimated Compute Units (CU) per worker and per batch in `runs/colab/<batch>/summary.json`. Pass `--fallback-gpus A100,L4,T4` (or `L4,T4`) to automatically fall back through an ordered accelerator list if the primary pool returns transient `503 Service Unavailable` responses.
 
 | Accelerator | Typical VRAM | Est. CU / hr |
 | --- | --- | --- |
@@ -48,7 +48,7 @@ python scripts/colab_bench.py run \
 
 ### Multi-job JSON or TOML manifest
 
-Queue multiple experiments across up to 3 warm Colab GPU VMs. Each warm VM bootstraps HyperGAN once (`particlegan==0.12.0`, `hndl`, `torch-fidelity==0.4.0`, `foldlitedb`, plus editable HyperGAN from `--ref` or a local bundle/tarball), caches CIFAR-10 or custom datasets once, and drains all matching-GPU jobs from the queue:
+Queue multiple experiments across up to 3 warm Colab GPU VMs. Each warm VM bootstraps HyperGAN once (`particlegan==0.12.0`, `hndl`, `torch-fidelity==0.4.0`, `foldlitedb`, plus editable HyperGAN from `--ref` or a local bundle/tarball), automatically caches CIFAR-10 (`hypergan download-data cifar10`) or 64×64 benchmark datasets (`python scripts/prepare_benchmark_dataset.py --dataset ffhq64` / `flowers102`) once per VM, and drains all matching-GPU jobs from the queue:
 
 ```toml
 [defaults]

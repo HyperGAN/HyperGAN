@@ -958,8 +958,3 @@ def test_cpu_fallback_detection_in_telemetry(tmp_path):
     )
     tel = cb.analyze_run_telemetry(run_dir)
     assert tel["cpu_fallback_detected"] is True
-
-
-
-
-

@@ -939,6 +939,11 @@ def test_ffhq64_auto_dataset_prep_and_fallback_gpu(tmp_path, monkeypatch):
     assert summary["workers_cost"][0]["gpu"] == "T4"
     assert summary["workers_cost"][0]["cu_per_hr"] == pytest.approx(1.15)
     assert any("scripts/prepare_benchmark_dataset.py --dataset ffhq64" in c for c in ssh_cmds)
+    # Fresh hypergan train must NOT pre-populate train.log inside remote_run_dir before startup.
+    train_sh = [c for c in ssh_cmds if "hypergan train" in c]
+    assert train_sh
+    assert "/content/logs/wp-ffhq64.train.log" in train_sh[0]
+    assert "/content/runs/wp-ffhq64/train.log" not in train_sh[0]
 
 
 

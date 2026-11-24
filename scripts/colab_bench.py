@@ -1649,10 +1649,11 @@ class ColabBenchWorker:
             tar_out = Path({tar_remote!r})
             pull_ckpts = {pull_checkpoints!r}
             want_bundle = {bool(export_bundle)!r}
+            ext_log = Path({f"/content/logs/{run_name}.train.log"!r})
 
-            if not run_dir.is_dir():
-                print(f"[pack] run_dir missing: {{run_dir}}", file=sys.stderr)
-                sys.exit(1)
+            run_dir.mkdir(parents=True, exist_ok=True)
+            if ext_log.is_file():
+                shutil.copy2(ext_log, run_dir / "train.log")
 
             # Ensure top-level EMA model.pt is staged if available.
             if want_bundle and not (run_dir / "model.pt").is_file():
@@ -1773,7 +1774,7 @@ class ColabBenchWorker:
             if rc != 0:
                 raise RuntimeError(f"Resume tarball extraction failed on VM for {job.run_name} (rc={rc})")
         else:
-            prep_cmd = f"rm -rf {shlex.quote(remote_run_dir)} && mkdir -p {shlex.quote(remote_run_dir)}"
+            prep_cmd = f"rm -rf {shlex.quote(remote_run_dir)} && mkdir -p {shlex.quote(REMOTE_RUNS_ROOT)} /content/logs"
             self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_cmd], timeout=60)
 
         device_arg = "cpu" if self.gpu == "cpu" else "cuda"
@@ -1837,15 +1838,16 @@ class ColabBenchWorker:
                     f"{shlex.quote(remote_run_dir)}/checkpoints {shlex.quote(drive_target)}/ 2>/dev/null || true; fi"
                 )
 
+            remote_train_log = f"/content/logs/{job.run_name}.train.log"
             run_sh = textwrap.dedent(
                 f"""
                 set -euo pipefail
                 rm -f /content/bench_job.done
                 touch /content/bench_heartbeat
                 cd {REMOTE_REPO_DIR}
-                mkdir -p {shlex.quote(remote_run_dir)}
+                mkdir -p {shlex.quote(REMOTE_RUNS_ROOT)} /content/logs
                 set +e
-                {quoted_hg} 2>&1 | tee -a {shlex.quote(remote_run_dir)}/train.log /content/bench_job.log
+                {quoted_hg} 2>&1 | tee -a {shlex.quote(remote_train_log)} /content/bench_job.log
                 RUN_RC=${{PIPESTATUS[0]}}
                 set -e
                 {drive_sync_sh}

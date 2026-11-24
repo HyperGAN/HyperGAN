@@ -1223,3 +1223,49 @@ config = "m.toml"
     assert parsed.detached is False
     assert parsed.poll_seconds is None
     assert parsed.max_retries is None
+
+
+def test_disconnect_short_circuits_on_rc_zero_and_eval_honors_max_minutes(tmp_path, monkeypatch):
+    # rc == 0 must NEVER be misclassified as a disconnect even if logs contain numbers like 429 or marker strings.
+    assert cb._is_colab_disconnect(0, "step 42900 loss=0.429 websocket") is False
+    # Bare digits '429' inside non-zero training errors must not match HTTP 429.
+    assert cb._is_colab_disconnect(1, "step 42900 CUDA out of memory") is False
+    assert cb._is_colab_disconnect(1, "HTTP 429 Too Many Requests") is True
+
+    bundle_dir = tmp_path / "runs" / "b1"
+    bundle_dir.mkdir(parents=True)
+    bundle_path = bundle_dir / "model.pt"
+    bundle_path.write_bytes(b"ema")
+    eval_timeouts: list[float] = []
+
+    def fake_eval_timeout(cmd, *, timeout_seconds, **kwargs):
+        cfg_idx = cmd.index("--config") + 1
+        subcmd = cmd[cfg_idx + 1]
+        if subcmd == "ssh" and "eval_runner.py" in cmd[-1]:
+            eval_timeouts.append(float(timeout_seconds))
+            return 0, "ok"
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            with tarfile.open(dest, "w:gz") as tf:
+                payload = b"[]\n"
+                ti = tarfile.TarInfo(name="all-receipts.json")
+                ti.size = len(payload)
+                tf.addfile(ti, fileobj=__import__("io").BytesIO(payload))
+            return 0, "downloaded"
+        return 0, "COLAB_GPU_INFO: NVIDIA L4, 23034 MiB, 580.82.07\n"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_eval_timeout)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    cb.execute_eval_bundles(
+        repo_root=tmp_path,
+        state_dir=tmp_path / "state",
+        bundles=[{"name": "b1", "bundle_path": str(bundle_path), "run_dir": str(bundle_dir)}],
+        metrics=["InceptionSuite", "DINOv2Suite"],
+        dataset_config={"builtin": "cifar10", "args": {"root": "~/.hypergan/cache/cifar10", "split": "train"}},
+        gpu="L4",
+        max_minutes=180,
+        output_dir=tmp_path / "out",
+    )
+    assert eval_timeouts == [10800.0]

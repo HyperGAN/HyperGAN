@@ -109,7 +109,6 @@ _COLAB_DISCONNECT_MARKERS: tuple[str, ...] = (
     "already-active ssh session",
     "too many requests",
     "http 429",
-    "429",
     "unexpected eof",
     "kex_exchange_identification",
 )
@@ -117,6 +116,8 @@ _COLAB_DISCONNECT_MARKERS: tuple[str, ...] = (
 
 def _is_colab_disconnect(rc: int, output: str = "") -> bool:
     """Return True when an SSH/Colab invocation failed due to tunnel or session loss."""
+    if rc == 0:
+        return False
     if rc in (124, 255):
         return True
     low = (output or "").lower()
@@ -2568,17 +2569,23 @@ class ColabBenchWorker:
         eval_sh = textwrap.dedent(
             f"""
             set -euo pipefail
+            export PYTHONUNBUFFERED=1
             rm -f /content/bench_job.done
             touch /content/bench_heartbeat
             cd {REMOTE_REPO_DIR}
+            set +e
             python3 {REMOTE_EVAL_ROOT}/eval_runner.py 2>&1 | tee -a /content/bench_job.log
+            EVAL_RC=${{PIPESTATUS[0]}}
+            set -e
+            mkdir -p {REMOTE_EVAL_ROOT}/receipts
             tar -czf /content/eval-receipts.tar.gz -C {REMOTE_EVAL_ROOT}/receipts .
             touch /content/bench_heartbeat /content/bench_job.done
+            exit $EVAL_RC
             """
         ).strip()
 
         t0 = time.monotonic()
-        timeout_s = max(900, min(self.max_seconds, len(bundles) * len(metrics) * 900 + 300))
+        timeout_s = max(900, self.max_seconds)
         rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", eval_sh], timeout=timeout_s)
         elapsed = time.monotonic() - t0
 
@@ -2844,7 +2851,7 @@ def execute_benchmark_jobs(
                             register_run_local=register_runs,
                         )
                         res["attempt"] = attempt_num + 1
-                        if res["disconnected"] and attempt_num < job.max_retries:
+                        if res["disconnected"] and res.get("run_rc", 0) != 0 and attempt_num < job.max_retries:
                             worker._log(
                                 f"Colab disconnect detected for {job.run_name}; "
                                 f"re-queueing for automatic resume (retry {attempt_num + 1}/{job.max_retries})."

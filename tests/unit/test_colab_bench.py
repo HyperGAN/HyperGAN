@@ -832,3 +832,11 @@ def test_prepare_source_bundle_tarball_and_eval_import_to_run(tmp_path, monkeypa
     assert eval_metrics["dinov2suite/fd_dinov2"] == pytest.approx(42.5)
     assert eval_metrics["dinov2suite/precision"] == pytest.approx(0.81)
 
+
+def test_eval_runner_dataset_lowering_uses_real_hypergan_factory():
+    # Confirm scripts/colab_bench.py does not reference nonexistent private model_file helpers.
+    src = SCRIPT_PATH.read_text(encoding="utf-8")
+    assert "_lower_data_builtin" not in src
+    assert "hypergan.image_data:CIFAR10Data" in src
+
+

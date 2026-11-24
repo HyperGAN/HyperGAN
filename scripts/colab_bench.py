@@ -1214,7 +1214,7 @@ class ColabBenchWorker:
         repo_url: str,
         source_sync: dict[str, Any],
         colab_bin: str = "colab",
-        boot_timeout: int = 180,
+        boot_timeout: int = 260,
         max_minutes: int = 240,
         idle_grace_minutes: int = 10,
         stall_minutes: int = 30,
@@ -1307,14 +1307,14 @@ class ColabBenchWorker:
         self.registry.register(self.worker_name, self.cfg, gpu=self.gpu, batch_dir=self.batch_dir)
         time.sleep(5)  # Websocket warmup guard
 
-        # Layer 2 teardown: arm VM-side detached watchdog with 3 retries.
+        # Layer 2 teardown: arm VM-side detached watchdog with 5 retries.
         watchdog_script = build_watchdog_arm_script(
             max_seconds=self.max_seconds,
             idle_grace_seconds=self.idle_grace_seconds,
             stall_seconds=self.stall_seconds,
         )
         armed = False
-        for attempt in range(1, 4):
+        for attempt in range(1, 6):
             rc, _ = self._colab(
                 [
                     "exec",
@@ -1335,7 +1335,7 @@ class ColabBenchWorker:
             if rc == 0:
                 armed = True
                 break
-            self._log(f"Watchdog arm attempt {attempt}/3 failed (rc={rc}); retrying in 5s...")
+            self._log(f"Watchdog arm attempt {attempt}/5 failed (rc={rc}); retrying in 5s...")
             time.sleep(5)
         if not armed:
             self.stop()
@@ -1430,12 +1430,18 @@ class ColabBenchWorker:
             $INSTALLER --no-deps {quoted_pkgs}
             $INSTALLER --no-deps -e {REMOTE_REPO_DIR}
             python3 - <<'PY'
+            import importlib.metadata as md
             import torch, hypergan, particlegan, hndl, torch_fidelity, foldlitedb
+            def _ver(pkg):
+                try:
+                    return md.version(pkg)
+                except md.PackageNotFoundError:
+                    return "installed"
             print(
                 f"[vm] ready: torch={{torch.__version__}} cuda={{torch.cuda.is_available()}} "
-                f"hypergan={{hypergan.__version__}} particlegan={{particlegan.__version__}} "
-                f"hndl={{getattr(hndl, '__version__', 'installed')}} "
-                f"torch_fidelity={{torch_fidelity.__version__}}"
+                f"hypergan={{_ver('hypergan')}} particlegan={{_ver('particlegan')}} "
+                f"hndl={{_ver('hndl')}} torch_fidelity={{_ver('torch-fidelity')}} "
+                f"foldlitedb={{_ver('foldlitedb')}}"
             )
             PY
             touch /content/bench_heartbeat
@@ -1980,8 +1986,12 @@ class ColabBenchWorker:
                         descriptor = expected["descriptor"]
                         eval_data = dict(spec_doc["dataset"])
                         if "builtin" in eval_data:
-                            from hypergan.model_file import _lower_data_builtin
-                            data_cfg = _lower_data_builtin(eval_data)
+                            builtin = str(eval_data["builtin"]).strip()
+                            d_args = dict(eval_data.get("args") or {{}})
+                            if builtin == "cifar10":
+                                data_cfg = {{"factory": "hypergan.image_data:CIFAR10Data", "args": d_args}}
+                            else:
+                                data_cfg = {{"factory": builtin, "args": d_args}}
                         else:
                             data_cfg = eval_data
                         eval_spec = {{
@@ -2129,7 +2139,7 @@ def execute_benchmark_jobs(
     max_workers: int = HARD_MAX_WORKERS,
     allow_over_cap: bool = False,
     stagger_seconds: float = DEFAULT_STAGGER_SECONDS,
-    boot_timeout: int = 180,
+    boot_timeout: int = 260,
     max_minutes: int = 240,
     idle_grace_minutes: int = 10,
     stall_minutes: int = 30,
@@ -2518,7 +2528,7 @@ def execute_eval_bundles(
     dataset_target_dir: str | None = None,
     output_dir: Path,
     import_to_run: bool = False,
-    boot_timeout: int = 180,
+    boot_timeout: int = 260,
     max_minutes: int = 120,
     idle_grace_minutes: int = 10,
     stall_minutes: int = 25,
@@ -2815,7 +2825,7 @@ def build_parser() -> argparse.ArgumentParser:
             help="Colab accelerator: cpu, T4, L4 (default), G4, A100, H100",
         )
         sp.set_defaults(gpu_explicit=False)
-        sp.add_argument("--boot-timeout", type=int, default=180, help="Seconds to wait for `colab new`")
+        sp.add_argument("--boot-timeout", type=int, default=260, help="Seconds to wait for `colab new`")
         sp.add_argument("--max-minutes", type=int, default=240, help="Hard VM-side watchdog wall-clock cap (minutes)")
         sp.add_argument(
             "--idle-grace-minutes",

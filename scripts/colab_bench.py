@@ -1160,9 +1160,14 @@ def analyze_run_telemetry(run_dir: Path) -> dict[str, Any]:
 
     train_log = run_dir / "train.log"
     log_tail_warnings: list[str] = []
+    cpu_fallback_detected = False
     if train_log.is_file():
         try:
-            tail = train_log.read_text(encoding="utf-8", errors="replace")[-16384:]
+            full_log = train_log.read_text(encoding="utf-8", errors="replace")
+            if "CUDA is unavailable" in full_log or "falling back to cpu" in full_log:
+                cpu_fallback_detected = True
+                log_tail_warnings.append("CUDA requested but HyperGAN fell back to CPU")
+            tail = full_log[-16384:]
             for line in tail.splitlines():
                 if _NAN_LOG_RE.search(line):
                     nan_detected = True
@@ -1175,7 +1180,7 @@ def analyze_run_telemetry(run_dir: Path) -> dict[str, Any]:
         nan_detected
         or status == "failed"
         or (isinstance(diversity, (int, float)) and math.isfinite(diversity) and diversity < 0.05)
-        or any("collapse" in str(a).lower() or "overpower" in str(a).lower() for a in alerts)
+        or any("collapse" in str(a).lower() for a in alerts)
     )
 
     return {
@@ -1197,6 +1202,7 @@ def analyze_run_telemetry(run_dir: Path) -> dict[str, Any]:
         "error": error_text,
         "nan_detected": nan_detected,
         "collapse_detected": collapse_detected,
+        "cpu_fallback_detected": cpu_fallback_detected,
         "log_warnings": log_tail_warnings[-5:],
         "has_bundle": (run_dir / "model.pt").is_file(),
     }
@@ -1503,19 +1509,24 @@ class ColabBenchWorker:
             $INSTALLER --no-deps {quoted_pkgs}
             $INSTALLER --no-deps -e {REMOTE_REPO_DIR}
             python3 - <<'PY'
-            import importlib.metadata as md
+            import importlib.metadata as md, sys
             import torch, hypergan, particlegan, hndl, torch_fidelity, foldlitedb
             def _ver(pkg):
                 try:
                     return md.version(pkg)
                 except md.PackageNotFoundError:
                     return "installed"
+            want_cuda = {self.gpu != "cpu"!r}
+            cuda_ok = torch.cuda.is_available()
             print(
-                f"[vm] ready: torch={{torch.__version__}} cuda={{torch.cuda.is_available()}} "
+                f"[vm] ready: torch={{torch.__version__}} cuda={{cuda_ok}} "
                 f"hypergan={{_ver('hypergan')}} particlegan={{_ver('particlegan')}} "
                 f"hndl={{_ver('hndl')}} torch_fidelity={{_ver('torch-fidelity')}} "
                 f"foldlitedb={{_ver('foldlitedb')}}"
             )
+            if want_cuda and not cuda_ok:
+                print("[vm] ERROR: GPU VM requested but torch.cuda.is_available() is False", file=sys.stderr)
+                sys.exit(2)
             PY
             touch /content/bench_heartbeat
             """
@@ -1777,7 +1788,8 @@ class ColabBenchWorker:
             prep_cmd = f"rm -rf {shlex.quote(remote_run_dir)} && mkdir -p {shlex.quote(REMOTE_RUNS_ROOT)} /content/logs"
             self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_cmd], timeout=60)
 
-        device_arg = "cpu" if self.gpu == "cpu" else "cuda"
+        # `hypergan train -d` maps directly to CUDA_VISIBLE_DEVICES, so single-GPU MUST be "0" (not "cuda").
+        device_arg = "cpu" if self.gpu == "cpu" else "0"
         t0 = time.monotonic()
         chunks_completed = 0
         last_rc = 0
@@ -1933,6 +1945,12 @@ class ColabBenchWorker:
 
         elapsed = time.monotonic() - t0
         telemetry = analyze_run_telemetry(local_run_dir)
+        if self.gpu != "cpu" and telemetry.get("cpu_fallback_detected"):
+            self._log(
+                f"ERROR: GPU run {job.run_name} silently fell back to CPU on {self.gpu} VM; marking failed."
+            )
+            if last_rc == 0:
+                last_rc = 2
         self._log(
             f"Finished job {job.run_name} in {elapsed:.1f}s "
             f"(rc={last_rc}, step={telemetry['step']}, status={telemetry['status']}, "

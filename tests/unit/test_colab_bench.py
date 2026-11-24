@@ -942,8 +942,23 @@ def test_ffhq64_auto_dataset_prep_and_fallback_gpu(tmp_path, monkeypatch):
     # Fresh hypergan train must NOT pre-populate train.log inside remote_run_dir before startup.
     train_sh = [c for c in ssh_cmds if "hypergan train" in c]
     assert train_sh
+    assert " -d 0 " in train_sh[0]
+    assert " -d cuda " not in train_sh[0]
     assert "/content/logs/wp-ffhq64.train.log" in train_sh[0]
     assert "/content/runs/wp-ffhq64/train.log" not in train_sh[0]
+
+
+def test_cpu_fallback_detection_in_telemetry(tmp_path):
+    run_dir = tmp_path / "fallback-run"
+    run_dir.mkdir()
+    (run_dir / "summary.json").write_text(json.dumps({"status": "stopped", "step": 10}), encoding="utf-8")
+    (run_dir / "train.log").write_text(
+        "HyperGANHardwareWarning: CUDA device requested ('cuda') but CUDA is unavailable on this host; falling back to cpu\n",
+        encoding="utf-8",
+    )
+    tel = cb.analyze_run_telemetry(run_dir)
+    assert tel["cpu_fallback_detected"] is True
+
 
 
 

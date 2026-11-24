@@ -776,6 +776,7 @@ def inspect_local_run(run_dir: Path, *, target_step: int | None = None) -> dict[
     }
 
 
+DEFAULT_CIFAR10_FAST_MIRROR = "https://storage.googleapis.com/tensorflow/tf-keras-datasets/cifar-10-python.tar.gz"
 PREPARABLE_BENCHMARK_DATASETS = ("ffhq64", "flowers102")
 
 
@@ -1341,7 +1342,6 @@ class ColabBenchWorker:
     def start(self) -> None:
         gpu_candidates = [self.requested_gpu, *self.fallback_gpus]
 
-        self.started_mono = time.monotonic()
         last_rc = 1
         last_out = ""
         for idx_g, candidate_gpu in enumerate(gpu_candidates):
@@ -1357,6 +1357,7 @@ class ColabBenchWorker:
                 last_rc, last_out = self._colab(cmd, timeout=self.boot_timeout, capture=True)
                 if last_rc == 0:
                     self.gpu = candidate_gpu
+                    self.started_mono = time.monotonic()
                     break
                 # Best-effort stop in case Colab allocated the backend right as `colab new` timed out.
                 self._colab(["stop", "-s", self.worker_name], timeout=30)
@@ -1371,7 +1372,6 @@ class ColabBenchWorker:
             if idx_g + 1 < len(gpu_candidates):
                 self._log(f"Colab {candidate_gpu} allocation failed; falling back to {gpu_candidates[idx_g + 1]}...")
         if last_rc != 0:
-            self.stopped_mono = time.monotonic()
             raise RuntimeError(
                 f"colab new failed for {self.worker_name} (tried={gpu_candidates}, rc={last_rc}): {last_out[-400:]}"
             )
@@ -1534,16 +1534,18 @@ class ColabBenchWorker:
         if dataset == "cifar10" and "cifar10" not in self._prepared_datasets:
             self._log("Preparing cached CIFAR-10 dataset on VM...")
             prep_sh = textwrap.dedent(
-                """
+                f"""
                 set -euo pipefail
                 touch /content/bench_heartbeat
                 if [ ! -f ~/.hypergan/cache/cifar10/dataset-manifest.json ]; then
-                  hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10
+                  hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10 \
+                    --url {shlex.quote(DEFAULT_CIFAR10_FAST_MIRROR)} --timeout 45 \
+                  || hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10 --timeout 60
                 fi
                 touch /content/bench_heartbeat
                 """
             ).strip()
-            rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=300)
+            rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=240)
             if rc != 0:
                 raise RuntimeError(f"CIFAR-10 dataset prep failed on {self.worker_name} (rc={rc})")
             self._prepared_datasets.add("cifar10")

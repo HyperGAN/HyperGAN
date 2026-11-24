@@ -1030,3 +1030,196 @@ def test_ssh_broken_pipe_rc255_triggers_clean_reprovision_and_resume(tmp_path, m
     # Broken pipe on attempt 1 (booted[0]) must NOT invoke tar/pull on the dead SSH tunnel before reprovisioning.
     assert not any("chunk1" in body for sess, body in ssh_calls if sess == booted[0])
     assert any("chunk1" in body for sess, body in ssh_calls if sess == booted[1])
+
+
+def test_detached_training_survives_transient_poll_blips_and_runs_serialized_sync(tmp_path, monkeypatch):
+    runs_dir = tmp_path / "runs"
+    state_dir = tmp_path / "colab_state"
+    uploaded_scripts: dict[str, str] = {}
+    poll_count = {"n": 0}
+    sync_downloads: list[str] = []
+    fake_now = {"t": 1000.0}
+
+    def fake_monotonic():
+        return fake_now["t"]
+
+    def fake_sleep(secs):
+        fake_now["t"] += max(1.0, float(secs))
+
+    def fake_detached_colab(cmd, *, timeout_seconds, **kwargs):
+        cfg_idx = cmd.index("--config") + 1
+        subcmd = cmd[cfg_idx + 1]
+        if subcmd == "new":
+            return 0, "Session READY."
+        if subcmd == "exec":
+            return 0, "WATCHDOG_OK"
+        if subcmd == "upload":
+            remote = cmd[-1]
+            if remote.endswith(".sh"):
+                uploaded_scripts[remote] = Path(cmd[-2]).read_text(encoding="utf-8")
+            return 0, "uploaded"
+        if subcmd == "ssh":
+            body = cmd[-1]
+            if "DETACHED_LAUNCHED" in body:
+                return 0, "DETACHED_LAUNCHED pid=4242\n"
+            if "DETACHED_DONE:" in body:
+                poll_count["n"] += 1
+                if poll_count["n"] == 1:
+                    return 0, "DETACHED_RUNNING\nDETACHED_TAIL:step 500 loss=0.4\n"
+                if poll_count["n"] == 2:
+                    # Transient SSH blip must NOT abort detached training!
+                    return 255, "client_loop: send disconnect: Broken pipe"
+                if poll_count["n"] == 3:
+                    # Advance clock past sync_interval_minutes=1.0 -> triggers serialized periodic sync.
+                    fake_now["t"] += 120.0
+                    return 0, "DETACHED_RUNNING\nDETACHED_TAIL:step 2500 loss=0.3\n"
+                return 0, "DETACHED_DONE:0\nDETACHED_TAIL:step 5000 done\n"
+            return 0, "COLAB_GPU_INFO: NVIDIA A100-SXM4-40GB, 40960 MiB, 580.82.07\n"
+        if subcmd == "download":
+            remote_path = cmd[-2]
+            dest = Path(cmd[-1])
+            sync_downloads.append(Path(remote_path).name)
+            step_now = 2500 if "sync" in remote_path else 5000
+            _make_run_tarball(dest, run_name="detached-run", step=step_now, status="stopped", total_steps=5000)
+            return 0, "downloaded"
+        return 0, "ok"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_detached_colab)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(cb.time, "sleep", fake_sleep)
+
+    job = cb.BenchmarkJob(
+        run_name="detached-run",
+        config="cifar10-tiny-transformer",
+        gpu="A100",
+        stop_after_steps=5000,
+        chunk_steps=5000,
+        sync_interval_minutes=1.0,
+        detached=True,
+        poll_seconds=10.0,
+        max_retries=2,
+    )
+    summary = cb.execute_benchmark_jobs(
+        repo_root=tmp_path,
+        runs_dir=runs_dir,
+        state_dir=state_dir,
+        jobs=[job],
+        workers=1,
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert summary["status"] == "complete"
+    assert poll_count["n"] == 4
+    assert len(uploaded_scripts) == 1
+    script_text = next(iter(uploaded_scripts.values()))
+    assert "export PYTHONUNBUFFERED=1" in script_text
+    assert "hypergan train" in script_text
+    assert any("sync1" in name for name in sync_downloads)
+    assert any("chunk1" in name for name in sync_downloads)
+    assert summary["results"][0]["disconnected"] is False
+    assert summary["results"][0]["telemetry"]["step"] == 5000
+
+
+def test_detached_repeated_poll_failures_reprovision_and_resume(tmp_path, monkeypatch):
+    runs_dir = tmp_path / "runs"
+    state_dir = tmp_path / "colab_state"
+    booted: list[str] = []
+    poll_attempt = {"first_vm_polls": 0, "second_vm_polls": 0}
+    fake_now = {"t": 1000.0}
+
+    def fake_monotonic():
+        return fake_now["t"]
+
+    def fake_sleep(secs):
+        fake_now["t"] += max(1.0, float(secs))
+
+    def fake_vm_dies_mid_detached(cmd, *, timeout_seconds, **kwargs):
+        cfg_idx = cmd.index("--config") + 1
+        subcmd = cmd[cfg_idx + 1]
+        sess = cmd[cmd.index("-s") + 1]
+        if subcmd == "new":
+            booted.append(sess)
+            return 0, "Session READY."
+        if subcmd == "ssh":
+            body = cmd[-1]
+            if "DETACHED_LAUNCHED" in body:
+                return 0, "DETACHED_LAUNCHED pid=777\n"
+            if "DETACHED_DONE:" in body:
+                if sess == booted[0]:
+                    poll_attempt["first_vm_polls"] += 1
+                    if poll_attempt["first_vm_polls"] == 1:
+                        fake_now["t"] += 120.0
+                        return 0, "DETACHED_RUNNING\nDETACHED_TAIL:step 2500\n"
+                    # VM reclaimed: 5 consecutive failures -> reprovision!
+                    return 255, "Connection closed by remote host"
+                poll_attempt["second_vm_polls"] += 1
+                return 0, "DETACHED_DONE:0\nDETACHED_TAIL:step 5000\n"
+            return 0, "COLAB_GPU_INFO: NVIDIA A100-SXM4-40GB, 40960 MiB, 580.82.07\n"
+        if subcmd == "download":
+            remote_path = cmd[-2]
+            dest = Path(cmd[-1])
+            step_now = 2500 if "sync" in remote_path else 5000
+            _make_run_tarball(dest, run_name="detached-resume", step=step_now, status="stopped", total_steps=5000)
+            return 0, "downloaded"
+        return 0, "ok"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_vm_dies_mid_detached)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(cb.time, "sleep", fake_sleep)
+
+    job = cb.BenchmarkJob(
+        run_name="detached-resume",
+        config="cifar10-tiny-transformer",
+        gpu="A100",
+        stop_after_steps=5000,
+        chunk_steps=5000,
+        sync_interval_minutes=1.0,
+        detached=True,
+        poll_seconds=10.0,
+        max_retries=2,
+    )
+    summary = cb.execute_benchmark_jobs(
+        repo_root=tmp_path,
+        runs_dir=runs_dir,
+        state_dir=state_dir,
+        jobs=[job],
+        workers=1,
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert summary["status"] == "complete"
+    assert len(booted) == 2
+    assert poll_attempt["first_vm_polls"] == 6  # 1 healthy poll (triggers sync) + 5 consecutive failures
+    assert summary["results"][0]["telemetry"]["step"] == 5000
+
+
+def test_manifest_and_cli_detached_flags(tmp_path):
+    cfg = tmp_path / "m.toml"
+    cfg.write_text('format = "hypergan-model/1"\n', encoding="utf-8")
+    man = tmp_path / "q.toml"
+    man.write_text(
+        """
+[defaults]
+gpu = "A100"
+detached = true
+poll_seconds = 30.0
+max_retries = 5
+
+[[jobs]]
+run_name = "j-det"
+config = "m.toml"
+""",
+        encoding="utf-8",
+    )
+    jobs = cb.load_manifest(man, repo_root=tmp_path)
+    assert jobs[0].detached is True
+    assert jobs[0].poll_seconds == pytest.approx(30.0)
+    assert jobs[0].max_retries == 5
+
+    # Omitting --detached / --max-retries on CLI preserves manifest settings
+    parsed = cb.build_parser().parse_args(["run", "--manifest", str(man)])
+    assert parsed.detached is False
+    assert parsed.poll_seconds is None
+    assert parsed.max_retries is None

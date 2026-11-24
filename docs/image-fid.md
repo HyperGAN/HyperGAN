@@ -118,3 +118,60 @@ generated images and all 50,000 CIFAR-10 training references, with the source
 sampling/weight choices. External tables may require a different split or count.
 Keep those definitions and metric IDs separate. This evaluator does not establish
 historical score reproduction, a leaderboard placement or a quality guarantee.
+
+## DINOv2 FD and Multi-Metric Suites (`DINOv2FD`, `InceptionSuite`, `DINOv2Suite`)
+
+In addition to `InceptionFID`, `hypergan.image_metrics` provides three SHA-256-pinned
+snapshot evaluators with zero required `args`:
+
+- `hypergan.image_metrics:DINOv2FD` (`kind = "scalar"`): Fréchet Distance in Meta's
+  pinned DINOv2 ViT-L/14 (`dinov2_vitl14_pretrain.pth`, Stein et al. NeurIPS 2023
+  `FD_DINOv2` protocol). Implemented with a self-contained PyTorch ViT-L/14 (no
+  `torch.hub` git clones), quantized uint8 RGB input, antialiased bicubic 224×224
+  resize, ImageNet normalization, FP32 with TF32 disabled, float64 unbiased
+  covariance, and eigenvalue Fréchet distance without `scipy.linalg.sqrtm`.
+- `hypergan.image_metrics:InceptionSuite` (`kind = "scalars"`): Computes `fid`,
+  `precision`, `recall`, `density`, and `coverage` in a single pass over the
+  generated and reference samples using `torch-fidelity==0.4.0` Inception-v3 2048
+  features (Kynkäänniemi et al. 2019 Precision/Recall at `pr_k = 3`, Naeem et al.
+  2020 Density/Coverage at `dc_k = 5`, deterministic `manifold_samples = 10000`
+  subset). Published under `<eval_id>/fid`, `<eval_id>/precision`,
+  `<eval_id>/recall`, `<eval_id>/density`, and `<eval_id>/coverage`.
+- `hypergan.image_metrics:DINOv2Suite` (`kind = "scalars"`): Computes `fd_dinov2`,
+  `precision`, `recall`, `density`, and `coverage` in a single pass over DINOv2
+  ViT-L/14 1024-d CLS features with cached reference moments and k-NN manifold
+  radii (`.suiteref` under `$HYPERGAN_CACHE_DIR/fid-reference`).
+
+```toml
+[evaluations.inception50k]
+factory = "hypergan.image_metrics:InceptionSuite"
+device = "cuda:0"
+samples = 50000
+batch_size = 128
+seed = 10000
+data = "train"
+
+[evaluations.dinov2_50k]
+factory = "hypergan.image_metrics:DINOv2Suite"
+device = "cuda:0"
+samples = 50000
+batch_size = 128
+seed = 10000
+data = "train"
+```
+
+### Standalone EMA Bundle Evaluation
+
+Evaluate any exported `model.pt` EMA bundle against a reference dataset without
+launching a training run, optionally writing a JSON receipt or importing the
+measured scores into a run directory's evaluation history:
+
+```sh
+python -m hypergan.image_metrics runs/my-run/model.pt \
+  --metrics inception dinov2 \
+  --samples 50000 \
+  --batch-size 128 \
+  --device cuda \
+  --output eval-receipt.json \
+  --publish-run runs/my-run
+```

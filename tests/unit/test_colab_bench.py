@@ -1269,3 +1269,53 @@ def test_disconnect_short_circuits_on_rc_zero_and_eval_honors_max_minutes(tmp_pa
         output_dir=tmp_path / "out",
     )
     assert eval_timeouts == [10800.0]
+
+
+def test_chunked_upload_splits_large_payloads_and_reassembles(tmp_path, monkeypatch):
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir(parents=True)
+    big_file = tmp_path / "resume-big.tar.gz"
+    payload = b"0123456789ABCDEF" * 64 + b"TAIL"  # 1028 bytes
+    big_file.write_bytes(payload)
+
+    uploaded_parts: list[tuple[str, bytes]] = []
+    ssh_cmds: list[str] = []
+
+    def fake_chunk_colab(cmd, *, timeout_seconds, **kwargs):
+        cfg_idx = cmd.index("--config") + 1
+        subcmd = cmd[cfg_idx + 1]
+        if subcmd == "upload":
+            local_p = Path(cmd[-2])
+            remote_p = cmd[-1]
+            uploaded_parts.append((remote_p, local_p.read_bytes()))
+            return 0, "uploaded"
+        if subcmd == "ssh":
+            ssh_cmds.append(cmd[-1])
+            return 0, "ok"
+        return 0, ""
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_chunk_colab)
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    worker = cb.ColabBenchWorker(
+        worker_name="hg-test-chunk",
+        gpu="A100",
+        batch_dir=batch_dir,
+        state_dir=tmp_path / "state",
+        repo_root=tmp_path,
+        repo_url=cb.DEFAULT_REPO_URL,
+        source_sync={"mode": "git", "ref": "develop", "sha": "abc"},
+    )
+    rc, _ = worker._upload_file(big_file, "/content/resume-big.tar.gz", chunk_bytes=300)
+    assert rc == 0
+    assert len(uploaded_parts) == 4  # ceil(1028 / 300) == 4
+    assert [name for name, _ in uploaded_parts] == [
+        "/content/resume-big.tar.gz.part0000",
+        "/content/resume-big.tar.gz.part0001",
+        "/content/resume-big.tar.gz.part0002",
+        "/content/resume-big.tar.gz.part0003",
+    ]
+    assert b"".join(chunk for _, chunk in uploaded_parts) == payload
+    assert len(ssh_cmds) == 1
+    assert "cat " in ssh_cmds[0]
+    assert f"-ne {len(payload)}" in ssh_cmds[0]

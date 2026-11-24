@@ -589,7 +589,7 @@ MODEL_SCHEMA: Dict[str, Any] = {
         },
         "evaluations": {
             "type": "object",
-            "description": "Declared snapshot evaluation tasks ([evaluations.<id>], e.g. InceptionFID or SampleDiversity).",
+            "description": "Declared snapshot evaluation tasks ([evaluations.<id>], e.g. InceptionFID, DINOv2FD, InceptionSuite, DINOv2Suite, or SampleDiversity).",
             "fields": {
                 "factory": {
                     "type": "string",

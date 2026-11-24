@@ -4,6 +4,10 @@ This is the project's only changelog. Entries under **Unreleased** are on `devel
 
 ## Unreleased
 
+- **Reproducible whitepaper benchmark suite & deterministic 64px dataset preparer (`benchmarks/whitepaper/`, `scripts/prepare_benchmark_dataset.py`, `tests/unit/test_whitepaper_benchmark_configs.py`).**
+  - Added 8 pure declarative `hypergan-model/1` + native HNDL benchmark configurations (`batch_size = 256`, `steps = 100000`, `evaluations.fid50k_train` with ready hooks for `InceptionSuite` and `DINOv2Suite`) pairing ParticleGAN `unified_v12` (`defaults = "particlegan"`, zero recipe/optimizer overrides) against an honest non-saturating Adam + R1 baseline (`lr = 0.0002`, `penalty = 1.0`, `ema = 0.999`, Gaussian prior) across 4 distinct architecture/dataset pairs: CIFAR-10 Radford BN-DCGAN (`1.18M` G / `0.66M` D), CIFAR-10 scratch ResNet-GAN (`6.03M` G / `7.43M` D), CIFAR-10 pure Transformer TransGAN (`2.84M` G / `10.20M` D), and FFHQ-64 64×64 scratch ResNet-GAN (`6.22M` G / `7.84M` D).
+  - Added `scripts/prepare_benchmark_dataset.py` (stdlib + Pillow only, HTTP Range resume, SHA-256 verification, forward-order archive extraction, center-crop + Lanczos resizing, atomic `image_folder` publishing with `dataset-manifest.json`) supporting pinned `ffhq64` (70,000 aligned 64×64 RGB faces for unbiased FID-50k / FD_DINOv2-50k) and `flowers102` (8,189 Oxford VGG images).
+
 ## 2.2.0 — 2026-11-23
 
 HyperGAN 2.2.0 upgrades the default training formulation to **ParticleGAN `0.12.0`** (`>=0.12.0,<0.13`, `DEFAULT_RECIPE = "unified_v12"`) and upgrades **Foldlite DB** to **`0.5.0`** (`>=0.5.0,<0.6`), alongside the new 255labs-branded GitHub Pages documentation site and Observatory UI metrics rail & model configuration clarity overhaul. Install with `python -m pip install "hypergan[all]==2.2.0"` after installing the matching Torch wheels for your hardware. [Installation](https://github.com/HyperGAN/HyperGAN/blob/v2.2.0/README.md#install)

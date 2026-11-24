@@ -1,0 +1,320 @@
+# Whitepaper Benchmark 8/8: FFHQ-64 64x64 Scratch ResNet-GAN — Honest Adam + R1 Baseline
+# Dataset: FFHQ-64 (70,000 aligned RGB faces @ 64x64; supports full unbiased FID-50k & FD_DINOv2-50k).
+#          Prepare via: `python scripts/prepare_benchmark_dataset.py --dataset ffhq64`
+# Architecture: Exact same 64x64 scratch ResNet-GAN (G=6.22M, D=7.84M) as ffhq64-resnet-v12.toml.
+# Formulation: Standard Non-Saturating Logistic GAN + Mescheder R1 penalty (gamma=1.0) + PyTorch Adam
+#              (lr=0.0002, betas=[0.0, 0.999], EMA=0.999, isotropic Gaussian prior N(0, I)).
+format = "hypergan-model/1"
+name = "whitepaper/ffhq64-resnet-adam"
+description = "FFHQ-64 64x64 clean modern scratch ResNet-GAN trained with honest tuned Adam (lr=2e-4, betas=[0.0, 0.999]) + R1 baseline."
+defaults = "hypergan"
+
+[recipe]
+name = "adam_r1_baseline"
+critic_formulation = "k3p"
+optimizer_family = "adam"
+loss = "non_saturating"
+reg_arm = "a_r1r2"
+reg_real_weight = 1.0
+reg_fake_weight = 0.0
+direct_particle_gain = false
+prior_regularizer = "none"
+prior_update = "frozen"
+
+[data]
+builtin = "image_folder"
+args = { root = "~/.hypergan/cache/datasets/ffhq64", height = 64, width = 64, mode = "RGB", resize = "none", shuffle = true, workers = 4 }
+
+[prior]
+kind = "gaussian"
+z_dim = 128
+
+[networks.generator]
+role = "generator"
+inputs = { z = "latent" }
+input_shape = ["B", 128]
+output_shape = ["B", 3, 64, 64]
+source = """
+# Clean Modern 64x64 Scratch ResNet Generator (GroupNorm + SiLU + Bilinear ResUp + 1/sqrt(2) Skips)
+h = linear(x, 4096, name="input_projection")
+h = reshape(h, 256, 4, 4)
+
+# Stage 8x8 (256 -> 256)
+skip = upsample(h, 2, mode="bilinear", align_corners=False)
+b = group_norm(h, 32, name="g_s8_b0_norm1")
+b = silu(b)
+b = upsample(b, 2, mode="bilinear", align_corners=False)
+b = conv(b, 256, kernel_size=3, padding=1, name="g_s8_b0_conv1")
+b = group_norm(b, 32, name="g_s8_b0_norm2")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="g_s8_b0_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+skip = h
+b = group_norm(h, 32, name="g_s8_b1_norm1")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="g_s8_b1_conv1")
+b = group_norm(b, 32, name="g_s8_b1_norm2")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="g_s8_b1_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+# Stage 16x16 (256 -> 256)
+skip = upsample(h, 2, mode="bilinear", align_corners=False)
+b = group_norm(h, 32, name="g_s16_b0_norm1")
+b = silu(b)
+b = upsample(b, 2, mode="bilinear", align_corners=False)
+b = conv(b, 256, kernel_size=3, padding=1, name="g_s16_b0_conv1")
+b = group_norm(b, 32, name="g_s16_b0_norm2")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="g_s16_b0_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+skip = h
+b = group_norm(h, 32, name="g_s16_b1_norm1")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="g_s16_b1_conv1")
+b = group_norm(b, 32, name="g_s16_b1_norm2")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="g_s16_b1_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+# Stage 32x32 (256 -> 128)
+skip = upsample(h, 2, mode="bilinear", align_corners=False)
+skip = conv(skip, 128, kernel_size=1, bias=False, name="g_s32_b0_skip")
+b = group_norm(h, 32, name="g_s32_b0_norm1")
+b = silu(b)
+b = upsample(b, 2, mode="bilinear", align_corners=False)
+b = conv(b, 128, kernel_size=3, padding=1, name="g_s32_b0_conv1")
+b = group_norm(b, 16, name="g_s32_b0_norm2")
+b = silu(b)
+b = conv(b, 128, kernel_size=3, padding=1, name="g_s32_b0_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+skip = h
+b = group_norm(h, 16, name="g_s32_b1_norm1")
+b = silu(b)
+b = conv(b, 128, kernel_size=3, padding=1, name="g_s32_b1_conv1")
+b = group_norm(b, 16, name="g_s32_b1_norm2")
+b = silu(b)
+b = conv(b, 128, kernel_size=3, padding=1, name="g_s32_b1_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+# Stage 64x64 (128 -> 64)
+skip = upsample(h, 2, mode="bilinear", align_corners=False)
+skip = conv(skip, 64, kernel_size=1, bias=False, name="g_s64_b0_skip")
+b = group_norm(h, 16, name="g_s64_b0_norm1")
+b = silu(b)
+b = upsample(b, 2, mode="bilinear", align_corners=False)
+b = conv(b, 64, kernel_size=3, padding=1, name="g_s64_b0_conv1")
+b = group_norm(b, 8, name="g_s64_b0_norm2")
+b = silu(b)
+b = conv(b, 64, kernel_size=3, padding=1, name="g_s64_b0_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+skip = h
+b = group_norm(h, 8, name="g_s64_b1_norm1")
+b = silu(b)
+b = conv(b, 64, kernel_size=3, padding=1, name="g_s64_b1_conv1")
+b = group_norm(b, 8, name="g_s64_b1_norm2")
+b = silu(b)
+b = conv(b, 64, kernel_size=3, padding=1, name="g_s64_b1_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+# RGB readout
+h = group_norm(h, 8, name="g_out_norm")
+h = silu(h)
+h = conv(h, 3, kernel_size=3, padding=1, name="g_to_rgb")
+out = tanh(h)
+"""
+
+[networks.discriminator]
+role = "critic"
+inputs = { x = "candidate" }
+input_shape = ["B", 3, 64, 64]
+output_shape = ["B", 1]
+source = """
+# Clean Modern 64x64 Scratch ResNet Critic (Unnormalized Pre-Act SiLU + AvgPool ResDown + 1/sqrt(2) Skips)
+h = conv(x, 64, kernel_size=3, padding=1, name="d_from_rgb")
+
+# Stage 64 -> 32 (64 -> 128)
+skip = avg_pool(h, 2)
+skip = conv(skip, 128, kernel_size=1, bias=False, name="d_s32_b0_skip")
+b = silu(h)
+b = conv(b, 64, kernel_size=3, padding=1, name="d_s32_b0_conv1")
+b = silu(b)
+b = avg_pool(b, 2)
+b = conv(b, 128, kernel_size=3, padding=1, name="d_s32_b0_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+skip = h
+b = silu(h)
+b = conv(b, 128, kernel_size=3, padding=1, name="d_s32_b1_conv1")
+b = silu(b)
+b = conv(b, 128, kernel_size=3, padding=1, name="d_s32_b1_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+# Stage 32 -> 16 (128 -> 256)
+skip = avg_pool(h, 2)
+skip = conv(skip, 256, kernel_size=1, bias=False, name="d_s16_b0_skip")
+b = silu(h)
+b = conv(b, 128, kernel_size=3, padding=1, name="d_s16_b0_conv1")
+b = silu(b)
+b = avg_pool(b, 2)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s16_b0_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+skip = h
+b = silu(h)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s16_b1_conv1")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s16_b1_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+# Stage 16 -> 8 (256 -> 256)
+skip = avg_pool(h, 2)
+b = silu(h)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s8_b0_conv1")
+b = silu(b)
+b = avg_pool(b, 2)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s8_b0_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+skip = h
+b = silu(h)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s8_b1_conv1")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s8_b1_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+# Stage 8 -> 4 (256 -> 256)
+skip = avg_pool(h, 2)
+b = silu(h)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s4_b0_conv1")
+b = silu(b)
+b = avg_pool(b, 2)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s4_b0_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+skip = h
+b = silu(h)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s4_b1_conv1")
+b = silu(b)
+b = conv(b, 256, kernel_size=3, padding=1, name="d_s4_b1_conv2")
+h = scale(add(skip, b), 0.7071067811865475)
+
+# Spatial 4x4 readout
+h = silu(h)
+h = conv(h, 256, kernel_size=4, padding=0, name="d_head_conv")
+h = silu(h)
+h = flatten(h)
+out = linear(h, 1, name="d_score")
+"""
+
+[[losses]]
+type = "adversarial"
+critic = "discriminator"
+weight = 1.0
+penalty = 1.0
+
+[penalty]
+anchor_weight = 0.0
+lazy_k = 1
+
+[train]
+steps = 100000
+batch_size = 256
+seed = 0
+device = "cuda"
+initialization = "deterministic_orthogonal"
+implementation = "torch_fused_adam"
+lr = 0.0002
+d_lr_mult = 1.0
+betas = [0.0, 0.999]
+ema = 0.999
+lr_floor = 1.0
+network_lr_floor = 1.0
+d_guard_ratio = 0.0
+latent_damping_max_rate = 0.0
+input_noise_std = 0.0
+output_noise_std = 0.0
+output_noise_warmup = 0.0
+phase_draws = "independent"
+data_rng_device = "cpu"
+data_seed_offset = 2
+prior_seed_offset = 3
+
+[train.backend]
+deterministic_algorithms = false
+cudnn_deterministic = false
+cudnn_benchmark = true
+matmul_allow_tf32 = true
+cudnn_allow_tf32 = true
+
+[run]
+checkpoint_every = 5000
+preview_every = 5000
+progress_every = 100
+
+[checkpoints]
+keep_last = 3
+keep_every = 25000
+keep_best = { metric = "fid50k_train", mode = "min", count = 2 }
+export_bundle = "on_eval"
+
+[sampling]
+count = 64
+seed = 123
+
+[metrics]
+preset = "standard"
+every_steps = 10
+
+[evaluations.fid50k_train]
+factory = "hypergan.image_metrics:InceptionFID"
+inputs = { generated = "generated", reference = "reference" }
+every = 10000
+timeout = 3600
+on_error = "fail"
+on_busy = "skip"
+device = "cuda"
+samples = 50000
+batch_size = 128
+seed = 34002
+
+[evaluations.fid50k_train.args]
+weights_path = "https://github.com/toshas/torch-fidelity/releases/download/v0.2.0/weights-inception-2015-12-05-6726825d.pth"
+weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
+
+[evaluations.fid50k_train.data]
+builtin = "image_folder"
+args = { root = "~/.hypergan/cache/datasets/ffhq64", height = 64, width = 64, mode = "RGB", resize = "none", shuffle = false, workers = 4 }
+
+# Publication multi-metric suites (uncomment once InceptionSuite / DINOv2Suite are merged,
+# or run post-hoc on exported model.pt bundles via `python -m hypergan.image_metrics`):
+#
+# [evaluations.inception_suite]
+# factory = "hypergan.image_metrics:InceptionSuite"
+# inputs = { generated = "generated", reference = "reference" }
+# every = 10000
+# timeout = 3600
+# on_error = "fail"
+# on_busy = "skip"
+# device = "cuda"
+# samples = 50000
+# batch_size = 128
+# seed = 34002
+# data = "train"
+#
+# [evaluations.dinov2_suite]
+# factory = "hypergan.image_metrics:DINOv2Suite"
+# inputs = { generated = "generated", reference = "reference" }
+# every = 10000
+# timeout = 3600
+# on_error = "fail"
+# on_busy = "skip"
+# device = "cuda"
+# samples = 50000
+# batch_size = 128
+# seed = 34002
+# data = "train"

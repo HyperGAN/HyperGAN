@@ -24,6 +24,12 @@ INCEPTION_V3_URL = (
 )
 INCEPTION_V3_SHA256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129b2"
 
+DINOV2_VITL14_URL = (
+    "https://dl.fbaipublicfiles.com/dinov2/dinov2_vitl14/dinov2_vitl14_pretrain.pth"
+)
+DINOV2_VITL14_SHA256 = "d5383ea8f4877b2472eb973e0fd72d557c7da5d3611bd527ceeb1d7162cbf428"
+DINOV2_VITL14_SIZE = 1217586395
+
 _CHUNK_BYTES = 64 * 1024
 _DEFAULT_TIMEOUT = 60.0
 _THREAD_LOCK = threading.RLock()

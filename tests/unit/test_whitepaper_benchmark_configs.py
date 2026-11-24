@@ -95,6 +95,27 @@ def test_whitepaper_config_validates_and_uses_pure_hndl(filename: str):
     fid_spec = resolved["metrics"]["custom"]["fid50k_train"]
     assert fid_spec["factory"] == "hypergan.image_metrics:InceptionFID"
     assert fid_spec["evaluation"]["sample_count"] == 50000
+    assert fid_spec["trigger"] == "interval"
+
+    assert "inception_suite" in resolved["metrics"]["custom"]
+    inc_suite = resolved["metrics"]["custom"]["inception_suite"]
+    assert inc_suite["factory"] == "hypergan.image_metrics:InceptionSuite"
+    assert inc_suite["evaluation"]["sample_count"] == 50000
+    assert inc_suite["trigger"] == "manual"
+
+    assert "dinov2_suite" in resolved["metrics"]["custom"]
+    dino_suite = resolved["metrics"]["custom"]["dinov2_suite"]
+    assert dino_suite["factory"] == "hypergan.image_metrics:DINOv2Suite"
+    assert dino_suite["evaluation"]["sample_count"] == 50000
+    assert dino_suite["trigger"] == "manual"
+
+    # Verify all custom snapshot metric factory paths import cleanly without downloading weights.
+    import importlib
+    for eval_id in ("fid50k_train", "inception_suite", "dinov2_suite"):
+        mod_name, attr_name = resolved["metrics"]["custom"][eval_id]["factory"].split(":", 1)
+        factory_cls = getattr(importlib.import_module(mod_name), attr_name)
+        assert callable(factory_cls)
+        assert callable(getattr(factory_cls, "evaluate", None))
 
     # ImageFolder requires CPU data RNG generator.
     if resolved["data"]["factory"] == "image_folder":

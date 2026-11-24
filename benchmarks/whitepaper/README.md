@@ -80,4 +80,11 @@ CUDA_VISIBLE_DEVICES="" hypergan train benchmarks/whitepaper/cifar10-resnet-scra
 
 ### Publication Metric Suites (`InceptionSuite` & `DINOv2Suite`)
 
-Each config runs `evaluations.fid50k_train` (`hypergan.image_metrics:InceptionFID`) every `10,000` steps and automatically exports an EMA bundle (`model.pt`) on evaluation (`export_bundle = "on_eval"`). Ready-to-uncomment blocks for `hypergan.image_metrics:InceptionSuite` (`fid`, `precision`, `recall`, `density`, `coverage`) and `hypergan.image_metrics:DINOv2Suite` (`fd_dinov2`, `precision`, `recall`, `density`, `coverage`, pinned DINOv2 ViT-L/14 SHA-256 `d5383ea8f4877b2472eb973e0fd72d557c7da5d3611bd527ceeb1d7162cbf428`) are included in every TOML file, or can be executed post-hoc on any exported `model.pt` bundle via `python -m hypergan.image_metrics`.
+Each config runs `evaluations.fid50k_train` (`hypergan.image_metrics:InceptionFID`) every `10,000` steps, exports an EMA bundle (`model.pt`) on evaluation (`export_bundle = "on_eval"`), and declares live manual snapshot evaluators for both `evaluations.inception_suite` (`hypergan.image_metrics:InceptionSuite` -> `fid`, `precision`, `recall`, `density`, `coverage`) and `evaluations.dinov2_suite` (`hypergan.image_metrics:DINOv2Suite` -> `fd_dinov2`, `precision`, `recall`, `density`, `coverage`, pinned DINOv2 ViT-L/14 SHA-256 `d5383ea8f4877b2472eb973e0fd72d557c7da5d3611bd527ceeb1d7162cbf428`):
+
+```bash
+hypergan eval <run_dir> --metric inception_suite
+hypergan eval <run_dir> --metric dinov2_suite
+```
+
+Exported `model.pt` EMA bundles can also be evaluated post-hoc via `python -m hypergan.image_metrics <model.pt>`.

@@ -290,31 +290,26 @@ weights_sha256 = "6726825d0af5f729cebd5821db510b11b1cfad8faad88a03f1befd49fb9129
 builtin = "image_folder"
 args = { root = "~/.hypergan/cache/datasets/ffhq64", height = 64, width = 64, mode = "RGB", resize = "none", shuffle = false, workers = 4 }
 
-# Publication multi-metric suites (uncomment once InceptionSuite / DINOv2Suite are merged,
-# or run post-hoc on exported model.pt bundles via `python -m hypergan.image_metrics`):
-#
-# [evaluations.inception_suite]
-# factory = "hypergan.image_metrics:InceptionSuite"
-# inputs = { generated = "generated", reference = "reference" }
-# every = 10000
-# timeout = 3600
-# on_error = "fail"
-# on_busy = "skip"
-# device = "cuda"
-# samples = 50000
-# batch_size = 128
-# seed = 34002
-# data = "train"
-#
-# [evaluations.dinov2_suite]
-# factory = "hypergan.image_metrics:DINOv2Suite"
-# inputs = { generated = "generated", reference = "reference" }
-# every = 10000
-# timeout = 3600
-# on_error = "fail"
-# on_busy = "skip"
-# device = "cuda"
-# samples = 50000
-# batch_size = 128
-# seed = 34002
-# data = "train"
+# Live manual publication multi-metric suites (invoke via `hypergan eval <run_dir> --metric inception_suite|dinov2_suite`
+# or post-hoc on exported model.pt bundles via `python -m hypergan.image_metrics`).
+[evaluations.inception_suite]
+factory = "hypergan.image_metrics:InceptionSuite"
+inputs = { generated = "generated", reference = "reference" }
+timeout = 3600
+on_error = "fail"
+device = "cuda"
+samples = 50000
+batch_size = 128
+seed = 34002
+data = "train"
+
+[evaluations.dinov2_suite]
+factory = "hypergan.image_metrics:DINOv2Suite"
+inputs = { generated = "generated", reference = "reference" }
+timeout = 3600
+on_error = "fail"
+device = "cuda"
+samples = 50000
+batch_size = 128
+seed = 34002
+data = "train"

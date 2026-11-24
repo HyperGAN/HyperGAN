@@ -970,4 +970,3 @@ data = "train"
         assert custom[name]['args'] == {}
         assert custom[name]['inputs'] == {'generated': 'evaluation.generated', 'reference': 'evaluation.reference'}
         assert custom[name]['evaluation']['data']['args']['shuffle'] is False
-

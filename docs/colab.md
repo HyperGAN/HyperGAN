@@ -92,13 +92,13 @@ hypergan view runs/
 
 ## Evaluating exported EMA bundles
 
-Upload one or more local EMA `model.pt` bundles (or run directories containing `model.pt`) to a single Colab GPU VM, run pinned snapshot evaluators (`InceptionFID`, `InceptionSuite`, `DINOv2FD`, `DINOv2Suite`, or custom `module:Class` factories), download structured JSON receipts, and optionally import them back into each local run directory:
+Upload one or more local EMA `model.pt` bundles (or run directories containing `model.pt`) to a single Colab GPU VM, run pinned publication evaluators via `python -m hypergan.image_metrics` (`InceptionSuite`, `DINOv2Suite`, `InceptionFID`, `DINOv2FD`) or custom `module:Class` snapshot factories, download structured JSON receipts, and optionally import them back into each local run directory:
 
 ```sh
 python scripts/colab_bench.py eval-bundles \
   --bundle runs/cifar10-resnet-v12/model.pt \
   --bundle runs/cifar10-resnet-adam/model.pt \
-  --metrics InceptionFID,InceptionSuite,DINOv2Suite \
+  --metrics InceptionSuite,DINOv2Suite \
   --dataset cifar10 \
   --samples 50000 \
   --gpu L4 \

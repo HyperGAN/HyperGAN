@@ -83,6 +83,17 @@ KNOWN_EVAL_FACTORIES: dict[str, str] = {
     "DINOv2Suite": "hypergan.image_metrics:DINOv2Suite",
 }
 
+IMAGE_METRICS_CLI_ALIASES: dict[str, str] = {
+    "InceptionSuite": "inception",
+    "DINOv2Suite": "dinov2",
+    "InceptionFID": "inception_fid",
+    "DINOv2FD": "dinov2_fd",
+    "inception": "inception",
+    "dinov2": "dinov2",
+    "inception_fid": "inception_fid",
+    "dinov2_fd": "dinov2_fd",
+}
+
 _NAN_LOG_RE = re.compile(
     r"(?:\bnan\b|\binf\b|-inf|non[- ]?finite|FloatingPointError|gradient.*exploded|diverged|collapsed)",
     re.IGNORECASE,
@@ -1215,6 +1226,7 @@ class ColabBenchWorker:
         source_sync: dict[str, Any],
         colab_bin: str = "colab",
         boot_timeout: int = 260,
+        boot_retries: int = 2,
         max_minutes: int = 240,
         idle_grace_minutes: int = 10,
         stall_minutes: int = 30,
@@ -1235,6 +1247,7 @@ class ColabBenchWorker:
         self.source_sync = source_sync
         self.colab_bin = colab_bin
         self.boot_timeout = boot_timeout
+        self.boot_retries = max(1, int(boot_retries))
         self.max_seconds = max_minutes * 60
         self.idle_grace_seconds = idle_grace_minutes * 60
         self.stall_seconds = stall_minutes * 60
@@ -1294,14 +1307,30 @@ class ColabBenchWorker:
         cmd = ["new", "-s", self.worker_name]
         if spec["colab_flag"]:
             cmd += ["--gpu", spec["colab_flag"]]
-        self._log(f"Provisioning Colab {self.gpu} VM (boot timeout {self.boot_timeout}s)...")
         self.started_mono = time.monotonic()
-        rc, out = self._colab(cmd, timeout=self.boot_timeout, capture=True)
-        if rc != 0:
+        last_rc = 1
+        last_out = ""
+        for boot_attempt in range(1, self.boot_retries + 1):
+            self._log(
+                f"Provisioning Colab {self.gpu} VM (attempt {boot_attempt}/{self.boot_retries}, "
+                f"boot timeout {self.boot_timeout}s)..."
+            )
+            last_rc, last_out = self._colab(cmd, timeout=self.boot_timeout, capture=True)
+            if last_rc == 0:
+                break
             # Best-effort stop in case Colab allocated the backend right as `colab new` timed out.
             self._colab(["stop", "-s", self.worker_name], timeout=30)
+            if boot_attempt < self.boot_retries:
+                self._log(
+                    f"colab new attempt {boot_attempt}/{self.boot_retries} failed (rc={last_rc}); "
+                    "waiting 20s before retry..."
+                )
+                time.sleep(20)
+        if last_rc != 0:
             self.stopped_mono = time.monotonic()
-            raise RuntimeError(f"colab new failed for {self.worker_name} (gpu={self.gpu}, rc={rc}): {out[-400:]}")
+            raise RuntimeError(
+                f"colab new failed for {self.worker_name} (gpu={self.gpu}, rc={last_rc}): {last_out[-400:]}"
+            )
 
         self.alive = True
         self.registry.register(self.worker_name, self.cfg, gpu=self.gpu, batch_dir=self.batch_dir)
@@ -1910,14 +1939,26 @@ class ColabBenchWorker:
             )
 
         resolved_metrics = []
+        cli_metrics: list[str] = []
+        custom_metrics: list[dict[str, str]] = []
         for raw_m in metrics:
-            factory = KNOWN_EVAL_FACTORIES.get(raw_m, raw_m)
-            metric_id = sanitize_name(raw_m.split(":")[-1].lower())
-            resolved_metrics.append({"metric_id": metric_id, "name": raw_m, "factory": factory})
+            alias = IMAGE_METRICS_CLI_ALIASES.get(raw_m)
+            if alias is not None:
+                if alias not in cli_metrics:
+                    cli_metrics.append(alias)
+                resolved_metrics.append({"metric_id": alias, "name": raw_m, "cli_alias": alias})
+            else:
+                factory = KNOWN_EVAL_FACTORIES.get(raw_m, raw_m)
+                metric_id = sanitize_name(raw_m.split(":")[-1].lower())
+                item_m = {"metric_id": metric_id, "name": raw_m, "factory": factory}
+                custom_metrics.append(item_m)
+                resolved_metrics.append(item_m)
 
         eval_spec_payload = {
             "bundles": remote_manifest_items,
             "metrics": resolved_metrics,
+            "cli_metrics": cli_metrics,
+            "custom_metrics": custom_metrics,
             "dataset": dataset_config,
             "samples": samples,
             "batch_size": batch_size,
@@ -1935,7 +1976,7 @@ class ColabBenchWorker:
 
         runner_py = textwrap.dedent(
             f"""
-            import hashlib, json, sys, time, traceback
+            import hashlib, json, subprocess, sys, time, traceback
             from pathlib import Path
             import torch
 
@@ -1954,6 +1995,20 @@ class ColabBenchWorker:
                         h.update(chunk)
                 return h.hexdigest()
 
+            def lower_dataset(ds: dict) -> dict:
+                eval_data = dict(ds)
+                if "builtin" in eval_data:
+                    builtin = str(eval_data["builtin"]).strip()
+                    d_args = dict(eval_data.get("args") or {{}})
+                    if builtin == "cifar10":
+                        return {{"factory": "hypergan.image_data:CIFAR10Data", "args": d_args}}
+                    return {{"factory": builtin, "args": d_args}}
+                return eval_data
+
+            data_cfg = lower_dataset(spec_doc["dataset"])
+            cli_metrics = list(spec_doc.get("cli_metrics") or [])
+            custom_metrics = list(spec_doc.get("custom_metrics") or [])
+
             summary_receipts = []
             for bitem in spec_doc["bundles"]:
                 bpath = Path(bitem["remote_bundle_path"])
@@ -1964,7 +2019,118 @@ class ColabBenchWorker:
                 step = int(saved.get("step") or 0)
                 attempt_id = owner.get("attempt_id") or "eval"
 
-                for mitem in spec_doc["metrics"]:
+                # 1. Built-in publication metrics via `python -m hypergan.image_metrics`
+                if cli_metrics:
+                    t0 = time.monotonic()
+                    bundle_cli_out = out_dir / f"{{bitem['name']}}__image_metrics.json"
+                    cli_cmd = [
+                        sys.executable,
+                        "-m",
+                        "hypergan.image_metrics",
+                        str(bpath),
+                        "--metrics",
+                        *cli_metrics,
+                        "--samples",
+                        str(int(spec_doc["samples"])),
+                        "--batch-size",
+                        str(int(spec_doc["batch_size"])),
+                        "--seed",
+                        str(int(spec_doc["seed"])),
+                        "--device",
+                        str(spec_doc["device"]),
+                        "--output",
+                        str(bundle_cli_out),
+                    ]
+                    raw_ds = spec_doc["dataset"]
+                    if raw_ds.get("builtin") == "cifar10":
+                        d_args = raw_ds.get("args") or {{}}
+                        cli_cmd += [
+                            "--cifar10-root",
+                            str(Path(d_args.get("root", "~/.hypergan/cache/cifar10")).expanduser()),
+                            "--split",
+                            str(d_args.get("split", "train")),
+                        ]
+                    elif data_cfg.get("factory") == "image_folder":
+                        d_args = data_cfg.get("args") or {{}}
+                        cli_cmd += ["--data-folder", str(d_args["root"])]
+                        if d_args.get("width") is not None:
+                            cli_cmd += ["--width", str(d_args["width"])]
+                        if d_args.get("height") is not None:
+                            cli_cmd += ["--height", str(d_args["height"])]
+                    else:
+                        cli_cmd += ["--data-json", json.dumps(data_cfg)]
+
+                    proc = subprocess.run(cli_cmd, capture_output=True, text=True)
+                    if proc.stdout:
+                        print(proc.stdout, end="", flush=True)
+                    if proc.stderr:
+                        print(proc.stderr, file=sys.stderr, end="", flush=True)
+                    elapsed_cli = round(time.monotonic() - t0, 2)
+
+                    if proc.returncode == 0 and bundle_cli_out.is_file():
+                        doc = json.loads(bundle_cli_out.read_text(encoding="utf-8"))
+                        for mkey, entry in (doc.get("metrics") or {{}}).items():
+                            rec = {{
+                                "schema_version": 1,
+                                "bundle_name": bitem["name"],
+                                "local_bundle_path": bitem["local_bundle_path"],
+                                "local_run_dir": bitem.get("local_run_dir"),
+                                "bundle_sha256": doc.get("bundle_sha256", bsha),
+                                "metric_id": mkey,
+                                "metric_name": mkey,
+                                "factory": f"python -m hypergan.image_metrics --metrics {{mkey}}",
+                                "kind": entry.get("kind", "scalars"),
+                                "step": int(doc.get("step", step)),
+                                "attempt_id": attempt_id,
+                                "gpu_model": gpu_name,
+                                "status": "complete",
+                                "error": None,
+                                "values": entry.get("values"),
+                                "outputs": entry.get("outputs"),
+                                "protocol": {{
+                                    "schema_version": 1,
+                                    "metric_alias": mkey,
+                                    "sample_count": doc.get("sample_count"),
+                                    "batch_size": doc.get("batch_size"),
+                                    "seed": doc.get("seed"),
+                                    "data_seed": doc.get("data_seed"),
+                                    "prior_seed": doc.get("prior_seed"),
+                                    "device": doc.get("device"),
+                                    "generated_binding": doc.get("generated_binding"),
+                                    "data_identity": doc.get("data_identity"),
+                                    "ema": True,
+                                }},
+                                "snapshot_identity": dict(doc.get("snapshot_identity") or owner, source_step=int(doc.get("step", step))),
+                                "elapsed_seconds": round(float(entry.get("seconds", elapsed_cli)), 2),
+                            }}
+                            if "value" in entry:
+                                rec["value"] = entry["value"]
+                            rfile = out_dir / f"{{bitem['name']}}__{{mkey}}.json"
+                            rfile.write_text(json.dumps(rec, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+                            summary_receipts.append(rec)
+                            print(f"[eval] {{bitem['name']}} / {{mkey}}: values={{rec.get('values')}} ({{rec['elapsed_seconds']}}s)", flush=True)
+                    else:
+                        for mkey in cli_metrics:
+                            rec = {{
+                                "schema_version": 1,
+                                "bundle_name": bitem["name"],
+                                "local_bundle_path": bitem["local_bundle_path"],
+                                "local_run_dir": bitem.get("local_run_dir"),
+                                "bundle_sha256": bsha,
+                                "metric_id": mkey,
+                                "metric_name": mkey,
+                                "step": step,
+                                "attempt_id": attempt_id,
+                                "gpu_model": gpu_name,
+                                "status": "failed",
+                                "error": f"python -m hypergan.image_metrics failed rc={{proc.returncode}}: {{proc.stderr[-400:]}}",
+                                "elapsed_seconds": elapsed_cli,
+                            }}
+                            summary_receipts.append(rec)
+                    Path("/content/bench_heartbeat").touch()
+
+                # 2. Custom `module:Class` snapshot evaluators via evaluate_snapshot
+                for mitem in custom_metrics:
                     t0 = time.monotonic()
                     rec = {{
                         "schema_version": 1,
@@ -1984,16 +2150,6 @@ class ColabBenchWorker:
                     try:
                         _, expected = _factory(mitem["factory"], {{}})
                         descriptor = expected["descriptor"]
-                        eval_data = dict(spec_doc["dataset"])
-                        if "builtin" in eval_data:
-                            builtin = str(eval_data["builtin"]).strip()
-                            d_args = dict(eval_data.get("args") or {{}})
-                            if builtin == "cifar10":
-                                data_cfg = {{"factory": "hypergan.image_data:CIFAR10Data", "args": d_args}}
-                            else:
-                                data_cfg = {{"factory": builtin, "args": d_args}}
-                        else:
-                            data_cfg = eval_data
                         eval_spec = {{
                             "factory": mitem["factory"],
                             "args": {{}},
@@ -2140,6 +2296,7 @@ def execute_benchmark_jobs(
     allow_over_cap: bool = False,
     stagger_seconds: float = DEFAULT_STAGGER_SECONDS,
     boot_timeout: int = 260,
+    boot_retries: int = 2,
     max_minutes: int = 240,
     idle_grace_minutes: int = 10,
     stall_minutes: int = 30,
@@ -2280,6 +2437,7 @@ def execute_benchmark_jobs(
                 source_sync=source_sync,
                 colab_bin=colab_bin,
                 boot_timeout=boot_timeout,
+                boot_retries=boot_retries,
                 max_minutes=max_minutes,
                 idle_grace_minutes=idle_grace_minutes,
                 stall_minutes=stall_minutes,
@@ -2469,6 +2627,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         allow_over_cap=args.allow_over_cap,
         stagger_seconds=args.stagger_seconds,
         boot_timeout=args.boot_timeout,
+        boot_retries=args.boot_retries,
         max_minutes=args.max_minutes,
         idle_grace_minutes=args.idle_grace_minutes,
         stall_minutes=args.stall_minutes,
@@ -2529,6 +2688,7 @@ def execute_eval_bundles(
     output_dir: Path,
     import_to_run: bool = False,
     boot_timeout: int = 260,
+    boot_retries: int = 2,
     max_minutes: int = 120,
     idle_grace_minutes: int = 10,
     stall_minutes: int = 25,
@@ -2564,6 +2724,7 @@ def execute_eval_bundles(
         source_sync=source_sync,
         colab_bin=colab_bin,
         boot_timeout=boot_timeout,
+        boot_retries=boot_retries,
         max_minutes=max_minutes,
         idle_grace_minutes=idle_grace_minutes,
         stall_minutes=stall_minutes,
@@ -2658,6 +2819,7 @@ def cmd_eval_bundles(args: argparse.Namespace) -> int:
         output_dir=output_dir,
         import_to_run=args.import_to_run,
         boot_timeout=args.boot_timeout,
+        boot_retries=args.boot_retries,
         max_minutes=args.max_minutes,
         idle_grace_minutes=args.idle_grace_minutes,
         stall_minutes=args.stall_minutes,
@@ -2826,6 +2988,7 @@ def build_parser() -> argparse.ArgumentParser:
         )
         sp.set_defaults(gpu_explicit=False)
         sp.add_argument("--boot-timeout", type=int, default=260, help="Seconds to wait for `colab new`")
+        sp.add_argument("--boot-retries", type=int, default=2, help="Outer `colab new` retries on transient 503 bursts")
         sp.add_argument("--max-minutes", type=int, default=240, help="Hard VM-side watchdog wall-clock cap (minutes)")
         sp.add_argument(
             "--idle-grace-minutes",
@@ -2944,8 +3107,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ev.add_argument(
         "--metrics",
-        default="InceptionFID",
-        help="Comma-separated metrics: InceptionFID, InceptionSuite, DINOv2FD, DINOv2Suite, or module:Class",
+        default="InceptionSuite,DINOv2Suite",
+        help="Comma-separated metrics: InceptionSuite, DINOv2Suite, InceptionFID, DINOv2FD (via python -m hypergan.image_metrics), or custom module:Class",
     )
     ev.add_argument("--dataset", default="cifar10", help="Built-in dataset name (default: cifar10)")
     ev.add_argument("--dataset-split", default="train", help="Built-in dataset split (default: train)")

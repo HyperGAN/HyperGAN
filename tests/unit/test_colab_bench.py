@@ -834,9 +834,58 @@ def test_prepare_source_bundle_tarball_and_eval_import_to_run(tmp_path, monkeypa
 
 
 def test_eval_runner_dataset_lowering_uses_real_hypergan_factory():
-    # Confirm scripts/colab_bench.py does not reference nonexistent private model_file helpers.
+    # Confirm scripts/colab_bench.py routes publication suites to `python -m hypergan.image_metrics`
+    # and does not reference nonexistent private model_file helpers.
     src = SCRIPT_PATH.read_text(encoding="utf-8")
     assert "_lower_data_builtin" not in src
     assert "hypergan.image_data:CIFAR10Data" in src
+    assert "hypergan.image_metrics" in src
+    assert cb.IMAGE_METRICS_CLI_ALIASES["InceptionSuite"] == "inception"
+    assert cb.IMAGE_METRICS_CLI_ALIASES["DINOv2Suite"] == "dinov2"
+    assert cb.IMAGE_METRICS_CLI_ALIASES["InceptionFID"] == "inception_fid"
+    assert cb.IMAGE_METRICS_CLI_ALIASES["DINOv2FD"] == "dinov2_fd"
+
+
+def test_boot_retries_recover_from_transient_503(tmp_path, monkeypatch):
+    runs_dir = tmp_path / "runs"
+    state_dir = tmp_path / "colab_state"
+    boot_calls = {"n": 0}
+    eval_spec_seen: dict[str, Any] = {}
+
+    def fake_503_then_ok(cmd, *, timeout_seconds, **kwargs):
+        cfg_idx = cmd.index("--config") + 1
+        subcmd = cmd[cfg_idx + 1]
+        if subcmd == "new":
+            boot_calls["n"] += 1
+            if boot_calls["n"] == 1:
+                return 1, "ColabRequestError: 503 Service Unavailable"
+            return 0, "Session READY."
+        if subcmd == "upload" and cmd[-1].endswith("eval-spec.json"):
+            eval_spec_seen.update(json.loads(Path(cmd[-2]).read_text(encoding="utf-8")))
+            return 0, "uploaded"
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            _make_run_tarball(dest, run_name="retry-job", step=20, status="stopped")
+            return 0, "downloaded"
+        return 0, "COLAB_GPU_INFO: NVIDIA L4, 23034 MiB, 580.82.07\n"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_503_then_ok)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    job = cb.BenchmarkJob(run_name="retry-job", config="cifar10-tiny-transformer", gpu="L4", stop_after_steps=20)
+    summary = cb.execute_benchmark_jobs(
+        repo_root=tmp_path,
+        runs_dir=runs_dir,
+        state_dir=state_dir,
+        jobs=[job],
+        workers=1,
+        boot_retries=2,
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert summary["status"] == "complete"
+    assert boot_calls["n"] == 2
+
 
 

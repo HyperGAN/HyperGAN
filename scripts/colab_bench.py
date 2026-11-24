@@ -100,6 +100,29 @@ _NAN_LOG_RE = re.compile(
 )
 
 
+_COLAB_DISCONNECT_MARKERS: tuple[str, ...] = (
+    "connection was lost",
+    "websocket",
+    "broken pipe",
+    "closed by remote host",
+    "connection reset",
+    "already-active ssh session",
+    "too many requests",
+    "http 429",
+    "429",
+    "unexpected eof",
+    "kex_exchange_identification",
+)
+
+
+def _is_colab_disconnect(rc: int, output: str = "") -> bool:
+    """Return True when an SSH/Colab invocation failed due to tunnel or session loss."""
+    if rc in (124, 255):
+        return True
+    low = (output or "").lower()
+    return any(marker in low for marker in _COLAB_DISCONNECT_MARKERS)
+
+
 def utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1914,19 +1937,23 @@ class ColabBenchWorker:
             last_rc = rc
             chunks_completed += 1
 
-            # Detect Colab connection loss / timeout so orchestrator can trigger clean retry/resume.
-            if rc == 124 or "Connection was lost" in ssh_out or "Websocket" in ssh_out:
+            # Detect Colab connection loss / SSH drop / HTTP 429 / timeout so orchestrator recycles VM & resumes.
+            if _is_colab_disconnect(rc, ssh_out):
                 disconnected = True
 
-            # Always pull back run artifacts (even on NaN/failure!) so telemetry is preserved locally.
-            pull_rc, unpack_info = self._pack_and_pull_remote_run(
-                run_name=job.run_name,
-                remote_run_dir=remote_run_dir,
-                local_run_dir=local_run_dir,
-                pull_checkpoints=pull_checkpoints,
-                export_bundle=job.export_bundle,
-                tag=f"chunk{chunks_completed}",
-            )
+            # Pull back run artifacts when reachable; if SSH tunnel already dropped with rc=255 / Broken pipe / 429,
+            # attempt best-effort pull only when not already rejected by 429, and never poison the worker slot.
+            if disconnected and ("already-active ssh session" in ssh_out.lower() or "broken pipe" in ssh_out.lower() or "closed by remote host" in ssh_out.lower()):
+                pull_rc, unpack_info = 1, None
+            else:
+                pull_rc, unpack_info = self._pack_and_pull_remote_run(
+                    run_name=job.run_name,
+                    remote_run_dir=remote_run_dir,
+                    local_run_dir=local_run_dir,
+                    pull_checkpoints=pull_checkpoints,
+                    export_bundle=job.export_bundle,
+                    tag=f"chunk{chunks_completed}",
+                )
             if pull_rc == 0 and unpack_info is not None:
                 last_unpack = unpack_info
                 if register_run_local:

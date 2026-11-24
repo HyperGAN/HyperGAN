@@ -216,9 +216,10 @@ class IntrospectTests(unittest.TestCase):
             self.assertIn("name", tpl)
             self.assertIn("description", tpl)
 
-        # Verify all 49 docs/*.md + GLOSSARY.md + CHANGELOG.md are indexed with zero omissions
+        # Verify all docs/*.md + GLOSSARY.md + CHANGELOG.md are indexed with zero omissions
         expected_docs = {f"docs/{p.name}" for p in (REPO_ROOT / "docs").glob("*.md")}
-        self.assertEqual(len(expected_docs), 49)
+        self.assertGreaterEqual(len(expected_docs), 50)
+        self.assertIn("docs/colab.md", expected_docs)
         expected_all_docs = expected_docs | {"GLOSSARY.md", "CHANGELOG.md"}
 
         indexed_sources = {d["source_path"] for d in self.data["docs"]}

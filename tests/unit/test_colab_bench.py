@@ -777,9 +777,16 @@ def test_prepare_source_bundle_tarball_and_eval_import_to_run(tmp_path, monkeypa
     bundle_path.write_bytes(b"ema-weights")
     bsha = __import__("hashlib").sha256(b"ema-weights").hexdigest()
 
+    uploaded_runner: dict[str, str] = {}
+
     def fake_eval_colab(cmd, *, timeout_seconds, **kwargs):
         cfg_idx = cmd.index("--config") + 1
         subcmd = cmd[cfg_idx + 1]
+        if subcmd == "upload" and cmd[-1].endswith("/eval_runner.py"):
+            uploaded_runner["code"] = Path(cmd[-2]).read_text(encoding="utf-8")
+            return 0, "uploaded"
+        if subcmd == "ssh" and "eval_runner.py" in cmd[-1]:
+            assert "cat <<'PY'" not in cmd[-1]
         if subcmd == "download":
             dest = Path(cmd[-1])
             receipts = [
@@ -794,9 +801,9 @@ def test_prepare_source_bundle_tarball_and_eval_import_to_run(tmp_path, monkeypa
                     "attempt_id": "0001-attempt",
                     "values": {"fd_dinov2": 42.5, "precision": 0.81, "recall": 0.74},
                     "outputs": {
-                        "fd_dinov2": {"label": "FD DINOv2", "unit": "FD", "direction": "minimize"},
-                        "precision": {"label": "Precision", "unit": "", "direction": "maximize"},
-                        "recall": {"label": "Recall", "unit": "", "direction": "maximize"},
+                        "fd_dinov2": {"kind": "scalar", "label": "FD DINOv2", "unit": "FD", "direction": "minimize"},
+                        "precision": {"kind": "scalar", "label": "Precision", "unit": "", "direction": "maximize"},
+                        "recall": {"kind": "scalar", "label": "Recall", "unit": "", "direction": "maximize"},
                     },
                     "snapshot_identity": {"run_id": "run12345", "source_step": 500, "attempt_id": "0001-attempt"},
                     "protocol": {"schema_version": 1, "samples": 50000},
@@ -826,6 +833,8 @@ def test_prepare_source_bundle_tarball_and_eval_import_to_run(tmp_path, monkeypa
     )
     assert len(summary["imported"]) == 1
     assert "evaluation_id" in summary["imported"][0]
+    assert "code" in uploaded_runner
+    __import__("ast").parse(uploaded_runner["code"])
     assert (run_dir / "summary.json").is_file()
     imported_summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
     eval_metrics = {e["metric"]: e["value"] for e in imported_summary.get("evaluations", [])}

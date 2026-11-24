@@ -560,6 +560,8 @@ class BenchmarkJob:
     dataset_target_dir: str | None = None
     chunk_steps: int = 0
     sync_interval_minutes: float = 0.0
+    detached: bool = False
+    poll_seconds: float = 45.0
     max_retries: int = 2
     export_bundle: bool = True
     drive_dir: str | None = None
@@ -589,6 +591,8 @@ class BenchmarkJob:
             "dataset_target_dir": self.dataset_target_dir,
             "chunk_steps": self.chunk_steps,
             "sync_interval_minutes": self.sync_interval_minutes,
+            "detached": self.detached,
+            "poll_seconds": self.poll_seconds,
             "max_retries": self.max_retries,
             "export_bundle": self.export_bundle,
             "drive_dir": self.drive_dir,
@@ -708,6 +712,8 @@ def load_manifest(
                 ),
                 chunk_steps=max(0, int(merged.get("chunk_steps", 0))),
                 sync_interval_minutes=max(0.0, float(merged.get("sync_interval_minutes", 0.0))),
+                detached=bool(merged.get("detached", False)),
+                poll_seconds=max(5.0, float(merged.get("poll_seconds", 45.0))),
                 max_retries=max(0, int(merged.get("max_retries", 2))),
                 export_bundle=bool(merged.get("export_bundle", True)),
                 drive_dir=str(merged["drive_dir"]) if merged.get("drive_dir") else None,
@@ -1734,25 +1740,28 @@ class ColabBenchWorker:
             top_dirs = ("metrics", "previews", "views", "config-source", "attempts", "launch")
 
             with tarfile.open(tar_out, "w:gz") as tf:
+                def _safe_add(src_path: Path, arc: str) -> None:
+                    try:
+                        if src_path.is_file():
+                            tf.add(src_path, arcname=arc)
+                    except (FileNotFoundError, OSError):
+                        pass
+
                 for fname in top_files:
-                    p = run_dir / fname
-                    if p.is_file():
-                        tf.add(p, arcname=fname)
+                    _safe_add(run_dir / fname, fname)
                 for dname in top_dirs:
                     d = run_dir / dname
                     if d.is_dir():
                         for child in sorted(d.rglob("*")):
-                            if child.is_file() and not child.name.startswith(".tmp"):
-                                tf.add(child, arcname=str(child.relative_to(run_dir)))
+                            if not child.name.startswith(".tmp"):
+                                _safe_add(child, str(child.relative_to(run_dir)))
                 if ckpt_root.is_dir() and pull_ckpts != "none":
-                    if (ckpt_root / "latest.json").is_file():
-                        tf.add(ckpt_root / "latest.json", arcname="checkpoints/latest.json")
+                    _safe_add(ckpt_root / "latest.json", "checkpoints/latest.json")
                     for cname in sorted(keep_ckpts):
                         cdir = ckpt_root / cname
                         if cdir.is_dir():
                             for child in sorted(cdir.rglob("*")):
-                                if child.is_file():
-                                    tf.add(child, arcname=str(child.relative_to(run_dir)))
+                                _safe_add(child, str(child.relative_to(run_dir)))
             print(f"[pack] wrote {{tar_out}} ({{tar_out.stat().st_size}} bytes)")
             """
         ).strip()
@@ -1766,6 +1775,216 @@ class ColabBenchWorker:
             return (dl_rc or 1), None
         unpack_info = unpack_run_tarball(tar_local, local_run_dir, remote_run_dir=remote_run_dir)
         return 0, unpack_info
+
+    def _run_chunk_detached(
+        self,
+        *,
+        job: BenchmarkJob,
+        chunk_index: int,
+        quoted_hg: str,
+        remote_run_dir: str,
+        remote_train_log: str,
+        drive_sync_sh: str,
+        local_run_dir: Path,
+        ssh_timeout: int,
+        register_run_local: bool,
+    ) -> tuple[int, str, bool, dict[str, Any] | None]:
+        """Launch a training chunk detached on the VM and monitor with short periodic SSH polls.
+
+        Avoids Colab's ~45-55 minute foreground SSH tunnel disconnects and prevents HTTP 429
+        concurrent-SSH collisions by serializing status polls and periodic checkpoint pulls.
+        Returns `(rc, last_output, disconnected, last_periodic_unpack)`.
+        """
+        chunk_tag = f"{job.run_name}.chunk{chunk_index}"
+        remote_script = f"/content/logs/{chunk_tag}.sh"
+        remote_pid = f"/content/logs/{chunk_tag}.pid"
+        remote_rc = f"/content/logs/{chunk_tag}.rc"
+
+        script_body = (
+            textwrap.dedent(
+                f"""
+                #!/usr/bin/env bash
+                set -uo pipefail
+                export PYTHONUNBUFFERED=1
+                rm -f /content/bench_job.done {shlex.quote(remote_rc)}
+                echo $$ > {shlex.quote(remote_pid)}
+                touch /content/bench_heartbeat
+                cd {REMOTE_REPO_DIR}
+                mkdir -p {shlex.quote(REMOTE_RUNS_ROOT)} /content/logs
+                echo "[vm] START job={job.run_name} chunk={chunk_index}" >> /content/bench_job.log
+                {quoted_hg} >> {shlex.quote(remote_train_log)} 2>&1
+                RUN_RC=$?
+                {drive_sync_sh}
+                echo "$RUN_RC" > {shlex.quote(remote_rc)}
+                touch /content/bench_heartbeat /content/bench_job.done
+                echo "[vm] END job={job.run_name} chunk={chunk_index} rc=$RUN_RC" >> /content/bench_job.log
+                exit $RUN_RC
+                """
+            ).strip()
+            + "\n"
+        )
+
+        local_script = self.batch_dir / f"{chunk_tag}.sh"
+        local_script.write_text(script_body, encoding="utf-8")
+
+        with self._ssh_lock:
+            mkdir_rc, mkdir_out = self._colab(
+                ["ssh", "-s", self.worker_name, "--", "bash", "-lc", "mkdir -p /content/logs"],
+                timeout=45,
+                capture=True,
+            )
+            if mkdir_rc != 0:
+                return mkdir_rc, mkdir_out, _is_colab_disconnect(mkdir_rc, mkdir_out), None
+            up_rc, up_out = self._colab(
+                ["upload", "-s", self.worker_name, str(local_script), remote_script],
+                timeout=60,
+                capture=True,
+            )
+            if up_rc != 0:
+                return up_rc, up_out, _is_colab_disconnect(up_rc, up_out), None
+            launch_py = (
+                "import os, subprocess; "
+                f"os.chmod({remote_script!r}, 0o755); "
+                f"p = subprocess.Popen(['bash', {remote_script!r}], "
+                "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, "
+                "start_new_session=True); "
+                f"open({remote_pid!r}, 'w', encoding='utf-8').write(f'{{p.pid}}\\n'); "
+                "print(f'DETACHED_LAUNCHED pid={p.pid}')"
+            )
+            launch_rc, launch_out = self._colab(
+                ["ssh", "-s", self.worker_name, "--", "python3", "-c", launch_py],
+                timeout=60,
+                capture=True,
+            )
+            if launch_rc != 0:
+                return launch_rc, launch_out, _is_colab_disconnect(launch_rc, launch_out), None
+
+        self._log(
+            f"Launched detached chunk {chunk_index} for {job.run_name} "
+            f"(poll={job.poll_seconds:.0f}s, sync_interval={job.sync_interval_minutes:.1f}m)."
+        )
+
+        poll_sh = textwrap.dedent(
+            f"""
+            touch /content/bench_heartbeat
+            if [ -f {shlex.quote(remote_rc)} ]; then
+              echo "DETACHED_DONE:$(cat {shlex.quote(remote_rc)} | tr -d '[:space:]')"
+            elif [ -f {shlex.quote(remote_pid)} ] && kill -0 "$(cat {shlex.quote(remote_pid)} 2>/dev/null)" 2>/dev/null; then
+              echo "DETACHED_RUNNING"
+            elif pgrep -f {shlex.quote(remote_script)} >/dev/null 2>&1; then
+              echo "DETACHED_RUNNING"
+            else
+              echo "DETACHED_EXITED_NO_RC"
+            fi
+            if [ -f {shlex.quote(remote_train_log)} ]; then
+              echo -n "DETACHED_TAIL:"
+              tail -n 1 {shlex.quote(remote_train_log)} | tr '\\r' '\\n' | tail -n 1
+            fi
+            """
+        ).strip()
+
+        poll_interval = max(5.0, float(job.poll_seconds))
+        sync_interval_s = max(60.0, float(job.sync_interval_minutes) * 60.0) if job.sync_interval_minutes > 0 else 0.0
+        chunk_t0 = time.monotonic()
+        last_sync_mono = chunk_t0
+        sync_idx = 0
+        consecutive_failures = 0
+        max_consecutive_failures = 5
+        last_periodic_unpack: dict[str, Any] | None = None
+
+        while True:
+            time.sleep(poll_interval)
+            elapsed = time.monotonic() - chunk_t0
+            if elapsed > ssh_timeout:
+                self._log(f"Detached chunk {chunk_index} for {job.run_name} exceeded timeout ({ssh_timeout}s).")
+                return 124, f"Detached chunk exceeded timeout ({ssh_timeout}s)", True, last_periodic_unpack
+
+            with self._ssh_lock:
+                poll_rc, poll_out = self._colab(
+                    ["ssh", "-s", self.worker_name, "--", "bash", "-lc", poll_sh],
+                    timeout=45,
+                    capture=True,
+                )
+
+            if poll_rc != 0:
+                consecutive_failures += 1
+                self._log(
+                    f"Detached poll failure {consecutive_failures}/{max_consecutive_failures} "
+                    f"for {job.run_name} (rc={poll_rc}); retrying..."
+                )
+                if consecutive_failures >= max_consecutive_failures:
+                    return (poll_rc or 255), poll_out, True, last_periodic_unpack
+                time.sleep(min(20.0, poll_interval))
+                continue
+
+            tail_line = ""
+            done_rc: int | None = None
+            status_token = ""
+            for raw_line in poll_out.splitlines():
+                sline = raw_line.strip()
+                if sline.startswith("DETACHED_DONE:"):
+                    status_token = "DONE"
+                    raw_code = sline.split(":", 1)[1].strip()
+                    try:
+                        done_rc = int(raw_code)
+                    except ValueError:
+                        done_rc = 1
+                elif sline == "DETACHED_RUNNING":
+                    status_token = "RUNNING"
+                elif sline == "DETACHED_EXITED_NO_RC":
+                    status_token = "EXITED_NO_RC"
+                elif sline.startswith("DETACHED_TAIL:"):
+                    tail_line = sline.split(":", 1)[1].strip()
+
+            if not status_token:
+                consecutive_failures += 1
+                self._log(
+                    f"Detached poll returned unrecognized status ({consecutive_failures}/{max_consecutive_failures}) "
+                    f"for {job.run_name}; retrying..."
+                )
+                if consecutive_failures >= max_consecutive_failures:
+                    return 255, poll_out, True, last_periodic_unpack
+                time.sleep(min(20.0, poll_interval))
+                continue
+
+            consecutive_failures = 0
+
+            if status_token == "DONE":
+                self._log(
+                    f"Detached chunk {chunk_index} for {job.run_name} completed "
+                    f"(rc={done_rc}, elapsed={elapsed:.0f}s)."
+                )
+                return (done_rc if done_rc is not None else 1), poll_out, False, last_periodic_unpack
+
+            if status_token == "EXITED_NO_RC":
+                self._log(
+                    f"Detached chunk {chunk_index} for {job.run_name} exited without rc file "
+                    f"(possible OOM/SIGKILL, elapsed={elapsed:.0f}s)."
+                )
+                return 137, poll_out, False, last_periodic_unpack
+
+            if tail_line:
+                self._log(f"[poll {job.run_name} {elapsed / 60.0:.1f}m] {tail_line[:180]}")
+
+            if sync_interval_s > 0 and (time.monotonic() - last_sync_mono) >= sync_interval_s:
+                sync_idx += 1
+                last_sync_mono = time.monotonic()
+                self._log(f"Serialized periodic checkpoint sync #{sync_idx} for {job.run_name}...")
+                try:
+                    s_rc, s_unpack = self._pack_and_pull_remote_run(
+                        run_name=job.run_name,
+                        remote_run_dir=remote_run_dir,
+                        local_run_dir=local_run_dir,
+                        pull_checkpoints="latest",
+                        export_bundle=False,
+                        tag=f"chunk{chunk_index}-sync{sync_idx}",
+                    )
+                    if s_rc == 0 and s_unpack is not None:
+                        last_periodic_unpack = s_unpack
+                        if register_run_local:
+                            register_local_run(local_run_dir)
+                except Exception as exc:
+                    self._log(f"Serialized periodic sync #{sync_idx} warning: {exc}")
 
     def run_training_job(
         self,
@@ -1874,76 +2093,100 @@ class ColabBenchWorker:
                 )
 
             remote_train_log = f"/content/logs/{job.run_name}.train.log"
-            run_sh = textwrap.dedent(
-                f"""
-                set -euo pipefail
-                rm -f /content/bench_job.done
-                touch /content/bench_heartbeat
-                cd {REMOTE_REPO_DIR}
-                mkdir -p {shlex.quote(REMOTE_RUNS_ROOT)} /content/logs
-                set +e
-                {quoted_hg} 2>&1 | tee -a {shlex.quote(remote_train_log)} /content/bench_job.log
-                RUN_RC=${{PIPESTATUS[0]}}
-                set -e
-                {drive_sync_sh}
-                touch /content/bench_heartbeat /content/bench_job.done
-                echo "[vm] job={job.run_name} chunk={chunks_completed} rc=$RUN_RC"
-                exit $RUN_RC
-                """
-            ).strip()
-
-            # Optional background periodic checkpoint sync thread while continuous training runs.
-            stop_sync = threading.Event()
-            sync_thread: threading.Thread | None = None
-            if job.sync_interval_minutes > 0 and job.chunk_steps == 0:
-                interval_s = max(60.0, job.sync_interval_minutes * 60.0)
-
-                def _periodic_sync_loop() -> None:
-                    sync_idx = 0
-                    while not stop_sync.wait(interval_s):
-                        sync_idx += 1
-                        self._log(f"Periodic checkpoint sync #{sync_idx} for {job.run_name}...")
-                        try:
-                            self._pack_and_pull_remote_run(
-                                run_name=job.run_name,
-                                remote_run_dir=remote_run_dir,
-                                local_run_dir=local_run_dir,
-                                pull_checkpoints="latest",
-                                export_bundle=False,
-                                tag=f"sync{sync_idx}",
-                            )
-                        except Exception as exc:
-                            self._log(f"Periodic sync #{sync_idx} warning: {exc}")
-
-                sync_thread = threading.Thread(target=_periodic_sync_loop, daemon=True)
-                sync_thread.start()
-
             ssh_timeout = (
                 int(job.timeout_minutes * 60)
                 if job.timeout_minutes is not None
                 else max(600, min(self.max_seconds, int(job.estimated_minutes * 60 * 2.0) + 600))
             )
-            try:
-                rc, ssh_out = self._colab(
-                    ["ssh", "-s", self.worker_name, "--", "bash", "-lc", run_sh],
-                    timeout=ssh_timeout,
-                    capture=True,
+
+            if job.detached:
+                rc, ssh_out, chunk_disconnected, periodic_unpack = self._run_chunk_detached(
+                    job=job,
+                    chunk_index=chunks_completed,
+                    quoted_hg=quoted_hg,
+                    remote_run_dir=remote_run_dir,
+                    remote_train_log=remote_train_log,
+                    drive_sync_sh=drive_sync_sh,
+                    local_run_dir=local_run_dir,
+                    ssh_timeout=ssh_timeout,
+                    register_run_local=register_run_local,
                 )
-            finally:
-                stop_sync.set()
-                if sync_thread is not None:
-                    sync_thread.join(timeout=5.0)
+                if periodic_unpack is not None:
+                    last_unpack = periodic_unpack
+                if chunk_disconnected:
+                    disconnected = True
+            else:
+                run_sh = textwrap.dedent(
+                    f"""
+                    set -euo pipefail
+                    export PYTHONUNBUFFERED=1
+                    rm -f /content/bench_job.done
+                    touch /content/bench_heartbeat
+                    cd {REMOTE_REPO_DIR}
+                    mkdir -p {shlex.quote(REMOTE_RUNS_ROOT)} /content/logs
+                    set +e
+                    {quoted_hg} 2>&1 | tee -a {shlex.quote(remote_train_log)} /content/bench_job.log
+                    RUN_RC=${{PIPESTATUS[0]}}
+                    set -e
+                    {drive_sync_sh}
+                    touch /content/bench_heartbeat /content/bench_job.done
+                    echo "[vm] job={job.run_name} chunk={chunks_completed} rc=$RUN_RC"
+                    exit $RUN_RC
+                    """
+                ).strip()
+
+                # Optional background periodic checkpoint sync thread while continuous training runs.
+                stop_sync = threading.Event()
+                sync_thread: threading.Thread | None = None
+                if job.sync_interval_minutes > 0 and job.chunk_steps == 0:
+                    interval_s = max(60.0, job.sync_interval_minutes * 60.0)
+
+                    def _periodic_sync_loop() -> None:
+                        sync_idx = 0
+                        while not stop_sync.wait(interval_s):
+                            sync_idx += 1
+                            self._log(f"Periodic checkpoint sync #{sync_idx} for {job.run_name}...")
+                            try:
+                                self._pack_and_pull_remote_run(
+                                    run_name=job.run_name,
+                                    remote_run_dir=remote_run_dir,
+                                    local_run_dir=local_run_dir,
+                                    pull_checkpoints="latest",
+                                    export_bundle=False,
+                                    tag=f"sync{sync_idx}",
+                                )
+                            except Exception as exc:
+                                self._log(f"Periodic sync #{sync_idx} warning: {exc}")
+
+                    sync_thread = threading.Thread(target=_periodic_sync_loop, daemon=True)
+                    sync_thread.start()
+
+                try:
+                    rc, ssh_out = self._colab(
+                        ["ssh", "-s", self.worker_name, "--", "bash", "-lc", run_sh],
+                        timeout=ssh_timeout,
+                        capture=True,
+                    )
+                finally:
+                    stop_sync.set()
+                    if sync_thread is not None:
+                        sync_thread.join(timeout=5.0)
+
+                # Detect Colab connection loss / SSH drop / HTTP 429 / timeout so orchestrator recycles VM & resumes.
+                if _is_colab_disconnect(rc, ssh_out):
+                    disconnected = True
 
             last_rc = rc
             chunks_completed += 1
 
-            # Detect Colab connection loss / SSH drop / HTTP 429 / timeout so orchestrator recycles VM & resumes.
-            if _is_colab_disconnect(rc, ssh_out):
-                disconnected = True
-
-            # Pull back run artifacts when reachable; if SSH tunnel already dropped with rc=255 / Broken pipe / 429,
-            # attempt best-effort pull only when not already rejected by 429, and never poison the worker slot.
-            if disconnected and ("already-active ssh session" in ssh_out.lower() or "broken pipe" in ssh_out.lower() or "closed by remote host" in ssh_out.lower()):
+            # Pull back run artifacts when reachable; skip dead-tunnel pulls when the VM/SSH session is already gone.
+            skip_dead_pull = disconnected and (
+                (job.detached and rc != 124)
+                or "already-active ssh session" in ssh_out.lower()
+                or "broken pipe" in ssh_out.lower()
+                or "closed by remote host" in ssh_out.lower()
+            )
+            if skip_dead_pull:
                 pull_rc, unpack_info = 1, None
             else:
                 pull_rc, unpack_info = self._pack_and_pull_remote_run(
@@ -2643,7 +2886,8 @@ def execute_benchmark_jobs(
             if not need_reprovision:
                 break
             reincarnation += 1
-            if reincarnation > 3:
+            max_reincarnations = max(6, max((j.max_retries for j in pending), default=3) * 2)
+            if reincarnation > max_reincarnations:
                 break
             time.sleep(min(20.0, max(5.0, stagger_seconds)))
 
@@ -2705,6 +2949,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             "set_overrides": args.set_overrides or None,
             "chunk_steps": args.chunk_steps if args.chunk_steps > 0 else None,
             "sync_interval_minutes": args.sync_interval_minutes if args.sync_interval_minutes > 0 else None,
+            "detached": True if args.detached else None,
+            "poll_seconds": args.poll_seconds,
             "drive_dir": args.drive_dir,
             "max_retries": args.max_retries,
         }
@@ -2735,7 +2981,9 @@ def cmd_run(args: argparse.Namespace) -> int:
                 dataset_target_dir=args.dataset_target_dir,
                 chunk_steps=args.chunk_steps,
                 sync_interval_minutes=args.sync_interval_minutes,
-                max_retries=args.max_retries,
+                detached=args.detached,
+                poll_seconds=args.poll_seconds if args.poll_seconds is not None else 45.0,
+                max_retries=args.max_retries if args.max_retries is not None else 2,
                 export_bundle=not args.no_export_bundle,
                 drive_dir=args.drive_dir,
                 estimated_minutes=args.estimated_minutes,
@@ -3231,9 +3479,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--sync-interval-minutes",
         type=float,
         default=0.0,
-        help="Background periodic checkpoint pull-back interval in minutes during continuous runs (0=disabled)",
+        help="Periodic checkpoint pull-back interval in minutes (0=disabled; serialized between polls in --detached mode)",
     )
-    rn.add_argument("--max-retries", type=int, default=2, help="Max automatic resume retries on Colab disconnect")
+    rn.add_argument(
+        "--detached",
+        action="store_true",
+        help="Launch training detached on the Colab VM and monitor via short periodic SSH polls (immune to SSH drops)",
+    )
+    rn.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=None,
+        help="Status poll interval in seconds when --detached is enabled (default: 45s)",
+    )
+    rn.add_argument("--max-retries", type=int, default=None, help="Max automatic resume retries on Colab disconnect (default: 2)")
     rn.add_argument("--drive-dir", default=None, help="Optional Google Drive path (e.g. /content/drive/MyDrive/hypergan-runs)")
     rn.add_argument(
         "--pull-checkpoints",

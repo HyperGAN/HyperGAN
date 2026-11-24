@@ -76,10 +76,11 @@ python scripts/colab_bench.py run --manifest benchmarks/queue.toml --workers 3 -
 
 ## Disconnect resilience, resume, and collapse telemetry
 
-Long 50k–100k step runs can survive Colab preemptions and runtime resets via three complementary mechanisms:
+Long 50k–100k step runs can survive Colab SSH drops, preemptions, and runtime resets via four complementary mechanisms:
 
+- **Detached VM execution + short-poll monitoring (`--detached`, `--poll-seconds 45`)**: uploads a chunk script to the VM, spawns training in a detached session (`start_new_session=True`), and monitors progress with short SSH polls every `--poll-seconds` while refreshing `/content/bench_heartbeat`. Eliminates Colab's ~45–55 minute foreground SSH tunnel drops, survives up to 5 consecutive transient SSH blips without losing training progress, and serializes periodic checkpoint pulls cleanly between polls (preventing HTTP 429 concurrent-SSH collisions).
 - **Chunked local sync (`--chunk-steps N`)**: runs `hypergan train` / `hypergan resume` in `N`-step chunks and pulls the updated run directory and latest checkpoint back to `runs/<run_name>/` after every chunk.
-- **Background periodic checkpoint sync (`--sync-interval-minutes M`)**: pulls the latest checkpoint and summary back locally every `M` minutes during continuous single-attempt runs while refreshing the VM watchdog heartbeat.
+- **Periodic checkpoint sync (`--sync-interval-minutes M`)**: pulls the latest checkpoint and summary back locally every `M` minutes (serialized between status polls in `--detached` mode, or in a background thread during foreground continuous runs) while refreshing the VM watchdog heartbeat.
 - **Automatic preemption recovery (`--max-retries K`) + optional Google Drive mirror (`--drive-dir`)**: if a Colab VM disconnects mid-run, the orchestrator tears down the broken session, provisions a fresh VM, uploads the last synced local checkpoint, and continues via `hypergan resume`.
 
 Completed runs whose local `runs/<run_name>/summary.json` already reports `status == "stopped"` or `"complete"` at or beyond the target step are skipped automatically unless `--force` is passed. If a baseline diverges or produces NaNs, all partial logs, previews, and metrics are still pulled back and flagged (`nan_detected`, `collapse_detected`) in the batch summary.

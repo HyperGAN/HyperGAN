@@ -369,6 +369,7 @@ _DOC_GROUP_DEFS: list[dict[str, Any]] = [
             "docs/execution-profiles.md",
             "docs/multigpu-readiness.md",
             "docs/scaling-benchmark.md",
+            "docs/colab.md",
             "docs/docker.md",
             "docs/rocm.md",
         ],

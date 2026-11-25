@@ -362,6 +362,9 @@ def _uses_simplicial_manifold_loss(recipe, real, *, prior, is_discrete_prior, co
         return False
     if isinstance(real, torch.Tensor) and real.ndim >= 2 and real.shape[0] > 0:
         per_sample = int(real[0].numel())
+        explicit_cap = getattr(recipe, "simplicial_max_dim", None)
+        if explicit_cap is not None and per_sample > int(explicit_cap):
+            return False
         formulation = getattr(recipe, "effective_critic_formulation", None)
         if formulation == "unified_v11" and per_sample > 1024:
             return False

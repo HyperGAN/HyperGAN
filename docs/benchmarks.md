@@ -44,9 +44,9 @@ All runs use global `batch_size = 256` and train both Generator and Discriminato
 | **Scratch TransGAN**<br>(`2.84M` / `10.20M`) | **`unified_v12`**, `particles`, `ema=0.0`<br>(`547cc23f`) | 25k | 162.01 (25k) | **162.01** | `0.261 / 0.001 / 0.110 / 0.021` | **1919.21** | `0.756 / 0.000 / 2.708 / 0.030` | 0.722 | **Clean (`0` alerts, `acc=0.813`)** | A100 · `0.93 it/s` · `27,670 s` (`7.69 h`) |
 | **Scratch TransGAN (Ref.)**<br>(`2.84M` / `10.20M`)³ | **ParticleGAN `0.10.0 EMPF`**, `mog`, `ema=0.0`<br>(`f2cce6c4`) | 25k | **51.30** (22.5k) | 67.04³ | — | — | — | 1.140 | Clean (`acc=0.496`) | 2× A6000 · `0.47 it/s` · `57,035 s` (`15.84 h`) |
 
-¹ *`cifar10-dcgan-og-bn-proj-unified-v12-0120-default` uses the identical Radford BN-DCGAN topology minus 68 bias scalars on `deconv(3)`, `conv(64)`, and `linear(1)` (`1,183,616` G / `663,296` D), with `prior.kind = "mog"` (`sigma_rel = 0.025`, `rows = "full"`), `seed = 24002`, and async `cuda:1` evaluation.*  
-² *`wp-cifar10-resnet-scratch-v12` scheduled online `fid50k_train` every 10k steps (`10k: 235.15`, `20k: 171.95`); its exported step-25,000 bundle evaluated post-hoc at `FID-50k = 150.63`.*  
-³ *Historical baseline from [CIFAR recipes & results](cifar-recipe.md) (`cifar10-transgan-empf-010-2gpu`); `67.04` is the recorded online `fid50k_train` at step 25,000 (not evaluated on `InceptionSuite` / `DINOv2Suite` in this campaign).*
+- ¹ *`cifar10-dcgan-og-bn-proj-unified-v12-0120-default` uses the identical Radford BN-DCGAN topology minus 68 bias scalars on `deconv(3)`, `conv(64)`, and `linear(1)` (`1,183,616` G / `663,296` D), with `prior.kind = "mog"` (`sigma_rel = 0.025`, `rows = "full"`), `seed = 24002`, and async `cuda:1` evaluation.*
+- ² *`wp-cifar10-resnet-scratch-v12` scheduled online `fid50k_train` every 10k steps (`10k: 235.15`, `20k: 171.95`); its exported step-25,000 bundle evaluated post-hoc at `FID-50k = 150.63`.*
+- ³ *Historical baseline from [CIFAR recipes & results](cifar-recipe.md) (`cifar10-transgan-empf-010-2gpu`); `67.04` is the recorded online `fid50k_train` at step 25,000 (not evaluated on `InceptionSuite` / `DINOv2Suite` in this campaign).*
 
 ### Online FID-50k Trajectories (Scratch-Critic Runs)
 
@@ -60,8 +60,8 @@ All runs use global `batch_size = 256` and train both Generator and Discriminato
 | `wp-cifar10-transgan-scratch-v12` | 216.99 | 182.13 | 209.77 | 175.75 | **162.01** | — | — | — | — |
 | `cifar10-transgan-empf-010-2gpu` (Ref.) | 69.68 | 83.25 | 56.65 | 66.13 | 67.04 (best `51.30 @ 22.5k`) | — | — | — | — |
 
-¹ *Evaluated at step `21,195` (`40k: 34.62`).*  
-² *Async `cuda:1` snapshots landed at steps `2,500 (190.73)`, `7,079 (125.60)`, `9,828 (114.65)`, `12,588 (106.21)`, `15,421 (102.02)`, `18,277 (98.04)`, `21,039 (95.40)`, and `23,931 (91.94)`.*
+- ¹ *Evaluated at step `21,195` (`40k: 34.62`).*
+- ² *Async `cuda:1` snapshots landed at steps `2,500 (190.73)`, `7,079 (125.60)`, `9,828 (114.65)`, `12,588 (106.21)`, `15,421 (102.02)`, `18,277 (98.04)`, `21,039 (95.40)`, and `23,931 (91.94)`.*
 
 ### Cancelled & Early-Stopped Runs
 

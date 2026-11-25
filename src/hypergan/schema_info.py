@@ -354,6 +354,12 @@ MODEL_SCHEMA: Dict[str, Any] = {
                     "choices": ["constructor", "deterministic_orthogonal"],
                     "default": "constructor",
                 },
+                "precision": {
+                    "type": "string",
+                    "description": "Training-step numerical precision and memory layout ('float32' or 'bf16_channels_last'; defaults from the ParticleGAN preset when defaults='particlegan', else 'float32'). Master weights, optimizers, EMA, and inference stay FP32.",
+                    "choices": ["float32", "bf16_channels_last"],
+                    "default": "float32",
+                },
                 "lr": {
                     "type": "number",
                     "description": "Base generator/encoder Adam learning rate.",

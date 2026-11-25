@@ -188,7 +188,7 @@ def _phase_detaches(route, phase):
         raise ValueError(f"Unsupported adversarial phase {phase}") from None
 
 
-def score_candidate(term, candidate, context, graph, phase, *, module=None, noise=(0, None)):
+def score_candidate(term, candidate, context, graph, phase, *, module=None, noise=(0, None), bf16=None):
     """Score one sample using that phase's route detach records.
 
     ``module`` replaces the term's critic (the penalty passes its EMA critic).
@@ -201,6 +201,7 @@ def score_candidate(term, candidate, context, graph, phase, *, module=None, nois
     through a fresh component forward. Detached routes keep the generation cache.
     """
     from .training import with_noise
+    source_candidate = candidate
     candidate = with_noise(candidate, *noise)
     detached = detach(context)
     detached["candidate"] = candidate
@@ -218,8 +219,20 @@ def score_candidate(term, candidate, context, graph, phase, *, module=None, nois
             live["prior"] = dict(context["prior"])
             live["candidate"] = candidate
         kwargs[route.argument] = graph.resolve(route.path, live)
-    from .recipes import _call_component
-    return _call_component(term.module if module is None else module, kwargs)
+    active_module = term.module if module is None else module
+    return graph.call_critic(active_module, kwargs, source_candidate=source_candidate, bf16=bf16)
+
+
+def make_scored_critic(term, context, graph, *, noise=(0, None)):
+    """Wrap ``term.module`` in ``ScoredCritic`` with dynamic ``.bf16`` parity."""
+    from .training import ScoredCritic
+    use_bf16 = bool(graph._training_bf16_active and graph.uses_bf16(term.module))
+    critic = ScoredCritic(term.module, None, bf16=use_bf16)
+    critic.score = lambda module, value, _critic=critic: score_candidate(
+        term, value, context, graph, "critic",
+        module=module, noise=noise, bf16=_critic.bf16,
+    )
+    return critic
 
 
 def _sample_tensor(graph, context, binding):
@@ -280,6 +293,30 @@ def _sum_tensors(values):
     return total
 
 
+def _grad_l2_norm(grads, zero_scalar):
+    """Compute scalar L2 norm across parameter gradients (fused ``_foreach_norm`` on CUDA)."""
+    if not grads:
+        return zero_scalar
+    if len(grads) == 1:
+        return grads[0].norm(2).reshape(())
+    if zero_scalar.device.type == "cuda":
+        grouped = {}
+        fallback = []
+        for g in grads:
+            if g.is_floating_point() and g.layout == torch.strided and g.device.type == "cuda":
+                grouped.setdefault((g.device, g.dtype), []).append(g)
+            else:
+                fallback.append(g.norm(2).reshape(1))
+        parts = []
+        for group in grouped.values():
+            parts.extend(n.reshape(1) for n in torch._foreach_norm(group, 2.0))
+        parts.extend(fallback)
+        if len(parts) == 1:
+            return parts[0].reshape(())
+        return torch.cat(parts).square().sum().sqrt().reshape(())
+    return torch.sqrt(sum(g.norm(2) ** 2 for g in grads)).reshape(())
+
+
 def _graph_generator_uses_batch(graph):
     """Return True if resolving ``generator`` transitively reads ``batch.*``."""
     visited = set()
@@ -300,7 +337,47 @@ def _graph_generator_uses_batch(graph):
     return walk("generator")
 
 
-def _rhbi_generator_context(trainer, terms):
+def _uses_simplicial_manifold_loss(recipe, real, *, prior, is_discrete_prior, conditioned):
+    """Delegate simplicial-manifold-loss gating to ParticleGAN's public helper when available."""
+    import particlegan.training as pg_training
+
+    helper = getattr(pg_training, "uses_simplicial_manifold_loss", None)
+    if callable(helper):
+        return bool(
+            helper(
+                recipe,
+                real,
+                prior=prior,
+                is_discrete_prior=is_discrete_prior,
+                conditioned=conditioned,
+            )
+        )
+    # Graceful fallback for older ParticleGAN releases predating uses_simplicial_manifold_loss.
+    if conditioned or not is_discrete_prior:
+        return False
+    if float(getattr(recipe, "rhbi_simplex_weight", 0.0) or 0.0) <= 0.0:
+        return False
+    table = getattr(prior, "z", None)
+    if not isinstance(table, torch.Tensor) or not table.requires_grad or len(table) < 2:
+        return False
+    if isinstance(real, torch.Tensor) and real.ndim >= 2 and real.shape[0] > 0:
+        per_sample = int(real[0].numel())
+        explicit_cap = getattr(recipe, "simplicial_max_dim", None)
+        if explicit_cap is not None and per_sample > int(explicit_cap):
+            return False
+        formulation = getattr(recipe, "effective_critic_formulation", None)
+        if formulation == "unified_v11" and per_sample > 1024:
+            return False
+        if (
+            formulation in ("unified", "unified_v4", "r4_autograd_critic", "cond_fiber")
+            and real.ndim >= 4
+            and per_sample > 1024
+        ):
+            return False
+    return True
+
+
+def _rhbi_generator_context(trainer, terms, real=None):
     """Return ``(rhbi_module, is_discrete, use_simplex)`` for the current generator step."""
     from particlegan import ParticlePrior
 
@@ -310,13 +387,13 @@ def _rhbi_generator_context(trainer, terms):
     if rhbi is None or not hasattr(rhbi, "bind_discrete_prior_step"):
         return None, False, False
     is_discrete = type(trainer.prior) is ParticlePrior
-    use_simplex = bool(
-        is_discrete
-        and trainer.prior.z.requires_grad
-        and len(trainer.prior.z) >= 2
-        and len(terms[0].routes) == 1
-        and getattr(trainer.recipe, "rhbi_simplex_weight", 0.0) > 0.0
-        and not _graph_generator_uses_batch(trainer.graph)
+    conditioned = len(terms[0].routes) != 1 or _graph_generator_uses_batch(trainer.graph)
+    use_simplex = _uses_simplicial_manifold_loss(
+        trainer.recipe,
+        real,
+        prior=trainer.prior,
+        is_discrete_prior=is_discrete,
+        conditioned=conditioned,
     )
     return rhbi, is_discrete, use_simplex
 
@@ -356,7 +433,7 @@ def _generator_tail(trainer, program, context, ids, fake):
 
 def run_native_program(trainer, batch, latent_draw, generator_batch, generator_latent_draw):
     """Execute ``d-then-g-v1`` from the compiled program."""
-    from .training import ScoredCritic, noise_levels, schedule_learning_rates, update_ema
+    from .training import noise_levels, schedule_learning_rates, update_ema
     program = trainer.program
     if program.schedule != "d-then-g-v1":
         raise ValueError(f"Unsupported native schedule {program.schedule}")
@@ -373,8 +450,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
     from .particlegan_runtime import invoke_critic_penalty
 
     def penalty(term, real, fake):
-        critic = ScoredCritic(term.module, lambda module, value: score_candidate(
-            term, value, context, trainer.graph, "critic", module=module, noise=(input_std, stream)))
+        critic = make_scored_critic(term, context, trainer.graph, noise=(input_std, stream))
         return invoke_critic_penalty(term.penalty_fn, critic, real, fake)
     thermal_coordinator = getattr(trainer, "thermal_coordinator", None)
     if thermal_coordinator is not None:
@@ -446,7 +522,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         half_scalar = torch.full((), 0.5, dtype=torch.float32, device=trainer.device)
         try:
             c_grads = [p.grad.detach() for p in critic_checked if p.grad is not None]
-            critic_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in c_grads)).reshape(()) if c_grads else zero_scalar
+            critic_grad_norm_t = _grad_l2_norm(c_grads, zero_scalar)
         except Exception:
             critic_grad_norm_t = zero_scalar
         try:
@@ -460,13 +536,18 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             critic_fake_mean_t = zero_scalar
             critic_accuracy_t = half_scalar
         per_term_tensors = []
-        for _, w_t, p_t, tot_t, r_sc_t, f_sc_t in per_term_records:
+        for idx, (_, w_t, p_t, tot_t, r_sc_t, f_sc_t) in enumerate(per_term_records):
+            if idx == 0 and r_sc_t is d_real_score and f_sc_t is d_fake_score:
+                r_mean_t, f_mean_t = critic_real_mean_t, critic_fake_mean_t
+            else:
+                r_mean_t = r_sc_t.detach().double().mean().reshape(())
+                f_mean_t = f_sc_t.detach().double().mean().reshape(())
             per_term_tensors.extend((
                 w_t.detach().reshape(()),
                 p_t.detach().reshape(()),
                 tot_t.detach().reshape(()),
-                r_sc_t.detach().double().mean().reshape(()),
-                f_sc_t.detach().double().mean().reshape(()),
+                r_mean_t,
+                f_mean_t,
             ))
     explicit_guard = getattr(trainer.opt_d, 'd_guard_ratio', None)
     for optimizer in trainer.critic_optimizers.values():
@@ -475,7 +556,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         if explicit_guard is None and getattr(trainer.opt_d, 'guard', None) is not None:
             try:
                 post_c_grads = [p.grad.detach() for p in critic_checked if p.grad is not None]
-                post_critic_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in post_c_grads)).reshape(()) if post_c_grads else zero_scalar
+                post_critic_grad_norm_t = _grad_l2_norm(post_c_grads, zero_scalar)
             except Exception:
                 post_critic_grad_norm_t = zero_scalar
         else:
@@ -489,7 +570,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         flags = [parameter.requires_grad for parameter in term.module.parameters()]
         term.module.requires_grad_(False)
         saved_flags.append((term.module, flags))
-    rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(trainer, terms)
+    rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(trainer, terms, d_real_samples)
     import contextlib
     thermal_scope = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
     try:
@@ -544,12 +625,12 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             with torch.no_grad():
                 try:
                     g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
-                    gen_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in g_grads)).reshape(()) if g_grads else zero_scalar
+                    gen_grad_norm_t = _grad_l2_norm(g_grads, zero_scalar)
                 except Exception:
                     gen_grad_norm_t = zero_scalar
                 try:
                     p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
-                    prior_grad_norm_t = torch.sqrt(sum(g.norm(2) ** 2 for g in p_grads)).reshape(()) if p_grads else zero_scalar
+                    prior_grad_norm_t = _grad_l2_norm(p_grads, zero_scalar)
                 except Exception:
                     prior_grad_norm_t = zero_scalar
             trainer.opt_g.step()

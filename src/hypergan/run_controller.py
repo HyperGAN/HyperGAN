@@ -408,7 +408,8 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
                     'run_dir': str(run_dir), 'config': config_values(config), 'config_sha256': fingerprint(config),
                     'runtime': environment['runtime'], 'source': environment['source'], 'qualification': qualification,
                     'warnings': list(config['warnings']), 'steps': 0, 'total_steps': config['training']['steps'],
-                    'global_batch_size': config['training']['batch_size'], 'resume_supported': False,
+                    'global_batch_size': config['training']['batch_size'],
+                    'training_precision': config['training']['precision'], 'resume_supported': False,
                     'last_durable_step': None, 'checkpoint_path': None, 'next_sample_sequence': 1,
                     'preview_every': preview_every, 'preview_keep': preview_keep,
                     'preview_keep_source': preview_keep_source,
@@ -537,6 +538,7 @@ def run_resume(run_dir, checkpoint=None, config_path=None, *, checkpoint_every=N
             manifest['config_sha256'] = fingerprint(config)
             manifest['total_steps'] = config['training']['steps']
             manifest['global_batch_size'] = config['training']['batch_size']
+            manifest['training_precision'] = config['training']['precision']
             _preserve_initial_source(run_dir, manifest)
             manifest.update(preview_every=preview_every, preview_keep=preview_keep,
                             preview_keep_source=preview_keep_source, preview_name=preview_name,

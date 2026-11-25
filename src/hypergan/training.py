@@ -2,6 +2,7 @@
 
 Fixed-runtime recovery is supported; image quality and DDP require separate qualification.
 """
+import contextlib
 import copy
 import hashlib
 import importlib
@@ -16,10 +17,51 @@ import numpy as np
 
 import torch
 from particlegan import ParticlePrior, learning_rate_scales
+import particlegan.training as _pg_training
 from particlegan.training import input_noise_std, output_noise_std
 
+
+def _pg_uses_channels_last(module, training_precision="bf16_channels_last"):
+    helper = getattr(_pg_training, "uses_channels_last", None)
+    if callable(helper):
+        return bool(helper(module, training_precision))
+    if training_precision != "bf16_channels_last" or module is None:
+        return False
+    has_conv = any(isinstance(m, (torch.nn.Conv2d, torch.nn.ConvTranspose2d)) for m in module.modules())
+    if not has_conv:
+        return False
+    first_p = next(module.parameters(), None)
+    if first_p is None or first_p.device.type != "cuda":
+        return False
+    return bool(torch.cuda.is_available() and torch.cuda.is_bf16_supported(including_emulation=False))
+
+
+def _pg_uses_bf16_autocast(module, training_precision="bf16_channels_last"):
+    helper = getattr(_pg_training, "uses_bf16_autocast", None)
+    if callable(helper):
+        return bool(helper(module, training_precision))
+    return _pg_uses_channels_last(module, training_precision)
+
+
+def _pg_configure_bf16_autocast(recipe, module, enabled):
+    helper = getattr(_pg_training, "configure_bf16_autocast", None)
+    if callable(helper):
+        return bool(helper(recipe, module, enabled))
+    flag = bool(enabled)
+    if module is not None:
+        module._particlegan_bf16_autocast = flag
+    return flag
+
 from .particlegan_integration import particlegan_recipe, implementation_files
-from .recipes import ComponentGraph, construct, make_prior, execution_device, move_tensors
+from .recipes import (
+    ComponentGraph,
+    clear_channels_last_hooks,
+    construct,
+    execution_device,
+    install_channels_last_hooks,
+    make_prior,
+    move_tensors,
+)
 from .checkpoints import data_contract
 from .numerical_policy import apply_backend_policy, rocm_determinism_guard
 from .objective_program import compile_objective_program, run_native_program
@@ -237,12 +279,14 @@ class ScoredCritic(torch.nn.Module):
 
     The ParticleGAN critic penalty evaluates the EMA critic by swapping this
     child, so candidate routing, conditioning and input noise are the same for
-    the live critic and its EMA.
+    the live critic and its EMA. ``bf16`` mirrors ``particlegan.training.InputNoise.bf16``
+    so critic penalties know BF16 autocast is active and can toggle it cleanly.
     """
-    def __init__(self, critic, score):
+    def __init__(self, critic, score, *, bf16=False):
         super().__init__()
         self.critic = critic
         self.score = score
+        self.bf16 = bool(bf16)
 
     def forward(self, candidate):
         return self.score(self.critic, candidate)
@@ -304,6 +348,11 @@ class ReferenceTrainer:
             deterministic_orthogonal_(self.prior, seed=settings['seed'] + PRIOR_INIT_SEED_OFFSET)
         self.data = construct(config["data"])
         self.recipe = particlegan_recipe(config)
+        # Apply training-precision memory format (channels_last) and BF16 flags
+        # before creating EMA copies and optimizers so master weights remain FP32,
+        # ema_graph matches layout for fused _foreach_lerp_, and optimizer state
+        # inherits the active memory format.
+        self._configure_training_precision()
         # Recipe-owned freezing/reference moments happen before optimizers and
         # EMA copies; persistent reference buffers then travel with prior state.
         if config.get('recipe'):
@@ -384,6 +433,14 @@ class ReferenceTrainer:
         self.base_lrs = [[g["lr"] for g in optimizer.param_groups] for optimizer in self.optimizers]
         self.ema_graph = copy.deepcopy(self.graph).eval().requires_grad_(False)
         self.ema_graph._probe_hook = None
+        self.ema_graph._bf16_components = frozenset()
+        self.ema_graph._channels_last_components = frozenset()
+        self.ema_graph._training_bf16_active = False
+        for model in self.ema_graph.models.values():
+            model._hypergan_bf16_autocast = False
+            model._hypergan_channels_last = False
+            clear_channels_last_hooks(model)
+            _pg_configure_bf16_autocast(self.recipe, model, False)
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
         data_device = self.device if settings['data_rng_device'] == 'execution' else 'cpu'
         self.streams = {"data": torch.Generator(device=data_device).manual_seed(settings["seed"] + settings['data_seed_offset']), "prior": torch.Generator(device=self.device).manual_seed(settings["seed"] + settings['prior_seed_offset']), "penalty": torch.Generator(device=self.device).manual_seed(settings["seed"] + 3),
@@ -391,6 +448,47 @@ class ReferenceTrainer:
         self.step = 0
         self._metric_transfer = _MetricScalarTransfer(self.device)
         self._unscale_scalars = {}
+
+    def _configure_training_precision(self):
+        precision = getattr(
+            self.recipe,
+            'training_precision',
+            self.config['training'].get('precision', 'float32'),
+        )
+        bf16_names = set()
+        nhwc_names = set()
+        for name, module in self.graph.models.items():
+            use_nhwc = bool(self.device.type == 'cuda' and _pg_uses_channels_last(module, precision))
+            use_bf16 = bool(self.device.type == 'cuda' and _pg_uses_bf16_autocast(module, precision))
+            if use_nhwc:
+                module.to(memory_format=torch.channels_last)
+                nhwc_names.add(name)
+            if use_bf16:
+                bf16_names.add(name)
+            module._hypergan_bf16_autocast = use_bf16
+            module._hypergan_channels_last = use_nhwc
+            if use_nhwc:
+                install_channels_last_hooks(module)
+            _pg_configure_bf16_autocast(self.recipe, module, use_bf16)
+        self.graph._bf16_components = frozenset(bf16_names)
+        self.graph._channels_last_components = frozenset(nhwc_names)
+        self.graph._training_bf16_active = False
+        self._in_training_step = False
+        critic_names = {'discriminator', *(term['component'] for term in self.config.get('adversarial_terms', ()))}
+        self._bf16_generator = any(name in bf16_names for name in self.graph.models if name not in critic_names)
+        self._bf16_critics = frozenset(name for name in critic_names if name in bf16_names)
+
+    @contextlib.contextmanager
+    def _training_step_precision(self):
+        prev_step = self._in_training_step
+        prev_graph = self.graph._training_bf16_active
+        self._in_training_step = True
+        self.graph._training_bf16_active = bool(self.graph._bf16_components)
+        try:
+            yield
+        finally:
+            self._in_training_step = prev_step
+            self.graph._training_bf16_active = prev_graph
 
     @property
     def optimizers(self):
@@ -463,6 +561,9 @@ class ReferenceTrainer:
             isinstance(m, (torch.nn.modules.batchnorm._BatchNorm, torch.nn.modules.dropout._DropoutNd))
             for m in probe_module.modules()
         )
+        probe_bf16 = any(name in self.graph._bf16_components for name in probe_module._components)
+        probe_module._hypergan_bf16_autocast = probe_bf16
+        _pg_configure_bf16_autocast(self.recipe, probe_module, probe_bf16)
         self._generator_probe = probe_module
         self._generator_probe_params = probe_params
 
@@ -540,12 +641,12 @@ class ReferenceTrainer:
                                            generator_latent_draw=generator_latent_draw)
 
     def _serial_update(self, batch=None, latent_draw=None, *, generator_batch=None, generator_latent_draw=None):
-        if self.device.type == 'cuda':
-            with torch.cuda.device(self.device):
-                result = self._update(batch, latent_draw, generator_batch=generator_batch, generator_latent_draw=generator_latent_draw)
-                torch.cuda.synchronize(self.device)
-                return result
-        return self._update(batch, latent_draw, generator_batch=generator_batch, generator_latent_draw=generator_latent_draw)
+        with self._training_step_precision():
+            if self.device.type == 'cuda':
+                with torch.cuda.device(self.device):
+                    # _MetricScalarTransfer already synchronizes the active CUDA stream at step end.
+                    return self._update(batch, latent_draw, generator_batch=generator_batch, generator_latent_draw=generator_latent_draw)
+            return self._update(batch, latent_draw, generator_batch=generator_batch, generator_latent_draw=generator_latent_draw)
 
     def _valid_generated_shape(self, fake, real):
         if not isinstance(fake, torch.Tensor):

@@ -143,10 +143,10 @@ class IntrospectTests(unittest.TestCase):
         self.assertIn("run", top_by_name["ps"]["summary"].lower())
         self.assertIn("hndl", top_by_name["ops"]["summary"].lower())
 
-    def test_schema_introspects_18_sections_and_111_fields(self):
+    def test_schema_introspects_18_sections_and_112_fields(self):
         schema = self.data["schema"]
         self.assertEqual(schema["total_sections"], 18)
-        self.assertEqual(schema["total_fields"], 111)
+        self.assertEqual(schema["total_fields"], 112)
         self.assertEqual(len(schema["top_level"]), 5)
         self.assertEqual(len(schema["sections"]), 13)
 

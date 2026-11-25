@@ -594,8 +594,8 @@ class ImageFolder:
             self._prefetch(batch_size, local if local_only else None)
             channels = 3 if self.mode == "RGB" else 1
             tensor = torch.frombuffer(bytearray(b"".join(pixels for _, pixels in accepted)), dtype=torch.uint8)
-            tensor = tensor.reshape(len(accepted), self.height, self.width, channels).permute(0, 3, 1, 2)
-            batch = {"real": tensor.to(torch.float32).div_(127.5).sub_(1).contiguous()}
+            tensor = tensor.reshape(len(accepted), self.height, self.width, channels).permute(0, 3, 1, 2).contiguous()
+            batch = {"real": tensor.to(torch.float32).div_(127.5).sub_(1)}
             if self.labels:
                 batch["labels"] = torch.tensor([self.class_map[self.entries[index]["class"]]
                                                 for index, _ in accepted], dtype=torch.int64)
@@ -624,8 +624,8 @@ class ImageFolder:
         pixels = self._pixels(self.entries[index])
         channels = 3 if self.mode == "RGB" else 1
         tensor = torch.frombuffer(bytearray(pixels), dtype=torch.uint8)
-        tensor = tensor.reshape(self.height, self.width, channels).permute(2, 0, 1)
-        real = tensor.to(torch.float32).div_(127.5).sub_(1).contiguous()
+        tensor = tensor.reshape(self.height, self.width, channels).permute(2, 0, 1).contiguous()
+        real = tensor.to(torch.float32).div_(127.5).sub_(1)
         item = {"real": real}
         if self.labels:
             item["labels"] = torch.tensor(self.class_map[self.entries[index]["class"]], dtype=torch.int64)

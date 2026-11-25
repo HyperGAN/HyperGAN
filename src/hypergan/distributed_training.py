@@ -26,6 +26,7 @@ from .objective_program import (
     _rhbi_generator_context,
     _rhbi_simplex_loss,
     _sum_tensors,
+    make_scored_critic,
     score_candidate,
 )
 
@@ -1001,7 +1002,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             raise ValueError('Configured total update schedule is complete')
         self.checkpoint_ready = False
         try:
-            return self._update(batch, latent_draw)
+            with self._training_step_precision():
+                return self._update(batch, latent_draw)
         except BaseException:
             self._poisoned = True
             raise
@@ -1084,8 +1086,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             thermal_coordinator.synchronize()
 
         def penalty_fn(term, real_sample, fake_sample):
-            critic_fn = ScoredCritic(term.module, lambda module, value: score_candidate(
-                term, value, context, self.graph, "critic", module=module, noise=(input_std, noise_stream)))
+            critic_fn = make_scored_critic(term, context, self.graph, noise=(input_std, noise_stream))
             return invoke_critic_penalty(term.penalty_fn, critic_fn, real_sample, fake_sample)
 
         def discriminator_forward():
@@ -1225,7 +1226,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             flags = [p.requires_grad for p in term.module.parameters()]
             term.module.requires_grad_(False)
             saved_flags.append((term.module, flags))
-        rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(self, terms)
+        rhbi_real = self._term_real_sample(terms[0].critic_phase, context) if len(terms) == 1 else real
+        rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(self, terms, rhbi_real)
         thermal_scope = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
         try:
             with thermal_scope:
@@ -1399,11 +1401,22 @@ class ReplicatedTrainer(ReferenceTrainer):
 
     def _scored_critic(self, context, input_noise=(0, None)):
         std, stream = input_noise
+        disc = self.graph.models['discriminator']
+        use_bf16 = bool(self.graph._training_bf16_active and self.graph.uses_bf16(disc))
+        critic = ScoredCritic(disc, None, bf16=use_bf16)
         def score(module, value):
+            source = value
             if std and stream is not None:
                 value = with_noise(value, std, stream)
-            return self.graph.critic(value, context, module=module)
-        return ScoredCritic(self.graph.models['discriminator'], score)
+            fixed = detach(context)
+            fixed['candidate'] = value
+            kwargs = {}
+            for arg, path in self.graph.specs['discriminator']['inputs'].items():
+                resolved = self.graph.resolve(path, fixed)
+                kwargs[arg] = resolved if path == 'candidate' else detach(resolved)
+            return self.graph.call_critic(module, kwargs, source_candidate=source, bf16=critic.bf16)
+        critic.score = score
+        return critic
 
     def _check_accumulation(self):
         # Arbitrary Python forwards cannot be proved sample independent. Keep
@@ -1540,8 +1553,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             thermal_coordinator.synchronize()
 
         def penalty_fn_acc(term, real_sample, fake_sample, micro_context):
-            critic_fn = ScoredCritic(term.module, lambda module, value: score_candidate(
-                term, value, micro_context, self.graph, "critic", module=module, noise=(0, None)))
+            critic_fn = make_scored_critic(term, micro_context, self.graph, noise=(0, None))
             return invoke_critic_penalty(term.penalty_fn, critic_fn, real_sample, fake_sample)
 
         def discriminator_micro(index, start, *, capture_moments=False):

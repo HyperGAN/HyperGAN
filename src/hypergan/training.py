@@ -17,13 +17,40 @@ import numpy as np
 
 import torch
 from particlegan import ParticlePrior, learning_rate_scales
-from particlegan.training import (
-    configure_bf16_autocast,
-    input_noise_std,
-    output_noise_std,
-    uses_bf16_autocast,
-    uses_channels_last,
-)
+import particlegan.training as _pg_training
+from particlegan.training import input_noise_std, output_noise_std
+
+
+def _pg_uses_channels_last(module, training_precision="bf16_channels_last"):
+    helper = getattr(_pg_training, "uses_channels_last", None)
+    if callable(helper):
+        return bool(helper(module, training_precision))
+    if training_precision != "bf16_channels_last" or module is None:
+        return False
+    has_conv = any(isinstance(m, (torch.nn.Conv2d, torch.nn.ConvTranspose2d)) for m in module.modules())
+    if not has_conv:
+        return False
+    first_p = next(module.parameters(), None)
+    if first_p is None or first_p.device.type != "cuda":
+        return False
+    return bool(torch.cuda.is_available() and torch.cuda.is_bf16_supported(including_emulation=False))
+
+
+def _pg_uses_bf16_autocast(module, training_precision="bf16_channels_last"):
+    helper = getattr(_pg_training, "uses_bf16_autocast", None)
+    if callable(helper):
+        return bool(helper(module, training_precision))
+    return _pg_uses_channels_last(module, training_precision)
+
+
+def _pg_configure_bf16_autocast(recipe, module, enabled):
+    helper = getattr(_pg_training, "configure_bf16_autocast", None)
+    if callable(helper):
+        return bool(helper(recipe, module, enabled))
+    flag = bool(enabled)
+    if module is not None:
+        module._particlegan_bf16_autocast = flag
+    return flag
 
 from .particlegan_integration import particlegan_recipe, implementation_files
 from .recipes import (
@@ -413,7 +440,7 @@ class ReferenceTrainer:
             model._hypergan_bf16_autocast = False
             model._hypergan_channels_last = False
             clear_channels_last_hooks(model)
-            configure_bf16_autocast(self.recipe, model, False)
+            _pg_configure_bf16_autocast(self.recipe, model, False)
         self.ema_prior = copy.deepcopy(self.prior).eval().requires_grad_(False)
         data_device = self.device if settings['data_rng_device'] == 'execution' else 'cpu'
         self.streams = {"data": torch.Generator(device=data_device).manual_seed(settings["seed"] + settings['data_seed_offset']), "prior": torch.Generator(device=self.device).manual_seed(settings["seed"] + settings['prior_seed_offset']), "penalty": torch.Generator(device=self.device).manual_seed(settings["seed"] + 3),
@@ -431,8 +458,8 @@ class ReferenceTrainer:
         bf16_names = set()
         nhwc_names = set()
         for name, module in self.graph.models.items():
-            use_nhwc = bool(self.device.type == 'cuda' and uses_channels_last(module, precision))
-            use_bf16 = bool(self.device.type == 'cuda' and uses_bf16_autocast(module, precision))
+            use_nhwc = bool(self.device.type == 'cuda' and _pg_uses_channels_last(module, precision))
+            use_bf16 = bool(self.device.type == 'cuda' and _pg_uses_bf16_autocast(module, precision))
             if use_nhwc:
                 module.to(memory_format=torch.channels_last)
                 nhwc_names.add(name)
@@ -442,7 +469,7 @@ class ReferenceTrainer:
             module._hypergan_channels_last = use_nhwc
             if use_nhwc:
                 install_channels_last_hooks(module)
-            configure_bf16_autocast(self.recipe, module, use_bf16)
+            _pg_configure_bf16_autocast(self.recipe, module, use_bf16)
         self.graph._bf16_components = frozenset(bf16_names)
         self.graph._channels_last_components = frozenset(nhwc_names)
         self.graph._training_bf16_active = False
@@ -535,7 +562,8 @@ class ReferenceTrainer:
             for m in probe_module.modules()
         )
         probe_bf16 = any(name in self.graph._bf16_components for name in probe_module._components)
-        configure_bf16_autocast(self.recipe, probe_module, probe_bf16)
+        probe_module._hypergan_bf16_autocast = probe_bf16
+        _pg_configure_bf16_autocast(self.recipe, probe_module, probe_bf16)
         self._generator_probe = probe_module
         self._generator_probe_params = probe_params
 

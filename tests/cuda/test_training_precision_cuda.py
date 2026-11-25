@@ -175,12 +175,17 @@ def test_bf16_channels_last_layout_flags_ema_and_live_endpoint_reuse():
     assert trainer._in_training_step is False
     assert trainer.graph._training_bf16_active is False
 
-    # Formulation probe flags set on live G, D, and _generator_probe; cleared on ema_graph
+    # Canonical and formulation probe flags set on live G, D, and _generator_probe; cleared on ema_graph
+    assert getattr(trainer.graph.models["generator"], "_particlegan_bf16_autocast", False) is True
+    assert getattr(trainer.graph.models["discriminator"], "_particlegan_bf16_autocast", False) is True
+    assert getattr(trainer._generator_probe, "_particlegan_bf16_autocast", False) is True
     assert getattr(trainer.graph.models["generator"], "_unified_v4_bf16_autocast", False) is True
     assert getattr(trainer.graph.models["discriminator"], "_unified_v4_bf16_autocast", False) is True
     assert getattr(trainer._generator_probe, "_unified_v4_bf16_autocast", False) is True
     assert trainer.ema_graph._bf16_components == frozenset()
     assert trainer.ema_graph._channels_last_components == frozenset()
+    assert getattr(trainer.ema_graph.models["generator"], "_particlegan_bf16_autocast", False) is False
+    assert getattr(trainer.ema_graph.models["discriminator"], "_particlegan_bf16_autocast", False) is False
     assert getattr(trainer.ema_graph.models["generator"], "_unified_v4_bf16_autocast", False) is False
     assert getattr(trainer.ema_graph.models["discriminator"], "_unified_v4_bf16_autocast", False) is False
 
@@ -426,3 +431,48 @@ def test_highres_32x32_bf16_skips_simplicial_loss_and_keeps_live_endpoint_reuse(
     assert upsample_cl and all(upsample_cl), f"expected all Upsample inputs NHWC, got {upsample_cl}"
     assert gn_cl and all(gn_cl), f"expected all GroupNorm outputs NHWC, got {gn_cl}"
     assert all(math.isfinite(row[k]) for k in ("d_loss", "g_loss", "gradient_penalty"))
+
+
+def test_non_particlegan_defaults_hypergan_trains_cleanly_in_bf16_channels_last():
+    # Explicit defaults="hypergan" (non-ParticleGAN recipe snapshot) with bf16_channels_last
+    raw = {
+        "format": "hypergan-model/1",
+        "name": "test/cuda-non-particlegan-bf16",
+        "defaults": "hypergan",
+        "data": {"factory": f"{__name__}:_SyntheticImages", "args": {"channels": 3, "size": 16}},
+        "prior": {"kind": "gaussian", "z_dim": 16},
+        "networks": {
+            "generator": {
+                "role": "generator",
+                "inputs": {"x": "latent"},
+                "input_shape": ["B", 16],
+                "output_shape": ["B", 3, 16, 16],
+                "source": (
+                    "linear(1024)\nreshape(64, 4, 4)\ngroup_norm(8)\nsilu()\n"
+                    "upsample(2)\nconv(64, kernel_size=3, padding=1)\ngroup_norm(8)\nsilu()\n"
+                    "upsample(2)\nconv(3, kernel_size=3, padding=1)\ntanh()"
+                ),
+            },
+            "discriminator": {
+                "role": "critic",
+                "inputs": {"x": "candidate"},
+                "input_shape": ["B", 3, 16, 16],
+                "output_shape": ["B", 1],
+                "source": (
+                    "conv(64, kernel_size=3, stride=2, padding=1)\nsilu()\n"
+                    "conv(64, kernel_size=3, stride=2, padding=1)\nsilu()\n"
+                    "flatten()\nlinear(1)"
+                ),
+            },
+        },
+        "losses": [{"type": "adversarial", "critic": "discriminator", "weight": 1.0, "penalty": 1.0}],
+        "train": {"steps": 2, "batch_size": 8, "seed": 23, "device": "cuda:0", "precision": "bf16_channels_last"},
+    }
+    cfg = load_config(raw)
+    assert cfg["recipe"] == {}
+    trainer = ReferenceTrainer(cfg)
+    assert trainer.graph._bf16_components == frozenset({"generator", "discriminator"})
+    assert trainer.graph._channels_last_components == frozenset({"generator", "discriminator"})
+    for _ in range(2):
+        row, _ = trainer.update()
+        assert all(math.isfinite(row[k]) for k in ("d_loss", "g_loss", "gradient_penalty"))

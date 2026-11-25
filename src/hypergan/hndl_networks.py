@@ -1,4 +1,5 @@
 """HNDL construction and binding adapters; architectures live in configuration."""
+import inspect
 import torch
 from torch import nn
 
@@ -40,7 +41,7 @@ class _AutocastAwareCheck:
     def __init__(self, module):
         self._module = module
 
-    def __call__(self, value, expected, dtype, port, batch):
+    def __call__(self, value, expected, dtype, port, batch, *args, **kwargs):
         if (
             dtype is not None
             and isinstance(value, torch.Tensor)
@@ -54,12 +55,27 @@ class _AutocastAwareCheck:
                 and value.dtype == torch.get_autocast_dtype(device_type)
             ):
                 dtype = value.dtype
-        return type(self._module)._check(self._module, value, expected, dtype, port, batch)
+        return type(self._module)._check(self._module, value, expected, dtype, port, batch, *args, **kwargs)
 
 
 def _install_autocast_check(module):
-    if hasattr(module, '_check'):
-        module._check = _AutocastAwareCheck(module)
+    orig = getattr(type(module), '_check', None)
+    if not callable(orig):
+        return module
+    try:
+        params = list(inspect.signature(orig).parameters.values())
+    except (TypeError, ValueError):
+        return module
+    # Only wrap when HNDL exposes the expected (self, value, expected, dtype, port, batch, ...)
+    # contract; future HNDL versions with native autocast validation or refactored internals
+    # degrade gracefully without error.
+    positional = [
+        p.name for p in params
+        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    if positional[:6] != ['self', 'value', 'expected', 'dtype', 'port', 'batch']:
+        return module
+    module._check = _AutocastAwareCheck(module)
     return module
 
 

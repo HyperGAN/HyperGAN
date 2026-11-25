@@ -1,4 +1,5 @@
 """Small torch component registry and explicit forward bindings."""
+import contextlib
 import importlib
 import random
 import sys
@@ -234,23 +235,51 @@ def _to_channels_last(value):
     return value
 
 
-_PG_FLOAT_OUTPUT = None
-_PG_CRITIC_SOURCE_CONTEXT = None
+_UNSET = object()
+_PG_FLOAT_OUTPUT = _UNSET
+_PG_CRITIC_SOURCE_CONTEXT = _UNSET
+
+
+def _fallback_float_output(value):
+    if isinstance(value, torch.Tensor):
+        return value.float() if value.dtype == torch.bfloat16 else value
+    if isinstance(value, tuple):
+        converted = tuple(_fallback_float_output(item) for item in value)
+        return value if all(new is old for new, old in zip(converted, value)) else converted
+    if isinstance(value, list):
+        converted = [_fallback_float_output(item) for item in value]
+        return value if all(new is old for new, old in zip(converted, value)) else converted
+    if isinstance(value, dict):
+        converted = {k: _fallback_float_output(v) for k, v in value.items()}
+        return value if all(converted[k] is value[k] for k in value) else converted
+    return value
+
+
+def _noop_critic_source_context(_critic, _source):
+    return contextlib.nullcontext()
 
 
 def _get_pg_float_output():
     global _PG_FLOAT_OUTPUT
-    if _PG_FLOAT_OUTPUT is None:
-        from particlegan.training import float_output
-        _PG_FLOAT_OUTPUT = float_output
+    if _PG_FLOAT_OUTPUT is _UNSET:
+        try:
+            import particlegan.training as pg_training
+            helper = getattr(pg_training, 'float_output', None) or getattr(pg_training, '_float_output', None)
+        except ImportError:
+            helper = None
+        _PG_FLOAT_OUTPUT = helper if callable(helper) else _fallback_float_output
     return _PG_FLOAT_OUTPUT
 
 
 def _get_pg_critic_source_context():
     global _PG_CRITIC_SOURCE_CONTEXT
-    if _PG_CRITIC_SOURCE_CONTEXT is None:
-        from particlegan.training import critic_source_context
-        _PG_CRITIC_SOURCE_CONTEXT = critic_source_context
+    if _PG_CRITIC_SOURCE_CONTEXT is _UNSET:
+        try:
+            import particlegan.training as pg_training
+            helper = getattr(pg_training, 'critic_source_context', None)
+        except ImportError:
+            helper = None
+        _PG_CRITIC_SOURCE_CONTEXT = helper if callable(helper) else _noop_critic_source_context
     return _PG_CRITIC_SOURCE_CONTEXT
 
 
@@ -442,7 +471,11 @@ def _eval_probe_with_preserved_state(module, args, kwargs, record):
             use_bf16 = (
                 first_p is not None
                 and first_p.device.type == 'cuda'
-                and bool(getattr(module, '_unified_v4_bf16_autocast', False))
+                and bool(
+                    getattr(module, '_particlegan_bf16_autocast', False)
+                    or getattr(module, '_hypergan_bf16_autocast', False)
+                    or getattr(module, '_unified_v4_bf16_autocast', False)
+                )
             )
             if use_bf16:
                 with torch.autocast('cuda', dtype=torch.bfloat16):
@@ -532,7 +565,7 @@ class ComponentGraph(nn.Module):
             if channels_last is not None
             else bool(use_bf16 and self.uses_channels_last(active_module))
         )
-        if source_candidate is not None and hasattr(active_module, '_t2_record'):
+        if source_candidate is not None:
             critic_source_context = _get_pg_critic_source_context()
             with critic_source_context(active_module, source_candidate):
                 return _call_component_with_precision(

@@ -337,23 +337,41 @@ def _graph_generator_uses_batch(graph):
     return walk("generator")
 
 
-def _highres_unified_skip(recipe, real):
-    """Match ``particlegan.training.GANTrainer`` high-dimensional unified skip.
+def _uses_simplicial_manifold_loss(recipe, real, *, prior, is_discrete_prior, conditioned):
+    """Delegate simplicial-manifold-loss gating to ParticleGAN's public helper when available."""
+    import particlegan.training as pg_training
 
-    Unified-v11+ bypasses ``t1c`` and simplicial manifold regularization when
-    per-sample dimensionality exceeds 1024 (e.g. CIFAR-10 3x32x32=3072,
-    FFHQ-64 3x64x64=12288); earlier unified formulations apply the skip for
-    4D+ tensors with per-sample ``numel() > 1024``.
-    """
-    if not isinstance(real, torch.Tensor) or real.ndim < 2 or real.shape[0] == 0:
+    helper = getattr(pg_training, "uses_simplicial_manifold_loss", None)
+    if callable(helper):
+        return bool(
+            helper(
+                recipe,
+                real,
+                prior=prior,
+                is_discrete_prior=is_discrete_prior,
+                conditioned=conditioned,
+            )
+        )
+    # Graceful fallback for older ParticleGAN releases predating uses_simplicial_manifold_loss.
+    if conditioned or not is_discrete_prior:
         return False
-    formulation = getattr(recipe, "effective_critic_formulation", None)
-    per_sample = real[0].numel()
-    if formulation == "unified_v11":
-        return per_sample > 1024
-    if formulation in ("unified", "unified_v4", "r4_autograd_critic", "cond_fiber"):
-        return real.ndim >= 4 and per_sample > 1024
-    return False
+    if float(getattr(recipe, "rhbi_simplex_weight", 0.0) or 0.0) <= 0.0:
+        return False
+    table = getattr(prior, "z", None)
+    if not isinstance(table, torch.Tensor) or not table.requires_grad or len(table) < 2:
+        return False
+    if isinstance(real, torch.Tensor) and real.ndim >= 2 and real.shape[0] > 0:
+        per_sample = int(real[0].numel())
+        formulation = getattr(recipe, "effective_critic_formulation", None)
+        if formulation == "unified_v11" and per_sample > 1024:
+            return False
+        if (
+            formulation in ("unified", "unified_v4", "r4_autograd_critic", "cond_fiber")
+            and real.ndim >= 4
+            and per_sample > 1024
+        ):
+            return False
+    return True
 
 
 def _rhbi_generator_context(trainer, terms, real=None):
@@ -366,15 +384,13 @@ def _rhbi_generator_context(trainer, terms, real=None):
     if rhbi is None or not hasattr(rhbi, "bind_discrete_prior_step"):
         return None, False, False
     is_discrete = type(trainer.prior) is ParticlePrior
-    highres_skip = _highres_unified_skip(trainer.recipe, real)
-    use_simplex = bool(
-        not highres_skip
-        and is_discrete
-        and trainer.prior.z.requires_grad
-        and len(trainer.prior.z) >= 2
-        and len(terms[0].routes) == 1
-        and getattr(trainer.recipe, "rhbi_simplex_weight", 0.0) > 0.0
-        and not _graph_generator_uses_batch(trainer.graph)
+    conditioned = len(terms[0].routes) != 1 or _graph_generator_uses_batch(trainer.graph)
+    use_simplex = _uses_simplicial_manifold_loss(
+        trainer.recipe,
+        real,
+        prior=trainer.prior,
+        is_discrete_prior=is_discrete,
+        conditioned=conditioned,
     )
     return rhbi, is_discrete, use_simplex
 

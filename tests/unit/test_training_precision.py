@@ -250,25 +250,28 @@ class _SyntheticImagesCPU:
         }
 
 
-def test_highres_unified_skip_matches_gantrainer_boundaries():
+def test_uses_simplicial_manifold_loss_delegates_to_particlegan_and_handles_fallback(monkeypatch):
     from types import SimpleNamespace
-    from hypergan.objective_program import _highres_unified_skip
+    import particlegan.training as pg_training
+    from hypergan.objective_program import _uses_simplicial_manifold_loss
 
-    v11 = SimpleNamespace(effective_critic_formulation="unified_v11")
-    assert _highres_unified_skip(v11, torch.zeros(4, 1024)) is False
-    assert _highres_unified_skip(v11, torch.zeros(4, 1025)) is True
-    assert _highres_unified_skip(v11, torch.zeros(4, 3, 16, 16)) is False
-    assert _highres_unified_skip(v11, torch.zeros(4, 3, 32, 32)) is True
+    prior = SimpleNamespace(z=torch.nn.Parameter(torch.zeros(8, 4)))
+    v11 = SimpleNamespace(effective_critic_formulation="unified_v11", rhbi_simplex_weight=1.0)
+    assert _uses_simplicial_manifold_loss(v11, torch.zeros(4, 1024), prior=prior, is_discrete_prior=True, conditioned=False) is True
+    assert _uses_simplicial_manifold_loss(v11, torch.zeros(4, 1025), prior=prior, is_discrete_prior=True, conditioned=False) is False
+    assert _uses_simplicial_manifold_loss(v11, torch.zeros(4, 3, 16, 16), prior=prior, is_discrete_prior=True, conditioned=False) is True
+    assert _uses_simplicial_manifold_loss(v11, torch.zeros(4, 3, 32, 32), prior=prior, is_discrete_prior=True, conditioned=False) is False
+    assert _uses_simplicial_manifold_loss(v11, torch.zeros(4, 16), prior=prior, is_discrete_prior=True, conditioned=True) is False
 
-    for formulation in ("unified", "unified_v4", "r4_autograd_critic", "cond_fiber"):
-        rec = SimpleNamespace(effective_critic_formulation=formulation)
-        assert _highres_unified_skip(rec, torch.zeros(4, 2048)) is False
-        assert _highres_unified_skip(rec, torch.zeros(4, 3, 16, 16)) is False
-        assert _highres_unified_skip(rec, torch.zeros(4, 3, 32, 32)) is True
+    # Future/custom recipe cap via recipe.simplicial_max_dim delegates directly to ParticleGAN
+    future = SimpleNamespace(effective_critic_formulation="future_v99", rhbi_simplex_weight=1.0, simplicial_max_dim=64)
+    assert _uses_simplicial_manifold_loss(future, torch.zeros(4, 64), prior=prior, is_discrete_prior=True, conditioned=False) is True
+    assert _uses_simplicial_manifold_loss(future, torch.zeros(4, 65), prior=prior, is_discrete_prior=True, conditioned=False) is False
 
-    other = SimpleNamespace(effective_critic_formulation="r3gan")
-    assert _highres_unified_skip(other, torch.zeros(4, 3, 32, 32)) is False
-    assert _highres_unified_skip(v11, None) is False
+    # Graceful fallback when running on older ParticleGAN lacking uses_simplicial_manifold_loss
+    monkeypatch.setattr(pg_training, "uses_simplicial_manifold_loss", None, raising=False)
+    assert _uses_simplicial_manifold_loss(v11, torch.zeros(4, 3, 16, 16), prior=prior, is_discrete_prior=True, conditioned=False) is True
+    assert _uses_simplicial_manifold_loss(v11, torch.zeros(4, 3, 32, 32), prior=prior, is_discrete_prior=True, conditioned=False) is False
 
 
 def test_highres_unified_skip_skips_simplicial_loss_and_preserves_g_probe_cache():
@@ -345,3 +348,68 @@ def test_highres_unified_skip_skips_simplicial_loss_and_preserves_g_probe_cache(
     t1c_lo.simplicial_manifold_loss = lambda *a, **kw: (lo_calls.append(1), orig_lo(*a, **kw))[1]
     trainer_lo.update()
     assert len(lo_calls) == 1
+
+
+def test_hndl_autocast_check_degrades_gracefully_for_future_hndl_versions():
+    from hypergan.hndl_networks import _AutocastAwareCheck, _install_autocast_check
+
+    class _NoCheck(torch.nn.Module):
+        pass
+
+    class _ChangedSig(torch.nn.Module):
+        def _check(self, tensor):
+            return tensor
+
+    class _CompatibleExtendedSig(torch.nn.Module):
+        def _check(self, value, expected, dtype, port, batch, strict=True):
+            return (value.dtype, dtype, strict)
+
+    m_none = _install_autocast_check(_NoCheck())
+    assert not hasattr(m_none, "_check")
+
+    m_changed = _install_autocast_check(_ChangedSig())
+    assert not isinstance(m_changed._check, _AutocastAwareCheck)
+
+    m_ext = _install_autocast_check(_CompatibleExtendedSig())
+    assert isinstance(m_ext._check, _AutocastAwareCheck)
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        val_dt, checked_dt, strict = m_ext._check(
+            torch.zeros(2, dtype=torch.bfloat16), None, torch.float32, "x", 2, strict=False
+        )
+    assert (val_dt, checked_dt, strict) == (torch.bfloat16, torch.bfloat16, False)
+
+
+def test_precision_plumbing_is_general_across_non_particlegan_and_named_presets(monkeypatch):
+    # Non-ParticleGAN config (defaults='hypergan', no recipe snapshot) supports explicit bf16_channels_last
+    cfg_hg = load_config(_minimal_model_file(defaults="hypergan", precision="bf16_channels_last", device="cpu"))
+    assert cfg_hg["training"]["precision"] == "bf16_channels_last"
+    assert cfg_hg["recipe"] == {}
+    trainer_hg = ReferenceTrainer(cfg_hg)
+    assert trainer_hg.recipe.training_precision == "bf16_channels_last"
+    row, _ = trainer_hg.update()
+    assert all(torch.isfinite(torch.tensor(row[k])) for k in ("d_loss", "g_loss"))
+
+    # Named ParticleGAN presets dynamically inherit training_precision and allow float32 override
+    for preset in ("unified_v11", "bispf_optimized"):
+        cfg_default = load_config(_minimal_model_file(defaults=f"particlegan:{preset}", device="cpu"))
+        assert cfg_default["training"]["precision"] == "bf16_channels_last"
+        cfg_override = load_config(
+            _minimal_model_file(defaults=f"particlegan:{preset}", precision="float32", device="cpu")
+        )
+        assert cfg_override["training"]["precision"] == "float32"
+
+    # Older ParticleGAN Recipe lacking training_precision field stays compatible for default float32
+    import hypergan.particlegan_integration as pgi
+
+    captured = {}
+    orig_restore = pgi.restore_particlegan_recipe
+
+    def _fake_restore(fields):
+        captured["fields"] = dict(fields)
+        return orig_restore({k: v for k, v in fields.items() if k != "training_precision"})
+
+    monkeypatch.setattr(pgi, "_recipe_supports_field", lambda name: False)
+    monkeypatch.setattr(pgi, "restore_particlegan_recipe", _fake_restore)
+    cfg_fp32 = load_config(_minimal_model_file(defaults="hypergan", precision="float32", device="cpu"))
+    pgi.particlegan_recipe(cfg_fp32)
+    assert "training_precision" not in captured["fields"]

@@ -107,6 +107,14 @@ def restore_particlegan_recipe(fields):
     return restore(fields) if restore is not None else Recipe(**fields)
 
 
+def _recipe_supports_field(name):
+    import dataclasses
+    from particlegan import Recipe
+    if dataclasses.is_dataclass(Recipe):
+        return any(f.name == name for f in dataclasses.fields(Recipe))
+    return hasattr(Recipe, name)
+
+
 def particlegan_recipe(config):
     """The ParticleGAN recipe holding this configuration's training formulation.
 
@@ -116,6 +124,7 @@ def particlegan_recipe(config):
     """
     opt, penalty, training = config['optimizer'], config['gradient_penalty'], config['training']
     fields = dict(config.get('recipe') or {})
+    precision = training.get('precision', fields.get('training_precision', 'float32'))
     fields.update(
         total_steps=training['steps'], batch_size=training['batch_size'],
         lr=opt['lr'], d_lr_mult=opt['d_lr_mult'], prior_lr_mult=opt['prior_lr_mult'],
@@ -130,8 +139,9 @@ def particlegan_recipe(config):
         lr_anneal_start=training['lr_anneal_start'], lr_floor=training['lr_floor'],
         network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
         input_noise_std=training['input_noise_std'], input_noise_anneal_end=training['input_noise_anneal_end'],
-        output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'],
-        training_precision=training.get('precision', fields.get('training_precision', 'float32')))
+        output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'])
+    if precision != 'float32' or _recipe_supports_field('training_precision'):
+        fields['training_precision'] = precision
     recipe = restore_particlegan_recipe(fields)
     unsupported = {
         'continuous_policy': recipe.continuous_policy is not None,

@@ -16,6 +16,7 @@ Writing a model file, preparing data, training, watching and recovering runs.
 - [Image-folder data](image-data.md): image folders, preprocessing and dataset checks.
 - [Image previews and samples](image-previews.md): preview grids during training and `hypergan sample`.
 - [Image FID evaluation](image-fid.md): the pinned FID protocol and its `fid` extra.
+- [Whitepaper benchmark & diagnostic report](benchmarks.md): reproducible HyperGAN 2.2.0 / ParticleGAN 0.12.0 (`unified_v12`) vs Adam + R1 benchmarks with Inception/DINOv2 PRDC suites and sample grids.
 - [Web Observatory](local-web.md): `hypergan view`, the dashboard, authentication and the REST/SSE API.
 - [Observe a run and request a checkpoint](observation.md): events, progress and on-demand checkpoints.
 - [Recover training runs](recovery.md): checkpoints, resume and compatibility rules.

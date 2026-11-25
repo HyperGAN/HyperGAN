@@ -45,4 +45,5 @@ HyperGAN is a production-grade framework for training, inspecting, and deploying
 - [Deploying Exported Generators](https://github.com/HyperGAN/HyperGAN/blob/master/docs/deployment.md): Serving recipes for `bundle`, `pt2`, `onnx`, and `safetensors`.
 - [Distributed Training & Scaling](https://github.com/HyperGAN/HyperGAN/blob/master/docs/distributed.md): Multi-GPU NCCL, execution profiles, aggregation, and scaling measurements.
 - [Image Data & FID Evaluation](https://github.com/HyperGAN/HyperGAN/blob/master/docs/image-data.md): `ImageFolder`, alpha compositing, colorization, and snapshot FID evaluation.
+- [Whitepaper Benchmarks & Diagnostics](https://github.com/HyperGAN/HyperGAN/blob/master/docs/benchmarks.md): Reproducible HyperGAN 2.2.0 / ParticleGAN 0.12.0 (`unified_v12`) vs Adam + R1 benchmark matrix, `InceptionSuite` / `DINOv2Suite` PRDC feature-leakage audit, sample grids, and root-cause analysis.
 - [Glossary](https://github.com/HyperGAN/HyperGAN/blob/master/GLOSSARY.md) · [Changelog](https://github.com/HyperGAN/HyperGAN/blob/master/CHANGELOG.md)

@@ -13,7 +13,7 @@
 [![CI](https://github.com/HyperGAN/HyperGAN/actions/workflows/ci.yml/badge.svg)](https://github.com/HyperGAN/HyperGAN/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/Docs-hypergan.github.io%2FHyperGAN-0f172a)](https://hypergan.github.io/HyperGAN/)
 
-[Documentation](https://hypergan.github.io/HyperGAN/) · [Quickstart](https://hypergan.github.io/HyperGAN/quickstart/) · [Examples](https://hypergan.github.io/HyperGAN/examples/) · [Python API](https://hypergan.github.io/HyperGAN/reference/api/) · [CLI Reference](https://hypergan.github.io/HyperGAN/reference/cli/) · [TOML Schema](https://hypergan.github.io/HyperGAN/reference/schema/) · [HNDL Ops](https://hypergan.github.io/HyperGAN/reference/ops/)
+[Documentation](https://hypergan.github.io/HyperGAN/) · [Quickstart](https://hypergan.github.io/HyperGAN/quickstart/) · [Benchmarks](https://hypergan.github.io/HyperGAN/docs/benchmarks/) · [Examples](https://hypergan.github.io/HyperGAN/examples/) · [Python API](https://hypergan.github.io/HyperGAN/reference/api/) · [CLI Reference](https://hypergan.github.io/HyperGAN/reference/cli/) · [TOML Schema](https://hypergan.github.io/HyperGAN/reference/schema/) · [HNDL Ops](https://hypergan.github.io/HyperGAN/reference/ops/)
 
 ---
 
@@ -29,6 +29,7 @@ HyperGAN 2.2.0 trains generative models from declarative `hypergan-model/1` TOML
 | :--- | :--- | :--- |
 | **5 Packaged Wheel Recipes** | `gaussian-grid`, `image-folder-128`, `colorization-128`, `cifar10-tiny-transformer`, and `cifar10-transgan` ship inside the wheel (`hypergan recipes`), plus a 256×256 DINOv3 colorizer source example | [Examples Gallery](https://hypergan.github.io/HyperGAN/examples/) |
 | **256×256 DINOv3 Colorization** | Held-out **FID-10k `6.37`** at step 2,500 on 2× RTX A6000 (ParticleGAN 0.9.7 BISPF); grayscale luminance error `2.61e-7` | [Colorization setup](https://github.com/HyperGAN/HyperGAN/blob/master/docs/colorization.md) |
+| **v12 Whitepaper Benchmarks** | Pure-HNDL `unified_v12` vs `Adam + R1` matrix across 11 EMA bundles (`InceptionSuite` + `DINOv2Suite`, 50k samples): `0` NaNs / `0` collapses with zero overrides, beats `Adam + R1` on unnormalized 13.5M scratch ResNet-GAN (**FID `150.63`** vs `314.03`), plus full diagnostic audit | [Benchmark & diagnostic report](https://github.com/HyperGAN/HyperGAN/blob/master/docs/benchmarks.md) |
 | **CIFAR-10 32×32 Benchmarks** | `cifar10-tiny-transformer`: **FID-50k `14.56`** @ 15k steps (BISPF) · **`15.16`** @ 12.5k steps (EMPF, `3.32 steps/s`) on 2× RTX A6000, global batch 256 | [CIFAR recipes & results](https://github.com/HyperGAN/HyperGAN/blob/master/docs/cifar-recipe.md) |
 | **Multi-GPU NCCL Scaling** | **2.20×** single-GPU throughput (`1,517.19 img/s`, 110.2% efficiency) on 2× RTX A6000 at global batch 256 (`0.79×` at batch 64) | [Scaling measurements](https://github.com/HyperGAN/HyperGAN/blob/master/docs/scaling-benchmark.md) |
 | **4 Standalone Export Formats** | Privacy-clean EMA generator exports to Python `bundle` (`.pt`), PyTorch `pt2`, `onnx`, and `safetensors` | [Deployment guide](https://github.com/HyperGAN/HyperGAN/blob/master/docs/deployment.md) |

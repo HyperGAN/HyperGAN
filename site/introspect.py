@@ -344,7 +344,7 @@ _DOC_GROUP_DEFS: list[dict[str, Any]] = [
     {
         "id": "core-guides",
         "title": "Core Workflows & Guides",
-        "description": "Python API, HNDL language, custom PyTorch modules, previews, FID, Observatory, recovery, and deployment.",
+        "description": "Python API, HNDL language, custom PyTorch modules, previews, FID & benchmarks, Observatory, recovery, and deployment.",
         "files": [
             "docs/python-api.md",
             "docs/hndl-reference.md",
@@ -353,6 +353,7 @@ _DOC_GROUP_DEFS: list[dict[str, Any]] = [
             "docs/image-data.md",
             "docs/image-previews.md",
             "docs/image-fid.md",
+            "docs/benchmarks.md",
             "docs/local-web.md",
             "docs/observation.md",
             "docs/recovery.md",

@@ -25,6 +25,44 @@ def _resolve_runtime_parameters(parameters):
     return resolved
 
 
+class _AutocastAwareCheck:
+    """Allow PyTorch autocast floating-point dtype promotions during HNDL validation.
+
+    ``hndl 0.13.0`` validates every node port against ``self._runtime_dtype``
+    (FP32 master weights) on the first call for an autocast signature, which
+    rejects BF16/FP16 activations legally produced under ``torch.autocast``.
+    When autocast is disabled, behavior is delegated unchanged; when autocast is
+    enabled, shape, device, non-floating port dtypes, and registered-state
+    integrity remain strictly enforced while floating-point ports may carry the
+    active autocast dtype.
+    """
+
+    def __init__(self, module):
+        self._module = module
+
+    def __call__(self, value, expected, dtype, port, batch):
+        if (
+            dtype is not None
+            and isinstance(value, torch.Tensor)
+            and value.dtype != dtype
+            and dtype.is_floating_point
+            and value.is_floating_point()
+        ):
+            device_type = value.device.type
+            if (
+                torch.is_autocast_enabled(device_type)
+                and value.dtype == torch.get_autocast_dtype(device_type)
+            ):
+                dtype = value.dtype
+        return type(self._module)._check(self._module, value, expected, dtype, port, batch)
+
+
+def _install_autocast_check(module):
+    if hasattr(module, '_check'):
+        module._check = _AutocastAwareCheck(module)
+    return module
+
+
 def build_network(source=None, *, file=None, input_shape, output_shape,
                   parameters=None, registry=None, input_dtype=None, pretrained_providers=None):
     """Construct an unmodified native HNDL tensor/named-port network."""
@@ -36,8 +74,10 @@ def build_network(source=None, *, file=None, input_shape, output_shape,
     source = render_source(source if source is not None else packaged_source(file), runtime_parameters)
     registry = register_augmentation(Registry.builtins() if registry is None else registry)
     registry = register_providers(registry, pretrained_providers)
-    return network(source, input_shape=input_shape, output_shape=output_shape,
-                   device='cpu', registry=registry, input_dtype=input_dtype)
+    return _install_autocast_check(
+        network(source, input_shape=input_shape, output_shape=output_shape,
+                device='cpu', registry=registry, input_dtype=input_dtype)
+    )
 
 
 class HNDLNetwork(nn.Module):

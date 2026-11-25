@@ -105,7 +105,10 @@ def execution_device(value, fallback=True):
 
 def move_tensors(value, device):
     if isinstance(value, torch.Tensor):
-        return value.to(device)
+        target = device if isinstance(device, torch.device) else torch.device(device)
+        if target.type == 'cuda' and value.device.type == 'cpu' and not value.requires_grad and value.numel() >= 4096:
+            return value.pin_memory().to(target, non_blocking=True)
+        return value.to(target)
     if isinstance(value, dict):
         return {key: move_tensors(item, device) for key, item in value.items()}
     if isinstance(value, (tuple, list)):
@@ -202,6 +205,134 @@ def _call_component(model, kwargs):
         if isinstance(model, (HNDLNetwork, MLP)):
             return model(next(iter(kwargs.values())))
     return model(**kwargs)
+
+
+def _has_cuda_tensor(value):
+    if isinstance(value, torch.Tensor):
+        return value.device.type == 'cuda'
+    if isinstance(value, dict):
+        return any(_has_cuda_tensor(item) for item in value.values())
+    if isinstance(value, (tuple, list)):
+        return any(_has_cuda_tensor(item) for item in value)
+    return False
+
+
+def _to_channels_last(value):
+    if isinstance(value, torch.Tensor):
+        if value.ndim == 4 and value.is_floating_point() and value.device.type == 'cuda':
+            return value.contiguous(memory_format=torch.channels_last)
+        return value
+    if isinstance(value, dict):
+        converted = {key: _to_channels_last(item) for key, item in value.items()}
+        return value if all(converted[key] is value[key] for key in value) else converted
+    if isinstance(value, tuple):
+        converted = tuple(_to_channels_last(item) for item in value)
+        return value if all(new is old for new, old in zip(converted, value)) else converted
+    if isinstance(value, list):
+        converted = [_to_channels_last(item) for item in value]
+        return value if all(new is old for new, old in zip(converted, value)) else converted
+    return value
+
+
+_PG_FLOAT_OUTPUT = None
+_PG_CRITIC_SOURCE_CONTEXT = None
+
+
+def _get_pg_float_output():
+    global _PG_FLOAT_OUTPUT
+    if _PG_FLOAT_OUTPUT is None:
+        from particlegan.training import float_output
+        _PG_FLOAT_OUTPUT = float_output
+    return _PG_FLOAT_OUTPUT
+
+
+def _get_pg_critic_source_context():
+    global _PG_CRITIC_SOURCE_CONTEXT
+    if _PG_CRITIC_SOURCE_CONTEXT is None:
+        from particlegan.training import critic_source_context
+        _PG_CRITIC_SOURCE_CONTEXT = critic_source_context
+    return _PG_CRITIC_SOURCE_CONTEXT
+
+
+class _ChannelsLastInputPreHook:
+    """Keep 4D CUDA inputs channels_last entering NHWC-sensitive ops (e.g. bilinear Upsample)."""
+
+    def __init__(self, owner):
+        self._owner = owner
+
+    def __call__(self, _module, args):
+        if (
+            not args
+            or not getattr(self._owner, '_hypergan_channels_last', False)
+            or not torch.is_autocast_enabled('cuda')
+        ):
+            return None
+        x = args[0]
+        if (
+            isinstance(x, torch.Tensor)
+            and x.ndim == 4
+            and x.is_floating_point()
+            and x.device.type == 'cuda'
+            and not x.is_contiguous(memory_format=torch.channels_last)
+        ):
+            return (x.contiguous(memory_format=torch.channels_last), *args[1:])
+        return None
+
+
+class _ChannelsLastOutputHook:
+    """Restore channels_last after ops (e.g. autocast GroupNorm) that emit NCHW 4D tensors."""
+
+    def __init__(self, owner):
+        self._owner = owner
+
+    def __call__(self, _module, _args, output):
+        if (
+            not getattr(self._owner, '_hypergan_channels_last', False)
+            or not torch.is_autocast_enabled('cuda')
+        ):
+            return output
+        if (
+            isinstance(output, torch.Tensor)
+            and output.ndim == 4
+            and output.is_floating_point()
+            and output.device.type == 'cuda'
+            and not output.is_contiguous(memory_format=torch.channels_last)
+        ):
+            return output.contiguous(memory_format=torch.channels_last)
+        return output
+
+
+def install_channels_last_hooks(owner):
+    """Attach deepcopy-safe NHWC preservation hooks to Upsample and GroupNorm submodules."""
+    pre_hook = _ChannelsLastInputPreHook(owner)
+    post_hook = _ChannelsLastOutputHook(owner)
+    for sub in owner.modules():
+        if isinstance(sub, nn.Upsample):
+            sub.register_forward_pre_hook(pre_hook)
+        elif isinstance(sub, nn.GroupNorm):
+            sub.register_forward_hook(post_hook)
+
+
+def clear_channels_last_hooks(owner):
+    """Remove NHWC preservation hooks from ``owner`` and its submodules (e.g. on ``ema_graph``)."""
+    for sub in owner.modules():
+        for key in [k for k, fn in sub._forward_pre_hooks.items() if isinstance(fn, _ChannelsLastInputPreHook)]:
+            sub._forward_pre_hooks.pop(key, None)
+        for key in [k for k, fn in sub._forward_hooks.items() if isinstance(fn, _ChannelsLastOutputHook)]:
+            sub._forward_hooks.pop(key, None)
+
+
+def _call_component_with_precision(model, kwargs, *, bf16=False, channels_last=False):
+    """Invoke a component with optional CUDA BF16 autocast, NHWC 4D inputs, and FP32 output cast."""
+    if bf16 and _has_cuda_tensor(kwargs):
+        float_output = _get_pg_float_output()
+        call_kwargs = _to_channels_last(kwargs) if channels_last else kwargs
+        with torch.autocast('cuda', dtype=torch.bfloat16):
+            return float_output(_call_component(model, call_kwargs))
+    if not bf16 and torch.is_autocast_enabled('cuda'):
+        with torch.autocast('cuda', enabled=False):
+            return _call_component(model, kwargs)
+    return _call_component(model, kwargs)
 
 
 class _GeneratorProbeModule(nn.Module):
@@ -307,7 +438,17 @@ def _eval_probe_with_preserved_state(module, args, kwargs, record):
     try:
         with torch.no_grad():
             module.eval()
-            out = module(*args, **kwargs)
+            first_p = next(module.parameters(), None)
+            use_bf16 = (
+                first_p is not None
+                and first_p.device.type == 'cuda'
+                and bool(getattr(module, '_unified_v4_bf16_autocast', False))
+            )
+            if use_bf16:
+                with torch.autocast('cuda', dtype=torch.bfloat16):
+                    out = module(*args, **kwargs)
+            else:
+                out = module(*args, **kwargs)
             target = out[0] if isinstance(out, (tuple, list)) and out else out
             if not isinstance(target, torch.Tensor):
                 return None
@@ -350,6 +491,56 @@ class ComponentGraph(nn.Module):
             modules[name] = module
         self.models = nn.ModuleDict(modules)
         self._probe_hook = None
+        self._bf16_components = frozenset()
+        self._channels_last_components = frozenset()
+        self._training_bf16_active = False
+
+    def component_name_for(self, module):
+        """Return the registered component name owning ``module``, else None."""
+        for name, candidate in self.models.items():
+            if candidate is module:
+                return name
+        return None
+
+    def uses_bf16(self, module_or_name):
+        """Return True when the named component or module is configured for BF16 autocast."""
+        if isinstance(module_or_name, str):
+            return module_or_name in self._bf16_components
+        name = self.component_name_for(module_or_name)
+        if name is not None:
+            return name in self._bf16_components
+        return bool(getattr(module_or_name, '_hypergan_bf16_autocast', False))
+
+    def uses_channels_last(self, module_or_name):
+        """Return True when the named component or module is configured for CUDA NHWC layout."""
+        if isinstance(module_or_name, str):
+            return module_or_name in self._channels_last_components
+        name = self.component_name_for(module_or_name)
+        if name is not None:
+            return name in self._channels_last_components
+        return bool(getattr(module_or_name, '_hypergan_channels_last', False))
+
+    def call_critic(self, active_module, kwargs, *, source_candidate=None, bf16=None, channels_last=None):
+        """Execute a critic forward with training-step BF16/NHWC and live-endpoint source binding."""
+        use_bf16 = (
+            bool(bf16)
+            if bf16 is not None
+            else bool(self._training_bf16_active and self.uses_bf16(active_module))
+        )
+        use_nhwc = (
+            bool(channels_last)
+            if channels_last is not None
+            else bool(use_bf16 and self.uses_channels_last(active_module))
+        )
+        if source_candidate is not None and hasattr(active_module, '_t2_record'):
+            critic_source_context = _get_pg_critic_source_context()
+            with critic_source_context(active_module, source_candidate):
+                return _call_component_with_precision(
+                    active_module, kwargs, bf16=use_bf16, channels_last=use_nhwc
+                )
+        return _call_component_with_precision(
+            active_module, kwargs, bf16=use_bf16, channels_last=use_nhwc
+        )
 
     def output_subgraph(self, output_path='generated'):
         """Trace unique component modules and external conditioning inputs feeding ``output_path``."""
@@ -427,12 +618,20 @@ class ComponentGraph(nn.Module):
         try:
             kwargs = {arg: self.resolve(path, context, active) for arg, path in self.specs[name]["inputs"].items()}
             spec = self.specs[name]
-            model = self.models[spec.get('reuse', name)]
+            model_name = spec.get('reuse', name)
+            model = self.models[model_name]
             flags = [parameter.requires_grad for parameter in model.parameters()]
             if spec.get('freeze_parameters', False):
                 model.requires_grad_(False)
             try:
-                value = _call_component(model, kwargs)
+                if self._training_bf16_active:
+                    use_bf16 = model_name in self._bf16_components
+                    use_nhwc = use_bf16 and model_name in self._channels_last_components
+                    value = _call_component_with_precision(
+                        model, kwargs, bf16=use_bf16, channels_last=use_nhwc
+                    )
+                else:
+                    value = _call_component(model, kwargs)
             finally:
                 if spec.get('freeze_parameters', False):
                     for parameter, flag in zip(model.parameters(), flags):
@@ -449,7 +648,7 @@ class ComponentGraph(nn.Module):
             self._probe_hook(latent, batch, context, prior)
         return context
 
-    def critic(self, candidate, context, module=None):
+    def critic(self, candidate, context, module=None, *, bf16=None):
         # Auxiliary conditioning runs with detached inputs and contributes no D loss
         # gradients to G/encoder parameters. The candidate path remains attached.
         # ``module`` replaces the discriminator (the penalty passes its EMA).
@@ -459,7 +658,8 @@ class ComponentGraph(nn.Module):
         for arg, path in self.specs["discriminator"]["inputs"].items():
             value = self.resolve(path, fixed)
             kwargs[arg] = value if path == "candidate" else detach(value)
-        return _call_component(self.models["discriminator"] if module is None else module, kwargs)
+        active_module = self.models["discriminator"] if module is None else module
+        return self.call_critic(active_module, kwargs, source_candidate=candidate, bf16=bf16)
 
     def generator_parameters(self):
         return [p for name, model in self.models.items() if name != "discriminator" for p in model.parameters() if p.requires_grad]

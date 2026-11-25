@@ -38,6 +38,7 @@ PARTICLEGAN_DEFAULT_FIELDS = {
     ("training", "input_noise_anneal_end"): "input_noise_anneal_end",
     ("training", "output_noise_std"): "output_noise_std",
     ("training", "output_noise_warmup"): "output_noise_warmup",
+    ("training", "precision"): "training_precision",
 }
 
 
@@ -129,7 +130,8 @@ def particlegan_recipe(config):
         lr_anneal_start=training['lr_anneal_start'], lr_floor=training['lr_floor'],
         network_lr_floor=training['network_lr_floor'], network_lr_horizon_cap=training['network_lr_horizon_cap'],
         input_noise_std=training['input_noise_std'], input_noise_anneal_end=training['input_noise_anneal_end'],
-        output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'])
+        output_noise_std=training['output_noise_std'], output_noise_warmup=training['output_noise_warmup'],
+        training_precision=training.get('precision', fields.get('training_precision', 'float32')))
     recipe = restore_particlegan_recipe(fields)
     unsupported = {
         'continuous_policy': recipe.continuous_policy is not None,

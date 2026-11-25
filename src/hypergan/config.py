@@ -24,6 +24,8 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 
+VALID_TRAINING_PRECISIONS = ("float32", "bf16_channels_last")
+
 DEFAULT = {
     "schema_version": 1,
     "recipe": {},
@@ -41,7 +43,7 @@ DEFAULT = {
     "objectives": [],
     "optimizer": {"lr": 0.0006, "d_lr_mult": 1.5, "prior_lr_mult": 10.0, "betas": [0.0, 0.999], "prior_betas": [0.0, 0.999], "implementation": "device_adam",
                   "d_guard_ratio": 5.0, "d_guard_min_steps": 200, "latent_damping_max_rate": 0.5},
-    "training": {"steps": 5, "batch_size": 16, "seed": 42, "device": "cpu", "initialization": "constructor", "ema": 0.995, "lr_anneal_start": 0.6, "lr_floor": 0.05,
+    "training": {"steps": 5, "batch_size": 16, "seed": 42, "device": "cpu", "initialization": "constructor", "precision": "float32", "ema": 0.995, "lr_anneal_start": 0.6, "lr_floor": 0.05,
                  "network_lr_floor": None, "network_lr_horizon_cap": None,
                  "input_noise_std": 0.0, "input_noise_anneal_end": 0.1, "output_noise_std": 0.0, "output_noise_warmup": 0.2,
                  "phase_draws": "shared", "data_rng_device": "cpu", "data_seed_offset": 1, "prior_seed_offset": 2, "backend": {}},
@@ -487,6 +489,10 @@ def resolve_config(raw):
     training = result["training"]
     if training['initialization'] not in ('constructor', 'deterministic_orthogonal'):
         raise ValueError('training.initialization must be constructor or deterministic_orthogonal')
+    if training['precision'] not in VALID_TRAINING_PRECISIONS:
+        raise ValueError(
+            'training.precision must be one of ' + ', '.join(VALID_TRAINING_PRECISIONS)
+        )
     if training["network_lr_floor"] is not None and (type(training["network_lr_floor"]) not in (int, float)
                                                      or not 0 <= training["network_lr_floor"] <= 1):
         raise ValueError("training.network_lr_floor must be in [0, 1]; omit it to follow training.lr_floor")
@@ -668,6 +674,8 @@ def numerical_values(config):
         values.pop('recipe', None)
     if values.get('training', {}).get('initialization') == 'constructor':
         values['training'].pop('initialization', None)
+    if values.get('training', {}).get('precision') == 'float32':
+        values['training'].pop('precision', None)
     if isinstance(values.get('adversarial'), dict):
         values['adversarial'].pop('id', None)
     return values

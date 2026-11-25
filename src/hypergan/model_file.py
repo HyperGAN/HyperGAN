@@ -73,7 +73,7 @@ NETWORK_FIELDS = {'role', 'hndl', 'file', 'source', 'module', 'reuse', 'args', '
                   'trainable', 'freeze_parameters', 'optimizer', *HNDL_EXTRA_FIELDS}
 OPTIMIZER_FIELDS = {'lr', 'd_lr_mult', 'prior_lr_mult', 'betas', 'prior_betas', 'implementation',
                     'd_guard_ratio', 'd_guard_min_steps', 'latent_damping_max_rate'}
-TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'initialization', 'ema', 'lr_anneal_start', 'lr_floor',
+TRAINING_FIELDS = {'steps', 'batch_size', 'seed', 'device', 'initialization', 'precision', 'ema', 'lr_anneal_start', 'lr_floor',
                    'network_lr_floor', 'network_lr_horizon_cap', 'input_noise_std', 'input_noise_anneal_end',
                    'output_noise_std', 'output_noise_warmup', 'phase_draws', 'data_rng_device',
                    'data_seed_offset', 'prior_seed_offset', 'backend', 'every_steps'}

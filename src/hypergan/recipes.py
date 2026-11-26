@@ -474,6 +474,7 @@ def _eval_probe_with_preserved_state(module, args, kwargs, record):
                 and bool(
                     getattr(module, '_particlegan_bf16_autocast', False)
                     or getattr(module, '_hypergan_bf16_autocast', False)
+                    or getattr(module, '_axiom_bf16_autocast', False)
                     or getattr(module, '_unified_v4_bf16_autocast', False)
                 )
             )

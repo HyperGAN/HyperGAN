@@ -23,6 +23,8 @@ from .recipes import detach, move_tensors
 from .training import NOISE_SEED_OFFSET, ReferenceTrainer, ScoredCritic, noise_levels, schedule_learning_rates, update_ema, with_noise
 from .objective_program import (
     _bound_scores,
+    _clear_discrete_prior_step,
+    _prepare_discrete_prior_step,
     _rhbi_generator_context,
     _rhbi_simplex_loss,
     _sum_tensors,
@@ -604,6 +606,9 @@ class ReplicatedTrainer(ReferenceTrainer):
                 elif hasattr(rec_d, 't1c_ell_initialized'):
                     from .aggregation import sync_unified_v11_record
                     sync_unified_v11_record(rec_d, self.device, self.world_size)
+                elif hasattr(rec_d, 'chart_state') and hasattr(rec_d, 'thermal_scale'):
+                    from .aggregation import sync_axiom_record
+                    sync_axiom_record(rec_d, self.device, self.world_size)
         thermal_coordinator = getattr(self, 'thermal_coordinator', None)
         if thermal_coordinator is not None:
             thermal_coordinator.synchronize()
@@ -627,8 +632,13 @@ class ReplicatedTrainer(ReferenceTrainer):
 
     def _average_critic_statistics(self, rec):
         # KA2 controller statistics come from rank-local critic scores.
-        # t1c / unified_v11 records expose ema_residual as a read-only property and sync via coupled pairs or sync_unified_v11_record.
-        if rec is None or hasattr(rec, 't1c_ell_initialized'):
+        # t1c / unified_v11 / axiom records expose ema_residual as a read-only property
+        # and sync via coupled pairs or sync_unified_v11_record / sync_axiom_record.
+        if (
+            rec is None
+            or hasattr(rec, 't1c_ell_initialized')
+            or (hasattr(rec, 'chart_state') and hasattr(rec, 'thermal_scale'))
+        ):
             return
         if hasattr(rec, 'ema_residual') and hasattr(rec, 'ema_data_scale'):
             stats = torch.tensor([rec.ema_residual, rec.ema_data_scale], dtype=torch.float64, device=self.device)
@@ -691,13 +701,10 @@ class ReplicatedTrainer(ReferenceTrainer):
 
     @staticmethod
     def _is_highres_image_term(term, sample):
-        return (
-            isinstance(sample, torch.Tensor)
-            and sample.ndim >= 2
-            and sample.shape[0] > 0
-            and sample[0].numel() > 1024
-            and len(term.routes) == 1
-        )
+        if not (isinstance(sample, torch.Tensor) and sample.ndim >= 2 and sample.shape[0] > 0 and len(term.routes) == 1):
+            return False
+        limit = (4096 if sample.ndim >= 4 else 1024) if hasattr(term.gan, 'axiom_record') else 1024
+        return int(sample[0].numel()) > limit
 
     @classmethod
     def _uses_coupled_critic_loss(cls, term, sample=None):
@@ -721,6 +728,38 @@ class ReplicatedTrainer(ReferenceTrainer):
         if hasattr(term.gan, 't1c') and getattr(term.gan.t1c, 'weight', 0.0) > 0.0 and not cls._is_highres_image_term(term, sample):
             return True
         return False
+
+    def _gather_axiom_pair(self, fake_score, real_score, rec):
+        """Gather critic logits and Axiom input/conditioning captures across all ranks."""
+        from particlegan._axiom.loss import _lookup_capture
+
+        x_f, cond_f, rec_f, cc_f, parts_f = _lookup_capture(fake_score, rec)
+        x_r, cond_r, rec_r, cc_r, parts_r = _lookup_capture(
+            real_score, rec_f if rec_f is not None else rec
+        )
+        eff_rec = rec_f if rec_f is not None else (rec_r if rec_r is not None else rec)
+        global_f_sc = self._all_gather_coupled(fake_score)
+        global_r_sc = self._all_gather_coupled(real_score)
+        if x_f is not None and x_r is not None:
+            global_x_f = self._all_gather_coupled(x_f)
+            global_x_r = self._all_gather_coupled(x_r)
+            global_cond_f = self._all_gather_coupled(cond_f) if cond_f is not None else None
+            global_cond_r = self._all_gather_coupled(cond_r) if cond_r is not None else None
+            global_parts_f = tuple(self._all_gather_coupled(p) for p in parts_f) if parts_f is not None else None
+            global_parts_r = tuple(self._all_gather_coupled(p) for p in parts_r) if parts_r is not None else None
+            global_f_sc._axiom_input = global_x_f
+            global_f_sc._axiom_cond = global_cond_f
+            global_f_sc._axiom_cont_cond = cc_f
+            global_f_sc._axiom_parts = global_parts_f
+            global_f_sc._axiom_record = eff_rec
+            if getattr(fake_score, '_axiom_thermally_scaled', False):
+                global_f_sc._axiom_thermally_scaled = True
+            global_r_sc._axiom_input = global_x_r
+            global_r_sc._axiom_cond = global_cond_r
+            global_r_sc._axiom_cont_cond = cc_r
+            global_r_sc._axiom_parts = global_parts_r
+            global_r_sc._axiom_record = eff_rec
+        return global_f_sc, global_r_sc
 
     def _gather_t1c_pair(self, fake_score, real_score, rec):
         """Gather critic logits and t1c/unified_v11 input/conditioning captures across all ranks."""
@@ -756,6 +795,8 @@ class ReplicatedTrainer(ReferenceTrainer):
 
     def _gather_coupled_pair(self, term, fake_score, real_score):
         rec = getattr(term.gan, 'record', None)
+        if hasattr(term.gan, 'axiom_record'):
+            return self._gather_axiom_pair(fake_score, real_score, rec)
         if hasattr(term.gan, 't1c'):
             return self._gather_t1c_pair(fake_score, real_score, rec)
         return self._gather_rhbi_pair(fake_score, real_score, rec)
@@ -797,10 +838,14 @@ class ReplicatedTrainer(ReferenceTrainer):
         cache = getattr(rec, '_g_probe_cache', None)
         if cache is None or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
             return
-        from particlegan._unified_v11.critic import _PROBE_SLICE
         g_mod, p_args, p_kwargs, y_pre = cache
         out_dim = max(1, int(y_pre[0].numel()))
-        b_p = max(2, min(_PROBE_SLICE, 8192 // out_dim))
+        if hasattr(rec, 'chart_state') and hasattr(rec, 'thermal_scale'):
+            from particlegan._axiom.critic import _PROBE_MAX_BATCH
+            b_p = min(_PROBE_MAX_BATCH, int(y_pre.shape[0]) * self.world_size)
+        else:
+            from particlegan._unified_v11.critic import _PROBE_SLICE
+            b_p = max(2, min(_PROBE_SLICE, 8192 // out_dim))
         b_local = int(y_pre.shape[0])
         g_args = self._gather_probe_value(p_args, b_local, b_p)
         g_kwargs = self._gather_probe_value(p_kwargs, b_local, b_p)
@@ -1241,13 +1286,27 @@ class ReplicatedTrainer(ReferenceTrainer):
                     gen_batch, gen_context, gen_fake, gen_real, gen_selected, gen_ids = batch, context, fake, real, selected, ids
 
                 self.opt_g.zero_grad(set_to_none=True)
-                if rhbi_mod is not None:
-                    simplicial_active = bool(
-                        use_rhbi_simplex
-                        and getattr(self.recipe, 'rhbi_simplex_chart_weight', 0.0) > 0.0
-                        and getattr(self.recipe, 'rhbi_simplex_macro_settle', False)
+                global_ids_for_axiom = (
+                    self._all_gather_coupled(gen_ids.detach())
+                    if (
+                        gen_ids is not None
+                        and getattr(self.recipe, 'effective_critic_formulation', None) == 'axiom'
+                        and getattr(self.aggregation_strategy, 'reduces_gradients', False)
                     )
-                    rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
+                    else gen_ids
+                )
+                global_real_for_axiom = (
+                    self._all_gather_coupled(gen_real.detach())
+                    if (
+                        use_rhbi_simplex
+                        and getattr(self.recipe, 'effective_critic_formulation', None) == 'axiom'
+                        and getattr(self.aggregation_strategy, 'reduces_gradients', False)
+                    )
+                    else gen_real
+                )
+                effective_simplex = _prepare_discrete_prior_step(
+                    self, rhbi_mod, is_discrete_prior, use_rhbi_simplex, global_ids_for_axiom, global_real_for_axiom
+                )
 
                 def generator_adversarial_forward():
                     unweighted = []
@@ -1266,7 +1325,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                     prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else gen_fake.new_zeros(())
                     simplex_loss = (
                         _rhbi_simplex_loss(self, rhbi_mod, gen_selected, simplex_real)
-                        if (use_rhbi_simplex and rhbi_mod is not None and simplex_real is not None)
+                        if (effective_simplex and rhbi_mod is not None and simplex_real is not None)
                         else None
                     )
                     objective_losses = []
@@ -1300,7 +1359,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                     ]
                     global_simplex_real = (
                         self._all_gather_coupled(gen_real.detach())
-                        if (use_rhbi_simplex and rhbi_mod is not None)
+                        if (effective_simplex and rhbi_mod is not None)
                         else None
                     )
 
@@ -1332,7 +1391,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                         self._phase('generator loss', lambda: self._finite_loss(g_loss))
                         self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
                 else:
-                    simplex_real_local = gen_real if (use_rhbi_simplex and rhbi_mod is not None) else None
+                    simplex_real_local = gen_real if (effective_simplex and rhbi_mod is not None) else None
                     with self._folded('generator backward'):
                         g_adversarial, g_adversarial_weighted = self._phase(
                             'generator critic forward', generator_adversarial_forward)
@@ -1362,8 +1421,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                 self._sync_unified_v11_g_probe()
                 self._optimizer_step(self.opt_g, 'generator')
         finally:
-            if rhbi_mod is not None:
-                rhbi_mod.bind_discrete_prior_step(False)
+            _clear_discrete_prior_step(self, rhbi_mod)
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)

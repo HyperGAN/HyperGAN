@@ -85,7 +85,7 @@ def test_precision_defaults_and_explicit_overrides():
     assert cfg_hg["training"]["precision"] == "float32"
     assert particlegan_recipe(cfg_hg).training_precision == "float32"
 
-    # defaults="particlegan" (unified_v12) -> bf16_channels_last from preset
+    # defaults="particlegan" (axiom) -> bf16_channels_last from preset
     cfg_pg = load_config(_minimal_model_file(defaults="particlegan"))
     assert cfg_pg["training"]["precision"] == "bf16_channels_last"
     assert cfg_pg["recipe"]["training_precision"] == "bf16_channels_last"
@@ -277,68 +277,90 @@ def test_uses_simplicial_manifold_loss_delegates_to_particlegan_and_handles_fall
 def test_highres_unified_skip_skips_simplicial_loss_and_preserves_g_probe_cache():
     # High-dim (> 1024 per sample: 3x20x20 = 1200) must skip simplicial_manifold_loss
     # and never overwrite record._g_probe_cache via an extra generator forward.
-    cfg_hi = load_config(
-        {
-            "format": "hypergan-model/1",
-            "name": "test/highres-skip-cpu",
-            "defaults": "particlegan",
-            "data": {"factory": f"{__name__}:_SyntheticImagesCPU", "args": {"channels": 3, "size": 20}},
-            "prior": {"kind": "particles", "z_dim": 8, "num_particles": 16, "initialization_seed": 2},
-            "networks": {
-                "generator": {
-                    "role": "generator",
-                    "inputs": {"x": "latent"},
-                    "input_shape": ["B", 8],
-                    "output_shape": ["B", 3, 20, 20],
-                    "source": "linear(1200)\nreshape(3, 20, 20)\ntanh()",
+    def _highres_cfg(defaults):
+        return load_config(
+            {
+                "format": "hypergan-model/1",
+                "name": "test/highres-skip-cpu",
+                "defaults": defaults,
+                "data": {"factory": f"{__name__}:_SyntheticImagesCPU", "args": {"channels": 3, "size": 20}},
+                "prior": {"kind": "particles", "z_dim": 8, "num_particles": 16, "initialization_seed": 2},
+                "networks": {
+                    "generator": {
+                        "role": "generator",
+                        "inputs": {"x": "latent"},
+                        "input_shape": ["B", 8],
+                        "output_shape": ["B", 3, 20, 20],
+                        "source": "linear(1200)\nreshape(3, 20, 20)\ntanh()",
+                    },
+                    "discriminator": {
+                        "role": "critic",
+                        "inputs": {"x": "candidate"},
+                        "input_shape": ["B", 3, 20, 20],
+                        "output_shape": ["B", 1],
+                        "source": "flatten()\nlinear(16)\nsilu()\nlinear(1)",
+                    },
                 },
-                "discriminator": {
-                    "role": "critic",
-                    "inputs": {"x": "candidate"},
-                    "input_shape": ["B", 3, 20, 20],
-                    "output_shape": ["B", 1],
-                    "source": "flatten()\nlinear(16)\nsilu()\nlinear(1)",
-                },
-            },
-            "losses": [
-                {"type": "adversarial", "critic": "discriminator", "weight": 1.0, "penalty": 1.0},
-                {"type": "prior"},
-            ],
-            "train": {"steps": 2, "batch_size": 4, "seed": 5, "device": "cpu"},
-        }
-    )
-    trainer_hi = ReferenceTrainer(cfg_hi)
-    t1c = getattr(trainer_hi.gan, "t1c", None) or getattr(trainer_hi.gan, "rhbi", None)
-    assert t1c is not None
-    simplex_calls = []
-    bind_calls = []
-    orig_simplex = t1c.simplicial_manifold_loss
-    orig_bind = t1c.bind_discrete_prior_step
-    t1c.simplicial_manifold_loss = lambda *a, **kw: (simplex_calls.append(1), orig_simplex(*a, **kw))[1]
-    t1c.bind_discrete_prior_step = lambda is_disc, simplicial_active=False: (
-        bind_calls.append((is_disc, simplicial_active)),
+                "losses": [
+                    {"type": "adversarial", "critic": "discriminator", "weight": 1.0, "penalty": 1.0},
+                    {"type": "prior"},
+                ],
+                "train": {"steps": 2, "batch_size": 4, "seed": 5, "device": "cpu"},
+            }
+        )
+
+    # 1. unified_v12: skips simplicial_manifold_loss and preserves the single _g_probe_cache write
+    trainer_v12 = ReferenceTrainer(_highres_cfg("particlegan:unified_v12"))
+    t1c_v12 = getattr(trainer_v12.gan, "t1c", None) or getattr(trainer_v12.gan, "rhbi", None)
+    assert t1c_v12 is not None
+    v12_simplex_calls = []
+    v12_bind_calls = []
+    orig_simplex = t1c_v12.simplicial_manifold_loss
+    orig_bind = t1c_v12.bind_discrete_prior_step
+    t1c_v12.simplicial_manifold_loss = lambda *a, **kw: (v12_simplex_calls.append(1), orig_simplex(*a, **kw))[1]
+    t1c_v12.bind_discrete_prior_step = lambda is_disc, simplicial_active=False: (
+        v12_bind_calls.append((is_disc, simplicial_active)),
         orig_bind(is_disc, simplicial_active=simplicial_active),
     )[1]
 
-    orig_probe_hook = trainer_hi.graph._probe_hook
+    orig_probe_hook = trainer_v12.graph._probe_hook
     probe_writes = []
 
     def _spy_probe_hook(*args, **kwargs):
         orig_probe_hook(*args, **kwargs)
-        cache = getattr(trainer_hi.opt_d.record, "_g_probe_cache", None)
+        cache = getattr(trainer_v12.opt_d.record, "_g_probe_cache", None)
         if cache is not None:
             probe_writes.append(id(cache))
 
-    trainer_hi.graph._probe_hook = _spy_probe_hook
-    trainer_hi.update()
+    trainer_v12.graph._probe_hook = _spy_probe_hook
+    trainer_v12.update()
 
-    assert simplex_calls == [], "simplicial_manifold_loss must be skipped when per-sample numel > 1024"
-    assert (True, False) in bind_calls
-    assert all(not active for _, active in bind_calls)
+    assert v12_simplex_calls == [], "simplicial_manifold_loss must be skipped when per-sample numel > 1024"
+    assert (True, False) in v12_bind_calls
+    assert all(not active for _, active in v12_bind_calls)
     # In shared phase_draws, generator runs once per step (never re-run by simplex loss)
     assert len(probe_writes) == 1
 
-    # Low-dim (<= 1024: 2D gaussian_grid) must still run simplicial_manifold_loss unchanged
+    # 2. Default particlegan (axiom): skips simplicial_manifold_loss on dim > 1024 and keeps high-D probe off (dim > 32)
+    trainer_hi = ReferenceTrainer(_highres_cfg("particlegan"))
+    t1c = getattr(trainer_hi.gan, "t1c", None) or getattr(trainer_hi.gan, "rhbi", None)
+    assert t1c is not None
+    simplex_calls = []
+    bind_calls = []
+    orig_ax_simplex = t1c.simplicial_manifold_loss
+    orig_ax_bind = t1c.bind_discrete_prior_step
+    t1c.simplicial_manifold_loss = lambda *a, **kw: (simplex_calls.append(1), orig_ax_simplex(*a, **kw))[1]
+    t1c.bind_discrete_prior_step = lambda is_disc, simplicial_active=False: (
+        bind_calls.append((is_disc, simplicial_active)),
+        orig_ax_bind(is_disc, simplicial_active=simplicial_active),
+    )[1]
+    trainer_hi.update()
+    assert simplex_calls == [], "axiom must skip simplicial_manifold_loss when per-sample numel > 1024"
+    assert (True, False) in bind_calls
+    assert all(not active for _, active in bind_calls)
+    assert getattr(trainer_hi.opt_d.record, "_g_probe_cache", None) is None
+
+    # 3. Low-dim (<= 1024: 2D gaussian_grid) must still run simplicial_manifold_loss cleanly on default preset
     cfg_lo = load_config(_minimal_model_file(defaults="particlegan", precision="float32", device="cpu"))
     trainer_lo = ReferenceTrainer(cfg_lo)
     t1c_lo = getattr(trainer_lo.gan, "t1c", None) or getattr(trainer_lo.gan, "rhbi", None)

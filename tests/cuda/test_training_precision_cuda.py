@@ -163,9 +163,17 @@ def _conv_4d_weights(module):
     ]
 
 
+def _formulation_bf16_attr(recipe) -> str:
+    formulation = getattr(recipe, "effective_critic_formulation", None)
+    if formulation == "axiom":
+        return "_axiom_bf16_autocast"
+    return "_unified_v4_bf16_autocast"
+
+
 def test_bf16_channels_last_layout_flags_ema_and_live_endpoint_reuse():
     cfg = _conv_model_config(precision="bf16_channels_last", use_bn=False)
     trainer = ReferenceTrainer(cfg)
+    form_attr = _formulation_bf16_attr(trainer.recipe)
 
     assert trainer.recipe.training_precision == "bf16_channels_last"
     assert trainer.graph._bf16_components == frozenset({"generator", "discriminator"})
@@ -179,15 +187,15 @@ def test_bf16_channels_last_layout_flags_ema_and_live_endpoint_reuse():
     assert getattr(trainer.graph.models["generator"], "_particlegan_bf16_autocast", False) is True
     assert getattr(trainer.graph.models["discriminator"], "_particlegan_bf16_autocast", False) is True
     assert getattr(trainer._generator_probe, "_particlegan_bf16_autocast", False) is True
-    assert getattr(trainer.graph.models["generator"], "_unified_v4_bf16_autocast", False) is True
-    assert getattr(trainer.graph.models["discriminator"], "_unified_v4_bf16_autocast", False) is True
-    assert getattr(trainer._generator_probe, "_unified_v4_bf16_autocast", False) is True
+    assert getattr(trainer.graph.models["generator"], form_attr, False) is True
+    assert getattr(trainer.graph.models["discriminator"], form_attr, False) is True
+    assert getattr(trainer._generator_probe, form_attr, False) is True
     assert trainer.ema_graph._bf16_components == frozenset()
     assert trainer.ema_graph._channels_last_components == frozenset()
     assert getattr(trainer.ema_graph.models["generator"], "_particlegan_bf16_autocast", False) is False
     assert getattr(trainer.ema_graph.models["discriminator"], "_particlegan_bf16_autocast", False) is False
-    assert getattr(trainer.ema_graph.models["generator"], "_unified_v4_bf16_autocast", False) is False
-    assert getattr(trainer.ema_graph.models["discriminator"], "_unified_v4_bf16_autocast", False) is False
+    assert getattr(trainer.ema_graph.models["generator"], form_attr, False) is False
+    assert getattr(trainer.ema_graph.models["discriminator"], form_attr, False) is False
 
     # Master weights stay FP32 strided; 4D conv weights in BOTH graph and ema_graph are channels_last
     for graph in (trainer.graph, trainer.ema_graph):
@@ -227,15 +235,16 @@ def test_bf16_channels_last_layout_flags_ema_and_live_endpoint_reuse():
 def test_explicit_float32_on_cuda_keeps_nchw_and_disables_bf16():
     cfg = _conv_model_config(precision="float32", use_bn=False)
     trainer = ReferenceTrainer(cfg)
+    form_attr = _formulation_bf16_attr(trainer.recipe)
 
     assert trainer.recipe.training_precision == "float32"
     assert trainer.graph._bf16_components == frozenset()
     assert trainer.graph._channels_last_components == frozenset()
     assert trainer._bf16_generator is False
     assert trainer._bf16_critics == frozenset()
-    assert getattr(trainer.graph.models["generator"], "_unified_v4_bf16_autocast", False) is False
-    assert getattr(trainer.graph.models["discriminator"], "_unified_v4_bf16_autocast", False) is False
-    assert getattr(trainer._generator_probe, "_unified_v4_bf16_autocast", False) is False
+    assert getattr(trainer.graph.models["generator"], form_attr, False) is False
+    assert getattr(trainer.graph.models["discriminator"], form_attr, False) is False
+    assert getattr(trainer._generator_probe, form_attr, False) is False
 
     for w in _conv_4d_weights(trainer.graph):
         if w.shape[1] > 1 and (w.shape[2] > 1 or w.shape[3] > 1):
@@ -288,13 +297,16 @@ def test_bn_dcgan_and_transgan_like_train_cleanly_in_bf16_with_zero_fallback():
         (_transgan_like_config(precision="bf16_channels_last"), False),
     ):
         trainer = ReferenceTrainer(cfg)
+        form_attr = _formulation_bf16_attr(trainer.recipe)
         assert trainer._bf16_generator is expect_gen_bf16
         assert "discriminator" in trainer.graph._bf16_components
-        assert getattr(trainer._generator_probe, "_unified_v4_bf16_autocast", False) is expect_gen_bf16
+        assert getattr(trainer._generator_probe, form_attr, False) is expect_gen_bf16
 
-        # Instrument _eval_image_fwad_sq to prove BF16 fwAD succeeds on the first try
+        # Instrument fwAD evaluator to prove BF16 fwAD succeeds on the first try
         # with zero FP32 exception fallback and zero central-difference fallback.
-        orig_eval = trainer.penalty.regularizer._eval_image_fwad_sq
+        reg = trainer.penalty.regularizer
+        fwad_method = "_fwad" if hasattr(reg, "_fwad") else "_eval_image_fwad_sq"
+        orig_eval = getattr(reg, fwad_method)
         fwad_invocations = []
 
         def _spy_fwad(*args, **kwargs):
@@ -309,11 +321,11 @@ def test_bn_dcgan_and_transgan_like_train_cleanly_in_bf16_with_zero_fallback():
             fwad_invocations.append(calls_in_eval)
             return res
 
-        trainer.penalty.regularizer._eval_image_fwad_sq = _spy_fwad
+        setattr(reg, fwad_method, _spy_fwad)
         for _ in range(3):
             row, _ = trainer.update()
             assert all(math.isfinite(row[k]) for k in ("d_loss", "g_loss", "gradient_penalty"))
-        assert fwad_invocations, "expected _eval_image_fwad_sq to execute during training"
+        assert fwad_invocations, f"expected {fwad_method} to execute during training"
         assert all(calls == [True] for calls in fwad_invocations), (
             f"unexpected fwAD fallback(s): {fwad_invocations}"
         )

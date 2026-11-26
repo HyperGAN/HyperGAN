@@ -46,8 +46,8 @@ def validate_replicated_recipe(config, *, accumulation_steps=1):
         unsupported = [name for name in ('input_noise_std', 'output_noise_std') if training.get(name, 0)]
         if training.get('phase_draws') == 'independent':
             unsupported.append('phase_draws=independent')
-        if recipe.get('critic_formulation') in ('rhbi', 'empf', 'unified', 'unified_v4', 'unified_v11') or recipe.get('rhbi_weight', 0) > 0:
-            unsupported.append('direct-coordinate transport (rhbi/empf/unified)')
+        if recipe.get('critic_formulation') in ('rhbi', 'empf', 'unified', 'unified_v4', 'unified_v11', 'unified_v15', 'axiom') or recipe.get('rhbi_weight', 0) > 0:
+            unsupported.append('direct-coordinate transport (rhbi/empf/unified/axiom)')
         if unsupported:
             raise ValueError('Replicated accumulation does not implement ' + ', '.join(unsupported)
                              + '; use accumulation_steps=1 to preserve these numerical policies')

@@ -59,12 +59,44 @@ def _publish_record_thermal(record: Any, scale: float) -> None:
             _publish_thermal(record, key[1], float(scale))
 
 
+def _thermal_scale_attr(record: Any) -> Optional[str]:
+    if record is None:
+        return None
+    if hasattr(record, "_thermal_scale"):
+        return "_thermal_scale"
+    if hasattr(record, "thermal_scale"):
+        return "thermal_scale"
+    return None
+
+
+def _get_thermal_scale(record: Any, default: float = 1.0) -> float:
+    attr = _thermal_scale_attr(record)
+    if attr is None:
+        return float(default)
+    return float(getattr(record, attr, default))
+
+
+def _set_thermal_scale(record: Any, scale: float) -> None:
+    attr = _thermal_scale_attr(record)
+    if attr is not None:
+        setattr(record, attr, float(scale))
+
+
+def _thermal_observer_attr(record: Any) -> Optional[str]:
+    if record is None:
+        return None
+    for attr in ("observe_t1c_thermal", "observe_thermal"):
+        if callable(getattr(record, attr, None)):
+            return attr
+    return None
+
+
 class MultiCriticThermalCoordinator:
-    """Coordinate ``_thermal_scale`` across multiple ParticleGAN critic records.
+    """Coordinate ``_thermal_scale`` / ``thermal_scale`` across multiple ParticleGAN critic records.
 
     Policy (``coupled_max``):
     - Single-critic models (<= 1 thermal critic record) are left untouched.
-    - Multi-critic models keep independent per-critic EMAs (``t1c_ema_*``,
+    - Multi-critic models keep independent per-critic EMAs (``t1c_ema_*`` / ``ema_*``,
       ``ema_margin``, ``ema_data_scale``, ``ema_push_res``) on each critic's
       step record, while applying a single synchronized effective thermal scale
       ``s_shared = max_i s_i`` to every critic record (and therefore to the
@@ -72,10 +104,10 @@ class MultiCriticThermalCoordinator:
     - During a step's generator phase, ``step_scope()`` holds every critic at
       the pre-step ``s_step`` so all critic forwards, OT coupling losses, prior
       regularization, and optimizer steps see the exact same thermal scale (zero
-      intra-step skew). Each critic's ``observe_t1c_thermal`` still updates its
+      intra-step skew). Each critic's thermal observer still updates its
       own EMAs and records its raw candidate scale; on normal step completion,
       all critic records advance together to ``s_next = max_i s_cand_i``.
-    - Because every critic record stores the synchronized ``_thermal_scale`` at
+    - Because every critic record stores the synchronized thermal scale at
       every step boundary, checkpoint/resume and replicated rank digests remain
       bit-exact with zero extra checkpoint fields.
     """
@@ -85,11 +117,11 @@ class MultiCriticThermalCoordinator:
         self._record_to_name: Dict[int, str] = {}
         for name, optimizer in critic_optimizers.items():
             record = getattr(optimizer, "record", None)
-            if record is not None and hasattr(record, "_thermal_scale"):
+            if _thermal_scale_attr(record) is not None:
                 self.critic_records[name] = record
                 self._record_to_name[id(record)] = name
         self.last_raw_scales: Dict[str, float] = {
-            name: float(getattr(rec, "_thermal_scale", 1.0))
+            name: _get_thermal_scale(rec, 1.0)
             for name, rec in self.critic_records.items()
         }
         self._logged_floor_event: bool = False
@@ -114,7 +146,7 @@ class MultiCriticThermalCoordinator:
         if not self.critic_records:
             return 1.0
         scales = [
-            float(getattr(rec, "_thermal_scale", 1.0))
+            _get_thermal_scale(rec, 1.0)
             for rec in self.critic_records.values()
         ]
         finite = [s for s in scales if math.isfinite(s) and s > 0.0]
@@ -131,7 +163,7 @@ class MultiCriticThermalCoordinator:
         target = min(1.0, target)
         if self.active:
             for rec in self.critic_records.values():
-                rec._thermal_scale = target
+                _set_thermal_scale(rec, target)
                 _publish_record_thermal(rec, target)
         return target
 
@@ -140,7 +172,7 @@ class MultiCriticThermalCoordinator:
         rec = getattr(getattr(term, "gan", None), "record", None)
         if rec is None:
             return 1.0, 1.0
-        eff = float(getattr(rec, "_thermal_scale", 1.0))
+        eff = _get_thermal_scale(rec, 1.0)
         if not math.isfinite(eff) or eff <= 0.0:
             eff = 1.0
         name = self._record_to_name.get(id(rec))
@@ -155,20 +187,21 @@ class MultiCriticThermalCoordinator:
         if not self.active:
             yield self.effective_scale()
             for name, rec in self.critic_records.items():
-                self.last_raw_scales[name] = float(getattr(rec, "_thermal_scale", 1.0))
+                self.last_raw_scales[name] = _get_thermal_scale(rec, 1.0)
             return
 
         s_step = self.synchronize()
         candidates: Dict[str, float] = {}
-        saved_overrides: Dict[str, Tuple[Any, bool, Any]] = {}
+        saved_overrides: Dict[str, Tuple[Any, str, bool, Any]] = {}
 
         for name, rec in self.critic_records.items():
-            orig = getattr(rec, "observe_t1c_thermal", None)
-            if not callable(orig):
+            obs_attr = _thermal_observer_attr(rec)
+            if obs_attr is None:
                 continue
-            had_instance_attr = "observe_t1c_thermal" in rec.__dict__
-            prev_instance_val = rec.__dict__.get("observe_t1c_thermal")
-            saved_overrides[name] = (rec, had_instance_attr, prev_instance_val)
+            orig = getattr(rec, obs_attr)
+            had_instance_attr = obs_attr in rec.__dict__
+            prev_instance_val = rec.__dict__.get(obs_attr)
+            saved_overrides[name] = (rec, obs_attr, had_instance_attr, prev_instance_val)
 
             def _intercept(
                 *args: Any,
@@ -184,25 +217,25 @@ class MultiCriticThermalCoordinator:
                 candidates[_name] = s_raw if prev is None else max(prev, s_raw)
                 # Hold all critics at s_step throughout the current generator step
                 # so no term's OT loss or critic hook sees an asymmetric mid-step scale.
-                _rec._thermal_scale = s_step
+                _set_thermal_scale(_rec, s_step)
                 return s_step
 
-            rec.observe_t1c_thermal = _intercept
+            setattr(rec, obs_attr, _intercept)
 
         succeeded = False
         try:
             yield s_step
             succeeded = True
         finally:
-            for rec, had_attr, prev_val in saved_overrides.values():
+            for rec, obs_attr, had_attr, prev_val in saved_overrides.values():
                 if had_attr:
-                    rec.__dict__["observe_t1c_thermal"] = prev_val
+                    rec.__dict__[obs_attr] = prev_val
                 else:
-                    rec.__dict__.pop("observe_t1c_thermal", None)
+                    rec.__dict__.pop(obs_attr, None)
 
         if succeeded:
             per_critic_next = {
-                name: candidates.get(name, float(getattr(rec, "_thermal_scale", s_step)))
+                name: candidates.get(name, _get_thermal_scale(rec, s_step))
                 for name, rec in self.critic_records.items()
             }
             s_next = min(1.0, max(per_critic_next.values()))

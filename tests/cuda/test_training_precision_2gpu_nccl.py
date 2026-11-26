@@ -88,7 +88,9 @@ try:
     trainer = ReplicatedTrainer(config, world_size=2, accumulation_steps=1)
     assert trainer.graph._bf16_components == frozenset({"generator", "discriminator"})
     assert trainer.graph._channels_last_components == frozenset({"generator", "discriminator"})
-    assert getattr(trainer._generator_probe, "_unified_v4_bf16_autocast", False) is True
+    form_attr = "_axiom_bf16_autocast" if getattr(trainer.recipe, "effective_critic_formulation", None) == "axiom" else "_unified_v4_bf16_autocast"
+    assert getattr(trainer._generator_probe, "_particlegan_bf16_autocast", False) is True
+    assert getattr(trainer._generator_probe, form_attr, False) is True
     for p in trainer.graph.parameters():
         assert p.dtype == torch.float32 and p.layout == torch.strided
     conv_w = [

@@ -366,7 +366,7 @@ def _uses_simplicial_manifold_loss(recipe, real, *, prior, is_discrete_prior, co
         if explicit_cap is not None and per_sample > int(explicit_cap):
             return False
         formulation = getattr(recipe, "effective_critic_formulation", None)
-        if formulation == "unified_v11" and per_sample > 1024:
+        if formulation in ("unified_v11", "unified_v15", "axiom") and per_sample > 1024:
             return False
         if (
             formulation in ("unified", "unified_v4", "r4_autograd_critic", "cond_fiber")
@@ -398,13 +398,77 @@ def _rhbi_generator_context(trainer, terms, real=None):
     return rhbi, is_discrete, use_simplex
 
 
+def _prepare_discrete_prior_step(trainer, rhbi_mod, is_discrete_prior, use_rhbi_simplex, ids, real_batch):
+    """Bind discrete-prior & simplicial-manifold state for the generator step (RHBI/t1c/Axiom)."""
+    if rhbi_mod is None:
+        return False
+    formulation = getattr(trainer.recipe, "effective_critic_formulation", None)
+    is_axiom_atomic = False
+    rec_ax = getattr(trainer.opt_d, "record", None) if formulation == "axiom" else None
+    if formulation == "axiom":
+        if rec_ax is not None and is_discrete_prior and hasattr(trainer.prior, "z"):
+            rec_ax._active_prior_table = trainer.prior.z
+            rec_ax._active_batch_rows = ids.detach() if ids is not None else None
+        if use_rhbi_simplex and isinstance(real_batch, torch.Tensor) and len(real_batch) >= 8:
+            from particlegan._axiom.transport import compute_discrete_atomic_gate, project_transport_features
+
+            y_proj = project_transport_features(real_batch.detach(), max_spatial=getattr(rhbi_mod, "max_spatial", 8))
+            cs = getattr(rec_ax, "chart_state", None) if rec_ax is not None else None
+            ch = None
+            rd = None
+            if (
+                isinstance(cs, dict)
+                and isinstance(cs.get("sum"), torch.Tensor)
+                and isinstance(cs.get("count"), torch.Tensor)
+                and cs["sum"].shape[1] == y_proj.shape[1]
+            ):
+                cc = cs["count"].to(device=real_batch.device, dtype=torch.float32).clamp_min(1e-8)
+                ch = cs["sum"].to(device=real_batch.device, dtype=torch.float32) / cc.unsqueeze(1)
+                if isinstance(cs.get("sq_dev"), torch.Tensor):
+                    rd = (cs["sq_dev"].to(device=real_batch.device, dtype=torch.float32) / cc).clamp_min(1e-12).sqrt()
+            is_axiom_atomic = compute_discrete_atomic_gate(y_proj, charts=ch, radii=rd) > 0.5
+    effective_simplex = bool(use_rhbi_simplex and not is_axiom_atomic)
+    simplicial_active = bool(
+        effective_simplex
+        and getattr(trainer.recipe, "rhbi_simplex_chart_weight", 0.0) > 0.0
+        and (formulation == "axiom" or getattr(trainer.recipe, "rhbi_simplex_macro_settle", False))
+    )
+    rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
+    if rec_ax is not None and hasattr(rec_ax, "_simplicial_step"):
+        rec_ax._simplicial_step = bool(simplicial_active)
+    return effective_simplex
+
+
+def _clear_discrete_prior_step(trainer, rhbi_mod):
+    if rhbi_mod is not None:
+        rhbi_mod.bind_discrete_prior_step(False)
+    if getattr(trainer.recipe, "effective_critic_formulation", None) == "axiom":
+        rec_ax = getattr(trainer.opt_d, "record", None)
+        if rec_ax is not None:
+            if hasattr(rec_ax, "_simplicial_step"):
+                rec_ax._simplicial_step = False
+            if hasattr(rec_ax, "_active_prior_table"):
+                rec_ax._active_prior_table = None
+            if hasattr(rec_ax, "_active_batch_rows"):
+                rec_ax._active_batch_rows = None
+
+
 def _rhbi_simplex_loss(trainer, rhbi, selected_ids, real_batch):
-    """Evaluate the RHBI simplicial manifold regularizer on an unconditional discrete ParticlePrior."""
+    """Evaluate the RHBI/Axiom simplicial manifold regularizer on an unconditional discrete ParticlePrior."""
     raw_base = trainer.prior.z
     base_table = raw_base if len(raw_base) <= 1024 or selected_ids is None else raw_base[selected_ids]
+    gen_fn = lambda z_q: trainer.graph.generate(z_q, {}, prior=trainer.prior)["generated"]
+    if getattr(trainer.recipe, "effective_critic_formulation", None) == "axiom":
+        return trainer.recipe.rhbi_simplex_weight * rhbi.simplicial_manifold_loss(
+            base_table,
+            gen_fn,
+            real_batch,
+            record=getattr(trainer.opt_d, "record", None),
+            chart_weight=trainer.recipe.rhbi_simplex_chart_weight,
+        )
     return trainer.recipe.rhbi_simplex_weight * rhbi.simplicial_manifold_loss(
         base_table,
-        lambda z_q: trainer.graph.generate(z_q, {}, prior=trainer.prior)["generated"],
+        gen_fn,
         real_batch,
         record=getattr(trainer.opt_d, "record", None),
         chart_weight=trainer.recipe.rhbi_simplex_chart_weight,
@@ -578,13 +642,10 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             if independent:
                 batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
             trainer.opt_g.zero_grad(set_to_none=True)
-            if rhbi_mod is not None:
-                simplicial_active = bool(
-                    use_rhbi_simplex
-                    and getattr(trainer.recipe, "rhbi_simplex_chart_weight", 0.0) > 0.0
-                    and getattr(trainer.recipe, "rhbi_simplex_macro_settle", False)
-                )
-                rhbi_mod.bind_discrete_prior_step(is_discrete_prior, simplicial_active=simplicial_active)
+            gen_real_batch = batch.get("real") if isinstance(batch, dict) else d_real_samples
+            effective_simplex = _prepare_discrete_prior_step(
+                trainer, rhbi_mod, is_discrete_prior, use_rhbi_simplex, ids, gen_real_batch
+            )
             simplex_loss = None
             if len(terms) == 1:
                 term = terms[0]
@@ -592,7 +653,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                     term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
                 g_adversarial = term.gan.g_loss(fake_score, real_score)
                 prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
-                if use_rhbi_simplex and rhbi_mod is not None:
+                if effective_simplex and rhbi_mod is not None:
                     unique_ids = ids.unique() if ids is not None else None
                     simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
                 g_adversarial_weighted = term.generator_weight * g_adversarial
@@ -635,8 +696,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
                     prior_grad_norm_t = zero_scalar
             trainer.opt_g.step()
     finally:
-        if rhbi_mod is not None:
-            rhbi_mod.bind_discrete_prior_step(False)
+        _clear_discrete_prior_step(trainer, rhbi_mod)
         for module, flags in saved_flags:
             for parameter, flag in zip(module.parameters(), flags):
                 parameter.requires_grad_(flag)

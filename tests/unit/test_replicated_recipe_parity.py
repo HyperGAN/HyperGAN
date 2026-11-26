@@ -244,7 +244,10 @@ def test_replicated_parity_particlegan_preset(tmp_path):
     """Smoke test: resolved ParticleGAN preset recipe with recipe optimizer matches reference."""
     config = {
         "defaults": "particlegan",
-        "gradient_penalty": {"lazy_k": 2},
+        # Axiom enforces reg_every=1 (clock-free penalty); coeff=0.0 mirrors the
+        # original lazy_k=2 step-1 penalty bypass while testing exact 2-rank parity
+        # of Axiom's coupled loss, transport, simplicial prior, and optimizer.
+        "gradient_penalty": {"coeff": 0.0},
         "training": {"steps": 1, "batch_size": 8, "device": "cpu", "seed": 42},
         "prior": {"kind": "particles", "args": {"num_particles": 16, "z_dim": 4}},
         "components": {
@@ -268,10 +271,10 @@ def test_replicated_parity_particlegan_preset(tmp_path):
 
 
 def test_replicated_parity_particlegan_preset_mog(tmp_path):
-    """Smoke test: resolved ParticleGAN preset (RHBI) with MoG prior matches reference."""
+    """Smoke test: resolved ParticleGAN preset with MoG prior matches reference."""
     config = {
         "defaults": "particlegan",
-        "gradient_penalty": {"lazy_k": 2},
+        "gradient_penalty": {"coeff": 0.0},
         "training": {"steps": 1, "batch_size": 8, "device": "cpu", "seed": 42},
         "prior": {"kind": "mog", "fixed_sigma": 0.05, "args": {"num_particles": 16, "z_dim": 4}},
         "components": {
@@ -442,9 +445,9 @@ def _unified_v12_highres_worker(rank, world_size, config_dict, full_batches, sha
 
 
 def test_replicated_unified_v12_highres_image_replica_agreement(tmp_path):
-    """2-rank unified_v12 (default preset) on 4D high-res images maintains exact replica agreement."""
+    """2-rank unified_v12 on 4D high-res images maintains exact replica agreement."""
     config = {
-        "defaults": "particlegan",
+        "defaults": "particlegan:unified_v12",
         "training": {
             "steps": 3,
             "batch_size": 8,
@@ -497,3 +500,113 @@ def test_replicated_unified_v12_highres_image_replica_agreement(tmp_path):
     assert abs(r0["g_func_gain"] - 0.6) < 1e-6
     assert abs(r0["opt_g_ema_flip_cos"] - (-0.4)) < 1e-6
     assert len(r0["opt_g_prev_flip_sketch"]) == 67
+
+
+def _axiom_image_worker(rank, world_size, config_dict, full_batches, shared_dir):
+    """Run 3 4D image steps on 2 ranks with default Axiom preset and verify controller sync."""
+    from hypergan.aggregation import _synchronize_optimizers
+
+    config = resolve_config(config_dict)
+    replicated = ReplicatedCPUTrainer(config, world_size=world_size, accumulation_steps=1)
+    assert replicated.recipe.name == "axiom"
+    assert replicated.recipe.optimizer_family == "axiom"
+    assert replicated.recipe.effective_critic_formulation == "axiom"
+    for full_batch in full_batches:
+        local_batch = {"real": full_batch["real"].chunk(world_size)[rank]}
+        local_ids = full_batch["_ids"].chunk(world_size)[rank]
+        prior_arg = (replicated.prior.z[local_ids], local_ids)
+        replicated.update(local_batch, prior_arg)
+    replicated._assert_replicas("axiom image step 3")
+
+    # Exercise local-SGD synchronization for AxiomOptimizer + AxiomStepRecord state.
+    rec = replicated.opt_d.record
+    rec.g_func_gain = 0.4 if rank == 0 else 0.8
+    rec.thermal_scale = 0.5 if rank == 0 else 0.9
+    replicated.opt_g._flush_scalars()
+    replicated.opt_g._ema_step_cos_val = -0.2 if rank == 0 else -0.6
+    replicated.opt_g._log2_damp_val = -0.2 if rank == 0 else -0.8
+    replicated.opt_g._crit_skew_ema = 0.4 if rank == 0 else 1.2
+    sketch = torch.zeros(128, dtype=torch.float32)
+    sketch[0] = 1.0 if rank == 0 else 0.6
+    sketch[1] = 0.0 if rank == 0 else 0.8
+    replicated.opt_g._prev_step_sketch = sketch
+    _synchronize_optimizers(replicated, None, world_size)
+    replicated._assert_replicas("axiom synced controller state")
+
+    torch.save(
+        {
+            "digest": replicated._replica_digest(),
+            "ema_margin": rec.ema_margin,
+            "ema_data_scale": rec.ema_data_scale,
+            "ema_push_res": rec.ema_push_res,
+            "margin_initialized": rec.margin_initialized,
+            "g_func_gain": rec.g_func_gain,
+            "thermal_scale": rec.thermal_scale,
+            "opt_g_ema_step_cos": replicated.opt_g.ema_step_cos,
+            "opt_g_log2_damp": replicated.opt_g.log2_damp,
+            "opt_g_crit_skew_ema": replicated.opt_g._crit_skew_ema,
+            "opt_g_prev_step_sketch": replicated.opt_g._prev_step_sketch.tolist(),
+        },
+        Path(shared_dir) / f"rank-{rank}.pt",
+    )
+
+
+def test_replicated_axiom_image_replica_agreement(tmp_path):
+    """2-rank Axiom (default preset) on 4D images maintains exact replica agreement."""
+    config = {
+        "defaults": "particlegan",
+        "training": {
+            "steps": 3,
+            "batch_size": 8,
+            "device": "cpu",
+            "seed": 42,
+            "initialization": "deterministic_orthogonal",
+        },
+        "prior": {"kind": "mog", "fixed_sigma": 0.2, "args": {"num_particles": 16, "z_dim": 4}},
+        "components": {
+            "generator": {
+                "factory": "hndl",
+                "args": {
+                    "source": "linear(1200)\nreshape(3,20,20)\ntanh()",
+                    "input_shape": ["B", 4],
+                    "output_shape": ["B", 3, 20, 20],
+                },
+                "inputs": {"x": "latent"},
+            },
+            "discriminator": {
+                "factory": "hndl",
+                "args": {
+                    "source": "conv(8, kernel_size=3, padding=1)\nleaky_relu(0.2)\nadaptive_avg_pool(2)\nflatten()\nlinear(1)",
+                    "input_shape": ["B", 3, 20, 20],
+                    "output_shape": ["B", 1],
+                },
+                "inputs": {"x": "candidate"},
+            },
+        },
+    }
+    gen = torch.Generator().manual_seed(7)
+    full_batches = [
+        {
+            "real": torch.randn(8, 3, 20, 20, generator=gen),
+            "_ids": torch.arange(8, dtype=torch.long),
+        }
+        for _ in range(3)
+    ]
+    launch_cpu_workers(
+        _axiom_image_worker,
+        args=(config, full_batches, str(tmp_path)),
+        world_size=2,
+        timeout=60,
+        collective_timeout=20,
+    )
+    r0 = torch.load(tmp_path / "rank-0.pt", weights_only=False)
+    r1 = torch.load(tmp_path / "rank-1.pt", weights_only=False)
+    assert r0 == r1
+    assert r0["margin_initialized"] is True
+    assert r0["ema_data_scale"] > 0.0
+    assert abs(r0["g_func_gain"] - 0.6) < 1e-6
+    assert abs(r0["thermal_scale"] - 0.7) < 1e-6
+    assert abs(r0["opt_g_ema_step_cos"] - (-0.4)) < 1e-6
+    assert abs(r0["opt_g_log2_damp"] - (-0.5)) < 1e-6
+    assert abs(r0["opt_g_crit_skew_ema"] - 0.8) < 1e-6
+    assert len(r0["opt_g_prev_step_sketch"]) == 128

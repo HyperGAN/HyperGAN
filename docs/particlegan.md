@@ -1,8 +1,8 @@
 # ParticleGAN integration
 
-HyperGAN consumes ParticleGAN's released GAN recipe through
-`defaults = "particlegan"`. The `train` and `all` extras require ParticleGAN
-`>=0.12.0,<0.13`; 0.12.0 is the current released compatibility baseline.
+HyperGAN consumes ParticleGAN's GAN recipe through
+`defaults = "particlegan"`. The `train` and `all` extras track ParticleGAN's
+`develop` branch (`0.13.0` development baseline).
 ParticleGAN owns the formulation and its selected
 loss, learning rates, hyperparameters, normalization, regularizers and optimizer
 implementations. HyperGAN owns networks and bindings, datasets, task objectives,
@@ -24,7 +24,7 @@ loss, penalty, prior policy, regularization, schedules and optimizer constructio
 to the recipe's public factories. The Model tab identifies ParticleGAN as the
 provider and shows host settings, loss metrics and networks.
 
-ParticleGAN 0.12.0 selects `unified_v12` (energy-optimal Unified 4-Law) by default. Select a specific preset with, for example, `defaults = "particlegan:unified_v11"`, `defaults = "particlegan:empf"`, or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Unified-v12, Unified-v11, and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
+ParticleGAN 0.13.0 (`origin/develop`) selects `axiom` by default. Select a specific preset with, for example, `defaults = "particlegan:unified_v12"`, `defaults = "particlegan:unified_v11"`, `defaults = "particlegan:empf"`, or `defaults = "particlegan:bispf_optimized"`. The packaged `cifar10-tiny-transformer` uses a frozen ResNet-18 critic and a 16,384-particle prior. Single-host replicated training synchronizes Axiom, Unified-v12, Unified-v11, and EMPF state across ranks. The CIFAR guide identifies the ParticleGAN version and preset for each measured run. [CIFAR results](cifar-recipe.md) · [Multi-GPU scope](multigpu-readiness.md)
 
 Each distinct critic named by an adversarial loss gets its own recipe loss, optimizer, penalty and step record. Each optimizer steps once per critic phase. Repeated terms for the same critic share its optimizer and record. During the generator phase all critics are frozen. Their weighted objectives and the single shared prior regularizer feed one backward pass and one generator/prior optimizer step. The first critic supplies the recipe record read by that shared optimizer and regularizer.
 
@@ -76,11 +76,10 @@ parameter instead of the `cls_token` operator's rank-three broadcast tensor.
 
 ParticleGAN 0.9.5 adds `Recipe.from_dict(saved_fields)` and rejects partial
 `Recipe(...)` construction. HyperGAN uses the restoration API when available
-and retains the legacy restoration fallback for 0.9.4. Install the current
-release from PyPI:
+and retains the legacy restoration fallback for 0.9.4. Install the development branch:
 
 ```sh
-python -m pip install --upgrade 'particlegan>=0.12.0,<0.13'
+python -m pip install --upgrade 'particlegan @ git+https://github.com/HyperGAN/ParticleGAN.git@develop'
 ```
 
 Fresh parameter initialization uses ParticleGAN's public initializer when

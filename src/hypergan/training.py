@@ -540,6 +540,26 @@ class ReferenceTrainer:
                 if hasattr(self.opt_g, '_conv_layouts'):
                     self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
                 self._bind_generator_probe(record, record_probe=record_probe)
+        elif formulation == 'axiom':
+            from particlegan.axiom import (
+                _attach_axiom_critic_hook,
+                bind_axiom_record,
+                collect_conv_layouts,
+            )
+            from particlegan._axiom.critic import _axiom_generator_hook
+
+            bind_axiom_record(record, loss, optimizer, *shared)
+            _attach_axiom_critic_hook(getattr(optimizer, 'critic', None), record)
+            if primary:
+                if self.spread is not None and hasattr(self.spread, 'axiom_record'):
+                    self.spread.axiom_record = record
+                if hasattr(self.opt_g, '_conv_layouts'):
+                    self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
+
+                def _record_axiom_probe(probe_module, p_args, p_kwargs, output, _rec, **_kw):
+                    _axiom_generator_hook(probe_module, p_args, p_kwargs, output)
+
+                self._bind_generator_probe(record, record_probe=_record_axiom_probe)
         elif (formulation == 'rhbi' or getattr(self.recipe, 'rhbi_weight', 0) > 0
               or getattr(self.recipe, 'rhbi_critic_weight', 0) > 0):
             from particlegan.rhbi import bind_rhbi_record
@@ -556,11 +576,14 @@ class ReferenceTrainer:
             self.opt_g.set_generator_probe_parameters(probe_params)
         elif hasattr(self.opt_g, '_gen_param_ids'):
             self.opt_g._gen_param_ids = {id(p) for p in probe_params}
-        probe_module._unified_v11_record = record
-        probe_module._unified_v11_gen_has_bn = any(
+        has_bn = any(
             isinstance(m, (torch.nn.modules.batchnorm._BatchNorm, torch.nn.modules.dropout._DropoutNd))
             for m in probe_module.modules()
         )
+        probe_module._unified_v11_record = record
+        probe_module._unified_v11_gen_has_bn = has_bn
+        probe_module._axiom_record = record
+        probe_module._axiom_has_bn = has_bn
         probe_bf16 = any(name in self.graph._bf16_components for name in probe_module._components)
         probe_module._hypergan_bf16_autocast = probe_bf16
         _pg_configure_bf16_autocast(self.recipe, probe_module, probe_bf16)

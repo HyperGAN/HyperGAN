@@ -189,19 +189,67 @@ def _resolve_comm_device(trainer: Any = None, optimizers: Any = None) -> torch.d
 def _synchronize_optimizer_moments(
     opts: Any, world_size: int, comm_device: torch.device
 ) -> None:
-    """Synchronize optimizer floating moment buffers across ranks."""
+    """Synchronize optimizer floating moment buffers and per-param float/bool scalars across ranks."""
     for opt in opts:
-        for param_state in getattr(opt, "state", {}).values():
-            for key, val in param_state.items():
-                if (
-                    key != "step"
-                    and isinstance(val, torch.Tensor)
-                    and val.is_floating_point()
-                    and val.device == comm_device
-                ):
-                    data = val.data.contiguous()
-                    dist.all_reduce(data, op=dist.ReduceOp.SUM)
-                    val.data.copy_(data / world_size)
+        flush_fast = getattr(opt, "_flush_fast_cache", None)
+        if callable(flush_fast):
+            flush_fast()
+        for group in getattr(opt, "param_groups", []):
+            for p in group.get("params", []):
+                param_state = getattr(opt, "state", {}).get(p)
+                if not isinstance(param_state, dict):
+                    continue
+                for key, val in param_state.items():
+                    if (
+                        key != "step"
+                        and isinstance(val, torch.Tensor)
+                        and val.is_floating_point()
+                        and val.device == comm_device
+                    ):
+                        data = val.data.contiguous()
+                        dist.all_reduce(data, op=dist.ReduceOp.SUM)
+                        val.data.copy_(data / world_size)
+                if "log2_ref" in param_state:
+                    lr_t = torch.tensor([float(param_state["log2_ref"])], dtype=torch.float64, device=comm_device)
+                    dist.all_reduce(lr_t, op=dist.ReduceOp.SUM)
+                    param_state["log2_ref"] = float((lr_t / world_size).item())
+                if "log2_init" in param_state:
+                    li_t = torch.tensor([int(bool(param_state["log2_init"]))], dtype=torch.int32, device=comm_device)
+                    dist.all_reduce(li_t, op=dist.ReduceOp.MAX)
+                    param_state["log2_init"] = bool(li_t.item())
+        if hasattr(opt, "_fast_cache") and getattr(opt, "_fast_cache", None) is not None:
+            opt._fast_cache = None
+
+
+def _sync_unit_sketch(opt: Any, attr: str, comm_device: torch.device, world_size: int) -> None:
+    """Synchronize a 1D unit-normalized sketch tensor attribute across ranks."""
+    sk = getattr(opt, attr, None)
+    has_sk = isinstance(sk, torch.Tensor) and sk.ndim == 1 and sk.numel() > 0
+    sk_meta = torch.tensor([int(has_sk), int(sk.numel()) if has_sk else 0], dtype=torch.int64, device=comm_device)
+    all_sk_meta = [torch.zeros_like(sk_meta) for _ in range(world_size)]
+    dist.all_gather(all_sk_meta, sk_meta)
+    sk_rows = [t.tolist() for t in all_sk_meta]
+    if all(row[0] == 1 and row == sk_rows[0] for row in sk_rows):
+        orig_dev = sk.device
+        sk_buf = sk.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+        dist.all_reduce(sk_buf, op=dist.ReduceOp.SUM)
+        sk_nrm = sk_buf.norm()
+        if bool(torch.isfinite(sk_nrm)) and float(sk_nrm.item()) > 1e-30:
+            setattr(opt, attr, (sk_buf / sk_nrm).to(device=orig_dev))
+        else:
+            setattr(opt, attr, None)
+    elif sk_rows[0][0] == 1:
+        dim_sk = int(sk_rows[0][1])
+        orig_dev = sk.device if has_sk else comm_device
+        sk_buf = (
+            sk.detach().to(device=comm_device, dtype=torch.float32).contiguous()
+            if dist.get_rank() == 0
+            else torch.empty((dim_sk,), dtype=torch.float32, device=comm_device)
+        )
+        dist.broadcast(sk_buf, src=0)
+        setattr(opt, attr, sk_buf.to(device=orig_dev))
+    else:
+        setattr(opt, attr, None)
 
 
 def _synchronize_optimizer_regularizers(
@@ -209,12 +257,12 @@ def _synchronize_optimizer_regularizers(
 ) -> None:
     """Synchronize all optimizer regularizer states across ranks (Issue #186 M2).
 
-    ParticleGAN optimizers (DeviceK3PGeneratorAdam and DeviceKA2CriticAdam) maintain
-    internal regularizer states (opt_g: latent_history, opt_d: record with last_sur,
-    ema_residual, ema_data_scale, and ema_critic modules). During multi-rank local steps
-    on distinct shards, these states drift. At synchronization boundaries, this function
-    synchronizes both tensor buffers and scalar controller records across all ranks
-    so that ReplicatedTrainer._replica_digest achieves bitwise replica agreement.
+    ParticleGAN optimizers (DeviceK3PGeneratorAdam, DeviceKA2CriticAdam,
+    UnifiedV11/V12 optimizers, and AxiomOptimizer) maintain internal regularizer
+    states. During multi-rank local steps on distinct shards, these states drift.
+    At synchronization boundaries, this function synchronizes both tensor buffers
+    and scalar controller records across all ranks so that
+    ReplicatedTrainer._replica_digest achieves bitwise replica agreement.
     """
     if not dist.is_available() or not dist.is_initialized():
         return
@@ -244,7 +292,10 @@ def _synchronize_optimizer_regularizers(
                 dist.all_reduce(data, op=dist.ReduceOp.SUM)
                 hist.data.copy_(data / world_size)
 
-        # 1b. Synchronize Unified-v11 / Unified-v12 function-space conditioning scalars on optimizers
+        # 1b. Synchronize Unified-v11 / Unified-v12 / Axiom function-space conditioning scalars on optimizers
+        flush_scalars = getattr(opt, "_flush_scalars", None)
+        if callable(flush_scalars):
+            flush_scalars()
         if hasattr(opt, "_ema_func_gain"):
             fg = torch.tensor([float(opt._ema_func_gain)], dtype=torch.float64, device=comm_device)
             dist.all_reduce(fg, op=dist.ReduceOp.SUM)
@@ -258,33 +309,31 @@ def _synchronize_optimizer_regularizers(
             dist.all_reduce(fc, op=dist.ReduceOp.SUM)
             opt._ema_flip_cos = max(-1.0, min(1.0, float((fc / world_size).item())))
         if hasattr(opt, "_prev_flip_sketch"):
-            sk = getattr(opt, "_prev_flip_sketch", None)
-            has_sk = isinstance(sk, torch.Tensor) and sk.ndim == 1 and sk.numel() > 0
-            sk_meta = torch.tensor([int(has_sk), int(sk.numel()) if has_sk else 0], dtype=torch.int64, device=comm_device)
-            all_sk_meta = [torch.zeros_like(sk_meta) for _ in range(world_size)]
-            dist.all_gather(all_sk_meta, sk_meta)
-            sk_rows = [t.tolist() for t in all_sk_meta]
-            if all(row[0] == 1 and row == sk_rows[0] for row in sk_rows):
-                orig_dev = sk.device
-                sk_buf = sk.detach().to(device=comm_device, dtype=torch.float32).contiguous()
-                dist.all_reduce(sk_buf, op=dist.ReduceOp.SUM)
-                sk_nrm = sk_buf.norm()
-                if bool(torch.isfinite(sk_nrm)) and float(sk_nrm.item()) > 1e-30:
-                    opt._prev_flip_sketch = (sk_buf / sk_nrm).to(device=orig_dev)
-                else:
-                    opt._prev_flip_sketch = None
-            elif sk_rows[0][0] == 1:
-                dim_sk = int(sk_rows[0][1])
-                orig_dev = sk.device if has_sk else comm_device
-                sk_buf = (
-                    sk.detach().to(device=comm_device, dtype=torch.float32).contiguous()
-                    if dist.get_rank() == 0
-                    else torch.empty((dim_sk,), dtype=torch.float32, device=comm_device)
-                )
-                dist.broadcast(sk_buf, src=0)
-                opt._prev_flip_sketch = sk_buf.to(device=orig_dev)
-            else:
-                opt._prev_flip_sketch = None
+            _sync_unit_sketch(opt, "_prev_flip_sketch", comm_device, world_size)
+        if hasattr(opt, "_ema_step_cos_val"):
+            ax_sc = torch.tensor(
+                [
+                    float(opt._ema_step_cos_val),
+                    float(getattr(opt, "_log2_damp_val", 0.0)),
+                    float(getattr(opt, "_crit_skew_ema", 0.0)),
+                ],
+                dtype=torch.float64,
+                device=comm_device,
+            )
+            dist.all_reduce(ax_sc, op=dist.ReduceOp.SUM)
+            ax_sc /= world_size
+            ax_vals = ax_sc.tolist()
+            opt._ema_step_cos_val = max(-1.0, min(1.0, float(ax_vals[0])))
+            if hasattr(opt, "_ema_step_cos_t"):
+                opt._ema_step_cos_t = None
+            if hasattr(opt, "_log2_damp_val"):
+                opt._log2_damp_val = max(-10.0, min(0.0, float(ax_vals[1])))
+            if hasattr(opt, "_log2_damp_t"):
+                opt._log2_damp_t = None
+            if hasattr(opt, "_crit_skew_ema"):
+                opt._crit_skew_ema = max(0.0, float(ax_vals[2]))
+        if hasattr(opt, "_prev_step_sketch"):
+            _sync_unit_sketch(opt, "_prev_step_sketch", comm_device, world_size)
 
         # 2. Synchronize critic step record scalar records (opt_d.record)
         rec = getattr(opt, "record", None)
@@ -299,6 +348,8 @@ def _synchronize_optimizer_regularizers(
                 sync_empf_record(rec, comm_device, world_size)
             elif hasattr(rec, "t1c_ell_initialized"):
                 sync_unified_v11_record(rec, comm_device, world_size)
+            elif hasattr(rec, "chart_state") and hasattr(rec, "thermal_scale"):
+                sync_axiom_record(rec, comm_device, world_size)
             else:
                 # Synchronize ema_residual and ema_data_scale
                 if hasattr(rec, "ema_residual") and hasattr(rec, "ema_data_scale"):
@@ -628,6 +679,140 @@ def sync_unified_v11_record(rec: Any, comm_device: torch.device, world_size: int
             dist.broadcast_object_list(pkt, src=0)
             if pkt[0] is not None and dist.get_rank() != 0:
                 bank.load_packet(pkt[0])
+
+
+def _payload_to_cpu(obj: Any) -> Any:
+    if isinstance(obj, torch.Tensor):
+        return obj.detach().cpu().clone()
+    if isinstance(obj, dict):
+        return {k: _payload_to_cpu(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_payload_to_cpu(v) for v in obj)
+    return obj
+
+
+def sync_axiom_record(rec: Any, comm_device: torch.device, world_size: int) -> None:
+    """Synchronize AxiomStepRecord scalars, flags, charts, atomic ledger, and fiber bank across ranks."""
+    if rec is None or world_size <= 1 or not (hasattr(rec, "chart_state") and hasattr(rec, "thermal_scale")):
+        return
+    if hasattr(rec, "_flush_ema"):
+        rec._flush_ema()
+
+    flags = torch.tensor(
+        [
+            int(bool(rec.grad_sq_initialized)),
+            int(bool(rec.margin_initialized)),
+            int(bool(rec.ell_initialized)),
+            int(bool(rec.thermal_initialized)),
+            int(bool(rec.cond_initialized)),
+            int(bool(rec.het_initialized)),
+            int(rec.chart_state is not None),
+            int(rec.atomic_ledger is not None),
+            int(rec._cond_bank_obj is not None or rec.cond_fiber_bank is not None),
+        ],
+        dtype=torch.int32,
+        device=comm_device,
+    )
+    dist.all_reduce(flags, op=dist.ReduceOp.MAX)
+    f_vals = flags.tolist()
+    rec.grad_sq_initialized = bool(f_vals[0])
+    rec.margin_initialized = bool(f_vals[1])
+    rec.ell_initialized = bool(f_vals[2])
+    rec.thermal_initialized = bool(f_vals[3])
+    rec.cond_initialized = bool(f_vals[4])
+    rec.het_initialized = bool(f_vals[5])
+    has_chart, has_ledger, has_bank = bool(f_vals[6]), bool(f_vals[7]), bool(f_vals[8])
+
+    scalars = torch.tensor(
+        [
+            float(rec.ema_grad_sq),
+            float(rec.ema_margin),
+            float(rec.ema_data_scale),
+            float(rec.last_data_scale),
+            float(rec.ema_push_res),
+            float(rec.ell_ema),
+            float(rec.thermal_scale),
+            float(rec.step_scale),
+            float(rec.cond_ema),
+            float(rec.het_ema),
+            float(rec.g_func_gain),
+            float(rec.ema_ed),
+            float(rec.ema_mu_sq),
+            float(rec.ema_spread),
+            float(rec.ema_q90),
+            float(rec.ema_hmax),
+            float(rec.ema_tail),
+        ],
+        dtype=torch.float64,
+        device=comm_device,
+    )
+    dist.all_reduce(scalars, op=dist.ReduceOp.SUM)
+    scalars /= world_size
+    s_vals = scalars.tolist()
+    rec.ema_grad_sq = max(0.0, float(s_vals[0]))
+    rec.ema_margin = max(-60.0, min(60.0, float(s_vals[1])))
+    rec.ema_data_scale = max(1e-30, float(s_vals[2]))
+    rec.last_data_scale = max(1e-30, float(s_vals[3]))
+    rec.ema_push_res = max(0.0, float(s_vals[4]))
+    rec.ell_ema = max(0.0, float(s_vals[5]))
+    rec.thermal_scale = max(1e-5, min(1.0, float(s_vals[6])))
+    rec.thermal_locked = bool(rec.thermal_scale <= 1e-4)
+    rec.step_scale = max(1e-6, min(1.0, float(s_vals[7])))
+    rec.cond_ema = max(-0.5, min(2.0, float(s_vals[8])))
+    rec.het_ema = max(0.0, float(s_vals[9]))
+    rec.g_func_gain = max(1e-6, min(1.0, float(s_vals[10])))
+    rec.ema_ed = float(s_vals[11])
+    rec.ema_mu_sq = float(s_vals[12])
+    rec.ema_spread = float(s_vals[13])
+    rec.ema_q90 = float(s_vals[14])
+    rec.ema_hmax = float(s_vals[15])
+    rec.ema_tail = float(s_vals[16])
+
+    phase_meta = torch.tensor(
+        [
+            float(rec.chord_phase),
+            float(int(rec.calls)),
+            float(int(rec.observed_steps)),
+            -1.0 if rec.last_ratio is None else float(rec.last_ratio),
+        ],
+        dtype=torch.float64,
+        device=comm_device,
+    )
+    dist.broadcast(phase_meta, src=0)
+    p_vals = phase_meta.tolist()
+    rec.chord_phase = float(p_vals[0]) % 1.0
+    rec.calls = max(0, int(round(p_vals[1])))
+    rec.observed_steps = max(0, int(round(p_vals[2])))
+    rec.last_ratio = None if p_vals[3] < 0.0 else float(p_vals[3])
+
+    if has_chart or has_ledger or has_bank:
+        if dist.get_rank() == 0:
+            bank_obj = getattr(rec, "_cond_bank_obj", None)
+            bank_pkt = (
+                bank_obj.to_packet()
+                if (bank_obj is not None and hasattr(bank_obj, "to_packet"))
+                else _payload_to_cpu(rec.cond_fiber_bank)
+            )
+            payload = [
+                {
+                    "chart_state": None if rec.chart_state is None else _payload_to_cpu(rec.chart_state),
+                    "atomic_ledger": None if rec.atomic_ledger is None else _payload_to_cpu(rec.atomic_ledger),
+                    "cond_fiber_bank": bank_pkt,
+                }
+            ]
+        else:
+            payload = [None]
+        dist.broadcast_object_list(payload, src=0)
+        synced = payload[0]
+        if isinstance(synced, dict):
+            rec.chart_state = synced["chart_state"]
+            rec.atomic_ledger = synced["atomic_ledger"]
+            rec.cond_fiber_bank = synced["cond_fiber_bank"]
+            bank_obj = getattr(rec, "_cond_bank_obj", None)
+            if bank_obj is not None and synced["cond_fiber_bank"] is not None and hasattr(bank_obj, "load_packet"):
+                bank_obj.load_packet(synced["cond_fiber_bank"])
+            if hasattr(rec, "restore_device_state"):
+                rec.restore_device_state(comm_device)
 
 
 def _average_modules(modules: List[torch.nn.Module], world_size: int, *, parameters: bool = True) -> None:

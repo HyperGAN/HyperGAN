@@ -129,11 +129,14 @@ def test_whitepaper_config_validates_and_uses_pure_hndl(filename: str):
         assert param_count > 100_000
 
     # ParticleGAN recipe object constructs and passes all dependency invariants.
+    import particlegan
+
     recipe = particlegan_recipe(resolved)
     if filename.endswith("-v12.toml"):
-        assert recipe.name == "unified_v12"
-        assert recipe.optimizer_family == "unified_v12_equil"
-        assert recipe.effective_critic_formulation == "unified_v11"
+        expected = particlegan.get_recipe()
+        assert recipe.name == expected.name
+        assert recipe.optimizer_family == expected.optimizer_family
+        assert recipe.effective_critic_formulation == expected.effective_critic_formulation
     else:
         assert recipe.optimizer_family == "adam"
         assert recipe.effective_critic_formulation == "k3p"

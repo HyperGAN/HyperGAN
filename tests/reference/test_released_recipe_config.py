@@ -89,9 +89,9 @@ def test_packaged_cifar_transgan_inherits_the_complete_released_formulation():
     config = load_config(path)
     expected = get_recipe()
     actual = particlegan_recipe(config)
-    assert actual.name == expected.name == 'unified_v12'
-    assert actual.critic_formulation == 'unified_v11'
-    assert actual.optimizer_family == 'unified_v12_equil'
+    assert actual.name == expected.name == 'axiom'
+    assert actual.critic_formulation == 'axiom'
+    assert actual.optimizer_family == 'axiom'
     assert config['optimizer']['implementation'] == 'recipe'
     for field in PARTICLEGAN_DEFAULT_FIELDS.values():
         value = getattr(expected, field)

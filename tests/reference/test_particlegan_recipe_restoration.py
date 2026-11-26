@@ -33,6 +33,13 @@ def test_compact_saved_recipe_keeps_its_recorded_formulation():
     assert restored_v12.optimizer_family == 'unified_v12_equil'
     assert restored_v12.prior_regularizer == 'unified_v11'
 
+    saved_axiom = particlegan.get_recipe('axiom', batch_size=16).to_dict()
+    restored_axiom = restore_particlegan_recipe(saved_axiom)
+    assert restored_axiom.to_dict() == saved_axiom
+    assert restored_axiom.critic_formulation == 'axiom'
+    assert restored_axiom.optimizer_family == 'axiom'
+    assert restored_axiom.prior_regularizer == 'axiom'
+
 
 def test_modern_restoration_never_calls_a_partial_constructor(monkeypatch):
     saved = {'lr': 0.003}

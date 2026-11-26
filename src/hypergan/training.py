@@ -509,9 +509,16 @@ class ReferenceTrainer:
         if formulation == 'bispf':
             from particlegan.bispf import bind_thermal_source
             bind_thermal_source(record, loss, self.spread if primary else None)
-        elif formulation in ('unified_v11', 'unified_v4', 'r4_autograd_critic', 'unified', 'empf'):
+        elif formulation in ('unified_v15', 'unified_v11', 'unified_v4', 'r4_autograd_critic', 'unified', 'empf'):
             record_probe = None
-            if formulation == 'unified_v11':
+            if formulation == 'unified_v15':
+                import particlegan._unified_v15 as v15
+                bind = v15.bind_unified_v15_record
+                collect_conv_layouts = v15.collect_conv_layouts
+                record_probe = getattr(v15, 'record_unified_v15_generator_probe', None)
+                attrs = ('_unified_v15_record', '_unified_v11_record', '_unified_record', '_t1c_record', '_t2_record')
+                v15._attach_unified_v15_critic_hook(getattr(optimizer, 'critic', None), record)
+            elif formulation == 'unified_v11':
                 import particlegan.unified_v11 as v11
                 bind = v11.bind_unified_v11_record
                 collect_conv_layouts = v11.collect_conv_layouts
@@ -536,7 +543,7 @@ class ReferenceTrainer:
                     setattr(self.opt_g, attr, record)
                     if attr != '_t2_record':
                         setattr(self.prior, attr, record)
-            if primary and formulation in ('unified_v11', 'unified_v4', 'r4_autograd_critic'):
+            if primary and formulation in ('unified_v15', 'unified_v11', 'unified_v4', 'r4_autograd_critic'):
                 if hasattr(self.opt_g, '_conv_layouts'):
                     self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
                 self._bind_generator_probe(record, record_probe=record_probe)
@@ -580,6 +587,8 @@ class ReferenceTrainer:
             isinstance(m, (torch.nn.modules.batchnorm._BatchNorm, torch.nn.modules.dropout._DropoutNd))
             for m in probe_module.modules()
         )
+        probe_module._unified_v15_record = record
+        probe_module._unified_v15_gen_has_bn = has_bn
         probe_module._unified_v11_record = record
         probe_module._unified_v11_gen_has_bn = has_bn
         probe_module._axiom_record = record

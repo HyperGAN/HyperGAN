@@ -488,3 +488,36 @@ def test_non_particlegan_defaults_hypergan_trains_cleanly_in_bf16_channels_last(
     for _ in range(2):
         row, _ = trainer.update()
         assert all(math.isfinite(row[k]) for k in ("d_loss", "g_loss", "gradient_penalty"))
+
+
+def test_bf16_detached_real_score_preserves_axiom_transport_capture():
+    """Detaching real_score after BF16->FP32 float_output must preserve _axiom_* captures for AxiomTransportLoss."""
+    cfg = _conv_model_config(precision="bf16_channels_last", use_bn=True, size=32, steps=4)
+    trainer = ReferenceTrainer(cfg)
+    assert trainer.recipe.effective_critic_formulation == "axiom"
+
+    captured_flags = []
+    orig_resolve = trainer.gan._resolve_pair
+
+    def _spy_resolve(fake_logits, real_logits):
+        res = orig_resolve(fake_logits, real_logits)
+        captured_flags.append(bool(res[-1]))
+        return res
+
+    transport_calls = []
+    orig_transport = trainer.gan.transport.forward
+
+    def _spy_transport(*args, **kwargs):
+        transport_calls.append(len(args))
+        return orig_transport(*args, **kwargs)
+
+    trainer.gan._resolve_pair = _spy_resolve
+    trainer.gan.transport.forward = _spy_transport
+
+    for _ in range(4):
+        row, _ = trainer.update()
+        assert all(math.isfinite(row[k]) for k in ("d_loss", "g_loss", "gradient_penalty"))
+
+    # Both d_loss and g_loss on every step must see captured=True, and AxiomTransportLoss must run on all 4 steps
+    assert len(captured_flags) == 8 and all(captured_flags), f"missed captures: {captured_flags}"
+    assert len(transport_calls) == 4, f"expected 4 AxiomTransportLoss calls, got {len(transport_calls)}"

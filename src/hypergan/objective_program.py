@@ -255,6 +255,45 @@ def _sample_context(context, phase_name):
     return scratch
 
 
+_COUPLED_SCORE_ATTR_PREFIXES = ("_axiom_", "_t1c_", "_rhbi_", "_rgdt_")
+
+
+def _detach_score(value):
+    """Detach critic scores while preserving ParticleGAN coupled capture attributes.
+
+    Under CUDA BF16 autocast, ``float_output`` allocates a new FP32 tensor whose
+    storage pointer is absent from the critic hook's BF16 ``_capture_ring``.
+    Plain ``value.detach()`` strips the copied ``_axiom_*`` / ``_t1c_*`` /
+    ``_rhbi_*`` / ``_rgdt_*`` attributes, causing coupled losses to miss the
+    detached real capture and silently fall back.
+    """
+    if isinstance(value, torch.Tensor):
+        out = value.detach()
+        attrs = getattr(value, "__dict__", None)
+        if attrs:
+            for key, attr_val in attrs.items():
+                if key.startswith(_COUPLED_SCORE_ATTR_PREFIXES):
+                    if isinstance(attr_val, torch.Tensor):
+                        setattr(out, key, attr_val.detach())
+                    elif isinstance(attr_val, tuple):
+                        setattr(
+                            out,
+                            key,
+                            tuple(
+                                item.detach() if isinstance(item, torch.Tensor) else item
+                                for item in attr_val
+                            ),
+                        )
+                    else:
+                        setattr(out, key, attr_val)
+        return out
+    if isinstance(value, dict):
+        return {k: _detach_score(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return type(value)(_detach_score(v) for v in value)
+    return value
+
+
 def _bound_scores(term, context, graph, phase_name, phase, *, first, noise):
     """Resolve both samples, then score them in the phase's historical order.
 
@@ -272,7 +311,7 @@ def _bound_scores(term, context, graph, phase_name, phase, *, first, noise):
 
     def score(sample, binding):
         value = score_candidate(term, sample, context, graph, phase_name, noise=input_noise)
-        return detach(value) if binding.detach_score else value
+        return _detach_score(value) if binding.detach_score else value
 
     if first == "real":
         real_score = score(real, phase.real)

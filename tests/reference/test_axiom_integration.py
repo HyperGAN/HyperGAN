@@ -134,3 +134,21 @@ def test_axiom_checkpoint_resume_exact_continuation(tmp_path: Path):
         if isinstance(v, torch.Tensor):
             torch.testing.assert_close(v, split_state["graph"][k], rtol=1e-6, atol=1e-6)
     torch.testing.assert_close(full_state["prior"]["z"], split_state["prior"]["z"], rtol=1e-6, atol=1e-6)
+
+
+def test_unified_v15_record_binding_and_step():
+    raw = _axiom_2d_model()
+    raw["defaults"] = "particlegan:unified_v15"
+    cfg = load_config(raw)
+    trainer = ReferenceTrainer(cfg)
+    assert trainer.recipe.name == "unified_v15"
+    assert trainer.recipe.effective_critic_formulation == "unified_v15"
+    rec = trainer.opt_d.record
+    assert rec is not None
+    assert trainer.gan.record is rec
+    assert trainer.spread.unified_v15_record is rec
+    assert trainer.opt_g._unified_v15_record is rec
+    assert trainer.prior._unified_v15_record is rec
+    row, _ = trainer.update()
+    assert torch.isfinite(torch.tensor(row["d_loss"]))
+    assert torch.isfinite(torch.tensor(row["g_loss"]))

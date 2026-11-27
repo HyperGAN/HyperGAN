@@ -144,28 +144,139 @@ def write_launch_provenance(run_dir, attempt=1, metadata=None):
     return target_file
 
 
-def snapshot_config_sources(run_dir, source_files):
-    """Copy raw source TOML files into RUN/config-source/ preserving comments and formatting."""
+def _extract_hndl_refs(toml_path: Path) -> list[str]:
+    """Collect relative or absolute .hndl paths referenced by a TOML model/recipe file."""
+    try:
+        try:
+            import tomllib
+        except ModuleNotFoundError:  # Python 3.10
+            import tomli as tomllib
+        with toml_path.open("rb") as f:
+            data = tomllib.load(f)
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    refs: list[str] = []
+    networks = data.get("networks")
+    if isinstance(networks, dict):
+        for spec in networks.values():
+            if not isinstance(spec, dict):
+                continue
+            for key in ("hndl", "file"):
+                val = spec.get(key)
+                if isinstance(val, str) and val:
+                    refs.append(val)
+            nf = spec.get("network_files")
+            if isinstance(nf, dict):
+                for val in nf.values():
+                    if isinstance(val, str) and val:
+                        refs.append(val)
+    components = data.get("components")
+    if isinstance(components, dict):
+        for spec in components.values():
+            if not isinstance(spec, dict):
+                continue
+            args = spec.get("args")
+            if not isinstance(args, dict):
+                continue
+            val = args.get("file")
+            if isinstance(val, str) and val:
+                refs.append(val)
+            nf = args.get("network_files")
+            if isinstance(nf, dict):
+                for sub_val in nf.values():
+                    if isinstance(sub_val, str) and sub_val:
+                        refs.append(sub_val)
+    return refs
+
+
+def snapshot_config_sources(run_dir, source_files, *, entry_file=None):
+    """Copy raw source TOML and referenced .hndl files into RUN/config-source/ with manifest.json."""
     run_dir = Path(run_dir).resolve()
     target_dir = run_dir / "config-source"
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    copied = {}
+    copied: dict[Path, Path] = {}
+    records: list[tuple[Path, str, str]] = []  # (src_path, rel_snapshot, kind)
+
+    def _copy_unique(src_path: Path, preferred_rel: Path | None = None) -> Path:
+        if preferred_rel is not None:
+            cand = target_dir / preferred_rel
+            try:
+                cand.resolve().relative_to(target_dir.resolve())
+            except ValueError:
+                cand = target_dir / src_path.name
+        else:
+            cand = target_dir / src_path.name
+        if cand.exists() and copied.get(cand) != src_path:
+            dest_name = src_path.name
+            parent_prefix = src_path.parent.name
+            candidate = f"{parent_prefix}_{dest_name}" if parent_prefix else f"sub_{dest_name}"
+            idx = 1
+            while (target_dir / candidate).exists() and copied.get(target_dir / candidate) != src_path:
+                candidate = f"{parent_prefix}_{idx}_{dest_name}" if parent_prefix else f"sub_{idx}_{dest_name}"
+                idx += 1
+            cand = target_dir / candidate
+        cand.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_path, cand)
+        copied[cand] = src_path
+        return cand
+
+    resolved_sources: list[Path] = []
     for src in source_files or []:
         p = Path(src).resolve()
         if p.is_file():
-            dest_name = p.name
-            target_p = target_dir / dest_name
-            if target_p.exists() and copied.get(target_p) != p:
-                parent_prefix = p.parent.name
-                candidate = f"{parent_prefix}_{dest_name}" if parent_prefix else f"sub_{dest_name}"
-                idx = 1
-                while (target_dir / candidate).exists() and copied.get(target_dir / candidate) != p:
-                    candidate = f"{parent_prefix}_{idx}_{dest_name}" if parent_prefix else f"sub_{idx}_{dest_name}"
-                    idx += 1
-                target_p = target_dir / candidate
-            shutil.copy2(p, target_p)
-            copied[target_p] = p
+            resolved_sources.append(p)
+            target_p = _copy_unique(p)
+            rel_snap = target_p.relative_to(target_dir).as_posix()
+            kind = "workspace" if p.name == "hypergan.toml" else "toml"
+            records.append((p, rel_snap, kind))
+
+    # Determine the entry TOML (explicitly provided, else last non-workspace TOML from collect_source_files).
+    entry_src = Path(entry_file).resolve() if entry_file is not None else None
+    if entry_src is None:
+        non_ws_tomls = [p for p in resolved_sources if p.suffix.lower() == ".toml" and p.name != "hypergan.toml"]
+        if non_ws_tomls:
+            entry_src = non_ws_tomls[-1]
+
+    # Snapshot referenced .hndl files alongside the TOML files.
+    seen_hndl: set[Path] = set()
+    for toml_src in resolved_sources:
+        if toml_src.suffix.lower() != ".toml" or toml_src.name == "hypergan.toml":
+            continue
+        for ref in _extract_hndl_refs(toml_src):
+            if ref.startswith(("${", "~")):
+                continue
+            ref_path = Path(ref)
+            src_hndl = ref_path.resolve() if ref_path.is_absolute() else (toml_src.parent / ref_path).resolve()
+            if not src_hndl.is_file() or src_hndl in seen_hndl:
+                continue
+            seen_hndl.add(src_hndl)
+            pref_rel = ref_path if (not ref_path.is_absolute() and ".." not in ref_path.parts) else None
+            target_h = _copy_unique(src_hndl, preferred_rel=pref_rel)
+            rel_snap = target_h.relative_to(target_dir).as_posix()
+            records.append((src_hndl, rel_snap, "hndl"))
+
+    entry_snapshot = None
+    files_manifest: list[dict] = []
+    for src_p, rel_snap, kind in records:
+        role = "entry" if (entry_src is not None and src_p == entry_src) else ("parent" if kind == "toml" else kind)
+        item = {"source": str(src_p), "snapshot": rel_snap, "role": role}
+        if role == "entry":
+            entry_snapshot = rel_snap
+            files_manifest.insert(0, item)
+        else:
+            files_manifest.append(item)
+
+    manifest_payload = {
+        "schema_version": 1,
+        "entry": entry_snapshot,
+        "files": files_manifest,
+    }
+    manifest_tmp = target_dir / ".manifest.json.tmp"
+    manifest_tmp.write_text(json.dumps(manifest_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    manifest_tmp.replace(target_dir / "manifest.json")
 
     return target_dir
 

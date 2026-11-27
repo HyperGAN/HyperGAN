@@ -162,7 +162,7 @@ def test_integer_conditioning_survives_native_bundle(tmp_path):
     trainer = ReferenceTrainer(resolve_config(raw))
     batch = {"real": torch.zeros(16, 2), "condition": (torch.arange(16) % 4).reshape(16, 1)}
     trainer.update(batch)
-    save_bundle(tmp_path, trainer, batch)
+    save_bundle(tmp_path, trainer, batch, include_example_inputs=True)
     path = sample(tmp_path, count=8)
     result = json.loads(path.read_text())
     assert result["shape"] == [8, 2]

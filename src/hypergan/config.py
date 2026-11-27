@@ -228,6 +228,32 @@ def sampler_bindings(config):
             for path in (spec.get("inputs") or {}).values()]
 
 
+def _validate_config_aggregation(agg):
+    """Validate an optional top-level [aggregation] table without importing Torch."""
+    from .execution_profiles import _BUILTIN_STRATEGIES, _REGISTERED_STRATEGIES
+    _keys(agg, {"strategy", "sync_every_steps", "sync_every", "outer_lr", "outer_momentum"}, "aggregation")
+    if "sync_every" in agg:
+        sync_alias = agg.pop("sync_every")
+        if "sync_every_steps" in agg and agg["sync_every_steps"] != sync_alias:
+            raise ValueError("aggregation.sync_every and aggregation.sync_every_steps must match if both are set")
+        agg["sync_every_steps"] = sync_alias
+    strategy = agg.get("strategy", "gradient_allreduce")
+    if not isinstance(strategy, str) or not strategy:
+        raise ValueError("aggregation.strategy must be a non-empty string")
+    if strategy not in _BUILTIN_STRATEGIES and strategy not in _REGISTERED_STRATEGIES:
+        raise ValueError(f"Unknown aggregation.strategy: {strategy}")
+    sync_every_steps = agg.get("sync_every_steps", 1)
+    _positive(sync_every_steps, "aggregation.sync_every_steps", integer=True)
+    if strategy == "gradient_allreduce" and sync_every_steps != 1:
+        raise ValueError("gradient_allreduce requires sync_every_steps = 1")
+    if "outer_lr" in agg:
+        _positive(agg["outer_lr"], "aggregation.outer_lr")
+    if "outer_momentum" in agg:
+        m = agg["outer_momentum"]
+        if type(m) not in (int, float) or not math.isfinite(m) or not (0.0 <= m < 1.0):
+            raise ValueError("aggregation.outer_momentum must be a finite float in [0.0, 1.0)")
+
+
 def _checkpoint_cadence_warnings(result):
     checkpoints_cfg = result.get("checkpoints")
     if not isinstance(checkpoints_cfg, dict):
@@ -377,29 +403,13 @@ def resolve_config(raw):
             _positive(prior['args']['sigma_rel'], 'prior.args.sigma_rel', zero=True)
     if "dtype" in result["prior"]["args"] or ("device" in result["prior"]["args"] and result["prior"]["args"]["device"] != result["training"]["device"]):
         raise ValueError("Training owns prior device and float32 dtype; omit prior.args.device/dtype or match training.device")
-    _positive(result["prior"]["args"].get("z_dim"), "prior.args.z_dim", integer=True)
-    prior_kind = prior["kind"]
-    allowed_prior_args = {
-        "particles": {"num_particles", "z_dim", "init_std", "device", "dtype", "learnable"},
-        "gaussian": {"z_dim", "init_std", "device", "dtype"},
-        "mog": {"num_particles", "modes", "z_dim", "init_std", "sigma", "sigma_rel", "device", "dtype", "learnable", "standardize"},
-    }.get(prior_kind, {"z_dim", "device", "dtype"})
-    unknown_prior_args = set(prior["args"]) - allowed_prior_args
-    if unknown_prior_args:
-        raise ValueError(f"Unknown prior field(s): {', '.join(sorted(unknown_prior_args))}")
 
-    allowed_prior_fields = {"kind", "args", "initialization_device", "initialization_seed", "fixed_sigma"}
-    unknown_prior_fields = set(prior) - allowed_prior_fields
-    if unknown_prior_fields:
-        raise ValueError(f"Unknown prior field(s): {', '.join(sorted(unknown_prior_fields))}")
-
-    prior_z_dim = prior["args"].get("z_dim")
     gen_spec = components.get("generator", {})
     gen_inputs = gen_spec.get("inputs", {})
     latent_ports = [port for port, path in gen_inputs.items() if path == "latent"]
+    latent_dim = None
     if latent_ports:
         gen_in_shape = gen_spec.get("args", {}).get("input_shape")
-        latent_dim = None
         if isinstance(gen_in_shape, dict):
             port_shape = gen_in_shape.get(latent_ports[0])
             if isinstance(port_shape, (list, tuple)) and len(port_shape) >= 2:
@@ -416,9 +426,26 @@ def resolve_config(raw):
         )
         if not user_specified_z_dim and latent_dim is not None and isinstance(latent_dim, int):
             prior["args"]["z_dim"] = latent_dim
-            prior_z_dim = latent_dim
-        elif latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
-            raise ModelFileError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
+
+    _positive(result["prior"]["args"].get("z_dim"), "prior.args.z_dim", integer=True)
+    prior_z_dim = prior["args"].get("z_dim")
+    if latent_dim is not None and isinstance(latent_dim, int) and prior_z_dim != latent_dim:
+        raise ModelFileError(f"Latent dimension mismatch: prior.z_dim ({prior_z_dim}) does not match generator latent input dimension ({latent_dim})")
+
+    prior_kind = prior["kind"]
+    allowed_prior_args = {
+        "particles": {"num_particles", "z_dim", "init_std", "device", "dtype", "learnable"},
+        "gaussian": {"z_dim", "init_std", "device", "dtype"},
+        "mog": {"num_particles", "z_dim", "init_std", "sigma", "sigma_rel", "device", "dtype", "learnable", "standardize"},
+    }.get(prior_kind, {"z_dim", "device", "dtype"})
+    unknown_prior_args = set(prior["args"]) - allowed_prior_args
+    if unknown_prior_args:
+        raise ValueError(f"Unknown prior field(s): {', '.join(sorted(unknown_prior_args))}")
+
+    allowed_prior_fields = {"kind", "args", "initialization_device", "initialization_seed", "fixed_sigma"}
+    unknown_prior_fields = set(prior) - allowed_prior_fields
+    if unknown_prior_fields:
+        raise ValueError(f"Unknown prior field(s): {', '.join(sorted(unknown_prior_fields))}")
 
     _validate_adversarial_weights(result["adversarial"], "adversarial")
     penalty = result["gradient_penalty"]
@@ -446,9 +473,20 @@ def resolve_config(raw):
     _resolve_adversarial_terms(result)
     validate_metrics(result)
     if result['recipe']:
-        # Persist effective values, including the scalar-section overrides,
-        # rather than an ignored duplicate from the preset snapshot.
+        # Persist effective values: explicit [recipe] overrides apply when the
+        # corresponding scalar section field was not explicitly set, while
+        # explicit scalar-section overrides continue to win.
+        raw_recipe = raw.get('recipe') if isinstance(raw.get('recipe'), dict) else {}
         for (section, key), field in PARTICLEGAN_DEFAULT_FIELDS.items():
+            scalar_explicit = isinstance(raw.get(section), dict) and key in raw[section]
+            if field in raw_recipe and not scalar_explicit:
+                val = deepcopy(raw_recipe[field])
+                if key in ('betas', 'prior_betas'):
+                    if val is None and key == 'prior_betas':
+                        val = deepcopy(result['optimizer']['betas'])
+                    elif isinstance(val, tuple):
+                        val = list(val)
+                result[section][key] = val
             result['recipe'][field] = deepcopy(result[section][key])
         result['recipe'].update(total_steps=result['training']['steps'],
                                 batch_size=result['training']['batch_size'],
@@ -463,6 +501,8 @@ def resolve_config(raw):
             result['recipe']['standardize'] = result['prior']['args']['standardize']
         if 'num_particles' in result['prior']['args']:
             result['recipe']['num_particles'] = result['prior']['args']['num_particles']
+    if 'aggregation' in result:
+        _validate_config_aggregation(result['aggregation'])
     for key in ("lr", "d_lr_mult", "prior_lr_mult"):
         _positive(result["optimizer"][key], f"optimizer.{key}")
     if result['optimizer']['implementation'] not in ('recipe', 'device_adam', 'torch_fused_adam'):
@@ -578,6 +618,8 @@ def resolve_config(raw):
         for path in components[name]["inputs"].values():
             if path.startswith("components."):
                 visit(path.split(".")[1], active | {name})
+            elif path == "generated" or path.startswith("generated."):
+                visit("generator", active | {name})
         reachable.add(name)
         if 'reuse' in components[name]:
             reachable.add(components[name]['reuse'])

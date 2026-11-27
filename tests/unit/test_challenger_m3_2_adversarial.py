@@ -24,8 +24,10 @@ from hypergan.toml_writer import dumps
 class TestCadenceWireThrough:
     """Empirical verification of Feature 34 TOML cadence wire-through."""
 
-    def test_cadences_honored_in_training(self, tmp_path):
+    def test_cadences_honored_in_training(self, tmp_path, monkeypatch):
         """Recipe with [run] checkpoint_every=3, preview_every=2 produces checkpoints at 3,6 and previews at 2,4,6."""
+        from hypergan.single_execution import SingleProcessExecution
+
         m = hg.packaged("gaussian-grid")
         spec = dict(m.spec)
         spec["train"] = dict(spec.get("train", {}))
@@ -40,12 +42,17 @@ class TestCadenceWireThrough:
         spec_path.write_text(dumps(spec))
         run_dir = tmp_path / "runs" / "test_cadence"
 
-        # Pace steps so background preview worker completes before subsequent cadences
-        def slow_down(event):
-            if event.get("event") == "train":
-                time.sleep(2.0)
+        # Synchronously drain each submitted preview so background worker timing
+        # never causes flaky skips on subsequent scheduled preview steps.
+        orig_preview = SingleProcessExecution.preview
 
-        hg.train(spec_path, run_dir, steps=6, on_event=slow_down)
+        def sync_preview(self, *args, **kwargs):
+            orig_preview(self, *args, **kwargs)
+            return self.poll_preview(wait=True)
+
+        monkeypatch.setattr(SingleProcessExecution, "preview", sync_preview)
+
+        hg.train(spec_path, run_dir, steps=6)
 
         # Verify checkpoints
         ckpts = sorted([p.name for p in (run_dir / "checkpoints").glob("*") if (p / "manifest.json").is_file()])

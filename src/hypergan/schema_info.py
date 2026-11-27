@@ -27,9 +27,9 @@ MODEL_SCHEMA: Dict[str, Any] = {
         },
         "defaults": {
             "type": "string",
-            "description": "Numerical formulation preset ('particlegan', 'particlegan:<preset>', or 'hypergan').",
+            "description": "Numerical formulation preset ('particlegan', 'particlegan:<preset>', or 'hypergan'; defaults to 'hypergan' when omitted, while starter templates write 'particlegan').",
             "choices": ["particlegan", "particlegan:axiom", "particlegan:unified_v15", "particlegan:unified_v12", "particlegan:unified_v11", "particlegan:empf", "particlegan:bispf_optimized", "particlegan:rhbi_optimized", "hypergan"],
-            "default": "particlegan",
+            "default": "hypergan",
         },
         "extends": {
             "type": "string",
@@ -58,13 +58,11 @@ MODEL_SCHEMA: Dict[str, Any] = {
                 },
                 "width": {
                     "type": "integer",
-                    "description": "Target image width in pixels for image_folder.",
-                    "default": 64,
+                    "description": "Target image width in pixels for image_folder (required by ImageFolder).",
                 },
                 "height": {
                     "type": "integer",
-                    "description": "Target image height in pixels for image_folder.",
-                    "default": 64,
+                    "description": "Target image height in pixels for image_folder (required by ImageFolder).",
                 },
                 "channels": {
                     "type": "integer",
@@ -81,13 +79,13 @@ MODEL_SCHEMA: Dict[str, Any] = {
                     "type": "string",
                     "description": "Spatial resize policy for image_folder.",
                     "choices": ["center_crop", "pad", "stretch", "none"],
-                    "default": "center_crop",
+                    "default": "none",
                 },
                 "alpha": {
                     "type": "string",
                     "description": "Alpha compositing mode for RGBA/palette images.",
                     "choices": ["composite_white", "composite_black", "error"],
-                    "default": "composite_white",
+                    "default": "error",
                 },
                 "follow_symlinks": {
                     "type": "boolean",
@@ -132,7 +130,7 @@ MODEL_SCHEMA: Dict[str, Any] = {
                 "num_particles": {
                     "type": "integer",
                     "description": "Number of learned latent particles or mixture components.",
-                    "default": 10000,
+                    "default": 20000,
                 },
                 "init_std": {
                     "type": "number",
@@ -156,6 +154,7 @@ MODEL_SCHEMA: Dict[str, Any] = {
                 "standardize": {
                     "type": "boolean",
                     "description": "Whether to standardize learned 'mog' particle centers across rows.",
+                    "default": True,
                 },
                 "initialization_seed": {
                     "type": "integer",
@@ -346,7 +345,7 @@ MODEL_SCHEMA: Dict[str, Any] = {
                 "device": {
                     "type": "string",
                     "description": "Target compute device ('cuda', 'cuda:0', 'cuda:1', 'cpu').",
-                    "default": "cuda",
+                    "default": "cpu",
                 },
                 "initialization": {
                     "type": "string",

@@ -335,7 +335,7 @@ def _parser():
     runs.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
     runs.add_argument("--status", choices=("running", "stopped", "completed", "failed"), default=None, help="filter by status")
     runs.add_argument("--json", action="store_true", default=False, help="output runs table as JSON array")
-    runs_subs = runs.add_subparsers(dest="runs_command", required=False, parser_class=_CustomParser)
+    runs_subs = runs.add_subparsers(dest="runs_command", required=False, parser_class=_CustomSubcommandParser)
     runs_ls = runs_subs.add_parser("ls", help="List runs under root directory")
     runs_ls.add_argument("root", nargs="?", type=Path, default=None, help="runs root directory")
     runs_ls.add_argument("--sort", choices=("fid", "best", "step", "updated", "name"), default="updated", help="sort order")
@@ -460,7 +460,7 @@ def _parser():
     operation.add_argument("--status", metavar="REQUEST_ID", help="read a request receipt without submitting")
     checkpoint.add_argument("--attempt-id", help="target this attempt (default: current manifest attempt)")
     checkpoints = commands.add_parser("checkpoints", help="Manage a run's saved checkpoints (prune)")
-    checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True, parser_class=_CustomParser)
+    checkpoints_subs = checkpoints.add_subparsers(dest="checkpoints_command", required=True, parser_class=_CustomSubcommandParser)
     prune = checkpoints_subs.add_parser("prune", help="Prune obsolete checkpoints under the retention policy")
     prune.add_argument("run_dir", nargs="?", type=Path, default=None, help=_RUN_TARGET)
     prune.add_argument("--dry-run", action="store_true", help="evaluate retention without deleting any files")
@@ -529,7 +529,7 @@ def _parser():
     queue_cmd = commands.add_parser("queue", help="Multi-GPU job queue scheduler, runner daemon, and service generator")
     queue_cmd.add_argument("--json", action="store_true", default=False, help="output JSON format")
     queue_cmd.add_argument("--queue-file", type=Path, default=None, help="override queue file destination")
-    queue_subs = queue_cmd.add_subparsers(dest="queue_command", required=False, parser_class=_CustomParser)
+    queue_subs = queue_cmd.add_subparsers(dest="queue_command", required=False, parser_class=_CustomSubcommandParser)
 
     q_add = queue_subs.add_parser("add", help="Enqueue a training experiment or wait directive")
     q_add.add_argument("model_file", type=Path, help="path to experiment model TOML (or run directory if --wait)")
@@ -764,12 +764,18 @@ def _check_reexec(run_spec, ws_data):
                 target_env_vars.update({k: str(v) for k, v in env_conf["env"].items()})
         elif Path(env_ref).is_file():
             target_python = str(Path(env_ref).absolute())
+        else:
+            available = ", ".join(sorted(envs.keys())) or "none"
+            raise ValueError(
+                f"Unknown [run] env {env_ref!r}: not defined under [envs] in workspace "
+                f"(available: {available}) and not an existing Python executable path"
+            )
     elif isinstance(env_ref, dict):
         target_env_vars.update({k: str(v) for k, v in env_ref.items()})
-
-    # [run.env] inline table if present
-    if "env" in run_spec and isinstance(run_spec["env"], dict):
-        target_env_vars.update({k: str(v) for k, v in run_spec["env"].items()})
+    elif env_ref is not None:
+        raise ValueError(
+            f"[run] env must be a workspace env name, interpreter path, or env-var table; got {type(env_ref).__name__}"
+        )
 
     needs_reexec = bool(_reexec_unsatisfied(target_python, target_src_paths, target_env_vars))
     return needs_reexec, target_python, target_src_paths, target_env_vars
@@ -838,7 +844,34 @@ def _determine_attempt(run_dir: Path) -> int:
     return determine_attempt(run_dir)
 
 
-def _reconstruct_argv_for_reexec(argv, old_config_str, new_config_str, run_dir_str):
+def _arg_matches_config(arg: str, old_p: Path, orig_arg_str: str | None = None) -> bool:
+    """True when CLI token ``arg`` names the config resolved to ``old_p`` (path, packaged name, or project dir)."""
+    if orig_arg_str is not None and arg == orig_arg_str:
+        return True
+    try:
+        p = Path(arg)
+        if p.resolve() == old_p:
+            return True
+        if p.is_dir():
+            if (p / "model.toml").resolve() == old_p or (p / "config.toml").resolve() == old_p:
+                return True
+            if old_p.parent == (p / "configs").resolve():
+                return True
+        if p.is_file() and p.name == "hypergan.toml" and old_p.parent == (p.parent / "configs").resolve():
+            return True
+    except Exception:
+        pass
+    try:
+        from .config import resolve_packaged_model_path
+        pkg = resolve_packaged_model_path(arg)
+        if pkg is not None and pkg.resolve() == old_p:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _reconstruct_argv_for_reexec(argv, old_config_str, new_config_str, run_dir_str, *, orig_arg_str=None):
     new_args = []
     idx = 0
     if len(argv) > 0:
@@ -851,20 +884,32 @@ def _reconstruct_argv_for_reexec(argv, old_config_str, new_config_str, run_dir_s
             idx = 1
 
     has_run_dir = False
+    replaced_config = False
+    set_tokens: list[str] = []
     old_p = Path(old_config_str).resolve()
     while idx < len(argv):
         arg = argv[idx]
         if arg in ("--set", "-s"):
-            idx += 2 if idx + 1 < len(argv) else 1
+            set_tokens.append(arg)
+            if idx + 1 < len(argv):
+                set_tokens.append(argv[idx + 1])
+                idx += 2
+            else:
+                idx += 1
             continue
         elif arg.startswith("--set=") or arg.startswith("-s="):
+            set_tokens.append(arg)
             idx += 1
             continue
 
         if arg == "--run-dir":
             has_run_dir = True
-            new_args.extend([arg, argv[idx + 1]])
-            idx += 2
+            new_args.append(arg)
+            if idx + 1 < len(argv):
+                new_args.append(argv[idx + 1])
+                idx += 2
+            else:
+                idx += 1
             continue
         elif arg.startswith("--run-dir="):
             has_run_dir = True
@@ -872,15 +917,37 @@ def _reconstruct_argv_for_reexec(argv, old_config_str, new_config_str, run_dir_s
             idx += 1
             continue
 
-        try:
-            if Path(arg).resolve() == old_p:
-                new_args.append(new_config_str)
-                idx += 1
-                continue
-        except Exception:
-            pass
+        if arg == "--config" and idx + 1 < len(argv):
+            val = argv[idx + 1]
+            if not replaced_config and _arg_matches_config(val, old_p, orig_arg_str):
+                new_args.extend([arg, new_config_str])
+                replaced_config = True
+            else:
+                new_args.extend([arg, val])
+            idx += 2
+            continue
+        elif arg.startswith("--config="):
+            val = arg.split("=", 1)[1]
+            if not replaced_config and _arg_matches_config(val, old_p, orig_arg_str):
+                new_args.append(f"--config={new_config_str}")
+                replaced_config = True
+            else:
+                new_args.append(arg)
+            idx += 1
+            continue
+
+        if not replaced_config and not arg.startswith("-") and _arg_matches_config(arg, old_p, orig_arg_str):
+            new_args.append(new_config_str)
+            replaced_config = True
+            idx += 1
+            continue
         new_args.append(arg)
         idx += 1
+
+    # Only drop --set flags when the lowered recipe replaced the original config argument;
+    # otherwise preserve them so overrides are never silently lost.
+    if not replaced_config and set_tokens:
+        new_args.extend(set_tokens)
 
     if not has_run_dir:
         new_args.extend(["--run-dir", run_dir_str])
@@ -927,6 +994,32 @@ def _warnings(config):
             print(f"warning: {warning}", file=sys.stderr)
     if has_trust_notice:
         print("warning: custom recipe executes trusted Python code; combinations are unqualified until evaluated", file=sys.stderr)
+
+
+def _is_non_loopback_host(host: str | None) -> bool:
+    if host is None:
+        return False
+    h = str(host).strip().lower().strip("[]")
+    if h in ("", "0.0.0.0", "::", "*"):
+        return True
+    if h in ("localhost", "127.0.0.1", "::1"):
+        return False
+    import ipaddress
+    try:
+        return not ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return True
+
+
+def _warn_non_loopback_no_auth(host: str | None, auth: str | None) -> None:
+    eff_auth = auth or "none"
+    if eff_auth == "none" and _is_non_loopback_host(host):
+        print(
+            f"warning: binding viewer to non-loopback address {host!r} with --auth none exposes "
+            "read access without authentication; remote control mutations (stop/checkpoint/sample) "
+            "are disabled — pass --auth token to enable authenticated control",
+            file=sys.stderr,
+        )
 
 
 def _training_viewer(args, *, config=None):
@@ -1008,10 +1101,14 @@ def _training_viewer(args, *, config=None):
     required = bool(args.server or args.open or args.server_port is not None
                     or args.server_host is not None or args.auth is not None
                     or args.public_origin is not None)
+    eff_host = args.server_host or '127.0.0.1'
+    eff_auth = args.auth or 'none'
+    eff_port = DEFAULT_VIEWER_PORT if args.server_port is None else args.server_port
+    _warn_non_loopback_no_auth(eff_host, eff_auth)
     try:
-        url = ensure_dashboard_running(runs_root, port=args.server_port or DEFAULT_VIEWER_PORT,
-                                       host=args.server_host or '127.0.0.1',
-                                       auth=args.auth or 'none',
+        url = ensure_dashboard_running(runs_root, port=eff_port,
+                                       host=eff_host,
+                                       auth=eff_auth,
                                        public_origin=args.public_origin,
                                        check_version=True,
                                        run_id=run_dir.name if run_dir != runs_root else None)
@@ -1042,14 +1139,30 @@ def _print_training_header(run_dir: Path, experiment_name: str, device: str, das
         count = execution.get('ranks_per_node', execution['world_size'])
         device_str = ', '.join(f'gpu{rank}' for rank in range(count)) + ' (CUDA, NCCL)'
     elif "cuda" in device_str.lower():
+        # Never call torch.cuda.* here: initializing CUDA before prepared.run()
+        # breaks apply_backend_policy() (e.g. CUBLAS_WORKSPACE_CONFIG).
         try:
-            import torch
             dev_idx = 0
             if ":" in device_str:
                 dev_idx = int(device_str.split(":")[1])
-            if torch.cuda.is_available():
-                prop = torch.cuda.get_device_properties(dev_idx)
-                device_str = f"gpu{dev_idx} (CUDA {dev_idx}: {prop.name})"
+            gpu_name = None
+            from .gpu_inventory import inspect_gpu_hardware
+            hw = inspect_gpu_hardware()
+            if hw:
+                vis = os.environ.get("CUDA_VISIBLE_DEVICES")
+                if vis is not None:
+                    vis_tokens = [tok.strip() for tok in vis.split(",") if tok.strip()]
+                    if 0 <= dev_idx < len(vis_tokens):
+                        tok = vis_tokens[dev_idx]
+                        match = next((g for g in hw if str(g.get("index")) == tok or g.get("uuid") == tok), None)
+                        if match:
+                            gpu_name = match.get("name")
+                else:
+                    match = next((g for g in hw if g.get("index") == dev_idx), None)
+                    if match:
+                        gpu_name = match.get("name")
+            if gpu_name:
+                device_str = f"gpu{dev_idx} (CUDA {dev_idx}: {gpu_name})"
             else:
                 device_str = f"{device_str} (CUDA)"
         except Exception:
@@ -1597,6 +1710,7 @@ def _dispatch(args, *, output=None):
             from .evaluation_cli import run_evaluate
             _print_json(run_evaluate(args))
         elif args.command == "serve":
+            _warn_non_loopback_no_auth(args.host, args.auth)
             hg.serve(hg.resolve_run_target(args.run_dir), port=args.port, host=args.host, auth=args.auth,
                      session_file=args.session_file, open_browser=args.open,
                      public_origin=args.public_origin, dev=args.dev)
@@ -1607,6 +1721,7 @@ def _dispatch(args, *, output=None):
             elif args.stop:
                 _print_json(hg.stop_dashboard(root))
             else:
+                _warn_non_loopback_no_auth(args.host, args.auth)
                 hg.serve(root, port=args.port, host=args.host, auth=args.auth,
                          open_browser=args.open, public_origin=args.public_origin, dev=args.dev)
         elif args.command == "server-status":
@@ -1837,12 +1952,19 @@ def _dispatch(args, *, output=None):
                     try:
                         return hg.check_data(model_obj, output=getattr(args, "output", None))
                     except ValueError as exc:
-                        if "requires dataset.type = 'image_folder'" in str(exc):
+                        msg = str(exc)
+                        if "data.factory='image_folder'" in msg or "requires dataset.type = 'image_folder'" in msg:
                             spec_d = getattr(model_obj, "spec", {}) if hasattr(model_obj, "spec") else {}
                             ds_sec = (spec_d.get("data") or spec_d.get("dataset") or {}) if isinstance(spec_d, dict) else {}
-                            ds_type = ds_sec.get("type", "synthetic") if isinstance(ds_sec, dict) else "synthetic"
+                            ds_type = (
+                                ds_sec.get("builtin")
+                                or ds_sec.get("factory")
+                                or ds_sec.get("dataset")
+                                or ds_sec.get("type")
+                                or "synthetic"
+                            ) if isinstance(ds_sec, dict) else "synthetic"
                             raise ValueError(
-                                f"--data validation requires an image_folder dataset (recipe uses dataset.type = {ds_type!r}, which has no image directory to verify)"
+                                f"--data validation requires an image_folder dataset (recipe uses data = {ds_type!r}, which has no image directory to verify)"
                             ) from exc
                         raise
 
@@ -1962,7 +2084,22 @@ def _dispatch(args, *, output=None):
                         or (m_cfg.get("train", {}) if isinstance(m_cfg.get("train"), dict) else {}).get("steps")
                     )
                     if m_status in ("complete", "completed") and isinstance(m_steps, int) and isinstance(m_total, int) and m_total > 0 and m_steps >= m_total:
-                        print(f"Run '{args.run_dir.name}' is already complete at step {m_steps}/{m_total}. Pass --steps <N> to extend training.")
+                        msg = f"Run '{args.run_dir.name}' is already complete at step {m_steps}/{m_total}. Pass --steps <N> to extend training."
+                        if getattr(args, "json", False):
+                            payload = {
+                                "status": "complete",
+                                "already_complete": True,
+                                "run_dir": str(args.run_dir),
+                                "steps": m_steps,
+                                "total_steps": m_total,
+                                "message": msg,
+                            }
+                            if output is not None:
+                                output.result(payload, run_dir=args.run_dir, human=False)
+                            else:
+                                _print_json(payload)
+                        else:
+                            print(msg)
                         return 0
 
                 if config_override:
@@ -2101,7 +2238,7 @@ def _dispatch(args, *, output=None):
                     from .model_file import collect_source_files
 
                     sources = collect_source_files(config_path, ws_path.parent if ws_path else None)
-                    snapshot_config_sources(args.run_dir, sources)
+                    snapshot_config_sources(args.run_dir, sources, entry_file=config_path)
                     meta = {
                         "argv": list(sys.argv),
                         "executable": target_py or sys.executable,
@@ -2115,9 +2252,18 @@ def _dispatch(args, *, output=None):
 
                     from .toml_writer import dumps as _dumps
                     recipe_text = _dumps(hg.lower(m), table_depth=3)
-                    (args.run_dir / "recipe.toml").write_text(recipe_text, encoding="utf-8")
-                    return _reconstruct_argv_for_reexec(["hypergan", *_cli_argv(args)], str(config_path),
-                                                        str(args.run_dir / "recipe.toml"), str(args.run_dir))
+                    if (args.run_dir / "manifest.json").is_file():
+                        recipe_dest = args.run_dir / "launch" / f"recipe-{attempt:04d}.toml"
+                    else:
+                        recipe_dest = args.run_dir / "recipe.toml"
+                    recipe_dest.write_text(recipe_text, encoding="utf-8")
+                    return _reconstruct_argv_for_reexec(
+                        ["hypergan", *_cli_argv(args)],
+                        str(config_path),
+                        str(recipe_dest),
+                        str(args.run_dir),
+                        orig_arg_str=str(target_arg) if target_arg is not None else None,
+                    )
 
                 _maybe_reexec(run_spec, ws_path, ws_data, args.run_dir, _cli_argv(args), prepare=_record_launch)
 
@@ -2209,21 +2355,24 @@ def _dispatch(args, *, output=None):
             if is_pt_bundle:
                 if not target_p.is_file():
                     raise FileNotFoundError(f"Bundle file not found: {target_p}")
+                bundle_cfg = None
                 eff_seed = args.seed
-                if eff_seed is None:
+                if eff_seed is None or getattr(args, "sampler", None):
                     try:
                         import torch
                         state = torch.load(target_p, map_location="cpu", weights_only=True)
                         cfg = state.get("config", {}) if isinstance(state, dict) else {}
-                        s_cfg = (cfg.get("sampling") or cfg.get("sample") or {}) if isinstance(cfg, dict) else {}
-                        eff_seed = s_cfg.get("seed") if isinstance(s_cfg, dict) else None
+                        if isinstance(cfg, dict):
+                            bundle_cfg = cfg
+                            if eff_seed is None:
+                                s_cfg = (cfg.get("sampling") or cfg.get("sample") or {})
+                                eff_seed = s_cfg.get("seed") if isinstance(s_cfg, dict) else None
                     except Exception:
                         pass
                 if eff_seed is None or not isinstance(eff_seed, int):
                     eff_seed = 42
 
-                from . import artifacts
-                out_path = artifacts.sample(
+                s = hg.sample(
                     target_p,
                     count=args.count or 16,
                     seed=eff_seed,
@@ -2234,10 +2383,23 @@ def _dispatch(args, *, output=None):
                     device=getattr(args, "device", None),
                     output_dir=getattr(args, "output_dir", None),
                 )
+                view_path = None
+                if getattr(args, "sampler", None):
+                    view_obj = hg.view(s, args.sampler, run=bundle_cfg if bundle_cfg is not None else target_p)
+                    if not hasattr(view_obj, "save"):
+                        raise TypeError(f"sampler {args.sampler!r} returned {type(view_obj).__name__}, "
+                                        "which has no save(path) to write it with")
+                    view_out = _sampler_output_path(s.path, args.sampler, view_obj)
+                    view_path = view_obj.save(view_out) or view_out
                 if getattr(args, "json", False):
-                    _print_json({"sample": str(out_path), "path": str(out_path)})
+                    result = {"sample": str(s.path), "path": str(s.path)}
+                    if view_path is not None:
+                        result["view"] = str(view_path)
+                    _print_json(result)
                 else:
-                    print(out_path)
+                    print(s.path)
+                    if view_path is not None:
+                        print(view_path)
             else:
                 resolved_run = hg.resolve_run_target(target_raw)
                 eff_seed = args.seed

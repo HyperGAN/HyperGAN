@@ -268,6 +268,7 @@ class _Lowering:
         if not self.networks:
             raise ModelFileError('networks must declare at least a generator and a critic')
         self.names = {}
+        self._objective_owners = {}
 
     # -- names and bindings -------------------------------------------------
     def _plan_names(self, losses):
@@ -459,6 +460,8 @@ class _Lowering:
         return result
 
     def losses(self, losses, recipe):
+        from .particlegan_integration import is_particlegan_defaults
+        pg_defaults = is_particlegan_defaults(self.raw.get('defaults'))
         recipe['objectives'] = []
         prior_terms = [loss for loss in losses if loss.get('type') == 'prior']
         if len(prior_terms) > 1:
@@ -471,17 +474,19 @@ class _Lowering:
             kind = loss.get('type')
             if kind == 'adversarial':
                 _table(loss, location, {'type', 'id', 'critic', 'weight', 'critic_weight', 'generator_weight', 'penalty', 'real', 'fake', 'inputs'} | PENALTY_FIELDS)
+                penalty_explicit = 'penalty' in loss
                 raw_penalty = loss.get('penalty', 1.0)
                 penalty_extra = {k: deepcopy(loss[k]) for k in PENALTY_FIELDS if k in loss}
                 if isinstance(raw_penalty, dict):
                     _table(raw_penalty, f'{location}.penalty', PENALTY_FIELDS | {'weight', 'coeff'})
+                    penalty_explicit = 'weight' in raw_penalty or 'coeff' in raw_penalty
                     penalty = raw_penalty.get('weight', raw_penalty.get('coeff', 1.0))
                     for k in PENALTY_FIELDS:
                         if k in raw_penalty:
                             penalty_extra.setdefault(k, deepcopy(raw_penalty[k]))
                 else:
                     penalty = raw_penalty
-                if type(penalty) not in (int, float) or penalty < 0:
+                if (penalty_explicit or not pg_defaults) and (type(penalty) not in (int, float) or penalty < 0):
                     raise ModelFileError(f'{location}.penalty is the critic regularization coefficient: a nonnegative number (0 disables it)')
                 if penalty_extra:
                     recipe.setdefault('gradient_penalty', {}).update(penalty_extra)
@@ -508,13 +513,14 @@ class _Lowering:
                             adv['inputs'] = non_cand
                             recipe['components']['discriminator'].setdefault('inputs', {}).update(non_cand)
                     recipe['adversarial'] = adv
-                    recipe.setdefault('gradient_penalty', {})['coeff'] = penalty
+                    if penalty_explicit or not pg_defaults:
+                        recipe.setdefault('gradient_penalty', {})['coeff'] = penalty
                     continue
                 term = {'id': loss.get('id', loss['critic']), 'component': self.names[loss['critic']],
-                        **weights, 'penalty': penalty > 0,
+                        **weights, 'penalty': True if (not penalty_explicit and pg_defaults) else (penalty > 0),
                         'real': self.bind(loss.get('real', 'batch.real'), f'{location}.real'),
                         'fake': self.bind(loss.get('fake', 'generated'), f'{location}.fake')}
-                if penalty > 0:
+                if (penalty_explicit or not pg_defaults) and penalty > 0:
                     term['penalty_coeff'] = penalty
                 if 'inputs' in loss:
                     bound_inputs = self.bind_all(loss['inputs'], f'{location}.inputs')
@@ -564,13 +570,17 @@ class _Lowering:
                 if 'detach' in loss:
                     term['detach'] = list(loss['detach'])
                 if 'owner' in loss or 'network' in loss:
-                    term['owner'] = loss.get('owner') or loss.get('network')
+                    if 'owner' in loss and 'network' in loss and loss['owner'] != loss['network']:
+                        raise ModelFileError(f'{location}: owner ({loss["owner"]!r}) and network ({loss["network"]!r}) must match if both are given')
+                    owner = loss['owner'] if 'owner' in loss else loss['network']
+                    if not isinstance(owner, str) or owner not in self.networks:
+                        raise ModelFileError(f'{location}.owner must name a declared network; got {owner!r}')
+                    self._objective_owners[term['id']] = owner
                 recipe['objectives'].append(term)
             elif kind == 'prior':
-                from .particlegan_integration import is_particlegan_defaults
                 _table(loss, location, {'type', 'weight', 'target_std', 'eps', 'rows'})
                 recipe['prior_regularizer'] = {key: value for key, value in loss.items() if key != 'type'}
-                if not is_particlegan_defaults(self.raw.get('defaults')):
+                if not pg_defaults:
                     recipe['prior_regularizer'].setdefault('weight', 1.0)
 
             else:
@@ -705,18 +715,37 @@ class _Lowering:
                 if not isinstance(raw_train_data, dict):
                     raise ModelFileError(f'{location}.data = "train" requires a [data] table in the model file')
                 base_data = deepcopy(raw_train_data)
-                if base_data.get('builtin') == 'image_folder':
-                    base_data.setdefault('args', {})['shuffle'] = False
-                    base_data.pop('shuffle', None)
-                elif 'dataset' in base_data:
-                    base_data['shuffle'] = False
-                elif base_data.get('builtin') == 'cifar10' or base_data.get('factory') == 'hypergan.image_data:CIFAR10Data':
+                builtin = base_data.get('builtin')
+                factory = base_data.get('factory')
+                if builtin == 'cifar10' or factory in ('hypergan.image_data:CIFAR10Data', 'hypergan.datasets:CIFAR10Data'):
                     if isinstance(base_data.get('args'), dict):
                         base_data['args']['sampling'] = 'sequential'
                         base_data['args']['horizontal_flip'] = False
+                        base_data.pop('sampling', None)
+                        base_data.pop('horizontal_flip', None)
                     else:
                         base_data['sampling'] = 'sequential'
                         base_data['horizontal_flip'] = False
+                elif builtin == 'image_folder' or factory in ('image_folder', 'hypergan.data:ImageFolder', 'hypergan.datasets:ImageFolder'):
+                    base_data.setdefault('args', {})['shuffle'] = False
+                    base_data.pop('shuffle', None)
+                elif 'dataset' in base_data or factory in ('hypergan.item_data:ItemData', 'hypergan.datasets:ItemData'):
+                    if factory is not None and isinstance(base_data.get('args'), dict):
+                        base_data['args']['shuffle'] = False
+                        base_data.pop('shuffle', None)
+                    else:
+                        base_data['shuffle'] = False
+                elif factory in ('hypergan.colorization_data:ColorizationData', 'hypergan.datasets:ColorizationData'):
+                    if isinstance(base_data.get('args'), dict):
+                        base_data['args']['shuffle'] = False
+                        base_data.pop('shuffle', None)
+                        if base_data['args'].get('bad_image_policy') == 'skip' or base_data.get('bad_image_policy') == 'skip':
+                            base_data['args']['bad_image_policy'] = 'error'
+                            base_data.pop('bad_image_policy', None)
+                    else:
+                        base_data['shuffle'] = False
+                        if base_data.get('bad_image_policy') == 'skip':
+                            base_data['bad_image_policy'] = 'error'
                 if isinstance(eval_data_raw, dict):
                     override_data = deepcopy(eval_data_raw)
                     override_data.pop('extends', None)
@@ -756,7 +785,7 @@ class _Lowering:
             for key, path in term['inputs'].items():
                 if key not in detached:
                     upstream(path, components, seen=seen)
-            owner = term.get('owner')
+            owner = self._objective_owners.get(term.get('id'))
             if owner is not None:
                 lowered_owner = self.names.get(owner, owner)
                 if lowered_owner not in seen:
@@ -842,7 +871,9 @@ class _Lowering:
         if custom:
             metrics['custom'] = custom
         if metrics:
-            recipe['metrics'] = metrics
+            merged_metrics = dict(recipe.get('metrics', {}))
+            merged_metrics.update(metrics)
+            recipe['metrics'] = merged_metrics
         if 'every_steps' not in recipe.get('metrics', {}):
             recipe.setdefault('metrics', {})['every_steps'] = 10
         if 'checkpoints' in raw:
@@ -1015,11 +1046,13 @@ def resolve_inheritance(
     config_path: Path | str | None = None,
     workspace_root: Path | str | None = None,
     _chain: tuple = (),
+    _anchor_self: bool = False,
 ) -> dict:
     """Recursively resolve 'extends' inheritance for model files.
 
     Parent configurations are merged recursively (tables deep-merged by name,
-    scalars and arrays replaced). Relative paths are anchored to the declaring file.
+    scalars and arrays replaced). Relative paths in each inherited file are
+    anchored once to that file's own directory before merging.
     Circular inheritance chains raise ValueError.
     """
     model_dict = deepcopy(model_dict)
@@ -1033,6 +1066,8 @@ def resolve_inheritance(
         new_chain = _chain
 
     if "extends" not in model_dict:
+        if _anchor_self and config_path is not None:
+            model_dict = _anchor_relative_paths(model_dict, Path(config_path).resolve().parent)
         if "name" not in model_dict and config_path is not None:
             model_dict["name"] = Path(config_path).stem
         return model_dict
@@ -1051,19 +1086,25 @@ def resolve_inheritance(
     if not isinstance(parent_raw, dict):
         raise ValueError(f"Inherited parent {parent_path} must be a TOML table")
 
-    # Recursively resolve any extends in parent
+    # Recursively resolve any extends in parent; each ancestor anchors its own
+    # relative paths once to its own declaring directory.
     parent_resolved = resolve_inheritance(
         parent_raw,
         config_path=parent_path,
         workspace_root=workspace_root,
         _chain=new_chain,
+        _anchor_self=True,
     )
 
-    # Anchor any relative paths in parent to parent_path.parent
-    parent_anchored = _anchor_relative_paths(parent_resolved, parent_path.parent)
+    # Anchor only this file's own relative paths when this file is itself an ancestor.
+    self_layer = (
+        _anchor_relative_paths(model_dict, Path(config_path).resolve().parent)
+        if (_anchor_self and config_path is not None)
+        else model_dict
+    )
 
-    # Deep merge parent (base) and model_dict (override)
-    merged = _deep_merge(parent_anchored, model_dict)
+    # Deep merge parent (base) and self_layer (override)
+    merged = _deep_merge(parent_resolved, self_layer)
     merged.pop("extends", None)
 
     if "name" not in model_dict:

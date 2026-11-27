@@ -16,7 +16,40 @@ from .recipes import ComponentGraph, generation_output, generation_particle_ids,
 from .run_state import sync_directory
 
 
-def bundle_state(trainer, batch, include_example_inputs: bool = True):
+def _redact_example_input(value):
+    """Strip raw training payload from conditioning values, keeping only safe shape/type specs."""
+    if isinstance(value, torch.Tensor):
+        return {"shape": list(value.shape), "dtype": str(value.dtype)}
+    if isinstance(value, np.ndarray):
+        return {"shape": list(value.shape), "dtype": str(value.dtype)}
+    if isinstance(value, dict):
+        if (
+            set(value.keys()) == {"shape", "dtype"}
+            and isinstance(value.get("shape"), list)
+            and isinstance(value.get("dtype"), str)
+        ):
+            return {"shape": list(value["shape"]), "dtype": value["dtype"]}
+        if value.get("redacted") is True and "type" in value:
+            return dict(value)
+        return {str(k): _redact_example_input(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return {"type": type(value).__name__, "length": len(value), "redacted": True}
+    return {"type": type(value).__name__, "redacted": True}
+
+
+def _verify_sha256_file(bundle_path: Path, sha_path: Path) -> str:
+    """Verify bundle_path against an existing .sha256 file; reject empty, truncated, or mismatched digests."""
+    raw = sha_path.read_text(encoding="utf-8").strip()
+    expected = raw.split()[0] if raw else ""
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", expected):
+        raise ValueError(f"Inference artifact hash mismatch: invalid or empty checksum in {sha_path.name}")
+    actual = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    if actual != expected.lower():
+        raise ValueError("Inference artifact hash mismatch")
+    return expected.lower()
+
+
+def bundle_state(trainer, batch, include_example_inputs: bool = False):
     """Assemble inference state; callers own copying and RNG isolation."""
     # Retain generation/sampling and explicitly selected evaluation dependency
     # graphs, omitting unrelated training components from inference artifacts.
@@ -45,12 +78,7 @@ def bundle_state(trainer, batch, include_example_inputs: bool = True):
     models = {name: trainer.ema_graph.models[name] for name, spec in specs.items() if 'reuse' not in spec}
     raw_inputs = {k: v for k, v in batch.items() if k in needed}
     if not include_example_inputs:
-        example_inputs = {}
-        for k, v in raw_inputs.items():
-            if isinstance(v, torch.Tensor):
-                example_inputs[k] = {"shape": list(v.shape), "dtype": str(v.dtype)}
-            else:
-                example_inputs[k] = v
+        example_inputs = {k: _redact_example_input(v) for k, v in raw_inputs.items()}
     else:
         example_inputs = raw_inputs
     state = {"schema_version": 1, "kind": "ema-inference", "resume_supported": False, "step": trainer.step, "config": config_values(trainer.config), "components": specs, "model_states": {name: model.state_dict() for name, model in models.items()}, "prior": trainer.ema_prior.state_dict(), "example_inputs": example_inputs}
@@ -62,7 +90,7 @@ def bundle_state(trainer, batch, include_example_inputs: bool = True):
     return state
 
 
-def save_bundle(run_dir, trainer, batch, include_example_inputs: bool = True):
+def save_bundle(run_dir, trainer, batch, include_example_inputs: bool = False):
     run_dir = Path(run_dir)
     state = bundle_state(trainer, batch, include_example_inputs=include_example_inputs)
     temporary = run_dir / "model.pt.tmp"
@@ -212,15 +240,10 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_im
         path = run_dir
         bundle_dir = run_dir.parent
         stem_sha = run_dir.with_suffix(".sha256")
-        model_sha = bundle_dir / "model.sha256"
         if stem_sha.is_file():
-            expected = stem_sha.read_text(encoding="utf-8").strip()
-        elif model_sha.is_file():
-            expected = model_sha.read_text(encoding="utf-8").strip()
+            expected = _verify_sha256_file(path, stem_sha)
         else:
             expected = hashlib.sha256(path.read_bytes()).hexdigest()
-        if expected and hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-            raise ValueError("Inference artifact hash mismatch")
         state = torch.load(path, map_location="cpu", weights_only=True)
     else:
         bundle_dir = run_dir
@@ -247,9 +270,7 @@ def _sample(run_dir, count, seed, output, *, inputs, checkpoint=None, default_im
             path = target_bundle
             if not path.is_file():
                 raise ValueError("Published inference artifact is missing")
-            expected = (bundle_dir / "model.sha256").read_text().strip()
-            if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-                raise ValueError("Inference artifact hash mismatch")
+            expected = _verify_sha256_file(path, bundle_dir / "model.sha256")
             state = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(state, dict) or state.get("schema_version") != 1 or state.get("kind") != "ema-inference":
         raise ValueError("Unsupported inference artifact schema")
@@ -508,26 +529,53 @@ class LoadedGenerator(torch.nn.Module, dict):
 
     def __init__(self, bundle: dict | Path | str, device: str = "cpu"):
         torch.nn.Module.__init__(self)
-        if isinstance(bundle, (str, Path)):
-            bundle = torch.load(bundle, map_location=device, weights_only=True)
-        dict.__init__(self, bundle)
         from .recipes import execution_device
         self.device = execution_device(device, fallback=True)
+        if isinstance(bundle, (str, Path)):
+            bundle = torch.load(bundle, map_location=self.device, weights_only=True)
+        dict.__init__(self, bundle)
         self.config = bundle.get("config", {})
         self.components = bundle.get("components", {})
         self.example_inputs = bundle.get("example_inputs", {})
 
         # Standalone particle baking (zero particlegan dependency)
-        prior_state = bundle.get("prior", {})
-        if isinstance(prior_state, dict) and "z" in prior_state and isinstance(prior_state["z"], torch.Tensor):
-            self.register_buffer("particle_z", prior_state["z"].clone().detach().to(self.device))
+        prior_state = bundle.get("prior", {}) if isinstance(bundle.get("prior"), dict) else {}
+        prior_buffers = bundle.get("prior_buffers", {}) if isinstance(bundle.get("prior_buffers"), dict) else {}
+        prior_cfg = self.config.get("prior", {}) if isinstance(self.config, dict) and isinstance(self.config.get("prior"), dict) else {}
+        prior_args = prior_cfg.get("args", {}) if isinstance(prior_cfg.get("args"), dict) else {}
+        recipe_cfg = self.config.get("recipe", {}) if isinstance(self.config, dict) and isinstance(self.config.get("recipe"), dict) else {}
+        extra_state = prior_state.get("_extra_state") if isinstance(prior_state.get("_extra_state"), dict) else {}
+
+        z_tensor = prior_state.get("z") if isinstance(prior_state.get("z"), torch.Tensor) else prior_buffers.get("z")
+        if isinstance(z_tensor, torch.Tensor):
+            self.register_buffer("particle_z", z_tensor.clone().detach().to(self.device))
         else:
             self.particle_z = None
 
-        if isinstance(prior_state, dict) and "sigma" in prior_state and isinstance(prior_state["sigma"], torch.Tensor):
-            self.register_buffer("particle_sigma", prior_state["sigma"].clone().detach().to(self.device))
+        sigma_tensor = prior_state.get("sigma") if isinstance(prior_state.get("sigma"), torch.Tensor) else prior_buffers.get("sigma")
+        if isinstance(sigma_tensor, torch.Tensor):
+            self.register_buffer("particle_sigma", sigma_tensor.clone().detach().to(self.device))
         else:
             self.particle_sigma = None
+
+        if isinstance(extra_state.get("standardize"), bool):
+            self._standardize = extra_state["standardize"]
+        elif prior_cfg.get("kind") == "mog":
+            std_val = prior_args.get("standardize", prior_cfg.get("standardize", True))
+            self._standardize = bool(std_val)
+        else:
+            self._standardize = False
+
+        raw_init_std = prior_args.get("init_std", prior_cfg.get("init_std", 1.0))
+        self._init_std = float(raw_init_std) if raw_init_std is not None else 1.0
+
+        self._code_law = str(
+            extra_state.get("code_law")
+            or recipe_cfg.get("prior_code_law")
+            or prior_cfg.get("code_law")
+            or prior_args.get("code_law")
+            or "table"
+        )
 
         # Build generator component graph
         self.graph = ComponentGraph(self.components).to(self.device).eval().requires_grad_(False)
@@ -540,7 +588,11 @@ class LoadedGenerator(torch.nn.Module, dict):
                     _restore_buffers(self.graph.models[name], bufs)
 
     def means(self):
-        return self.particle_z
+        if self.particle_z is None:
+            return None
+        if not self._standardize or self.particle_z.shape[0] < 2:
+            return self.particle_z
+        return (self.particle_z - self.particle_z.mean(0)) / (self.particle_z.std(0) + 1e-6)
 
     @property
     def sigma(self):
@@ -552,15 +604,21 @@ class LoadedGenerator(torch.nn.Module, dict):
         elif generator is not None and seed is not None:
             raise ValueError("Cannot provide both generator and seed")
         if self.particle_z is not None:
-            idx = torch.randint(0, self.particle_z.shape[0], (count,), generator=generator, device=self.device)
-            z = self.particle_z[idx]
+            if self._code_law == "fresh_gaussian":
+                # Match ParticlePrior/MoGParticlePrior RNG consumption: row index draw followed by fresh Gaussian.
+                torch.randint(0, self.particle_z.shape[0], (count,), generator=generator, device=self.device)
+                z = torch.randn(count, self.particle_z.shape[-1], generator=generator, device=self.device, dtype=self.particle_z.dtype)
+                return z * self._init_std
+            centers = self.means()
+            idx = torch.randint(0, centers.shape[0], (count,), generator=generator, device=self.device)
+            z = centers[idx]
             if self.particle_sigma is not None and float(self.particle_sigma) > 0:
-                noise = torch.randn(count, self.particle_z.shape[-1], generator=generator, device=self.device, dtype=z.dtype)
+                noise = torch.randn(count, centers.shape[-1], generator=generator, device=self.device, dtype=z.dtype)
                 z = z + self.particle_sigma * noise
             return z
         else:
             z_dim = _resolve_z_dim(self, self.config)
-            return torch.randn(count, z_dim, generator=generator, device=self.device)
+            return torch.randn(count, z_dim, generator=generator, device=self.device) * self._init_std
 
     def sample_prior(self, count: int, generator: torch.Generator | None = None, seed: int | None = None) -> torch.Tensor:
         return self.sample_latents(count, generator=generator, seed=seed)
@@ -614,15 +672,36 @@ class LoadedGenerator(torch.nn.Module, dict):
         cond = conditioning if conditioning is not None else inputs
         return self.forward(z=z_walk, inputs=cond)
 
+    def _apply(self, fn, recurse=True):
+        result = super()._apply(fn, recurse=recurse)
+        try:
+            probed = fn(torch.empty(0, device=self.device))
+            if isinstance(probed, torch.Tensor):
+                self.device = probed.device
+        except Exception:
+            if isinstance(self.particle_z, torch.Tensor):
+                self.device = self.particle_z.device
+            else:
+                first_tensor = next(
+                    (t for t in (*self.parameters(), *self.buffers()) if isinstance(t, torch.Tensor)),
+                    None,
+                )
+                if first_tensor is not None:
+                    self.device = first_tensor.device
+        return result
+
     def to(self, *args, **kwargs):
         device = None
         if args and isinstance(args[0], (str, torch.device)):
             device = torch.device(args[0])
-        elif "device" in kwargs:
+        elif args and isinstance(args[0], torch.Tensor):
+            device = args[0].device
+        elif "device" in kwargs and kwargs["device"] is not None:
             device = torch.device(kwargs["device"])
+        result = super().to(*args, **kwargs)
         if device is not None:
             self.device = device
-        return super().to(*args, **kwargs)
+        return result
 
 
 class _UnconditionalExportWrapper(torch.nn.Module):
@@ -656,6 +735,11 @@ def _prepare_export_conditioning(lg: LoadedGenerator, bundle: dict) -> tuple[lis
         cond_tensors = []
         for k in cond_keys:
             spec = example_inputs[k]
+            if isinstance(spec, dict) and spec.get("redacted") is True and "shape" not in spec:
+                raise ValueError(
+                    f"Cannot trace redacted non-tensor conditioning input {k!r} for export; "
+                    "use tensor conditioning inputs or include_example_inputs=True"
+                )
             v = _coerce_conditioning_input(spec, spec if isinstance(spec, torch.Tensor) else None)
             if v.ndim >= 1 and v.shape[0] >= 1:
                 v = v[:1].contiguous().to(lg.device)
@@ -740,14 +824,39 @@ def export_generator(run_dir: Path | str, output_path: Path | str | None = None,
         tensors = {}
         for comp_name, wdict in bundle.get("model_states", {}).items():
             for k, v in wdict.items():
-                tensors[f"{comp_name}.{k}"] = v.contiguous().cpu()
+                if isinstance(v, torch.Tensor):
+                    tensors[f"{comp_name}.{k}"] = v.detach().contiguous().cpu().clone()
+        model_buffers_meta = {}
+        for comp_name, bdict in (bundle.get("model_buffers") or {}).items():
+            if not isinstance(bdict, dict):
+                continue
+            saved_names = []
+            for k, v in bdict.items():
+                if isinstance(v, torch.Tensor):
+                    saved_names.append(k)
+                    key = f"{comp_name}.{k}"
+                    if key not in tensors:
+                        tensors[key] = v.detach().contiguous().cpu().clone()
+            if saved_names:
+                model_buffers_meta[comp_name] = sorted(saved_names)
+        prior_extra_state = None
         if "prior" in bundle and isinstance(bundle["prior"], dict):
             for k, v in bundle["prior"].items():
                 if isinstance(v, torch.Tensor):
-                    tensors[f"prior.{k}"] = v.contiguous().cpu()
+                    tensors[f"prior.{k}"] = v.detach().contiguous().cpu().clone()
+                elif k == "_extra_state":
+                    prior_extra_state = v
+        prior_buffers_meta = []
+        if isinstance(bundle.get("prior_buffers"), dict):
+            for k, v in bundle["prior_buffers"].items():
+                if isinstance(v, torch.Tensor):
+                    prior_buffers_meta.append(k)
+                    key = f"prior.{k}"
+                    if key not in tensors:
+                        tensors[key] = v.detach().contiguous().cpu().clone()
         raw_example_inputs = bundle.get("example_inputs", {})
         safe_example_inputs = {
-            k: ({"shape": list(v.shape), "dtype": str(v.dtype)} if isinstance(v, torch.Tensor) else v)
+            k: _redact_example_input(v)
             for k, v in (raw_example_inputs.items() if isinstance(raw_example_inputs, dict) else ())
         }
         meta = {
@@ -757,6 +866,12 @@ def export_generator(run_dir: Path | str, output_path: Path | str | None = None,
             "config": json.dumps(bundle.get("config", {})),
             "example_inputs": json.dumps(safe_example_inputs),
         }
+        if model_buffers_meta:
+            meta["model_buffers"] = json.dumps(model_buffers_meta)
+        if prior_buffers_meta:
+            meta["prior_buffers"] = json.dumps(sorted(prior_buffers_meta))
+        if prior_extra_state is not None:
+            meta["prior_extra_state"] = json.dumps(prior_extra_state)
         safetensors.torch.save_file(tensors, dest, metadata=meta)
         digest = hashlib.sha256(dest.read_bytes()).hexdigest()
         chk = dest.with_suffix(".sha256")
@@ -774,12 +889,18 @@ def export_generator(run_dir: Path | str, output_path: Path | str | None = None,
         else:
             export_mod = _UnconditionalExportWrapper(lg)
             export_args = (dummy_z,)
+        temp_pt2 = dest.with_name(dest.name + ".tmp")
         try:
             exported = torch.export.export(export_mod, export_args, strict=False)
-            torch.export.save(exported, dest)
-        except Exception:
-            traced = torch.jit.trace(export_mod, export_args)
-            torch.jit.save(traced, dest)
+            torch.export.save(exported, temp_pt2)
+            temp_pt2.replace(dest)
+        except Exception as exc:
+            if temp_pt2.exists():
+                try:
+                    temp_pt2.unlink()
+                except OSError:
+                    pass
+            raise RuntimeError(f"PT2 export failed via torch.export.export: {exc}") from exc
         return dest
 
     elif format == "onnx":

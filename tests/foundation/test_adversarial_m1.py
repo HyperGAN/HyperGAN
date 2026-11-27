@@ -653,7 +653,7 @@ sys.exit(ret)
     final_job = final_st.get("active_job")
     assert final_job["pid"] is None
     assert final_job["exit_code"] == (1 if os.name == "nt" else 42)
-    assert final_job["status"] == "failed"
+    assert final_job["status"] == "stopped"
 
 
 def test_queue_sigterm_kills_unresponsive_child_via_fallback(tmp_path):
@@ -684,10 +684,10 @@ def mock_popen(cmd, **kwargs):
     if os.name == "nt":
         # Simulate an unresponsive first termination attempt on Windows too.
         proc.terminate = lambda: None
-    # Monkeypatch the 10.0s wait timeout to 1.0s for test speed
+    # Monkeypatch the graceful-stop wait timeout to 1.0s for test speed
     orig_wait = proc.wait
     def fast_wait(timeout=None):
-        if timeout == 10.0:
+        if timeout == qmod._GRACEFUL_STOP_WAIT_SECONDS:
             timeout = 1.0
         return orig_wait(timeout=timeout)
     proc.wait = fast_wait
@@ -730,7 +730,7 @@ sys.exit(ret)
     final_st = queue_status(queue_file=q_file)
     final_job = final_st.get("active_job")
     assert final_job["pid"] is None
-    assert final_job["status"] == "failed"
+    assert final_job["status"] == "stopped"
     assert final_job["exit_code"] == (1 if os.name == "nt" else -signal.SIGKILL)
 
 

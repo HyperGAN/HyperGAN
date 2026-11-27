@@ -243,8 +243,6 @@ def _worker_unified_v15_highd(rank, world_size, config_dict, full_batches, share
     torch.save(
         {
             "digest": trainer._replica_digest(),
-            "highd_packet": rec.highd_basin_bank.to_packet(),
-            "sparse_packet": rec.sparse_obs_bank.to_packet(),
         },
         Path(shared_dir) / f"rank-{rank}.pt",
     )
@@ -259,7 +257,7 @@ def _worker_unified_v15_sync_states(rank, world_size, shared_dir):
     rec = UnifiedV15StepRecord()
     opt.record = rec
 
-    # Diverge per-param peak_rms_val, _g_peak_ref/_g_peak_ref_t, _v15_g_peak_ref, atomic_ledger, banks
+    # Diverge per-param peak_rms_val, _g_peak_ref/_g_peak_ref_t, _v15_g_peak_ref, atomic_ledger
     opt.state[p]["step"] = 1
     opt.state[p]["exp_avg"] = torch.full_like(p, 1.0 if rank == 0 else 3.0)
     opt.state[p]["exp_avg_sq"] = torch.full_like(p, 2.0 if rank == 0 else 4.0)
@@ -270,28 +268,11 @@ def _worker_unified_v15_sync_states(rank, world_size, shared_dir):
     rec.t1c_ell_initialized = True
 
     if rank == 1:
-        # Rank 1 initialized atomic_ledger, highd_basin_bank, sparse_obs_bank while rank 0 is uninitialized!
+        # Rank 1 initialized atomic_ledger while rank 0 is uninitialized
         rec.atomic_ledger_initialized = True
         rec.atomic_row_chart = torch.tensor([0, 1, 2, 3], dtype=torch.int64)
         rec.atomic_row_dist = torch.tensor([0.1, 0.2, 0.3, 0.4], dtype=torch.float32)
         rec.atomic_row_target = torch.tensor([0, 1, 2, 3], dtype=torch.int64)
-        rec.highd_basin_bank.sigma_z_init = True
-        rec.highd_basin_bank.sigma_z_ema = 1.75
-        rec.highd_basin_bank.dim = 32
-        rec.sparse_obs_bank.step = 5
-        rec.sparse_obs_bank.dim = 4
-        rec.sparse_obs_bank.dz = 0
-        rec.sparse_obs_bank.buf_n = 2
-        rec.sparse_obs_bank.buf_ptr = 2
-        rec.sparse_obs_bank.p_y = 0.5
-        rec.sparse_obs_bank.p_x = 0.5
-        rec.sparse_obs_bank.sparse_push_res = 0.42
-        rec.sparse_obs_bank.mu_y = torch.zeros(4, dtype=torch.float32)
-        rec.sparse_obs_bank.mu_x = torch.zeros(4, dtype=torch.float32)
-        rec.sparse_obs_bank.S_y = torch.eye(4, dtype=torch.float32)
-        rec.sparse_obs_bank.S_x = torch.eye(4, dtype=torch.float32)
-        rec.sparse_obs_bank.buf_y = torch.ones((2, 4), dtype=torch.float32)
-        rec.sparse_obs_bank.buf_m = torch.ones((2, 4), dtype=torch.bool)
 
     _synchronize_optimizers(None, [opt], world_size)
     # Validate state_dict cleanly
@@ -306,9 +287,6 @@ def _worker_unified_v15_sync_states(rank, world_size, shared_dir):
             "v15_g_peak_ref": rec._v15_g_peak_ref,
             "atomic_init": rec.atomic_ledger_initialized,
             "atomic_row_chart": None if rec.atomic_row_chart is None else rec.atomic_row_chart.tolist(),
-            "highd_sigma_z": rec.highd_basin_bank.sigma_z_ema,
-            "sparse_step": rec.sparse_obs_bank.step,
-            "sparse_push_res": rec.sparse_obs_bank.sparse_push_res,
         },
         Path(shared_dir) / f"rank-{rank}.pt",
     )
@@ -760,7 +738,6 @@ def test_unified_v15_highd_and_sparse_latent_gather_replica_agreement(tmp_path):
     r0 = torch.load(tmp_path / "rank-0.pt", weights_only=False)
     r1 = torch.load(tmp_path / "rank-1.pt", weights_only=False)
     assert r0["digest"] == r1["digest"]
-    _assert_nested_close(r0["highd_packet"], r1["highd_packet"], "highd_basin_bank")
 
 
 def test_unified_v15_local_sgd_state_sync(tmp_path):
@@ -780,9 +757,6 @@ def test_unified_v15_local_sgd_state_sync(tmp_path):
     assert r0["v15_g_peak_ref"] == pytest.approx(1.0)
     assert r0["atomic_init"] is True
     assert r0["atomic_row_chart"] == [0, 1, 2, 3]
-    assert r0["highd_sigma_z"] == pytest.approx(1.75)
-    assert r0["sparse_step"] == 5
-    assert r0["sparse_push_res"] == pytest.approx(0.42)
 
 
 # ---------------------------------------------------------------------------

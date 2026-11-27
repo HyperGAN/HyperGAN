@@ -763,11 +763,7 @@ class ReplicatedTrainer(ReferenceTrainer):
 
     @staticmethod
     def _is_unified_v15_record(rec):
-        return rec is not None and (
-            hasattr(rec, 'highd_basin_bank')
-            or hasattr(rec, 'sparse_obs_bank')
-            or getattr(type(rec), '__module__', '').startswith('particlegan._unified_v15')
-        )
+        return rec is not None and getattr(type(rec), '__module__', '').startswith('particlegan._unified_v15')
 
     @classmethod
     def _is_unified_v15_term(cls, term):
@@ -815,36 +811,68 @@ class ReplicatedTrainer(ReferenceTrainer):
             return True
         return False
 
-    def _gather_axiom_pair(self, fake_score, real_score, rec):
-        """Gather critic logits and Axiom input/conditioning captures across all ranks."""
-        from particlegan._axiom.loss import _lookup_capture
+    def _reduce_protected(self, optimizer):
+        protected = getattr(optimizer, '_protected', None)
+        if protected is None or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            return
+        if isinstance(protected, torch.Tensor):
+            dist.all_reduce(protected)
+            protected /= self.world_size
+            return
+        if isinstance(protected, (list, tuple)):
+            for group in protected:
+                if isinstance(group, torch.Tensor):
+                    dist.all_reduce(group)
+                    group /= self.world_size
+                elif isinstance(group, (list, tuple)):
+                    for tensor in group:
+                        if isinstance(tensor, torch.Tensor):
+                            dist.all_reduce(tensor)
+                            tensor /= self.world_size
 
-        x_f, cond_f, rec_f, cc_f, parts_f = _lookup_capture(fake_score, rec)
-        x_r, cond_r, rec_r, cc_r, parts_r = _lookup_capture(
-            real_score, rec_f if rec_f is not None else rec
+    def _gather_axiom_pair(self, fake_score, real_score, rec):
+        """Gather critic logits and Axiom v6 CaptureEntry metadata across all ranks."""
+        from particlegan._axiom.state import (
+            CaptureEntry,
+            lookup_axiom_capture,
+            record_axiom_capture,
         )
-        eff_rec = rec_f if rec_f is not None else (rec_r if rec_r is not None else rec)
+
+        ef = lookup_axiom_capture(fake_score, rec)
+        hint_rec = ef.record if (ef is not None and ef.record is not None) else rec
+        er = lookup_axiom_capture(real_score, hint_rec)
+        eff_rec = hint_rec if hint_rec is not None else (er.record if er is not None else None)
         global_f_sc = self._all_gather_coupled(fake_score)
         global_r_sc = self._all_gather_coupled(real_score)
-        if x_f is not None and x_r is not None:
-            global_x_f = self._all_gather_coupled(x_f)
-            global_x_r = self._all_gather_coupled(x_r)
-            global_cond_f = self._all_gather_coupled(cond_f) if cond_f is not None else None
-            global_cond_r = self._all_gather_coupled(cond_r) if cond_r is not None else None
-            global_parts_f = tuple(self._all_gather_coupled(p) for p in parts_f) if parts_f is not None else None
-            global_parts_r = tuple(self._all_gather_coupled(p) for p in parts_r) if parts_r is not None else None
-            global_f_sc._axiom_input = global_x_f
-            global_f_sc._axiom_cond = global_cond_f
-            global_f_sc._axiom_cont_cond = cc_f
-            global_f_sc._axiom_parts = global_parts_f
-            global_f_sc._axiom_record = eff_rec
-            if getattr(fake_score, '_axiom_thermally_scaled', False):
-                global_f_sc._axiom_thermally_scaled = True
-            global_r_sc._axiom_input = global_x_r
-            global_r_sc._axiom_cond = global_cond_r
-            global_r_sc._axiom_cont_cond = cc_r
-            global_r_sc._axiom_parts = global_parts_r
-            global_r_sc._axiom_record = eff_rec
+        if ef is not None and er is not None:
+            global_x_f = self._all_gather_coupled(ef.x_in)
+            global_x_r = self._all_gather_coupled(er.x_in)
+            global_cond_f = self._all_gather_coupled(ef.cond) if ef.cond is not None else None
+            global_cond_r = self._all_gather_coupled(er.cond) if er.cond is not None else None
+            global_parts_f = tuple(self._all_gather_coupled(p) for p in ef.parts) if ef.parts is not None else None
+            global_parts_r = tuple(self._all_gather_coupled(p) for p in er.parts) if er.parts is not None else None
+            record_axiom_capture(
+                global_f_sc,
+                CaptureEntry(
+                    global_x_f,
+                    global_cond_f,
+                    eff_rec,
+                    ef.has_cont_cond,
+                    global_parts_f,
+                    ef.thermally_scaled,
+                ),
+            )
+            record_axiom_capture(
+                global_r_sc,
+                CaptureEntry(
+                    global_x_r,
+                    global_cond_r,
+                    eff_rec,
+                    er.has_cont_cond,
+                    global_parts_r,
+                    er.thermally_scaled,
+                ),
+            )
         return global_f_sc, global_r_sc
 
     def _gather_t1c_pair(self, fake_score, real_score, rec):
@@ -973,8 +1001,7 @@ class ReplicatedTrainer(ReferenceTrainer):
 
     def _probe_budget_for_record(self, rec, b_global, elem_dim):
         if hasattr(rec, 'chart_state') and hasattr(rec, 'thermal_scale'):
-            from particlegan._axiom.critic import _PROBE_MAX_BATCH
-            return min(_PROBE_MAX_BATCH, b_global)
+            return min(b_global, max(1, min(32, 1024 // max(1, elem_dim))))
         if self._is_unified_v15_record(rec):
             from particlegan._unified_v15.critic import _probe_batch_count
             return _probe_batch_count(b_global, elem_dim)
@@ -1666,10 +1693,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                         self._phase('generator loss', lambda: self._finite_loss(g_loss))
                         self._phase('generator backward', lambda: constraint_geometry_backward(g_loss, self.opt_g, (g_adversarial_weighted,)))
 
-                if getattr(self.opt_g, '_protected', None) is not None:
-                    if getattr(self.aggregation_strategy, 'reduces_gradients', False):
-                        dist.all_reduce(self.opt_g._protected)
-                        self.opt_g._protected /= self.world_size
+                self._reduce_protected(self.opt_g)
 
                 self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
                 gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
@@ -2126,10 +2150,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                             torch.autograd.backward(outputs, gradients)
                         return prior_loss.detach()
                     prior_loss = self._phase('global prior regularizer and latent backward', prior_backward)
-                if getattr(self.opt_g, '_protected', None) is not None:
-                    if getattr(self.aggregation_strategy, 'reduces_gradients', False):
-                        dist.all_reduce(self.opt_g._protected)
-                        self.opt_g._protected /= self.world_size
+                self._reduce_protected(self.opt_g)
                 self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
                 gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
                 prior_grad_norm_t = (

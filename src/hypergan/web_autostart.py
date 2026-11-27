@@ -9,7 +9,9 @@ import json
 import multiprocessing as mp
 import os
 from pathlib import Path
+import re
 import signal
+import stat
 import sys
 import socket
 import subprocess
@@ -635,36 +637,150 @@ def _project(root, stop):
 
 
 
+_LAUNCH_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$')
+
+
+def _valid_launch_id(value) -> bool:
+    return isinstance(value, str) and bool(_LAUNCH_ID_RE.fullmatch(value))
+
+
+def _probe_host(host: str | None) -> str:
+    if not host or host in ("0.0.0.0", ""):
+        return "127.0.0.1"
+    if host == "::":
+        return "::1"
+    return host
+
+
+def _viewer_base_dir() -> Path:
+    owner = str(os.getuid()) if hasattr(os, 'getuid') else hashlib.sha256(str(Path.home()).encode()).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / ('hypergan-viewers-' + owner)
+
+
+def _is_safe_owned_dir(path: Path, current_uid: int | None, *, require_private: bool = True) -> bool:
+    try:
+        st = path.lstat()
+    except OSError:
+        return False
+    if not stat.S_ISDIR(st.st_mode):
+        return False
+    if os.name != 'nt' and current_uid is not None:
+        if st.st_uid != current_uid:
+            return False
+        mask = 0o077 if require_private else 0o022
+        if st.st_mode & mask:
+            return False
+    return True
+
+
+def _is_safe_owned_file(path: Path, current_uid: int | None) -> bool:
+    try:
+        st = path.lstat()
+    except OSError:
+        return False
+    if not stat.S_ISREG(st.st_mode):
+        return False
+    if os.name != 'nt' and current_uid is not None and st.st_uid != current_uid:
+        return False
+    return True
+
+
+def _safe_touch_stop_file(reg: Path, launch_id: str) -> bool:
+    if not _valid_launch_id(launch_id):
+        return False
+    stop_path = reg / f'stop-{launch_id}'
+    if stop_path.parent != reg or stop_path.is_symlink():
+        return False
+    try:
+        if os.name != 'nt' and hasattr(os, 'open') and hasattr(os, 'close'):
+            flags = os.O_CREAT | os.O_WRONLY | getattr(os, 'O_NOFOLLOW', 0)
+            fd = os.open(stop_path, flags, 0o600)
+            os.close(fd)
+        else:
+            stop_path.touch(mode=0o600)
+        return True
+    except OSError:
+        return False
+
+
+def _proc_owned_by(proc_root: str, pid: int, current_uid: int | None) -> bool:
+    if type(pid) is not int or pid <= 0:
+        return False
+    try:
+        st = os.stat(f'{proc_root}/{pid}')
+    except OSError:
+        return False
+    if current_uid is not None and st.st_uid != current_uid:
+        return False
+    return True
+
+
+def _is_verified_viewer_pid(proc_root: str, pid: int, current_uid: int | None) -> bool:
+    if not _proc_owned_by(proc_root, pid, current_uid):
+        return False
+    tokens = _process_tokens(proc_root, pid)
+    return bool(tokens and _is_viewer_command(tokens))
+
+
+def _is_verified_viewer_child(proc_root: str, child: int, supervisor: int, current_uid: int | None) -> bool:
+    if type(child) is not int or child <= 0 or type(supervisor) is not int or supervisor <= 0:
+        return False
+    if not _proc_owned_by(proc_root, child, current_uid):
+        return False
+    if not _is_verified_viewer_pid(proc_root, supervisor, current_uid):
+        return False
+    return _parent_pid(proc_root, child) == supervisor
+
+
 def stop_projector(run_dir: Path | str) -> None:
     """Request projector shutdown for run_dir and release resources."""
     run_dir = Path(run_dir).resolve()
+    stop_marker = run_dir / '.stop_projector'
     try:
-        (run_dir / '.stop_projector').touch(exist_ok=True)
+        if not stop_marker.is_symlink():
+            stop_marker.touch(exist_ok=True)
     except OSError:
         pass
-    runs_root = find_runs_root(run_dir)
-    private = _registry(runs_root)
+    try:
+        runs_root = find_runs_root(run_dir)
+        private = _registry(runs_root)
+    except (OSError, ValueError):
+        return
+    if not _locked(private):
+        return
     state = _read_state(private)
-    if state and isinstance(state.get('processes'), dict):
-        proj_pid = state['processes'].get('projector')
-        if proj_pid:
-            try:
-                os.kill(proj_pid, signal.SIGTERM)
-            except OSError:
-                pass
+    if not (isinstance(state, dict) and isinstance(state.get('processes'), dict)):
+        return
+    proj_pid = state['processes'].get('projector')
+    current_pid = os.getpid()
+    if type(proj_pid) is not int or proj_pid <= 0 or proj_pid == current_pid:
+        return
+    current_uid = os.getuid() if hasattr(os, 'getuid') else None
+    proc_root = getattr(os, 'environ', {}).get('HYPERGAN_PROC_ROOT', '/proc')
+    if os.path.exists(proc_root):
+        supervisor = state.get('supervisor_pid')
+        verified = _is_verified_viewer_pid(proc_root, proj_pid, current_uid) or (
+            type(supervisor) is int and supervisor > 0
+            and _is_verified_viewer_child(proc_root, proj_pid, supervisor, current_uid)
+        )
+        if not verified:
+            return
+    try:
+        os.kill(proj_pid, signal.SIGTERM)
+    except OSError:
+        pass
 
 
 def _registry(root):
     """Private state outside experiment artifacts, stable across CLI invocations."""
-    owner = str(os.getuid()) if hasattr(os, 'getuid') else hashlib.sha256(str(Path.home()).encode()).hexdigest()[:16]
-    base = Path(tempfile.gettempdir()) / ('hypergan-viewers-' + owner)
+    base = _viewer_base_dir()
     private = base / hashlib.sha256(str(Path(root).resolve()).encode()).hexdigest()
     for path in (base, private):
         path.mkdir(mode=0o700, exist_ok=True)
         if path.is_symlink() or (os.name != 'nt' and
                 (path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077)):
             raise ValueError('Viewer registry must be private and owned by the current user')
-    (private / 'service').mkdir(exist_ok=True)
+    (private / 'service').mkdir(mode=0o700, exist_ok=True)
     return private
 
 
@@ -834,6 +950,10 @@ def _broker(root, private, launch_id):
             listener = bind_available(state['port'], state['host'])
             session = LocalSession(listener.getsockname()[1], host=state['host'], auth=state['auth'],
                                    public_origin=state.get('public_origin'))
+            if not session.controls_allowed:
+                print(f"warning: binding non-loopback host {state['host']!r} with --auth none; "
+                      'run control mutations (stop/checkpoint/sample) are disabled until --auth token is set',
+                      file=sys.stderr, flush=True)
             with _launch_lock(private):
                 session.write_credentials(credential_path)
             for name, target, args in [('server', _server, (root, listener, session, stop)),
@@ -919,14 +1039,16 @@ def stop_viewer(root, *, launch_id=None, timeout=8):
         if not state or (launch_id is not None and state['launch_id'] != launch_id):
             return {'status': 'not_running'}
         if not _running(private, state):
-            (private / ('session-' + state['launch_id'] + '.json')).unlink(missing_ok=True)
+            if _valid_launch_id(state.get('launch_id')):
+                (private / ('session-' + state['launch_id'] + '.json')).unlink(missing_ok=True)
             return {'status': 'not_running'}
         launch_id = state['launch_id']
         if not _locked(private):
             state['status'] = 'stopped'
             atomic_json(private / 'state.json', state)
             return {'status': 'stopped', 'server_instance_id': state.get('server_instance_id')}
-        (private / ('stop-' + launch_id)).touch(mode=0o600)
+        if not _safe_touch_stop_file(private, launch_id):
+            raise ValueError(f'Invalid viewer launch_id: {launch_id!r}')
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         current = _read_state(private)
@@ -957,7 +1079,7 @@ def probe_dashboard(host: str = "127.0.0.1", port: int = DEFAULT_VIEWER_PORT,
     or dict with {'alien': True} if occupied by non-HyperGAN process.
     """
     import http.client
-    connect_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
+    connect_host = _probe_host(host)
     try:
         conn = http.client.HTTPConnection(connect_host, port, timeout=timeout)
         headers = {}
@@ -1005,7 +1127,7 @@ def launch_dashboard_daemon(runs_root: Path, port: int = DEFAULT_VIEWER_PORT,
         state = _read_state(private, locked=True)
         if _running(private, state):
             return
-        if state:
+        if state and _valid_launch_id(state.get('launch_id')):
             (private / ('session-' + state['launch_id'] + '.json')).unlink(missing_ok=True)
         launch_id = secrets.token_hex(16)
         state = {'schema_version': 1, 'launch_id': launch_id,
@@ -1080,8 +1202,15 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
         elif (runs_root / 'runs' / str(run_id)).is_dir():
             ensure_run_projected(runs_root / 'runs' / str(run_id))
 
+    from .web_session import normalize_public_origin
+    public_origin = normalize_public_origin(public_origin)
+    probe_host = _probe_host(host)
+
     state, token = _registered_dashboard(runs_root)
-    probed = probe_dashboard("127.0.0.1", port, auth_token=token)
+    probed = probe_dashboard(probe_host, port, auth_token=token)
+    if (probed is None and state and state.get('host') and state.get('port') == port
+            and _probe_host(state['host']) != probe_host):
+        probed = probe_dashboard(_probe_host(state['host']), port, auth_token=token)
     if probed is not None and probed.get('alien'):
         owner = get_port_owner(port)
         if owner:
@@ -1108,6 +1237,17 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
             raise OSError(f"Port {port} already serves this root's dashboard with --auth "
                           f"{probed.get('auth_mode')}; stop it with 'hypergan view {runs_root} --stop' "
                           f"to start it with --auth {auth}")
+        existing_host = probed.get('bind_host') or (state.get('host') if state else None)
+        if existing_host is not None and existing_host != host:
+            raise OSError(f"Port {port} already serves this root's dashboard on host {existing_host}; "
+                          f"stop it with 'hypergan view {runs_root} --stop' to start it on {host}")
+        raw_public = (probed['public_origin'] if 'public_origin' in probed
+                      else (state.get('public_origin') if state else None))
+        existing_public = normalize_public_origin(raw_public)
+        if public_origin != existing_public:
+            raise OSError(f"Port {port} already serves this root's dashboard with --public-origin "
+                          f"{existing_public}; stop it with 'hypergan view {runs_root} --stop' "
+                          f"to start it with --public-origin {public_origin}")
         reasons = _dashboard_mismatch(probed) if check_version else []
         if reasons:
             own = state is not None and probed.get('server_instance_id') == state.get('server_instance_id')
@@ -1117,7 +1257,7 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
             print(f"Restarting dashboard on port {port} ({', '.join(reasons)})...", file=sys.stderr, flush=True)
             _stop_registered_dashboard(runs_root, state)
             deadline = time.monotonic() + 5.0
-            while probe_dashboard("127.0.0.1", port) is not None and time.monotonic() < deadline:
+            while probe_dashboard(probe_host, port) is not None and time.monotonic() < deadline:
                 time.sleep(0.1)
             probed = None
 
@@ -1126,7 +1266,7 @@ def ensure_dashboard_running(runs_root: Path | str, *, port: int = DEFAULT_VIEWE
         deadline = time.monotonic() + 10.0
         while True:
             state, token = _registered_dashboard(runs_root)
-            probed = probe_dashboard("127.0.0.1", port, auth_token=token)
+            probed = probe_dashboard(probe_host, port, auth_token=token)
             if probed and not probed.get('alien') and not probed.get('auth_required'):
                 break
             if time.monotonic() >= deadline:
@@ -1190,7 +1330,7 @@ def dashboard_status(runs_root: Path | str | None = None) -> dict:
             token = _session(info)._token or None
         except (OSError, ValueError, KeyError, RuntimeError):
             token = None
-        probed = probe_dashboard("127.0.0.1", port, auth_token=token)
+        probed = probe_dashboard(_probe_host(info.get("host")), port, auth_token=token)
         if probed and not probed.get("alien"):
             info.update({
                 "version": probed.get("version"),
@@ -1219,54 +1359,77 @@ def _parent_pid(proc_root: str, pid: int) -> int | None:
 
 def _is_viewer_command(tokens: list[str]) -> bool:
     """True for `python -m hypergan.web_autostart|web_server` and `hypergan view|serve`."""
-    if any(mod in tokens for mod in ('hypergan.web_autostart', 'hypergan.web_server')):
-        return True
-    if len(tokens) < 2:
+    if not tokens:
         return False
-    exe = Path(tokens[0]).name
-    if not (exe == 'hypergan' or (exe.startswith('python') and len(tokens) >= 3 and tokens[1] == '-m'
-                                  and tokens[2] in ('hypergan', 'hypergan.cli'))):
+    exe = Path(tokens[0]).name.lower()
+    if exe.startswith('python'):
+        for idx, tok in enumerate(tokens[1:], start=1):
+            if tok == '-m' and idx + 1 < len(tokens):
+                mod = tokens[idx + 1]
+                if mod in ('hypergan.web_autostart', 'hypergan.web_server'):
+                    return True
+                if mod in ('hypergan', 'hypergan.cli'):
+                    subcmd = next((t for t in tokens[idx + 2:] if not t.startswith('-')), None)
+                    return subcmd in ('view', 'serve')
+                return False
+            if not tok.startswith('-'):
+                return False
         return False
-    subcmd = next((tok for tok in tokens[1:] if not tok.startswith('-') and tok not in ('hypergan', 'hypergan.cli')), None)
-    return subcmd in ('view', 'serve')
+    if exe in ('hypergan', 'hypergan.exe'):
+        subcmd = next((t for t in tokens[1:] if not t.startswith('-')), None)
+        return subcmd in ('view', 'serve')
+    return False
 
 
 def stop_all_servers(force: bool = False) -> list[int]:
     """Terminate every viewer, dashboard and supervisor of the current user on this host.
 
-    A PID is signalled only when it is known to be a viewer process now: a
-    supervisor whose registry lifetime lock is held, that supervisor's own
-    children, or a process whose command line is a viewer command. A PID left
-    in a stopped or stale state file can belong to anything after reuse
-    (a training job, for one), so it is never signalled.
+    Only inspects the current user's own private, non-symlink viewer registry
+    directory. A PID is signalled only when it is positive and verified to be a
+    viewer process owned by the current user (a live locked viewer supervisor,
+    that verified supervisor's own children, or a process whose command line is
+    a viewer command). A PID left in a stopped or stale state file, an invalid
+    PID (<= 0), or an untrusted/symlinked directory is never signalled or
+    modified.
     """
     current_pid = os.getpid()
     current_uid = os.getuid() if hasattr(os, 'getuid') else None
     proc_root = getattr(os, 'environ', {}).get('HYPERGAN_PROC_ROOT', '/proc')
     has_proc = os.path.exists(proc_root)
     candidates: set[int] = set()
+    verified_tokens: dict[int, list[str]] = {}
 
-    # 1. Registered viewers whose broker or server still holds its lifetime lock.
-    tmp_dir = Path(tempfile.gettempdir())
-    registries = []
-    for viewers_dir in tmp_dir.glob('hypergan-viewers-*'):
+    # 1. Registered viewers inside the current user's own private directory only.
+    viewers_dir = _viewer_base_dir()
+    registries: list[Path] = []
+    if _is_safe_owned_dir(viewers_dir, current_uid, require_private=True):
         try:
-            registries.extend(reg for reg in viewers_dir.iterdir() if reg.is_dir())
+            for reg in viewers_dir.iterdir():
+                if _is_safe_owned_dir(reg, current_uid, require_private=True):
+                    registries.append(reg)
         except OSError:
             pass
+
     for reg in registries:
+        state_path = reg / 'state.json'
+        if not _is_safe_owned_file(state_path, current_uid):
+            continue
         try:
-            state = json.loads((reg / 'state.json').read_text(encoding='utf-8'))
+            state = json.loads(state_path.read_text(encoding='utf-8'))
         except (OSError, ValueError):
             continue
         if not isinstance(state, dict):
             continue
         launch_id = state.get('launch_id')
-        if launch_id:
-            try:
-                (reg / f'stop-{launch_id}').touch(mode=0o600)
-            except OSError:
-                pass
+        if _valid_launch_id(launch_id):
+            _safe_touch_stop_file(reg, launch_id)
+        service_dir = reg / 'service'
+        if service_dir.is_symlink() or (
+            service_dir.exists() and not _is_safe_owned_dir(service_dir, current_uid, require_private=False)
+        ):
+            continue
+        if (service_dir / '.run.lock').is_symlink():
+            continue
         try:
             locked = _locked(reg)
         except (OSError, RuntimeError):
@@ -1274,35 +1437,63 @@ def stop_all_servers(force: bool = False) -> list[int]:
         if not locked:
             continue
         supervisor = state.get('supervisor_pid')
-        if type(supervisor) is not int or supervisor == current_pid:
+        if type(supervisor) is not int or supervisor <= 0 or supervisor == current_pid:
             continue
+        if has_proc:
+            if not _is_verified_viewer_pid(proc_root, supervisor, current_uid):
+                continue
+            sup_tokens = _process_tokens(proc_root, supervisor)
+            if not sup_tokens:
+                continue
+            verified_tokens[supervisor] = sup_tokens
         candidates.add(supervisor)
         processes = state.get('processes', {})
         for child in (processes.values() if isinstance(processes, dict) else ()):
-            if type(child) is int and child != current_pid and (
-                    not has_proc or child == supervisor or _parent_pid(proc_root, child) == supervisor):
+            if type(child) is not int or child <= 0 or child == current_pid:
+                continue
+            if child == supervisor:
                 candidates.add(child)
+            elif not has_proc:
+                candidates.add(child)
+            elif _is_verified_viewer_child(proc_root, child, supervisor, current_uid):
+                child_tokens = _process_tokens(proc_root, child)
+                if child_tokens:
+                    verified_tokens[child] = child_tokens
+                    candidates.add(child)
 
     # 2. Viewer commands in the host process table owned by the current user.
     if has_proc:
         try:
             for entry in os.listdir(proc_root):
-                if not entry.isdigit() or int(entry) == current_pid:
+                if not entry.isdigit():
                     continue
-                try:
-                    if current_uid is not None and os.stat(f'{proc_root}/{entry}').st_uid != current_uid:
-                        continue
-                except OSError:
+                pid = int(entry)
+                if pid <= 0 or pid == current_pid:
                     continue
-                tokens = _process_tokens(proc_root, int(entry))
-                if tokens and _is_viewer_command(tokens):
-                    candidates.add(int(entry))
+                if _is_verified_viewer_pid(proc_root, pid, current_uid):
+                    tokens = _process_tokens(proc_root, pid)
+                    if tokens:
+                        verified_tokens[pid] = tokens
+                        candidates.add(pid)
         except OSError:
             pass
 
     # 3. Terminate candidate processes gracefully first (SIGTERM), then forcibly (SIGKILL)
+    def _still_verified(pid: int) -> bool:
+        if type(pid) is not int or pid <= 0 or pid == current_pid:
+            return False
+        if not has_proc:
+            return True
+        if not _proc_owned_by(proc_root, pid, current_uid):
+            return False
+        expected = verified_tokens.get(pid)
+        current_tokens = _process_tokens(proc_root, pid)
+        return bool(expected and current_tokens and current_tokens == expected)
+
     active_killed = []
-    for pid in candidates:
+    for pid in sorted(candidates):
+        if not _still_verified(pid):
+            continue
         try:
             os.kill(pid, signal.SIGTERM)
             active_killed.append(pid)
@@ -1313,20 +1504,26 @@ def stop_all_servers(force: bool = False) -> list[int]:
     if active_killed and os.name != 'nt':
         time.sleep(0.5)
         for pid in active_killed:
+            if not _still_verified(pid):
+                continue
             try:
                 os.kill(pid, 0)
                 os.kill(pid, signal.SIGKILL)
             except OSError:
                 pass
 
-    # 4. Clean up registry directories
+    # 4. Clean up verified registry directories without following symlinks
     for reg in registries:
         try:
             for f in reg.glob('session-*.json'):
-                f.unlink(missing_ok=True)
+                if _is_safe_owned_file(f, current_uid):
+                    f.unlink(missing_ok=True)
             for f in reg.glob('stop-*'):
-                f.unlink(missing_ok=True)
-            (reg / 'state.json').unlink(missing_ok=True)
+                if _is_safe_owned_file(f, current_uid):
+                    f.unlink(missing_ok=True)
+            state_path = reg / 'state.json'
+            if _is_safe_owned_file(state_path, current_uid):
+                state_path.unlink(missing_ok=True)
         except OSError:
             pass
 
@@ -1366,7 +1563,7 @@ class Viewer:
                     (target_port and target_port != int(state.get('origin', ':0').rsplit(':', 1)[1]) and target_port != state['port'])):
                     raise ValueError('Existing viewer has different bind/auth settings; use hypergan stop-server RUN first')
             else:
-                if state:
+                if state and _valid_launch_id(state.get('launch_id')):
                     # An abruptly killed broker cannot unlink credentials. They
                     # cannot authenticate a new incarnation; remove this stale
                     # private file when the next launcher takes over.

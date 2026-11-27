@@ -390,6 +390,12 @@ def _relative_site_href(target_site_path: str, page_dir: str) -> str:
     return rel
 
 
+_SAFE_DATA_IMAGE_RE = re.compile(
+    r"^data:image/(?:png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/=]+$",
+    re.IGNORECASE,
+)
+
+
 def _rewrite_url(
     url: str,
     *,
@@ -399,14 +405,29 @@ def _rewrite_url(
     repo_url: str,
     commit: str,
     local_heading_ids: set[str],
+    is_image: bool = False,
 ) -> str:
     raw = (url or "").strip()
     if not raw:
         return raw
 
-    lower = raw.lower()
-    if lower.startswith(("http://", "https://", "mailto:", "tel:", "javascript:", "data:")):
+    # Normalize away ASCII control characters and whitespace when checking URI schemes
+    # so obfuscated payloads like "java\tscript:..." or " data:text/html,..." are caught.
+    scheme_probe = re.sub(r"[\x00-\x20]+", "", raw).lower()
+    if scheme_probe.startswith(("javascript:", "vbscript:")):
+        return ""
+    if scheme_probe.startswith("data:"):
+        if is_image and _SAFE_DATA_IMAGE_RE.fullmatch(scheme_probe):
+            return raw
+        return ""
+    if scheme_probe.startswith(("http://", "https://")):
         return raw
+    if not is_image and scheme_probe.startswith(("mailto:", "tel:")):
+        return raw
+
+    probed_parts = urlsplit(scheme_probe)
+    if probed_parts.scheme:
+        return ""
 
     parts = urlsplit(raw)
     path_part = parts.path
@@ -662,6 +683,7 @@ def render_markdown(
                         repo_url=repo_url,
                         commit=commit,
                         local_heading_ids=local_heading_ids,
+                        is_image=True,
                     )
                     tok.attrSet("src", new_src)
                     tok.attrSet("loading", "lazy")

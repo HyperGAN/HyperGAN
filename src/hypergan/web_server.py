@@ -1149,9 +1149,10 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             'runs_root': str(root),
             'run_count': len(runs),
             'auth_mode': session.auth_mode,
+            'bind_host': session.bind_host,
             'public_origin': session.public_origin,
             'transports': ['sse'],
-            'controls': list(CONTROL_ACTIONS),
+            'controls': list(CONTROL_ACTIONS) if session.controls_allowed else [],
             'reducer': descriptor(),
             'limits': {
                 'subscribers': MAX_SUBSCRIBERS, 'queue_bytes': MAX_QUEUE_BYTES, 'groups': MAX_GROUPS,
@@ -1210,6 +1211,21 @@ def create_app(run_dir, session, *, poll_seconds=.25, history_timeout=180, dev=N
             from . import api as _api_mod
             from .run_requests import request_status
             run_id = request.path_params['run_id']
+
+            if not session.controls_allowed:
+                return JSONResponse(
+                    {
+                        'ok': False,
+                        'action': action,
+                        'run_id': run_id,
+                        'error': (
+                            f"Control action '{action}' is disabled on non-loopback bind "
+                            f"({session.bind_host!r}) with auth='none'; restart with --auth token "
+                            "to enable remote run controls"
+                        ),
+                    },
+                    status_code=403,
+                )
 
             def failure(message):
                 return JSONResponse({'ok': False, 'action': action, 'run_id': run_id, 'error': message}, status_code=400)

@@ -48,7 +48,7 @@ python scripts/colab_bench.py run \
 
 ### Multi-job JSON or TOML manifest
 
-Queue multiple experiments across up to 3 warm Colab GPU VMs. Each warm VM bootstraps HyperGAN once (`particlegan==0.12.0`, `hndl`, `torch-fidelity==0.4.0`, `foldlitedb`, plus editable HyperGAN from `--ref` or a local bundle/tarball), automatically caches CIFAR-10 (`hypergan download-data cifar10`) or 64×64 benchmark datasets (`python scripts/prepare_benchmark_dataset.py --dataset ffhq64` / `flowers102`) once per VM, and drains all matching-GPU jobs from the queue:
+Queue multiple experiments across up to 3 warm Colab GPU VMs. Each warm VM bootstraps HyperGAN once (`particlegan` (`0.13.0` / `develop`), `hndl`, `torch-fidelity==0.4.0`, `foldlitedb`, plus editable HyperGAN from `--ref` or a local bundle/tarball), automatically caches CIFAR-10 (`hypergan download-data cifar10`) or 64×64 benchmark datasets (`python scripts/prepare_benchmark_dataset.py --dataset ffhq64` / `flowers102`) once per VM, and drains all matching-GPU jobs from the queue:
 
 ```toml
 [defaults]

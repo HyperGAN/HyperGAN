@@ -8,9 +8,10 @@
 set -euo pipefail
 
 STEPS="${1:-200000}"
+HYPERGAN_VERSION="$(python3 -c 'import hypergan; print(hypergan.__version__)' 2>/dev/null || echo '2.2.0')"
 
 echo "================================================================="
-echo "HyperGAN 2.0.0 Head-to-Head TransGAN Critic Benchmark"
+echo "HyperGAN ${HYPERGAN_VERSION} Head-to-Head TransGAN Critic Benchmark"
 echo "Host GPUs: 2x NVIDIA RTX A6000 (48GB VRAM each)"
 echo "Dataset: CIFAR-10"
 echo "Steps: ${STEPS}"

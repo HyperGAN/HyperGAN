@@ -743,9 +743,6 @@ def test_stop_all_servers_handles_windows_process_termination(tmp_path, monkeypa
     from types import SimpleNamespace
     import hypergan.web_autostart as startup
     from hypergan.run_state import run_lock
-    registry = tmp_path / 'hypergan-viewers-test' / 'root'
-    (registry / 'service').mkdir(parents=True)
-    atomic_json(registry / 'state.json', {'launch_id': 'L', 'status': 'ready', 'supervisor_pid': 44})
     signals = []
     def kill(pid, signum):
         signals.append((pid, signum))
@@ -754,6 +751,9 @@ def test_stop_all_servers_handles_windows_process_termination(tmp_path, monkeypa
     monkeypatch.setattr(startup.tempfile, 'gettempdir', lambda: str(tmp_path))
     monkeypatch.setattr(startup, 'os', SimpleNamespace(
         name='nt', getpid=lambda: 1, kill=kill, path=SimpleNamespace(exists=lambda path: False)))
+    registry = startup._viewer_base_dir() / 'root'
+    (registry / 'service').mkdir(parents=True)
+    atomic_json(registry / 'state.json', {'launch_id': 'L', 'status': 'ready', 'supervisor_pid': 44})
     # The supervisor's lifetime lock is what makes its recorded PID trustworthy.
     with run_lock(registry / 'service'):
         assert startup.stop_all_servers() == ([] if stale else [44])
@@ -769,28 +769,37 @@ def test_stop_all_servers_never_signals_pids_from_stopped_or_stale_states(tmp_pa
     proc = tmp_path / 'proc'
     proc.mkdir()
     try:
-        viewers = tmp_path / 'hypergan-viewers-test'
-        for name, status in (('stopped', 'stopped'), ('stale', 'ready')):
-            (viewers / name / 'service').mkdir(parents=True)
-            atomic_json(viewers / name / 'state.json', {
-                'launch_id': name, 'status': status, 'supervisor_pid': victim.pid,
-                'processes': {'server': victim.pid, 'projector': victim.pid}})
         monkeypatch.setattr(startup.tempfile, 'gettempdir', lambda: str(tmp_path))
         monkeypatch.setenv('HYPERGAN_PROC_ROOT', str(proc))
+        viewers = startup._viewer_base_dir()
+        viewers.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for name, status in (('stopped', 'stopped'), ('stale', 'ready')):
+            reg = viewers / name
+            reg.mkdir(mode=0o700)
+            (reg / 'service').mkdir(mode=0o700)
+            atomic_json(reg / 'state.json', {
+                'launch_id': name, 'status': status, 'supervisor_pid': victim.pid,
+                'processes': {'server': victim.pid, 'projector': victim.pid}})
         assert startup.stop_all_servers() == []
         assert victim.poll() is None
 
-        # A live supervisor (its lock is held) is stopped, but its recorded
-        # children only when the process table names it as their parent.
+        # A live verified viewer supervisor (its lock is held) is stopped, but its
+        # recorded children only when /proc names that verified supervisor as their parent.
         (proc / str(victim.pid)).mkdir()
         (proc / str(victim.pid) / 'stat').write_text(f'{victim.pid} (python) S 1 0 0')
+        (proc / str(victim.pid) / 'cmdline').write_bytes(b'python3\0-c\0import time; time.sleep(60)\0')
+        (proc / '999999').mkdir()
+        (proc / '999999' / 'stat').write_text('999999 (python) S 1 0 0')
+        (proc / '999999' / 'cmdline').write_bytes(b'python3\0-m\0hypergan.web_autostart\0/tmp/runs\0/tmp/priv\0live\0')
         signalled = []
         monkeypatch.setattr(startup.os, 'kill', lambda pid, sig: signalled.append((pid, sig)))
-        (viewers / 'live' / 'service').mkdir(parents=True)
-        atomic_json(viewers / 'live' / 'state.json', {
+        live_reg = viewers / 'live'
+        live_reg.mkdir(mode=0o700)
+        (live_reg / 'service').mkdir(mode=0o700)
+        atomic_json(live_reg / 'state.json', {
             'launch_id': 'live', 'status': 'ready', 'supervisor_pid': 999999,
             'processes': {'server': victim.pid}})
-        with run_lock(viewers / 'live' / 'service'):
+        with run_lock(live_reg / 'service'):
             assert startup.stop_all_servers() == [999999]
         assert all(pid == 999999 for pid, _ in signalled)
     finally:

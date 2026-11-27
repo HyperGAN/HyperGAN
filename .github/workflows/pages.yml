@@ -6,6 +6,11 @@ on:
   push:
     branches: [develop, master]
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy built site to production GitHub Pages (only allowed from master)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -52,15 +57,17 @@ jobs:
       - name: Configure GitHub Pages
         if: >-
           github.repository == 'HyperGAN/HyperGAN' &&
-          (github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')))
+          github.ref == 'refs/heads/master' &&
+          (github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.deploy == true))
         uses: actions/configure-pages@v5
 
       - name: Upload GitHub Pages artifact
         if: >-
           github.repository == 'HyperGAN/HyperGAN' &&
-          (github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')))
+          github.ref == 'refs/heads/master' &&
+          (github.event_name == 'push' ||
+          (github.event_name == 'workflow_dispatch' && inputs.deploy == true))
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
@@ -69,8 +76,9 @@ jobs:
     name: Deploy to GitHub Pages
     if: >-
       github.repository == 'HyperGAN/HyperGAN' &&
-      (github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')))
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy == true))
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10

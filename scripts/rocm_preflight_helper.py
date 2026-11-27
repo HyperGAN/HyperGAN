@@ -179,6 +179,8 @@ def classify_failure(error_text: str) -> str:
         "no such file or directory",
         "failed to install",
         "could not find a version that satisfies the requirement",
+        "device unavailable",
+        "refusing silent cpu fallback",
     )):
         return "tooling"
 
@@ -206,6 +208,52 @@ class SanityCheckResult:
     error: Optional[str] = None
 
 
+def _hypergan_version() -> str:
+    try:
+        import hypergan
+        return str(getattr(hypergan, "__version__", "unknown"))
+    except Exception:
+        return "unknown"
+
+
+def _parse_cuda_device_index(device: str) -> Optional[int]:
+    """Return GPU integer index for 'cuda' / 'cuda:N', None for 'cpu', else raise ValueError."""
+    if not isinstance(device, str) or not device.strip():
+        raise ValueError(f"Invalid device specifier: {device!r}")
+    norm = device.strip().lower()
+    if norm == "cpu":
+        return None
+    if norm == "cuda":
+        return 0
+    if norm.startswith("cuda:"):
+        raw_idx = norm.split(":", 1)[1]
+        if not raw_idx.isdigit():
+            raise ValueError(f"Invalid CUDA device index in {device!r}")
+        return int(raw_idx)
+    raise ValueError(f"Unsupported device specifier: {device!r}")
+
+
+def parse_pytest_summary(output: str, returncode: int = 0) -> dict[str, int]:
+    """Parse passed/failed/skipped/total counts from pytest stdout/stderr output."""
+    passed = failed = skipped = other = 0
+    # Match pytest's summary line (e.g., "120 passed, 2 skipped in 4.12s")
+    matches = re.findall(r"(\d+)\s+(passed|failed|skipped|errors?|xfailed|xpassed)\b", output or "")
+    for count_str, label in matches:
+        count = int(count_str)
+        if label == "passed":
+            passed = count
+        elif label == "skipped":
+            skipped = count
+        elif label in ("failed", "error", "errors"):
+            failed += count
+        else:
+            other += count
+    if returncode != 0 and failed == 0:
+        failed = 1
+    total = passed + failed + skipped + other
+    return {"total": total, "passed": passed, "failed": failed, "skipped": skipped}
+
+
 def run_sanity_check(
     device_name: str = "cuda:0",
     tolerance: float = 1e-3,
@@ -217,6 +265,9 @@ def run_sanity_check(
     1. torch.version.hip and device properties (name, gcnArchName).
     2. matmul forward and backward outputs match CPU execution within tolerance.
     3. conv2d forward and backward outputs match CPU execution within tolerance.
+
+    Never silently falls back to CPU when a CUDA/ROCm device was requested and
+    is unavailable.
     """
     try:
         import torch
@@ -247,15 +298,37 @@ def run_sanity_check(
 
     try:
         requested_device = torch.device(device_name)
-        if cuda_avail and dev_count > 0 and requested_device.type != "cpu":
-            target_device = requested_device
+        if force_cpu or requested_device.type == "cpu":
+            target_device = torch.device("cpu")
+            dev_name = "CPU (explicit)"
+            gcn_arch = "none"
+        else:
+            req_index = 0 if requested_device.index is None else requested_device.index
+            if not cuda_avail or dev_count <= 0 or req_index >= dev_count:
+                msg = (
+                    f"Requested device '{device_name}' is unavailable "
+                    f"(torch.cuda.is_available()={torch.cuda.is_available()}, device_count={dev_count}); "
+                    "refusing silent CPU fallback."
+                )
+                return SanityCheckResult(
+                    status="FAIL",
+                    passed=False,
+                    hip_version=hip_ver,
+                    cuda_available=False,
+                    device_count=dev_count,
+                    device_name=device_name,
+                    gcn_arch="unavailable",
+                    matmul_fwd_max_diff=-1.0,
+                    matmul_bwd_max_diff=-1.0,
+                    conv2d_fwd_max_diff=-1.0,
+                    conv2d_bwd_max_diff=-1.0,
+                    details=msg,
+                    error="CUDA/ROCm device unavailable",
+                )
+            target_device = torch.device(f"cuda:{req_index}")
             dev_name = torch.cuda.get_device_name(target_device)
             props = torch.cuda.get_device_properties(target_device)
             gcn_arch = getattr(props, "gcnArchName", getattr(props, "gcn_arch_name", "unavailable"))
-        else:
-            target_device = torch.device("cpu")
-            dev_name = "CPU (fallback / simulated)"
-            gcn_arch = "none"
 
         # 1. Matmul Forward & Backward
         torch.manual_seed(2026)
@@ -403,7 +476,7 @@ def format_device_order_table(
                 pt_uuid in ("unavailable", "-") or
                 smi_uuid in ("unavailable", "-")
             )
-            matched = (pt.get("index") == smi.get("index")) and name_match
+            matched = (pt.get("index") == smi.get("index")) and name_match and uuid_match
             match_str = "YES" if matched else "MISMATCH"
             if not matched:
                 all_matched = False
@@ -475,9 +548,50 @@ def run_short_training(
             error=str(exc),
         )
 
-    run_on_cuda = device.startswith("cuda") and torch.cuda.is_available()
-    effective_dev = "0" if run_on_cuda else "cpu"
-    target_dev_name = device if run_on_cuda else "cpu (fallback)"
+    try:
+        dev_idx = _parse_cuda_device_index(device)
+    except ValueError as exc:
+        return TrainingRunResult(
+            status="FAIL",
+            recipe="gaussian-grid",
+            device=device,
+            target_steps=actual_steps,
+            completed_steps=0,
+            duration_sec=0.0,
+            steps_per_sec=0.0,
+            peak_vram_mb=0.0,
+            final_metrics={},
+            details=str(exc),
+            error=str(exc),
+        )
+
+    run_on_cuda = dev_idx is not None
+    if run_on_cuda:
+        cuda_avail = torch.cuda.is_available()
+        dev_count = torch.cuda.device_count() if cuda_avail else 0
+        if not cuda_avail or dev_idx >= dev_count:
+            msg = (
+                f"Requested CUDA/ROCm device '{device}' is unavailable "
+                f"(cuda_available={cuda_avail}, device_count={dev_count}); refusing silent CPU fallback."
+            )
+            return TrainingRunResult(
+                status="FAIL",
+                recipe="gaussian-grid",
+                device=device,
+                target_steps=actual_steps,
+                completed_steps=0,
+                duration_sec=0.0,
+                steps_per_sec=0.0,
+                peak_vram_mb=0.0,
+                final_metrics={},
+                details=msg,
+                error="CUDA/ROCm device unavailable",
+            )
+        effective_dev = str(dev_idx)
+        target_dev_name = f"cuda:{dev_idx}"
+    else:
+        effective_dev = "cpu"
+        target_dev_name = "cpu"
 
     work_dir = output_dir or Path("rocm_preflight_output")
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -487,7 +601,7 @@ def run_short_training(
 
     try:
         if run_on_cuda:
-            torch.cuda.reset_peak_memory_stats(0)
+            torch.cuda.reset_peak_memory_stats(dev_idx)
 
         torch.manual_seed(42)
         model = hg.override(
@@ -513,7 +627,7 @@ def run_short_training(
 
         peak_vram = 0.0
         if run_on_cuda:
-            peak_vram = float(torch.cuda.max_memory_allocated(0) / (1024.0 * 1024.0))
+            peak_vram = float(torch.cuda.max_memory_allocated(dev_idx) / (1024.0 * 1024.0))
 
         st = hg.status(run_dir)
         completed = int(st.get("step") or actual_steps)
@@ -670,10 +784,10 @@ def format_preflight_report(
         "",
         "## 2. Venv Setup & PyTorch ROCm Wheel Install",
         f"- **Virtual Environment**: `{install_data.get('venv_path', sys.prefix)}`",
-        f"- **Wheel Index URL**: `{install_data.get('wheel_url', 'https://download.pytorch.org/whl/rocm6.2')}`",
-        f"- **PyTorch ROCm Package**: `{install_data.get('torch_version', 'torch==2.5.1+rocm6.2')}`",
-        f"- **Torchvision Package**: `{install_data.get('torchvision_version', 'torchvision==0.20.1+rocm6.2')}`",
-        f"- **HyperGAN Core**: `{install_data.get('hypergan_version', '2.0.0')} (editable with [train,image,cifar,fid,test])`",
+        f"- **Wheel Index URL**: `{install_data.get('wheel_url', 'https://download.pytorch.org/whl/rocm6.2.4')}`",
+        f"- **PyTorch ROCm Package**: `{install_data.get('torch_version', 'unknown')}`",
+        f"- **Torchvision Package**: `{install_data.get('torchvision_version', 'unknown')}`",
+        f"- **HyperGAN Core**: `{install_data.get('hypergan_version', _hypergan_version())} (editable with --no-deps)`",
         f"- **Install Status**: `{install_data.get('status', 'OK')}`",
         "",
         "## 3. Sanity Check",
@@ -748,15 +862,30 @@ def format_preflight_report(
         "## 9. Failure Classification & Summary",
     ])
 
-    if not failures:
+    no_cuda_skipped = any("no CUDA available" in str(item.get("outcome", "")) for item in single_gpu_results)
+    rocm_ready = (
+        not failures
+        and sanity_res.passed
+        and sanity_res.cuda_available
+        and train_res.status == "PASS"
+        and not no_cuda_skipped
+    )
+
+    if rocm_ready:
         lines.extend([
             "- **Total Failures Detected**: 0",
             "- **Classification Breakdown**: All executed checks, kernel operations, and single-GPU tests passed cleanly.",
             "- **Overall Status**: **ROCm Single-GPU Ready**",
         ])
+    elif not failures:
+        lines.extend([
+            "- **Total Failures Detected**: 0",
+            "- **Overall Status**: **NOT READY (CUDA/ROCm GPU verification did not complete)**",
+        ])
     else:
         lines.extend([
             f"- **Total Failures Detected**: {len(failures)}",
+            "- **Overall Status**: **FAILED**",
             "",
             "| Component / Test | Failure Class | Error Snippet |",
             "|---|---|---|",
@@ -825,12 +954,17 @@ def run_preflight_pipeline(
     # 2. Venv & Wheels
     print("[Step 2/9] Inspecting Python & PyTorch packages...")
     import torch
+    try:
+        import torchvision
+        tv_version = getattr(torchvision, "__version__", "available")
+    except ImportError:
+        tv_version = "unavailable"
     install_data = {
         "venv_path": sys.prefix,
-        "wheel_url": "https://download.pytorch.org/whl/rocm6.2",
+        "wheel_url": os.environ.get("TORCH_ROCM_WHEEL_URL", "https://download.pytorch.org/whl/rocm6.2.4"),
         "torch_version": getattr(torch, "__version__", "unknown"),
-        "torchvision_version": "available",
-        "hypergan_version": "2.0.0",
+        "torchvision_version": tv_version,
+        "hypergan_version": _hypergan_version(),
         "status": "OK",
     }
 
@@ -876,11 +1010,12 @@ def run_preflight_pipeline(
     t0 = time.perf_counter()
     res_ref = subprocess.run(ref_cmd, capture_output=True, text=True)
     ref_dur = time.perf_counter() - t0
+    ref_counts = parse_pytest_summary(res_ref.stdout + "\n" + res_ref.stderr, returncode=res_ref.returncode)
     ref_suite_data = {
-        "total": 0,
-        "passed": 0,
-        "failed": 1 if res_ref.returncode != 0 else 0,
-        "skipped": 0,
+        "total": ref_counts["total"],
+        "passed": ref_counts["passed"],
+        "failed": ref_counts["failed"],
+        "skipped": ref_counts["skipped"],
         "duration_sec": ref_dur,
         "status": "PASS" if res_ref.returncode == 0 else "FAIL",
     }
@@ -897,8 +1032,16 @@ def run_preflight_pipeline(
         failures.append({"component": "tests/cuda collection", "class": classify_failure(str(exc)), "snippet": str(exc)[:200]})
     single_gpu_results: list[dict[str, Any]] = []
 
-    # If CUDA is available, run the single-GPU tests
-    if torch.cuda.is_available() and not quick:
+    # If CUDA is available, run the single-GPU tests; never silently pass without CUDA.
+    if not torch.cuda.is_available():
+        failures.append({
+            "component": "tests/cuda",
+            "class": "tooling",
+            "snippet": "torch.cuda.is_available() is False; single-GPU ROCm tests could not run",
+        })
+        for t in single_gpu_tests:
+            single_gpu_results.append({"test": t, "outcome": "SKIPPED (no CUDA available)", "failure_class": "tooling"})
+    elif not quick:
         for t in single_gpu_tests:
             cmd = [sys.executable, "-m", "pytest", t, "-q"]
             r = subprocess.run(cmd, capture_output=True, text=True)
@@ -908,10 +1051,8 @@ def run_preflight_pipeline(
                 failures.append({"component": t, "class": fclass, "snippet": r.stderr[:200] or r.stdout[:200]})
             single_gpu_results.append({"test": t, "outcome": outcome, "failure_class": fclass})
     else:
-        # Quick or dry-run mode: record as ready/verified
-        status_note = "SKIPPED (no CUDA available)" if not torch.cuda.is_available() else "READY (quick mode)"
         for t in single_gpu_tests:
-            single_gpu_results.append({"test": t, "outcome": status_note, "failure_class": "-"})
+            single_gpu_results.append({"test": t, "outcome": "READY (quick mode)", "failure_class": "-"})
 
     # 7. Short Real Training Run
     print("[Step 7/9] Running short real training run...")

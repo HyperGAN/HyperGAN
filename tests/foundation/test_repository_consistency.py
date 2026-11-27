@@ -13,6 +13,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 
 import pytest
 
@@ -163,23 +164,58 @@ def test_python_classifiers_match_the_ci_lightweight_matrix_and_readme():
     assert f'Python {tested[0]}–{tested[-1]}' in _read('README.md')
 
 
+_DEVELOP_TRACKING_DIRECT_URLS = frozenset({
+    'particlegan @ git+https://github.com/HyperGAN/ParticleGAN.git@develop',
+})
+_DIRECT_URL_RE = re.compile(r'@\s*(?:git\+|[a-zA-Z][a-zA-Z0-9+.-]*://|file:)')
+
+
+def _is_release_ref() -> bool:
+    ref = os.environ.get('GITHUB_REF', '').strip()
+    if ref == 'refs/heads/master' or ref.startswith('refs/tags/v'):
+        return True
+    try:
+        branch = subprocess.check_output(
+            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        return branch == 'master'
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def test_pre_1_0_dependencies_have_an_upper_bound():
     project = _pyproject()['project']
     requirements = list(project['dependencies'])
     for extra in project['optional-dependencies'].values():
         requirements += extra
     unbounded = []
+    direct_urls = []
     for requirement in requirements:
+        if _DIRECT_URL_RE.search(requirement) or ' @ ' in requirement:
+            direct_urls.append(requirement)
+            continue
         lower = re.search(r'>=\s*0\.', requirement)
         if lower and '<' not in requirement and '==' not in requirement:
             unbounded.append(requirement)
     assert not unbounded, f'pre-1.0 dependencies need an upper bound: {unbounded}'
+    if _is_release_ref():
+        assert not direct_urls, f'Release branch/tag forbids PEP 508 direct-URL dependencies: {direct_urls}'
+    else:
+        unexpected = [req for req in direct_urls if req not in _DEVELOP_TRACKING_DIRECT_URLS]
+        assert not unexpected, f'Unexpected PEP 508 direct-URL dependencies: {unexpected}'
+    # Ensure the release workflow itself enforces the PyPI direct-URL guard.
+    release_yml = _read('.github/workflows/release.yml')
+    assert 'direct-URL' in release_yml and 'direct_urls' in release_yml
 
 
 def test_every_default_test_tier_ships_in_the_sdist_and_is_self_contained():
     manifest = _read('MANIFEST.in')
     assert 'include tests/conftest.py' in manifest
     assert 'include tests/README.md' in manifest
+    assert 'recursive-include benchmarks/whitepaper *.toml *.md' in manifest
     for path in _pyproject()['tool']['pytest']['ini_options']['testpaths']:
         assert f'recursive-include {path} *.py' in manifest, path
     for helper in sorted((ROOT / 'tests').glob('*_fixtures.py')):
@@ -289,7 +325,12 @@ def test_docker_build_records_the_commit_build_argument(tmp_path, commit):
     package.mkdir(parents=True)
     stub = tmp_path / 'bin' / 'python'
     stub.parent.mkdir()
-    stub.write_text('#!/bin/sh\nexit 0\n')  # stands in for `pip wheel`; only the stamp matters here
+    # Stand in only for `pip wheel`; let the Dockerfile's `python -c` JSON stamp execute for real.
+    stub.write_text(
+        f'#!/bin/sh\n'
+        f'if [ "$1" = "-m" ] && [ "$2" = "pip" ]; then exit 0; fi\n'
+        f'exec "{sys.executable}" "$@"\n'
+    )
     stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
     env = {**os.environ, 'PATH': f'{stub.parent}{os.pathsep}{os.environ.get("PATH", "")}', 'HYPERGAN_COMMIT': commit}
     subprocess.run(['sh', '-c', step], cwd=package.parent.parent, env=env, check=True, timeout=30)

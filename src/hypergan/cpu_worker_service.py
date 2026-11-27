@@ -328,6 +328,22 @@ def _reap(processes):
         raise RuntimeError('Operating system did not reap a terminated CPU rank')
 
 
+def _validate_node_topology(world_size, nodes, node_rank, ranks_per_node):
+    if type(nodes) is not int or nodes < 1:
+        raise ValueError('nodes must be a positive integer')
+    if type(node_rank) is not int or not (0 <= node_rank < nodes):
+        raise ValueError(f'node_rank must be an integer in 0..{nodes - 1}')
+    if ranks_per_node is None:
+        if world_size % nodes != 0:
+            raise ValueError(f'world_size ({world_size}) must be evenly divisible by nodes ({nodes})')
+        ranks_per_node = world_size // nodes
+    elif type(ranks_per_node) is not int or ranks_per_node < 1:
+        raise ValueError('ranks_per_node must be a positive integer')
+    if world_size != nodes * ranks_per_node:
+        raise ValueError(f'world_size ({world_size}) must equal nodes * ranks_per_node ({nodes} * {ranks_per_node})')
+    return ranks_per_node
+
+
 def _broker_main(sock, identity, world_size, limits, bootstrap, started, initialize_process_group, backend='gloo',
                  node_rank=0, nodes=1, ranks_per_node=None, rendezvous=None):
     # Terminal process-group signals belong to the controller. It completes the
@@ -335,8 +351,7 @@ def _broker_main(sock, identity, world_size, limits, bootstrap, started, initial
     # still makes this broker reap every rank. Isolate before spawning ranks.
     if os.name != 'nt':
         os.setsid()
-    if ranks_per_node is None:
-        ranks_per_node = world_size // nodes
+    ranks_per_node = _validate_node_topology(world_size, nodes, node_rank, ranks_per_node)
     start_rank = node_rank * ranks_per_node
     local_ranks_count = ranks_per_node
     parent = mp.parent_process()
@@ -501,8 +516,7 @@ class CPUWorkerService:
                 valid = False
             if not valid:
                 raise ValueError(f'{name} must be finite positive seconds')
-        if ranks_per_node is None:
-            ranks_per_node = world_size // nodes
+        ranks_per_node = _validate_node_topology(world_size, nodes, node_rank, ranks_per_node)
         self._node_rank, self._nodes, self._ranks_per_node = node_rank, nodes, ranks_per_node
         self._rendezvous = rendezvous
         self._identity, self._world_size, self._limits = (run_id, attempt_id), world_size, limits

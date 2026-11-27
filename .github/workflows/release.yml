@@ -55,6 +55,18 @@ jobs:
           from urllib.request import urlopen
 
           project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
+          all_reqs = list(project.get("dependencies", []))
+          for extra_reqs in project.get("optional-dependencies", {}).values():
+              all_reqs.extend(extra_reqs)
+          direct_urls = [
+              req for req in all_reqs
+              if re.search(r"@\s*(?:git\+|[a-zA-Z][a-zA-Z0-9+.-]*://|file:)", req) or " @ " in req
+          ]
+          if direct_urls:
+              raise SystemExit(
+                  "PyPI releases forbid PEP 508 direct-URL dependencies in pyproject.toml; "
+                  f"replace with bounded PyPI version specifiers before releasing: {direct_urls}"
+              )
           module = ast.parse(Path("src/hypergan/__init__.py").read_text(encoding="utf-8"))
           versions = [
               ast.literal_eval(node.value)

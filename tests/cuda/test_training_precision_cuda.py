@@ -305,7 +305,11 @@ def test_bn_dcgan_and_transgan_like_train_cleanly_in_bf16_with_zero_fallback():
         # Instrument fwAD evaluator to prove BF16 fwAD succeeds on the first try
         # with zero FP32 exception fallback and zero central-difference fallback.
         reg = trainer.penalty.regularizer
-        fwad_method = "_fwad" if hasattr(reg, "_fwad") else "_eval_image_fwad_sq"
+        fwad_method = (
+            "_probe_batch"
+            if hasattr(reg, "_probe_batch")
+            else ("_fwad" if hasattr(reg, "_fwad") else "_eval_image_fwad_sq")
+        )
         orig_eval = getattr(reg, fwad_method)
         fwad_invocations = []
 
@@ -329,6 +333,8 @@ def test_bn_dcgan_and_transgan_like_train_cleanly_in_bf16_with_zero_fallback():
         assert all(calls == [True] for calls in fwad_invocations), (
             f"unexpected fwAD fallback(s): {fwad_invocations}"
         )
+        if hasattr(reg, "_fwad_unsupported"):
+            assert not reg._fwad_unsupported, f"fwAD fell back to secant: {reg._fwad_unsupported}"
 
 
 def test_inference_and_sampling_remain_fp32_under_bf16_training(tmp_path: Path):
@@ -491,19 +497,19 @@ def test_non_particlegan_defaults_hypergan_trains_cleanly_in_bf16_channels_last(
 
 
 def test_bf16_detached_real_score_preserves_axiom_transport_capture():
-    """Detaching real_score after BF16->FP32 float_output must preserve _axiom_* captures for AxiomTransportLoss."""
+    """Detaching real_score after BF16->FP32 float_output must preserve CaptureEntry for AxiomTransportLoss."""
     # 16x16 (dim=768 <= 1024): AxiomTransportLoss runs on every generator step.
     cfg = _conv_model_config(precision="bf16_channels_last", use_bn=True, size=16, steps=4)
     trainer = ReferenceTrainer(cfg)
     assert trainer.recipe.effective_critic_formulation == "axiom"
 
     captured_flags = []
-    orig_resolve = trainer.gan._resolve_pair
+    orig_resolve = trainer.gan._resolve_capture_pair
 
     def _spy_resolve(fake_logits, real_logits):
-        res = orig_resolve(fake_logits, real_logits)
-        captured_flags.append(bool(res[-1]))
-        return res
+        fake_entry, real_entry, resolved = orig_resolve(fake_logits, real_logits)
+        captured_flags.append(fake_entry is not None and real_entry is not None)
+        return fake_entry, real_entry, resolved
 
     transport_calls = []
     orig_transport = trainer.gan.transport.forward
@@ -512,7 +518,7 @@ def test_bf16_detached_real_score_preserves_axiom_transport_capture():
         transport_calls.append(len(args))
         return orig_transport(*args, **kwargs)
 
-    trainer.gan._resolve_pair = _spy_resolve
+    trainer.gan._resolve_capture_pair = _spy_resolve
     trainer.gan.transport.forward = _spy_transport
 
     for _ in range(4):
@@ -523,16 +529,16 @@ def test_bf16_detached_real_score_preserves_axiom_transport_capture():
     assert len(captured_flags) == 8 and all(captured_flags), f"missed captures: {captured_flags}"
     assert len(transport_calls) == 4, f"expected 4 AxiomTransportLoss calls, got {len(transport_calls)}"
 
-    # Continuous 32x32 (dim=3072): captures still succeed on every step while spatial cluster gate skips transport.
+    # Continuous 32x32 (dim=3072): captures and projected AxiomTransportLoss both succeed on every step.
     cfg_32 = _conv_model_config(precision="bf16_channels_last", use_bn=True, size=32, steps=2)
     trainer_32 = ReferenceTrainer(cfg_32)
     captured_32 = []
-    orig_resolve_32 = trainer_32.gan._resolve_pair
+    orig_resolve_32 = trainer_32.gan._resolve_capture_pair
 
     def _spy_resolve_32(fake_logits, real_logits):
-        res = orig_resolve_32(fake_logits, real_logits)
-        captured_32.append(bool(res[-1]))
-        return res
+        fake_entry, real_entry, resolved = orig_resolve_32(fake_logits, real_logits)
+        captured_32.append(fake_entry is not None and real_entry is not None)
+        return fake_entry, real_entry, resolved
 
     transport_32 = []
     orig_transport_32 = trainer_32.gan.transport.forward
@@ -541,7 +547,7 @@ def test_bf16_detached_real_score_preserves_axiom_transport_capture():
         transport_32.append(len(args))
         return orig_transport_32(*args, **kwargs)
 
-    trainer_32.gan._resolve_pair = _spy_resolve_32
+    trainer_32.gan._resolve_capture_pair = _spy_resolve_32
     trainer_32.gan.transport.forward = _spy_transport_32
 
     for _ in range(2):
@@ -549,4 +555,4 @@ def test_bf16_detached_real_score_preserves_axiom_transport_capture():
         assert all(math.isfinite(row[k]) for k in ("d_loss", "g_loss", "gradient_penalty"))
 
     assert len(captured_32) == 4 and all(captured_32), f"missed 32x32 captures: {captured_32}"
-    assert len(transport_32) == 0, f"expected spatial cluster gate to skip 32x32 continuous transport, got {len(transport_32)}"
+    assert len(transport_32) == 2, f"expected 2 32x32 AxiomTransportLoss calls, got {len(transport_32)}"

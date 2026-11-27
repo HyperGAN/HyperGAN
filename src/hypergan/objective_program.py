@@ -258,14 +258,29 @@ def _sample_context(context, phase_name):
 _COUPLED_SCORE_ATTR_PREFIXES = ("_axiom_", "_t1c_", "_rhbi_", "_rgdt_", "_empf_")
 
 
+def _detach_attr_value(attr_val):
+    if isinstance(attr_val, torch.Tensor):
+        return attr_val.detach()
+    detached_fn = getattr(attr_val, "detached", None)
+    if callable(detached_fn):
+        return detached_fn()
+    if isinstance(attr_val, tuple):
+        items = tuple(_detach_attr_value(item) for item in attr_val)
+        if hasattr(attr_val, "_fields"):
+            return type(attr_val)(*items)
+        return items
+    return attr_val
+
+
 def _detach_score(value):
     """Detach critic scores while preserving ParticleGAN coupled capture attributes.
 
     Under CUDA BF16 autocast, ``float_output`` allocates a new FP32 tensor whose
     storage pointer is absent from the critic hook's BF16 ``_capture_ring``.
     Plain ``value.detach()`` strips the copied ``_axiom_*`` / ``_t1c_*`` /
-    ``_rhbi_*`` / ``_rgdt_*`` attributes, causing coupled losses to miss the
-    detached real capture and silently fall back.
+    ``_rhbi_*`` / ``_rgdt_*`` attributes (including Axiom v6's ``CaptureEntry``
+    ``_axiom_capture`` namedtuple), causing coupled losses to miss the detached
+    real capture and silently fall back.
     """
     if isinstance(value, torch.Tensor):
         out = value.detach()
@@ -273,19 +288,7 @@ def _detach_score(value):
         if attrs:
             for key, attr_val in attrs.items():
                 if key.startswith(_COUPLED_SCORE_ATTR_PREFIXES):
-                    if isinstance(attr_val, torch.Tensor):
-                        setattr(out, key, attr_val.detach())
-                    elif isinstance(attr_val, tuple):
-                        setattr(
-                            out,
-                            key,
-                            tuple(
-                                item.detach() if isinstance(item, torch.Tensor) else item
-                                for item in attr_val
-                            ),
-                        )
-                    else:
-                        setattr(out, key, attr_val)
+                    setattr(out, key, _detach_attr_value(attr_val))
         return out
     if isinstance(value, dict):
         return {k: _detach_score(v) for k, v in value.items()}

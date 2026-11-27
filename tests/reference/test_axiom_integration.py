@@ -80,13 +80,43 @@ def test_axiom_record_binding_and_low_dim_generator_probe():
     assert trainer.spread.axiom_record is rec
     assert trainer.opt_g._axiom_record is rec
     assert trainer.opt_g.record is None
-    assert trainer.prior._axiom_record is rec
+    from particlegan._axiom.state import get_axiom_record
+    assert get_axiom_record(trainer.prior) is rec
 
     row, _ = trainer.update()
     assert torch.isfinite(torch.tensor(row["d_loss"]))
     assert torch.isfinite(torch.tensor(row["g_loss"]))
-    # Low-D (2D <= 32) activates Axiom's generator verified-trust probe
-    assert trainer.opt_g.probe_consumptions >= 1
+    # Non-simplicial low-D (gaussian prior, dim <= 32) activates Axiom's generator verified-trust probe
+    raw_ns = _axiom_2d_model()
+    raw_ns["prior"] = {"kind": "gaussian", "z_dim": 4}
+    raw_ns["losses"] = [{"type": "adversarial", "critic": "discriminator", "weight": 1.0, "penalty": 1.0}]
+    trainer_ns = ReferenceTrainer(load_config(raw_ns))
+    row_ns, _ = trainer_ns.update()
+    assert torch.isfinite(torch.tensor(row_ns["d_loss"]))
+    assert torch.isfinite(torch.tensor(row_ns["g_loss"]))
+    assert trainer_ns.opt_g.probe_consumptions >= 1
+
+
+def test_detach_score_preserves_axiom_v6_capture_entry():
+    """_detach_score must preserve CaptureEntry type and detach nested tensors."""
+    from hypergan.objective_program import _detach_score
+    from particlegan._axiom.state import CaptureEntry, lookup_axiom_capture
+
+    logits = torch.randn(4, 1, requires_grad=True)
+    x_in = torch.randn(4, 3, 8, 8, requires_grad=True)
+    cond = torch.tensor([0, 1, 2, 3])
+    parts = (torch.randn(4, 2, requires_grad=True), torch.randn(4, 2, requires_grad=True))
+    entry = CaptureEntry(x_in=x_in, cond=cond, record=None, has_cont_cond=True, parts=parts, thermally_scaled=True)
+    logits._axiom_capture = entry
+
+    detached = _detach_score(logits)
+    assert not detached.requires_grad
+    recovered = lookup_axiom_capture(detached, fallback_record=None)
+    assert isinstance(recovered, CaptureEntry)
+    assert not recovered.x_in.requires_grad
+    assert all(not p.requires_grad for p in recovered.parts)
+    assert recovered.has_cont_cond is True
+    assert recovered.thermally_scaled is True
 
 
 def test_axiom_multi_critic_thermal_coordinator():
@@ -250,17 +280,19 @@ def test_axiom_bn_layout_scoping_and_g_step_bn_tracking(tmp_path: Path):
     prev_threads = torch.get_num_threads()
     torch.set_num_threads(1)
     try:
-        # Active BN only in critic must not leak BN layout ids into a BN-free generator optimizer.
+        # Active BN only in critic must not leak critic conv layout ids into generator optimizer.
         mixed_cfg = load_config(_axiom_conv_model(gen_bn=False, disc_bn=True))
         mixed_trainer = ReferenceTrainer(mixed_cfg)
-        assert not mixed_trainer.opt_g._bn_net_ids
-        assert mixed_trainer.opt_d._bn_net_ids
+        disc_param_ids = {id(p) for p in mixed_trainer.graph.models["discriminator"].parameters()}
+        assert mixed_trainer.opt_g._conv_layouts
+        assert mixed_trainer.opt_d._conv_layouts
+        assert not (set(mixed_trainer.opt_g._conv_layouts) & disc_param_ids)
 
-        # Active BN in both G and D: both bind BN ids, and G-step forwards do not mutate critic BN tracking.
+        # Active BN in both G and D: both bind layouts, and G-step forwards do not mutate critic BN tracking.
         bn_cfg = load_config(_axiom_conv_model(gen_bn=True, disc_bn=True))
         bn_trainer = ReferenceTrainer(bn_cfg)
-        assert bn_trainer.opt_g._bn_net_ids
-        assert bn_trainer.opt_d._bn_net_ids
+        assert bn_trainer.opt_g._conv_layouts
+        assert bn_trainer.opt_d._conv_layouts
 
         disc_bns = [
             m for m in bn_trainer.graph.models["discriminator"].modules()

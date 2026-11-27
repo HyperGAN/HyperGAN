@@ -111,7 +111,8 @@ def test_generator_probe_post_component_referencing_generated():
     """output_subgraph and _GeneratorProbeModule must recurse into generator for 'generated' bindings."""
     cfg = resolve_config({
         "defaults": "particlegan",
-        "prior": {"kind": "particles", "args": {"num_particles": 16, "z_dim": 4}, "initialization_seed": 2},
+        "prior": {"kind": "gaussian", "args": {"z_dim": 4}},
+        "prior_regularizer": {"weight": 0.0},
         "components": {
             "generator": {
                 "factory": "hndl",

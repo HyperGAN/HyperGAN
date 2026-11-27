@@ -524,14 +524,13 @@ def _axiom_image_worker(rank, world_size, config_dict, full_batches, shared_dir)
     rec = replicated.opt_d.record
     rec.g_func_gain = 0.4 if rank == 0 else 0.8
     rec.thermal_scale = 0.5 if rank == 0 else 0.9
-    replicated.opt_g._flush_scalars()
-    replicated.opt_g._ema_step_cos_val = -0.2 if rank == 0 else -0.6
-    replicated.opt_g._log2_damp_val = -0.2 if rank == 0 else -0.8
-    replicated.opt_g._crit_skew_ema = 0.4 if rank == 0 else 1.2
-    sketch = torch.zeros(128, dtype=torch.float32)
+    replicated.opt_g.ema_step_cos = -0.2 if rank == 0 else -0.6
+    replicated.opt_g.log2_damp = -0.2 if rank == 0 else -0.8
+    replicated.opt_g.crit_skew_ema = 0.4 if rank == 0 else 1.2
+    sketch = torch.zeros(67, dtype=torch.float32)
     sketch[0] = 1.0 if rank == 0 else 0.6
     sketch[1] = 0.0 if rank == 0 else 0.8
-    replicated.opt_g._prev_step_sketch = sketch
+    replicated.opt_g._prev_sketch = sketch
     _synchronize_optimizers(replicated, None, world_size)
     replicated._assert_replicas("axiom synced controller state")
 
@@ -546,8 +545,8 @@ def _axiom_image_worker(rank, world_size, config_dict, full_batches, shared_dir)
             "thermal_scale": rec.thermal_scale,
             "opt_g_ema_step_cos": replicated.opt_g.ema_step_cos,
             "opt_g_log2_damp": replicated.opt_g.log2_damp,
-            "opt_g_crit_skew_ema": replicated.opt_g._crit_skew_ema,
-            "opt_g_prev_step_sketch": replicated.opt_g._prev_step_sketch.tolist(),
+            "opt_g_crit_skew_ema": replicated.opt_g.crit_skew_ema,
+            "opt_g_prev_step_sketch": replicated.opt_g._prev_sketch.tolist(),
         },
         Path(shared_dir) / f"rank-{rank}.pt",
     )
@@ -611,4 +610,4 @@ def test_replicated_axiom_image_replica_agreement(tmp_path):
     assert abs(r0["opt_g_ema_step_cos"] - (-0.4)) < 1e-6
     assert abs(r0["opt_g_log2_damp"] - (-0.5)) < 1e-6
     assert abs(r0["opt_g_crit_skew_ema"] - 0.8) < 1e-6
-    assert len(r0["opt_g_prev_step_sketch"]) == 128
+    assert len(r0["opt_g_prev_step_sketch"]) == 67

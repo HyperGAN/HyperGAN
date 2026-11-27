@@ -557,7 +557,7 @@ class ReferenceTrainer:
                 bind_axiom_record,
                 collect_conv_layouts,
             )
-            from particlegan._axiom.critic import _axiom_generator_hook
+            from particlegan._axiom.state import _axiom_generator_hook
 
             bind_axiom_record(record, loss, optimizer, *shared)
             _attach_axiom_critic_hook(getattr(optimizer, 'critic', None), record)
@@ -597,8 +597,10 @@ class ReferenceTrainer:
         probe_module._unified_v15_gen_has_bn = has_bn
         probe_module._unified_v11_record = record
         probe_module._unified_v11_gen_has_bn = has_bn
-        probe_module._axiom_record = record
-        probe_module._axiom_has_bn = has_bn
+        if getattr(self.recipe, 'effective_critic_formulation', None) == 'axiom':
+            from particlegan._axiom.state import _MOD_BN, set_module_record
+            set_module_record(probe_module, record)
+            _MOD_BN[probe_module] = has_bn
         probe_bf16 = any(name in self.graph._bf16_components for name in probe_module._components)
         probe_module._hypergan_bf16_autocast = probe_bf16
         _pg_configure_bf16_autocast(self.recipe, probe_module, probe_bf16)

@@ -500,6 +500,10 @@ def _synchronize_optimizer_regularizers(
             fg = torch.tensor([float(opt._ema_func_gain)], dtype=torch.float64, device=comm_device)
             dist.all_reduce(fg, op=dist.ReduceOp.SUM)
             opt._ema_func_gain = max(1e-6, min(1.0, float((fg / world_size).item())))
+        elif hasattr(opt, "ema_func_gain"):
+            fg = torch.tensor([float(opt.ema_func_gain)], dtype=torch.float64, device=comm_device)
+            dist.all_reduce(fg, op=dist.ReduceOp.SUM)
+            opt.ema_func_gain = max(1e-6, min(1.0, float((fg / world_size).item())))
         if hasattr(opt, "last_step_gain"):
             lg = torch.tensor([float(opt.last_step_gain)], dtype=torch.float64, device=comm_device)
             dist.all_reduce(lg, op=dist.ReduceOp.SUM)
@@ -518,12 +522,12 @@ def _synchronize_optimizer_regularizers(
                 opt._g_peak_ref_t = None
         if hasattr(opt, "_prev_flip_sketch"):
             _sync_unit_sketch(opt, "_prev_flip_sketch", comm_device, world_size)
-        if hasattr(opt, "_ema_step_cos_val"):
+        if hasattr(opt, "ema_step_cos"):
             ax_sc = torch.tensor(
                 [
-                    float(opt._ema_step_cos_val),
-                    float(getattr(opt, "_log2_damp_val", 0.0)),
-                    float(getattr(opt, "_crit_skew_ema", 0.0)),
+                    float(opt.ema_step_cos),
+                    float(getattr(opt, "log2_damp", 0.0)),
+                    float(getattr(opt, "crit_skew_ema", 0.0)),
                 ],
                 dtype=torch.float64,
                 device=comm_device,
@@ -531,17 +535,13 @@ def _synchronize_optimizer_regularizers(
             dist.all_reduce(ax_sc, op=dist.ReduceOp.SUM)
             ax_sc /= world_size
             ax_vals = ax_sc.tolist()
-            opt._ema_step_cos_val = max(-1.0, min(1.0, float(ax_vals[0])))
-            if hasattr(opt, "_ema_step_cos_t"):
-                opt._ema_step_cos_t = None
-            if hasattr(opt, "_log2_damp_val"):
-                opt._log2_damp_val = max(-10.0, min(0.0, float(ax_vals[1])))
-            if hasattr(opt, "_log2_damp_t"):
-                opt._log2_damp_t = None
-            if hasattr(opt, "_crit_skew_ema"):
-                opt._crit_skew_ema = max(0.0, float(ax_vals[2]))
-        if hasattr(opt, "_prev_step_sketch"):
-            _sync_unit_sketch(opt, "_prev_step_sketch", comm_device, world_size)
+            opt.ema_step_cos = max(-1.0, min(1.0, float(ax_vals[0])))
+            if hasattr(opt, "log2_damp"):
+                opt.log2_damp = max(-10.0, min(0.0, float(ax_vals[1])))
+            if hasattr(opt, "crit_skew_ema"):
+                opt.crit_skew_ema = max(0.0, float(ax_vals[2]))
+        if hasattr(opt, "_prev_sketch"):
+            _sync_unit_sketch(opt, "_prev_sketch", comm_device, world_size)
 
         cg_stats = getattr(opt, "constraint_geometry_stats", None)
         if isinstance(cg_stats, dict) and {"steps", "projected_steps", "max_derivative_before", "max_derivative_after"} <= set(cg_stats):
@@ -993,42 +993,7 @@ def sync_unified_v11_record(rec: Any, comm_device: torch.device, world_size: int
                 if hasattr(bank, "restore_device"):
                     bank.restore_device(comm_device)
 
-    hb = getattr(rec, "highd_basin_bank", None)
-    if hb is not None and hasattr(hb, "to_packet") and hasattr(hb, "load_packet"):
-        hb_init = bool(getattr(hb, "k", 0) > 0 or getattr(hb, "sigma_z_init", False) or getattr(hb, "dim", 0) > 0)
-        all_hb = [torch.zeros(1, dtype=torch.int32, device=comm_device) for _ in range(world_size)]
-        dist.all_gather(all_hb, torch.tensor([int(hb_init)], dtype=torch.int32, device=comm_device))
-        hb_ranks = [r for r, t in enumerate(all_hb) if int(t.item()) > 0]
-        if hb_ranks:
-            src = hb_ranks[0]
-            pkt = [_payload_to_cpu(hb.to_packet()) if dist.get_rank() == src else None]
-            dist.broadcast_object_list(pkt, src=src)
-            if pkt[0] is not None and dist.get_rank() != src:
-                hb.load_packet(pkt[0])
-                if hasattr(hb, "restore_device"):
-                    hb.restore_device(comm_device)
-
-    sb = getattr(rec, "sparse_obs_bank", None)
-    if sb is not None and hasattr(sb, "to_packet") and hasattr(sb, "load_packet"):
-        sb_init = bool(
-            getattr(sb, "step", 0) > 0
-            or getattr(sb, "sparse_push_res", None) is not None
-            or getattr(sb, "initialized", False)
-            or getattr(sb, "k", 0) > 0
-        )
-        all_sb = [torch.zeros(1, dtype=torch.int32, device=comm_device) for _ in range(world_size)]
-        dist.all_gather(all_sb, torch.tensor([int(sb_init)], dtype=torch.int32, device=comm_device))
-        sb_ranks = [r for r, t in enumerate(all_sb) if int(t.item()) > 0]
-        if sb_ranks:
-            src = sb_ranks[0]
-            pkt = [_payload_to_cpu(sb.to_packet()) if dist.get_rank() == src else None]
-            dist.broadcast_object_list(pkt, src=src)
-            if pkt[0] is not None and dist.get_rank() != src:
-                sb.load_packet(pkt[0])
-                if hasattr(sb, "restore_device"):
-                    sb.restore_device(comm_device)
-
-    if hasattr(rec, "highd_basin_bank"):
+    if getattr(type(rec), "__module__", "").startswith("particlegan._unified_v15") or hasattr(rec, "_v15_g_peak_ref"):
         rv_t = getattr(rec, "_v15_g_peak_ref_t", None)
         has_v15_ref = hasattr(rec, "_v15_g_peak_ref") or isinstance(rv_t, torch.Tensor)
         v15_val = float(rv_t.item()) if isinstance(rv_t, torch.Tensor) else float(getattr(rec, "_v15_g_peak_ref", 0.0))

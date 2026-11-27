@@ -1,114 +1,60 @@
 """HyperGAN 2.0.0 GA E2E Test Harness & Oracles.
 
-Provides capability detection probes, synthetic dataset generators, CLI execution
-helpers, and authoritative mathematical oracles for opaque-box E2E testing.
+Provides synthetic dataset generators, CLI execution helpers, and authoritative
+mathematical oracles for opaque-box E2E testing.
+
+Every feature these tests cover has shipped, so nothing here probes for
+features or catches import/capability errors to convert failures into skips:
+a broken import fails collection instead of silently skipping tests.
 """
 from __future__ import annotations
 
-import argparse
 import contextlib
 import hashlib
 import io
-import json
-import math
-import os
 from pathlib import Path
-import shutil
-import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Tuple
 
-import numpy as np
 from PIL import Image
-import pytest
 import torch
 
+# Eager imports of shipped public surfaces: broken imports fail collection
+# rather than being masked by capability-probing skip guards.
 import hypergan
 import hypergan.api as hg
+import hypergan.artifacts as hg_artifacts
+import hypergan.cache as hg_cache
 import hypergan.cli as cli
-from hypergan.data import ImageFolder
+from hypergan.data import ImageDataError, ImageFolder
+import hypergan.execution as hg_execution
+import hypergan.image_metrics as hg_image_metrics
+import hypergan.inspection as hg_inspection
+from hypergan.network_config import validate_network_args
+from hypergan.run_info import RunInfo, read_run_info
 
-
-# ---------------------------------------------------------------------------
-# Dynamic Capability Probes (Progressive Testability across Milestones M1-M6)
-# ---------------------------------------------------------------------------
-
-def _get_cli_subparsers() -> Dict[str, argparse.ArgumentParser]:
-    """Inspect CLI parser subcommands without executing."""
-    try:
-        parser = cli._parser()
-        for action in parser._actions:
-            if isinstance(action, argparse._SubParsersAction):
-                return action.choices
-        return {}
-    except Exception:
-        return {}
-
-
-def _has_cli_subcommand(subcmd: str) -> bool:
-    return subcmd in _get_cli_subparsers()
-
-
-def _subcommand_has_flag(subcmd: str, flag: str) -> bool:
-    subparsers = _get_cli_subparsers()
-    if subcmd not in subparsers:
-        return False
-    parser = subparsers[subcmd]
-    for action in parser._actions:
-        if flag in action.option_strings:
-            return True
-    return False
-
-
-# Milestone 1 Probes
-HAS_CACHE_MODULE: bool = hasattr(hypergan, "cache") or hasattr(hg, "ensure_cached_url")
-try:
-    import torch_fidelity
-    HAS_TORCH_FIDELITY: bool = True
-except ImportError:
-    HAS_TORCH_FIDELITY: bool = False
-
-# Milestone 2 Probes
-HAS_MULTINODE_CLI: bool = _subcommand_has_flag("train", "--nodes") and _subcommand_has_flag("train", "--strategy")
-
-# Milestone 3 Probes
-HAS_SCHEMA_CLI: bool = _has_cli_subcommand("schema")
-HAS_OPS_CLI: bool = _has_cli_subcommand("ops")
-HAS_GLOBAL_JSON: bool = _subcommand_has_flag("train", "--json")
-HAS_QUIET_FLAG: bool = _subcommand_has_flag("train", "--quiet") or _subcommand_has_flag("train", "-q")
-HAS_TYPED_RUNINFO: bool = hasattr(hg, "read_run_info") or hasattr(hypergan.api, "read_run_info")
-
-# Milestone 4 Probes
-HAS_WEB_BIND_FLAG: bool = _subcommand_has_flag("train", "-b") or _subcommand_has_flag("train", "--bind")
-HAS_EXPORT_FORMAT: bool = _subcommand_has_flag("export", "--format")
-HAS_SAMPLE_OUTPUT_DIR: bool = _subcommand_has_flag("sample", "--output-dir")
-HAS_LOADED_GENERATOR: bool = hasattr(hg, "LoadedGenerator") or hasattr(hypergan.api, "LoadedGenerator")
-HAS_LATENT_INTERPOLATE: bool = hasattr(hg, "interpolate") or hasattr(hypergan.api, "interpolate")
-
-# Check ImageFolder parameter support
-try:
-    import inspect
-    _img_params = inspect.signature(ImageFolder.__init__).parameters
-    HAS_IMAGEFOLDER_ALPHA: bool = "alpha" in _img_params
-    HAS_IMAGEFOLDER_SYMLINKS: bool = "follow_symlinks" in _img_params
-except Exception:
-    HAS_IMAGEFOLDER_ALPHA = False
-    HAS_IMAGEFOLDER_SYMLINKS = False
-
-# Check Static HNDL resolution in validate_network_args
-def _check_static_hndl_validation() -> bool:
-    try:
-        from hypergan.network_config import validate_network_args
-        bad_spec = {
-            "source": "nonexistent_op_syntax_error(999)",
-            "input_shape": ["B", 4],
-            "output_shape": ["B", 2],
-        }
-        errors = validate_network_args(bad_spec)
-        return len(errors) > 0 and any("nonexistent_op" in e or "Undefined" in e or "Unknown" in e for e in errors)
-    except Exception:
-        return False
-
-HAS_STATIC_HNDL_CHECK: bool = _check_static_hndl_validation()
+__all__ = [
+    "ImageDataError",
+    "ImageFolder",
+    "RunInfo",
+    "cli",
+    "create_synthetic_image_folder",
+    "hg",
+    "hg_artifacts",
+    "hg_cache",
+    "hg_execution",
+    "hg_image_metrics",
+    "hg_inspection",
+    "hypergan",
+    "oracle_critic_accuracy",
+    "oracle_critic_margin",
+    "oracle_lerp",
+    "oracle_particle_rms",
+    "oracle_sha256",
+    "oracle_slerp",
+    "read_run_info",
+    "run_cli",
+    "validate_network_args",
+]
 
 
 # ---------------------------------------------------------------------------

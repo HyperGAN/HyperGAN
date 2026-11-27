@@ -1,15 +1,13 @@
-"""Automated qualification test for ported experiment TOML files in training-runs.
+"""Automated qualification test for model-file loading, validation, and legacy port parity.
 
 Verifies:
-1. All 46 experiment TOML files load successfully via hg.load(path) (workspace + extends + paths).
-2. All 46 ported files pass hg.validate(model) with zero errors.
-3. All 46 ported files lower cleanly via hg.lower(model).
-4. The resolved configuration achieves 100% bit-for-bit numerical fingerprint invariance
-   against the pristine legacy original recipes in .legacy_toml_backup.
-5. All component graphs, shapes, and inputs match identically.
+1. All shipped examples/*.toml files use hypergan-model/1, validate cleanly, and
+   contain no hardcoded workstation paths.
+2. Ported hypergan-model/1 experiment TOMLs (workspace + extends + ${paths.*})
+   load, validate, lower, and achieve bit-for-bit numerical fingerprint and
+   component graph invariance against legacy engine recipes.
 """
 
-import json
 from copy import deepcopy
 from pathlib import Path
 import tomllib
@@ -21,8 +19,6 @@ from hypergan.config import DEFAULT, PARTICLEGAN_DEFAULT_FIELDS, fingerprint, lo
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES_DIR = REPO_ROOT / "examples"
 DEMO_SCRIPT = REPO_ROOT / "scripts" / "start-cifar-tiny-transformer-resnet-features-pg07-lr2e-4-demo.sh"
-RUNS_DIR = Path("/home/martyn/dev/hypergan/training-runs")
-BACKUP_DIR = RUNS_DIR / ".legacy_toml_backup"
 
 
 def test_all_examples_use_hypergan_model_format_and_load_cleanly(published_pg08_defaults):
@@ -62,15 +58,8 @@ def test_examples_and_demo_script_contain_no_hardcoded_workstation_paths():
         assert "PYTHON_BIN=" in script_text
 
 
-def _normalize_runs_dir_symlink(obj):
-    text = json.dumps(obj)
-    if RUNS_DIR.exists() and str(RUNS_DIR.resolve()) != str(RUNS_DIR):
-        text = text.replace(str(RUNS_DIR), str(RUNS_DIR.resolve()))
-    return json.loads(text)
-
-
 def clean_legacy_recipe(raw):
-    clean = _normalize_runs_dir_symlink(raw)
+    clean = deepcopy(raw)
     if "gradient_penalty" in clean:
         for k in ("arm", "norm", "target_anneal", "total_steps", "method", "fd_eps"):
             clean["gradient_penalty"].pop(k, None)
@@ -82,34 +71,81 @@ def clean_legacy_recipe(raw):
     return clean
 
 
-@pytest.fixture(scope="module")
-def runs_workspace():
-    if not RUNS_DIR.is_dir() or not BACKUP_DIR.is_dir():
-        pytest.skip("training-runs workspace or .legacy_toml_backup not present")
-    return RUNS_DIR
+@pytest.fixture
+def synthetic_runs_workspace(tmp_path):
+    """Self-contained workspace mirroring a multi-file legacy-to-model-file port."""
+    ws_dir = tmp_path / "training-runs"
+    backup_dir = ws_dir / ".legacy_toml_backup"
+    nets_dir = ws_dir / "nets"
+    ws_dir.mkdir()
+    backup_dir.mkdir()
+    nets_dir.mkdir()
+
+    gen_hndl = nets_dir / "gen.hndl"
+    disc_hndl = nets_dir / "disc.hndl"
+    gen_hndl.write_text("linear(2)\n", encoding="utf-8")
+    disc_hndl.write_text("linear(1)\n", encoding="utf-8")
+
+    (ws_dir / "hypergan.toml").write_text(
+        '[workspace]\nruns_root = "${workspace.root}/runs"\n\n'
+        '[paths]\nnets = "${workspace.root}/nets"\n',
+        encoding="utf-8",
+    )
+
+    (ws_dir / "base-model.toml").write_text(
+        'format = "hypergan-model/1"\n'
+        'defaults = "particlegan"\n\n'
+        '[data]\nbuiltin = "gaussian_grid"\n\n'
+        '[prior]\nkind = "particles"\nz_dim = 4\nnum_particles = 20000\n\n'
+        '[networks.generator]\nrole = "generator"\nhndl = "${paths.nets}/gen.hndl"\n'
+        'input_shape = ["B", 4]\noutput_shape = ["B", 2]\ninputs = { x = "latent" }\n\n'
+        '[networks.discriminator]\nrole = "critic"\nhndl = "${paths.nets}/disc.hndl"\n'
+        'input_shape = ["B", 2]\noutput_shape = ["B", 1]\ninputs = { x = "candidate" }\n\n'
+        '[[losses]]\ntype = "adversarial"\ncritic = "discriminator"\npenalty = 1.0\n\n'
+        '[[losses]]\ntype = "prior"\nweight = 0.0\n',
+        encoding="utf-8",
+    )
+
+    (ws_dir / "exp_a.toml").write_text(
+        'format = "hypergan-model/1"\n'
+        'name = "exp-a"\n'
+        'extends = "base-model.toml"\n\n'
+        '[train]\nsteps = 50\nbatch_size = 32\nseed = 7\ndevice = "cpu"\n',
+        encoding="utf-8",
+    )
+
+    (backup_dir / "exp_a.toml").write_text(
+        'schema_version = 1\n'
+        'name = "exp-a"\n'
+        'defaults = "particlegan"\n\n'
+        '[data]\nfactory = "gaussian_grid"\nargs = {}\n\n'
+        '[prior]\nkind = "particles"\n[prior.args]\nz_dim = 4\nnum_particles = 20000\n\n'
+        '[components.generator]\nfactory = "hndl"\ninputs = { x = "latent" }\n'
+        f'[components.generator.args]\nfile = "{gen_hndl.as_posix()}"\ninput_shape = ["B", 4]\noutput_shape = ["B", 2]\n\n'
+        '[components.discriminator]\nfactory = "hndl"\ninputs = { x = "candidate" }\n'
+        f'[components.discriminator.args]\nfile = "{disc_hndl.as_posix()}"\ninput_shape = ["B", 2]\noutput_shape = ["B", 1]\n\n'
+        '[adversarial]\nweight = 1.0\nmode = "rp"\nloss_type = "logistic"\n\n'
+        '[gradient_penalty]\ncoeff = 1.0\narm = "legacy"\n\n'
+        '[prior_regularizer]\nweight = 0.0\n\n'
+        '[training]\nsteps = 50\nbatch_size = 32\nseed = 7\ndevice = "cpu"\n',
+        encoding="utf-8",
+    )
+
+    return ws_dir, backup_dir
 
 
-def test_training_runs_structure(runs_workspace):
-    assert (RUNS_DIR / "hypergan.toml").is_file(), "hypergan.toml must exist in training-runs"
-    assert (RUNS_DIR / "cifar-tiny-pg-base.toml").is_file(), "cifar-tiny-pg-base.toml must exist"
-    assert (RUNS_DIR / "logos-base.toml").is_file(), "logos-base.toml must exist"
-    assert (RUNS_DIR / "logos-transgan-resnet-base.toml").is_file(), "logos-transgan-resnet-base.toml must exist"
-
-    # New training runs are independent of the archived 46-file port cohort.
-    exp_tomls = [RUNS_DIR / path.name for path in sorted(BACKUP_DIR.glob('*.toml'))]
-    assert len(exp_tomls) == 46, f"Expected exactly 46 experiment TOML files, found {len(exp_tomls)}"
+def test_training_runs_structure(synthetic_runs_workspace):
+    ws_dir, backup_dir = synthetic_runs_workspace
+    assert (ws_dir / "hypergan.toml").is_file()
+    assert (ws_dir / "base-model.toml").is_file()
+    exp_tomls = [ws_dir / path.name for path in sorted(backup_dir.glob("*.toml"))]
+    assert len(exp_tomls) >= 1
     assert all(path.is_file() for path in exp_tomls)
 
 
 @pytest.fixture
 def published_pg08_defaults(monkeypatch):
-    """Freeze the original port cohort to the published 0.8 recipe contract.
-
-    Both archived recipes and ported model files named the then-current
-    ParticleGAN defaults. Comparing that historical migration under a newer
-    trainer would change the question and rewrite its initialization/recipe
-    identity. Current released defaults have their own configuration tests.
-    """
+    """Freeze the port fixture to a fixed historical ParticleGAN default snapshot."""
     import hypergan.config as configuration
     original = deepcopy(DEFAULT)
     original['optimizer'].update(lr=.00425, d_lr_mult=1., prior_lr_mult=2.)
@@ -122,35 +158,30 @@ def published_pg08_defaults(monkeypatch):
     monkeypatch.setattr(configuration, 'particlegan_recipe_fields', lambda: {})
 
 
-def test_all_46_ported_experiments_load_validate_and_preserve_fingerprint(runs_workspace, published_pg08_defaults):
-    exp_tomls = [RUNS_DIR / path.name for path in sorted(BACKUP_DIR.glob('*.toml'))]
+def test_ported_experiments_load_validate_and_preserve_fingerprint(synthetic_runs_workspace, published_pg08_defaults):
+    ws_dir, backup_dir = synthetic_runs_workspace
+    exp_tomls = [ws_dir / path.name for path in sorted(backup_dir.glob("*.toml"))]
 
     mismatches = []
     for ported_path in exp_tomls:
-        backup_path = BACKUP_DIR / ported_path.name
+        backup_path = backup_dir / ported_path.name
         assert backup_path.is_file(), f"Missing backup original for {ported_path.name}"
 
-        # 1. Resolve pristine original legacy recipe
         raw_orig = clean_legacy_recipe(hg.load_recipe(backup_path))
         orig_res = resolve_config(raw_orig)
         fp_orig = fingerprint(orig_res)
 
-        # 2. Load ported hypergan-model/1 (resolves extends + workspace paths)
         model = hg.load(ported_path)
-
-        # 3. Validate
         warnings = hg.validate(model)
         assert isinstance(warnings, list)
 
-        # 4. Lower & resolve
-        lowered = _normalize_runs_dir_symlink(hg.lower(model))
+        lowered = hg.lower(model)
         lowered_res = resolve_config(lowered)
         fp_ported = fingerprint(lowered_res)
 
         if fp_orig != fp_ported:
             mismatches.append((ported_path.name, fp_orig, fp_ported))
 
-        # 5. Component shape & inputs equality
         orig_comps = orig_res["components"]
         ported_comps = lowered_res["components"]
         assert set(orig_comps.keys()) == set(ported_comps.keys()), f"Component set mismatch in {ported_path.name}"

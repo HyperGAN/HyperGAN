@@ -66,7 +66,9 @@ def trained_dcgan_fixture(tmp_path_factory):
     prev_state = os.environ.get("HYPERGAN_STATE_DIR")
     prev_cuda_vis = os.environ.get("CUDA_VISIBLE_DEVICES")
     prev_cuda_order = os.environ.get("CUDA_DEVICE_ORDER")
+    prev_cwd = os.getcwd()
     os.environ["HYPERGAN_STATE_DIR"] = str(state_dir)
+    os.chdir(base_dir)
     try:
         data_dir = base_dir / "data"
         data_dir.mkdir()
@@ -88,6 +90,7 @@ def trained_dcgan_fixture(tmp_path_factory):
         run_dir = Path(json.loads(out_s)["run_dir"])
         assert run_dir.is_dir()
     finally:
+        os.chdir(prev_cwd)
         if prev_state is None:
             os.environ.pop("HYPERGAN_STATE_DIR", None)
         else:

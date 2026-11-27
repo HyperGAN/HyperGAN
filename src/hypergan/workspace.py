@@ -67,23 +67,58 @@ def load_workspace(workspace_file: Path | str) -> dict:
     data.setdefault("gpus", {})
     data.setdefault("envs", {})
 
+    # Multi-pass interpolation of [paths] BEFORE anchoring workspace.runs_root so
+    # chained ${paths.*} references resolve completely prior to is_absolute().
+    # Defer any path entry that references ${runs_root}/${workspace.runs_root}
+    # until after runs_root is itself anchored.
+    if isinstance(data.get("paths"), dict):
+        no_runs_root = dict(data)
+        no_runs_root["workspace"] = {k: v for k, v in ws.items() if k != "runs_root"}
+        for _ in range(8):
+            changed = False
+            updated_paths = dict(data["paths"])
+            no_runs_root["paths"] = updated_paths
+            for k, v in list(updated_paths.items()):
+                if isinstance(v, str) and "{" in v:
+                    try:
+                        resolved_v = interpolate_variables(v, no_runs_root)
+                    except KeyError:
+                        continue
+                    if resolved_v != v:
+                        updated_paths[k] = resolved_v
+                        changed = True
+            data["paths"] = updated_paths
+            if not changed:
+                break
+
     if "runs_root" in ws:
         if "{" in str(ws["runs_root"]):
-            ws["runs_root"] = interpolate_variables(ws["runs_root"], data)
+            for _ in range(8):
+                nxt = interpolate_variables(ws["runs_root"], data)
+                if nxt == ws["runs_root"]:
+                    break
+                ws["runs_root"] = nxt
         runs_root = Path(ws["runs_root"])
         if not runs_root.is_absolute():
             ws["runs_root"] = str((path.parent / runs_root).resolve())
         else:
             ws["runs_root"] = str(runs_root)
 
-    # Self-interpolate paths and workspace tables
-    if "paths" in data:
-        data["paths"] = interpolate_variables(data["paths"], data)
-    if "runs_root" in ws and "{" in str(ws["runs_root"]):
-        ws["runs_root"] = interpolate_variables(ws["runs_root"], data)
+    # Final multi-pass interpolation on [paths] (now that runs_root is anchored)
+    if isinstance(data.get("paths"), dict):
+        for _ in range(8):
+            nxt_paths = interpolate_variables(data["paths"], data)
+            if nxt_paths == data["paths"]:
+                break
+            data["paths"] = nxt_paths
+
     if "run_dir" in ws and "{" in str(ws["run_dir"]):
         try:
-            ws["run_dir"] = interpolate_variables(ws["run_dir"], data)
+            for _ in range(8):
+                nxt = interpolate_variables(ws["run_dir"], data)
+                if nxt == ws["run_dir"]:
+                    break
+                ws["run_dir"] = nxt
         except KeyError:
             pass
 

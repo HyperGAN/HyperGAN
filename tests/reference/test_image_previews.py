@@ -621,7 +621,7 @@ def test_random_prior_preview_and_paired_reconstruction_keep_distinct_bindings(t
     receipt = capture_snapshot(trainer, batch, identity, snapshot)
     renderer_command((str(snapshot), receipt, identity, trainer.step, str(output)), 'render', None)
     assert json.loads(output.read_text()) == payload
-    save_bundle(tmp_path, trainer, batch)
+    save_bundle(tmp_path, trainer, batch, include_example_inputs=True)
     sampled = json.loads(sample(tmp_path, count=3, seed=config['sampling']['seed']).read_text())
     assert sampled['particle_ids'] == [3, 3, 3]
     assert torch.equal(torch.tensor(sampled['samples']), conditional)

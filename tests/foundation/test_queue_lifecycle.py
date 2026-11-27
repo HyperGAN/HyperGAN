@@ -231,7 +231,7 @@ def test_stop_all_sends_a_single_sigint_to_a_running_trainer(temp_queue, model_f
     # A second SIGINT would turn the trainer's graceful stop into os._exit.
     assert count_path.read_text() == "1"
     jobs = queue_ls(queue_file=temp_queue)
-    assert jobs[0]["status"] == "completed"
+    assert jobs[0]["status"] == "stopped"
     assert jobs[0]["exit_code"] == 0
     assert jobs[1]["status"] == "cancelled"
 

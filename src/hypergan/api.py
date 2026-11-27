@@ -519,7 +519,7 @@ def override(model, changes=None, /, **sections):
             continue
         if not is_model and dotted in ('train', 'trainer') and isinstance(value, dict):
             for k, v in value.items():
-                if k in OPTIMIZER_FIELDS and 'optimizer' in spec:
+                if k in OPTIMIZER_FIELDS:
                     norm_changes[f'optimizer.{k}'] = v
                 else:
                     norm_changes[f'training.{k}'] = v
@@ -528,12 +528,10 @@ def override(model, changes=None, /, **sections):
             dotted = 'train.' + dotted[len('trainer.'):]
         if not is_model and (dotted.startswith('train.') or dotted.startswith('training.')):
             field = dotted.split('.', 1)[1]
-            if field in OPTIMIZER_FIELDS and 'optimizer' in spec:
+            if field in OPTIMIZER_FIELDS:
                 norm_changes[f'optimizer.{field}'] = value
-            elif 'training' in spec:
-                norm_changes[f'training.{field}'] = value
             else:
-                norm_changes[dotted] = value
+                norm_changes[f'training.{field}'] = value
         elif is_model and (dotted.startswith('training.') or dotted.startswith('optimizer.')):
             field = dotted.split('.', 1)[1]
             norm_changes[f'train.{field}'] = value
@@ -543,24 +541,47 @@ def override(model, changes=None, /, **sections):
     for dotted, value in norm_changes.items():
         parts = dotted.split('.')
         target = spec
+        missing_parent = False
         for depth, part in enumerate(parts[:-1]):
             key = _segment(target, part, '.'.join(parts[:depth + 1]))
             if isinstance(target, dict) and key not in target:
+                if value is None:
+                    missing_parent = True
+                    break
                 target[key] = {}
             target = target[key]
+        if missing_parent:
+            continue
         last_key = _segment(target, parts[-1], dotted) if isinstance(target, list) else parts[-1]
-        target[last_key] = deepcopy(value)
+        if value is None and isinstance(target, dict):
+            # Clearing a reconstruction loss's id explicitly records None so lowering
+            # knows not to re-apply the default 'reconstruction' id.
+            if last_key == 'id' and target.get('type') == 'reconstruction':
+                target[last_key] = None
+            else:
+                target.pop(last_key, None)
+        else:
+            target[last_key] = deepcopy(value)
 
     norm_sections = {}
     for key, value in sections.items():
         if is_model and key in ('trainer', 'training', 'optimizer') and isinstance(value, dict):
             norm_sections.setdefault('train', {}).update(deepcopy(value))
+        elif not is_model and key in ('train', 'trainer') and isinstance(value, dict):
+            for sub_k, sub_v in value.items():
+                dest = 'optimizer' if sub_k in OPTIMIZER_FIELDS else 'training'
+                norm_sections.setdefault(dest, {})[sub_k] = deepcopy(sub_v)
         else:
             norm_sections[key] = value
 
     def merge(into, update):
         for key, value in update.items():
-            if isinstance(value, dict) and isinstance(into.get(key), dict):
+            if value is None and isinstance(into, dict):
+                if key == 'id' and into.get('type') == 'reconstruction':
+                    into[key] = None
+                else:
+                    into.pop(key, None)
+            elif isinstance(value, dict) and isinstance(into.get(key), dict):
                 merge(into[key], value)
             else:
                 into[key] = deepcopy(value)
@@ -1165,43 +1186,117 @@ def prepare(model, run_dir=None, steps=None, *, name=None, profile=None, service
         return attempt(Path(run_dir).parent / sibling)
 
 
+def _model_from_manifest(run_path: Path, manifest: dict):
+    saved_config = manifest.get('config')
+    if not isinstance(saved_config, dict):
+        raise ValueError(f"Run {run_path} has no recorded configuration in manifest.json")
+    if 'components' in saved_config and 'networks' not in saved_config:
+        try:
+            return lift(saved_config, base=run_path)
+        except Exception:
+            pass
+    return from_dict(saved_config, base=run_path)
+
+
+def _model_matches_manifest(candidate_model: Model, manifest: dict) -> bool:
+    """True when candidate_model resolves to the exact same configuration recorded in manifest.json."""
+    saved_config = manifest.get('config')
+    saved_sha = manifest.get('config_sha256')
+    if not isinstance(saved_config, dict):
+        return True
+    try:
+        from .config import config_values as _cfg_values, fingerprint as _cfg_fp, resolve_config as _resolve_cfg
+        cand_resolved = resolve(candidate_model)
+        if saved_sha and _cfg_fp(cand_resolved) != saved_sha:
+            return False
+        manifest_resolved = _resolve_cfg(saved_config)
+        cand_vals = _cfg_values(cand_resolved)
+        man_vals = _cfg_values(manifest_resolved)
+        # Name can be updated post-training via `hypergan tag`.
+        cand_vals.pop('name', None)
+        man_vals.pop('name', None)
+        return json.dumps(cand_vals, sort_keys=True, allow_nan=False) == json.dumps(man_vals, sort_keys=True, allow_nan=False)
+    except Exception:
+        return False
+
+
 def _load_stored_run_model(run_path: Path):
-    """Load a run's stored Model from recipe.toml, model.toml, config-source/*.toml, or manifest.json."""
-    if (run_path / 'model.toml').is_file():
-        return load(run_path / 'model.toml')
-    if (run_path / 'recipe.toml').is_file():
-        return load(run_path / 'recipe.toml')
-    if (run_path / 'config.toml').is_file():
-        return load(run_path / 'config.toml')
+    """Load a run's stored Model from recipe.toml, model.toml, config-source/, or manifest.json.
+
+    When manifest.json exists with a recorded resolved configuration, prefer it
+    whenever config-source/ (or recipe.toml) fails to load or disagrees with the
+    recorded configuration (e.g. because CLI --set/--steps/--devices overrides
+    were applied at launch).
+    """
+    manifest = None
+    manifest_p = run_path / 'manifest.json'
+    if manifest_p.is_file():
+        try:
+            loaded_m = json.loads(manifest_p.read_text(encoding='utf-8'))
+            if isinstance(loaded_m, dict) and isinstance(loaded_m.get('config'), dict):
+                manifest = loaded_m
+        except Exception:
+            manifest = None
+
+    for fname in ('model.toml', 'recipe.toml', 'config.toml'):
+        cand_file = run_path / fname
+        if cand_file.is_file():
+            try:
+                loaded_model = load(cand_file)
+                if manifest is None or _model_matches_manifest(loaded_model, manifest):
+                    return loaded_model
+            except Exception:
+                if manifest is None:
+                    raise
+
     cs_dir = run_path / 'config-source'
     if cs_dir.is_dir():
+        snap_candidate = None
         cs_manifest = cs_dir / 'manifest.json'
         if cs_manifest.is_file():
             try:
                 cs_data = json.loads(cs_manifest.read_text(encoding='utf-8'))
-                files = cs_data.get('files') or []
-                for f_entry in files:
-                    if isinstance(f_entry, dict) and f_entry.get('snapshot'):
-                        snap = cs_dir / f_entry['snapshot']
+                if isinstance(cs_data, dict):
+                    entry_rel = cs_data.get('entry')
+                    if isinstance(entry_rel, str) and entry_rel:
+                        snap = cs_dir / entry_rel
                         if snap.is_file() and snap.name != 'hypergan.toml':
-                            return load(snap)
+                            snap_candidate = snap
+                    if snap_candidate is None:
+                        files = cs_data.get('files') or []
+                        for wanted_role in ('entry', None):
+                            for f_entry in files:
+                                if not isinstance(f_entry, dict) or not f_entry.get('snapshot'):
+                                    continue
+                                if wanted_role is not None and f_entry.get('role') != wanted_role:
+                                    continue
+                                snap = cs_dir / f_entry['snapshot']
+                                if snap.is_file() and snap.suffix.lower() == '.toml' and snap.name != 'hypergan.toml':
+                                    snap_candidate = snap
+                                    break
+                            if snap_candidate is not None:
+                                break
             except Exception:
                 pass
-        tomls = [p for p in sorted(cs_dir.rglob('*.toml')) if p.name != 'hypergan.toml']
-        if tomls:
-            return load(tomls[0])
-    if (run_path / 'manifest.json').is_file():
-        with (run_path / 'manifest.json').open('rb') as f:
-            manifest = json.load(f)
-        saved_config = manifest.get('config')
-        if not isinstance(saved_config, dict):
-            raise ValueError(f"Run {run_path} has no recorded configuration in manifest.json")
-        if 'components' in saved_config and 'networks' not in saved_config:
+        if snap_candidate is None:
+            tomls = [p for p in sorted(cs_dir.rglob('*.toml')) if p.name != 'hypergan.toml']
+            if tomls:
+                snap_candidate = tomls[0]
+        if snap_candidate is not None:
             try:
-                return lift(saved_config, base=run_path)
+                cs_model = load(snap_candidate)
+                if manifest is None or _model_matches_manifest(cs_model, manifest):
+                    return cs_model
             except Exception:
-                pass
-        return from_dict(saved_config, base=run_path)
+                if manifest is None:
+                    raise
+
+    if manifest is not None:
+        return _model_from_manifest(run_path, manifest)
+    if manifest_p.is_file():
+        with manifest_p.open('rb') as f:
+            raw_m = json.load(f)
+        return _model_from_manifest(run_path, raw_m if isinstance(raw_m, dict) else {})
     raise ValueError(f"Run directory {run_path} does not exist or has no configuration")
 
 
@@ -1224,12 +1319,13 @@ def prepare_resume(run_dir, checkpoint=None, model=None, *, steps=None,
     allow_device_change = bool(extra.pop('_allow_device_change', False))
     if sets:
         normalized_sets = {}
+        model_is_mf = hasattr(model, 'spec') and is_model_file(model.spec)
         for k, v in sets.items():
             if k.startswith('trainer.'):
                 k = 'train.' + k[len('trainer.'):]
-            if k.startswith('training.') and hasattr(model, 'spec') and 'train' in model.spec:
+            if k.startswith('training.') and model_is_mf:
                 normalized_sets['train.' + k[len('training.'):]] = v
-            elif k.startswith('train.') and hasattr(model, 'spec') and 'training' in model.spec and 'train' not in model.spec:
+            elif k.startswith('train.') and not model_is_mf:
                 normalized_sets['training.' + k[len('train.'):]] = v
             else:
                 normalized_sets[k] = v
@@ -1419,6 +1515,7 @@ def load_inference(target=None):
     Returns (state_dict, config_dict, ComponentGraph, prior, bundle_sha256).
     """
     import torch
+    from .artifacts import _restore_buffers, _verify_sha256_file
     from .recipes import ComponentGraph, make_prior
     from .config import resolve_config
 
@@ -1434,11 +1531,9 @@ def load_inference(target=None):
 
     if is_direct_pt:
         path = pt_path
-        checksum_path = pt_path.with_name("model.sha256") if pt_path.name == "model.pt" else pt_path.with_suffix(".sha256")
+        checksum_path = pt_path.with_suffix(".sha256")
         if checksum_path.is_file():
-            expected = checksum_path.read_text(encoding="utf-8").strip()
-            if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-                raise ValueError("Inference artifact hash mismatch")
+            expected = _verify_sha256_file(path, checksum_path)
         else:
             expected = hashlib.sha256(path.read_bytes()).hexdigest()
     else:
@@ -1458,9 +1553,7 @@ def load_inference(target=None):
         else:
             sha_file = bundle_dir / "model.sha256"
             if sha_file.is_file():
-                expected = sha_file.read_text(encoding="utf-8").strip()
-                if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-                    raise ValueError("Inference artifact hash mismatch")
+                expected = _verify_sha256_file(path, sha_file)
             else:
                 expected = hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -1491,16 +1584,11 @@ def load_inference(target=None):
     for name, weights in state["model_states"].items():
         graph.models[name].load_state_dict(weights)
         if "model_buffers" in state and name in state["model_buffers"]:
-            buf = state["model_buffers"][name]
-            for bname, bval in (buf or {}).items():
-                if hasattr(graph.models[name], bname):
-                    getattr(graph.models[name], bname).copy_(bval)
+            _restore_buffers(graph.models[name], state["model_buffers"][name])
     prior = make_prior(config["prior"], device='cpu', recipe=config.get('recipe')).float().eval().requires_grad_(False)
     prior.load_state_dict(state["prior"])
-    if "prior_buffers" in state:
-        for bname, bval in (state["prior_buffers"] or {}).items():
-            if hasattr(prior, bname):
-                getattr(prior, bname).copy_(bval)
+    if "prior_buffers" in state and state["prior_buffers"] is not None:
+        _restore_buffers(prior, state["prior_buffers"])
     return InferenceBundle((state, config, graph, prior, expected))
 
 
@@ -1601,7 +1689,14 @@ def view(item, sampler, *, run=None):
     from .item_data import import_object
     args = {}
     if isinstance(sampler, str) and ':' not in sampler:
-        config = _run(run).config if run is not None else None
+        if isinstance(run, dict):
+            config = run
+        elif isinstance(run, (str, Path)) and Path(run).is_file() and Path(run).suffix.lower() == '.pt':
+            import torch
+            bundle_data = torch.load(run, map_location='cpu', weights_only=True)
+            config = bundle_data.get('config') if isinstance(bundle_data, dict) else None
+        else:
+            config = _run(run).config if run is not None else None
         declared = (config or {}).get('samplers', {})
         if sampler not in declared:
             raise KeyError(f'Sampler {sampler!r} is not declared in this run ({", ".join(declared) or "none"})')
@@ -1718,10 +1813,24 @@ def load_bundle(path_or_run, *, checkpoint="latest", device="cpu"):
         ckpt_dir = resolve_checkpoint(run_dir, target=checkpoint)
         bundle_dict = extract_ema_bundle(ckpt_dir)
         return LoadedGenerator(bundle_dict, device=device)
-    except FileNotFoundError:
-        model_pt = run_dir / "model.pt"
-        if model_pt.is_file():
-            return LoadedGenerator(model_pt, device=device)
+    except (FileNotFoundError, ValueError):
+        if checkpoint == "latest":
+            manifest_path = run_dir / "manifest.json"
+            if manifest_path.is_file():
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    bp = manifest.get("bundle_path") if isinstance(manifest, dict) else None
+                    if bp:
+                        cand = Path(bp)
+                        if not cand.is_absolute():
+                            cand = run_dir / cand
+                        if cand.is_file():
+                            return LoadedGenerator(cand, device=device)
+                except Exception:
+                    pass
+            model_pt = run_dir / "model.pt"
+            if model_pt.is_file():
+                return LoadedGenerator(model_pt, device=device)
         raise
 
 
@@ -2088,6 +2197,8 @@ def lift(raw, *, base=None):
         for key in ('critic_weight', 'generator_weight', 'id', 'real', 'fake'):
             if key in term:
                 entry[key] = _lift_binding(term[key]) if key in ('real', 'fake') else term[key]
+        if 'inputs' in term and isinstance(term['inputs'], dict):
+            entry['inputs'] = {ik: _lift_binding(iv) for ik, iv in term['inputs'].items()}
         losses.append(entry)
     elif 'discriminator' in components:
         adv_idx = len(losses)
@@ -2140,6 +2251,10 @@ def lift(raw, *, base=None):
         model_spec['name'] = raw['name']
     if 'defaults' in raw:
         model_spec['defaults'] = raw['defaults']
+    if raw.get('recipe'):
+        model_spec['recipe'] = deepcopy(raw['recipe'])
+    if raw.get('aggregation'):
+        model_spec['aggregation'] = deepcopy(raw['aggregation'])
     if 'run' in raw:
         model_spec['run'] = deepcopy(raw['run'])
     if 'checkpoints' in raw:
@@ -2658,7 +2773,7 @@ def _clean_diff_dict(cfg):
     cleaned = deepcopy(cfg)
     for k in ("warnings", "qualification", "_source_path", "name_map", "schema_version", "format"):
         cleaned.pop(k, None)
-    if isinstance(cleaned.get("recipe"), dict):
+    if isinstance(cleaned.get("recipe"), dict) and not cleaned["recipe"]:
         cleaned.pop("recipe", None)
     return cleaned
 
@@ -2749,6 +2864,8 @@ def _expand_override_shorthand(model, overrides):
         return dict(overrides or {})
     spec = getattr(model, "spec", model)
     spec = spec if isinstance(spec, dict) else {}
+    if not is_model_file(spec):
+        return dict(overrides)
     optimizers = spec.get("optimizers")
     expanded = {}
     for k, v in overrides.items():

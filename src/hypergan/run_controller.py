@@ -340,7 +340,17 @@ def _record_launch(run_dir, attempt, config, config_path):
                             e_conf = ws_d['envs'][r_env]
                             wt = e_conf.get('worktree') or e_conf.get('src')
                             if wt:
-                                meta['worktree'] = wt
+                                ws_root = ws_p.parent
+                                if isinstance(wt, str):
+                                    wt_p = Path(wt)
+                                    meta['worktree'] = str(wt_p if wt_p.is_absolute() else (ws_root / wt_p).resolve())
+                                elif isinstance(wt, (list, tuple)):
+                                    meta['worktree'] = [
+                                        str(Path(item) if Path(item).is_absolute() else (ws_root / item).resolve())
+                                        for item in wt
+                                    ]
+                                else:
+                                    meta['worktree'] = wt
                     except Exception:
                         pass
             write_launch_provenance(run_dir, attempt=attempt, metadata=meta)
@@ -398,7 +408,7 @@ def run_train(config_path, run_dir, steps=None, *, checkpoint_every=1000, max_se
                     cfg_p = Path(src_p).resolve()
                     ws_p = find_workspace(cfg_p)
                     sources = collect_source_files(cfg_p, ws_p.parent if ws_p else None)
-                    snapshot_config_sources(run_dir, sources)
+                    snapshot_config_sources(run_dir, sources, entry_file=cfg_p)
             except Exception:
                 pass
             from .registry import extract_or_derive_slug, reserve_run_slug
@@ -638,7 +648,7 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
     control_stop_requested = False
 
     def emit(event, *, _observe=True, _step=None, **values):
-        nonlocal sequence, dropped, last_event_step
+        nonlocal sequence, dropped, last_event_step, control_stop_requested
         row = dict(values, schema_version=2, event=event, run_id=manifest['run_id'],
                    stream_id='training', stream_generation=manifest['run_id'], catalog=catalog_revision,
                    attempt_id=attempt_id, sequence=sequence + 1,
@@ -690,8 +700,15 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                         except Warning:
                             pass
             try:
+                from .api import StopTraining
+            except ImportError:
+                StopTraining = None
+            try:
                 from .bounded_cli_output import CLIProgress
-                execution.observe(on_event if type(on_event) is CLIProgress else notify, dict(row))
+                obs_res = execution.observe(on_event if type(on_event) is CLIProgress else notify, dict(row))
+                if obs_res is False:
+                    control_stop_requested = True
+                    manifest['stop_reason'] = manifest.get('stop_reason') or 'early_stop'
             except FatalExecutionError:
                 raise
             except ObserverError as exc:
@@ -707,12 +724,16 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                 emit('observer_error', _observe=False, _step=source_step,
                      source='progress', error=record['error'])
             except Exception as exc:
-                if type(on_event) is not CLIProgress:
+                if StopTraining is not None and isinstance(exc, StopTraining):
+                    control_stop_requested = True
+                    manifest['stop_reason'] = str(exc) or 'early_stop'
+                elif type(on_event) is not CLIProgress:
                     raise
-                try:
-                    warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
-                except Warning:
-                    pass
+                else:
+                    try:
+                        warnings.warn(f'Run event observer failed: {exc}', RuntimeWarning)
+                    except Warning:
+                        pass
             finally:
                 if event in ('complete', 'stopped', 'failed', 'interrupted'):
                     status = getattr(execution, 'observation_status', lambda: None)()
@@ -1065,14 +1086,15 @@ def _execute_run(config, run_dir, manifest, checkpoint_every, max_seconds, stop_
                     completed_ids = set(saved.get('request_ids', [])) if saved.get('attempt_id') == attempt_id else set()
                 except Exception as exc:
                     observer_error('checkpoint_request_reconciliation', exc)
-                    return
-                remaining = []
-                for request in matching:
-                    if request['request_id'] in completed_ids:
-                        acknowledge(request, 'succeeded', path=saved_path, saved_step=saved['step'])
-                    else:
-                        remaining.append(request)
-                matching = remaining
+                    matching = []
+                else:
+                    remaining = []
+                    for request in matching:
+                        if request['request_id'] in completed_ids:
+                            acknowledge(request, 'succeeded', path=saved_path, saved_step=saved['step'])
+                        else:
+                            remaining.append(request)
+                    matching = remaining
             if matching:
                 path, error = checkpoint_now([request['request_id'] for request in matching], observer=True)
                 for request in matching:

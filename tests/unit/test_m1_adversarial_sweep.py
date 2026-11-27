@@ -213,26 +213,27 @@ def test_inception_fid_tf32_flag_restoration(tmp_path, monkeypatch):
     orig_matmul = torch.backends.cuda.matmul.allow_tf32
     orig_cudnn = torch.backends.cudnn.allow_tf32
 
-    # Set to true to verify restoration
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
+    try:
+        # Set to true to verify restoration
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
-    batches = [{"generated": torch.randn(4, 3, 32, 32), "reference": torch.randn(4, 3, 32, 32)}]
-    fid.evaluate(batches=batches, context={"sample_count": 4})
+        batches = [{"generated": torch.randn(4, 3, 32, 32), "reference": torch.randn(4, 3, 32, 32)}]
+        fid.evaluate(batches=batches, context={"sample_count": 4})
 
-    assert torch.backends.cuda.matmul.allow_tf32 is True
-    assert torch.backends.cudnn.allow_tf32 is True
+        assert torch.backends.cuda.matmul.allow_tf32 is True
+        assert torch.backends.cudnn.allow_tf32 is True
 
-    # Also verify restoration even if evaluation raises an exception
-    with pytest.raises(ValueError):
-        fid.evaluate(batches=[], context={"sample_count": 10})
+        # Also verify restoration even if evaluation raises an exception
+        with pytest.raises(ValueError):
+            fid.evaluate(batches=[], context={"sample_count": 10})
 
-    assert torch.backends.cuda.matmul.allow_tf32 is True
-    assert torch.backends.cudnn.allow_tf32 is True
-
-    # Restore originals
-    torch.backends.cuda.matmul.allow_tf32 = orig_matmul
-    torch.backends.cudnn.allow_tf32 = orig_cudnn
+        assert torch.backends.cuda.matmul.allow_tf32 is True
+        assert torch.backends.cudnn.allow_tf32 is True
+    finally:
+        # Always restore originals even on assertion failure
+        torch.backends.cuda.matmul.allow_tf32 = orig_matmul
+        torch.backends.cudnn.allow_tf32 = orig_cudnn
 
 
 # ==============================================================================

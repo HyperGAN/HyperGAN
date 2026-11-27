@@ -358,20 +358,34 @@ def test_check_reexec_schema_interpreter_and_worktree(tmp_path, monkeypatch):
     needs_reexec_def, target_py_def, target_srcs_def, _ = _check_reexec({"env": "default"}, ws_data)
     assert needs_reexec_def is False
 
-    # Test against real training-runs/hypergan.toml if available
-    real_ws_file = Path("/home/martyn/dev/hypergan/training-runs/hypergan.toml")
-    if real_ws_file.is_file():
-        real_ws = hg.load_workspace(real_ws_file)
-        # pg08 specifies interpreter
-        needs_pg08, py_pg08, srcs_pg08, _ = _check_reexec({"env": "pg08"}, real_ws)
-        assert needs_pg08 is True
-        assert "particlegan08-env/bin/python" in py_pg08
+    # Test interpreter-only and interpreter+worktree schemas in a synthetic workspace
+    synth_root = tmp_path / "synth_training_runs"
+    synth_root.mkdir()
+    pg08_py = synth_root / "particlegan08-env" / "bin" / "python"
+    pg08_py.parent.mkdir(parents=True)
+    pg08_py.write_text("#!/bin/sh\n")
+    pg07_py = synth_root / "particlegan07-env" / "bin" / "python"
+    pg07_py.parent.mkdir(parents=True)
+    pg07_py.write_text("#!/bin/sh\n")
+    pg07_wt = synth_root / "develop-pg07-lazy16"
+    (pg07_wt / "src").mkdir(parents=True)
+    synth_ws_file = synth_root / "hypergan.toml"
+    synth_ws_file.write_text(
+        f'[envs.pg08]\ninterpreter = "{pg08_py.as_posix()}"\n\n'
+        f'[envs.pg07]\ninterpreter = "{pg07_py.as_posix()}"\nworktree = "develop-pg07-lazy16"\n',
+        encoding="utf-8",
+    )
+    synth_ws = hg.load_workspace(synth_ws_file)
 
-        # pg07 specifies interpreter + worktree
-        needs_pg07, py_pg07, srcs_pg07, _ = _check_reexec({"env": "pg07"}, real_ws)
-        assert needs_pg07 is True
-        assert "particlegan07-env/bin/python" in py_pg07
-        assert any("develop-pg07-lazy16" in s for s in srcs_pg07)
+    needs_pg08, py_pg08, srcs_pg08, _ = _check_reexec({"env": "pg08"}, synth_ws)
+    assert needs_pg08 is True
+    assert "particlegan08-env/bin/python" in py_pg08
+    assert srcs_pg08 == []
+
+    needs_pg07, py_pg07, srcs_pg07, _ = _check_reexec({"env": "pg07"}, synth_ws)
+    assert needs_pg07 is True
+    assert "particlegan07-env/bin/python" in py_pg07
+    assert any("develop-pg07-lazy16" in s for s in srcs_pg07)
 
 
 def test_reconstruct_argv_for_reexec_strips_set_flags():

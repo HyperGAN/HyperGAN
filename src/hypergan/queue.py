@@ -382,6 +382,56 @@ def _devices_compatible(runner_devices: Optional[frozenset], job_devices: Option
     return runner_devices is None or job_devices is None or runner_devices == job_devices
 
 
+def _devices_overlap(dev_a: Optional[frozenset], dev_b: Optional[frozenset]) -> bool:
+    """Return True if two device sets contend for the same GPU(s)."""
+    cpu = frozenset({"cpu"})
+    if dev_a == cpu or dev_b == cpu:
+        return False
+    if dev_a is None or dev_b is None:
+        return True
+    return bool(dev_a & dev_b)
+
+
+def _active_running_device_sets(
+    q: dict,
+    ws_data: dict | None = None,
+    *,
+    exclude_job_id: str | None = None,
+) -> list[Optional[frozenset]]:
+    """Normalized device sets currently claimed by active running jobs on this host."""
+    active: list[Optional[frozenset]] = []
+    for rj in q.get("jobs", []):
+        if rj.get("status") != "running":
+            continue
+        if exclude_job_id is not None and rj.get("id") == exclude_job_id:
+            continue
+        runner_id = rj.get("runner")
+        if isinstance(runner_id, dict) and runner_id.get("host") and not _same_host(runner_id):
+            continue
+        eff = rj.get("assigned_devices") if rj.get("assigned_devices") is not None else rj.get("devices")
+        active.append(_normalize_devices(eff, ws_data))
+    return active
+
+
+_GRACEFUL_STOP_WAIT_SECONDS = 40.0
+_SERVICE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}$")
+_SAFE_SYSTEMD_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./:,@=-]+$")
+
+
+def _validate_systemd_text(value: str, field: str) -> str:
+    if any(ch in value for ch in ("\n", "\r", "\x00")):
+        raise ValueError(f"{field} must not contain newlines or NUL bytes")
+    return value
+
+
+def _systemd_quote(value: str, field: str) -> str:
+    _validate_systemd_text(value, field)
+    if value and _SAFE_SYSTEMD_TOKEN_RE.fullmatch(value):
+        return value
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$")
+    return f'"{escaped}"'
+
+
 def inspect_gpu_hardware() -> list[dict]:
     """Query GPU device inventory via provider without importing PyTorch."""
     from .gpu_inventory import inspect_gpu_hardware as _inv_hardware
@@ -418,18 +468,24 @@ def check_device_availability(
     hw_by_index = {str(g["index"]): g for g in hw}
 
     target_gpus = []
+    unknown_devices = []
     for d in dev_list:
+        if d.lower() == "cpu":
+            continue
         if d in hw_by_uuid:
             target_gpus.append(hw_by_uuid[d])
         elif d in hw_by_index:
             target_gpus.append(hw_by_index[d])
-        elif d.startswith("cuda:"):
-            idx = d.split(":")[1]
-            if idx in hw_by_index:
-                target_gpus.append(hw_by_index[idx])
+        elif d.startswith("cuda:") and d.split(":", 1)[1] in hw_by_index:
+            target_gpus.append(hw_by_index[d.split(":", 1)[1]])
+        else:
+            unknown_devices.append(d)
+
+    if unknown_devices:
+        avail_indices = ", ".join(sorted(hw_by_index, key=lambda x: int(x) if x.isdigit() else x))
+        return False, f"Invalid or unknown GPU device(s): {', '.join(unknown_devices)} (available indices: {avail_indices})"
 
     if not target_gpus:
-        # Passthrough if no matching GPU found by index/UUID
         return True, None
 
     procs = inspect_gpu_processes()
@@ -810,93 +866,147 @@ def queue_run(
             return True
         return False
 
+    def _finish_runner(status_override: str | None = None) -> int:
+        if json_output:
+            status_val = status_override or ("failed" if had_failure else "completed")
+            print(json.dumps({
+                "queue_file": str(qpath),
+                "total_executed": len(executed_jobs),
+                "executed": executed_jobs,
+                "status": status_val,
+            }, indent=2))
+        if once:
+            return 1 if had_failure else 0
+        return 0
+
     prev_sigint = signal.signal(signal.SIGINT, _sig_handler)
     prev_sigterm = signal.signal(signal.SIGTERM, _sig_handler)
 
     try:
         while not stop_requested:
             if _halt_requested():
-                return 0
+                return _finish_runner("stopped")
 
-            target_job = None
             with queue_lock(qpath):
                 q = _load_reconciled(qpath)
-                for j in q.get("jobs", []):
-                    if j.get("status") == "queued":
-                        # If runner is bound to specific devices, pick only jobs targeting or compatible with them
-                        if not _devices_compatible(runner_devices, _normalize_devices(j.get("devices"), ws_data)):
-                            continue
+                candidates = [
+                    dict(j)
+                    for j in q.get("jobs", [])
+                    if j.get("status") == "queued"
+                    and _devices_compatible(runner_devices, _normalize_devices(j.get("devices"), ws_data))
+                ]
+                running_device_sets = _active_running_device_sets(q, ws_data)
+
+            if not candidates:
+                if once:
+                    return _finish_runner()
+                time.sleep(poll_interval)
+                continue
+
+            target_job = None
+            job_devices = None
+            completed_wait = False
+            busy_messages: list[str] = []
+            blocked_wait_devices: list[Optional[frozenset]] = []
+
+            for cand in candidates:
+                cand_id = cand["id"]
+                cand_devices_raw = cand.get("devices") or devices
+                cand_devices_norm = _normalize_devices(cand_devices_raw, ws_data)
+
+                if cand.get("kind") == "wait":
+                    if _run_is_active(cand["run_dir"]):
+                        if cand.get("devices") is None:
+                            # Global wait barrier blocks later queued jobs until the target run finishes.
+                            break
+                        blocked_wait_devices.append(_normalize_devices(cand.get("devices"), ws_data))
+                        continue
+
+                    with queue_lock(qpath):
+                        q = load_queue(qpath)
+                        j = _find_job(q, cand_id)
+                        finished = j is not None and j.get("status") == "queued"
+                        if finished:
+                            j["status"] = "completed"
+                            j["ended_at"] = _now()
+                            save_queue(qpath, q)
+                    if finished:
+                        executed_jobs.append({
+                            "id": cand_id,
+                            "name": cand.get("name"),
+                            "status": "completed",
+                            "exit_code": 0,
+                            "run_dir": cand.get("run_dir"),
+                        })
+                    completed_wait = True
+                    break
+
+                if any(_devices_overlap(cand_devices_norm, wset) for wset in blocked_wait_devices):
+                    busy_messages.append(f"[queue] {cand_id} waiting on active device wait barrier. Retrying in {poll_interval:.1f}s...")
+                    continue
+
+                if any(_devices_overlap(cand_devices_norm, rset) for rset in running_device_sets):
+                    busy_messages.append(
+                        f"[queue] Hardware busy for {cand_id}: device(s) {cand_devices_raw!r} already claimed by a running job. "
+                        f"Retrying in {poll_interval:.1f}s..."
+                    )
+                    continue
+
+                # Hardware preflight check
+                avail, reason = check_device_availability(cand_devices_raw, ws_data)
+                if not avail:
+                    busy_messages.append(f"[queue] Hardware busy for {cand_id}: {reason}. Retrying in {poll_interval:.1f}s...")
+                    continue
+
+                # Run lock collision check
+                if cand.get("run_dir"):
+                    rdir = Path(cand["run_dir"])
+                    if _run_is_active(rdir):
+                        busy_messages.append(f"[queue] Run directory {rdir} locked by active process. Retrying in {poll_interval:.1f}s...")
+                        continue
+
+                # Atomic claim: job must still be queued and no running job may overlap its devices.
+                conflict_now = False
+                with queue_lock(qpath):
+                    q = _load_reconciled(qpath)
+                    j = _find_job(q, cand_id)
+                    active_now = _active_running_device_sets(q, ws_data, exclude_job_id=cand_id)
+                    conflict_now = any(_devices_overlap(cand_devices_norm, rset) for rset in active_now)
+                    claimed = j is not None and j.get("status") == "queued" and not conflict_now
+                    if claimed:
+                        j["status"] = "running"
+                        j["started_at"] = _now()
+                        j["runner"] = runner_identity
+                        j["stop_signalled"] = False
+                        if cand_devices_raw is not None:
+                            j["assigned_devices"] = cand_devices_raw
+                        save_queue(qpath, q)
                         target_job = dict(j)
-                        break
+                        job_devices = cand_devices_raw
+                if target_job is not None:
+                    break
+                if conflict_now:
+                    busy_messages.append(
+                        f"[queue] Hardware busy for {cand_id}: device(s) claimed concurrently by another runner. "
+                        f"Retrying in {poll_interval:.1f}s..."
+                    )
+                else:
+                    if not json_output:
+                        print(f"[queue] {cand_id} was cancelled or claimed by another runner; skipping.", file=sys.stderr)
+                    completed_wait = True
+                    break
+
+            if completed_wait:
+                continue
 
             if target_job is None:
-                if once:
-                    if json_output:
-                        print(json.dumps({
-                            "queue_file": str(qpath),
-                            "total_executed": len(executed_jobs),
-                            "executed": executed_jobs,
-                            "status": "failed" if had_failure else "completed",
-                        }, indent=2))
-                    return 1 if had_failure else 0
+                if not json_output:
+                    for msg in busy_messages:
+                        print(msg, file=sys.stderr)
                 time.sleep(poll_interval)
                 continue
 
             job_id = target_job["id"]
-            job_devices = target_job.get("devices") or devices
-
-            if target_job.get("kind") == "wait":
-                if _run_is_active(target_job["run_dir"]):
-                    # Still waiting
-                    time.sleep(poll_interval)
-                    continue
-
-                # Finished waiting (unless the wait was cancelled meanwhile)
-                with queue_lock(qpath):
-                    q = load_queue(qpath)
-                    j = _find_job(q, job_id)
-                    finished = j is not None and j.get("status") == "queued"
-                    if finished:
-                        j["status"] = "completed"
-                        j["ended_at"] = _now()
-                        save_queue(qpath, q)
-                if finished:
-                    executed_jobs.append({"id": job_id, "name": target_job.get("name"), "status": "completed", "exit_code": 0, "run_dir": target_job.get("run_dir")})
-                continue
-
-            # Hardware preflight check
-            avail, reason = check_device_availability(job_devices, ws_data)
-            if not avail:
-                if not json_output:
-                    print(f"[queue] Hardware busy for {job_id}: {reason}. Retrying in {poll_interval:.1f}s...", file=sys.stderr)
-                time.sleep(poll_interval)
-                continue
-
-            # Run lock collision check
-            if target_job.get("run_dir"):
-                rdir = Path(target_job["run_dir"])
-                if _run_is_active(rdir):
-                    if not json_output:
-                        print(f"[queue] Run directory {rdir} locked by active process. Retrying in {poll_interval:.1f}s...", file=sys.stderr)
-                    time.sleep(poll_interval)
-                    continue
-
-            # Claim: the job must still be queued (not cancelled, not taken by another runner)
-            with queue_lock(qpath):
-                q = load_queue(qpath)
-                j = _find_job(q, job_id)
-                claimed = j is not None and j.get("status") == "queued"
-                if claimed:
-                    j["status"] = "running"
-                    j["started_at"] = _now()
-                    j["runner"] = runner_identity
-                    j["stop_signalled"] = False
-                    save_queue(qpath, q)
-                    target_job = dict(j)
-            if not claimed:
-                if not json_output:
-                    print(f"[queue] {job_id} was cancelled or claimed by another runner; skipping.", file=sys.stderr)
-                continue
 
             log_path = Path(target_job["log_file"])
             log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -923,7 +1033,7 @@ def queue_run(
             if target_job.get("run_dir"):
                 cmd.extend(["--run-dir", str(target_job["run_dir"])])
 
-            custom_name = target_job.get("custom_name") or target_job.get("name")
+            custom_name = target_job.get("custom_name")
             if custom_name and target_job.get("kind") != "wait":
                 cmd.extend(["--name", str(custom_name)])
 
@@ -1003,7 +1113,7 @@ def queue_run(
                     signalled = True
                     _signal_once()
                 try:
-                    exit_code = proc.wait(timeout=10.0)
+                    exit_code = proc.wait(timeout=_GRACEFUL_STOP_WAIT_SECONDS)
                 except (subprocess.TimeoutExpired, TypeError):
                     try:
                         proc.kill()
@@ -1020,9 +1130,8 @@ def queue_run(
                     or _find_run_dir_from_registry(proc.pid, since=target_job.get("started_at"))
                 )
 
-            if exit_code != 0:
-                had_failure = True
-
+            final_status = "completed" if exit_code == 0 else "failed"
+            was_stopped = bool(signalled or halting or stop_requested)
             with queue_lock(qpath):
                 q = load_queue(qpath)
                 for j in q.get("jobs", []):
@@ -1032,16 +1141,27 @@ def queue_run(
                         j["ended_at"] = _now()
                         if detected_run_dir:
                             j["run_dir"] = detected_run_dir
+                        was_stopped = was_stopped or bool(j.get("stop_signalled"))
                         if j.get("status") == "running":
-                            j["status"] = "completed" if exit_code == 0 else "failed"
-                            if exit_code != 0:
+                            if was_stopped:
+                                j["status"] = "stopped"
+                                if not j.get("error"):
+                                    j["error"] = "Stopped by queue halt/signal"
+                            elif exit_code == 0:
+                                j["status"] = "completed"
+                            else:
+                                j["status"] = "failed"
                                 j["error"] = f"Process exited with code {exit_code}"
+                        final_status = j.get("status", final_status)
                 save_queue(qpath, q)
+
+            if final_status == "failed":
+                had_failure = True
 
             executed_jobs.append({
                 "id": job_id,
                 "name": target_job.get("name"),
-                "status": "completed" if exit_code == 0 else "failed",
+                "status": final_status,
                 "exit_code": exit_code,
                 "run_dir": detected_run_dir,
             })
@@ -1050,9 +1170,9 @@ def queue_run(
                 print(f"[queue] Finished {job_id} with exit code {exit_code}")
 
             if halting:
-                return 0
+                return _finish_runner("stopped")
 
-        return 0
+        return _finish_runner("stopped" if stop_requested else None)
     finally:
         signal.signal(signal.SIGINT, prev_sigint)
         signal.signal(signal.SIGTERM, prev_sigterm)
@@ -1065,15 +1185,34 @@ def install_service(
     dry_run: bool = False,
 ) -> tuple[Path, str]:
     """Generate and install systemd user service unit for hypergan queue."""
+    if devices is not None:
+        _validate_systemd_text(str(devices), "devices")
+        if "/" in str(devices) or "\\" in str(devices) or ".." in str(devices):
+            raise ValueError(f"Invalid devices specification for systemd service: {devices!r}")
     service_name = name or ("hypergan-queue" if not devices else f"hypergan-queue-{devices.replace(',', '-')}")
+    if (
+        not isinstance(service_name, str)
+        or "/" in service_name
+        or "\\" in service_name
+        or ".." in service_name
+        or _SERVICE_NAME_RE.fullmatch(service_name) is None
+    ):
+        raise ValueError(
+            f"Invalid systemd service name {service_name!r}: must match {_SERVICE_NAME_RE.pattern} "
+            "and must not contain path separators or '..'"
+        )
     ws_path = find_workspace(Path.cwd())
     working_dir = ws_path.parent if ws_path else Path.cwd()
+    working_dir_str = _systemd_quote(str(working_dir), "working_dir")
+    python_exec_str = _systemd_quote(str(sys.executable), "executable")
 
     unit_dir = Path.home() / ".config" / "systemd" / "user"
     unit_path = unit_dir / f"{service_name}.service"
+    if unit_path.resolve().parent != unit_dir.resolve():
+        raise ValueError(f"Service unit path escapes systemd unit directory: {service_name!r}")
 
-    dev_flag = f" --devices {devices}" if devices else ""
-    desc_dev = f" ({devices})" if devices else ""
+    dev_flag = f" --devices {_systemd_quote(str(devices), 'devices')}" if devices else ""
+    desc_dev = f" ({_validate_systemd_text(str(devices), 'devices')})" if devices else ""
 
     content = f"""[Unit]
 Description=HyperGAN Job Queue Runner{desc_dev}
@@ -1081,8 +1220,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory={working_dir}
-ExecStart={sys.executable} -m hypergan queue run{dev_flag}
+WorkingDirectory={working_dir_str}
+ExecStart={python_exec_str} -m hypergan queue run{dev_flag}
 Restart=on-failure
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1

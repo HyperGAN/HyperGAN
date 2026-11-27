@@ -115,22 +115,45 @@ _NAN_LOG_RE = re.compile(
 _POSIX_ERE_SPECIAL = frozenset(r".^$*+?()[]{}\|")
 
 _SHUTDOWN_EVENT = threading.Event()
+_SHUTDOWN_REQUESTED = False
 _SHUTDOWN_SIGNAL: int | None = None
 
 
+def _shutdown_requested() -> bool:
+    """Return True if shutdown was requested either via lock-free signal flag or `_SHUTDOWN_EVENT`."""
+    return _SHUTDOWN_REQUESTED or _SHUTDOWN_EVENT.is_set()
+
+
+def _request_shutdown(signum: int | None = None) -> None:
+    """Record shutdown from normal (non-signal-handler) execution and wake all sleeping threads."""
+    global _SHUTDOWN_REQUESTED, _SHUTDOWN_SIGNAL
+    if signum is not None and _SHUTDOWN_SIGNAL is None:
+        _SHUTDOWN_SIGNAL = signum
+    _SHUTDOWN_REQUESTED = True
+    _SHUTDOWN_EVENT.set()
+
+
+def _reset_shutdown_state() -> None:
+    global _SHUTDOWN_REQUESTED, _SHUTDOWN_SIGNAL
+    _SHUTDOWN_REQUESTED = False
+    _SHUTDOWN_SIGNAL = None
+    _SHUTDOWN_EVENT.clear()
+
+
 def _interruptible_sleep(seconds: float) -> bool:
-    """Sleep up to `seconds`, waking promptly if `_SHUTDOWN_EVENT` is set.
+    """Sleep up to `seconds`, waking promptly if shutdown is requested.
 
     Preserves monkeypatched `time.sleep` in unit tests while using `Event.wait` in production.
     """
-    if _SHUTDOWN_EVENT.is_set():
+    if _shutdown_requested():
         return True
     if seconds <= 0:
         return False
     if not isinstance(time.sleep, types.BuiltinFunctionType):
         time.sleep(seconds)
-        return _SHUTDOWN_EVENT.is_set()
-    return _SHUTDOWN_EVENT.wait(seconds)
+        return _shutdown_requested()
+    _SHUTDOWN_EVENT.wait(seconds)
+    return _shutdown_requested()
 
 
 def _pgrep_non_self_pattern(literal: str) -> str:
@@ -345,7 +368,12 @@ def run_with_hard_timeout(
     Prevents hung `google-colab-cli` websocket background threads from blocking indefinitely
     and leaking idle Colab GPU compute units.
     """
-    if cancel_event is not None and cancel_event.is_set():
+    def _is_cancelled() -> bool:
+        if cancel_event is None:
+            return False
+        return cancel_event.is_set() or (cancel_event is _SHUTDOWN_EVENT and _SHUTDOWN_REQUESTED)
+
+    if _is_cancelled():
         return 130, ""
     proc = subprocess.Popen(
         cmd,
@@ -392,8 +420,9 @@ def run_with_hard_timeout(
                 chunks.append(line)
             if log_handle is not None:
                 with writer_lock:
-                    log_handle.write(line)
-                    log_handle.flush()
+                    if not log_handle.closed:
+                        log_handle.write(line)
+                        log_handle.flush()
 
     reader_thread = threading.Thread(target=_reader, daemon=True)
     reader_thread.start()
@@ -417,15 +446,16 @@ def run_with_hard_timeout(
                     chunks.append(msg)
                 if log_handle is not None:
                     with writer_lock:
-                        log_handle.write(msg)
-                        log_handle.flush()
+                        if not log_handle.closed:
+                            log_handle.write(msg)
+                            log_handle.flush()
                 _terminate_proc(kill_grace)
                 rc = 124
         else:
             deadline = time.monotonic() + float(timeout_seconds)
             rc = 124
             while True:
-                if cancel_event.is_set():
+                if _is_cancelled():
                     msg = (
                         f"[{utc_stamp()}] [shutdown] Terminating command on shutdown signal: "
                         f"{' '.join(cmd[:6])}\n"
@@ -434,8 +464,9 @@ def run_with_hard_timeout(
                         chunks.append(msg)
                     if log_handle is not None:
                         with writer_lock:
-                            log_handle.write(msg)
-                            log_handle.flush()
+                            if not log_handle.closed:
+                                log_handle.write(msg)
+                                log_handle.flush()
                     _terminate_proc(min(kill_grace, 3.0))
                     rc = 130
                     break
@@ -449,8 +480,9 @@ def run_with_hard_timeout(
                         chunks.append(msg)
                     if log_handle is not None:
                         with writer_lock:
-                            log_handle.write(msg)
-                            log_handle.flush()
+                            if not log_handle.closed:
+                                log_handle.write(msg)
+                                log_handle.flush()
                     _terminate_proc(kill_grace)
                     rc = 124
                     break
@@ -459,10 +491,15 @@ def run_with_hard_timeout(
                     break
                 except subprocess.TimeoutExpired:
                     continue
+    except BaseException:
+        if proc.poll() is None:
+            _terminate_proc(min(kill_grace, 3.0))
+        raise
     finally:
         reader_thread.join(timeout=2.0)
         if log_handle is not None:
-            log_handle.close()
+            with writer_lock:
+                log_handle.close()
     return rc, "".join(chunks)
 
 
@@ -1713,7 +1750,7 @@ class ColabBenchWorker:
             tmp_root = Path(tmp_dir)
             with src.open("rb") as fh:
                 for idx in range(num_parts):
-                    if _SHUTDOWN_EVENT.is_set():
+                    if _shutdown_requested():
                         return 130, "Shutdown requested during chunked upload"
                     data = fh.read(limit)
                     if not data:
@@ -1725,7 +1762,7 @@ class ColabBenchWorker:
 
                     last_rc, last_out = 1, ""
                     for attempt in range(1, 3):
-                        if _SHUTDOWN_EVENT.is_set():
+                        if _shutdown_requested():
                             return 130, "Shutdown requested during chunked upload"
                         last_rc, last_out = self._colab(
                             ["upload", "-s", self.worker_name, str(local_part), remote_part],
@@ -1774,21 +1811,21 @@ class ColabBenchWorker:
         }
 
     def start(self) -> None:
-        if _SHUTDOWN_EVENT.is_set():
+        if _shutdown_requested():
             raise RuntimeError(f"Shutdown requested before provisioning {self.worker_name}; aborting.")
         gpu_candidates = [self.requested_gpu, *self.fallback_gpus]
 
         last_rc = 1
         last_out = ""
         for idx_g, candidate_gpu in enumerate(gpu_candidates):
-            if _SHUTDOWN_EVENT.is_set():
+            if _shutdown_requested():
                 raise RuntimeError(f"Shutdown requested during provisioning of {self.worker_name}; aborting.")
             spec = COLAB_GPU_SPECS[candidate_gpu]
             cmd = ["new", "-s", self.worker_name]
             if spec["colab_flag"]:
                 cmd += ["--gpu", spec["colab_flag"]]
             for boot_attempt in range(1, self.boot_retries + 1):
-                if _SHUTDOWN_EVENT.is_set():
+                if _shutdown_requested():
                     raise RuntimeError(f"Shutdown requested during provisioning of {self.worker_name}; aborting.")
                 self._log(
                     f"Provisioning Colab {candidate_gpu} VM (attempt {boot_attempt}/{self.boot_retries}, "
@@ -1801,7 +1838,7 @@ class ColabBenchWorker:
                     break
                 # Best-effort stop in case Colab allocated the backend right as `colab new` timed out.
                 self._colab(["stop", "-s", self.worker_name], timeout=30, allow_shutdown_cancel=False)
-                if _SHUTDOWN_EVENT.is_set():
+                if _shutdown_requested():
                     raise RuntimeError(f"Shutdown requested during provisioning of {self.worker_name}; aborting.")
                 if boot_attempt < self.boot_retries:
                     self._log(
@@ -1821,7 +1858,7 @@ class ColabBenchWorker:
 
         self.alive = True
         self.registry.register(self.worker_name, self.cfg, gpu=self.gpu, batch_dir=self.batch_dir)
-        if _SHUTDOWN_EVENT.is_set():
+        if _shutdown_requested():
             self.stop()
             raise RuntimeError(f"Shutdown requested right after provisioning {self.worker_name}; VM released.")
         if _interruptible_sleep(5):  # Websocket warmup guard
@@ -1836,7 +1873,7 @@ class ColabBenchWorker:
         )
         armed = False
         for attempt in range(1, 6):
-            if _SHUTDOWN_EVENT.is_set():
+            if _shutdown_requested():
                 self.stop()
                 raise RuntimeError(f"Shutdown requested while arming watchdog on {self.worker_name}; VM released.")
             rc, _ = self._colab(
@@ -2334,7 +2371,7 @@ class ColabBenchWorker:
                     capture=True,
                 )
 
-            if _SHUTDOWN_EVENT.is_set():
+            if _shutdown_requested():
                 return 130, "Shutdown requested during detached poll", False, last_periodic_unpack
 
             if poll_rc != 0:
@@ -2376,7 +2413,8 @@ class ColabBenchWorker:
                 )
                 if consecutive_failures >= max_consecutive_failures:
                     return 255, poll_out, True, last_periodic_unpack
-                time.sleep(min(20.0, poll_interval))
+                if _interruptible_sleep(min(20.0, poll_interval)):
+                    return 130, "Shutdown requested during detached poll", False, last_periodic_unpack
                 continue
 
             consecutive_failures = 0
@@ -2477,7 +2515,7 @@ class ColabBenchWorker:
         chunk_error: str | None = None
 
         while True:
-            if _SHUTDOWN_EVENT.is_set():
+            if _shutdown_requested():
                 last_rc = 130
                 break
             prev_step = current_step
@@ -2561,7 +2599,7 @@ class ColabBenchWorker:
                 )
                 if periodic_unpack is not None:
                     last_unpack = periodic_unpack
-                if chunk_disconnected and not _SHUTDOWN_EVENT.is_set():
+                if chunk_disconnected and not _shutdown_requested():
                     disconnected = True
             else:
                 run_sh = textwrap.dedent(
@@ -2599,11 +2637,11 @@ class ColabBenchWorker:
                     )
 
                 # Detect Colab connection loss / SSH drop / HTTP 429 / timeout so orchestrator recycles VM & resumes.
-                if not _SHUTDOWN_EVENT.is_set() and _is_colab_disconnect(rc, ssh_out):
+                if not _shutdown_requested() and _is_colab_disconnect(rc, ssh_out):
                     disconnected = True
 
             last_rc = rc
-            if _SHUTDOWN_EVENT.is_set():
+            if _shutdown_requested():
                 break
             chunks_completed += 1
 
@@ -3269,7 +3307,7 @@ def execute_benchmark_jobs(
     worker_errors: list[dict[str, Any]] = []
 
     def _run_worker_slot(slot_idx: int, base_name: str, gpu: str) -> None:
-        if _SHUTDOWN_EVENT.is_set():
+        if _shutdown_requested():
             return
         if slot_idx > 0 and stagger_seconds > 0:
             if _interruptible_sleep(slot_idx * stagger_seconds):
@@ -3277,7 +3315,7 @@ def execute_benchmark_jobs(
         q = queues[gpu]
         reincarnation = 0
         while True:
-            if _SHUTDOWN_EVENT.is_set() or q.empty():
+            if _shutdown_requested() or q.empty():
                 break
             worker_name = base_name if reincarnation == 0 else f"{base_name}-r{reincarnation}"
             worker = ColabBenchWorker(
@@ -3304,24 +3342,24 @@ def execute_benchmark_jobs(
             )
             need_reprovision = False
             try:
-                if _SHUTDOWN_EVENT.is_set():
+                if _shutdown_requested():
                     break
                 try:
                     worker.start()
                 except (RuntimeError, OSError, ValueError) as exc:
-                    if not _SHUTDOWN_EVENT.is_set():
+                    if not _shutdown_requested():
                         with results_lock:
                             worker_errors.append({"worker": worker_name, "gpu": gpu, "stage": "start", "error": str(exc)})
                         worker._log(f"Worker startup failed: {exc}")
                     break
 
-                while not _SHUTDOWN_EVENT.is_set():
+                while not _shutdown_requested():
                     try:
                         job, attempt_num = q.get_nowait()
                     except stdlib_queue.Empty:
                         break
                     try:
-                        if _SHUTDOWN_EVENT.is_set():
+                        if _shutdown_requested():
                             break
                         res = worker.run_training_job(
                             job,
@@ -3331,7 +3369,7 @@ def execute_benchmark_jobs(
                             no_resume=no_resume,
                             register_run_local=register_runs,
                         )
-                        if _SHUTDOWN_EVENT.is_set():
+                        if _shutdown_requested():
                             break
                         res["attempt"] = attempt_num + 1
                         if res["disconnected"] and res.get("run_rc", 0) != 0 and attempt_num < job.max_retries:
@@ -3345,7 +3383,7 @@ def execute_benchmark_jobs(
                         with results_lock:
                             results.append(res)
                     except (RuntimeError, OSError, ValueError, tarfile.TarError, json.JSONDecodeError) as exc:
-                        if _SHUTDOWN_EVENT.is_set():
+                        if _shutdown_requested():
                             break
                         with results_lock:
                             worker_errors.append(
@@ -3375,7 +3413,7 @@ def execute_benchmark_jobs(
                 with results_lock:
                     worker_costs.append(worker.cost_summary())
 
-            if _SHUTDOWN_EVENT.is_set() or not need_reprovision:
+            if _shutdown_requested() or not need_reprovision:
                 break
             reincarnation += 1
             max_reincarnations = max(6, max((j.max_retries for j in pending), default=3) * 2)
@@ -3391,16 +3429,18 @@ def execute_benchmark_jobs(
         for fut in as_completed(futs):
             fut.result()
     except BaseException:
-        _SHUTDOWN_EVENT.set()
+        _request_shutdown()
         for fut in futs:
             fut.cancel()
         raise
     finally:
-        pool.shutdown(wait=True, cancel_futures=_SHUTDOWN_EVENT.is_set())
-        if _SHUTDOWN_EVENT.is_set():
+        if _shutdown_requested():
+            _request_shutdown()
+        pool.shutdown(wait=True, cancel_futures=_shutdown_requested())
+        if _shutdown_requested():
             _GLOBAL_REGISTRY.stop_all()
 
-    if not results and worker_errors and not _SHUTDOWN_EVENT.is_set():
+    if not results and worker_errors and not _shutdown_requested():
         raise RuntimeError(f"All Colab workers failed to start/run: {worker_errors[:3]}")
 
     total_wall = sum(c["wall_seconds"] for c in worker_costs)
@@ -3408,7 +3448,7 @@ def execute_benchmark_jobs(
     total_cu = round(sum(c["estimated_cu"] for c in worker_costs), 4)
     all_ok = all(r.get("run_rc") == 0 for r in results) and len(results) == len(pending)
 
-    if _SHUTDOWN_EVENT.is_set():
+    if _shutdown_requested():
         batch_status = "interrupted"
     elif all_ok:
         batch_status = "complete"
@@ -3625,7 +3665,7 @@ def execute_eval_bundles(
         safetensors_spec=safetensors_spec,
     )
     try:
-        if _SHUTDOWN_EVENT.is_set():
+        if _shutdown_requested():
             raise RuntimeError("Shutdown requested before starting evaluation worker.")
         worker.start()
         eval_res = worker.run_bundle_evaluations(
@@ -3641,6 +3681,10 @@ def execute_eval_bundles(
             output_dir=output_dir,
             import_to_run=import_to_run,
         )
+    except BaseException:
+        if _shutdown_requested():
+            _request_shutdown()
+        raise
     finally:
         worker.stop()
 
@@ -4088,21 +4132,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _SHUTDOWN_SIGNAL
-    _SHUTDOWN_EVENT.clear()
-    _SHUTDOWN_SIGNAL = None
+    _reset_shutdown_state()
     is_main_thread = threading.current_thread() is threading.main_thread()
     prev_sigint = signal.getsignal(signal.SIGINT) if is_main_thread else None
     prev_sigterm = signal.getsignal(signal.SIGTERM) if is_main_thread else None
 
     def _handle_signal(signum: int, _frame: Any) -> None:
-        # Never acquire non-reentrant locks or run blocking subprocess teardown in a signal handler;
-        # signal the shutdown event and unwind cleanly on the main thread.
-        global _SHUTDOWN_SIGNAL
-        first = not _SHUTDOWN_EVENT.is_set()
+        # Strictly lock-free: never acquire any threading.Lock (including Event._cond._lock)
+        # or run blocking subprocess teardown in a signal handler; set module flags and unwind
+        # cleanly on the main thread.
+        global _SHUTDOWN_REQUESTED, _SHUTDOWN_SIGNAL
+        first = not _SHUTDOWN_REQUESTED
+        _SHUTDOWN_REQUESTED = True
         if _SHUTDOWN_SIGNAL is None:
             _SHUTDOWN_SIGNAL = signum
-        _SHUTDOWN_EVENT.set()
         if first:
             raise KeyboardInterrupt(f"Received signal {signum}")
 
@@ -4123,7 +4166,7 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError(f"Unknown command: {args.command}")
     except KeyboardInterrupt:
         sig = _SHUTDOWN_SIGNAL if _SHUTDOWN_SIGNAL is not None else int(signal.SIGINT)
-        _SHUTDOWN_EVENT.set()
+        _request_shutdown(sig)
         print(
             f"\n[colab_bench] Received signal {sig}; releasing all active Colab VMs...",
             file=sys.stderr,
@@ -4131,7 +4174,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 128 + int(sig)
     finally:
-        if _SHUTDOWN_EVENT.is_set():
+        if _shutdown_requested():
+            _request_shutdown()
             _GLOBAL_REGISTRY.stop_all()
         if is_main_thread:
             signal.signal(signal.SIGINT, prev_sigint)

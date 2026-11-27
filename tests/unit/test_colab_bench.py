@@ -1592,8 +1592,7 @@ def test_signal_handler_no_deadlock_and_no_reprovisioning_on_shutdown(tmp_path, 
         assert stopped_via_sig == ["w-sig"]
         assert "w-sig" not in cb._GLOBAL_REGISTRY.sessions
     finally:
-        cb._SHUTDOWN_EVENT.clear()
-        cb._SHUTDOWN_SIGNAL = None
+        cb._reset_shutdown_state()
         cb._GLOBAL_REGISTRY.sessions.clear()
         cb._GLOBAL_REGISTRY.state_dir = orig_state_dir
         cb._GLOBAL_REGISTRY.colab_bin = orig_colab_bin
@@ -1631,7 +1630,7 @@ def test_signal_handler_no_deadlock_and_no_reprovisioning_on_shutdown(tmp_path, 
         cb.BenchmarkJob(run_name="ctrlc-job-2", config="cifar10-tiny-transformer", gpu="A100", stop_after_steps=50, max_retries=3),
     ]
     try:
-        cb._SHUTDOWN_EVENT.clear()
+        cb._reset_shutdown_state()
         summary = cb.execute_benchmark_jobs(
             repo_root=tmp_path,
             runs_dir=runs_dir,
@@ -1645,7 +1644,7 @@ def test_signal_handler_no_deadlock_and_no_reprovisioning_on_shutdown(tmp_path, 
         assert len(booted) == 1  # NEVER reprovisioned!
         assert stopped == booted  # Original VM cleanly stopped!
     finally:
-        cb._SHUTDOWN_EVENT.clear()
+        cb._reset_shutdown_state()
         cb._GLOBAL_REGISTRY.sessions.clear()
 
     # 3. `run_with_hard_timeout` aborts a sleeping child promptly when `cancel_event` is set.
@@ -1666,6 +1665,124 @@ def test_signal_handler_no_deadlock_and_no_reprovisioning_on_shutdown(tmp_path, 
     assert rc_c == 130
     assert "[shutdown]" in out_c
     assert elapsed < 3.0
+
+    # 4. Holding `_SHUTDOWN_EVENT._cond._lock` on main thread when SIGTERM arrives MUST NOT deadlock.
+    stopped_via_cond_sig: list[str] = []
+
+    def fake_cond_sig_colab(cmd, *, timeout_seconds, **kwargs):
+        if "stop" in cmd:
+            stopped_via_cond_sig.append(cmd[cmd.index("-s") + 1])
+            return 0, "stopped"
+        return 0, ""
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_cond_sig_colab)
+
+    def fake_cmd_status_holding_event_lock(_args):
+        cb._GLOBAL_REGISTRY.state_dir = state_dir
+        cb._GLOBAL_REGISTRY.colab_bin = "colab"
+        cfg = state_dir / "w-evlock.colab.json"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text("{}", encoding="utf-8")
+        cb._GLOBAL_REGISTRY.register("w-evlock", cfg, gpu="L4")
+        # Hold Event's internal non-reentrant lock when SIGTERM arrives (as during Event.wait()).
+        with cb._SHUTDOWN_EVENT._cond._lock:
+            os.kill(os.getpid(), signal.SIGTERM)
+        return 0
+
+    monkeypatch.setattr(cb, "cmd_status", fake_cmd_status_holding_event_lock)
+    try:
+        rc_ev = cb.main(["status"])
+        assert rc_ev == 128 + int(signal.SIGTERM)
+        assert cb._SHUTDOWN_EVENT.is_set()
+        assert stopped_via_cond_sig == ["w-evlock"]
+    finally:
+        cb._reset_shutdown_state()
+        cb._GLOBAL_REGISTRY.sessions.clear()
+        cb._GLOBAL_REGISTRY.state_dir = orig_state_dir
+        cb._GLOBAL_REGISTRY.colab_bin = orig_colab_bin
+
+    # 5. KeyboardInterrupt interrupting `run_with_hard_timeout` MUST terminate the child process group (no orphans).
+    pid_file = tmp_path / "child.pid"
+    child_code = (
+        f"import os, time; open({str(pid_file)!r}, 'w').write(str(os.getpid())); "
+        "print('READY', flush=True); time.sleep(60)"
+    )
+
+    def _send_sigint_when_ready() -> None:
+        deadline = time.monotonic() + 5.0
+        while not pid_file.is_file() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        time.sleep(0.05)
+        os.kill(os.getpid(), signal.SIGINT)
+
+    interrupter = threading.Thread(target=_send_sigint_when_ready, daemon=True)
+    interrupter.start()
+    log_path = tmp_path / "kbd.log"
+    with pytest.raises(KeyboardInterrupt):
+        real_run_with_hard_timeout(
+            [sys.executable, "-c", child_code],
+            timeout_seconds=15.0,
+            kill_grace=1.0,
+            log_file=log_path,
+            capture=True,
+        )
+    interrupter.join(timeout=2.0)
+    child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+    # Child process group MUST be dead (ProcessLookupError from os.kill(pid, 0)).
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+
+    # 6. `_run_chunk_detached` unrecognized-status retry sleep MUST wake immediately on shutdown.
+    batch_dir = tmp_path / "unrec_batch"
+    batch_dir.mkdir()
+    worker = cb.ColabBenchWorker(
+        worker_name="hg-unrec-sig",
+        gpu="L4",
+        batch_dir=batch_dir,
+        state_dir=tmp_path / "unrec_state",
+        repo_root=tmp_path,
+        repo_url=cb.DEFAULT_REPO_URL,
+        source_sync={"mode": "git", "ref": "develop", "sha": "abc"},
+    )
+    job = cb.BenchmarkJob(run_name="unrec-job", config="cifar10-tiny-transformer", gpu="L4", detached=True, poll_seconds=5.0)
+
+    def fake_unrec_colab(cmd, *, timeout_seconds, **kwargs):
+        subcmd = cmd[cmd.index("--config") + 2]
+        if subcmd == "ssh" and "DETACHED_LAUNCHED" in cmd[-1]:
+            return 0, "DETACHED_LAUNCHED pid=1234\n"
+        if subcmd == "ssh" and "DETACHED_DONE:" in cmd[-1]:
+            return 0, "transient garbage without status token\n"
+        return 0, "ok\n"
+
+    sleep_calls: list[float] = []
+
+    def fake_unrec_sleep(secs):
+        sleep_calls.append(float(secs))
+        if len(sleep_calls) >= 2:
+            # Second sleep is the unrecognized-status backoff sleep; requesting shutdown must exit immediately!
+            cb._request_shutdown()
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_unrec_colab)
+    monkeypatch.setattr(cb.time, "sleep", fake_unrec_sleep)
+    try:
+        cb._reset_shutdown_state()
+        rc_u, out_u, disc_u, _ = worker._run_chunk_detached(
+            job=job,
+            chunk_index=0,
+            quoted_hg="hypergan train cfg",
+            remote_run_dir="/content/runs/unrec-job",
+            remote_train_log="/content/logs/unrec-job.train.log",
+            drive_sync_sh="",
+            local_run_dir=tmp_path / "runs" / "unrec-job",
+            ssh_timeout=600,
+            register_run_local=False,
+        )
+        assert rc_u == 130
+        assert disc_u is False
+        assert "Shutdown requested" in out_u
+        assert len(sleep_calls) == 2
+    finally:
+        cb._reset_shutdown_state()
 
 
 def test_teardown_preserves_stop_failed_sessions_and_cleanup_stops_them(tmp_path, monkeypatch, capsys):

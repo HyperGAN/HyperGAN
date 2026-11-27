@@ -41,6 +41,8 @@ import textwrap
 import threading
 import time
 import tomllib
+import types
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -65,7 +67,7 @@ COLAB_GPU_SPECS: dict[str, dict[str, Any]] = {
 HARD_MAX_WORKERS = 3
 DEFAULT_STAGGER_SECONDS = 20.0
 DEFAULT_REPO_URL = "https://github.com/HyperGAN/HyperGAN.git"
-DEFAULT_PARTICLEGAN_SPEC = "particlegan==0.12.0"
+DEFAULT_PARTICLEGAN_SPEC = "particlegan @ git+https://github.com/HyperGAN/ParticleGAN.git@develop"
 DEFAULT_HNDL_SPEC = "hndl>=0.12.0,<1"
 DEFAULT_TORCH_FIDELITY_SPEC = "torch-fidelity==0.4.0"
 DEFAULT_FOLDLITEDB_SPEC = "foldlitedb>=0.5.0,<0.6"
@@ -96,9 +98,84 @@ IMAGE_METRICS_CLI_ALIASES: dict[str, str] = {
 }
 
 _NAN_LOG_RE = re.compile(
-    r"(?:\bnan\b|\binf\b|-inf|non[- ]?finite|FloatingPointError|gradient.*exploded|diverged|collapsed)",
+    r"(?:"
+    r"(?:^|[\s,\[{(])[A-Za-z0-9_./-]+\s*[:=]\s*[+-]?(?:nan|inf)(?=$|[\s,\]});])"
+    r"|\bFloatingPointError\b"
+    r"|\b(?:nan|inf)\s+(?:detected|encountered|loss|grad(?:ient)?s?|weights|parameters|in\s+(?:loss|grad(?:ient)?s?|generator|critic|discriminator|weights|parameters|outputs?))\b"
+    r"|\b(?:detected|encountered|found|produced|got|returned)\s+(?:a\s+)?(?:nan|inf|non[- ]?finite)\b"
+    r"|\b(?:loss|grad(?:ient)?s?|metric|score)\s+(?:is|became|was)\s+[+-]?(?:nan|inf|non[- ]?finite)\b"
+    r"|\bnon[- ]?finite\s+(?:loss|grad(?:ient)?s?|metric|tensor|values?|weights|parameters)\s+(?:detected|encountered|error|abort(?:ed|ing)?|stopping|halting|in\b)"
+    r"|(?:Error|Exception|FATAL|CRITICAL|ERROR)\s*:.*\b(?:nan|inf|non[- ]?finite)\b"
+    r"|\bgrad(?:ient)?s?\s+(?:have\s+)?exploded\b"
+    r"|\b(?:training|loss|model|generator|critic|discriminator)\s+(?:has\s+)?diverged\b"
+    r")",
     re.IGNORECASE,
 )
+
+_POSIX_ERE_SPECIAL = frozenset(r".^$*+?()[]{}\|")
+
+_SHUTDOWN_EVENT = threading.Event()
+_SHUTDOWN_SIGNAL: int | None = None
+
+
+def _interruptible_sleep(seconds: float) -> bool:
+    """Sleep up to `seconds`, waking promptly if `_SHUTDOWN_EVENT` is set.
+
+    Preserves monkeypatched `time.sleep` in unit tests while using `Event.wait` in production.
+    """
+    if _SHUTDOWN_EVENT.is_set():
+        return True
+    if seconds <= 0:
+        return False
+    if not isinstance(time.sleep, types.BuiltinFunctionType):
+        time.sleep(seconds)
+        return _SHUTDOWN_EVENT.is_set()
+    return _SHUTDOWN_EVENT.wait(seconds)
+
+
+def _pgrep_non_self_pattern(literal: str) -> str:
+    """Build a POSIX ERE pattern matching `literal` that never appears literally in its own `bash -lc` cmdline."""
+    if not literal:
+        return literal
+
+    def _esc(ch: str) -> str:
+        return "\\" + ch if ch in _POSIX_ERE_SPECIAL else ch
+
+    for idx, ch in enumerate(literal):
+        if ch not in ("\\", "]", "-", "^"):
+            prefix = "".join(_esc(c) for c in literal[:idx])
+            suffix = "".join(_esc(c) for c in literal[idx + 1 :])
+            return f"{prefix}[{ch}]{suffix}"
+    return "".join(_esc(c) for c in literal)
+
+
+def _build_detached_poll_script(
+    *,
+    remote_script: str,
+    remote_pid: str,
+    remote_rc: str,
+    remote_train_log: str,
+) -> str:
+    """Build the remote `bash -lc` poll script for detached training without self-matching `pgrep -f`."""
+    pgrep_pat = _pgrep_non_self_pattern(remote_script)
+    return textwrap.dedent(
+        f"""
+        touch /content/bench_heartbeat
+        if [ -f {shlex.quote(remote_rc)} ]; then
+          echo "DETACHED_DONE:$(cat {shlex.quote(remote_rc)} | tr -d '[:space:]')"
+        elif [ -f {shlex.quote(remote_pid)} ] && kill -0 "$(cat {shlex.quote(remote_pid)} 2>/dev/null)" 2>/dev/null; then
+          echo "DETACHED_RUNNING"
+        elif pgrep -f {shlex.quote(pgrep_pat)} >/dev/null 2>&1; then
+          echo "DETACHED_RUNNING"
+        else
+          echo "DETACHED_EXITED_NO_RC"
+        fi
+        if [ -f {shlex.quote(remote_train_log)} ]; then
+          echo -n "DETACHED_TAIL:"
+          tail -n 1 {shlex.quote(remote_train_log)} | tr '\\r' '\\n' | tail -n 1
+        fi
+        """
+    ).strip()
 
 
 _COLAB_DISCONNECT_MARKERS: tuple[str, ...] = (
@@ -261,12 +338,15 @@ def run_with_hard_timeout(
     env: dict[str, str] | None = None,
     log_file: Path | None = None,
     capture: bool = False,
+    cancel_event: threading.Event | None = None,
 ) -> tuple[int, str]:
     """Run a subprocess in its own process group with guaranteed SIGTERM -> SIGKILL timeout.
 
     Prevents hung `google-colab-cli` websocket background threads from blocking indefinitely
     and leaking idle Colab GPU compute units.
     """
+    if cancel_event is not None and cancel_event.is_set():
+        return 130, ""
     proc = subprocess.Popen(
         cmd,
         cwd=str(cwd) if cwd else None,
@@ -294,6 +374,17 @@ def run_with_hard_timeout(
             except OSError:
                 pass
 
+    def _terminate_proc(grace: float) -> None:
+        _kill_group(signal.SIGTERM)
+        try:
+            proc.wait(timeout=grace)
+        except subprocess.TimeoutExpired:
+            _kill_group(signal.SIGKILL)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+
     def _reader() -> None:
         assert proc.stdout is not None
         for line in proc.stdout:
@@ -314,26 +405,60 @@ def run_with_hard_timeout(
                 proc.stdin.close()
             except BrokenPipeError:
                 pass
-        try:
-            rc = proc.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            msg = (
-                f"[{utc_stamp()}] [timeout] Hard-killing hung command after {timeout_seconds}s: "
-                f"{' '.join(cmd[:6])}\n"
-            )
-            if capture:
-                chunks.append(msg)
-            if log_handle is not None:
-                with writer_lock:
-                    log_handle.write(msg)
-                    log_handle.flush()
-            _kill_group(signal.SIGTERM)
+        if cancel_event is None:
             try:
-                proc.wait(timeout=kill_grace)
+                rc = proc.wait(timeout=timeout_seconds)
             except subprocess.TimeoutExpired:
-                _kill_group(signal.SIGKILL)
-                proc.wait(timeout=5)
+                msg = (
+                    f"[{utc_stamp()}] [timeout] Hard-killing hung command after {timeout_seconds}s: "
+                    f"{' '.join(cmd[:6])}\n"
+                )
+                if capture:
+                    chunks.append(msg)
+                if log_handle is not None:
+                    with writer_lock:
+                        log_handle.write(msg)
+                        log_handle.flush()
+                _terminate_proc(kill_grace)
+                rc = 124
+        else:
+            deadline = time.monotonic() + float(timeout_seconds)
             rc = 124
+            while True:
+                if cancel_event.is_set():
+                    msg = (
+                        f"[{utc_stamp()}] [shutdown] Terminating command on shutdown signal: "
+                        f"{' '.join(cmd[:6])}\n"
+                    )
+                    if capture:
+                        chunks.append(msg)
+                    if log_handle is not None:
+                        with writer_lock:
+                            log_handle.write(msg)
+                            log_handle.flush()
+                    _terminate_proc(min(kill_grace, 3.0))
+                    rc = 130
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    msg = (
+                        f"[{utc_stamp()}] [timeout] Hard-killing hung command after {timeout_seconds}s: "
+                        f"{' '.join(cmd[:6])}\n"
+                    )
+                    if capture:
+                        chunks.append(msg)
+                    if log_handle is not None:
+                        with writer_lock:
+                            log_handle.write(msg)
+                            log_handle.flush()
+                    _terminate_proc(kill_grace)
+                    rc = 124
+                    break
+                try:
+                    rc = proc.wait(timeout=min(0.25, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
     finally:
         reader_thread.join(timeout=2.0)
         if log_handle is not None:
@@ -355,15 +480,17 @@ def build_watchdog_arm_script(
     done_file: str = "/content/bench_job.done",
     job_log: str = "/content/bench_job.log",
     runs_root: str = REMOTE_RUNS_ROOT,
+    logs_dir: str = "/content/logs",
 ) -> str:
     """Build the VM-side Python snippet that writes and launches detached `/content/watchdog.py`.
 
     The watchdog polls every 15 seconds and sends `POST http://$TBE_RUNTIME_ADDR/unassign` if:
     - total VM lifetime exceeds `max_seconds`,
-    - a job finished (`done_file`) and neither `done_file` nor `heartbeat_file` refreshed
-      within `idle_grace_seconds` (local controller crashed/disconnected), or
-    - active training stalled (`job_log`, `heartbeat_file`, and all `/content/runs/*/{events.jsonl,summary.json}`
-      remained unmodified for longer than `stall_seconds`).
+    - a job finished (`done_file`) and neither `done_file` nor controller-liveness `heartbeat_file`
+      refreshed within `idle_grace_seconds` (local controller crashed/disconnected), or
+    - active training/job progress stalled (`job_log`, `<logs_dir>/*.train.log`, and all
+      `<runs_root>/*/{events.jsonl,summary.json,train.log,checkpoints/*}` remained unmodified for
+      longer than `stall_seconds`, independent of controller-liveness `heartbeat_file` polling).
     """
     if max_seconds <= 0 or idle_grace_seconds <= 0 or stall_seconds <= 0:
         raise ValueError("Watchdog timeouts (max_seconds, idle_grace_seconds, stall_seconds) must be > 0")
@@ -385,6 +512,7 @@ def build_watchdog_arm_script(
             done_file = {done_file!r}
             job_log = {job_log!r}
             runs_root = {runs_root!r}
+            logs_dir = {logs_dir!r}
             def log(msg):
                 with open(logf, "a") as f:
                     f.write(f"[{{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}}] {{msg}}\\n")
@@ -397,18 +525,30 @@ def build_watchdog_arm_script(
                 except Exception as e:
                     log(f"unassign error: {{e!r}}")
                 sys.exit(0)
+            def controller_heartbeat_mtime():
+                if os.path.exists(hb_file):
+                    try:
+                        return os.path.getmtime(hb_file)
+                    except OSError:
+                        return None
+                return None
             def freshest_activity_mtime():
+                # Training/job progress only — intentionally excludes controller-liveness hb_file
+                # so detached poll heartbeats cannot mask a stalled or hung training job.
                 candidates = []
-                for p in (hb_file, job_log):
-                    if os.path.exists(p):
-                        try:
-                            candidates.append(os.path.getmtime(p))
-                        except OSError:
-                            pass
+                if os.path.exists(job_log):
+                    try:
+                        candidates.append(os.path.getmtime(job_log))
+                    except OSError:
+                        pass
                 for pattern in (
+                    os.path.join(logs_dir, "*.train.log"),
                     os.path.join(runs_root, "*", "events.jsonl"),
                     os.path.join(runs_root, "*", "summary.json"),
                     os.path.join(runs_root, "*", "train.log"),
+                    os.path.join(runs_root, "*", "checkpoints", "latest.json"),
+                    os.path.join(runs_root, "*", "checkpoints", "*"),
+                    os.path.join(runs_root, "*", "distributed-checkpoints", "*"),
                 ):
                     for p in glob.glob(pattern):
                         try:
@@ -425,20 +565,21 @@ def build_watchdog_arm_script(
                 now_wall = time.time()
                 if now_mono - t0 > max_s:
                     unassign(f"max wall-clock {{max_s}}s exceeded")
+                hb_mtime = controller_heartbeat_mtime()
                 if os.path.exists(done_file):
                     try:
                         age = now_wall - os.path.getmtime(done_file)
                     except OSError:
                         age = 0.0
-                    try:
-                        hb_age = now_wall - os.path.getmtime(hb_file) if os.path.exists(hb_file) else age
-                    except OSError:
-                        hb_age = age
+                    hb_age = (now_wall - hb_mtime) if hb_mtime is not None else age
                     if age > grace_s and hb_age > grace_s:
                         unassign(f"post-job idle grace {{grace_s}}s exceeded (local controller disconnected)")
                 latest = freshest_activity_mtime()
-                if latest is not None and (now_wall - latest) > stall_s:
-                    unassign(f"activity stall timeout {{stall_s}}s exceeded")
+                if latest is not None:
+                    if (now_wall - latest) > stall_s:
+                        unassign(f"training activity stall timeout {{stall_s}}s exceeded")
+                elif hb_mtime is not None and (now_wall - hb_mtime) > stall_s:
+                    unassign(f"controller heartbeat stall timeout {{stall_s}}s exceeded")
         ''').strip()
         with open("/content/watchdog.py", "w") as f:
             f.write(watchdog_code + "\\n")
@@ -508,31 +649,68 @@ class ActiveSessionRegistry:
                 except (OSError, json.JSONDecodeError):
                     record = {"session": session}
             if record is not None:
+                record = dict(record)
                 record["status"] = "stopped"
                 record["stopped_at"] = utc_stamp()
                 _atomic_write_json(rec_path, record)
 
-    def stop_all(self) -> None:
+    def mark_stop_failed(
+        self,
+        session: str,
+        *,
+        rc: int | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Keep a session tracked as `stop_failed` when `colab stop` fails or times out."""
+        rec_path = self._session_record_path(session)
         with self.lock:
-            items = list(self.sessions.items())
-            self.sessions.clear()
-        for session, record in items:
-            cfg = record["config_path"]
-            try:
-                run_with_hard_timeout(
-                    [self.colab_bin, "--config", str(cfg), "stop", "-s", session],
-                    timeout_seconds=30,
-                )
-            except OSError as err:
-                print(f"[colab_bench] stop_all failed for {session}: {err}", file=sys.stderr)
-            rec_path = self._session_record_path(session)
-            if rec_path is not None:
-                record["status"] = "stopped"
-                record["stopped_at"] = utc_stamp()
+            record = self.sessions.get(session)
+            if record is None and rec_path is not None and rec_path.is_file():
                 try:
-                    _atomic_write_json(rec_path, record)
-                except OSError:
-                    pass
+                    record = json.loads(rec_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    record = {"session": session}
+            if record is None:
+                record = {"session": session}
+            record = dict(record)
+            record["status"] = "stop_failed"
+            record["last_stop_attempt_at"] = utc_stamp()
+            if rc is not None:
+                record["last_stop_rc"] = rc
+            if error:
+                record["last_stop_error"] = str(error)[-300:]
+            self.sessions[session] = record
+        if rec_path is not None:
+            try:
+                _atomic_write_json(rec_path, record)
+            except OSError:
+                pass
+
+    def stop_all(self) -> list[dict[str, Any]]:
+        with self.lock:
+            items = [(sess, dict(rec)) for sess, rec in self.sessions.items()]
+        outcomes: list[dict[str, Any]] = []
+        for session, record in items:
+            cfg = record.get("config_path")
+            cmd = [self.colab_bin]
+            if cfg:
+                cmd += ["--config", str(cfg)]
+            cmd += ["stop", "-s", session]
+            rc = 1
+            err_msg: str | None = None
+            try:
+                rc, out = run_with_hard_timeout(cmd, timeout_seconds=30, capture=True)
+                if rc != 0:
+                    err_msg = out.strip()[-300:] if out else f"colab stop exited with rc={rc}"
+            except OSError as err:
+                err_msg = str(err)
+                print(f"[colab_bench] stop_all failed for {session}: {err}", file=sys.stderr)
+            if rc == 0:
+                self.unregister(session)
+            else:
+                self.mark_stop_failed(session, rc=rc, error=err_msg)
+            outcomes.append({"session": session, "config_path": cfg, "rc": rc, "error": err_msg})
+        return outcomes
 
 
 _GLOBAL_REGISTRY = ActiveSessionRegistry()
@@ -791,7 +969,7 @@ def inspect_local_run(run_dir: Path, *, target_step: int | None = None) -> dict[
         not completed
         and manifest_path.is_file()
         and has_ckpt
-        and status in ("running", "stopped", "interrupted", "initializing", "")
+        and status in ("running", "stopped", "interrupted", "initializing", "complete", "completed", "")
     )
     return {
         "exists": True,
@@ -860,6 +1038,31 @@ def _git_is_pushed(root: Path, sha: str) -> bool:
     return proc.returncode == 0 and bool(proc.stdout.strip())
 
 
+def _resolve_bundle_ref(root: Path, ref: str, sha: str) -> tuple[str, bool]:
+    """Return `(named_ref, is_temp)` suitable for `git bundle create` (which rejects raw SHAs)."""
+    if ref in ("HEAD", "@"):
+        return "HEAD", False
+    sym = subprocess.run(
+        ["git", "rev-parse", "--symbolic-full-name", ref],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    full_name = sym.stdout.strip() if sym.returncode == 0 else ""
+    if full_name.startswith("refs/"):
+        return full_name, False
+    tmp_ref = f"refs/colab-bench-tmp/{os.getpid()}-{uuid.uuid4().hex[:12]}"
+    subprocess.run(["git", "update-ref", tmp_ref, sha], cwd=root, check=True, capture_output=True)
+    return tmp_ref, True
+
+
+def _is_allowed_overlay_path(rel: str, allowed_prefixes: tuple[str, ...]) -> bool:
+    if not rel or rel.startswith("/") or ".." in Path(rel).parts:
+        return False
+    return any(rel == p or rel.startswith(p) for p in allowed_prefixes)
+
+
 def prepare_source_bundle(
     root: Path,
     out_dir: Path,
@@ -912,17 +1115,21 @@ def prepare_source_bundle(
         return {
             "mode": "tarball",
             "ref": ref,
+            "bundle_ref": None,
             "sha": None,
             "pushed": False,
             "tarball_path": str(tar_path),
             "bundle_path": None,
             "overlay_path": None,
             "dirty_file_count": 0,
+            "deleted_files": [],
+            "deleted_file_count": 0,
         }
 
     sha = _git_rev_parse(root, ref)
     pushed = _git_is_pushed(root, sha)
     bundle_path: Path | None = None
+    bundle_ref: str | None = None
     overlay_path: Path | None = None
     base_ref: str | None = None
 
@@ -936,41 +1143,78 @@ def prepare_source_bundle(
         )
         base_ref = base_proc.stdout.strip() if base_proc.returncode == 0 and base_proc.stdout.strip() else None
         bundle_path = out_dir / "branch.bundle"
-        rev_range = f"{base_ref}..{sha}" if base_ref and base_ref != sha else sha
-        subprocess.run(
-            ["git", "bundle", "create", str(bundle_path), rev_range, sha],
-            cwd=root,
-            check=True,
-            capture_output=True,
-        )
+        named_ref, is_temp_ref = _resolve_bundle_ref(root, ref, sha)
+        bundle_ref = named_ref
+        try:
+            bundle_cmd = ["git", "bundle", "create", str(bundle_path)]
+            if base_ref and base_ref != sha:
+                bundle_cmd.append(f"^{base_ref}")
+            bundle_cmd.append(named_ref)
+            subprocess.run(
+                bundle_cmd,
+                cwd=root,
+                check=True,
+                capture_output=True,
+            )
+        finally:
+            if is_temp_ref:
+                subprocess.run(
+                    ["git", "update-ref", "-d", named_ref],
+                    cwd=root,
+                    check=False,
+                    capture_output=True,
+                )
 
     dirty_files: list[str] = []
+    deleted_files: list[str] = []
     if mode != "git" and ref in ("HEAD", "@"):
-        status_out = subprocess.check_output(
-            ["git", "status", "--porcelain", "--untracked-files=all"],
+        status_raw = subprocess.check_output(
+            ["git", "status", "--porcelain", "-z", "--untracked-files=all"],
             cwd=root,
-            text=True,
         )
         allowed_prefixes = ("src/", "scripts/", "benchmarks/", "examples/", "pyproject.toml")
-        for line in status_out.splitlines():
-            if len(line) < 4:
+        tokens = status_raw.split(b"\x00")
+        idx = 0
+        while idx < len(tokens):
+            tok = tokens[idx]
+            idx += 1
+            if not tok or len(tok) < 4:
                 continue
-            rel = line[3:].strip()
-            if " -> " in rel:
-                rel = rel.split(" -> ", 1)[1]
-            if any(rel == p or rel.startswith(p) for p in allowed_prefixes):
-                full = root / rel
-                if full.is_file() and full.suffix not in (".pyc", ".pyo", ".pt"):
-                    dirty_files.append(rel)
+            entry = tok.decode("utf-8", errors="surrogateescape")
+            xy = entry[:2]
+            rel = entry[3:]
+            orig_rel: str | None = None
+            if xy[0] in ("R", "C") and idx < len(tokens):
+                orig_rel = tokens[idx].decode("utf-8", errors="surrogateescape")
+                idx += 1
+
+            if orig_rel and xy[0] == "R" and _is_allowed_overlay_path(orig_rel, allowed_prefixes):
+                if not (root / orig_rel).exists():
+                    deleted_files.append(orig_rel)
+
+            if not _is_allowed_overlay_path(rel, allowed_prefixes):
+                continue
+
+            full = root / rel
+            if ("D" in xy) and not full.exists():
+                deleted_files.append(rel)
+            elif full.is_file() and full.suffix not in (".pyc", ".pyo", ".pt"):
+                dirty_files.append(rel)
+
+        unique_dirty = sorted(set(dirty_files))
+        unique_deleted = sorted(set(deleted_files))
+        dirty_files = unique_dirty
+        deleted_files = unique_deleted
         if dirty_files:
             overlay_path = out_dir / "worktree-overlay.tar.gz"
             with tarfile.open(overlay_path, "w:gz") as tf:
-                for rel in sorted(set(dirty_files)):
+                for rel in dirty_files:
                     tf.add(root / rel, arcname=rel)
 
     return {
-        "mode": "git" if (bundle_path is None and overlay_path is None) else "bundle",
+        "mode": "git" if (bundle_path is None and overlay_path is None and not deleted_files) else "bundle",
         "ref": ref,
+        "bundle_ref": bundle_ref,
         "sha": sha,
         "base_sha": base_ref,
         "pushed": pushed,
@@ -978,6 +1222,8 @@ def prepare_source_bundle(
         "bundle_path": str(bundle_path) if bundle_path else None,
         "overlay_path": str(overlay_path) if overlay_path else None,
         "dirty_file_count": len(dirty_files),
+        "deleted_files": deleted_files,
+        "deleted_file_count": len(deleted_files),
     }
 
 
@@ -1074,7 +1320,9 @@ def unpack_run_tarball(
                 src = tf.extractfile(member)
                 if src is None:
                     continue
-                tmp_target = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+                tmp_target = target.with_name(
+                    f".{target.name}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex[:8]}.tmp"
+                )
                 try:
                     with src, tmp_target.open("wb") as dst:
                         shutil.copyfileobj(src, dst)
@@ -1149,10 +1397,29 @@ def pack_local_run_for_resume(
                 shutil.copytree(src_d, stage_root / dname, dirs_exist_ok=True)
         ckpt_dest = stage_root / "checkpoints"
         ckpt_dest.mkdir(parents=True, exist_ok=True)
-        if (local_run_dir / "checkpoints" / "latest.json").is_file():
-            shutil.copy2(local_run_dir / "checkpoints" / "latest.json", ckpt_dest / "latest.json")
-        else:
-            _atomic_write_json(ckpt_dest / "latest.json", {"checkpoint": latest_ckpt.name})
+        latest_src = local_run_dir / "checkpoints" / "latest.json"
+        wrote_latest = False
+        if latest_src.is_file():
+            try:
+                existing_ptr = json.loads(latest_src.read_text(encoding="utf-8"))
+                if isinstance(existing_ptr, dict) and isinstance(existing_ptr.get("checkpoint"), str):
+                    if existing_ptr.get("schema_version") not in (1, 2):
+                        existing_ptr = {**existing_ptr, "schema_version": 1}
+                    _atomic_write_json(ckpt_dest / "latest.json", existing_ptr)
+                    wrote_latest = True
+            except (OSError, json.JSONDecodeError):
+                pass
+        if not wrote_latest:
+            fallback_ptr: dict[str, Any] = {"schema_version": 1, "checkpoint": latest_ckpt.name}
+            ckpt_manifest_path = latest_ckpt / "manifest.json"
+            if ckpt_manifest_path.is_file():
+                try:
+                    ckpt_manifest = json.loads(ckpt_manifest_path.read_text(encoding="utf-8"))
+                    if isinstance(ckpt_manifest, dict) and isinstance(ckpt_manifest.get("step"), int):
+                        fallback_ptr["step"] = ckpt_manifest["step"]
+                except (OSError, json.JSONDecodeError):
+                    pass
+            _atomic_write_json(ckpt_dest / "latest.json", fallback_ptr)
         shutil.copytree(latest_ckpt, ckpt_dest / latest_ckpt.name, dirs_exist_ok=True)
 
         relocate_manifest_paths(stage_root, old_prefix=str(local_run_dir), new_prefix=remote_run_dir)
@@ -1250,8 +1517,35 @@ def register_local_run(run_dir: Path) -> bool:
         return False
 
 
+_SESSION_HEADER_FIRST_COL = frozenset(
+    {"session", "sessions", "name", "session_name", "session id", "session_id", "id", "runtime", "vm", "worker"}
+)
+_SESSION_HEADER_OTHER_COL = frozenset(
+    {
+        "hardware",
+        "gpu",
+        "accelerator",
+        "status",
+        "state",
+        "created",
+        "started",
+        "endpoint",
+        "type",
+        "uptime",
+        "runtime",
+        "idle",
+        "backend",
+        "tier",
+        "machine",
+        "name",
+        "id",
+    }
+)
+_TABLE_BORDER_RE = re.compile(r"^[\s─━═╭╰╮╯├┤┬┴┼│┌┐└┘\-+=|:*]+$")
+
+
 def parse_colab_sessions_output(output: str) -> list[str]:
-    """Parse active session names from `colab sessions` stdout."""
+    """Parse active session names from `colab sessions` stdout, skipping table headers and borders."""
     sessions: list[str] = []
     seen: set[str] = set()
     for line in output.splitlines():
@@ -1260,19 +1554,35 @@ def parse_colab_sessions_output(output: str) -> list[str]:
             not token
             or token.startswith("[colab]")
             or token.lower().startswith("no active sessions")
-            or token.startswith("─")
-            or token.startswith("╭")
-            or token.startswith("╰")
+            or _TABLE_BORDER_RE.match(token)
         ):
             continue
-        if "|" in token:
-            left = token.split("|", 1)[0].strip()
-            parts = left.split()
-            if parts:
-                name = parts[-1].strip()
-                if name and name not in seen and re.fullmatch(r"[A-Za-z0-9._-]+", name):
-                    seen.add(name)
-                    sessions.append(name)
+        if "|" not in token and "│" not in token:
+            continue
+        stripped = token.strip("|│ ")
+        cols = [col.strip() for col in re.split(r"[|│]", stripped)]
+        if len(cols) < 2 or not cols[0]:
+            continue
+        first_col = cols[0]
+        other_cols = [c.lower() for c in cols[1:] if c]
+        parts = first_col.split()
+        if not parts:
+            continue
+        name = parts[-1].strip()
+        # Skip table header rows like `Session | Hardware | Status` or `Name | GPU`.
+        if (first_col.lower() in _SESSION_HEADER_FIRST_COL or name.lower() in _SESSION_HEADER_FIRST_COL) and (
+            any(c in _SESSION_HEADER_OTHER_COL for c in other_cols)
+            or (other_cols and all(":" not in c for c in other_cols) and first_col.lower() in {"session", "sessions", "name"})
+        ):
+            continue
+        if (
+            name
+            and name not in seen
+            and any(ch.isalnum() for ch in name)
+            and re.fullmatch(r"[A-Za-z0-9._-]+", name)
+        ):
+            seen.add(name)
+            sessions.append(name)
     return sessions
 
 
@@ -1339,6 +1649,7 @@ class ColabBenchWorker:
         self.actual_cuda_model: str | None = None
         self._prepared_datasets: set[str] = set()
         self._ssh_lock = threading.Lock()
+        self._unpack_lock = threading.Lock()
 
     def _log(self, msg: str) -> None:
         line = f"[{utc_stamp()}] [{self.worker_name}] {msg}\n"
@@ -1354,13 +1665,16 @@ class ColabBenchWorker:
         timeout: float,
         stdin_text: str | None = None,
         capture: bool = False,
+        allow_shutdown_cancel: bool = True,
     ) -> tuple[int, str]:
+        cancel_ev = _SHUTDOWN_EVENT if (allow_shutdown_cancel and (not args or args[0] != "stop")) else None
         return run_with_hard_timeout(
             [self.colab_bin, "--config", str(self.cfg), *args],
             timeout_seconds=timeout,
             stdin_text=stdin_text,
             log_file=self.log,
             capture=capture,
+            cancel_event=cancel_ev,
         )
 
     def _upload_file(
@@ -1399,6 +1713,8 @@ class ColabBenchWorker:
             tmp_root = Path(tmp_dir)
             with src.open("rb") as fh:
                 for idx in range(num_parts):
+                    if _SHUTDOWN_EVENT.is_set():
+                        return 130, "Shutdown requested during chunked upload"
                     data = fh.read(limit)
                     if not data:
                         break
@@ -1409,6 +1725,8 @@ class ColabBenchWorker:
 
                     last_rc, last_out = 1, ""
                     for attempt in range(1, 3):
+                        if _SHUTDOWN_EVENT.is_set():
+                            return 130, "Shutdown requested during chunked upload"
                         last_rc, last_out = self._colab(
                             ["upload", "-s", self.worker_name, str(local_part), remote_part],
                             timeout=per_part_timeout,
@@ -1420,7 +1738,8 @@ class ColabBenchWorker:
                             self._log(
                                 f"Chunk upload part {idx + 1}/{num_parts} failed (rc={last_rc}); retrying in 5s..."
                             )
-                            time.sleep(5)
+                            if _interruptible_sleep(5):
+                                return 130, "Shutdown requested during chunked upload"
                     if last_rc != 0:
                         return last_rc, last_out
                     local_part.unlink(missing_ok=True)
@@ -1455,16 +1774,22 @@ class ColabBenchWorker:
         }
 
     def start(self) -> None:
+        if _SHUTDOWN_EVENT.is_set():
+            raise RuntimeError(f"Shutdown requested before provisioning {self.worker_name}; aborting.")
         gpu_candidates = [self.requested_gpu, *self.fallback_gpus]
 
         last_rc = 1
         last_out = ""
         for idx_g, candidate_gpu in enumerate(gpu_candidates):
+            if _SHUTDOWN_EVENT.is_set():
+                raise RuntimeError(f"Shutdown requested during provisioning of {self.worker_name}; aborting.")
             spec = COLAB_GPU_SPECS[candidate_gpu]
             cmd = ["new", "-s", self.worker_name]
             if spec["colab_flag"]:
                 cmd += ["--gpu", spec["colab_flag"]]
             for boot_attempt in range(1, self.boot_retries + 1):
+                if _SHUTDOWN_EVENT.is_set():
+                    raise RuntimeError(f"Shutdown requested during provisioning of {self.worker_name}; aborting.")
                 self._log(
                     f"Provisioning Colab {candidate_gpu} VM (attempt {boot_attempt}/{self.boot_retries}, "
                     f"boot timeout {self.boot_timeout}s)..."
@@ -1475,13 +1800,16 @@ class ColabBenchWorker:
                     self.started_mono = time.monotonic()
                     break
                 # Best-effort stop in case Colab allocated the backend right as `colab new` timed out.
-                self._colab(["stop", "-s", self.worker_name], timeout=30)
+                self._colab(["stop", "-s", self.worker_name], timeout=30, allow_shutdown_cancel=False)
+                if _SHUTDOWN_EVENT.is_set():
+                    raise RuntimeError(f"Shutdown requested during provisioning of {self.worker_name}; aborting.")
                 if boot_attempt < self.boot_retries:
                     self._log(
                         f"colab new ({candidate_gpu}) attempt {boot_attempt}/{self.boot_retries} failed (rc={last_rc}); "
                         "waiting 20s before retry..."
                     )
-                    time.sleep(20)
+                    if _interruptible_sleep(20):
+                        raise RuntimeError(f"Shutdown requested during boot backoff for {self.worker_name}; aborting.")
             if last_rc == 0:
                 break
             if idx_g + 1 < len(gpu_candidates):
@@ -1493,7 +1821,12 @@ class ColabBenchWorker:
 
         self.alive = True
         self.registry.register(self.worker_name, self.cfg, gpu=self.gpu, batch_dir=self.batch_dir)
-        time.sleep(5)  # Websocket warmup guard
+        if _SHUTDOWN_EVENT.is_set():
+            self.stop()
+            raise RuntimeError(f"Shutdown requested right after provisioning {self.worker_name}; VM released.")
+        if _interruptible_sleep(5):  # Websocket warmup guard
+            self.stop()
+            raise RuntimeError(f"Shutdown requested during warmup of {self.worker_name}; VM released.")
 
         # Layer 2 teardown: arm VM-side detached watchdog with 5 retries.
         watchdog_script = build_watchdog_arm_script(
@@ -1503,6 +1836,9 @@ class ColabBenchWorker:
         )
         armed = False
         for attempt in range(1, 6):
+            if _SHUTDOWN_EVENT.is_set():
+                self.stop()
+                raise RuntimeError(f"Shutdown requested while arming watchdog on {self.worker_name}; VM released.")
             rc, _ = self._colab(
                 [
                     "exec",
@@ -1524,7 +1860,8 @@ class ColabBenchWorker:
                 armed = True
                 break
             self._log(f"Watchdog arm attempt {attempt}/5 failed (rc={rc}); retrying in 5s...")
-            time.sleep(5)
+            if _interruptible_sleep(5):
+                break
         if not armed:
             self.stop()
             raise RuntimeError(f"Failed to arm VM watchdog on {self.worker_name}; VM terminated for safety.")
@@ -1563,6 +1900,16 @@ class ColabBenchWorker:
     def _bootstrap_vm(self) -> None:
         sha = self.source_sync.get("sha") or ""
         base_sha = self.source_sync.get("base_sha") or ""
+        bundle_ref = self.source_sync.get("bundle_ref") or "HEAD"
+        deleted_files = [
+            rel
+            for rel in (self.source_sync.get("deleted_files") or [])
+            if isinstance(rel, str) and rel and not rel.startswith("/") and ".." not in Path(rel).parts
+        ]
+        delete_sh = ""
+        if deleted_files:
+            quoted_del = " ".join(shlex.quote(rel) for rel in deleted_files)
+            delete_sh = f"rm -f -- {quoted_del}"
         mode = self.source_sync.get("mode", "git")
         pkgs = [
             self.particlegan_spec,
@@ -1596,7 +1943,7 @@ class ColabBenchWorker:
                   if [ -n "{base_sha}" ] && ! git cat-file -e "{base_sha}^{{commit}}" 2>/dev/null; then
                     git fetch --depth 1 origin {base_sha} || true
                   fi
-                  git fetch /content/branch.bundle {sha}:refs/heads/colab-branch || git fetch /content/branch.bundle HEAD:refs/heads/colab-branch
+                  git fetch /content/branch.bundle {shlex.quote(bundle_ref)}:refs/heads/colab-branch || git fetch /content/branch.bundle HEAD:refs/heads/colab-branch
                   git checkout {sha}
                 else
                   git fetch --depth 1 origin {sha}
@@ -1606,6 +1953,7 @@ class ColabBenchWorker:
               if [ -f /content/worktree-overlay.tar.gz ]; then
                 tar -xzf /content/worktree-overlay.tar.gz -C {REMOTE_REPO_DIR}
               fi
+              {delete_sh}
             fi
             if command -v uv >/dev/null 2>&1; then
               INSTALLER="uv pip install --system"
@@ -1637,7 +1985,8 @@ class ColabBenchWorker:
             touch /content/bench_heartbeat
             """
         ).strip()
-        rc, out = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", bootstrap_sh], timeout=420, capture=True)
+        with self._ssh_lock:
+            rc, out = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", bootstrap_sh], timeout=420, capture=True)
         for line in out.splitlines():
             if line.startswith("COLAB_GPU_INFO:"):
                 self.actual_cuda_model = line.split(":", 1)[1].split(",", 1)[0].strip()
@@ -1654,15 +2003,18 @@ class ColabBenchWorker:
                 f"""
                 set -euo pipefail
                 touch /content/bench_heartbeat
+                echo "[vm] PREP_DATASET cifar10 start" >> /content/bench_job.log
                 if [ ! -f ~/.hypergan/cache/cifar10/dataset-manifest.json ]; then
                   hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10 \
                     --url {shlex.quote(DEFAULT_CIFAR10_FAST_MIRROR)} --timeout 45 \
                   || hypergan download-data cifar10 --output ~/.hypergan/cache/cifar10 --timeout 60
                 fi
+                echo "[vm] PREP_DATASET cifar10 done" >> /content/bench_job.log
                 touch /content/bench_heartbeat
                 """
             ).strip()
-            rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=240)
+            with self._ssh_lock:
+                rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=240)
             if rc != 0:
                 raise RuntimeError(f"CIFAR-10 dataset prep failed on {self.worker_name} (rc={rc})")
             self._prepared_datasets.add("cifar10")
@@ -1674,13 +2026,16 @@ class ColabBenchWorker:
                 set -euo pipefail
                 cd {REMOTE_REPO_DIR}
                 touch /content/bench_heartbeat
+                echo "[vm] PREP_DATASET {dataset} start" >> /content/bench_job.log
                 if [ ! -f ~/.hypergan/cache/datasets/{dataset}/dataset-manifest.json ]; then
-                  python3 scripts/prepare_benchmark_dataset.py --dataset {shlex.quote(dataset)}
+                  python3 scripts/prepare_benchmark_dataset.py --dataset {shlex.quote(dataset)} 2>&1 | tee -a /content/bench_job.log
                 fi
+                echo "[vm] PREP_DATASET {dataset} done" >> /content/bench_job.log
                 touch /content/bench_heartbeat
                 """
             ).strip()
-            rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=900)
+            with self._ssh_lock:
+                rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=900)
             if rc != 0:
                 raise RuntimeError(f"{dataset} dataset prep failed on {self.worker_name} (rc={rc})")
             self._prepared_datasets.add(dataset)
@@ -1697,9 +2052,11 @@ class ColabBenchWorker:
                 extract_sh = (
                     f"set -euo pipefail; mkdir -p {shlex.quote(target_dir)}; "
                     f"tar -xzf {shlex.quote(remote_tar)} -C {shlex.quote(target_dir)}; "
-                    f"rm -f {shlex.quote(remote_tar)}; touch /content/bench_heartbeat"
+                    f"rm -f {shlex.quote(remote_tar)}; echo '[vm] PREP_DATASET tarball done' >> /content/bench_job.log; "
+                    f"touch /content/bench_heartbeat"
                 )
-                rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", extract_sh], timeout=300)
+                with self._ssh_lock:
+                    rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", extract_sh], timeout=300)
                 if rc != 0:
                     raise RuntimeError(f"Dataset tarball extraction failed (rc={rc})")
                 self._prepared_datasets.add(key)
@@ -1714,14 +2071,17 @@ class ColabBenchWorker:
                     set -euo pipefail
                     cd {REMOTE_REPO_DIR}
                     touch /content/bench_heartbeat
+                    echo "[vm] PREP_DATASET custom:{cmd_hash} start" >> /content/bench_job.log
                     if [ ! -f /content/.dataset_ready_{cmd_hash} ]; then
                       {job.dataset_prep_cmd}
                       touch /content/.dataset_ready_{cmd_hash}
                     fi
+                    echo "[vm] PREP_DATASET custom:{cmd_hash} done" >> /content/bench_job.log
                     touch /content/bench_heartbeat
                     """
                 ).strip()
-                rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=600)
+                with self._ssh_lock:
+                    rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_sh], timeout=600)
                 if rc != 0:
                     raise RuntimeError(f"Custom dataset_prep_cmd failed on {self.worker_name} (rc={rc})")
                 self._prepared_datasets.add(key)
@@ -1736,7 +2096,8 @@ class ColabBenchWorker:
             rel = resolved.relative_to(self.repo_root)
             remote_path = f"{REMOTE_REPO_DIR}/{rel.as_posix()}"
             mkdir_cmd = f"mkdir -p {shlex.quote(str(Path(remote_path).parent))}"
-            self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", mkdir_cmd], timeout=45)
+            with self._ssh_lock:
+                self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", mkdir_cmd], timeout=45)
         except ValueError:
             remote_path = f"{REMOTE_CONFIGS_ROOT}/{job.run_name}.toml"
         rc, _ = self._colab(["upload", "-s", self.worker_name, str(resolved), remote_path], timeout=60)
@@ -1850,7 +2211,8 @@ class ColabBenchWorker:
             dl_rc, _ = self._colab(["download", "-s", self.worker_name, tar_remote, str(tar_local)], timeout=300)
         if dl_rc != 0 or not tar_local.is_file():
             return (dl_rc or 1), None
-        unpack_info = unpack_run_tarball(tar_local, local_run_dir, remote_run_dir=remote_run_dir)
+        with self._unpack_lock:
+            unpack_info = unpack_run_tarball(tar_local, local_run_dir, remote_run_dir=remote_run_dir)
         return 0, unpack_info
 
     def _run_chunk_detached(
@@ -1941,24 +2303,12 @@ class ColabBenchWorker:
             f"(poll={job.poll_seconds:.0f}s, sync_interval={job.sync_interval_minutes:.1f}m)."
         )
 
-        poll_sh = textwrap.dedent(
-            f"""
-            touch /content/bench_heartbeat
-            if [ -f {shlex.quote(remote_rc)} ]; then
-              echo "DETACHED_DONE:$(cat {shlex.quote(remote_rc)} | tr -d '[:space:]')"
-            elif [ -f {shlex.quote(remote_pid)} ] && kill -0 "$(cat {shlex.quote(remote_pid)} 2>/dev/null)" 2>/dev/null; then
-              echo "DETACHED_RUNNING"
-            elif pgrep -f {shlex.quote(remote_script)} >/dev/null 2>&1; then
-              echo "DETACHED_RUNNING"
-            else
-              echo "DETACHED_EXITED_NO_RC"
-            fi
-            if [ -f {shlex.quote(remote_train_log)} ]; then
-              echo -n "DETACHED_TAIL:"
-              tail -n 1 {shlex.quote(remote_train_log)} | tr '\\r' '\\n' | tail -n 1
-            fi
-            """
-        ).strip()
+        poll_sh = _build_detached_poll_script(
+            remote_script=remote_script,
+            remote_pid=remote_pid,
+            remote_rc=remote_rc,
+            remote_train_log=remote_train_log,
+        )
 
         poll_interval = max(5.0, float(job.poll_seconds))
         sync_interval_s = max(60.0, float(job.sync_interval_minutes) * 60.0) if job.sync_interval_minutes > 0 else 0.0
@@ -1970,7 +2320,8 @@ class ColabBenchWorker:
         last_periodic_unpack: dict[str, Any] | None = None
 
         while True:
-            time.sleep(poll_interval)
+            if _interruptible_sleep(poll_interval):
+                return 130, "Shutdown requested during detached poll", False, last_periodic_unpack
             elapsed = time.monotonic() - chunk_t0
             if elapsed > ssh_timeout:
                 self._log(f"Detached chunk {chunk_index} for {job.run_name} exceeded timeout ({ssh_timeout}s).")
@@ -1983,6 +2334,9 @@ class ColabBenchWorker:
                     capture=True,
                 )
 
+            if _SHUTDOWN_EVENT.is_set():
+                return 130, "Shutdown requested during detached poll", False, last_periodic_unpack
+
             if poll_rc != 0:
                 consecutive_failures += 1
                 self._log(
@@ -1991,7 +2345,8 @@ class ColabBenchWorker:
                 )
                 if consecutive_failures >= max_consecutive_failures:
                     return (poll_rc or 255), poll_out, True, last_periodic_unpack
-                time.sleep(min(20.0, poll_interval))
+                if _interruptible_sleep(min(20.0, poll_interval)):
+                    return 130, "Shutdown requested during detached poll", False, last_periodic_unpack
                 continue
 
             tail_line = ""
@@ -2083,6 +2438,9 @@ class ColabBenchWorker:
 
         target_step = job.target_step()
         local_state = inspect_local_run(local_run_dir, target_step=target_step)
+        stored_total_steps: int | None = local_state.get("total_steps")
+        if target_step is None and stored_total_steps is not None:
+            target_step = int(stored_total_steps)
         is_resume = bool(not force and not no_resume and local_state["resumable"])
         current_step = int(local_state["step"]) if is_resume else 0
 
@@ -2100,12 +2458,14 @@ class ColabBenchWorker:
                 f"tar -xzf {shlex.quote(remote_resume_tar)} -C {shlex.quote(remote_run_dir)}; "
                 f"rm -f {shlex.quote(remote_resume_tar)}; touch /content/bench_heartbeat"
             )
-            rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", unpack_cmd], timeout=180)
+            with self._ssh_lock:
+                rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", unpack_cmd], timeout=180)
             if rc != 0:
                 raise RuntimeError(f"Resume tarball extraction failed on VM for {job.run_name} (rc={rc})")
         else:
             prep_cmd = f"rm -rf {shlex.quote(remote_run_dir)} && mkdir -p {shlex.quote(REMOTE_RUNS_ROOT)} /content/logs"
-            self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_cmd], timeout=60)
+            with self._ssh_lock:
+                self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", prep_cmd], timeout=60)
 
         # `hypergan train -d` maps directly to CUDA_VISIBLE_DEVICES, so single-GPU MUST be "0" (not "cuda").
         device_arg = "cpu" if self.gpu == "cpu" else "0"
@@ -2114,8 +2474,13 @@ class ColabBenchWorker:
         last_rc = 0
         last_unpack: dict[str, Any] | None = None
         disconnected = False
+        chunk_error: str | None = None
 
         while True:
+            if _SHUTDOWN_EVENT.is_set():
+                last_rc = 130
+                break
+            prev_step = current_step
             remaining_steps = None
             if target_step is not None:
                 remaining_steps = target_step - current_step
@@ -2129,6 +2494,12 @@ class ColabBenchWorker:
 
             if is_resume or chunks_completed > 0:
                 hg_cmd = ["hypergan", "resume", remote_run_dir, "-d", device_arg, "--no-server"]
+                desired_steps = job.steps if job.steps is not None else target_step
+                if desired_steps is not None and (
+                    (stored_total_steps is not None and desired_steps > stored_total_steps)
+                    or (stored_total_steps is None and job.steps is not None)
+                ):
+                    hg_cmd += ["--steps", str(desired_steps)]
             else:
                 hg_cmd = [
                     "hypergan",
@@ -2190,7 +2561,7 @@ class ColabBenchWorker:
                 )
                 if periodic_unpack is not None:
                     last_unpack = periodic_unpack
-                if chunk_disconnected:
+                if chunk_disconnected and not _SHUTDOWN_EVENT.is_set():
                     disconnected = True
             else:
                 run_sh = textwrap.dedent(
@@ -2212,48 +2583,28 @@ class ColabBenchWorker:
                     """
                 ).strip()
 
-                # Optional background periodic checkpoint sync thread while continuous training runs.
-                stop_sync = threading.Event()
-                sync_thread: threading.Thread | None = None
+                # Foreground SSH holds Colab's single active SSH session; concurrent background SSH polls
+                # would trigger HTTP 429 ("Already-active SSH session") and race final local unpacking.
                 if job.sync_interval_minutes > 0 and job.chunk_steps == 0:
-                    interval_s = max(60.0, job.sync_interval_minutes * 60.0)
+                    self._log(
+                        f"Skipping concurrent periodic SSH sync for {job.run_name} in foreground mode "
+                        "(foreground SSH holds Colab's single SSH session); use --detached or --chunk-steps for mid-run sync."
+                    )
 
-                    def _periodic_sync_loop() -> None:
-                        sync_idx = 0
-                        while not stop_sync.wait(interval_s):
-                            sync_idx += 1
-                            self._log(f"Periodic checkpoint sync #{sync_idx} for {job.run_name}...")
-                            try:
-                                self._pack_and_pull_remote_run(
-                                    run_name=job.run_name,
-                                    remote_run_dir=remote_run_dir,
-                                    local_run_dir=local_run_dir,
-                                    pull_checkpoints="latest",
-                                    export_bundle=False,
-                                    tag=f"sync{sync_idx}",
-                                )
-                            except Exception as exc:
-                                self._log(f"Periodic sync #{sync_idx} warning: {exc}")
-
-                    sync_thread = threading.Thread(target=_periodic_sync_loop, daemon=True)
-                    sync_thread.start()
-
-                try:
+                with self._ssh_lock:
                     rc, ssh_out = self._colab(
                         ["ssh", "-s", self.worker_name, "--", "bash", "-lc", run_sh],
                         timeout=ssh_timeout,
                         capture=True,
                     )
-                finally:
-                    stop_sync.set()
-                    if sync_thread is not None:
-                        sync_thread.join(timeout=5.0)
 
                 # Detect Colab connection loss / SSH drop / HTTP 429 / timeout so orchestrator recycles VM & resumes.
-                if _is_colab_disconnect(rc, ssh_out):
+                if not _SHUTDOWN_EVENT.is_set() and _is_colab_disconnect(rc, ssh_out):
                     disconnected = True
 
             last_rc = rc
+            if _SHUTDOWN_EVENT.is_set():
+                break
             chunks_completed += 1
 
             # Pull back run artifacts when reachable; skip dead-tunnel pulls when the VM/SSH session is already gone.
@@ -2282,11 +2633,25 @@ class ColabBenchWorker:
                 break
 
             refreshed = inspect_local_run(local_run_dir, target_step=target_step)
-            current_step = int(refreshed["step"])
+            if refreshed.get("total_steps") is not None:
+                stored_total_steps = int(refreshed["total_steps"])
+                if target_step is None:
+                    target_step = stored_total_steps
+                    refreshed = inspect_local_run(local_run_dir, target_step=target_step)
+            new_step = int(refreshed["step"])
+            current_step = new_step
 
             if rc != 0:
                 break
             if refreshed["completed"] or target_step is None or current_step >= target_step or job.chunk_steps <= 0:
+                break
+            if new_step <= prev_step:
+                chunk_error = (
+                    f"Training chunk {chunks_completed} for {job.run_name} made no step progress "
+                    f"(step remained at {new_step}, target_step={target_step}); aborting chunk loop."
+                )
+                self._log(f"ERROR: {chunk_error}")
+                last_rc = 1
                 break
             is_resume = True
 
@@ -2303,7 +2668,7 @@ class ColabBenchWorker:
             f"(rc={last_rc}, step={telemetry['step']}, status={telemetry['status']}, "
             f"best_fid={telemetry['best_fid']}, nan={telemetry['nan_detected']})"
         )
-        return {
+        result_doc: dict[str, Any] = {
             "run_name": job.run_name,
             "config": job.config,
             "requested_gpu": self.requested_gpu,
@@ -2317,6 +2682,9 @@ class ColabBenchWorker:
             "unpack": last_unpack,
             "telemetry": telemetry,
         }
+        if chunk_error is not None:
+            result_doc["error"] = chunk_error
+        return result_doc
 
     def run_bundle_evaluations(
         self,
@@ -2352,11 +2720,23 @@ class ColabBenchWorker:
         self.prepare_dataset(prep_job)
 
         remote_manifest_items: list[dict[str, Any]] = []
+        used_bundle_ids: set[str] = set()
         for idx, item in enumerate(bundles):
             local_bundle = Path(item["bundle_path"]).resolve()
             if not local_bundle.is_file():
                 raise FileNotFoundError(f"EMA bundle not found: {local_bundle}")
-            bundle_id = sanitize_name(item.get("name") or local_bundle.parent.name or f"bundle-{idx}")
+            base_id = sanitize_name(item.get("name") or local_bundle.parent.name or f"bundle-{idx}")
+            bundle_id = base_id
+            if bundle_id in used_bundle_ids:
+                short_hash = hashlib.sha256(str(local_bundle).encode("utf-8")).hexdigest()[:6]
+                suffix = f"-{idx}-{short_hash}"
+                bundle_id = sanitize_name(f"{base_id[: max(1, 80 - len(suffix))]}{suffix}")
+                counter = 1
+                while bundle_id in used_bundle_ids:
+                    extra = f"-{idx}-{short_hash}-{counter}"
+                    bundle_id = sanitize_name(f"{base_id[: max(1, 80 - len(extra))]}{extra}")
+                    counter += 1
+            used_bundle_ids.add(bundle_id)
             remote_bundle = f"{REMOTE_EVAL_ROOT}/{bundle_id}.pt"
             self._log(f"Uploading EMA bundle {local_bundle} -> {remote_bundle}...")
             rc, _ = self._upload_file(local_bundle, remote_bundle, timeout=300)
@@ -2662,7 +3042,8 @@ class ColabBenchWorker:
 
         t0 = time.monotonic()
         timeout_s = max(900, self.max_seconds)
-        rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", eval_sh], timeout=timeout_s)
+        with self._ssh_lock:
+            rc, _ = self._colab(["ssh", "-s", self.worker_name, "--", "bash", "-lc", eval_sh], timeout=timeout_s)
         elapsed = time.monotonic() - t0
 
         local_tar = self.batch_dir / "eval-receipts.tar.gz"
@@ -2715,21 +3096,37 @@ class ColabBenchWorker:
             "imported": imported,
         }
 
-    def stop(self) -> None:
+    def stop(self) -> bool:
         if not self.alive:
             if self.started_mono is not None and self.stopped_mono is None:
                 self.stopped_mono = time.monotonic()
-            return
-        self.alive = False
-        self.registry.unregister(self.worker_name)
+            return True
         self._log(f"Stopping Colab VM {self.worker_name}...")
-        self._colab(["stop", "-s", self.worker_name], timeout=30)
-        self.stopped_mono = time.monotonic()
-        cost = self.cost_summary()
+        rc = 1
+        out = ""
+        err_msg: str | None = None
+        try:
+            rc, out = self._colab(["stop", "-s", self.worker_name], timeout=30, capture=True, allow_shutdown_cancel=False)
+            if rc != 0:
+                err_msg = out.strip()[-300:] if out else f"colab stop exited with rc={rc}"
+        except OSError as err:
+            err_msg = str(err)
+        if rc == 0:
+            self.alive = False
+            self.registry.unregister(self.worker_name)
+            self.stopped_mono = time.monotonic()
+            cost = self.cost_summary()
+            self._log(
+                f"Session released (wall={cost['wall_seconds']}s, "
+                f"gpu_hours={cost['gpu_hours']}, est_cu={cost['estimated_cu']})."
+            )
+            return True
+        self.registry.mark_stop_failed(self.worker_name, rc=rc, error=err_msg)
         self._log(
-            f"Session released (wall={cost['wall_seconds']}s, "
-            f"gpu_hours={cost['gpu_hours']}, est_cu={cost['estimated_cu']})."
+            f"WARNING: Failed to stop Colab VM {self.worker_name} (rc={rc}: {err_msg}); "
+            f"keeping session tracked as stop_failed (config={self.cfg}) for cleanup."
         )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -2872,12 +3269,15 @@ def execute_benchmark_jobs(
     worker_errors: list[dict[str, Any]] = []
 
     def _run_worker_slot(slot_idx: int, base_name: str, gpu: str) -> None:
+        if _SHUTDOWN_EVENT.is_set():
+            return
         if slot_idx > 0 and stagger_seconds > 0:
-            time.sleep(slot_idx * stagger_seconds)
+            if _interruptible_sleep(slot_idx * stagger_seconds):
+                return
         q = queues[gpu]
         reincarnation = 0
         while True:
-            if q.empty():
+            if _SHUTDOWN_EVENT.is_set() or q.empty():
                 break
             worker_name = base_name if reincarnation == 0 else f"{base_name}-r{reincarnation}"
             worker = ColabBenchWorker(
@@ -2904,20 +3304,25 @@ def execute_benchmark_jobs(
             )
             need_reprovision = False
             try:
+                if _SHUTDOWN_EVENT.is_set():
+                    break
                 try:
                     worker.start()
                 except (RuntimeError, OSError, ValueError) as exc:
-                    with results_lock:
-                        worker_errors.append({"worker": worker_name, "gpu": gpu, "stage": "start", "error": str(exc)})
-                    worker._log(f"Worker startup failed: {exc}")
+                    if not _SHUTDOWN_EVENT.is_set():
+                        with results_lock:
+                            worker_errors.append({"worker": worker_name, "gpu": gpu, "stage": "start", "error": str(exc)})
+                        worker._log(f"Worker startup failed: {exc}")
                     break
 
-                while True:
+                while not _SHUTDOWN_EVENT.is_set():
                     try:
                         job, attempt_num = q.get_nowait()
                     except stdlib_queue.Empty:
                         break
                     try:
+                        if _SHUTDOWN_EVENT.is_set():
+                            break
                         res = worker.run_training_job(
                             job,
                             local_run_dir=runs_dir / job.run_name,
@@ -2926,6 +3331,8 @@ def execute_benchmark_jobs(
                             no_resume=no_resume,
                             register_run_local=register_runs,
                         )
+                        if _SHUTDOWN_EVENT.is_set():
+                            break
                         res["attempt"] = attempt_num + 1
                         if res["disconnected"] and res.get("run_rc", 0) != 0 and attempt_num < job.max_retries:
                             worker._log(
@@ -2938,6 +3345,8 @@ def execute_benchmark_jobs(
                         with results_lock:
                             results.append(res)
                     except (RuntimeError, OSError, ValueError, tarfile.TarError, json.JSONDecodeError) as exc:
+                        if _SHUTDOWN_EVENT.is_set():
+                            break
                         with results_lock:
                             worker_errors.append(
                                 {"worker": worker_name, "gpu": gpu, "stage": f"job:{job.run_name}", "error": str(exc)}
@@ -2966,20 +3375,32 @@ def execute_benchmark_jobs(
                 with results_lock:
                     worker_costs.append(worker.cost_summary())
 
-            if not need_reprovision:
+            if _SHUTDOWN_EVENT.is_set() or not need_reprovision:
                 break
             reincarnation += 1
             max_reincarnations = max(6, max((j.max_retries for j in pending), default=3) * 2)
             if reincarnation > max_reincarnations:
                 break
-            time.sleep(min(20.0, max(5.0, stagger_seconds)))
+            if _interruptible_sleep(min(20.0, max(5.0, stagger_seconds))):
+                break
 
-    with ThreadPoolExecutor(max_workers=len(worker_plan)) as pool:
+    pool = ThreadPoolExecutor(max_workers=len(worker_plan))
+    futs: list[Any] = []
+    try:
         futs = [pool.submit(_run_worker_slot, i, wname, gpu) for i, (wname, gpu) in enumerate(worker_plan)]
         for fut in as_completed(futs):
             fut.result()
+    except BaseException:
+        _SHUTDOWN_EVENT.set()
+        for fut in futs:
+            fut.cancel()
+        raise
+    finally:
+        pool.shutdown(wait=True, cancel_futures=_SHUTDOWN_EVENT.is_set())
+        if _SHUTDOWN_EVENT.is_set():
+            _GLOBAL_REGISTRY.stop_all()
 
-    if not results and worker_errors:
+    if not results and worker_errors and not _SHUTDOWN_EVENT.is_set():
         raise RuntimeError(f"All Colab workers failed to start/run: {worker_errors[:3]}")
 
     total_wall = sum(c["wall_seconds"] for c in worker_costs)
@@ -2987,10 +3408,17 @@ def execute_benchmark_jobs(
     total_cu = round(sum(c["estimated_cu"] for c in worker_costs), 4)
     all_ok = all(r.get("run_rc") == 0 for r in results) and len(results) == len(pending)
 
+    if _SHUTDOWN_EVENT.is_set():
+        batch_status = "interrupted"
+    elif all_ok:
+        batch_status = "complete"
+    else:
+        batch_status = "partial_or_failed"
+
     summary = {
         "schema_version": 1,
         "completed_at": utc_stamp(),
-        "status": "complete" if all_ok else "partial_or_failed",
+        "status": batch_status,
         "batch_dir": str(batch_dir),
         "runs_dir": str(runs_dir),
         "source_sync": source_sync,
@@ -3197,6 +3625,8 @@ def execute_eval_bundles(
         safetensors_spec=safetensors_spec,
     )
     try:
+        if _SHUTDOWN_EVENT.is_set():
+            raise RuntimeError("Shutdown requested before starting evaluation worker.")
         worker.start()
         eval_res = worker.run_bundle_evaluations(
             bundles=bundles,
@@ -3341,6 +3771,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     active_server = parse_colab_sessions_output(out_sess)
     active_tracked = [r for r in tracked if r.get("status") == "active"]
+    stop_failed_tracked = [r for r in tracked if r.get("status") == "stop_failed"]
 
     payload = {
         "state_dir": str(state_dir),
@@ -3348,6 +3779,10 @@ def cmd_status(args: argparse.Namespace) -> int:
         "tracked_active": [
             {k: v for k, v in r.items() if k != "_record_path"}
             for r in active_tracked
+        ],
+        "tracked_stop_failed": [
+            {k: v for k, v in r.items() if k != "_record_path"}
+            for r in stop_failed_tracked
         ],
         "tracked_total": len(tracked),
         "colab_sessions_raw": out_sess.strip(),
@@ -3358,9 +3793,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         print(out_sess, end="" if out_sess.endswith("\n") else "\n")
         print(out_usage, end="" if out_usage.endswith("\n") else "\n")
-        print(f"[colab_bench] Tracked sessions under {state_dir}: {len(active_tracked)} active / {len(tracked)} total")
-        for r in active_tracked:
-            print(f"  - {r.get('session')} (gpu={r.get('gpu')}, started={r.get('started_at')}, cfg={r.get('config_path')})")
+        print(
+            f"[colab_bench] Tracked sessions under {state_dir}: "
+            f"{len(active_tracked)} active, {len(stop_failed_tracked)} stop_failed / {len(tracked)} total"
+        )
+        for r in [*active_tracked, *stop_failed_tracked]:
+            print(
+                f"  - {r.get('session')} (status={r.get('status')}, gpu={r.get('gpu')}, "
+                f"started={r.get('started_at')}, cfg={r.get('config_path')})"
+            )
     return 0 if (rc_sess == 0 and rc_usage == 0) else 1
 
 
@@ -3371,29 +3812,33 @@ def cmd_cleanup(args: argparse.Namespace) -> int:
 
     tracked = _load_tracked_sessions(state_dir)
     targets: dict[str, Path | None] = {}
+    tracked_cfg_by_name: dict[str, Path] = {}
 
-    # 1. Active sessions tracked under runs/colab/sessions/*.json
+    # 1. Active and stop_failed sessions tracked under runs/colab/sessions/*.json
     for rec in tracked:
         name = rec.get("session")
         if not name:
             continue
-        if rec.get("status") == "active" or (args.session and name in args.session):
-            cfg_p = Path(rec["config_path"]) if rec.get("config_path") else None
-            targets[str(name)] = cfg_p if (cfg_p and cfg_p.is_file()) else None
+        cfg_p = Path(rec["config_path"]) if rec.get("config_path") else None
+        if cfg_p and cfg_p.is_file():
+            tracked_cfg_by_name[str(name)] = cfg_p
+        if rec.get("status") in ("active", "stop_failed") or (args.session and name in args.session):
+            targets[str(name)] = tracked_cfg_by_name.get(str(name))
 
     # 2. Live sessions reported directly by Colab server
     rc_sess, out_sess = run_with_hard_timeout([colab_bin, "sessions"], timeout_seconds=30, capture=True)
     if rc_sess == 0:
         for name in parse_colab_sessions_output(out_sess):
-            targets.setdefault(name, None)
+            targets.setdefault(name, tracked_cfg_by_name.get(name))
 
     if args.session:
         wanted = set(args.session)
         targets = {k: v for k, v in targets.items() if k in wanted}
         for name in wanted:
-            targets.setdefault(name, None)
+            targets.setdefault(name, tracked_cfg_by_name.get(name))
 
     stopped: list[dict[str, Any]] = []
+    stop_results: dict[str, tuple[int, str]] = {}
     for name, cfg_p in sorted(targets.items()):
         cmd = [colab_bin]
         if cfg_p is not None:
@@ -3406,20 +3851,29 @@ def cmd_cleanup(args: argparse.Namespace) -> int:
         # Fallback to default config if isolated config didn't know the session.
         if rc != 0 and cfg_p is not None:
             rc, out = run_with_hard_timeout([colab_bin, "stop", "-s", name], timeout_seconds=30, capture=True)
+        stop_results[name] = (rc, out.strip())
         stopped.append({"session": name, "config": str(cfg_p) if cfg_p else None, "rc": rc, "output": out.strip()})
 
     if not args.dry_run:
         for rec in tracked:
             name = rec.get("session")
-            if name in targets and rec.get("_record_path"):
+            if name in stop_results and rec.get("_record_path"):
+                rc, out_msg = stop_results[name]
                 rec_path = Path(rec["_record_path"])
                 clean_rec = {k: v for k, v in rec.items() if k != "_record_path"}
-                clean_rec["status"] = "stopped"
-                clean_rec["stopped_at"] = utc_stamp()
+                if rc == 0:
+                    clean_rec["status"] = "stopped"
+                    clean_rec["stopped_at"] = utc_stamp()
+                else:
+                    clean_rec["status"] = "stop_failed"
+                    clean_rec["last_stop_attempt_at"] = utc_stamp()
+                    clean_rec["last_stop_rc"] = rc
+                    clean_rec["last_stop_error"] = out_msg[-300:] if out_msg else f"colab stop exited with rc={rc}"
                 _atomic_write_json(rec_path, clean_rec)
 
     rc_after, out_after = run_with_hard_timeout([colab_bin, "sessions"], timeout_seconds=30, capture=True)
     remaining = parse_colab_sessions_output(out_after) if rc_after == 0 else []
+    all_stops_ok = all(item.get("rc") == 0 for item in stopped)
     result = {
         "state_dir": str(state_dir),
         "dry_run": args.dry_run,
@@ -3427,7 +3881,7 @@ def cmd_cleanup(args: argparse.Namespace) -> int:
         "remaining_sessions": remaining,
     }
     print(json.dumps(result, indent=2))
-    return 0 if (args.dry_run or not remaining) else 1
+    return 0 if (args.dry_run or (not remaining and all_stops_ok)) else 1
 
 
 # ---------------------------------------------------------------------------
@@ -3483,7 +3937,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--stall-minutes",
             type=int,
             default=30,
-            help="VM watchdog self-unassign timeout if logs/events/heartbeat stall",
+            help="VM watchdog self-unassign timeout if training logs/events/checkpoints stall",
         )
         sp.add_argument("--repo-url", default=DEFAULT_REPO_URL, help="Git remote URL for HyperGAN")
         sp.add_argument("--ref", default="HEAD", help="Git ref/branch/SHA to bootstrap on Colab (default: HEAD)")
@@ -3634,24 +4088,54 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    global _SHUTDOWN_SIGNAL
+    _SHUTDOWN_EVENT.clear()
+    _SHUTDOWN_SIGNAL = None
+    is_main_thread = threading.current_thread() is threading.main_thread()
+    prev_sigint = signal.getsignal(signal.SIGINT) if is_main_thread else None
+    prev_sigterm = signal.getsignal(signal.SIGTERM) if is_main_thread else None
+
     def _handle_signal(signum: int, _frame: Any) -> None:
-        print(f"\n[colab_bench] Received signal {signum}; releasing all active Colab VMs...", file=sys.stderr, flush=True)
-        _GLOBAL_REGISTRY.stop_all()
-        raise SystemExit(128 + signum)
+        # Never acquire non-reentrant locks or run blocking subprocess teardown in a signal handler;
+        # signal the shutdown event and unwind cleanly on the main thread.
+        global _SHUTDOWN_SIGNAL
+        first = not _SHUTDOWN_EVENT.is_set()
+        if _SHUTDOWN_SIGNAL is None:
+            _SHUTDOWN_SIGNAL = signum
+        _SHUTDOWN_EVENT.set()
+        if first:
+            raise KeyboardInterrupt(f"Received signal {signum}")
 
-    signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
+    if is_main_thread:
+        signal.signal(signal.SIGINT, _handle_signal)
+        signal.signal(signal.SIGTERM, _handle_signal)
 
-    args = build_parser().parse_args(argv)
-    if args.command == "run":
-        return cmd_run(args)
-    if args.command == "eval-bundles":
-        return cmd_eval_bundles(args)
-    if args.command == "status":
-        return cmd_status(args)
-    if args.command == "cleanup":
-        return cmd_cleanup(args)
-    raise ValueError(f"Unknown command: {args.command}")
+    try:
+        args = build_parser().parse_args(argv)
+        if args.command == "run":
+            return cmd_run(args)
+        if args.command == "eval-bundles":
+            return cmd_eval_bundles(args)
+        if args.command == "status":
+            return cmd_status(args)
+        if args.command == "cleanup":
+            return cmd_cleanup(args)
+        raise ValueError(f"Unknown command: {args.command}")
+    except KeyboardInterrupt:
+        sig = _SHUTDOWN_SIGNAL if _SHUTDOWN_SIGNAL is not None else int(signal.SIGINT)
+        _SHUTDOWN_EVENT.set()
+        print(
+            f"\n[colab_bench] Received signal {sig}; releasing all active Colab VMs...",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 128 + int(sig)
+    finally:
+        if _SHUTDOWN_EVENT.is_set():
+            _GLOBAL_REGISTRY.stop_all()
+        if is_main_thread:
+            signal.signal(signal.SIGINT, prev_sigint)
+            signal.signal(signal.SIGTERM, prev_sigterm)
 
 
 if __name__ == "__main__":

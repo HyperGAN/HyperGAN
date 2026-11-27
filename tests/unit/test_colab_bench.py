@@ -1319,3 +1319,901 @@ def test_chunked_upload_splits_large_payloads_and_reassembles(tmp_path, monkeypa
     assert len(ssh_cmds) == 1
     assert "cat " in ssh_cmds[0]
     assert f"-ne {len(payload)}" in ssh_cmds[0]
+
+
+# ---------------------------------------------------------------------------
+# 8. Audit regression tests (detached OOM, watchdog stall, signals, teardown,
+#    git bundle/overlay, chunked resume, foreground sync race, edge cases)
+# ---------------------------------------------------------------------------
+
+
+def test_detached_poll_script_detects_oom_via_real_bash_lc(tmp_path, monkeypatch):
+    """Empirically verify `bash -lc <poll_sh>` never self-matches `pgrep -f` and reaches DETACHED_EXITED_NO_RC."""
+    import signal
+    import subprocess
+    import time
+
+    remote_script = str(tmp_path / "my-run_1.chunk0.sh")
+    remote_pid = str(tmp_path / "my-run_1.chunk0.pid")
+    remote_rc = str(tmp_path / "my-run_1.chunk0.rc")
+    remote_log = str(tmp_path / "my-run_1.train.log")
+    hb_file = tmp_path / "hb"
+
+    Path(remote_script).write_text("#!/usr/bin/env bash\nsleep 30\n", encoding="utf-8")
+    os.chmod(remote_script, 0o755)
+    Path(remote_log).write_text("step 10 loss=0.5\n", encoding="utf-8")
+
+    poll_sh = cb._build_detached_poll_script(
+        remote_script=remote_script,
+        remote_pid=remote_pid,
+        remote_rc=remote_rc,
+        remote_train_log=remote_log,
+    )
+    # Redirect /content/bench_heartbeat touch in the local test sandbox so it doesn't require /content.
+    local_poll_sh = poll_sh.replace("/content/bench_heartbeat", str(hb_file))
+    assert remote_script not in local_poll_sh
+
+    # 1. No running process and no rc file -> MUST report DETACHED_EXITED_NO_RC (no pgrep self-match).
+    out_before = subprocess.check_output(["bash", "-lc", local_poll_sh], text=True)
+    assert "DETACHED_EXITED_NO_RC" in out_before
+    assert "DETACHED_RUNNING" not in out_before
+    assert "DETACHED_TAIL:step 10 loss=0.5" in out_before
+
+    # 2. Running detached process -> MUST report DETACHED_RUNNING both with and without pidfile.
+    proc = subprocess.Popen(["bash", remote_script], start_new_session=True)
+    try:
+        Path(remote_pid).write_text(f"{proc.pid}\n", encoding="utf-8")
+        time.sleep(0.15)
+        out_running_pid = subprocess.check_output(["bash", "-lc", local_poll_sh], text=True)
+        assert "DETACHED_RUNNING" in out_running_pid
+
+        # Remove pidfile so pgrep -f fallback branch is exercised directly.
+        Path(remote_pid).unlink()
+        out_running_pgrep = subprocess.check_output(["bash", "-lc", local_poll_sh], text=True)
+        assert "DETACHED_RUNNING" in out_running_pgrep
+
+        # 3. SIGKILL (OOM simulation) leaving stale pidfile and no rc file -> DETACHED_EXITED_NO_RC.
+        Path(remote_pid).write_text(f"{proc.pid}\n", encoding="utf-8")
+        os.kill(proc.pid, signal.SIGKILL)
+        proc.wait(timeout=5)
+    finally:
+        if proc.poll() is None:
+            os.kill(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+
+    out_oom = subprocess.check_output(["bash", "-lc", local_poll_sh], text=True)
+    assert "DETACHED_EXITED_NO_RC" in out_oom
+    assert "DETACHED_RUNNING" not in out_oom
+
+    # 4. Written rc file -> DETACHED_DONE:<rc>.
+    Path(remote_rc).write_text("0\n", encoding="utf-8")
+    out_done = subprocess.check_output(["bash", "-lc", local_poll_sh], text=True)
+    assert "DETACHED_DONE:0" in out_done
+
+    # 5. End-to-end `_run_chunk_detached` translates DETACHED_EXITED_NO_RC into rc=137, disconnected=False.
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    worker = cb.ColabBenchWorker(
+        worker_name="hg-oom-test",
+        gpu="L4",
+        batch_dir=batch_dir,
+        state_dir=tmp_path / "state",
+        repo_root=tmp_path,
+        repo_url=cb.DEFAULT_REPO_URL,
+        source_sync={"mode": "git", "ref": "develop", "sha": "abc"},
+    )
+    job = cb.BenchmarkJob(run_name="oom-job", config="cifar10-tiny-transformer", gpu="L4", detached=True, poll_seconds=5.0)
+
+    def fake_oom_colab(cmd, *, timeout_seconds, **kwargs):
+        subcmd = cmd[cmd.index("--config") + 2]
+        if subcmd == "ssh" and "DETACHED_DONE:" in cmd[-1]:
+            return 0, "DETACHED_EXITED_NO_RC\nDETACHED_TAIL:CUDA out of memory\n"
+        if subcmd == "ssh" and "DETACHED_LAUNCHED" in cmd[-1]:
+            return 0, "DETACHED_LAUNCHED pid=999\n"
+        return 0, "ok\n"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_oom_colab)
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+    rc, _out, disconnected, _unpack = worker._run_chunk_detached(
+        job=job,
+        chunk_index=0,
+        quoted_hg="hypergan train cfg",
+        remote_run_dir="/content/runs/oom-job",
+        remote_train_log="/content/logs/oom-job.train.log",
+        drive_sync_sh="",
+        local_run_dir=tmp_path / "runs" / "oom-job",
+        ssh_timeout=600,
+        register_run_local=False,
+    )
+    assert rc == 137
+    assert disconnected is False
+
+
+def test_watchdog_separates_heartbeat_from_training_stall_activity(tmp_path):
+    """Touching controller heartbeat MUST NOT defeat `--stall-minutes` for a stalled detached job."""
+    import http.server
+    import subprocess
+    import textwrap
+    import threading
+    import time
+
+    hb_file = tmp_path / "bench_heartbeat"
+    done_file = tmp_path / "bench_job.done"
+    job_log = tmp_path / "bench_job.log"
+    runs_root = tmp_path / "runs"
+    logs_dir = tmp_path / "logs"
+    watchdog_log = tmp_path / "watchdog.log"
+    run_dir = runs_root / "stalled-run"
+    (run_dir / "checkpoints").mkdir(parents=True)
+    logs_dir.mkdir(parents=True)
+
+    events_file = run_dir / "events.jsonl"
+    train_log = logs_dir / "stalled-run.train.log"
+    ckpt_latest = run_dir / "checkpoints" / "latest.json"
+
+    script = cb.build_watchdog_arm_script(
+        max_seconds=3600,
+        idle_grace_seconds=5,
+        stall_seconds=10,
+        heartbeat_file=str(hb_file),
+        done_file=str(done_file),
+        job_log=str(job_log),
+        runs_root=str(runs_root),
+        logs_dir=str(logs_dir),
+    )
+    start_marker = "watchdog_code = textwrap.dedent('''\n"
+    end_marker = "''').strip()"
+    inner = textwrap.dedent(script.split(start_marker, 1)[1].split(end_marker, 1)[0])
+    # Point logf at tmp_path and shorten poll interval to 0.05s for fast real subprocess testing.
+    test_watchdog = (
+        inner.replace('logf = "/content/watchdog.log"', f"logf = {str(watchdog_log)!r}")
+        .replace("time.sleep(15)", "time.sleep(0.05)")
+    )
+    watchdog_py = tmp_path / "watchdog.py"
+    watchdog_py.write_text(test_watchdog + "\n", encoding="utf-8")
+
+    # 1. Run a real local HTTP server to capture POST /unassign calls from watchdog.py.
+    unassign_hits: list[str] = []
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            unassign_hits.append(self.path)
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            return
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), _Handler)
+    addr = f"127.0.0.1:{server.server_port}"
+    srv_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    srv_thread.start()
+    try:
+        # Backdate ALL training files beyond stall_seconds=10, while keeping hb_file fresh!
+        old_ts = time.time() - 120.0
+        for fpath in (job_log, events_file, train_log, ckpt_latest):
+            fpath.write_text("stale\n", encoding="utf-8")
+            os.utime(fpath, (old_ts, old_ts))
+
+        # Repeatedly touch hb_file (simulating detached poll_sh) while watchdog runs.
+        proc = subprocess.Popen([sys.executable, str(watchdog_py), addr, "3600", "5", "10"])
+        try:
+            deadline = time.monotonic() + 5.0
+            while proc.poll() is None and time.monotonic() < deadline:
+                hb_file.write_text(str(time.time()), encoding="utf-8")
+                time.sleep(0.05)
+            assert proc.wait(timeout=2) == 0
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=2)
+
+        assert unassign_hits == ["/unassign"]
+        log_text = watchdog_log.read_text(encoding="utf-8")
+        assert "training activity stall timeout 10s exceeded" in log_text
+
+        # 2. Fresh detached train log or checkpoint prevents stall trigger while active.
+        unassign_hits.clear()
+        now_ts = time.time()
+        os.utime(train_log, (now_ts, now_ts))
+        proc2 = subprocess.Popen([sys.executable, str(watchdog_py), addr, "3600", "5", "10"])
+        try:
+            time.sleep(0.25)
+            assert proc2.poll() is None  # Still alive because detached train_log is fresh
+            assert unassign_hits == []
+        finally:
+            proc2.kill()
+            proc2.wait(timeout=2)
+
+        # 3. Post-job idle grace: stale done_file + stale hb_file -> unassigns; fresh hb_file keeps alive.
+        done_file.write_text("done\n", encoding="utf-8")
+        os.utime(done_file, (old_ts, old_ts))
+        os.utime(train_log, (now_ts, now_ts))  # Keep training activity fresh so only idle grace is tested
+        proc3 = subprocess.Popen([sys.executable, str(watchdog_py), addr, "3600", "5", "120"])
+        try:
+            # First keep hb_file fresh -> must stay alive past 0.25s.
+            for _ in range(5):
+                hb_file.write_text(str(time.time()), encoding="utf-8")
+                time.sleep(0.05)
+            assert proc3.poll() is None
+            assert unassign_hits == []
+            # Now backdate hb_file (controller disconnected) -> MUST trigger post-job idle unassign!
+            os.utime(hb_file, (old_ts, old_ts))
+            assert proc3.wait(timeout=3) == 0
+        finally:
+            if proc3.poll() is None:
+                proc3.kill()
+                proc3.wait(timeout=2)
+        assert unassign_hits == ["/unassign"]
+        assert "post-job idle grace 5s exceeded" in watchdog_log.read_text(encoding="utf-8")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_signal_handler_no_deadlock_and_no_reprovisioning_on_shutdown(tmp_path, monkeypatch):
+    """SIGINT/SIGTERM must neither deadlock on registry lock nor reprovision paid VMs."""
+    import signal
+    import threading
+    import time
+
+    real_run_with_hard_timeout = cb.run_with_hard_timeout
+
+    # 1. Holding `_GLOBAL_REGISTRY.lock` when SIGTERM arrives must NOT deadlock; teardown runs cleanly after unwind.
+    state_dir = tmp_path / "sig_state"
+    stopped_via_sig: list[str] = []
+
+    def fake_sig_colab(cmd, *, timeout_seconds, **kwargs):
+        if "stop" in cmd:
+            stopped_via_sig.append(cmd[cmd.index("-s") + 1])
+            return 0, "stopped"
+        return 0, ""
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_sig_colab)
+    orig_state_dir = cb._GLOBAL_REGISTRY.state_dir
+    orig_colab_bin = cb._GLOBAL_REGISTRY.colab_bin
+
+    def fake_cmd_status(_args):
+        cb._GLOBAL_REGISTRY.state_dir = state_dir
+        cb._GLOBAL_REGISTRY.colab_bin = "colab"
+        cfg = state_dir / "w-sig.colab.json"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text("{}", encoding="utf-8")
+        cb._GLOBAL_REGISTRY.register("w-sig", cfg, gpu="A100")
+        # Acquire the non-reentrant registry lock on the main thread when SIGTERM fires!
+        with cb._GLOBAL_REGISTRY.lock:
+            os.kill(os.getpid(), signal.SIGTERM)
+        return 0
+
+    monkeypatch.setattr(cb, "cmd_status", fake_cmd_status)
+    try:
+        rc = cb.main(["status"])
+        assert rc == 128 + int(signal.SIGTERM)
+        assert stopped_via_sig == ["w-sig"]
+        assert "w-sig" not in cb._GLOBAL_REGISTRY.sessions
+    finally:
+        cb._SHUTDOWN_EVENT.clear()
+        cb._SHUTDOWN_SIGNAL = None
+        cb._GLOBAL_REGISTRY.sessions.clear()
+        cb._GLOBAL_REGISTRY.state_dir = orig_state_dir
+        cb._GLOBAL_REGISTRY.colab_bin = orig_colab_bin
+
+    # 2. Setting `_SHUTDOWN_EVENT` mid-SSH (simulating Ctrl-C causing rc=255) MUST NOT reprovision a new VM.
+    runs_dir = tmp_path / "runs"
+    batch_state = tmp_path / "batch_state"
+    booted: list[str] = []
+    stopped: list[str] = []
+
+    def fake_ctrl_c_colab(cmd, *, timeout_seconds, **kwargs):
+        subcmd = cmd[cmd.index("--config") + 2]
+        sess = cmd[cmd.index("-s") + 1]
+        if subcmd == "new":
+            booted.append(sess)
+            return 0, "Session READY."
+        if subcmd == "stop":
+            stopped.append(sess)
+            return 0, "stopped"
+        if subcmd == "ssh":
+            body = cmd[-1]
+            if "hypergan train" in body:
+                # Simulate Ctrl-C arriving during training SSH -> tunnel drops with rc=255.
+                cb._SHUTDOWN_EVENT.set()
+                return 255, "Connection closed by remote host.\nBroken pipe"
+            return 0, "COLAB_GPU_INFO: NVIDIA A100-SXM4-40GB, 40960 MiB, 580.82.07\n"
+        return 0, "ok"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_ctrl_c_colab)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    jobs = [
+        cb.BenchmarkJob(run_name="ctrlc-job-1", config="cifar10-tiny-transformer", gpu="A100", stop_after_steps=50, max_retries=3),
+        cb.BenchmarkJob(run_name="ctrlc-job-2", config="cifar10-tiny-transformer", gpu="A100", stop_after_steps=50, max_retries=3),
+    ]
+    try:
+        cb._SHUTDOWN_EVENT.clear()
+        summary = cb.execute_benchmark_jobs(
+            repo_root=tmp_path,
+            runs_dir=runs_dir,
+            state_dir=batch_state,
+            jobs=jobs,
+            workers=1,
+            stagger_seconds=0.0,
+            register_runs=False,
+        )
+        assert summary["status"] == "interrupted"
+        assert len(booted) == 1  # NEVER reprovisioned!
+        assert stopped == booted  # Original VM cleanly stopped!
+    finally:
+        cb._SHUTDOWN_EVENT.clear()
+        cb._GLOBAL_REGISTRY.sessions.clear()
+
+    # 3. `run_with_hard_timeout` aborts a sleeping child promptly when `cancel_event` is set.
+    cancel_ev = threading.Event()
+    timer = threading.Timer(0.15, cancel_ev.set)
+    timer.start()
+    t0 = time.monotonic()
+    try:
+        rc_c, out_c = real_run_with_hard_timeout(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            timeout_seconds=15.0,
+            capture=True,
+            cancel_event=cancel_ev,
+        )
+    finally:
+        timer.cancel()
+    elapsed = time.monotonic() - t0
+    assert rc_c == 130
+    assert "[shutdown]" in out_c
+    assert elapsed < 3.0
+
+
+def test_teardown_preserves_stop_failed_sessions_and_cleanup_stops_them(tmp_path, monkeypatch, capsys):
+    """Failed `colab stop` must keep sessions tracked as `stop_failed` with isolated config for `cleanup`."""
+    state_dir = tmp_path / "runs" / "colab"
+    batch_dir = state_dir / "bench-1"
+    batch_dir.mkdir(parents=True)
+
+    stop_should_succeed = {"w1": False}
+    stop_cmds: list[list[str]] = []
+
+    def fake_flaky_stop(cmd, *, timeout_seconds, **kwargs):
+        if "sessions" in cmd:
+            return 0, "[colab] No active sessions found on server.\n"
+        if "stop" in cmd:
+            stop_cmds.append(list(cmd))
+            sess = cmd[cmd.index("-s") + 1]
+            if stop_should_succeed.get(sess, True):
+                return 0, f"stopped {sess}\n"
+            return 124, "timeout stopping session\n"
+        return 0, "ok\n"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_flaky_stop)
+
+    reg = cb.ActiveSessionRegistry(colab_bin="colab", state_dir=state_dir)
+    worker = cb.ColabBenchWorker(
+        worker_name="w1",
+        gpu="A100",
+        batch_dir=batch_dir,
+        state_dir=state_dir,
+        repo_root=tmp_path,
+        repo_url=cb.DEFAULT_REPO_URL,
+        source_sync={"mode": "git", "ref": "develop", "sha": "abc"},
+        registry=reg,
+    )
+    worker.cfg.write_text('{"isolated": true}\n', encoding="utf-8")
+    worker.alive = True
+    reg.register("w1", worker.cfg, gpu="A100", batch_dir=batch_dir)
+
+    # 1. Transient failure in worker.stop() must NOT unregister or mark "stopped".
+    assert worker.stop() is False
+    assert worker.alive is True
+    assert "w1" in reg.sessions
+    assert reg.sessions["w1"]["status"] == "stop_failed"
+    rec_path = state_dir / "sessions" / "w1.json"
+    rec_doc = json.loads(rec_path.read_text(encoding="utf-8"))
+    assert rec_doc["status"] == "stop_failed"
+    assert rec_doc["config_path"] == str(worker.cfg.resolve())
+
+    # 2. Failed stop_all() also keeps session tracked as stop_failed.
+    outcomes = reg.stop_all()
+    assert outcomes[0]["rc"] == 124
+    assert "w1" in reg.sessions
+    assert json.loads(rec_path.read_text(encoding="utf-8"))["status"] == "stop_failed"
+
+    # 3. `cleanup` while stop still fails returns non-zero and preserves stop_failed record.
+    capsys.readouterr()  # Clear worker.stop() log output from stdout
+    rc_fail = cb.main(["--root", str(tmp_path), "--state-dir", str(state_dir), "cleanup"])
+    assert rc_fail == 1
+    out_fail = json.loads(capsys.readouterr().out)
+    assert out_fail["stopped"][0]["session"] == "w1"
+    assert out_fail["stopped"][0]["config"] == str(worker.cfg.resolve())
+    assert out_fail["stopped"][0]["rc"] == 124
+    assert json.loads(rec_path.read_text(encoding="utf-8"))["status"] == "stop_failed"
+
+    # 4. Once transient error clears, `cleanup` finds `stop_failed`, uses isolated `--config`, and marks `stopped`.
+    stop_should_succeed["w1"] = True
+    stop_cmds.clear()
+    rc_ok = cb.main(["--root", str(tmp_path), "--state-dir", str(state_dir), "cleanup"])
+    assert rc_ok == 0
+    out_ok = json.loads(capsys.readouterr().out)
+    assert out_ok["stopped"][0]["session"] == "w1"
+    assert out_ok["stopped"][0]["rc"] == 0
+    assert any("--config" in c and str(worker.cfg.resolve()) in c and "w1" in c for c in stop_cmds)
+    assert json.loads(rec_path.read_text(encoding="utf-8"))["status"] == "stopped"
+
+    # 5. Succeeding `stop_all()` removes session from memory and marks stopped on disk.
+    reg.register("w1", worker.cfg, gpu="A100", batch_dir=batch_dir)
+    outcomes_ok = reg.stop_all()
+    assert outcomes_ok[0]["rc"] == 0
+    assert "w1" not in reg.sessions
+    assert json.loads(rec_path.read_text(encoding="utf-8"))["status"] == "stopped"
+
+
+def test_prepare_source_bundle_real_git_bundle_and_dirty_overlay(tmp_path):
+    """Real `git bundle create` must succeed for unpushed HEAD & raw SHA, plus handle deletions/spaces/non-ASCII."""
+    import subprocess
+
+    def _git(cwd: Path, *args: str) -> str:
+        return subprocess.check_output(["git", *args], cwd=cwd, text=True).strip()
+
+    origin = tmp_path / "origin.git"
+    subprocess.check_call(["git", "init", "--bare", "-b", "develop", str(origin)])
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "develop")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test User")
+    (repo / "src" / "hypergan").mkdir(parents=True)
+    (repo / "examples").mkdir(parents=True)
+    (repo / "src" / "hypergan" / "keep.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "src" / "hypergan" / "to_delete.py").write_text("old = True\n", encoding="utf-8")
+    (repo / "src" / "hypergan" / "old name.py").write_text("rename_me = True\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "push", "-u", "origin", "develop")
+
+    # Add an unpushed commit on local develop.
+    (repo / "src" / "hypergan" / "keep.py").write_text("x = 2\n", encoding="utf-8")
+    _git(repo, "add", "src/hypergan/keep.py")
+    _git(repo, "commit", "-m", "unpushed feature")
+    unpushed_sha = _git(repo, "rev-parse", "HEAD")
+
+    # 1. Auto mode on unpushed HEAD creates a real verifiable git bundle that fetches into a fresh clone!
+    out_auto = tmp_path / "out_auto"
+    res_auto = cb.prepare_source_bundle(repo, out_auto, ref="HEAD", source_mode="auto")
+    assert res_auto["mode"] == "bundle"
+    assert res_auto["bundle_path"] is not None
+    assert Path(res_auto["bundle_path"]).is_file()
+    assert res_auto["bundle_ref"] == "HEAD"
+
+    # Fetch the bundle into a fresh shallow clone of origin/develop to prove end-to-end validity.
+    fresh = tmp_path / "fresh"
+    subprocess.check_call(["git", "clone", "--depth", "1", "--branch", "develop", str(origin), str(fresh)])
+    _git(fresh, "fetch", res_auto["bundle_path"], f"{res_auto['bundle_ref']}:refs/heads/colab-branch")
+    _git(fresh, "checkout", unpushed_sha)
+    assert (fresh / "src" / "hypergan" / "keep.py").read_text(encoding="utf-8") == "x = 2\n"
+
+    # 2. Passing a raw 40-char commit SHA in `bundle` mode ALSO succeeds and cleans up temporary refs.
+    out_sha = tmp_path / "out_sha"
+    res_sha = cb.prepare_source_bundle(repo, out_sha, ref=unpushed_sha, source_mode="bundle")
+    assert res_sha["bundle_path"] is not None and Path(res_sha["bundle_path"]).is_file()
+    assert "refs/colab-bench-tmp/" not in _git(repo, "show-ref")
+    fresh2 = tmp_path / "fresh2"
+    subprocess.check_call(["git", "clone", "--depth", "1", "--branch", "develop", str(origin), str(fresh2)])
+    _git(fresh2, "fetch", res_sha["bundle_path"], f"{res_sha['bundle_ref']}:refs/heads/colab-branch")
+    _git(fresh2, "checkout", unpushed_sha)
+    assert (fresh2 / "src" / "hypergan" / "keep.py").read_text(encoding="utf-8") == "x = 2\n"
+
+    # 3. Dirty deleted tracked files + git-quoted paths (spaces & non-ASCII) + rename.
+    (repo / "src" / "hypergan" / "to_delete.py").unlink()
+    _git(repo, "mv", "src/hypergan/old name.py", "src/hypergan/new café.py")
+    (repo / "examples" / "my config café.toml").write_text('format = "hypergan-model/1"\n', encoding="utf-8")
+
+    out_dirty = tmp_path / "out_dirty"
+    res_dirty = cb.prepare_source_bundle(repo, out_dirty, ref="HEAD", source_mode="auto")
+    assert res_dirty["mode"] == "bundle"
+    assert res_dirty["overlay_path"] is not None
+    with tarfile.open(res_dirty["overlay_path"], "r:gz") as tf:
+        overlay_names = set(tf.getnames())
+    assert "src/hypergan/new café.py" in overlay_names
+    assert "examples/my config café.toml" in overlay_names
+    assert res_dirty["deleted_files"] == ["src/hypergan/old name.py", "src/hypergan/to_delete.py"]
+    assert res_dirty["deleted_file_count"] == 2
+
+    # 4. Deletion-only dirty worktree on a pushed commit still switches to `bundle` mode with deleted_files.
+    _git(repo, "reset", "--hard", "origin/develop")
+    (repo / "examples" / "my config café.toml").unlink(missing_ok=True)
+    (repo / "src" / "hypergan" / "to_delete.py").unlink()
+    res_del_only = cb.prepare_source_bundle(repo, tmp_path / "out_del_only", ref="HEAD", source_mode="auto")
+    assert res_del_only["mode"] == "bundle"
+    assert res_del_only["overlay_path"] is None
+    assert res_del_only["deleted_files"] == ["src/hypergan/to_delete.py"]
+
+    # 5. `_bootstrap_vm` emits properly shell-quoted `rm -f --` for deleted tracked files and `bundle_ref`.
+    captured_bootstrap: list[str] = []
+    orig_runner = cb.run_with_hard_timeout
+    try:
+        def _cap_boot(cmd, *, timeout_seconds, **kwargs):
+            captured_bootstrap.append(cmd[-1])
+            return 0, "COLAB_GPU_INFO: NVIDIA L4, 23034 MiB, 550.54\n"
+
+        cb.run_with_hard_timeout = _cap_boot
+        w = cb.ColabBenchWorker(
+            worker_name="hg-boot-check",
+            gpu="L4",
+            batch_dir=tmp_path / "boot_batch",
+            state_dir=tmp_path / "boot_state",
+            repo_root=repo,
+            repo_url=cb.DEFAULT_REPO_URL,
+            source_sync=res_dirty,
+        )
+        w._bootstrap_vm()
+    finally:
+        cb.run_with_hard_timeout = orig_runner
+    assert len(captured_bootstrap) == 1
+    assert "rm -f -- 'src/hypergan/old name.py' src/hypergan/to_delete.py" in captured_bootstrap[0]
+    assert "git fetch /content/branch.bundle HEAD:refs/heads/colab-branch" in captured_bootstrap[0]
+
+
+def test_chunked_resume_extends_steps_uses_total_steps_progress_guard_and_schema_version(tmp_path, monkeypatch):
+    """Verify `--steps` on resume extension, `latest.json` schema_version=1, `refreshed['total_steps']`, and progress guard."""
+    # 1. Fallback latest.json written by pack_local_run_for_resume MUST include schema_version=1.
+    run_dir = tmp_path / "runs" / "extend-run"
+    ckpt_name = "0001-attempt-step-00000050-deadbeef"
+    ckpt_dir = run_dir / "checkpoints" / ckpt_name
+    ckpt_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(
+        json.dumps({"schema_version": 1, "run_id": "run-ext", "status": "complete", "steps": 50, "run_dir": str(run_dir)}),
+        encoding="utf-8",
+    )
+    (run_dir / "summary.json").write_text(
+        json.dumps({"status": "complete", "step": 50, "total_steps": 50}),
+        encoding="utf-8",
+    )
+    (ckpt_dir / "manifest.json").write_text(json.dumps({"step": 50}), encoding="utf-8")
+    (ckpt_dir / "state.pt").write_bytes(b"ckpt-50")
+
+    # Extending a completed run (step 50/50 -> target 100) must be recognized as resumable!
+    st = cb.inspect_local_run(run_dir, target_step=100)
+    assert st["completed"] is False
+    assert st["resumable"] is True
+
+    # Missing latest.json -> fallback written with schema_version=1 and step=50.
+    resume_tar = tmp_path / "fallback-resume.tar.gz"
+    cb.pack_local_run_for_resume(run_dir, resume_tar, remote_run_dir="/content/runs/extend-run")
+    with tarfile.open(resume_tar, "r:gz") as tf:
+        latest_ptr = json.loads(tf.extractfile("checkpoints/latest.json").read().decode("utf-8"))
+    assert latest_ptr["schema_version"] == 1
+    assert latest_ptr["checkpoint"] == ckpt_name
+    assert latest_ptr["step"] == 50
+
+    # 2. Extending run via execute_benchmark_jobs passes `--steps 100` to `hypergan resume`.
+    resume_cmds: list[str] = []
+    chunk_steps_seq = iter([75, 100])
+
+    def fake_extend_colab(cmd, *, timeout_seconds, **kwargs):
+        subcmd = cmd[cmd.index("--config") + 2]
+        if subcmd == "ssh":
+            body = cmd[-1]
+            if "hypergan resume" in body or "hypergan train" in body:
+                resume_cmds.append(body)
+            return 0, "COLAB_GPU_INFO: NVIDIA L4, 23034 MiB, 550.54\n"
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            step_now = next(chunk_steps_seq)
+            _make_run_tarball(dest, run_name="extend-run", step=step_now, status="stopped", total_steps=100)
+            return 0, "downloaded"
+        return 0, "ok"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_extend_colab)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    extend_job = cb.BenchmarkJob(
+        run_name="extend-run",
+        config="cifar10-tiny-transformer",
+        gpu="L4",
+        steps=100,
+        chunk_steps=25,
+    )
+    summary = cb.execute_benchmark_jobs(
+        repo_root=tmp_path,
+        runs_dir=tmp_path / "runs",
+        state_dir=tmp_path / "state1",
+        jobs=[extend_job],
+        workers=1,
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert summary["status"] == "complete"
+    assert len(resume_cmds) == 2
+    assert "hypergan resume" in resume_cmds[0]
+    assert "--steps 100" in resume_cmds[0]
+    assert "--stop-after-steps 25" in resume_cmds[0]
+    assert summary["results"][0]["telemetry"]["step"] == 100
+
+    # 3. `--chunk-steps` WITHOUT CLI `--steps`/`--stop-after-steps` uses `refreshed["total_steps"]` (doesn't stop at chunk 1).
+    auto_target_steps = iter([25, 50, 75])
+    auto_cmds: list[str] = []
+
+    def fake_auto_target_colab(cmd, *, timeout_seconds, **kwargs):
+        subcmd = cmd[cmd.index("--config") + 2]
+        if subcmd == "ssh":
+            body = cmd[-1]
+            if "hypergan train" in body or "hypergan resume" in body:
+                auto_cmds.append(body)
+            return 0, "COLAB_GPU_INFO: NVIDIA L4, 23034 MiB, 550.54\n"
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            step_now = next(auto_target_steps)
+            status_now = "complete" if step_now == 75 else "stopped"
+            _make_run_tarball(dest, run_name="auto-target", step=step_now, status=status_now, total_steps=75)
+            return 0, "downloaded"
+        return 0, "ok"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_auto_target_colab)
+    auto_job = cb.BenchmarkJob(
+        run_name="auto-target",
+        config="cifar10-tiny-transformer",
+        gpu="L4",
+        steps=None,
+        stop_after_steps=None,
+        chunk_steps=25,
+    )
+    auto_summary = cb.execute_benchmark_jobs(
+        repo_root=tmp_path,
+        runs_dir=tmp_path / "runs",
+        state_dir=tmp_path / "state2",
+        jobs=[auto_job],
+        workers=1,
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert auto_summary["status"] == "complete"
+    assert len(auto_cmds) == 3
+    assert "hypergan train" in auto_cmds[0]
+    assert "hypergan resume" in auto_cmds[1]
+    assert "hypergan resume" in auto_cmds[2]
+    assert auto_summary["results"][0]["chunks_completed"] == 3
+    assert auto_summary["results"][0]["telemetry"]["step"] == 75
+
+    # 4. Progress guard: if `new_step <= prev_step` after a completed chunk, break with error instead of infinite loop!
+    stuck_chunks = {"n": 0}
+    stuck_boots: list[str] = []
+
+    def fake_stuck_colab(cmd, *, timeout_seconds, **kwargs):
+        subcmd = cmd[cmd.index("--config") + 2]
+        if subcmd == "new":
+            stuck_boots.append(cmd[cmd.index("-s") + 1])
+            return 0, "created"
+        if subcmd == "ssh":
+            body = cmd[-1]
+            if "hypergan train" in body or "hypergan resume" in body:
+                stuck_chunks["n"] += 1
+            return 0, "COLAB_GPU_INFO: NVIDIA L4, 23034 MiB, 550.54\n"
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            # Always stuck at step 25 even after chunk 2!
+            _make_run_tarball(dest, run_name="stuck-run", step=25, status="stopped", total_steps=100)
+            return 0, "downloaded"
+        return 0, "ok"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_stuck_colab)
+    stuck_job = cb.BenchmarkJob(
+        run_name="stuck-run",
+        config="cifar10-tiny-transformer",
+        gpu="L4",
+        stop_after_steps=100,
+        chunk_steps=25,
+        max_retries=2,
+    )
+    stuck_summary = cb.execute_benchmark_jobs(
+        repo_root=tmp_path,
+        runs_dir=tmp_path / "runs",
+        state_dir=tmp_path / "state3",
+        jobs=[stuck_job],
+        workers=1,
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert stuck_summary["status"] == "partial_or_failed"
+    assert stuck_chunks["n"] == 2  # Chunk 1 reached 25, chunk 2 stayed at 25 -> broke immediately!
+    assert len(stuck_boots) == 1  # Did not reprovision on deterministic stall
+    assert stuck_summary["results"][0]["run_rc"] == 1
+    assert "no step progress" in stuck_summary["results"][0]["error"]
+
+
+def test_foreground_sync_no_concurrent_ssh_and_unique_unpack_tmp_files(tmp_path, monkeypatch):
+    """Foreground mode must never overlap `colab ssh` sessions, and concurrent `unpack_run_tarball` must never collide."""
+    import threading
+    import time
+
+    # 1. Foreground mode with sync_interval_minutes > 0 must keep max concurrent SSH == 1.
+    ssh_active = {"n": 0, "max": 0}
+    ssh_guard = threading.Lock()
+
+    def fake_fg_colab(cmd, *, timeout_seconds, **kwargs):
+        subcmd = cmd[cmd.index("--config") + 2]
+        if subcmd == "ssh":
+            with ssh_guard:
+                ssh_active["n"] += 1
+                ssh_active["max"] = max(ssh_active["max"], ssh_active["n"])
+            try:
+                if "hypergan train" in cmd[-1]:
+                    time.sleep(0.05)
+                return 0, "COLAB_GPU_INFO: NVIDIA L4, 23034 MiB, 550.54\n"
+            finally:
+                with ssh_guard:
+                    ssh_active["n"] -= 1
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            _make_run_tarball(dest, run_name="fg-sync", step=50, status="stopped")
+            return 0, "downloaded"
+        return 0, "ok"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_fg_colab)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    fg_job = cb.BenchmarkJob(
+        run_name="fg-sync",
+        config="cifar10-tiny-transformer",
+        gpu="L4",
+        stop_after_steps=50,
+        chunk_steps=0,
+        sync_interval_minutes=1.0,
+        detached=False,
+    )
+    fg_summary = cb.execute_benchmark_jobs(
+        repo_root=tmp_path,
+        runs_dir=tmp_path / "runs",
+        state_dir=tmp_path / "fg_state",
+        jobs=[fg_job],
+        workers=1,
+        stagger_seconds=0.0,
+        register_runs=False,
+    )
+    assert fg_summary["status"] == "complete"
+    assert ssh_active["max"] == 1
+
+    # 2. Concurrent `unpack_run_tarball` calls from multiple threads into the same dir must not collide on temp files.
+    tar_path = _make_run_tarball(tmp_path / "shared.tar.gz", run_name="race-run", step=50)
+    dest_dir = tmp_path / "runs" / "race-run"
+    errors: list[Exception] = []
+    barrier = threading.Barrier(6)
+
+    def _unpack_worker() -> None:
+        try:
+            barrier.wait()
+            for _ in range(5):
+                info = cb.unpack_run_tarball(tar_path, dest_dir, remote_run_dir="/content/runs/race-run")
+                assert info["has_summary"] and info["has_manifest"]
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_unpack_worker) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=15)
+    assert errors == []
+    assert json.loads((dest_dir / "summary.json").read_text(encoding="utf-8"))["step"] == 50
+
+
+def test_edge_cases_particlegan_spec_bundle_collision_nan_re_and_sessions_parser(tmp_path, monkeypatch):
+    """Cover edge cases: DEFAULT_PARTICLEGAN_SPEC, duplicate bundle IDs, tightened _NAN_LOG_RE, and session table headers."""
+    # 1. DEFAULT_PARTICLEGAN_SPEC updated for current develop (no stale 0.12.0 pin).
+    assert "0.12.0" not in cb.DEFAULT_PARTICLEGAN_SPEC
+    assert "ParticleGAN.git@develop" in cb.DEFAULT_PARTICLEGAN_SPEC or "0.13" in cb.DEFAULT_PARTICLEGAN_SPEC
+
+    # 2. Duplicate `--bundle` names in `run_bundle_evaluations` must upload to distinct remote filenames.
+    dir_a = tmp_path / "exp_a" / "shared"
+    dir_b = tmp_path / "exp_b" / "shared"
+    dir_a.mkdir(parents=True)
+    dir_b.mkdir(parents=True)
+    b_a = dir_a / "model.pt"
+    b_b = dir_b / "model.pt"
+    b_a.write_bytes(b"weights-a")
+    b_b.write_bytes(b"weights-b")
+
+    uploaded_bundles: list[str] = []
+    eval_spec_uploaded: dict[str, Any] = {}
+
+    def fake_dup_eval(cmd, *, timeout_seconds, **kwargs):
+        subcmd = cmd[cmd.index("--config") + 2]
+        if subcmd == "upload":
+            remote_p = cmd[-1]
+            if remote_p.endswith(".pt"):
+                uploaded_bundles.append(remote_p)
+            elif remote_p.endswith("eval-spec.json"):
+                eval_spec_uploaded.update(json.loads(Path(cmd[-2]).read_text(encoding="utf-8")))
+            return 0, "uploaded"
+        if subcmd == "download":
+            dest = Path(cmd[-1])
+            with tarfile.open(dest, "w:gz") as tf:
+                payload = b"[]\n"
+                ti = tarfile.TarInfo(name="all-receipts.json")
+                ti.size = len(payload)
+                tf.addfile(ti, fileobj=__import__("io").BytesIO(payload))
+            return 0, "downloaded"
+        return 0, "COLAB_GPU_INFO: NVIDIA L4, 23034 MiB, 550.54\n"
+
+    monkeypatch.setattr(cb, "run_with_hard_timeout", fake_dup_eval)
+    monkeypatch.setattr(cb, "prepare_source_bundle", lambda *a, **kw: {"mode": "git", "ref": "develop", "sha": "abc"})
+    monkeypatch.setattr(cb.time, "sleep", lambda _s: None)
+
+    cb.execute_eval_bundles(
+        repo_root=tmp_path,
+        state_dir=tmp_path / "eval_state",
+        bundles=[
+            {"name": "shared", "bundle_path": str(b_a), "run_dir": None},
+            {"name": "shared", "bundle_path": str(b_b), "run_dir": None},
+        ],
+        metrics=["InceptionSuite"],
+        dataset_config={"builtin": "cifar10", "args": {"root": "~/.hypergan/cache/cifar10", "split": "train"}},
+        gpu="L4",
+        output_dir=tmp_path / "eval_out",
+    )
+    assert len(uploaded_bundles) == 2
+    assert len(set(uploaded_bundles)) == 2
+    spec_names = [b["name"] for b in eval_spec_uploaded["bundles"]]
+    assert len(set(spec_names)) == 2
+    assert spec_names[0] == "shared"
+    assert spec_names[1].startswith("shared-1-")
+
+    # 3. Tightened `_NAN_LOG_RE`: benign text must NOT false-positive, while real NaN/Inf/divergence MUST match.
+    benign_dir = tmp_path / "benign-run"
+    benign_dir.mkdir()
+    (benign_dir / "summary.json").write_text(
+        json.dumps({"status": "complete", "step": 100, "latest": {"loss/d_total": 0.4, "diversity/ratio": 0.9}}),
+        encoding="utf-8",
+    )
+    (benign_dir / "train.log").write_text(
+        "\n".join(
+            [
+                "Note: non-finite gradient screening is enabled by default",
+                "# Help: --abort-on-nan skips non-finite steps gracefully",
+                "UserWarning: preview panel collapsed in narrow terminal",
+                "git note: local branch diverged from upstream",
+                "step 100 loss/d_total=0.412 loss/g_total=1.084 info=ok",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    benign_tel = cb.analyze_run_telemetry(benign_dir)
+    assert benign_tel["nan_detected"] is False
+    assert benign_tel["collapse_detected"] is False
+    assert benign_tel["log_warnings"] == []
+
+    for real_line in (
+        "step 420 loss=nan",
+        "step 420 d_loss=-inf g_loss=1.2",
+        "loss/g_total: NaN",
+        "FloatingPointError: NaN detected in generator loss",
+        "RuntimeError: Non-finite loss encountered at step 500",
+        "ERROR: detected non-finite gradients",
+        "gradients exploded at step 100",
+        "training diverged at step 200",
+    ):
+        assert cb._NAN_LOG_RE.search(real_line), f"Expected _NAN_LOG_RE to match: {real_line!r}"
+
+    # 4. Tightened `parse_colab_sessions_output`: skips table header & divider rows, preserves real session names.
+    table_out = "\n".join(
+        [
+            "[colab] Active sessions:",
+            "Session | Hardware | Status",
+            "--------+----------+-------",
+            "hg-l4-w1 | Hardware: L4 | READY",
+            "Name | GPU | State",
+            "--- | --- | ---",
+            "│ Session │ Hardware │ Status │",
+            "├─────────┼──────────┼────────┤",
+            "│ hg-a100-w2 │ A100 │ READY │",
+            "* orphan-vm | Hardware: T4",
+        ]
+    )
+    assert cb.parse_colab_sessions_output(table_out) == ["hg-l4-w1", "hg-a100-w2", "orphan-vm"]

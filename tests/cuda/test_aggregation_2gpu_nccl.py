@@ -252,8 +252,7 @@ try:
 
         # Trigger synchronization directly
         strat = trainer.aggregation_strategy
-        if hasattr(strat, "_synchronize"):
-            strat._synchronize()
+        strat._synchronize()
 
         # Verify CPU step tensor is still on CPU and was not modified by NCCL
         for p in trainer.graph.parameters():
@@ -276,10 +275,15 @@ def run_2gpu_subprocess(
     timeout: float = 40.0,
     config_kwargs: Dict[str, Any] = None,
     run_dir: Path | None = None,
+    total_steps: int | None = None,
 ) -> List[Dict[str, Any]]:
     """Helper to launch two worker processes on GPU 0 and GPU 1 and gather rank outputs."""
     cfg_file = tmp_path / f"cfg_{mode}_{time.monotonic_ns()}.json"
-    cfg_dict = make_toy_cuda_config(batch_size=8, steps=steps + 2, **(config_kwargs or {}))
+    cfg_dict = make_toy_cuda_config(
+        batch_size=8,
+        steps=total_steps if total_steps is not None else steps + 2,
+        **(config_kwargs or {}),
+    )
     cfg_file.write_text(json.dumps(cfg_dict))
 
     worker_script = tmp_path / "worker.py"
@@ -442,20 +446,31 @@ def test_2gpu_nccl_checkpoint_save_and_manifest_metadata(tmp_path):
 
 def test_2gpu_nccl_checkpoint_resume_and_trajectory_continuity(tmp_path):
     """Test 6: Verify exact resume continuity on 2x GPU NCCL under pseudo_gradient:
-    - Phase 1: Train 2 steps and save checkpoint.
+    - Baseline: Train 4 continuous steps with schedule total_steps=4.
+    - Phase 1: Train 2 steps (same schedule total_steps=4) and save checkpoint.
     - Phase 2: In a fresh worker group, restore checkpoint and continue for steps 3 and 4.
-    - Verify restored step count is 2 and final step reaches 4.
+    - Verify resumed steps 3 & 4 losses and final weights match the uninterrupted 4-step trajectory.
     """
     agg = {"strategy": "pseudo_gradient", "sync_every_steps": 2, "outer_lr": 0.5, "outer_momentum": 0.8}
     run_dir = tmp_path / "run_checkpoint_resume"
     run_dir.mkdir(exist_ok=True)
 
+    # 0. Continuous 4-step baseline with identical schedule (total_steps=4)
+    baseline_results = run_2gpu_subprocess(tmp_path, mode="step", agg_cfg=agg, steps=4, total_steps=4)
+    assert len(baseline_results) == 2
+    base_r0 = baseline_results[0]
+    assert base_r0["final_step"] == 4
+
     # 1. Save checkpoint at step 2
-    save_results = run_2gpu_subprocess(tmp_path, mode="checkpoint_save", agg_cfg=agg, steps=2, run_dir=run_dir)
+    save_results = run_2gpu_subprocess(
+        tmp_path, mode="checkpoint_save", agg_cfg=agg, steps=2, total_steps=4, run_dir=run_dir
+    )
     assert len(save_results) == 2
 
     # 2. Resume from checkpoint for steps 3 and 4
-    resume_results = run_2gpu_subprocess(tmp_path, mode="checkpoint_resume", agg_cfg=agg, steps=2, run_dir=run_dir)
+    resume_results = run_2gpu_subprocess(
+        tmp_path, mode="checkpoint_resume", agg_cfg=agg, steps=2, total_steps=4, run_dir=run_dir
+    )
     assert len(resume_results) == 2
     r0, r1 = resume_results[0], resume_results[1]
 
@@ -464,11 +479,25 @@ def test_2gpu_nccl_checkpoint_resume_and_trajectory_continuity(tmp_path):
     assert r0["metrics"][0]["step"] == 3
     assert r0["metrics"][1]["step"] == 4
 
+    # Resumed step 3 & 4 losses match continuous baseline
+    for idx, step_num in enumerate((3, 4)):
+        base_m = base_r0["metrics"][step_num - 1]
+        res_m = r0["metrics"][idx]
+        assert res_m["d_loss"] == pytest.approx(base_m["d_loss"], rel=1e-5, abs=1e-6)
+        assert res_m["g_loss"] == pytest.approx(base_m["g_loss"], rel=1e-5, abs=1e-6)
+
+    # Final weights match both across ranks AND against continuous 4-step baseline
+    base_final_weights = base_r0["weight_history"][3]
     for key in r0["final_weights"]:
         torch.testing.assert_close(
             torch.tensor(r0["final_weights"][key]),
             torch.tensor(r1["final_weights"][key]),
-            rtol=1e-6, atol=1e-7
+            rtol=1e-6, atol=1e-7,
+        )
+        torch.testing.assert_close(
+            torch.tensor(r0["final_weights"][key]),
+            torch.tensor(base_final_weights[key]),
+            rtol=1e-5, atol=1e-6,
         )
 
 

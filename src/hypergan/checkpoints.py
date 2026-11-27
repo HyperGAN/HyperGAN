@@ -9,12 +9,80 @@ from pathlib import Path
 import random
 import re
 import shutil
+import stat
 import uuid
 
 from ._file_lock import lock_file, retry_lock, unlock_file
 from .run_state import atomic_json, run_lock, sync_directory, validate_event_boundary
 
 SCHEMA = 1
+MAX_METADATA_BYTES = 16 * 1024 * 1024
+
+
+def _validate_checkpoint_basename(name):
+    if (
+        not isinstance(name, str)
+        or not name
+        or '/' in name
+        or '\\' in name
+        or name in ('.', '..')
+        or name.startswith('.')
+        or Path(name).name != name
+    ):
+        raise ValueError('Invalid training checkpoint pointer path')
+    return name
+
+
+def _read_bounded_json(path, *, max_bytes=MAX_METADATA_BYTES):
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(f'Checkpoint metadata must not be a symlink: {path}')
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
+    fd = os.open(str(path), flags)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError(f'Checkpoint metadata must be an ordinary file: {path}')
+        with os.fdopen(fd, 'rb') as stream:
+            fd = -1
+            data = stream.read(max_bytes + 1)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    if len(data) > max_bytes:
+        raise ValueError(f'Checkpoint metadata exceeds {max_bytes} bytes: {path}')
+    return json.loads(data.decode('utf-8'))
+
+
+def _load_verified_torch_state(path, *, expected_sha256=None, wrap_load_errors=True):
+    import torch
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(f'Checkpoint payload must not be a symlink: {path}')
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
+    fd = os.open(str(path), flags)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError(f'Checkpoint payload must be an ordinary file: {path}')
+        with os.fdopen(fd, 'rb') as stream:
+            fd = -1
+            if expected_sha256 is not None:
+                digest = hashlib.sha256()
+                for block in iter(lambda: stream.read(1048576), b''):
+                    digest.update(block)
+                if digest.hexdigest() != expected_sha256:
+                    raise ValueError('Training checkpoint digest mismatch')
+                stream.seek(0)
+            if not wrap_load_errors:
+                return torch.load(stream, map_location='cpu', weights_only=True)
+            try:
+                return torch.load(stream, map_location='cpu', weights_only=True)
+            except (pickle.UnpicklingError, RuntimeError, EOFError) as exc:
+                raise ValueError('Invalid training checkpoint payload; safe tensor loading failed') from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
 
 
 def file_sha256(path):
@@ -414,8 +482,8 @@ def _restore_trainer_cross_topology(trainer, state, *, rank=0, world_size=1):
                 strategy.initialize()
             if hasattr(strategy, 'step_count'):
                 strategy.step_count = step_val
-            if hasattr(strategy, 'last_synced_step'):
-                strategy.last_synced_step = step_val
+            if hasattr(strategy, 'synced_step'):
+                strategy.synced_step = step_val
 
     torch.manual_seed(rank_mix)
     random.seed(rank_mix)
@@ -488,24 +556,33 @@ def write_checkpoint(run_dir, trainer, last_batch, metadata):
 
 
 def _read_checkpoint(run_dir, checkpoint=None):
-    import torch
-    root = (Path(run_dir) / 'checkpoints').resolve()
+    raw_root = Path(run_dir) / 'checkpoints'
+    if raw_root.is_symlink():
+        raise ValueError('Checkpoint root must be an ordinary directory')
+    root = raw_root.resolve()
     if checkpoint is None:
         pointer = root / 'latest.json'
+        if pointer.is_symlink():
+            raise ValueError('Training checkpoint pointer must not be a symlink')
         if not pointer.exists():
             raise ValueError('No full training checkpoint exists; an inference model is not resumable')
-        latest = json.loads(pointer.read_text())
-        if not isinstance(latest, dict) or latest.get('schema_version') not in (1, 2) or not isinstance(latest.get('checkpoint'), str):
+        latest = _read_bounded_json(pointer)
+        if not isinstance(latest, dict) or type(latest.get('schema_version')) is not int or latest.get('schema_version') not in (1, 2):
             raise ValueError('Invalid training checkpoint pointer')
-        checkpoint = root / latest['checkpoint']
+        ckpt_name = _validate_checkpoint_basename(latest.get('checkpoint'))
+        checkpoint = root / ckpt_name
     target = Path(checkpoint)
     if not target.is_absolute():
         choices = (target, Path(run_dir) / target, root / target)
-        target = next((choice for choice in choices if choice.is_dir()), root / target)
-    target = target.resolve()
-    if not target.is_relative_to(root) or not target.is_dir() or target.name.startswith('.'):
+        target = next((choice for choice in choices if choice.exists() or choice.is_symlink()), root / target)
+    if target.is_symlink() or target.parent.is_symlink():
+        raise ValueError('Checkpoint must not be a symlink')
+    if '..' in target.parts or target.parent.resolve() != root:
         raise ValueError('Checkpoint must be a completed checkpoint directory inside this run')
-    info = json.loads((target / 'manifest.json').read_text())
+    target = target.resolve()
+    if target.parent != root or not target.is_dir() or target.name.startswith('.'):
+        raise ValueError('Checkpoint must be a completed checkpoint directory inside this run')
+    info = _read_bounded_json(target / 'manifest.json')
     if 'identity' in info and isinstance(info['identity'], dict):
         for k in ('config', 'config_sha256', 'runtime', 'data_contract', 'implementation'):
             if k not in info and k in info['identity']:
@@ -518,12 +595,9 @@ def _read_checkpoint(run_dir, checkpoint=None):
     from .checkpoint_compatibility import validate_checkpoint_compatibility
     validate_checkpoint_compatibility(info)
     validate_event_boundary(run_dir, info)
-    if file_sha256(target / 'state.pt') != info['state_sha256']:
-        raise ValueError('Training checkpoint digest mismatch')
-    try:
-        state = torch.load(target / 'state.pt', map_location='cpu', weights_only=True)
-    except (pickle.UnpicklingError, RuntimeError, EOFError) as exc:
-        raise ValueError('Invalid training checkpoint payload; safe tensor loading failed') from exc
+    if not isinstance(info.get('state_sha256'), str) or not info['state_sha256']:
+        raise ValueError('Invalid training checkpoint digest metadata')
+    state = _load_verified_torch_state(target / 'state.pt', expected_sha256=info['state_sha256'])
     if not isinstance(state, dict) or 'step' not in state:
         raise ValueError('Invalid training checkpoint state fields')
     if state['step'] != info['step']:
@@ -543,7 +617,7 @@ from .model_file import DEFAULT_CHECKPOINT_POLICY, normalize_checkpoint_policy
 
 def _read_json(path):
     try:
-        value = json.loads(Path(path).read_text(encoding='utf-8'))
+        value = _read_bounded_json(path)
     except (OSError, ValueError):
         return None
     return value if isinstance(value, dict) else None
@@ -682,6 +756,9 @@ def resolve_resume_checkpoint_dir(run_dir: Path | str, checkpoint=None, *, run_m
     """Resolve latest or explicit checkpoint across checkpoints/ and distributed-checkpoints/."""
     run_dir = Path(run_dir).resolve()
     all_roots = _checkpoint_roots(run_dir, existing_only=False)
+    for root in all_roots:
+        if root.is_symlink():
+            raise ValueError('Checkpoint root must be an ordinary directory')
     if run_manifest is None:
         run_manifest = _read_json(run_dir / "manifest.json") or {}
 
@@ -690,26 +767,29 @@ def resolve_resume_checkpoint_dir(run_dir: Path | str, checkpoint=None, *, run_m
         candidates = []
         for root in all_roots:
             pointer_path = root / "latest.json"
+            if pointer_path.is_symlink():
+                raise ValueError("Training checkpoint pointer must not be a symlink")
             if not pointer_path.exists():
                 continue
             try:
-                pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+                pointer = _read_bounded_json(pointer_path)
             except (OSError, ValueError) as exc:
                 raise ValueError("Invalid training checkpoint pointer") from exc
             if not isinstance(pointer, dict) or type(pointer.get("schema_version")) is not int or pointer["schema_version"] not in (1, 2):
                 raise ValueError("Unsupported training checkpoint pointer schema")
             if root.name == "distributed-checkpoints" and pointer.get("kind") != "hypergan-distributed-training-checkpoint":
                 raise ValueError("Invalid distributed checkpoint pointer kind")
-            name = pointer.get("checkpoint")
-            if not isinstance(name, str) or Path(name).name != name:
-                raise ValueError("Invalid training checkpoint pointer path")
+            name = _validate_checkpoint_basename(pointer.get("checkpoint"))
             cand = root / name
             if cand.is_symlink():
                 raise ValueError("Checkpoint must be an ordinary completed directory inside this run")
             cand_resolved = cand.resolve()
             if cand_resolved.parent != root or cand_resolved.name.startswith(".") or not cand_resolved.is_dir():
                 raise ValueError("Checkpoint must be a completed checkpoint directory inside this run")
-            info = _read_json(cand_resolved / "manifest.json")
+            try:
+                info = _read_bounded_json(cand_resolved / "manifest.json")
+            except (OSError, ValueError) as exc:
+                raise ValueError("Invalid training checkpoint metadata") from exc
             if not isinstance(info, dict):
                 raise ValueError("Invalid training checkpoint metadata")
             step = info.get("step")
@@ -742,8 +822,10 @@ def resolve_resume_checkpoint_dir(run_dir: Path | str, checkpoint=None, *, run_m
     if not target.is_absolute():
         choices = (target, run_dir / target, *(r / target for r in all_roots))
         target = next((choice for choice in choices if choice.exists() or choice.is_symlink()), all_roots[0] / target)
-    if target.is_symlink():
+    if target.is_symlink() or target.parent.is_symlink():
         raise ValueError("Checkpoint must be an ordinary completed directory inside this run")
+    if '..' in target.parts or target.parent.resolve() not in all_roots:
+        raise ValueError("Checkpoint must be a completed checkpoint directory inside this run")
     target = target.resolve()
     if target.parent not in all_roots or target.name.startswith(".") or not target.is_dir():
         raise ValueError("Checkpoint must be a completed checkpoint directory inside this run")
@@ -755,6 +837,9 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
     run_dir = Path(run_dir).resolve()
     if not run_dir.is_dir():
         raise ValueError(f"Run directory not found: {run_dir}")
+    for root in _checkpoint_roots(run_dir, existing_only=False):
+        if root.is_symlink():
+            raise ValueError("Checkpoint root must be an ordinary directory")
     ckpt_roots = _checkpoint_roots(run_dir, existing_only=True)
     if not ckpt_roots:
         raise ValueError(f"No checkpoints directory found in {run_dir}")
@@ -767,16 +852,23 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
         pointer_candidates = []
         for ckpt_root in ckpt_roots:
             latest_file = ckpt_root / "latest.json"
+            if latest_file.is_symlink():
+                raise ValueError("Training checkpoint pointer must not be a symlink")
             if latest_file.is_file():
                 try:
-                    latest = json.loads(latest_file.read_text(encoding="utf-8"))
-                    if isinstance(latest, dict) and latest.get("checkpoint"):
-                        candidate = ckpt_root / latest["checkpoint"]
-                        if candidate.is_dir():
-                            resolved_cand = candidate.resolve()
-                            pointer_candidates.append((_checkpoint_sort_key(resolved_cand, run_manifest), resolved_cand))
-                except Exception:
-                    pass
+                    latest = _read_bounded_json(latest_file)
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if isinstance(latest, dict) and latest.get("checkpoint") is not None:
+                    ckpt_name = _validate_checkpoint_basename(latest["checkpoint"])
+                    candidate = ckpt_root / ckpt_name
+                    if candidate.is_symlink():
+                        raise ValueError("Checkpoint must not be a symlink")
+                    resolved_cand = candidate.resolve()
+                    if resolved_cand.parent != ckpt_root or resolved_cand.name.startswith("."):
+                        raise ValueError("Checkpoint must be a completed checkpoint directory inside this run")
+                    if resolved_cand.is_dir():
+                        pointer_candidates.append((_checkpoint_sort_key(resolved_cand, run_manifest), resolved_cand))
         if pointer_candidates:
             pointer_candidates.sort(key=lambda item: item[0], reverse=True)
             return pointer_candidates[0][1]
@@ -785,19 +877,15 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
         candidates = []
         for ckpt_root in ckpt_roots:
             for p in ckpt_root.iterdir():
-                if p.is_dir() and not p.name.startswith("."):
+                if not p.is_symlink() and p.is_dir() and not p.name.startswith("."):
                     match = re.search(r"-step-(\d+)-", p.name)
                     step_val = None
                     if match:
                         step_val = int(match.group(1))
                     else:
-                        mf = p / "manifest.json"
-                        if mf.is_file():
-                            try:
-                                m_info = json.loads(mf.read_text(encoding="utf-8"))
-                                step_val = m_info.get("step")
-                            except Exception:
-                                pass
+                        m_info = _read_json(p / "manifest.json")
+                        if m_info is not None:
+                            step_val = m_info.get("step")
                     if step_val is not None:
                         resolved_p = p.resolve()
                         candidates.append((_checkpoint_sort_key(resolved_p, run_manifest), resolved_p))
@@ -832,26 +920,21 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
         pattern = f"-step-{step:08d}-"
         matches = [
             p for ckpt_root in ckpt_roots for p in ckpt_root.iterdir()
-            if p.is_dir() and not p.name.startswith(".") and pattern in p.name
+            if not p.is_symlink() and p.is_dir() and not p.name.startswith(".") and pattern in p.name
         ]
         if not matches:
             fallback_pattern = f"-step-{step}-"
             matches = [
                 p for ckpt_root in ckpt_roots for p in ckpt_root.iterdir()
-                if p.is_dir() and not p.name.startswith(".") and fallback_pattern in p.name
+                if not p.is_symlink() and p.is_dir() and not p.name.startswith(".") and fallback_pattern in p.name
             ]
         if not matches:
             for ckpt_root in ckpt_roots:
                 for p in ckpt_root.iterdir():
-                    if p.is_dir() and not p.name.startswith("."):
-                        mf = p / "manifest.json"
-                        if mf.is_file():
-                            try:
-                                m_info = json.loads(mf.read_text(encoding="utf-8"))
-                                if m_info.get("step") == step:
-                                    matches.append(p)
-                            except Exception:
-                                pass
+                    if not p.is_symlink() and p.is_dir() and not p.name.startswith("."):
+                        m_info = _read_json(p / "manifest.json")
+                        if m_info is not None and m_info.get("step") == step:
+                            matches.append(p)
         if not matches:
             raise ValueError(f"Checkpoint for step {step} not found in {ckpt_roots[0]}")
         matches.sort(key=lambda p: _checkpoint_sort_key(p.resolve(), run_manifest), reverse=True)
@@ -861,7 +944,11 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
     cand_path = Path(target_str)
     choices = [cand_path, run_dir / cand_path, *(ckpt_root / cand_path for ckpt_root in ckpt_roots)]
     for c in choices:
+        if c.is_symlink():
+            raise ValueError(f"Checkpoint path must not be a symlink: {target}")
         if c.is_file() and c.name in ("state.pt", "model.pt", "rank-00000.pt"):
+            if c.parent.is_symlink():
+                raise ValueError(f"Checkpoint directory must not be a symlink: {target}")
             return c.parent.resolve()
         if c.is_dir() and (
             (c / "state.pt").is_file()
@@ -877,10 +964,12 @@ def resolve_checkpoint(run_dir: Path | str, target: str | int | None = "latest")
 def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None, include_example_inputs: bool = False) -> dict:
     """Extract an in-memory EMA inference bundle conforming to kind='ema-inference' from a checkpoint."""
     from .config import config_values, sampling_bindings, evaluation_bindings
-    path = Path(checkpoint_dir).resolve()
+    raw_path = Path(checkpoint_dir)
+    if raw_path.is_symlink():
+        raise ValueError(f"Checkpoint path must not be a symlink: {checkpoint_dir}")
+    path = raw_path.resolve()
     if path.is_file() and path.name == "model.pt":
-        import torch
-        bundle = torch.load(path, map_location="cpu", weights_only=True)
+        bundle = _load_verified_torch_state(path, wrap_load_errors=False)
         if isinstance(bundle, dict) and bundle.get("kind") == "ema-inference":
             if not include_example_inputs and "example_inputs" in bundle:
                 bundle = dict(bundle)
@@ -897,33 +986,67 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None,
     elif path.is_dir():
         ckpt_dir = path
         state_file = ckpt_dir / "state.pt"
-        if not state_file.is_file() and (ckpt_dir / "rank-00000.pt").is_file():
-            state_file = ckpt_dir / "rank-00000.pt"
-        if not state_file.is_file() and (ckpt_dir / "model.pt").is_file():
-            import torch
-            bundle = torch.load(ckpt_dir / "model.pt", map_location="cpu", weights_only=True)
-            if isinstance(bundle, dict) and bundle.get("kind") == "ema-inference":
-                if not include_example_inputs and "example_inputs" in bundle:
-                    bundle = dict(bundle)
-                    bundle["example_inputs"] = {
-                        k: ({"shape": list(v.shape), "dtype": str(v.dtype)} if hasattr(v, "shape") else v)
-                        for k, v in bundle["example_inputs"].items()
-                    }
-                return bundle
+        if state_file.is_symlink():
+            raise ValueError(f"Checkpoint state file must not be a symlink: {state_file}")
+        if not state_file.is_file():
+            rank0_cand = ckpt_dir / "rank-00000.pt"
+            if rank0_cand.is_symlink():
+                raise ValueError(f"Checkpoint state file must not be a symlink: {rank0_cand}")
+            if rank0_cand.is_file():
+                state_file = rank0_cand
+        if not state_file.is_file():
+            model_pt = ckpt_dir / "model.pt"
+            if model_pt.is_symlink():
+                raise ValueError(f"Inference bundle must not be a symlink: {model_pt}")
+            if model_pt.is_file():
+                bundle = _load_verified_torch_state(model_pt, wrap_load_errors=False)
+                if isinstance(bundle, dict) and bundle.get("kind") == "ema-inference":
+                    if not include_example_inputs and "example_inputs" in bundle:
+                        bundle = dict(bundle)
+                        bundle["example_inputs"] = {
+                            k: ({"shape": list(v.shape), "dtype": str(v.dtype)} if hasattr(v, "shape") else v)
+                            for k, v in bundle["example_inputs"].items()
+                        }
+                    return bundle
     else:
         raise ValueError(f"Checkpoint path not found: {checkpoint_dir}")
 
+    if state_file.is_symlink():
+        raise ValueError(f"Checkpoint state file must not be a symlink: {state_file}")
     if not state_file.is_file():
         raise ValueError(f"Checkpoint state file missing: {state_file}")
 
     if manifest is None:
         manifest_file = ckpt_dir / "manifest.json"
+        if manifest_file.is_symlink():
+            raise ValueError(f"Checkpoint manifest must not be a symlink: {manifest_file}")
         if not manifest_file.is_file():
             raise ValueError(f"Checkpoint manifest missing: {manifest_file}")
-        manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        manifest = _read_bounded_json(manifest_file)
+    if not isinstance(manifest, dict):
+        raise ValueError("Invalid checkpoint manifest")
 
-    import torch
-    state = torch.load(state_file, map_location="cpu", weights_only=True)
+    expected_sha256 = None
+    if state_file.name == "state.pt":
+        if "state_sha256" in manifest:
+            if not isinstance(manifest["state_sha256"], str) or not manifest["state_sha256"]:
+                raise ValueError("Invalid checkpoint state_sha256 metadata")
+            expected_sha256 = manifest["state_sha256"]
+        elif manifest.get("kind") == "hypergan-training-checkpoint" or (
+            manifest.get("kind") == "hypergan-distributed-training-checkpoint"
+            and manifest.get("schema_version") == 2
+        ):
+            raise ValueError("Checkpoint manifest missing state_sha256 digest")
+    elif state_file.name == "rank-00000.pt":
+        ranks = manifest.get("ranks")
+        if isinstance(ranks, list):
+            r0 = next((item for item in ranks if isinstance(item, dict) and item.get("rank") == 0), None)
+            if r0 is not None:
+                if not isinstance(r0.get("sha256"), str) or not r0["sha256"]:
+                    raise ValueError("Invalid checkpoint rank-0 sha256 metadata")
+                expected_sha256 = r0["sha256"]
+
+    state = _load_verified_torch_state(state_file, expected_sha256=expected_sha256, wrap_load_errors=False)
 
     if not isinstance(state, dict):
         raise ValueError("Checkpoint state missing EMA weights; cannot construct EMA inference bundle")
@@ -1005,9 +1128,18 @@ def extract_ema_bundle(checkpoint_dir: Path | str, manifest: dict | None = None,
 
     batch = state.get("last_batch")
     if not batch and needed_inputs:
-        rank_zero = ckpt_dir / "ranks" / "rank-00000.pt"
+        ranks_dir = ckpt_dir / "ranks"
+        rank_zero = ranks_dir / "rank-00000.pt"
+        if ranks_dir.is_symlink() or rank_zero.is_symlink():
+            raise ValueError(f"Checkpoint rank-0 shard must not be a symlink: {rank_zero}")
         if rank_zero.is_file():
-            rank_state = torch.load(rank_zero, map_location="cpu", weights_only=True)
+            r0_sha = None
+            ranks = manifest.get("ranks")
+            if isinstance(ranks, list):
+                r0_rec = next((item for item in ranks if isinstance(item, dict) and item.get("rank") == 0), None)
+                if r0_rec is not None and isinstance(r0_rec.get("sha256"), str):
+                    r0_sha = r0_rec["sha256"]
+            rank_state = _load_verified_torch_state(rank_zero, expected_sha256=r0_sha)
             if isinstance(rank_state, dict):
                 batch = rank_state.get("last_batch")
     batch = batch or {}
@@ -1139,9 +1271,14 @@ def _prune_report(run_dir, dry_run, retained=(), deleted=(), failed=(), skipped=
 
 @contextmanager
 def _prune_lock(ckpt_root: Path):
-    lock_path = ckpt_root / '.prune.lock'
-    already_existed = lock_path.exists()
-    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o666)
+    # Place lock beside the checkpoints directory (never inside it so checkpoint
+    # listings stay clean) and never unlink an active flock file (unlink-race).
+    lock_dir = ckpt_root.parent if ckpt_root.name in CHECKPOINT_DIR_NAMES else ckpt_root
+    lock_path = lock_dir / '.prune.lock'
+    if lock_path.is_symlink():
+        raise ValueError(f'Prune lock must not be a symlink: {lock_path}')
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0)
+    fd = os.open(str(lock_path), flags, 0o666)
     try:
         lock_file(fd, blocking=True)
         try:
@@ -1150,11 +1287,6 @@ def _prune_lock(ckpt_root: Path):
             unlock_file(fd)
     finally:
         os.close(fd)
-        if not already_existed:
-            try:
-                lock_path.unlink(missing_ok=True)
-            except OSError:
-                pass
 
 
 def _is_run_dir(path):
@@ -1394,8 +1526,8 @@ def _prune_run_checkpoints(run_dir, policy=None, dry_run=False, manifest=None):
             for c in deleted_candidates:
                 target_dir = c['path']
                 try:
-                    (target_dir / 'state.pt').unlink(missing_ok=True)
-                    (target_dir / 'manifest.json').unlink(missing_ok=True)
+                    if target_dir.is_symlink():
+                        raise ValueError(f'Refusing to delete symlinked checkpoint directory: {target_dir}')
                     shutil.rmtree(target_dir)
                     deleted.append({'step': c['step'], 'name': c['name'], 'size': c['size']})
                     deleted_names_by_root[target_dir.parent].add(c['name'])

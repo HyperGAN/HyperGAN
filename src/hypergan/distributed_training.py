@@ -42,12 +42,19 @@ class _BroadcastProbeProxy:
     divergent ``alpha_gain`` / ``_ema_func_gain`` updates across CUDA replicas.
     """
 
-    __slots__ = ("_module", "_ref_shape", "_device")
+    __slots__ = ("_module", "_ref_shapes", "_call_idx", "_device")
 
     def __init__(self, module, ref_tensor):
         self._module = module
-        self._ref_shape = tuple(ref_tensor.shape)
-        self._device = ref_tensor.device
+        if isinstance(ref_tensor, (list, tuple)):
+            if not ref_tensor:
+                raise ValueError("_BroadcastProbeProxy requires at least one reference tensor")
+            self._ref_shapes = [tuple(t.shape) for t in ref_tensor]
+            self._device = ref_tensor[0].device
+        else:
+            self._ref_shapes = [tuple(ref_tensor.shape)]
+            self._device = ref_tensor.device
+        self._call_idx = 0
 
     def modules(self):
         return self._module.modules()
@@ -61,13 +68,27 @@ class _BroadcastProbeProxy:
     def __getattr__(self, name):
         return getattr(self._module, name)
 
+    def __setattr__(self, name, value):
+        if name in _BroadcastProbeProxy.__slots__:
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._module, name, value)
+
+    def __delattr__(self, name):
+        if name in _BroadcastProbeProxy.__slots__:
+            object.__delattr__(self, name)
+        else:
+            delattr(self._module, name)
+
     def __call__(self, *args, **kwargs):
+        shape = self._ref_shapes[min(self._call_idx, len(self._ref_shapes) - 1)]
+        self._call_idx += 1
         if dist.get_rank() == 0:
             out = self._module(*args, **kwargs)
             target = out[0] if isinstance(out, (tuple, list)) and out else out
             buf = target.detach().to(device=self._device, dtype=torch.float32).contiguous()
         else:
-            buf = torch.empty(self._ref_shape, dtype=torch.float32, device=self._device)
+            buf = torch.empty(shape, dtype=torch.float32, device=self._device)
         dist.broadcast(buf, src=0)
         return buf
 
@@ -275,14 +296,36 @@ class ReplicatedTrainer(ReferenceTrainer):
             self._fold = None
         self._settle(fold)
 
+    def _hot_path_agree_ok(self, payload, *, has_error=False):
+        """Check cross-rank agreement and error status via one int64 MAX all_reduce (zero all_gather_object)."""
+        if getattr(self, 'device', None) is not None and self.device.type == 'cuda':
+            torch.cuda.set_device(self.device)
+        unhashable = False
+        words = (0,) * 8
+        if not has_error:
+            try:
+                raw = bytes.fromhex(self._digest(payload))
+                words = tuple(int.from_bytes(raw[i:i + 4], 'big') for i in range(0, 32, 4))
+            except ValueError:
+                unhashable = True
+        buf_vals = [int(bool(has_error or unhashable))]
+        for w in words:
+            buf_vals.append(w)
+            buf_vals.append(-w)
+        buf = torch.tensor(buf_vals, dtype=torch.int64, device=self.device)
+        dist.all_reduce(buf, op=dist.ReduceOp.MAX)
+        out = buf.tolist()
+        if out[0]:
+            return False
+        for i in range(8):
+            if out[1 + 2 * i] + out[2 + 2 * i] != 0:
+                return False
+        return True
+
     def _settle(self, fold, force=False):
         if not force and not getattr(fold, 'forced', False) and getattr(self, '_in_hot_path', False):
             has_error = fold.failed or any(entry[0] == 'error' for entry in fold.entries)
-            if getattr(self, 'device', None) is not None and self.device.type == 'cuda':
-                torch.cuda.set_device(self.device)
-            failed = torch.tensor(int(has_error), dtype=torch.int32, device=self.device)
-            dist.all_reduce(failed, op=dist.ReduceOp.MAX)
-            if not failed.item():
+            if self._hot_path_agree_ok((fold.name, fold.entries), has_error=has_error):
                 return
         peers = self._exchange('fold:' + fold.name, fold.entries)
         for index in range(max(len(entries) for entries in peers)):
@@ -339,7 +382,8 @@ class ReplicatedTrainer(ReferenceTrainer):
                 fold.entries.append(('agreement', name, value))
             return
         if not force and getattr(self, '_in_hot_path', False):
-            return
+            if self._hot_path_agree_ok(('agreement:' + name, value), has_error=False):
+                return
         values = self._exchange('agreement:' + name, value)
         if any(item != values[0] for item in values):
             raise ValueError(f'Ranks disagree on {name}')
@@ -390,6 +434,9 @@ class ReplicatedTrainer(ReferenceTrainer):
                                'modes': {key: child.training for key, child in module.named_modules()}}
             state['optimizers'] = [optimizer.state_dict() for optimizer in self.optimizers]
             state['base_lrs'] = self.base_lrs
+            strategy = getattr(self, 'aggregation_strategy', None)
+            if strategy is not None and callable(getattr(strategy, 'state_dict', None)):
+                state['aggregation'] = strategy.state_dict()
             prior_reg_ckpt = self.recipe.prior_regularizer_checkpoint(self.spread) if callable(getattr(self.recipe, 'prior_regularizer_checkpoint', None)) else {}
             if prior_reg_ckpt:
                 state['prior_regularizer'] = prior_reg_ckpt['prior_regularizer']
@@ -615,7 +662,22 @@ class ReplicatedTrainer(ReferenceTrainer):
         for name, optimizer in self.critic_optimizers.items():
             rec_d = getattr(optimizer, 'record', None)
             self._sync_unified_v11_d_probes(rec_d)
-            self._optimizer_step(optimizer, name)
+            probes_d = getattr(rec_d, '_d_probe_list', None)
+            orig_critic = getattr(optimizer, 'critic', None)
+            wrap_critic = (
+                bool(probes_d)
+                and orig_critic is not None
+                and self.world_size > 1
+                and getattr(self.aggregation_strategy, 'reduces_gradients', False)
+                and all(isinstance(p[2], torch.Tensor) for p in probes_d)
+            )
+            if wrap_critic:
+                optimizer.critic = _BroadcastProbeProxy(orig_critic, [p[2] for p in probes_d])
+            try:
+                self._optimizer_step(optimizer, name)
+            finally:
+                if wrap_critic:
+                    optimizer.critic = orig_critic
             self._average_critic_statistics(rec_d)
         if explicit_guard is not None:
             d_guard_ratio_t = torch.tensor(float(explicit_guard or 1.0), dtype=torch.float64, device=self.device)
@@ -700,14 +762,36 @@ class ReplicatedTrainer(ReferenceTrainer):
         return None
 
     @staticmethod
-    def _is_highres_image_term(term, sample):
+    def _is_unified_v15_record(rec):
+        return rec is not None and (
+            hasattr(rec, 'highd_basin_bank')
+            or hasattr(rec, 'sparse_obs_bank')
+            or getattr(type(rec), '__module__', '').startswith('particlegan._unified_v15')
+        )
+
+    @classmethod
+    def _is_unified_v15_term(cls, term):
+        gan = getattr(term, 'gan', None)
+        if gan is None:
+            return False
+        return (
+            cls._is_unified_v15_record(getattr(gan, 'record', None))
+            or getattr(type(gan), '__module__', '').startswith('particlegan._unified_v15')
+            or type(gan).__name__ == 'UnifiedV15GANLoss'
+        )
+
+    @classmethod
+    def _is_highres_image_term(cls, term, sample):
         if not (isinstance(sample, torch.Tensor) and sample.ndim >= 2 and sample.shape[0] > 0 and len(term.routes) == 1):
             return False
-        limit = (4096 if sample.ndim >= 4 else 1024) if hasattr(term.gan, 'axiom_record') else 1024
+        is_v15_or_axiom = hasattr(term.gan, 'axiom_record') or cls._is_unified_v15_term(term)
+        limit = (4096 if sample.ndim >= 4 else 1024) if is_v15_or_axiom else 1024
         return int(sample[0].numel()) > limit
 
     @classmethod
     def _uses_coupled_critic_loss(cls, term, sample=None):
+        if hasattr(term.gan, 'empf_record'):
+            return True
         if hasattr(term.gan, 'rhbi') and (
             getattr(term.gan, 'critic_weight', 0.0) > 0.0
             or getattr(term.gan, 'fibre_rel_blend', 0.0) > 0.0
@@ -723,6 +807,8 @@ class ReplicatedTrainer(ReferenceTrainer):
 
     @classmethod
     def _uses_coupled_generator_loss(cls, term, sample=None):
+        if hasattr(term.gan, 'empf_record'):
+            return True
         if hasattr(term.gan, 'rhbi') and getattr(term.gan.rhbi, 'weight', 0.0) > 0.0:
             return True
         if hasattr(term.gan, 't1c') and getattr(term.gan.t1c, 'weight', 0.0) > 0.0 and not cls._is_highres_image_term(term, sample):
@@ -793,44 +879,163 @@ class ReplicatedTrainer(ReferenceTrainer):
             global_r_sc._t1c_record = eff_rec
         return global_f_sc, global_r_sc
 
-    def _gather_coupled_pair(self, term, fake_score, real_score):
+    def _gather_empf_pair(self, fake_score, real_score, rec, *, fake_sample=None, real_sample=None):
+        """Gather critic logits and EMPF spatial/conditioning captures across all ranks."""
+        global_f_sc = self._all_gather_coupled(fake_score)
+        global_r_sc = self._all_gather_coupled(real_score)
+        eff_rec = (
+            getattr(fake_score, '_empf_record', None)
+            or getattr(real_score, '_empf_record', None)
+            or rec
+        )
+        b_f_local = int(fake_score.shape[0]) if fake_score.ndim >= 1 else 0
+        b_r_local = int(real_score.shape[0]) if real_score.ndim >= 1 else 0
+
+        def _gather_cond_tuple(cond_tensors, b_local):
+            if not cond_tensors:
+                return ()
+            out = []
+            for c in cond_tensors:
+                if isinstance(c, torch.Tensor) and c.ndim >= 1 and int(c.shape[0]) == b_local:
+                    out.append(self._all_gather_coupled(c.detach()))
+                else:
+                    out.append(c)
+            return tuple(out)
+
+        x_f = getattr(fake_score, '_empf_input', None)
+        x_r = getattr(real_score, '_empf_input', None)
+        if x_f is None and isinstance(fake_sample, torch.Tensor) and x_r is not None and fake_sample.shape == x_r.shape:
+            x_f = fake_sample.detach()
+        if x_r is None and isinstance(real_sample, torch.Tensor) and x_f is not None and real_sample.shape == x_f.shape:
+            x_r = real_sample.detach()
+        if isinstance(x_f, torch.Tensor) and isinstance(x_r, torch.Tensor):
+            global_f_sc._empf_input = self._all_gather_coupled(x_f.detach())
+            global_r_sc._empf_input = self._all_gather_coupled(x_r.detach())
+        if eff_rec is not None:
+            global_f_sc._empf_record = eff_rec
+            global_r_sc._empf_record = eff_rec
+        if hasattr(fake_score, '_empf_conditioned'):
+            global_f_sc._empf_conditioned = bool(fake_score._empf_conditioned)
+        if hasattr(real_score, '_empf_conditioned'):
+            global_r_sc._empf_conditioned = bool(real_score._empf_conditioned)
+        c_f = getattr(fake_score, '_empf_cond_tensors', ())
+        c_r = getattr(real_score, '_empf_cond_tensors', ())
+        if c_f:
+            global_f_sc._empf_cond_tensors = _gather_cond_tuple(c_f, b_f_local)
+        if c_r:
+            global_r_sc._empf_cond_tensors = _gather_cond_tuple(c_r, b_r_local)
+        return global_f_sc, global_r_sc
+
+    def _gather_coupled_pair(self, term, fake_score, real_score, *, fake_sample=None, real_sample=None):
         rec = getattr(term.gan, 'record', None)
+        if hasattr(term.gan, 'empf_record'):
+            return self._gather_empf_pair(
+                fake_score,
+                real_score,
+                getattr(term.gan, 'empf_record', None) or rec,
+                fake_sample=fake_sample,
+                real_sample=real_sample,
+            )
         if hasattr(term.gan, 'axiom_record'):
             return self._gather_axiom_pair(fake_score, real_score, rec)
         if hasattr(term.gan, 't1c'):
             return self._gather_t1c_pair(fake_score, real_score, rec)
         return self._gather_rhbi_pair(fake_score, real_score, rec)
 
+    def _sync_coupled_generator_latents(self, terms):
+        """Gather v15 generator latents across ranks so highd_basin_bank and sparse_obs_bank match global x_f."""
+        if self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
+            return
+        seen = set()
+        for term in terms:
+            rec = getattr(term.gan, 'record', None)
+            if rec is None or id(rec) in seen:
+                continue
+            seen.add(id(rec))
+            g_lat = getattr(rec, '_g_last_latent', None)
+            if (
+                isinstance(g_lat, tuple)
+                and len(g_lat) == 2
+                and isinstance(g_lat[1], torch.Tensor)
+                and g_lat[1].ndim >= 1
+                and int(g_lat[1].shape[0]) == self.local_batch_size
+            ):
+                rec._g_last_latent = (g_lat[0], self._all_gather_coupled(g_lat[1].detach()))
+            g_lat_live = getattr(rec, '_g_last_latent_live', None)
+            if (
+                isinstance(g_lat_live, tuple)
+                and len(g_lat_live) == 2
+                and isinstance(g_lat_live[1], torch.Tensor)
+                and g_lat_live[1].ndim >= 1
+                and int(g_lat_live[1].shape[0]) == self.local_batch_size
+            ):
+                rec._g_last_latent_live = (g_lat_live[0], self._all_gather_coupled(g_lat_live[1]))
+
+    def _probe_budget_for_record(self, rec, b_global, elem_dim):
+        if hasattr(rec, 'chart_state') and hasattr(rec, 'thermal_scale'):
+            from particlegan._axiom.critic import _PROBE_MAX_BATCH
+            return min(_PROBE_MAX_BATCH, b_global)
+        if self._is_unified_v15_record(rec):
+            from particlegan._unified_v15.critic import _probe_batch_count
+            return _probe_batch_count(b_global, elem_dim)
+        from particlegan._unified_v11.critic import _PROBE_SLICE
+        return min(b_global, max(2, min(_PROBE_SLICE, 8192 // max(1, elem_dim))))
+
+    def _gather_probe_value(self, value, b_local, b_probe, p_idx=None):
+        if isinstance(value, torch.Tensor):
+            if value.ndim >= 1 and int(value.shape[0]) == b_local:
+                gathered = self._all_gather_coupled(value.detach())
+                if p_idx is not None:
+                    return gathered.index_select(0, p_idx.to(device=gathered.device))
+                return gathered[:b_probe]
+            return value.detach()
+        if isinstance(value, dict):
+            return {k: self._gather_probe_value(v, b_local, b_probe, p_idx=p_idx) for k, v in value.items()}
+        if isinstance(value, tuple):
+            return tuple(self._gather_probe_value(v, b_local, b_probe, p_idx=p_idx) for v in value)
+        if isinstance(value, list):
+            return [self._gather_probe_value(v, b_local, b_probe, p_idx=p_idx) for v in value]
+        return value
+
     def _sync_unified_v11_d_probes(self, rec):
         """Gather critic secant probe slices across ranks so all ranks compute identical alpha_gain."""
         probes = getattr(rec, '_d_probe_list', None)
         if not probes or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
             return
-        from particlegan._unified_v11.critic import _PROBE_SLICE
+        is_v15 = self._is_unified_v15_record(rec)
+        select_v15 = None
+        if is_v15:
+            from particlegan._unified_v15.critic import _select_probe_indices as select_v15
         synced = []
         for p_args, p_kwargs, d_pre in probes:
-            if len(p_args) == 1 and not p_kwargs and isinstance(p_args[0], torch.Tensor):
-                in_dim = max(1, int(p_args[0][0].numel())) if p_args[0].shape[0] > 0 else 1
-                b_p = max(2, min(_PROBE_SLICE, 8192 // in_dim))
-                gx = self._all_gather_coupled(p_args[0].detach())[:b_p]
-                gd = self._all_gather_coupled(d_pre.detach())[:b_p]
-                synced.append(((gx,), {}, gd))
+            if isinstance(d_pre, torch.Tensor) and d_pre.ndim >= 1 and d_pre.shape[0] > 0:
+                b_local = int(d_pre.shape[0])
+                b_gathered = b_local * self.world_size
+                first_t = next((a for a in p_args if isinstance(a, torch.Tensor) and a.ndim >= 1 and int(a.shape[0]) == b_local), None)
+                in_dim = max(1, int(first_t[0].numel())) if first_t is not None else max(1, int(d_pre[0].numel()))
+                b_p = self._probe_budget_for_record(rec, b_gathered, in_dim)
+                if len(p_args) == 1 and not p_kwargs and isinstance(p_args[0], torch.Tensor) and int(p_args[0].shape[0]) == b_local:
+                    gx_all = self._all_gather_coupled(p_args[0].detach())
+                    gd_all = self._all_gather_coupled(d_pre.detach())
+                    p_idx = select_v15(gx_all, int(gx_all.shape[0]), b_p) if (select_v15 is not None and b_p < int(gx_all.shape[0])) else None
+                    if p_idx is not None:
+                        gx = gx_all.index_select(0, p_idx.to(device=gx_all.device))
+                        gd = gd_all.index_select(0, p_idx.to(device=gd_all.device))
+                    else:
+                        gx = gx_all[:b_p]
+                        gd = gd_all[:b_p]
+                    synced.append(((gx,), {}, gd))
+                else:
+                    gd_all = self._all_gather_coupled(d_pre.detach())
+                    ref_all = self._all_gather_coupled(first_t.detach()) if first_t is not None else gd_all
+                    p_idx = select_v15(ref_all, int(ref_all.shape[0]), b_p) if (select_v15 is not None and b_p < int(ref_all.shape[0])) else None
+                    g_args = self._gather_probe_value(p_args, b_local, b_p, p_idx=p_idx)
+                    g_kwargs = self._gather_probe_value(p_kwargs, b_local, b_p, p_idx=p_idx)
+                    gd = gd_all.index_select(0, p_idx.to(device=gd_all.device)) if p_idx is not None else gd_all[:b_p]
+                    synced.append((g_args, g_kwargs, gd))
             else:
                 synced.append((p_args, p_kwargs, d_pre))
         rec._d_probe_list = synced
-
-    def _gather_probe_value(self, value, b_local, b_probe):
-        if isinstance(value, torch.Tensor):
-            if value.ndim >= 1 and value.shape[0] == b_local:
-                return self._all_gather_coupled(value.detach())[:b_probe]
-            return value.detach()
-        if isinstance(value, dict):
-            return {k: self._gather_probe_value(v, b_local, b_probe) for k, v in value.items()}
-        if isinstance(value, tuple):
-            return tuple(self._gather_probe_value(v, b_local, b_probe) for v in value)
-        if isinstance(value, list):
-            return [self._gather_probe_value(v, b_local, b_probe) for v in value]
-        return value
 
     def _sync_unified_v11_g_probe(self):
         """Gather element-budgeted generator secant probe slice across ranks so all ranks compute identical alpha_gain."""
@@ -839,17 +1044,18 @@ class ReplicatedTrainer(ReferenceTrainer):
         if cache is None or self.world_size <= 1 or not getattr(self.aggregation_strategy, 'reduces_gradients', False):
             return
         g_mod, p_args, p_kwargs, y_pre = cache
-        out_dim = max(1, int(y_pre[0].numel()))
-        if hasattr(rec, 'chart_state') and hasattr(rec, 'thermal_scale'):
-            from particlegan._axiom.critic import _PROBE_MAX_BATCH
-            b_p = min(_PROBE_MAX_BATCH, int(y_pre.shape[0]) * self.world_size)
-        else:
-            from particlegan._unified_v11.critic import _PROBE_SLICE
-            b_p = max(2, min(_PROBE_SLICE, 8192 // out_dim))
         b_local = int(y_pre.shape[0])
-        g_args = self._gather_probe_value(p_args, b_local, b_p)
-        g_kwargs = self._gather_probe_value(p_kwargs, b_local, b_p)
-        gy = self._all_gather_coupled(y_pre.detach())[:b_p]
+        b_gathered = b_local * self.world_size
+        out_dim = max(1, int(y_pre[0].numel()))
+        b_p = self._probe_budget_for_record(rec, b_gathered, out_dim)
+        gy_all = self._all_gather_coupled(y_pre.detach())
+        p_idx = None
+        if self._is_unified_v15_record(rec) and b_p < int(gy_all.shape[0]):
+            from particlegan._unified_v15.critic import _select_probe_indices
+            p_idx = _select_probe_indices(gy_all, int(gy_all.shape[0]), b_p)
+        g_args = self._gather_probe_value(p_args, b_local, b_p, p_idx=p_idx)
+        g_kwargs = self._gather_probe_value(p_kwargs, b_local, b_p, p_idx=p_idx)
+        gy = gy_all.index_select(0, p_idx.to(device=gy_all.device)) if p_idx is not None else gy_all[:b_p]
         rec._g_probe_cache = (_BroadcastProbeProxy(g_mod, gy), g_args, g_kwargs, gy)
 
     def _gather_rhbi_pair(self, fake_score, real_score, rec):
@@ -928,25 +1134,63 @@ class ReplicatedTrainer(ReferenceTrainer):
             half = torch.full((), 0.5, dtype=torch.float64, device=self.device)
             return zero, zero, half
 
-    def _sample_moment_scalars(self, fake_samples, real_samples):
+    def _sample_diversity_stats(self, fake_samples, real_samples):
+        """Capture per-feature mean and cancellation-free centered sum of squares for global inter-sample spread."""
         with torch.no_grad():
-            if (isinstance(fake_samples, torch.Tensor) and isinstance(real_samples, torch.Tensor)
-                    and fake_samples.numel() > 0 and real_samples.numel() > 0):
-                fs = fake_samples.detach().double()
-                rs = real_samples.detach().double()
-                return (
-                    fs.mean().reshape(()),
-                    fs.square().mean().reshape(()),
-                    rs.mean().reshape(()),
-                    rs.square().mean().reshape(()),
-                    int(fake_samples.numel()),
-                    int(real_samples.numel()),
-                )
             zero = torch.zeros((), dtype=torch.float64, device=self.device)
-            return zero, zero, zero, zero, 0, 0
+
+            def stats_for(sample):
+                if isinstance(sample, torch.Tensor) and sample.ndim >= 1 and sample.shape[0] > 0 and sample.numel() > 0:
+                    b = int(sample.shape[0])
+                    flat = sample.detach().reshape(b, -1).double()
+                    mean_d = flat.mean(dim=0)
+                    centered_ss = (flat - mean_d.unsqueeze(0)).square().sum().reshape(())
+                    return mean_d, centered_ss, b, int(flat.shape[1])
+                return None, zero, 0, 0
+
+            return stats_for(fake_samples), stats_for(real_samples)
+
+    def _combine_diversity_stats(self, stats_list):
+        """Combine microbatch (mean_d, centered_ss, b, feat_dim) tuples via Chan's parallel variance identity."""
+        with torch.no_grad():
+            zero = torch.zeros((), dtype=torch.float64, device=self.device)
+            valid = [s for s in stats_list if s[0] is not None and s[2] > 0 and s[3] > 0]
+            if not valid:
+                return None, zero, 0, 0
+            total_b = sum(s[2] for s in valid)
+            feat_dim = valid[0][3]
+            mean_d = sum(s[0] * float(s[2]) for s in valid) / float(total_b)
+            centered_ss = sum(
+                s[1] + float(s[2]) * (s[0] - mean_d).square().sum()
+                for s in valid
+            ).reshape(())
+            return mean_d, centered_ss, total_b, feat_dim
+
+    def _global_diversity_var_scalars(self, fake_stats, real_stats):
+        """Reduce per-feature means once to obtain exact unbiased global inter-sample feature variances."""
+        with torch.no_grad():
+            zero = torch.zeros((), dtype=torch.float64, device=self.device)
+            f_mean, f_ss, f_b, f_d = fake_stats
+            r_mean, r_ss, r_b, r_d = real_stats
+            global_f_b = f_b * self.world_size
+            global_r_b = r_b * self.world_size
+            if f_mean is None or r_mean is None or global_f_b < 2 or global_r_b < 2 or f_d < 1 or r_d < 1:
+                return zero, zero, global_f_b, global_r_b
+            means_cat = torch.cat((f_mean, r_mean), dim=0).contiguous()
+            dist.all_reduce(means_cat, op=dist.ReduceOp.SUM)
+            means_cat.div_(self.world_size)
+            global_f_mean = means_cat[:f_d]
+            global_r_mean = means_cat[f_d:]
+            rank_f_ss = f_ss + float(f_b) * (f_mean - global_f_mean).square().sum()
+            rank_r_ss = r_ss + float(r_b) * (r_mean - global_r_mean).square().sum()
+            # _complete averages scalars across ranks (dividing by world_size), so scaling by
+            # world_size here yields the exact global sum / (D * (B_global - 1)) after _complete.
+            fake_var_contrib = (rank_f_ss * (float(self.world_size) / float(f_d * (global_f_b - 1)))).reshape(())
+            real_var_contrib = (rank_r_ss * (float(self.world_size) / float(r_d * (global_r_b - 1)))).reshape(())
+            return fake_var_contrib, real_var_contrib, global_f_b, global_r_b
 
     @staticmethod
-    def _populate_telemetry(row, tail, global_fake_numel, global_real_numel):
+    def _populate_telemetry(row, tail, global_fake_batch, global_real_batch):
         (
             raw_real_mean,
             raw_fake_mean,
@@ -955,10 +1199,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             raw_gn_gen,
             raw_gn_prior,
             raw_particle_rms,
-            fake_mean,
-            fake_sq_mean,
-            real_mean,
-            real_sq_mean,
+            fake_var,
+            real_var,
             raw_d_guard,
         ) = tail
         critic_real_mean = float(raw_real_mean) if math.isfinite(raw_real_mean) else 0.0
@@ -974,14 +1216,18 @@ class ReplicatedTrainer(ReferenceTrainer):
         d_guard_ratio = float(raw_d_guard) if math.isfinite(raw_d_guard) else 1.0
 
         if (
-            global_fake_numel > 1
-            and global_real_numel > 1
-            and all(math.isfinite(v) for v in (fake_mean, fake_sq_mean, real_mean, real_sq_mean))
+            global_fake_batch >= 2
+            and global_real_batch >= 2
+            and math.isfinite(fake_var)
+            and math.isfinite(real_var)
         ):
-            fake_var = max(0.0, fake_sq_mean - fake_mean * fake_mean) * (global_fake_numel / (global_fake_numel - 1))
-            real_var = max(0.0, real_sq_mean - real_mean * real_mean) * (global_real_numel / (global_real_numel - 1))
-            cand_ratio = math.sqrt(fake_var) / (math.sqrt(real_var) + 1e-8)
-            diversity_ratio = float(cand_ratio) if math.isfinite(cand_ratio) else 1.0
+            fake_spread = math.sqrt(max(0.0, float(fake_var)))
+            real_spread = math.sqrt(max(0.0, float(real_var)))
+            if real_spread > 0.0:
+                cand_ratio = fake_spread / (real_spread + 1e-8)
+                diversity_ratio = float(cand_ratio) if math.isfinite(cand_ratio) else 1.0
+            else:
+                diversity_ratio = 1.0
         else:
             diversity_ratio = 1.0
 
@@ -1100,13 +1346,17 @@ class ReplicatedTrainer(ReferenceTrainer):
             raw_fake, real = context['generated'], local_batch['real']
             if not self._valid_generated_shape(raw_fake, real) or not torch.isfinite(raw_fake).all():
                 raise ValueError('Generator output must be finite and match local real data shape')
-            fake = with_noise(raw_fake, output_std, noise_stream)
-            context['generated'] = fake
-            return local_batch, context, fake, real, ids
+            return local_batch, context, raw_fake, real, ids
+
+        def prepare_for_d(b, l_draw):
+            if independent:
+                with torch.no_grad():
+                    return prepare(b, l_draw)
+            return prepare(b, l_draw)
 
         with self._folded('batch and generator forward'):
             batch, latent_draw = self._inputs(batch, latent_draw)
-            batch, context, fake, real, ids = self._phase('batch and generator forward', lambda: prepare(batch, latent_draw))
+            batch, context, fake, real, ids = self._phase('batch and generator forward', lambda: prepare_for_d(batch, latent_draw))
             self._agree('real data shape', (tuple(real.shape), str(real.dtype)))
             self._agree('prior kind', ids is None)
         selected = None
@@ -1175,8 +1425,8 @@ class ReplicatedTrainer(ReferenceTrainer):
             d_pen = _sum_tensors(penalties) if penalties else (first_fake.new_zeros(()) if first_fake is not None else real.new_zeros(()))
             d_tot = d_adv_weighted + d_pen
             score_stats = self._critic_score_scalars(first_r_sc, first_f_sc)
-            moment_stats = self._sample_moment_scalars(first_fake, first_real)
-            return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats, per_term_tensors
+            diversity_stats = self._sample_diversity_stats(first_fake, first_real)
+            return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, diversity_stats, per_term_tensors
 
         for optimizer in self.critic_optimizers.values():
             optimizer.zero_grad(set_to_none=True)
@@ -1195,8 +1445,9 @@ class ReplicatedTrainer(ReferenceTrainer):
             with self._folded('discriminator scores'):
                 d_scored = self._phase('discriminator scores', discriminator_scores_only)
             d_global_pairs = [
-                self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_critic_loss(term, r_s) else None
-                for term, (r_s, _, r_sc, f_sc) in zip(terms, d_scored)
+                self._gather_coupled_pair(term, f_sc, r_sc, fake_sample=f_s, real_sample=r_s)
+                if self._uses_coupled_critic_loss(term, r_s) else None
+                for term, (r_s, f_s, r_sc, f_sc) in zip(terms, d_scored)
             ]
 
             def discriminator_coupled_loss():
@@ -1242,27 +1493,26 @@ class ReplicatedTrainer(ReferenceTrainer):
                 d_pen = _sum_tensors(penalties) if penalties else (first_fake.new_zeros(()) if first_fake is not None else real.new_zeros(()))
                 d_tot = d_adv_weighted + d_pen
                 score_stats = self._critic_score_scalars(first_r_sc, first_f_sc)
-                moment_stats = self._sample_moment_scalars(first_fake, first_real)
-                return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, moment_stats, per_term_tensors
+                diversity_stats = self._sample_diversity_stats(first_fake, first_real)
+                return d_adv, d_adv_weighted, d_pen, d_tot, score_stats, diversity_stats, per_term_tensors
 
             with self._folded('discriminator backward'):
-                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats, per_term_tensors = self._phase(
+                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_diversity_stats, per_term_tensors = self._phase(
                     'discriminator forward and penalty', discriminator_coupled_loss)
                 critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
-                fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
                 self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
                 self._phase('discriminator backward', d_loss.backward)
         else:
             with self._folded('discriminator backward'):
-                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_moment_stats, per_term_tensors = self._phase(
+                d_adversarial, d_adversarial_weighted, d_penalty, d_loss, d_score_stats, d_diversity_stats, per_term_tensors = self._phase(
                     'discriminator forward and penalty', discriminator_forward)
                 critic_real_mean_t, critic_fake_mean_t, critic_acc_t = d_score_stats
-                fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t, local_fake_numel, local_real_numel = d_moment_stats
                 self._phase('discriminator loss', lambda: self._finite_loss(d_loss))
                 self._phase('discriminator backward', d_loss.backward)
         critic_grad_norm_t, d_guard_ratio_t = self._step_critics(terms)
 
         saved_flags = []
+        saved_bn_tracking = []
         seen_modules = set()
         for term in terms:
             if id(term.module) in seen_modules:
@@ -1271,6 +1521,14 @@ class ReplicatedTrainer(ReferenceTrainer):
             flags = [p.requires_grad for p in term.module.parameters()]
             term.module.requires_grad_(False)
             saved_flags.append((term.module, flags))
+            for sub in term.module.modules():
+                if (
+                    isinstance(sub, torch.nn.modules.batchnorm._BatchNorm)
+                    and sub.training
+                    and sub.track_running_stats
+                ):
+                    sub.track_running_stats = False
+                    saved_bn_tracking.append(sub)
         rhbi_real = self._term_real_sample(terms[0].critic_phase, context) if len(terms) == 1 else real
         rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(self, terms, rhbi_real)
         thermal_scope = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
@@ -1354,9 +1612,11 @@ class ReplicatedTrainer(ReferenceTrainer):
                     with self._folded('generator critic scores'):
                         g_scored = self._phase('generator critic scores', generator_scores_only)
                     g_global_pairs = [
-                        self._gather_coupled_pair(term, f_sc, r_sc) if self._uses_coupled_generator_loss(term, r_s) else None
-                        for term, (r_s, _, r_sc, f_sc) in zip(terms, g_scored)
+                        self._gather_coupled_pair(term, f_sc, r_sc, fake_sample=f_s, real_sample=r_s)
+                        if self._uses_coupled_generator_loss(term, r_s) else None
+                        for term, (r_s, f_s, r_sc, f_sc) in zip(terms, g_scored)
                     ]
+                    self._sync_coupled_generator_latents(terms)
                     global_simplex_real = (
                         self._all_gather_coupled(gen_real.detach())
                         if (effective_simplex and rhbi_mod is not None)
@@ -1422,9 +1682,14 @@ class ReplicatedTrainer(ReferenceTrainer):
                 self._optimizer_step(self.opt_g, 'generator')
         finally:
             _clear_discrete_prior_step(self, rhbi_mod)
+            for sub in saved_bn_tracking:
+                sub.track_running_stats = True
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)
+        fake_var_t, real_var_t, global_fake_batch, global_real_batch = self._global_diversity_var_scalars(
+            d_diversity_stats[0], d_diversity_stats[1]
+        )
         particle_rms_t = self._particle_rms_scalar()
         n_objectives = len(objective_losses)
         transferred = self._metric_transfer([
@@ -1434,7 +1699,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             critic_real_mean_t, critic_fake_mean_t, critic_acc_t,
             critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
             particle_rms_t,
-            fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
+            fake_var_t, real_var_t,
             d_guard_ratio_t,
             *per_term_tensors,
         ])
@@ -1448,12 +1713,12 @@ class ReplicatedTrainer(ReferenceTrainer):
         telemetry_start = 8 + n_objectives
         self._populate_telemetry(
             row,
-            values[telemetry_start:telemetry_start + 12],
-            local_fake_numel * self.world_size,
-            local_real_numel * self.world_size,
+            values[telemetry_start:telemetry_start + 10],
+            global_fake_batch,
+            global_real_batch,
         )
         self._populate_per_critic_metrics(
-            row, terms, values[telemetry_start + 12:], thermal_coordinator=thermal_coordinator
+            row, terms, values[telemetry_start + 10:], thermal_coordinator=thermal_coordinator
         )
         return row, detach(batch)
 
@@ -1592,7 +1857,11 @@ class ReplicatedTrainer(ReferenceTrainer):
         generation_rng, d_records = [], []
         # The penalty record counts calls. Discovery and replay evaluate one
         # logical penalty per microbatch; keep the count of the plain update.
-        records = [optimizer.record for optimizer in self.critic_optimizers.values()]
+        records = [
+            rec
+            for optimizer in self.critic_optimizers.values()
+            if (rec := getattr(optimizer, 'record', None)) is not None and hasattr(rec, 'calls')
+        ]
         logical_calls = None
 
         def generate(local_z, local_batch):
@@ -1634,7 +1903,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                     pen = f_s.new_zeros(())
                 term_records.append((r_sc, f_sc, pen))
             if capture_moments:
-                return term_records, self._digest(context['generated']), self._sample_moment_scalars(first_fake, first_real)
+                return term_records, self._digest(context['generated']), self._sample_diversity_stats(first_fake, first_real)
             return term_records, self._digest(context['generated'])
 
         with self._folded('discriminator backward'):
@@ -1650,7 +1919,7 @@ class ReplicatedTrainer(ReferenceTrainer):
                         self._finite_loss(pen)
                     return [(r_sc.detach(), f_sc.detach(), pen.detach()) for r_sc, f_sc, pen in term_records], fake_digest, sample_moments
                 d_records.append((rng, self._phase(f'D micro {index} discovery', prepass)))
-                if logical_calls is None:
+                if records and logical_calls is None:
                     logical_calls = [record.calls for record in records]
             all_dr, all_df = [], []
             unweighted, weighted = [], []
@@ -1690,10 +1959,12 @@ class ReplicatedTrainer(ReferenceTrainer):
                         step_loss = step_loss + term_loss
                     step_loss.backward()
                 self._phase(f'D micro {index} replay', lambda: self._isolated_replay(rng, replay))
-            for record, calls in zip(records, logical_calls):
-                record.calls = calls
+            if logical_calls is not None:
+                for record, calls in zip(records, logical_calls):
+                    record.calls = calls
         critic_grad_norm_t, d_guard_ratio_t = self._step_critics(terms)
         saved_flags = []
+        saved_bn_tracking = []
         seen_modules = set()
         for term in terms:
             if id(term.module) in seen_modules:
@@ -1702,6 +1973,14 @@ class ReplicatedTrainer(ReferenceTrainer):
             flags = [p.requires_grad for p in term.module.parameters()]
             term.module.requires_grad_(False)
             saved_flags.append((term.module, flags))
+            for sub in term.module.modules():
+                if (
+                    isinstance(sub, torch.nn.modules.batchnorm._BatchNorm)
+                    and sub.training
+                    and sub.track_running_stats
+                ):
+                    sub.track_running_stats = False
+                    saved_bn_tracking.append(sub)
         thermal_scope_acc = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
         try:
             with thermal_scope_acc:
@@ -1764,19 +2043,37 @@ class ReplicatedTrainer(ReferenceTrainer):
                     self.opt_g.zero_grad(set_to_none=True)
                     z_cotangent = torch.zeros_like(z) if z.requires_grad else None
                     any_z_gradient = False
+                    needs_protected = callable(getattr(self.opt_g, 'bind_protected_losses', None))
+                    opt_g_params = self._parameters(self.opt_g) if needs_protected else []
+                    trainable_opt_g = [p for p in opt_g_params if p.requires_grad] if needs_protected else []
+                    protected_grads = {id(p): torch.zeros_like(p) for p in opt_g_params} if needs_protected else None
+                    adv_z_cotangent = torch.zeros_like(z) if (needs_protected and z.requires_grad) else None
+                    any_adv_z_gradient = False
                     for index, start in enumerate(starts):
                         rng, expected = g_records[index]
                         def replay():
-                            nonlocal any_z_gradient
+                            nonlocal any_z_gradient, any_adv_z_gradient
                             current = self._immutable_forward(lambda: generator_micro(index, start))
                             term_records, objectives, local_z, fake_digest = current
                             if fake_digest != expected[2]:
                                 raise ValueError('Generator microbatch replay differs from discovery outputs')
-                            step_loss = 0
+                            adv_loss = 0
                             for t, (gf_m, _) in enumerate(term_records):
                                 gf_slice = g_cotangents[t][start:start + self.microbatch_size]
-                                step_loss = step_loss + (gf_m * gf_slice).sum()
-                            step_loss = step_loss + sum(value * factor for value, factor in zip(objectives, objective_factors))
+                                adv_loss = adv_loss + (gf_m * gf_slice).sum()
+                            if needs_protected and isinstance(adv_loss, torch.Tensor) and adv_loss.requires_grad:
+                                targets_p = list(trainable_opt_g) + ([local_z] if adv_z_cotangent is not None else [])
+                                if targets_p:
+                                    computed_p = torch.autograd.grad(adv_loss, targets_p, retain_graph=True, allow_unused=True)
+                                    for p_obj, g_val in zip(trainable_opt_g, computed_p[:len(trainable_opt_g)]):
+                                        if g_val is not None:
+                                            protected_grads[id(p_obj)].add_(g_val.detach())
+                                    if adv_z_cotangent is not None:
+                                        gz_adv = computed_p[-1]
+                                        if gz_adv is not None:
+                                            any_adv_z_gradient = True
+                                            adv_z_cotangent[start:start + self.microbatch_size].copy_(gz_adv.detach())
+                            step_loss = adv_loss + sum(value * factor for value, factor in zip(objectives, objective_factors))
                             step_loss.backward()
                             if z_cotangent is not None and local_z.grad is not None:
                                 any_z_gradient = True
@@ -1787,6 +2084,37 @@ class ReplicatedTrainer(ReferenceTrainer):
                         prior_loss = self.recipe.prior_regularization(rows, regularizer=self.spread, prior=self.prior) if rows is not None else z.new_zeros(())
                         self._finite_loss(prior_loss)
                         self._finite_loss(weighted_adversarial.detach() + prior_loss.detach() + sum(objective_losses))
+                        set_rows = getattr(self.opt_g, 'set_sampled_rows', None)
+                        if set_rows is not None and selected is not None and self.program.prior_parameters:
+                            set_rows(self.prior.z, selected)
+                        if needs_protected:
+                            if any_adv_z_gradient and adv_z_cotangent is not None:
+                                prior_trainable = [p for p in self.program.prior_parameters if p.requires_grad]
+                                if prior_trainable:
+                                    adv_prior_grads = torch.autograd.grad(
+                                        z, prior_trainable, grad_outputs=adv_z_cotangent, retain_graph=True, allow_unused=True
+                                    )
+                                    for p_obj, g_val in zip(prior_trainable, adv_prior_grads):
+                                        if g_val is not None and id(p_obj) in protected_grads:
+                                            protected_grads[id(p_obj)].add_(g_val.detach())
+                            pieces = []
+                            for p_obj in opt_g_params:
+                                piece = protected_grads[id(p_obj)].detach().clone()
+                                grp = next(g for g in self.opt_g.param_groups if any(p is p_obj for p in g['params']))
+                                if grp.get('algorithm') == 'rownorm' and grp.get('sampled_rows_required'):
+                                    sampled = self.opt_g.sampled_rows_for(p_obj)
+                                    if sampled is None:
+                                        raise ValueError('constraint_geometry requires explicit sampled rows')
+                                    masked = torch.zeros_like(piece)
+                                    masked[sampled] = piece[sampled]
+                                    piece = masked
+                                pieces.append(piece.flatten())
+                            protected_tensor = torch.stack([torch.cat(pieces)]) if pieces else None
+                            if protected_tensor is not None:
+                                if not bool(torch.isfinite(protected_tensor).all()):
+                                    self.opt_g._protected = None
+                                    raise ValueError('nonfinite constraint_geometry protected gradient')
+                                self.opt_g._protected = protected_tensor
                         outputs, gradients = [], []
                         if any_z_gradient:
                             outputs.append(z)
@@ -1798,6 +2126,10 @@ class ReplicatedTrainer(ReferenceTrainer):
                             torch.autograd.backward(outputs, gradients)
                         return prior_loss.detach()
                     prior_loss = self._phase('global prior regularizer and latent backward', prior_backward)
+                if getattr(self.opt_g, '_protected', None) is not None:
+                    if getattr(self.aggregation_strategy, 'reduces_gradients', False):
+                        dist.all_reduce(self.opt_g._protected)
+                        self.opt_g._protected /= self.world_size
                 self._reduce_gradients(self.opt_g, 'generator/prior/auxiliary')
                 gen_grad_norm_t = self._grad_norm_scalar(self.program.generator_parameters)
                 prior_grad_norm_t = (
@@ -1808,6 +2140,8 @@ class ReplicatedTrainer(ReferenceTrainer):
                 self._sync_unified_v11_g_probe()
                 self._optimizer_step(self.opt_g, 'generator')
         finally:
+            for sub in saved_bn_tracking:
+                sub.track_running_stats = True
             for module, flags in saved_flags:
                 for parameter, flag in zip(module.parameters(), flags):
                     parameter.requires_grad_(flag)
@@ -1821,13 +2155,11 @@ class ReplicatedTrainer(ReferenceTrainer):
             d_tot_t = (d_adv_w_t + d_pen_t).reshape(())
             r_mean_t, f_mean_t, _ = self._critic_score_scalars(all_dr[t], all_df[t])
             acc_per_term_tensors.extend((d_adv_w_t, d_pen_t, d_tot_t, r_mean_t, f_mean_t))
-        micro_moments = [rec[1][2] for rec in d_records]
-        fake_mean_t = (sum(m[0] for m in micro_moments) / self.accumulation_steps).reshape(())
-        fake_sq_mean_t = (sum(m[1] for m in micro_moments) / self.accumulation_steps).reshape(())
-        real_mean_t = (sum(m[2] for m in micro_moments) / self.accumulation_steps).reshape(())
-        real_sq_mean_t = (sum(m[3] for m in micro_moments) / self.accumulation_steps).reshape(())
-        local_fake_numel = sum(m[4] for m in micro_moments)
-        local_real_numel = sum(m[5] for m in micro_moments)
+        fake_div_stats = self._combine_diversity_stats([rec[1][2][0] for rec in d_records])
+        real_div_stats = self._combine_diversity_stats([rec[1][2][1] for rec in d_records])
+        fake_var_t, real_var_t, global_fake_batch, global_real_batch = self._global_diversity_var_scalars(
+            fake_div_stats, real_div_stats
+        )
         particle_rms_t = self._particle_rms_scalar()
         n_objectives = len(objective_losses)
         transferred = self._metric_transfer([
@@ -1837,7 +2169,7 @@ class ReplicatedTrainer(ReferenceTrainer):
             critic_real_mean_t, critic_fake_mean_t, critic_acc_t,
             critic_grad_norm_t, gen_grad_norm_t, prior_grad_norm_t,
             particle_rms_t,
-            fake_mean_t, fake_sq_mean_t, real_mean_t, real_sq_mean_t,
+            fake_var_t, real_var_t,
             d_guard_ratio_t,
             *acc_per_term_tensors,
         ])
@@ -1851,12 +2183,12 @@ class ReplicatedTrainer(ReferenceTrainer):
         telemetry_start = 8 + n_objectives
         self._populate_telemetry(
             row,
-            values[telemetry_start:telemetry_start + 12],
-            local_fake_numel * self.world_size,
-            local_real_numel * self.world_size,
+            values[telemetry_start:telemetry_start + 10],
+            global_fake_batch,
+            global_real_batch,
         )
         self._populate_per_critic_metrics(
-            row, terms, values[telemetry_start + 12:], thermal_coordinator=thermal_coordinator
+            row, terms, values[telemetry_start + 10:], thermal_coordinator=thermal_coordinator
         )
         return row, detach(batch)
 

@@ -25,13 +25,17 @@ import torch.distributed as dist
 
 pytestmark = [pytest.mark.heavy, pytest.mark.multi_gpu]
 
-QUALIFICATION_RUN_DIR = Path("/mnt/ml7tb/hypergan-training-runs/qualify-cifar-reference-2gpu")
+_QUALIFICATION_RUN_ENV = os.environ.get("HYPERGAN_QUALIFICATION_RUN_DIR")
+QUALIFICATION_RUN_DIR = Path(_QUALIFICATION_RUN_ENV) if _QUALIFICATION_RUN_ENV else None
 
 
 def test_cifar_replicated_qualification_artifacts():
     """Verify the 40-step 2-GPU qualification run produced complete, valid artifacts."""
-    if not QUALIFICATION_RUN_DIR.is_dir():
-        pytest.skip(f"Qualification run directory {QUALIFICATION_RUN_DIR} not found on this host")
+    if QUALIFICATION_RUN_DIR is None or not QUALIFICATION_RUN_DIR.is_dir():
+        pytest.skip(
+            "Qualification run directory not configured or absent "
+            "(set HYPERGAN_QUALIFICATION_RUN_DIR to verify an existing 40-step 2-GPU run)"
+        )
 
     # 1. Inspect summary.json
     summary_path = QUALIFICATION_RUN_DIR / "summary.json"
@@ -173,16 +177,30 @@ def _worker_process(rank, rendezvous, out_path):
         metrics, _ = trainer.update(local_batch, (trainer.prior(ids), ids))
         trainer._assert_replicas("replicated step 1 sync")
 
-        # Step 2: Inject nonfinite gradient to test fused screening
-        # By setting a weight to NaN, the fused device-side check will screen it.
-        # But even without manual sabotage, regular updates verify the fused screening path.
-        metrics2, _ = trainer.update(local_batch, (trainer.prior(ids), ids))
-        trainer._assert_replicas("replicated step 2 sync")
+        # Step 2: Inject a real nonfinite gradient on rank 1 to verify fused screening refuses it
+        # without updating parameters.
+        before_d = [p.detach().clone() for p in trainer.graph.parameters()]
+        before_step = trainer.step
+        bad_batch = dict(local_batch)
+        if rank == 1:
+            bad_real = local_batch["real"].clone()
+            bad_real[0, 0] = float("nan")
+            bad_batch["real"] = bad_real
+        refused = False
+        try:
+            trainer.update(bad_batch, (trainer.prior(ids), ids))
+        except ValueError as exc:
+            msg = str(exc).lower()
+            refused = any(tok in msg for tok in ("nonfinite", "finite", "nan", "inf"))
+        assert refused, "Expected ValueError refusing nonfinite gradient/loss on rank 1"
+        assert trainer.step == before_step
+        for p, orig in zip(trainer.graph.parameters(), before_d):
+            assert torch.equal(p.detach(), orig), "Parameters must remain unchanged after nonfinite refusal"
 
         passed = True
         details = {
             "step_1_loss_d": float(metrics["loss/d_total"]),
-            "step_2_loss_d": float(metrics2["loss/d_total"]),
+            "nonfinite_refused": True,
         }
     except Exception as e:
         details = {"error": str(e), "type": type(e).__name__}

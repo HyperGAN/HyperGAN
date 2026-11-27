@@ -14,19 +14,124 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import queue
 import tempfile
+import time
 import warnings
 
-from .bounded_observer import AsyncBoundedObserver
+from .bounded_observer import AsyncBoundedObserver, BoundedObserver, _create_callback
 from .config import config_values, fingerprint, load_config, resolve_config, resume_compatible
 from .metrics import validate_update_scalars
-from .cpu_worker_service import CPUWorkerService
+from .cpu_worker_service import CPUWorkerService, _json
 from .distributed_commit import CheckpointCommitAuthority
 from .execution_preflight import _resolve_profile
 from .execution_profiles import experimental_features, load_execution_profile, validate_checkpoint_cadence
-from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, PreviewResult, Restored
+from .run_controller import ArtifactResult, CompletedUpdate, ExecutionInfo, FatalExecutionError, ObserverError, PreviewResult, Restored
 
 MAX_SAMPLE_COUNT = 1024
+
+
+def _deliver_replicated_callback(state, operation, payload):
+    """Run an isolated progress callback and propagate early-stop signals back to parent."""
+    if operation != 'deliver' or payload is not None:
+        raise ValueError('Invalid progress callback operation')
+    callback, event = state
+    try:
+        res = callback(event)
+    except BaseException as exc:
+        if type(exc).__name__ == 'StopTraining' and exc.__class__.__module__ == 'hypergan.api':
+            return {'stop': True, 'kind': 'exception', 'reason': str(exc) or 'early_stop'}
+        raise
+    if res is False:
+        return {'stop': True, 'kind': 'false', 'reason': 'early_stop'}
+    return None
+
+
+class _StopAwareBoundedObserver(BoundedObserver):
+    """BoundedObserver variant that preserves return-False / StopTraining early-stop signals."""
+
+    def __init__(self, callback, **options):
+        self.last_stop = None
+        super().__init__(callback, **options)
+
+    def _service(self, encoded):
+        return CPUWorkerService(
+            _create_callback,
+            _deliver_replicated_callback,
+            args=(self.reference, encoded),
+            run_id=self.run_id,
+            attempt_id=self.attempt_id,
+            world_size=1,
+            initialize_process_group=False,
+            startup_timeout=self.timeout,
+            command_timeout=self.timeout,
+            collective_timeout=self.timeout,
+            total_timeout=self.timeout,
+            cancellation_event=self._cancellation_event,
+        )
+
+    def deliver(self, event):
+        if not self._delivery_lock.acquire(blocking=False):
+            raise RuntimeError('Only one progress callback delivery can be outstanding')
+        try:
+            if self._closed:
+                raise RuntimeError('Progress observer is closed')
+            if self._disabled:
+                return False
+            if type(event) is not dict:
+                raise ValueError('Progress event must be a JSON object')
+            encoded = _json(event)
+            service = self._service(encoded)
+            self.last_stop = None
+            try:
+                with service:
+                    self.broker_pid, self.worker_pids = service.broker_pid, list(service.worker_pids)
+                    response = service.command('deliver')
+                results = response.get('results') if isinstance(response, dict) else None
+                if isinstance(results, list) and results and isinstance(results[0], dict) and results[0].get('stop') is True:
+                    self.last_stop = dict(results[0])
+                return True
+            except BaseException as error:
+                self.broker_pid = service.broker_pid
+                self.worker_pids = list(service.worker_pids)
+                self._disabled = True
+                if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                    raise
+                raise ObserverError(f'Progress callback {self.reference} failed and was disabled: {error}') from error
+        finally:
+            self._delivery_lock.release()
+
+
+class _StopAwareAsyncObserver(AsyncBoundedObserver):
+    """AsyncBoundedObserver that forwards early-stop signals from isolated worker callbacks."""
+
+    def __init__(self, callback, **options):
+        super().__init__(callback, **options)
+        self._observer = _StopAwareBoundedObserver(callback, cancellation_event=self._cancel, **options)
+        self._stop_signals = queue.Queue()
+
+    def _dispatch(self):
+        while True:
+            job = self._jobs.get()
+            if job is None:
+                return
+            encoded, deadline = job
+            error = None
+            try:
+                self._observer.timeout = max(1e-9, deadline - time.monotonic())
+                self._observer.deliver(json.loads(encoded))
+                if self._observer.last_stop is not None:
+                    self._stop_signals.put_nowait(self._observer.last_stop)
+            except BaseException as exc:
+                error = exc
+            self._results.put_nowait((json.loads(encoded).get('step'), error))
+
+    def pop_stop(self):
+        self.poll()
+        try:
+            return self._stop_signals.get_nowait()
+        except queue.Empty:
+            return None
 
 
 def _normalize_runner_config(config):
@@ -136,7 +241,7 @@ class ReplicatedExecution:
             # Only the concrete CLI sink performs bounded parent delivery.
             # Ordinary user callbacks retain their isolated worker contract.
             self.observer = (on_event if type(on_event) is CLIProgress else
-                AsyncBoundedObserver(on_event, timeout=self.policy['observer_timeout'],
+                _StopAwareAsyncObserver(on_event, timeout=self.policy['observer_timeout'],
                     run_id=context.run_id, attempt_id=context.attempt_id))
             if isinstance(self.observer, AsyncBoundedObserver):
                 self.observer.start()
@@ -466,12 +571,24 @@ class ReplicatedExecution:
             # observer does not justify another synchronous health roundtrip.
             if event['event'] in ('complete', 'stopped', 'failed', 'interrupted'):
                 self.observer.finish(event, stop_requested=self._observation_stop_requested)
-            else:
-                self.observer.deliver(event)
-            return
+                return None
+            self.observer.deliver(event)
+            stop_sig = self.observer.pop_stop() if hasattr(self.observer, 'pop_stop') else None
+            if stop_sig is not None:
+                if stop_sig.get('kind') == 'exception':
+                    from .api import StopTraining
+                    raise StopTraining(stop_sig.get('reason') or 'early_stop')
+                return False
+            return None
         primary = None
         try:
             self.observer.deliver(event)
+            stop_sig = getattr(self.observer, 'last_stop', None)
+            if stop_sig is not None and event.get('event') not in ('complete', 'stopped', 'failed', 'interrupted'):
+                if stop_sig.get('kind') == 'exception':
+                    from .api import StopTraining
+                    raise StopTraining(stop_sig.get('reason') or 'early_stop')
+                return False
         except BaseException as error:
             primary = error
             raise

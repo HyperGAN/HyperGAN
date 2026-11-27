@@ -17,8 +17,7 @@ ARG HYPERGAN_COMMIT=""
 
 RUN set -eu; \
     if [ -n "${HYPERGAN_COMMIT}" ]; then \
-        printf '{"commit": "%s", "dirty": null, "schema_version": 1}\n' "${HYPERGAN_COMMIT}" \
-            > src/hypergan/_build_provenance.json; \
+        python -c 'import json, pathlib, sys; pathlib.Path("src/hypergan/_build_provenance.json").write_text(json.dumps({"commit": sys.argv[1], "dirty": None, "schema_version": 1}) + "\n", encoding="utf-8")' "${HYPERGAN_COMMIT}"; \
     fi; \
     python -m pip wheel --no-cache-dir --no-deps --wheel-dir /dist .
 
@@ -32,7 +31,10 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     HYPERGAN_STATE_DIR=/runs/.hypergan
 
-RUN groupadd --gid 1000 hypergan \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1000 hypergan \
     && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash hypergan \
     && mkdir -p /data /runs /workspace \
     && chown -R hypergan:hypergan /data /runs /workspace

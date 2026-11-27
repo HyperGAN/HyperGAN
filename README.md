@@ -17,7 +17,7 @@
 
 ---
 
-HyperGAN 2.2.0 trains generative models from declarative `hypergan-model/1` TOML recipes using [HNDL](https://hypergan.github.io/HyperGAN/reference/ops/) neural graphs and [ParticleGAN](https://github.com/HyperGAN/HyperGAN/blob/master/docs/particlegan.md) (`unified_v12`, multi-critic coupled thermal coordination). Drive every workflow from the Docker-style CLI or lazy-loaded typed Python API (`import hypergan as hg`, 129 public symbols), watch training live in the Foldlite DB WebAssembly Observatory, and export standalone EMA generators for serving.
+HyperGAN 2.2.0 trains generative models from declarative `hypergan-model/1` TOML recipes using [HNDL](https://hypergan.github.io/HyperGAN/reference/ops/) neural graphs and [ParticleGAN](https://github.com/HyperGAN/HyperGAN/blob/master/docs/particlegan.md) (`axiom`, multi-critic coupled thermal coordination). Drive every workflow from the Docker-style CLI or lazy-loaded typed Python API (`import hypergan as hg`, 129 public symbols), watch training live in the Foldlite DB WebAssembly Observatory, and export standalone EMA generators for serving.
 
 ![HyperGAN logo colorization: grayscale HG to a 4×4 colorized grid](https://raw.githubusercontent.com/HyperGAN/HyperGAN/master/docs/assets/hypergan-colorizer-banner.png)
 

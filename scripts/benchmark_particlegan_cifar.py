@@ -142,8 +142,9 @@ def run(args):
         resume = {'updates': 3, 'exact_state_and_rng': True}
         del restored, expected, actual
     milliseconds = statistics.median(timing) * 1000
+    batch_size = config['training']['batch_size']
     result = {'updates': args.updates, 'warmup': args.warmup,
-              'median_update_ms': milliseconds, 'images_per_second': 64 / statistics.median(timing),
+              'median_update_ms': milliseconds, 'images_per_second': batch_size / statistics.median(timing),
               'peak_allocated_bytes': peak, 'finite': True, 'frozen_values_unchanged': True,
               'resume': resume, 'performance_gate_ms': 300, 'performance_pass': milliseconds <= 300,
               'scope': 'complete ReferenceTrainer.update including data draw/transfer, D/G/prior/EMA; excludes preview/FID/checkpoint IO',

@@ -9,6 +9,7 @@ prune .agents
 prune .claude
 prune examples
 recursive-include examples *.toml *.hndl *.py *.md *.json
+recursive-include benchmarks/whitepaper *.toml *.md
 prune worktrees
 prune tests
 include tests/__init__.py

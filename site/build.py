@@ -864,7 +864,7 @@ def build_site(
         page_title=f"HyperGAN v{meta['version']} — Train generative models. Follow their progress. Export the result.",
         page_description=(
             "HyperGAN trains generative models from declarative hypergan-model/1 TOML files "
-            "using HNDL networks, ParticleGAN unified_v12, a real-time Web Observatory, and standalone export."
+            "using HNDL networks, ParticleGAN (axiom), a real-time Web Observatory, and standalone export."
         ),
         active_nav="home",
         extra={
@@ -902,7 +902,7 @@ def build_site(
         "quickstart.html",
         "quickstart/index.html",
         page_title=f"Quickstart & Install — HyperGAN v{meta['version']}",
-        page_description="Install HyperGAN 2.2.0 with CUDA 13.0 or CPU PyTorch, scaffold a project, train, monitor in the Web Observatory, and export standalone generators.",
+        page_description=f"Install HyperGAN {meta['version']} with CUDA 13.0 or CPU PyTorch, scaffold a project, train, monitor in the Web Observatory, and export standalone generators.",
         active_nav="quickstart",
         extra={
             "layout_mode": "docs",

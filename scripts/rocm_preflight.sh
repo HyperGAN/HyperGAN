@@ -26,10 +26,11 @@ VENV_DIR="${REPO_ROOT}/.venv-rocm"
 SKIP_INSTALL=false
 QUICK_MODE=false
 
-# Default wheel and package versions (overridable via environment)
-TORCH_ROCM_WHEEL_URL="${TORCH_ROCM_WHEEL_URL:-https://download.pytorch.org/whl/rocm6.2}"
-TORCH_VERSION="${TORCH_VERSION:-2.5.1+rocm6.2}"
-TORCHVISION_VERSION="${TORCHVISION_VERSION:-0.20.1+rocm6.2}"
+# Default wheel and package versions (overridable via environment; torch>=2.6,<3 per pyproject.toml)
+TORCH_ROCM_WHEEL_URL="${TORCH_ROCM_WHEEL_URL:-https://download.pytorch.org/whl/rocm6.2.4}"
+TORCH_VERSION="${TORCH_VERSION:-2.6.0+rocm6.2.4}"
+TORCHVISION_VERSION="${TORCHVISION_VERSION:-0.21.0+rocm6.2.4}"
+export TORCH_ROCM_WHEEL_URL
 
 # Parse CLI arguments
 while [[ $# -gt 0 ]]; do
@@ -179,13 +180,12 @@ if [ "${SKIP_INSTALL}" = true ]; then
         PYTHON_BIN="${VENV_DIR}/bin/python"
     fi
 else
-    # Find suitable Python interpreter (prefer 3.12 or 3.11 for PyTorch ROCm wheels)
+    # Find suitable Python interpreter (HyperGAN requires Python >=3.11,<3.15)
     SYSTEM_PYTHON=""
-    for py_candidate in python3.12 python3.11 python3; do
+    for py_candidate in python3.12 python3.13 python3.11 python3; do
         if command -v "${py_candidate}" >/dev/null 2>&1; then
             PY_VER=$("${py_candidate}" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-            # PyTorch ROCm wheels are available for 3.9 through 3.12
-            if [[ "${PY_VER}" == "3.11" || "${PY_VER}" == "3.12" || "${PY_VER}" == "3.10" || "${PY_VER}" == "3.9" ]]; then
+            if [[ "${PY_VER}" == "3.11" || "${PY_VER}" == "3.12" || "${PY_VER}" == "3.13" || "${PY_VER}" == "3.14" ]]; then
                 SYSTEM_PYTHON="${py_candidate}"
                 break
             fi
@@ -194,7 +194,7 @@ else
 
     if [ -z "${SYSTEM_PYTHON}" ]; then
         SYSTEM_PYTHON="python3"
-        echo "  Notice: Defaulting to $(which ${SYSTEM_PYTHON}). Note that PyTorch ROCm wheels officially target Python 3.9–3.12."
+        echo "  Notice: Defaulting to $(which ${SYSTEM_PYTHON}). HyperGAN requires Python 3.11–3.14."
     fi
 
     echo "  Using Python interpreter: ${SYSTEM_PYTHON} ($(${SYSTEM_PYTHON} --version))"
@@ -217,14 +217,42 @@ else
         "torch==${TORCH_VERSION}" \
         "torchvision==${TORCHVISION_VERSION}" \
         --index-url "${TORCH_ROCM_WHEEL_URL}" > "${LOGS_DIR}/torch_install.log" 2>&1 || {
-            echo "  WARNING: Direct wheel pin install exited non-zero. Attempting unpinned ROCm wheel install..."
-            "${PIP_BIN}" install torch torchvision --index-url "${TORCH_ROCM_WHEEL_URL}" >> "${LOGS_DIR}/torch_install.log" 2>&1 || true
+            echo "  WARNING: Direct wheel pin install exited non-zero. Attempting range-bounded ROCm wheel install..."
+            "${PIP_BIN}" install "torch>=2.6,<3" "torchvision>=0.21,<1" --index-url "${TORCH_ROCM_WHEEL_URL}" >> "${LOGS_DIR}/torch_install.log" 2>&1
         }
 
-    echo "  Installing HyperGAN editable with extras [train,image,cifar,fid,test]..."
-    "${PIP_BIN}" install -e "${REPO_ROOT}[train,image,cifar,fid,test]" > "${LOGS_DIR}/hypergan_install.log" 2>&1 || {
-        echo "  WARNING: Full extras install encountered dependency warnings; falling back to core install..."
-        "${PIP_BIN}" install -e "${REPO_ROOT}" >> "${LOGS_DIR}/hypergan_install.log" 2>&1 || true
+    echo "  Installing HyperGAN non-PyTorch dependencies (preserving ROCm torch/torchvision)..."
+    NON_TORCH_DEPS=$("${PYTHON_BIN}" - "${REPO_ROOT}/pyproject.toml" <<'PY'
+import re, sys, tomllib
+from pathlib import Path
+proj = tomllib.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))["project"]
+reqs = list(proj.get("dependencies", []))
+for extra in ("train", "image", "cifar", "fid", "test"):
+    reqs.extend(proj.get("optional-dependencies", {}).get(extra, []))
+seen = set()
+for req in reqs:
+    name = re.split(r"[\s\[<>=!~;@]", req, maxsplit=1)[0].lower()
+    if name in ("torch", "torchvision") or req in seen:
+        continue
+    seen.add(req)
+    print(req)
+PY
+)
+    if [ -n "${NON_TORCH_DEPS}" ]; then
+        while IFS= read -r req; do
+            [ -n "${req}" ] || continue
+            "${PIP_BIN}" install --upgrade-strategy only-if-needed "${req}" >> "${LOGS_DIR}/hypergan_install.log" 2>&1 || {
+                echo "  WARNING: Dependency install returned non-zero for ${req}; see ${LOGS_DIR}/hypergan_install.log" >&2
+            }
+        done <<< "${NON_TORCH_DEPS}"
+    fi
+    echo "  Installing HyperGAN editable with --no-deps (preserving ROCm PyTorch)..."
+    "${PIP_BIN}" install --no-deps -e "${REPO_ROOT}" >> "${LOGS_DIR}/hypergan_install.log" 2>&1
+
+    # Verify ROCm PyTorch was NOT overwritten by a PyPI CUDA/CPU wheel.
+    "${PYTHON_BIN}" -c "import torch; assert getattr(torch.version, 'hip', None), f'ROCm PyTorch was overwritten or missing (torch={torch.__version__}, hip={torch.version.hip})'" || {
+        echo "ERROR: Installed PyTorch does not have ROCm/HIP support; refusing to proceed." >&2
+        exit 1
     }
 fi
 

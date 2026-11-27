@@ -7,6 +7,7 @@ Use benchmark_scaling.py --plan-modal for a provisioning-free estimate.
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -29,9 +30,14 @@ if modal.is_local():
         raise RuntimeError('Build exactly one current HyperGAN wheel into dist/')
     wheel = wheels[0]
     WHEEL_SHA256 = hashlib.sha256(wheel.read_bytes()).hexdigest()
+    PARTICLEGAN_SOURCE = os.environ.get(
+        'PARTICLEGAN_SOURCE',
+        'particlegan @ git+https://github.com/HyperGAN/ParticleGAN.git@develop',
+    )
     image = (modal.Image.debian_slim(python_version='3.12')
-             .pip_install('torch==2.14.1', 'numpy==2.5.4', 'hndl==0.12.0',
-                          'particlegan==0.9.3', 'foldlitedb==0.5.0')
+             .apt_install('git')
+             .pip_install('torch==2.14.0', 'numpy>=1.26,<3', 'hndl>=0.12.0,<1',
+                          PARTICLEGAN_SOURCE, 'foldlitedb>=0.5.0,<0.6')
              .add_local_file(wheel, remote_path=f'/opt/wheels/{wheel.name}', copy=True)
              .run_commands(f'python -m pip install --no-deps /opt/wheels/{wheel.name}')
              .add_local_file(ROOT / 'scripts' / 'benchmark_scaling.py',

@@ -29,6 +29,16 @@ def _is_loopback(host):
         return False
 
 
+def is_non_loopback_host(host):
+    """True when `host` binds a wildcard or non-loopback network interface."""
+    if not isinstance(host, str):
+        return True
+    cleaned = host.strip().strip("[]").lower()
+    if cleaned in WILDCARD_HOSTS:
+        return True
+    return not _is_loopback(cleaned)
+
+
 def _extract_tailscale_self_names(status_payload):
     """Extract this node's own Tailscale HostName and MagicDNS DNSName."""
     names = set()
@@ -177,7 +187,8 @@ class LocalSession:
         self.port = port
         wildcard = host in WILDCARD_HOSTS
         browser_host = "127.0.0.1" if wildcard else host
-        self.host = f"{browser_host}:{port}"
+        bracketed = f"[{browser_host}]" if ":" in browser_host and not browser_host.startswith("[") else browser_host
+        self.host = f"{bracketed}:{port}"
         # DNS rebinding sends an attacker's own name in Host, so only names this
         # machine answers to are accepted: loopback aliases are equivalent, a
         # wildcard bind also takes any IP literal, and never an arbitrary name.
@@ -206,6 +217,15 @@ class LocalSession:
     @property
     def active(self):
         return self._expires is None or time.monotonic() < self._expires
+
+    @property
+    def is_loopback_bind(self):
+        return not is_non_loopback_host(self.bind_host)
+
+    @property
+    def controls_allowed(self):
+        """Control mutations (stop/checkpoint/sample) require token auth on non-loopback binds."""
+        return self.auth_mode == "token" or self.is_loopback_bind
 
     @staticmethod
     def _equal(candidate, expected):

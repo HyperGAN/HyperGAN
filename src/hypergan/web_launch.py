@@ -78,23 +78,27 @@ def bind_loopback(port=0):
     return bind_server(port, "127.0.0.1")
 
 
-def running_dashboard(root, port=None, auth="none"):
+def running_dashboard(root, port=None, auth="none", *, host=None, public_origin=None, session_file=None):
     """URL of the dashboard already serving `root` (or the root holding this run) on `port`.
 
     `hypergan train` starts a persistent dashboard; `hypergan view` for the same
     root then opens it instead of failing to bind. A dashboard for another root
-    is not reused, and one with different auth is reported rather than reused.
+    is not reused, and one with different auth, host, public_origin, or
+    session_file is reported rather than silently reused.
     """
-    from .web_autostart import _registered_dashboard, dashboard_url, find_runs_root, probe_dashboard
+    from .web_autostart import _probe_host, _registered_dashboard, dashboard_url, find_runs_root, probe_dashboard
+    from .web_session import normalize_public_origin
     target_port = DEFAULT_VIEWER_PORT if port is None else port
     if target_port == 0:
         return None
+    req_public = normalize_public_origin(public_origin)
     root = Path(root).resolve()
     runs_root = find_runs_root(root)
     state, token = _registered_dashboard(runs_root)
     if state is None and runs_root != root:
         state, token = _registered_dashboard(root)
-    probed = probe_dashboard("127.0.0.1", target_port, auth_token=token)
+    probe_target = _probe_host(host if host is not None else (state.get('host') if state else None))
+    probed = probe_dashboard(probe_target, target_port, auth_token=token)
     if not probed or probed.get('alien') or probed.get('auth_required') or not probed.get('runs_root'):
         return None
     served = Path(probed['runs_root']).resolve()
@@ -107,8 +111,22 @@ def running_dashboard(root, port=None, auth="none"):
     if probed.get('auth_mode') != auth:
         raise OSError(f"Port {target_port} already serves this root's dashboard with --auth {probed.get('auth_mode')}; "
                       f"stop it with 'hypergan view {served} --stop' to change its settings")
-    host = state.get('host', '127.0.0.1') if state else '127.0.0.1'
-    return dashboard_url(host, target_port, run_id)
+    existing_host = probed.get('bind_host') or (state.get('host') if state else None)
+    if host is not None and existing_host is not None and existing_host != host:
+        raise OSError(f"Port {target_port} already serves this root's dashboard on host {existing_host}; "
+                      f"stop it with 'hypergan view {served} --stop' to change its bind address")
+    raw_public = probed['public_origin'] if 'public_origin' in probed else (state.get('public_origin') if state else None)
+    existing_public = normalize_public_origin(raw_public)
+    if req_public != existing_public:
+        raise OSError(f"Port {target_port} already serves this root's dashboard with --public-origin {existing_public}; "
+                      f"stop it with 'hypergan view {served} --stop' to change its public origin")
+    if session_file is not None:
+        existing_sf = state.get('session_file') if state else None
+        if not existing_sf or Path(existing_sf).resolve() != Path(session_file).resolve():
+            raise OSError(f"Port {target_port} already serves this root's dashboard with a different session file; "
+                          f"stop it with 'hypergan view {served} --stop' to write credentials to {session_file}")
+    resolved_host = existing_host or host or '127.0.0.1'
+    return dashboard_url(resolved_host, target_port, run_id)
 
 
 def serve(run_dir=None, *, port=None, host="127.0.0.1", auth="none", session_file=None,
@@ -147,7 +165,8 @@ def serve(run_dir=None, *, port=None, host="127.0.0.1", auth="none", session_fil
         raise ValueError('Selected directory does not exist')
     if session_file is not None and Path(session_file).resolve().is_relative_to(root):
         raise ValueError('Viewer credentials must be stored outside the run directory')
-    existing = running_dashboard(root, port, auth)
+    existing = running_dashboard(root, port, auth, host=host, public_origin=public_origin,
+                                 session_file=session_file)
     if existing is not None:
         print(json.dumps({'origin': existing, 'reused': True}), flush=True)
         print(f'Viewer: {existing} (already running for this root)', file=sys.stderr, flush=True)
@@ -257,6 +276,10 @@ def serve(run_dir=None, *, port=None, host="127.0.0.1", auth="none", session_fil
                                       **({'public_origin': session.public_origin} if session.public_origin else {})}),
                           flush=True)
                     print(f'Viewer: {session.origin} (listening on {host})', file=sys.stderr, flush=True)
+                    if not session.controls_allowed:
+                        print(f'warning: binding non-loopback host {host!r} with --auth none; '
+                              'run control mutations (stop/checkpoint/sample) are disabled until --auth token is set',
+                              file=sys.stderr, flush=True)
                     if session.public_origin:
                         print(f'Public viewer: {session.public_origin} (through your own TLS proxy)',
                               file=sys.stderr, flush=True)

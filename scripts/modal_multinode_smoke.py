@@ -29,9 +29,14 @@ if modal.is_local():
     WHEEL = WHEELS[0]
     WHEEL_SHA256 = hashlib.sha256(WHEEL.read_bytes()).hexdigest()
     REMOTE_WHEEL = f'/opt/wheels/{WHEEL.name}'
+    PARTICLEGAN_SOURCE = os.environ.get(
+        'PARTICLEGAN_SOURCE',
+        'particlegan @ git+https://github.com/HyperGAN/ParticleGAN.git@develop',
+    )
     image = (modal.Image.debian_slim(python_version='3.12')
-             .pip_install('torch==2.14.1', 'numpy==2.5.4', 'hndl==0.12.0',
-                          'particlegan==0.9.3', 'foldlitedb==0.5.0')
+             .apt_install('git')
+             .pip_install('torch==2.14.0', 'numpy>=1.26,<3', 'hndl>=0.12.0,<1',
+                          PARTICLEGAN_SOURCE, 'foldlitedb>=0.5.0,<0.6')
              .add_local_file(WHEEL, remote_path=REMOTE_WHEEL, copy=True)
              .run_commands(f'python -m pip install --no-deps {REMOTE_WHEEL}')
              .add_local_file(ROOT / 'scripts' / 'multinode_smoke_worker.py',

@@ -110,7 +110,7 @@ def _worker_nfs_free_adversarial(rank, world_size, dir_rank0, dir_rank1):
     finally:
         if rank != 0:
             builtins.open = orig_open
-            os.write = strict_write
+            os.write = orig_write
 
     if rank == 0:
         assert checkpoint_path.exists()

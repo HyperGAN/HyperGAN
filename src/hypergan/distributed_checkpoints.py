@@ -234,7 +234,7 @@ def _digest(value):
 
 
 def _shared_digest(state):
-    keys = [key for key in (*_SHARED, 'prior_regularizer', 'critic_names') if key in state]
+    keys = [key for key in (*_SHARED, 'aggregation', 'prior_regularizer', 'critic_names') if key in state]
     return _digest({key: state[key] for key in keys})
 
 
@@ -569,14 +569,17 @@ def read_distributed_checkpoint_for_elastic(run_dir, target, expected_run):
     """
     run_dir = Path(run_dir).resolve()
     target = Path(target)
+    for root_name in ('checkpoints', 'distributed-checkpoints'):
+        if (run_dir / root_name).is_symlink():
+            raise ValueError('Checkpoint root must be an ordinary directory')
     if not target.is_absolute():
-        if (run_dir / 'checkpoints' / target).is_dir():
+        if (run_dir / 'checkpoints' / target).exists() or (run_dir / 'checkpoints' / target).is_symlink():
             target = run_dir / 'checkpoints' / target
-        elif (run_dir / 'distributed-checkpoints' / target).is_dir():
+        elif (run_dir / 'distributed-checkpoints' / target).exists() or (run_dir / 'distributed-checkpoints' / target).is_symlink():
             target = run_dir / 'distributed-checkpoints' / target
         else:
             target = run_dir / 'checkpoints' / target
-    if target.is_symlink():
+    if target.is_symlink() or target.parent.is_symlink():
         raise ValueError('Distributed checkpoint generation must not be a symlink')
     target = target.resolve()
     valid_parents = {(run_dir / 'checkpoints').resolve(), (run_dir / 'distributed-checkpoints').resolve()}
@@ -610,18 +613,26 @@ def read_distributed_checkpoint_for_elastic(run_dir, target, expected_run):
     rank0_state = None
     is_v2 = (info['schema_version'] == 2 and not info.get('diverged_ranks', False))
     if is_v2:
-        state_file = target / info.get('state_file', 'state.pt')
-        if state_file.is_symlink() or not state_file.is_file() or state_file.stat().st_size != info.get('state_bytes'):
+        if info.get('state_file') != 'state.pt':
+            raise ValueError('Invalid distributed checkpoint state file name')
+        state_byte_count = info.get('state_bytes')
+        if type(state_byte_count) is not int or not 1 <= state_byte_count <= MAX_RANK_BYTES:
+            raise ValueError('Invalid distributed state payload size')
+        state_file = target / 'state.pt'
+        if state_file.is_symlink() or not state_file.is_file() or state_file.stat().st_size != state_byte_count:
             raise ValueError('Distributed state payload size/type mismatch')
         with state_file.open('rb') as source:
-            payload = source.read(info['state_bytes'] + 1)
-        if len(payload) != info['state_bytes']:
+            payload = source.read(state_byte_count + 1)
+        if len(payload) != state_byte_count:
             raise ValueError('Distributed state payload changed size while reading')
         if hashlib.sha256(payload).hexdigest() != info.get('state_sha256'):
             raise ValueError('Distributed state payload digest mismatch')
         rank0_state = _deserialize(payload)
         if rank0_state['step'] != info['step'] or _shared_digest(rank0_state) != info['replicated_sha256']:
             raise ValueError('Distributed rank numerical state differs from committed agreement')
+        ranks_dir = target / 'ranks'
+        if ranks_dir.is_symlink() or not ranks_dir.is_dir():
+            raise ValueError('Distributed checkpoint ranks directory must be an ordinary directory')
         for rank_idx, record in enumerate(info['ranks']):
             if (
                 not isinstance(record, dict)
@@ -647,7 +658,6 @@ def read_distributed_checkpoint_for_elastic(run_dir, target, expected_run):
                 raise ValueError('Distributed rank shard step differs from checkpoint step')
     else:
         for rank_idx, record in enumerate(info['ranks']):
-            expected_file = f'ranks/rank-{rank_idx:05d}.pt' if (target / 'ranks').is_dir() else f'rank-{rank_idx:05d}.pt'
             if (
                 not isinstance(record, dict)
                 or set(record) != {'rank', 'file', 'bytes', 'sha256'}
@@ -656,6 +666,10 @@ def read_distributed_checkpoint_for_elastic(run_dir, target, expected_run):
                 or record['file'] not in (f'rank-{rank_idx:05d}.pt', f'ranks/rank-{rank_idx:05d}.pt')
             ):
                 raise ValueError('Invalid distributed checkpoint rank inventory')
+            if record['file'].startswith('ranks/'):
+                ranks_dir = target / 'ranks'
+                if ranks_dir.is_symlink() or not ranks_dir.is_dir():
+                    raise ValueError('Distributed checkpoint ranks directory must be an ordinary directory')
             if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
                 raise ValueError('Invalid distributed checkpoint payload size')
             path = target / record['file']
@@ -696,10 +710,16 @@ def _is_same_distributed_topology(saved_identity, current_identity, saved_ranks_
 
 
 def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
+    root = Path(root)
+    if root.is_symlink():
+        raise ValueError('Checkpoint root must be an ordinary directory')
+    for sibling in (root.parent / 'distributed-checkpoints', root.parent / 'checkpoints'):
+        if sibling.is_symlink():
+            raise ValueError('Checkpoint root must be an ordinary directory')
     pointer = None
     if checkpoint is None:
         pointer_file = root / 'latest.json'
-        if not pointer_file.is_file() and (root.parent / 'distributed-checkpoints' / 'latest.json').is_file():
+        if not pointer_file.exists() and not pointer_file.is_symlink() and ((root.parent / 'distributed-checkpoints' / 'latest.json').exists() or (root.parent / 'distributed-checkpoints' / 'latest.json').is_symlink()):
             root = (root.parent / 'distributed-checkpoints').resolve()
             pointer_file = root / 'latest.json'
         pointer = _read_json(pointer_file)
@@ -709,25 +729,28 @@ def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
             raise ValueError('Invalid distributed checkpoint pointer')
         if type(pointer['step']) is not int or not 0 <= pointer['step'] <= expected_identity['config']['training']['steps']:
             raise ValueError('Invalid distributed checkpoint pointer step')
-        if not isinstance(pointer['checkpoint'], str) or Path(pointer['checkpoint']).name != pointer['checkpoint']:
+        if (not isinstance(pointer['checkpoint'], str) or not pointer['checkpoint']
+                or '/' in pointer['checkpoint'] or '\\' in pointer['checkpoint']
+                or pointer['checkpoint'].startswith('.')
+                or Path(pointer['checkpoint']).name != pointer['checkpoint']):
             raise ValueError('Invalid distributed checkpoint pointer path')
         checkpoint = pointer['checkpoint']
     target = Path(checkpoint)
     if not target.is_absolute():
-        if (root / target).is_dir():
+        if (root / target).exists() or (root / target).is_symlink():
             target = root / target
-        elif (root.parent / 'distributed-checkpoints' / target).is_dir():
+        elif (root.parent / 'distributed-checkpoints' / target).exists() or (root.parent / 'distributed-checkpoints' / target).is_symlink():
             root = (root.parent / 'distributed-checkpoints').resolve()
             target = root / target
-        elif (root.parent / 'checkpoints' / target).is_dir():
+        elif (root.parent / 'checkpoints' / target).exists() or (root.parent / 'checkpoints' / target).is_symlink():
             root = (root.parent / 'checkpoints').resolve()
             target = root / target
         else:
             target = root / target
-    if target.is_symlink():
+    if target.is_symlink() or target.parent.is_symlink():
         raise ValueError('Distributed checkpoint generation must not be a symlink')
     target = target.resolve()
-    valid_parents = {root, (root.parent / 'distributed-checkpoints').resolve(), (root.parent / 'checkpoints').resolve()}
+    valid_parents = {root.resolve(), (root.parent / 'distributed-checkpoints').resolve(), (root.parent / 'checkpoints').resolve()}
     if target.parent not in valid_parents or not target.is_dir() or target.name.startswith('.'):
         raise ValueError('Select a completed distributed checkpoint directory inside this run')
     info = _read_json(target / 'manifest.json')
@@ -756,12 +779,17 @@ def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
 
     is_v2 = (info['schema_version'] == 2 and not info.get('diverged_ranks', False))
     if is_v2:
-        state_file = target / info.get('state_file', 'state.pt')
-        if state_file.is_symlink() or not state_file.is_file() or state_file.stat().st_size != info.get('state_bytes'):
+        if info.get('state_file') != 'state.pt':
+            raise ValueError('Invalid distributed checkpoint state file name')
+        state_byte_count = info.get('state_bytes')
+        if type(state_byte_count) is not int or not 1 <= state_byte_count <= MAX_RANK_BYTES:
+            raise ValueError('Invalid distributed state payload size')
+        state_file = target / 'state.pt'
+        if state_file.is_symlink() or not state_file.is_file() or state_file.stat().st_size != state_byte_count:
             raise ValueError('Distributed state payload size/type mismatch')
         with state_file.open('rb') as source:
-            state_bytes = source.read(info['state_bytes'] + 1)
-        if len(state_bytes) != info['state_bytes']:
+            state_bytes = source.read(state_byte_count + 1)
+        if len(state_bytes) != state_byte_count:
             raise ValueError('Distributed state payload changed size while reading')
         if hashlib.sha256(state_bytes).hexdigest() != info.get('state_sha256'):
             raise ValueError('Distributed state payload digest mismatch')
@@ -769,6 +797,9 @@ def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
         if shared_state['step'] != info['step'] or _shared_digest(shared_state) != info['replicated_sha256']:
             raise ValueError('Distributed state numerical state differs from committed agreement')
 
+        ranks_dir = target / 'ranks'
+        if ranks_dir.is_symlink() or not ranks_dir.is_dir():
+            raise ValueError('Distributed checkpoint ranks directory must be an ordinary directory')
         shard_payloads = []
         for rank, record in enumerate(info['ranks']):
             if (not isinstance(record, dict) or set(record) != {'rank', 'file', 'bytes', 'sha256'}
@@ -798,10 +829,14 @@ def _read(root, checkpoint, expected_identity, expected_run, *, warn=None):
                     or type(record['rank']) is not int or record['rank'] != rank
                     or record['file'] not in (f'rank-{rank:05d}.pt', f'ranks/rank-{rank:05d}.pt')):
                 raise ValueError('Invalid distributed checkpoint rank inventory')
+            if record['file'].startswith('ranks/'):
+                ranks_dir = target / 'ranks'
+                if ranks_dir.is_symlink() or not ranks_dir.is_dir():
+                    raise ValueError('Distributed checkpoint ranks directory must be an ordinary directory')
             if type(record['bytes']) is not int or not 1 <= record['bytes'] <= MAX_RANK_BYTES:
                 raise ValueError('Invalid distributed checkpoint payload size')
             path = target / record['file']
-            if path.is_symlink() or path.stat().st_size != record['bytes']:
+            if path.is_symlink() or not path.is_file() or path.stat().st_size != record['bytes']:
                 raise ValueError('Distributed rank payload size/type mismatch')
             with path.open('rb') as source:
                 payload = source.read(record['bytes'] + 1)

@@ -224,18 +224,38 @@ def handle_command(state, operation, payload):
             trainer.checkpoint_ready = False
             raise
     if operation == 'preview-snapshot':
-        if state.get('follower'):
-            return _ready(state)
-        identity, path = payload['identity'], Path(payload['path'])
-        if (any(identity[key] != context[key] for key in ('run_id', 'attempt_id', 'attempt_index'))
-                or path.name != 'snapshot.pt' or path.parent.parent != Path(context['attempt_dir'])
-                or not path.parent.name.startswith('.preview-') or path.parent.is_symlink()):
-            raise ValueError('Preview snapshot destination or identity differs from the current attempt')
-        if state['batch'] is None:
-            raise ValueError('Preview capture requires a completed batch')
-        if state['rank']:
-            return _ready(state)
-        from .preview_snapshot import capture_snapshot
-        descriptor = capture_snapshot(trainer, state['batch'], identity, path)
-        return {**_ready(state), 'snapshot': descriptor}
+        def validate():
+            if state.get('follower'):
+                return  # Node 0 validates its own attempt paths.
+            identity, path = payload['identity'], Path(payload['path'])
+            if (not isinstance(identity, dict)
+                    or any(type(identity.get(key)) is not type(context[key])
+                           or identity.get(key) != context[key]
+                           for key in ('run_id', 'attempt_id', 'attempt_index'))
+                    or ('sample_sequence' in identity
+                        and (type(identity['sample_sequence']) is not int or identity['sample_sequence'] < 1))
+                    or ('name' in identity
+                        and (not isinstance(identity['name'], str) or not identity['name']))
+                    or not path.is_absolute() or path != path.resolve()
+                    or path.name != 'snapshot.pt' or path.parent.parent != Path(context['attempt_dir'])
+                    or not path.parent.name.startswith('.preview-') or not path.parent.is_dir()
+                    or path.parent.is_symlink() or path.exists() or path.is_symlink()):
+                raise ValueError('Preview snapshot destination or identity differs from the current attempt')
+            if state['batch'] is None:
+                raise ValueError('Preview capture requires a completed batch')
+
+        def capture():
+            if state.get('follower') or state['rank']:
+                return None
+            from .preview_snapshot import capture_snapshot
+            return capture_snapshot(trainer, state['batch'], payload['identity'], payload['path'])
+
+        try:
+            trainer._phase('preview snapshot validation', validate, force=True)
+            descriptor = trainer._phase('preview snapshot', capture, force=True)
+            return {**_ready(state), **({'snapshot': descriptor} if (not state.get('follower') and state['rank'] == 0) else {})}
+        except BaseException:
+            trainer._poisoned = True
+            trainer.checkpoint_ready = False
+            raise
     raise ValueError(f'Unknown replicated execution operation: {operation}')

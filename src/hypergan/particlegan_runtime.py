@@ -79,7 +79,10 @@ def _get_thermal_scale(record: Any, default: float = 1.0) -> float:
 def _set_thermal_scale(record: Any, scale: float) -> None:
     attr = _thermal_scale_attr(record)
     if attr is not None:
-        setattr(record, attr, float(scale))
+        val = float(scale)
+        setattr(record, attr, val)
+        if hasattr(record, "thermal_locked"):
+            record.thermal_locked = bool(val <= 1e-4)
 
 
 def _thermal_observer_attr(record: Any) -> Optional[str]:

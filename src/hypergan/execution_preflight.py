@@ -223,14 +223,18 @@ def preflight(config, profile=None, *, expected_identity=None):
             raise ValueError('expected_identity must be a complete identity dictionary')
         expected_identity = json.loads(_encode(expected_identity))
     with tempfile.TemporaryDirectory(prefix='hypergan-preflight-') as directory:
-        if profile['execution']['name'] == 'cuda-replicated-nccl':
+        exec_cfg = profile['execution']
+        nodes = exec_cfg.get('nodes', 1)
+        world_size = exec_cfg['world_size']
+        ranks_per_node = exec_cfg.get('ranks_per_node', world_size // nodes)
+        node_rank = exec_cfg.get('node_rank', 0)
+        rendezvous = exec_cfg.get('rendezvous')
+        use_worker_service = (
+            exec_cfg['name'] == 'cuda-replicated-nccl'
+            or (exec_cfg['name'] == 'cpu-replicated-gloo' and nodes > 1)
+        )
+        if use_worker_service:
             limits = profile['preflight']
-            exec_cfg = profile['execution']
-            nodes = exec_cfg.get('nodes', 1)
-            world_size = exec_cfg['world_size']
-            ranks_per_node = exec_cfg.get('ranks_per_node', world_size // nodes)
-            node_rank = exec_cfg.get('node_rank', 0)
-            rendezvous = exec_cfg.get('rendezvous')
             with CPUWorkerService(_preflight_factory, _preflight_command,
                     args=(config_values(config), profile, directory),
                     run_id='preflight', attempt_id='construction',
@@ -239,24 +243,22 @@ def preflight(config, profile=None, *, expected_identity=None):
                     nodes=nodes,
                     ranks_per_node=ranks_per_node,
                     rendezvous=rendezvous,
-                    backend='nccl',
+                    backend='nccl' if exec_cfg['name'] == 'cuda-replicated-nccl' else 'gloo',
                     startup_timeout=limits['timeout'], command_timeout=limits['timeout'],
                     collective_timeout=limits['collective_timeout'], total_timeout=limits['timeout']) as service:
-                service.command('construct')
+                if node_rank > 0 and nodes > 1:
+                    service.follow()
+                else:
+                    service.command('construct')
         else:
             launch_cpu_workers(_runtime_worker, args=(config_values(config), profile, directory),
-                               world_size=profile['execution']['world_size'],
+                               world_size=world_size,
                                timeout=profile['preflight']['timeout'],
                                collective_timeout=profile['preflight']['collective_timeout'],
                                stdout_to_stderr=True,
-                               initialize_process_group=profile['execution']['name'] not in ('cpu-single', 'native-single'))
+                               initialize_process_group=exec_cfg['name'] not in ('cpu-single', 'native-single'))
         workers = []
-        exec_cfg = profile['execution']
-        nodes = exec_cfg.get('nodes', 1)
-        world_size = exec_cfg['world_size']
-        ranks_per_node = exec_cfg.get('ranks_per_node', world_size // nodes)
-        node_rank = exec_cfg.get('node_rank', 0)
-        rank_range = range(node_rank * ranks_per_node, (node_rank + 1) * ranks_per_node) if (exec_cfg['name'] == 'cuda-replicated-nccl' and nodes > 1) else range(world_size)
+        rank_range = range(node_rank * ranks_per_node, (node_rank + 1) * ranks_per_node) if (use_worker_service and nodes > 1) else range(world_size)
         for rank in rank_range:
             path = Path(directory, f'rank-{rank}.json')
             if not path.is_file() or path.stat().st_size > MAX_REPORT_BYTES:
@@ -277,7 +279,7 @@ def preflight(config, profile=None, *, expected_identity=None):
     report = {'schema_version': 1, 'status': 'passed', 'stage': 'runtime', 'runtime_checked': True, 'scope': 'construction-only',
               'profile': profile, 'identity': identity,
               'checker': _source_hashes(['hypergan.execution_preflight', 'hypergan.execution_profiles', 'hypergan.cpu_workers'] +
-                                        (['hypergan.cpu_worker_service'] if profile['execution']['name'] == 'cuda-replicated-nccl' else [])),
+                                        (['hypergan.cpu_worker_service'] if use_worker_service else [])),
               'ranks': [{key: value for key, value in worker.items() if key != 'identity'} for worker in workers],
               'warnings': list(dict.fromkeys(message for worker in workers for message in worker['warnings'])),
               'not_validated': ['data batches and model forward I/O', 'optimizer updates and numerical parity',

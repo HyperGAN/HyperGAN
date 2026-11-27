@@ -244,10 +244,11 @@ def test_replicated_parity_particlegan_preset(tmp_path):
     """Smoke test: resolved ParticleGAN preset recipe with recipe optimizer matches reference."""
     config = {
         "defaults": "particlegan",
-        # Axiom enforces reg_every=1 (clock-free penalty); coeff=0.0 mirrors the
-        # original lazy_k=2 step-1 penalty bypass while testing exact 2-rank parity
-        # of Axiom's coupled loss, transport, simplicial prior, and optimizer.
+        # Axiom enforces reg_every=1 (clock-free penalty) and low-D pullback; disabling
+        # both here tests exact 2-rank parity of Axiom's coupled loss, transport,
+        # simplicial prior, and optimizer.
         "gradient_penalty": {"coeff": 0.0},
+        "recipe": {"t1_pullback_weight": 0.0},
         "training": {"steps": 1, "batch_size": 8, "device": "cpu", "seed": 42},
         "prior": {"kind": "particles", "args": {"num_particles": 16, "z_dim": 4}},
         "components": {
@@ -275,6 +276,7 @@ def test_replicated_parity_particlegan_preset_mog(tmp_path):
     config = {
         "defaults": "particlegan",
         "gradient_penalty": {"coeff": 0.0},
+        "recipe": {"t1_pullback_weight": 0.0},
         "training": {"steps": 1, "batch_size": 8, "device": "cpu", "seed": 42},
         "prior": {"kind": "mog", "fixed_sigma": 0.05, "args": {"num_particles": 16, "z_dim": 4}},
         "components": {

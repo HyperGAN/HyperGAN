@@ -304,6 +304,7 @@ def _apply_execution_options(
         elif isinstance(config, dict):
             config.setdefault("training", {})["device"] = device
         _sync_prior_device(config)
+    cli_devices = devices
     cli_nodes = nodes
     cli_node_rank = node_rank
     cli_rendezvous = rendezvous
@@ -435,35 +436,62 @@ def _apply_execution_options(
     )
     name = "cpu-replicated-gloo" if is_cpu else "cuda-replicated-nccl"
 
+    explicit_single_device = (
+        nodes == 1
+        and cli_strategy is None
+        and (cli_sync_every is None or int(cli_sync_every) <= 1)
+        and (
+            (cli_devices is not None and len(dev_list) == 1)
+            or (device is not None and not dev_list)
+        )
+    )
+    if explicit_single_device and profile is not None:
+        prof_name_existing = (
+            profile
+            if isinstance(profile, str)
+            else (
+                profile.get("execution", {}).get("name")
+                if isinstance(profile, dict) and isinstance(profile.get("execution"), dict)
+                else None
+            )
+        )
+        if prof_name_existing in ("cpu-replicated-gloo", "cuda-replicated-nccl"):
+            profile = None
+
     # Dynamic profile synthesis if profile is None and multi-node or multi-GPU or DiLoCo is active
-    is_replicated_needed = (nodes > 1 or local_ranks > 1 or strategy != "gradient_allreduce" or sync_every > 1)
+    is_replicated_needed = (
+        not explicit_single_device
+        and (nodes > 1 or local_ranks > 1 or strategy != "gradient_allreduce" or sync_every > 1)
+    )
 
     if profile is None and is_replicated_needed:
-        agg_dict = {
-            "strategy": strategy,
-            "sync_every_steps": sync_every,
-            "outer_lr": float(config.get("aggregation", {}).get("outer_lr", 1.0)) if isinstance(config, dict) else 1.0,
-            "outer_momentum": float(config.get("aggregation", {}).get("outer_momentum", 0.0)) if isinstance(config, dict) else 0.0,
-        }
-        exec_dict = {
-            "name": name,
-            "world_size": local_ranks * nodes,
-            "nodes": nodes,
-            "node_rank": node_rank,
-            "ranks_per_node": local_ranks,
-            "accumulation_steps": 1,
-            "aggregation": agg_dict,
-        }
-        if rendezvous is not None:
-            exec_dict["rendezvous"] = rendezvous
-        profile = {
-            "schema_version": 1,
-            "execution": exec_dict,
-            "aggregation": agg_dict,
-        }
-        if isinstance(config, dict) and "training" in config:
-            config["training"]["device"] = "cpu" if is_cpu else "cuda"
-            _sync_prior_device(config)
+        eff_local_ranks = local_ranks if (dev_list or nodes > 1) else 2
+        if eff_local_ranks * nodes >= 2 or cli_strategy is not None or (cli_sync_every is not None and int(cli_sync_every) > 1):
+            agg_dict = {
+                "strategy": strategy,
+                "sync_every_steps": sync_every,
+                "outer_lr": float(config.get("aggregation", {}).get("outer_lr", 1.0)) if isinstance(config, dict) else 1.0,
+                "outer_momentum": float(config.get("aggregation", {}).get("outer_momentum", 0.0)) if isinstance(config, dict) else 0.0,
+            }
+            exec_dict = {
+                "name": name,
+                "world_size": eff_local_ranks * nodes,
+                "nodes": nodes,
+                "node_rank": node_rank,
+                "ranks_per_node": eff_local_ranks,
+                "accumulation_steps": 1,
+                "aggregation": agg_dict,
+            }
+            if rendezvous is not None:
+                exec_dict["rendezvous"] = rendezvous
+            profile = {
+                "schema_version": 1,
+                "execution": exec_dict,
+                "aggregation": agg_dict,
+            }
+            if isinstance(config, dict) and "training" in config:
+                config["training"]["device"] = "cpu" if is_cpu else "cuda"
+                _sync_prior_device(config)
     elif profile is not None:
         has_cli_or_env_override = (
             cli_nodes is not None
@@ -478,14 +506,15 @@ def _apply_execution_options(
         )
         if has_cli_or_env_override:
             if isinstance(profile, str) and profile in PROFILE_NAMES:
+                eff_local_ranks = 1 if profile == "cpu-single" else (local_ranks if (dev_list or nodes > 1) else 2)
                 profile = {
                     "schema_version": 1,
                     "execution": {
                         "name": profile,
-                        "world_size": local_ranks * nodes,
+                        "world_size": eff_local_ranks * nodes,
                         "nodes": nodes,
                         "node_rank": node_rank,
-                        "ranks_per_node": local_ranks,
+                        "ranks_per_node": eff_local_ranks,
                         "accumulation_steps": 1,
                         "aggregation": {
                             "strategy": strategy,
@@ -558,6 +587,7 @@ def _apply_devices(devices, config, profile, context_path):
 
 def _set_visible_devices(value, *, order=True):
     """Mask GPUs for this process; refuse once CUDA has read the old mask."""
+    value = str(value).strip()
     if value and os.environ.get("CUDA_VISIBLE_DEVICES") != value:
         import sys
         torch = sys.modules.get("torch")
@@ -565,7 +595,7 @@ def _set_visible_devices(value, *, order=True):
             raise ValueError(f"Cannot select devices {value!r}: CUDA is already initialized in this "
                              "process, so CUDA_VISIBLE_DEVICES no longer applies. Pass devices before any "
                              "CUDA use, or set CUDA_VISIBLE_DEVICES before starting Python.")
-    if order:
+    if order and value:
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = value
 
@@ -713,7 +743,7 @@ def prepare_train(config_path, run_dir, steps=None, *, profile=None, service_pol
         context_path=run_dir if run_dir else config_path
     )
     profile = _profile(profile, config)
-    if run_dir is not None and not _is_follower(profile, config) and run_dir.exists() and os.environ.get("_HYPERGAN_REEXEC") != "1" and _is_run(run_dir):
+    if run_dir is not None and not _is_follower(profile, config) and run_dir.exists() and _is_run(run_dir):
         return prepare_resume(run_dir, config_path=config_path, steps=steps, _repeat_train=True,
             profile=raw_profile, service_policy=service_policy, devices=raw_devices, device=device,
             nodes=nodes, node_rank=node_rank, rendezvous=rendezvous, strategy=strategy, sync_every=sync_every,
@@ -786,7 +816,7 @@ def prepare_resume(run_dir, checkpoint=None, config_path=None, *, steps=None, _r
         if 'execution' in manifest and (not isinstance(saved, dict) or saved.get('name') not in PROFILE_NAMES[1:]):
             raise ValueError('Run has no supported numerical execution identity')
         if saved is not None:
-            saved_profile = resolve_execution_profile(profile_from_execution(saved), config) if False else profile_from_execution(saved)
+            saved_profile = profile_from_execution(saved)
             # Validate saved execution types strictly even when scaling down to single-device.
             resolve_execution_profile(deepcopy(saved_profile), resolve_config({
                 **config_values(config),

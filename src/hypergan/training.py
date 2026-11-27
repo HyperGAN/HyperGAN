@@ -420,8 +420,12 @@ class ReferenceTrainer:
         table = getattr(self.prior, "z", None)
         latent_table = table if (type(self.prior) is ParticlePrior and table.requires_grad
                                  and self.program.prior_parameters == (table,)) else None
+        critic_names = set(names)
+        self._generator_layout_modules = tuple(
+            model for name, model in self.graph.models.items() if name not in critic_names
+        )
         self.opt_g = _skip_cpu_capture_guard(self.recipe.make_generator_optimizer(
-            groups, modules=self.graph, latent_table=latent_table, **optimizer_options))
+            groups, modules=self._generator_layout_modules, latent_table=latent_table, **optimizer_options))
         for name, optimizer in self.critic_optimizers.items():
             self._bind_critic_record(optimizer, losses[name], primary=name == "discriminator")
         from .particlegan_runtime import MultiCriticThermalCoordinator
@@ -545,7 +549,7 @@ class ReferenceTrainer:
                         setattr(self.prior, attr, record)
             if primary and formulation in ('unified_v15', 'unified_v11', 'unified_v4', 'r4_autograd_critic'):
                 if hasattr(self.opt_g, '_conv_layouts'):
-                    self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
+                    self.opt_g._conv_layouts.update(collect_conv_layouts(self._generator_layout_modules))
                 self._bind_generator_probe(record, record_probe=record_probe)
         elif formulation == 'axiom':
             from particlegan.axiom import (
@@ -560,8 +564,10 @@ class ReferenceTrainer:
             if primary:
                 if self.spread is not None and hasattr(self.spread, 'axiom_record'):
                     self.spread.axiom_record = record
-                if hasattr(self.opt_g, '_conv_layouts'):
-                    self.opt_g._conv_layouts.update(collect_conv_layouts((self.graph,)))
+                if hasattr(self.opt_g, 'bind_module_layouts'):
+                    self.opt_g.bind_module_layouts(self._generator_layout_modules)
+                elif hasattr(self.opt_g, '_conv_layouts'):
+                    self.opt_g._conv_layouts.update(collect_conv_layouts(self._generator_layout_modules))
 
                 def _record_axiom_probe(probe_module, p_args, p_kwargs, output, _rec, **_kw):
                     _axiom_generator_hook(probe_module, p_args, p_kwargs, output)

@@ -665,6 +665,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         else:
             post_critic_grad_norm_t = zero_scalar
     saved_flags = []
+    saved_bn_tracking = []
     seen_modules = set()
     for term in terms:
         if id(term.module) in seen_modules:
@@ -673,6 +674,14 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         flags = [parameter.requires_grad for parameter in term.module.parameters()]
         term.module.requires_grad_(False)
         saved_flags.append((term.module, flags))
+        for sub in term.module.modules():
+            if (
+                isinstance(sub, torch.nn.modules.batchnorm._BatchNorm)
+                and sub.training
+                and sub.track_running_stats
+            ):
+                sub.track_running_stats = False
+                saved_bn_tracking.append(sub)
     rhbi_mod, is_discrete_prior, use_rhbi_simplex = _rhbi_generator_context(trainer, terms, d_real_samples)
     import contextlib
     thermal_scope = thermal_coordinator.step_scope() if thermal_coordinator is not None else contextlib.nullcontext()
@@ -736,6 +745,8 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             trainer.opt_g.step()
     finally:
         _clear_discrete_prior_step(trainer, rhbi_mod)
+        for sub in saved_bn_tracking:
+            sub.track_running_stats = True
         for module, flags in saved_flags:
             for parameter, flag in zip(module.parameters(), flags):
                 parameter.requires_grad_(flag)

@@ -492,7 +492,8 @@ def test_non_particlegan_defaults_hypergan_trains_cleanly_in_bf16_channels_last(
 
 def test_bf16_detached_real_score_preserves_axiom_transport_capture():
     """Detaching real_score after BF16->FP32 float_output must preserve _axiom_* captures for AxiomTransportLoss."""
-    cfg = _conv_model_config(precision="bf16_channels_last", use_bn=True, size=32, steps=4)
+    # 16x16 (dim=768 <= 1024): AxiomTransportLoss runs on every generator step.
+    cfg = _conv_model_config(precision="bf16_channels_last", use_bn=True, size=16, steps=4)
     trainer = ReferenceTrainer(cfg)
     assert trainer.recipe.effective_critic_formulation == "axiom"
 
@@ -518,6 +519,34 @@ def test_bf16_detached_real_score_preserves_axiom_transport_capture():
         row, _ = trainer.update()
         assert all(math.isfinite(row[k]) for k in ("d_loss", "g_loss", "gradient_penalty"))
 
-    # Both d_loss and g_loss on every step must see captured=True, and AxiomTransportLoss must run on all 4 steps
+    # Both d_loss and g_loss on every step must see captured=True, and AxiomTransportLoss must run on all 4 steps.
     assert len(captured_flags) == 8 and all(captured_flags), f"missed captures: {captured_flags}"
     assert len(transport_calls) == 4, f"expected 4 AxiomTransportLoss calls, got {len(transport_calls)}"
+
+    # Continuous 32x32 (dim=3072): captures still succeed on every step while spatial cluster gate skips transport.
+    cfg_32 = _conv_model_config(precision="bf16_channels_last", use_bn=True, size=32, steps=2)
+    trainer_32 = ReferenceTrainer(cfg_32)
+    captured_32 = []
+    orig_resolve_32 = trainer_32.gan._resolve_pair
+
+    def _spy_resolve_32(fake_logits, real_logits):
+        res = orig_resolve_32(fake_logits, real_logits)
+        captured_32.append(bool(res[-1]))
+        return res
+
+    transport_32 = []
+    orig_transport_32 = trainer_32.gan.transport.forward
+
+    def _spy_transport_32(*args, **kwargs):
+        transport_32.append(len(args))
+        return orig_transport_32(*args, **kwargs)
+
+    trainer_32.gan._resolve_pair = _spy_resolve_32
+    trainer_32.gan.transport.forward = _spy_transport_32
+
+    for _ in range(2):
+        row, _ = trainer_32.update()
+        assert all(math.isfinite(row[k]) for k in ("d_loss", "g_loss", "gradient_penalty"))
+
+    assert len(captured_32) == 4 and all(captured_32), f"missed 32x32 captures: {captured_32}"
+    assert len(transport_32) == 0, f"expected spatial cluster gate to skip 32x32 continuous transport, got {len(transport_32)}"

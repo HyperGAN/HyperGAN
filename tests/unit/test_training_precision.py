@@ -178,23 +178,27 @@ def test_manifest_records_resolved_precision_and_rejects_precision_change_on_res
 
 
 def test_cpu_bf16_channels_last_matches_cpu_float32_bit_identically():
+    prev_threads = torch.get_num_threads()
     torch.set_num_threads(1)
-    cfg_fp32 = load_config(_minimal_model_file(defaults="particlegan", precision="float32", device="cpu"))
-    cfg_bf16 = load_config(_minimal_model_file(defaults="particlegan", precision="bf16_channels_last", device="cpu"))
+    try:
+        cfg_fp32 = load_config(_minimal_model_file(defaults="particlegan", precision="float32", device="cpu"))
+        cfg_bf16 = load_config(_minimal_model_file(defaults="particlegan", precision="bf16_channels_last", device="cpu"))
 
-    t_fp32 = ReferenceTrainer(cfg_fp32)
-    t_bf16 = ReferenceTrainer(cfg_bf16)
+        t_fp32 = ReferenceTrainer(cfg_fp32)
+        t_bf16 = ReferenceTrainer(cfg_bf16)
 
-    for _ in range(3):
-        row_a, _ = t_fp32.update()
-        row_b, _ = t_bf16.update()
-        assert row_a["d_loss"] == row_b["d_loss"]
-        assert row_a["g_loss"] == row_b["g_loss"]
+        for _ in range(3):
+            row_a, _ = t_fp32.update()
+            row_b, _ = t_bf16.update()
+            assert row_a["d_loss"] == row_b["d_loss"]
+            assert row_a["g_loss"] == row_b["g_loss"]
 
-    for (k1, v1), (k2, v2) in zip(t_fp32.graph.state_dict().items(), t_bf16.graph.state_dict().items()):
-        assert k1 == k2
-        assert torch.equal(v1, v2)
-        assert v2.dtype == torch.float32
+        for (k1, v1), (k2, v2) in zip(t_fp32.graph.state_dict().items(), t_bf16.graph.state_dict().items()):
+            assert k1 == k2
+            assert torch.equal(v1, v2)
+            assert v2.dtype == torch.float32
+    finally:
+        torch.set_num_threads(prev_threads)
 
 
 def test_hndl_network_autocast_validation_preserves_shape_and_dtype_contracts():

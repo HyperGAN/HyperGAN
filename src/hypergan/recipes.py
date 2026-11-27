@@ -379,6 +379,24 @@ class _GeneratorProbeModule(nn.Module):
         object.__setattr__(self, '_trainable_names', tuple(trainable_names))
         object.__setattr__(self, '_batch_keys', batch_keys)
         object.__setattr__(self, '_prior_keys', tuple(prior_keys))
+        needs_generated = output_path == 'generated' or output_path.startswith('generated.')
+        if not needs_generated and output_path.startswith('components.'):
+            visited = set()
+            stack = [output_path.split('.', 2)[1]]
+            while stack:
+                comp_name = stack.pop()
+                if comp_name in visited or comp_name not in graph.specs:
+                    continue
+                visited.add(comp_name)
+                for input_path in graph.specs[comp_name].get('inputs', {}).values():
+                    if input_path == 'generated' or input_path.startswith('generated.'):
+                        needs_generated = True
+                        break
+                    if input_path.startswith('components.'):
+                        stack.append(input_path.split('.', 2)[1])
+                if needs_generated:
+                    break
+        object.__setattr__(self, '_needs_generated', needs_generated)
         self._components = nn.ModuleDict(models)
 
     def trainable_parameters(self, *, allowed_param_ids=None):
@@ -436,9 +454,8 @@ class _GeneratorProbeModule(nn.Module):
                 'prior': {} if prior is None else dict(prior),
                 '_prior': self._prior,
             }
-            if self._output_path == 'generated' or self._output_path.startswith('generated.'):
+            if self._needs_generated:
                 context['generated'] = self._graph.call('generator', context)
-                return self._graph.resolve(self._output_path, context)
             return self._graph.resolve(self._output_path, context)
         finally:
             torch.set_rng_state(cpu_rng)
@@ -611,6 +628,8 @@ class ComponentGraph(nn.Module):
                     batch_keys.add(path.split('.', 2)[1])
                 elif path.startswith('prior.'):
                     prior_keys.add(path.split('.', 2)[1])
+                elif path == 'generated' or path.startswith('generated.'):
+                    walk('generator', frozen_edge)
                 elif path.startswith('components.'):
                     walk(path.split('.', 2)[1], frozen_edge)
             model_name = spec.get('reuse', name)

@@ -154,7 +154,26 @@ class ImageFolder:
         if recursive:
             if follow_symlinks:
                 candidate_paths = []
-                for dirpath, _, filenames in os.walk(self.root, followlinks=True):
+                root_stat = self.root.stat()
+                visited_dirs = {(root_stat.st_dev, root_stat.st_ino)}
+                for dirpath, dirnames, filenames in os.walk(self.root, followlinks=True):
+                    dirnames.sort()
+                    kept = []
+                    for dname in dirnames:
+                        dpath = Path(dirpath) / dname
+                        try:
+                            dstat = dpath.stat()
+                        except OSError as exc:
+                            raise ValueError(
+                                f"Image folder contains broken symlink or unreadable directory "
+                                f"{dpath.relative_to(self.root).as_posix()}"
+                            ) from exc
+                        key = (dstat.st_dev, dstat.st_ino)
+                        if key in visited_dirs:
+                            continue
+                        visited_dirs.add(key)
+                        kept.append(dname)
+                    dirnames[:] = kept
                     for fname in filenames:
                         candidate_paths.append(Path(dirpath) / fname)
             else:
@@ -163,7 +182,10 @@ class ImageFolder:
             candidate_paths = list(self.root.iterdir())
         for path in sorted(candidate_paths, key=lambda p: p.relative_to(self.root).as_posix()):
             relative = path.relative_to(self.root).as_posix()
-            info = path.stat() if follow_symlinks else path.lstat()
+            try:
+                info = path.stat() if follow_symlinks else path.lstat()
+            except OSError as exc:
+                raise ValueError(f"Image folder contains broken symlink or unreadable entry {relative}") from exc
             if not follow_symlinks and stat.S_ISLNK(info.st_mode):
                 raise ValueError(f"Image folder contains symlink {relative}; use ordinary files/directories for a stable inventory")
             if not stat.S_ISREG(info.st_mode):
@@ -187,7 +209,7 @@ class ImageFolder:
         self._identity = {
             "schema_version": 1, "kind": "image_folder", "entries": self.entries,
             "class_map": self.class_map, "labels": labels, "shuffle": shuffle,
-            "recursive": recursive, "preprocessing": preprocessing,
+            "recursive": recursive, "follow_symlinks": follow_symlinks, "preprocessing": preprocessing,
         }
         self._identity_sha256 = _digest(self._identity)
         self._permutation, self._cursor, self._epoch = [], 0, 0
@@ -217,7 +239,8 @@ class ImageFolder:
                 directory = None
             if directory is not None:
                 key = _digest({"kind": "image_folder_inspection", "version": 1, "root": str(self.root),
-                               "recursive": recursive, "preprocessing": preprocessing})
+                               "recursive": recursive, "follow_symlinks": self.follow_symlinks,
+                               "preprocessing": preprocessing})
                 cache_path = directory / f"{key}.json"
         cached = self._read_inspection_cache(cache_path)
         records, entries, pending = {}, [None] * len(files), []
@@ -386,8 +409,8 @@ class ImageFolder:
                         raise ValueError("symlink or path escape since inventory")
                     current = current.parent
             else:
-                if not path.is_file():
-                    raise ValueError("file does not exist or is not a regular file")
+                if not path.is_relative_to(self.root) or not path.is_file():
+                    raise ValueError("file does not exist, escapes root, or is not a regular file")
             with path.open("rb") as stream:
                 content = stream.read(self.max_file_bytes + 1)
             if not content:
@@ -414,7 +437,7 @@ class ImageFolder:
                     raise ValueError("animated/multi-frame images are unsupported; extract one frame explicitly")
 
                 alpha_policy = getattr(self, "alpha", "error")
-                has_alpha = image.mode in {"RGBA", "LA", "PA"} or (image.mode == "P" and "transparency" in getattr(image, "info", {}))
+                has_alpha = image.mode in {"RGBA", "LA", "PA"} or "transparency" in getattr(image, "info", {})
                 if has_alpha and alpha_policy == "error":
                     raise ValueError(f"source mode {image.mode!r} contains alpha channel; explicitly convert to RGB or L (composite alpha before loading)")
 
@@ -422,7 +445,7 @@ class ImageFolder:
                 source = {"source_width": image.width, "source_height": image.height, "source_mode": image.mode}
 
                 transposed = self._ops.exif_transpose(image)
-                if has_alpha or transposed.mode in {"RGBA", "LA", "PA"}:
+                if has_alpha or transposed.mode in {"RGBA", "LA", "PA"} or "transparency" in getattr(transposed, "info", {}):
                     rgba = transposed.convert("RGBA")
                     bg_color = (255, 255, 255, 255) if alpha_policy == "composite_white" else (0, 0, 0, 255)
                     background = self._image.new("RGBA", rgba.size, bg_color)
@@ -609,9 +632,6 @@ class ImageFolder:
             self._excluded, self._bad_image_streak = old_excluded, old_streak
             generator.set_state(old_rng)
             raise
-
-    def __len__(self):
-        return len(self.entries)
 
     def __getitem__(self, index):
         if not isinstance(index, int):

@@ -129,14 +129,11 @@ def test_whitepaper_config_validates_and_uses_pure_hndl(filename: str):
         assert param_count > 100_000
 
     # ParticleGAN recipe object constructs and passes all dependency invariants.
-    import particlegan
-
     recipe = particlegan_recipe(resolved)
     if filename.endswith("-v12.toml"):
-        expected = particlegan.get_recipe()
-        assert recipe.name == expected.name
-        assert recipe.optimizer_family == expected.optimizer_family
-        assert recipe.effective_critic_formulation == expected.effective_critic_formulation
+        assert recipe.name == "unified_v12"
+        assert recipe.optimizer_family == "unified_v12_equil"
+        assert recipe.effective_critic_formulation == "unified_v11"
     else:
         assert recipe.optimizer_family == "adam"
         assert recipe.effective_critic_formulation == "k3p"
@@ -161,8 +158,8 @@ def test_v12_and_adam_pairs_have_identical_architectures_and_fair_contracts(v12_
     assert raw_v12["train"].get("initialization") == raw_adam["train"].get("initialization")
     assert raw_v12["prior"]["z_dim"] == raw_adam["prior"]["z_dim"]
 
-    # ParticleGAN v12: ZERO recipe or optimizer overrides.
-    assert raw_v12["defaults"] == "particlegan"
+    # ParticleGAN v12: pinned unified_v12 with ZERO recipe or optimizer overrides.
+    assert raw_v12["defaults"] == "particlegan:unified_v12"
     assert "recipe" not in raw_v12
     assert "penalty" not in raw_v12
     leaked = set(raw_v12["train"]) & FORBIDDEN_V12_TRAIN_OVERRIDES
@@ -195,7 +192,8 @@ def test_v12_and_adam_pairs_have_identical_architectures_and_fair_contracts(v12_
     assert lower(raw_adam, base=BENCH_DIR)["components"]["generator"]["factory"] == "hndl"
 
 
-def test_prepare_benchmark_dataset_zip_and_tgz_offline(tmp_path: Path):
+def test_prepare_benchmark_dataset_zip_and_tgz_offline(tmp_path: Path, monkeypatch):
+    from dataclasses import replace
     prep = _load_prep_module()
 
     # 1. Synthetic ZIP archive (FFHQ-64 style: 64x64 RGB PNGs + non-image dataset.json + unsafe traversal entry).
@@ -208,6 +206,18 @@ def test_prepare_benchmark_dataset_zip_and_tgz_offline(tmp_path: Path):
             img = Image.new("RGB", (64, 64), color=(idx * 30, 100, 200))
             img.save(buf, format="PNG")
             zf.writestr(f"00000/img{idx:08d}.png", buf.getvalue())
+
+    zip_bytes, zip_sha = prep.sha256_file(zip_path)
+    monkeypatch.setitem(
+        prep.BENCHMARK_DATASETS,
+        "ffhq64",
+        replace(
+            prep.BENCHMARK_DATASETS["ffhq64"],
+            expected_bytes=zip_bytes,
+            archive_sha256=zip_sha,
+            expected_count=6,
+        ),
+    )
 
     out_ffhq = tmp_path / "out_ffhq64"
     manifest = prep.prepare_dataset(
@@ -252,6 +262,18 @@ def test_prepare_benchmark_dataset_zip_and_tgz_offline(tmp_path: Path):
             info = tarfile.TarInfo(name=f"jpg/image_{idx:05d}.{ext}")
             info.size = len(raw)
             tf.addfile(info, BytesIO(raw))
+
+    tgz_bytes, tgz_sha = prep.sha256_file(tgz_path)
+    monkeypatch.setitem(
+        prep.BENCHMARK_DATASETS,
+        "flowers102",
+        replace(
+            prep.BENCHMARK_DATASETS["flowers102"],
+            expected_bytes=tgz_bytes,
+            archive_sha256=tgz_sha,
+            expected_count=4,
+        ),
+    )
 
     out_flowers = tmp_path / "out_flowers102"
     manifest_f = prep.prepare_dataset(

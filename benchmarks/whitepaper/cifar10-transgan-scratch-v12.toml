@@ -1,12 +1,12 @@
 # Whitepaper Benchmark 5/8: CIFAR-10 32x32 Pure Transformer TransGAN — ParticleGAN unified_v12 (ZERO overrides)
 # Architecture: 100% convolution-free pure Transformer G (2.84M) & multi-scale pure Transformer D (10.20M)
 #               directly from HyperGAN's packaged cifar10-transgan.toml in pure declarative HNDL.
-# Formulation: ParticleGAN default preset (`defaults = "particlegan"` -> unified_v12) with ZERO recipe or optimizer overrides.
+# Formulation: Pinned ParticleGAN unified_v12 preset (`defaults = "particlegan:unified_v12"`) with ZERO recipe or optimizer overrides.
 # Paired baseline: benchmarks/whitepaper/cifar10-transgan-scratch-adam.toml (exact same G & D).
 format = "hypergan-model/1"
 name = "whitepaper/cifar10-transgan-scratch-v12"
 description = "CIFAR-10 32x32 pure Transformer TransGAN (G & D) trained with ParticleGAN unified_v12 (zero recipe/optimizer overrides)."
-defaults = "particlegan"
+defaults = "particlegan:unified_v12"
 
 [data]
 builtin = "cifar10"

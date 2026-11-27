@@ -176,15 +176,28 @@ def check_evaluation_data(data, evaluation, inputs):
     reference images.
     """
     from .data import EvaluationDataExhausted, ImageFolder
+    from .item_data import ItemData
     sample_count = evaluation['sample_count']
     if callable(getattr(type(data), '__len__', None)) and sample_count > len(data):
         raise EvaluationDataExhausted(
             f'Evaluation sample_count {sample_count} exceeds the {len(data)} samples of its evaluation '
             'data; lower the evaluation sample count or use evaluation data with at least '
             f'{sample_count} items, since repeated items would bias the statistics')
-    if 'evaluation.reference' in inputs.values() and isinstance(data, ImageFolder) and data.shuffle:
-        raise ValueError('Reference evaluation data must not shuffle: set shuffle = false in the '
-                         'evaluation data args so each reference image is used at most once')
+    if 'evaluation.reference' in inputs.values():
+        if isinstance(data, ImageFolder) and data.shuffle:
+            raise ValueError('Reference evaluation data must not shuffle: set shuffle = false in the '
+                             'evaluation data args so each reference image is used at most once')
+        if isinstance(data, ItemData) and data.shuffle:
+            raise ValueError('Reference evaluation data must not shuffle: set shuffle = false in the '
+                             'evaluation data args so each reference item is used at most once')
+        img_mod = sys.modules.get('hypergan.image_data')
+        if img_mod is not None and isinstance(data, img_mod.CIFAR10Data):
+            if data.sampling != 'sequential':
+                raise ValueError('Reference evaluation CIFAR10Data must use sampling = "sequential" '
+                                 'so each reference image is used at most once')
+            if data.horizontal_flip:
+                raise ValueError('Reference evaluation CIFAR10Data must set horizontal_flip = false '
+                                 'so reference statistics are not augmented')
 
 
 def _factory(reference, args):

@@ -622,6 +622,7 @@ class ReferenceTrainer:
             del prior
             if (
                 not probe_params
+                or not any(p.requires_grad for p in probe_params)
                 or not torch.is_grad_enabled()
                 or getattr(record, '_in_probe', False)
                 or getattr(record, '_in_penalty', False)

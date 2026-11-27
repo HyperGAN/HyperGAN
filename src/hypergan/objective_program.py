@@ -255,7 +255,7 @@ def _sample_context(context, phase_name):
     return scratch
 
 
-_COUPLED_SCORE_ATTR_PREFIXES = ("_axiom_", "_t1c_", "_rhbi_", "_rgdt_")
+_COUPLED_SCORE_ATTR_PREFIXES = ("_axiom_", "_t1c_", "_rhbi_", "_rgdt_", "_empf_")
 
 
 def _detach_score(value):
@@ -516,6 +516,211 @@ def _rhbi_simplex_loss(trainer, rhbi, selected_ids, real_batch):
     )
 
 
+def batch_diversity_ratio(fake_samples, real_samples):
+    """Inter-sample diversity ratio across the batch dimension (dim=0).
+
+    Computes ``fake_spread / (real_spread + 1e-8)`` where
+    ``spread = sqrt(mean_d Var_batch(x[:, d]))`` with ``unbiased=True``.
+    Returns 1.0 when batch size < 2 or real sample spread is zero, so a
+    collapsed generator emitting one identical non-flat image reports 0.0.
+    """
+    if (
+        not isinstance(fake_samples, torch.Tensor)
+        or not isinstance(real_samples, torch.Tensor)
+        or fake_samples.ndim < 1
+        or real_samples.ndim < 1
+        or fake_samples.shape[0] < 2
+        or real_samples.shape[0] < 2
+        or fake_samples.numel() == 0
+        or real_samples.numel() == 0
+    ):
+        dev = (
+            fake_samples.device
+            if isinstance(fake_samples, torch.Tensor)
+            else (real_samples.device if isinstance(real_samples, torch.Tensor) else "cpu")
+        )
+        return torch.ones((), dtype=torch.float32, device=dev)
+    fake_flat = fake_samples.detach().float().reshape(fake_samples.shape[0], -1)
+    real_flat = real_samples.detach().float().reshape(real_samples.shape[0], -1)
+    fake_spread = fake_flat.var(dim=0, unbiased=True).mean().clamp_min(0.0).sqrt()
+    real_spread = real_flat.var(dim=0, unbiased=True).mean().clamp_min(0.0).sqrt()
+    one = torch.ones((), dtype=torch.float32, device=fake_spread.device)
+    return torch.where(real_spread > 0, fake_spread / (real_spread + 1e-8), one).reshape(())
+
+
+class _PullbackGeneratorView:
+    """Iterable view over compiled generator parameters for ParticleGAN pullback steps."""
+
+    def __init__(self, parameters):
+        self._parameters = tuple(parameters)
+
+    def parameters(self):
+        return iter(self._parameters)
+
+
+class _PullbackPolicyShim:
+    """Minimal policy callback adapter forwarding after_generator_backward to HyperGAN."""
+
+    def __init__(self, after_backward=None):
+        self._after_backward = after_backward
+
+    def after_generator_backward(self, *, loss_gan=None, loss_critic=None):
+        del loss_gan, loss_critic
+        if self._after_backward is not None:
+            self._after_backward()
+
+    def after_generator_step(self):
+        return None
+
+
+class _PullbackTrainerAdapter:
+    """Expose HyperGAN's trainer state under the contract expected by ParticleGAN pullback steps."""
+
+    def __init__(self, trainer, term, *, after_backward=None):
+        self._trainer = trainer
+        self.recipe = trainer.recipe
+        self.prior = trainer.prior
+        self.prior_regularizer = trainer.spread
+        self.loss = term.gan
+        self.opt_d = trainer.opt_d
+        self.opt_g = trainer.opt_g
+        self.G = _PullbackGeneratorView(trainer.program.generator_parameters)
+        self.policy = _PullbackPolicyShim(after_backward=after_backward)
+        self._prior_penalty = bool(getattr(trainer.prior, "has_regularization", False))
+        self._gradient_response = None
+        self._postprocesses = bool(getattr(trainer.prior, "postprocesses_generated", False))
+
+    def _batch(self, batch, name):
+        if not isinstance(batch, torch.Tensor) or batch.ndim < 2 or not len(batch):
+            raise ValueError(f"{name} must be a nonempty batch tensor")
+        return batch.detach().to(device=self._trainer.device)
+
+    def _postprocess(self, prior, generated):
+        return prior.postprocess_generated(generated) if self._postprocesses else generated
+
+    def _generate(self, model, latent, sigma, stream, indices=None, *, rows=None):
+        del model
+        from .training import with_noise
+        if indices is not None and rows is not None:
+            raise ValueError("pass sampled row IDs as indices or rows, not both")
+        actual_rows = indices if rows is None else rows
+        graph = self._trainer.graph
+        if actual_rows is not None:
+            set_rows = getattr(self.opt_g, "set_sampled_rows", None)
+            base_prior = getattr(self.prior, "base", self.prior)
+            table = getattr(base_prior, "z", None)
+            if table is None:
+                table = getattr(self.prior, "z", None)
+            if set_rows is not None and table is not None and self._trainer.program.prior_parameters:
+                set_rows(table, actual_rows)
+            out = graph.generate(latent, {}, prior=self.prior)["generated"]
+        else:
+            prev_hook = graph._probe_hook
+            graph._probe_hook = None
+            try:
+                out = graph.generate(latent, {}, prior=self.prior)["generated"]
+            finally:
+                graph._probe_hook = prev_hook
+        return with_noise(out, sigma, stream)
+
+
+def _select_pullback_kind(trainer, program, real, latent, ids):
+    """Return the active ParticleGAN pullback kind ('axiom', 'unified_v15', 'unified_v11') or None."""
+    if len(program.adversarial_terms) != 1 or program.objectives:
+        return None
+    term = program.adversarial_terms[0]
+    if (
+        len(term.routes) != 1
+        or term.generator_weight != 1.0
+        or term.generator_phase.real.path != "batch.real"
+        or term.generator_phase.fake.path != "generated"
+        or _graph_generator_uses_batch(trainer.graph)
+    ):
+        return None
+    if (
+        not isinstance(real, torch.Tensor)
+        or latent is None
+        or ids is None
+        or trainer.spread is None
+    ):
+        return None
+    recipe = trainer.recipe
+    if float(getattr(recipe, "t1_pullback_weight", 0.0) or 0.0) <= 0.0:
+        return None
+    reg_kind = getattr(recipe, "prior_regularizer", None)
+    if reg_kind not in ("axiom", "unified_v15", "unified_v11"):
+        return None
+    adapter = _PullbackTrainerAdapter(trainer, term)
+    if reg_kind == "axiom":
+        from particlegan._axiom.prior import should_use_axiom_pullback
+        return "axiom" if should_use_axiom_pullback(adapter, real) else None
+    if reg_kind == "unified_v15":
+        from particlegan._unified_v15 import should_use_unified_v15_pullback
+        return "unified_v15" if should_use_unified_v15_pullback(adapter, real, latent, ids) else None
+    from particlegan._unified_v11 import should_use_unified_v11_pullback
+    return "unified_v11" if should_use_unified_v11_pullback(adapter, real, latent, ids) else None
+
+
+def _run_pullback_generator_step(
+    kind,
+    trainer,
+    term,
+    context,
+    real,
+    generator_real,
+    latent,
+    ids,
+    *,
+    output_std,
+    input_std,
+    stream,
+    d_loss,
+    d_penalty,
+    after_backward=None,
+):
+    """Execute ParticleGAN's native pullback generator step through HyperGAN's graph/critic."""
+    adapter = _PullbackTrainerAdapter(trainer, term, after_backward=after_backward)
+
+    def critic(candidate):
+        return score_candidate(term, candidate, context, trainer.graph, "generator", noise=(input_std, stream))
+
+    rec_d = getattr(trainer.opt_d, "record", None)
+    if kind == "axiom":
+        from particlegan._axiom.prior import axiom_pullback_step
+        if rec_d is not None and hasattr(rec_d, "_simplicial_step"):
+            rec_d._simplicial_step = False
+        step_fn = axiom_pullback_step
+    elif kind == "unified_v15":
+        from particlegan._unified_v15 import unified_v15_pullback_step
+        step_fn = unified_v15_pullback_step
+    elif kind == "unified_v11":
+        from particlegan._unified_v11 import unified_v11_pullback_step
+        step_fn = unified_v11_pullback_step
+    else:
+        raise ValueError(f"Unsupported ParticleGAN pullback kind: {kind!r}")
+
+    try:
+        g_loss, g_adversarial, prior_loss, _pm, _tr, _tr_loc = step_fn(
+            adapter,
+            real,
+            generator_real,
+            latent,
+            ids,
+            sigma_out=output_std,
+            noise=stream,
+            critic=critic,
+            loss_d=d_loss,
+            penalty=d_penalty,
+        )
+    finally:
+        clear_rows = getattr(trainer.opt_g, "clear_sampled_rows", None)
+        if clear_rows is not None:
+            clear_rows()
+        if rec_d is not None and hasattr(rec_d, "_g_probe_cache"):
+            rec_d._g_probe_cache = None
+    return g_loss, g_adversarial, prior_loss
+
+
 def _generator_tail(trainer, program, context, ids, fake):
     if ids is None or not trainer.prior.z.requires_grad:
         prior_loss = fake.new_zeros(())
@@ -689,60 +894,109 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
         with thermal_scope:
             if independent:
                 batch, ids, context = trainer._draw(generator_batch, generator_latent_draw)
-            trainer.opt_g.zero_grad(set_to_none=True)
             gen_real_batch = batch.get("real") if isinstance(batch, dict) else d_real_samples
-            effective_simplex = _prepare_discrete_prior_step(
-                trainer, rhbi_mod, is_discrete_prior, use_rhbi_simplex, ids, gen_real_batch
+            pullback_kind = _select_pullback_kind(
+                trainer, program, d_real_samples, context.get("latent"), ids
             )
-            simplex_loss = None
-            if len(terms) == 1:
-                term = terms[0]
-                real, fake, real_score, fake_score = _bound_scores(
-                    term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
-                g_adversarial = term.gan.g_loss(fake_score, real_score)
-                prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
-                if effective_simplex and rhbi_mod is not None:
-                    unique_ids = ids.unique() if ids is not None else None
-                    simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
-                g_adversarial_weighted = term.generator_weight * g_adversarial
-            else:
-                unweighted = []
-                weighted = []
-                fake = None
-                for term in terms:
-                    real, fake, real_score, fake_score = _bound_scores(
-                        term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
-                    loss = term.gan.g_loss(fake_score, real_score)
-                    unweighted.append(loss)
-                    weighted.append(term.generator_weight * loss)
-                g_adversarial = _sum_tensors(unweighted)
-                prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
-                g_adversarial_weighted = _sum_tensors(weighted)
-            g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
-            if simplex_loss is not None:
-                g_loss = g_loss + simplex_loss
-            from particlegan.optim.constraint_geometry import constraint_geometry_backward
-            set_rows = getattr(trainer.opt_g, 'set_sampled_rows', None)
-            if set_rows is not None and ids is not None and program.prior_parameters:
-                set_rows(trainer.prior.z, ids)
-            constraint_geometry_backward(g_loss, trainer.opt_g, (g_adversarial_weighted,))
             gen_checked = list(program.generator_parameters)
             prior_checked = list(program.prior_checked) if program.prior_checked else []
-            trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
-                                      [("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
-                                       ("Nonfinite prior gradient; run stopped", prior_checked)])
-            with torch.no_grad():
-                try:
-                    g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
-                    gen_grad_norm_t = _grad_l2_norm(g_grads, zero_scalar)
-                except Exception:
-                    gen_grad_norm_t = zero_scalar
-                try:
-                    p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
-                    prior_grad_norm_t = _grad_l2_norm(p_grads, zero_scalar)
-                except Exception:
-                    prior_grad_norm_t = zero_scalar
-            trainer.opt_g.step()
+            if pullback_kind is not None:
+                objective_losses = []
+                grad_norms = {"gen": zero_scalar, "prior": zero_scalar}
+
+                def _after_pullback_backward():
+                    trainer._refuse_nonfinite(
+                        zero_scalar,
+                        "Nonfinite generator loss; run stopped",
+                        [
+                            ("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
+                            ("Nonfinite prior gradient; run stopped", prior_checked),
+                        ],
+                    )
+                    with torch.no_grad():
+                        try:
+                            g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
+                            grad_norms["gen"] = _grad_l2_norm(g_grads, zero_scalar)
+                        except Exception:
+                            grad_norms["gen"] = zero_scalar
+                        try:
+                            p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
+                            grad_norms["prior"] = _grad_l2_norm(p_grads, zero_scalar)
+                        except Exception:
+                            grad_norms["prior"] = zero_scalar
+
+                g_loss, g_adversarial, prior_loss = _run_pullback_generator_step(
+                    pullback_kind,
+                    trainer,
+                    terms[0],
+                    context,
+                    d_real_samples,
+                    gen_real_batch if independent else None,
+                    context["latent"],
+                    ids,
+                    output_std=output_std,
+                    input_std=input_std,
+                    stream=stream,
+                    d_loss=d_loss,
+                    d_penalty=d_penalty,
+                    after_backward=_after_pullback_backward,
+                )
+                g_adversarial_weighted = terms[0].generator_weight * g_adversarial
+                trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped", [])
+                gen_grad_norm_t = grad_norms["gen"]
+                prior_grad_norm_t = grad_norms["prior"]
+            else:
+                trainer.opt_g.zero_grad(set_to_none=True)
+                effective_simplex = _prepare_discrete_prior_step(
+                    trainer, rhbi_mod, is_discrete_prior, use_rhbi_simplex, ids, gen_real_batch
+                )
+                simplex_loss = None
+                if len(terms) == 1:
+                    term = terms[0]
+                    real, fake, real_score, fake_score = _bound_scores(
+                        term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
+                    g_adversarial = term.gan.g_loss(fake_score, real_score)
+                    prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+                    if effective_simplex and rhbi_mod is not None:
+                        unique_ids = ids.unique() if ids is not None else None
+                        simplex_loss = _rhbi_simplex_loss(trainer, rhbi_mod, unique_ids, real)
+                    g_adversarial_weighted = term.generator_weight * g_adversarial
+                else:
+                    unweighted = []
+                    weighted = []
+                    fake = None
+                    for term in terms:
+                        real, fake, real_score, fake_score = _bound_scores(
+                            term, context, trainer.graph, "generator", term.generator_phase, first="fake", noise=noise)
+                        loss = term.gan.g_loss(fake_score, real_score)
+                        unweighted.append(loss)
+                        weighted.append(term.generator_weight * loss)
+                    g_adversarial = _sum_tensors(unweighted)
+                    prior_loss, objective_losses = _generator_tail(trainer, program, context, ids, fake)
+                    g_adversarial_weighted = _sum_tensors(weighted)
+                g_loss = g_adversarial_weighted + prior_loss + sum(objective_losses)
+                if simplex_loss is not None:
+                    g_loss = g_loss + simplex_loss
+                from particlegan.optim.constraint_geometry import constraint_geometry_backward
+                set_rows = getattr(trainer.opt_g, 'set_sampled_rows', None)
+                if set_rows is not None and ids is not None and program.prior_parameters:
+                    set_rows(trainer.prior.z, ids)
+                constraint_geometry_backward(g_loss, trainer.opt_g, (g_adversarial_weighted,))
+                trainer._refuse_nonfinite(g_loss, "Nonfinite generator loss; run stopped",
+                                          [("Nonfinite generator/auxiliary gradient; run stopped", gen_checked),
+                                           ("Nonfinite prior gradient; run stopped", prior_checked)])
+                with torch.no_grad():
+                    try:
+                        g_grads = [p.grad.detach() for p in gen_checked if p.grad is not None]
+                        gen_grad_norm_t = _grad_l2_norm(g_grads, zero_scalar)
+                    except Exception:
+                        gen_grad_norm_t = zero_scalar
+                    try:
+                        p_grads = [p.grad.detach() for p in prior_checked if p.grad is not None]
+                        prior_grad_norm_t = _grad_l2_norm(p_grads, zero_scalar)
+                    except Exception:
+                        prior_grad_norm_t = zero_scalar
+                trainer.opt_g.step()
     finally:
         _clear_discrete_prior_step(trainer, rhbi_mod)
         for sub in saved_bn_tracking:
@@ -763,7 +1017,7 @@ def run_native_program(trainer, batch, latent_draw, generator_batch, generator_l
             particle_rms_t = zero_scalar
         try:
             if d_fake_samples is not None and d_real_samples is not None:
-                diversity_ratio_t = (d_fake_samples.detach().std() / (d_real_samples.detach().std() + 1e-8)).reshape(())
+                diversity_ratio_t = batch_diversity_ratio(d_fake_samples, d_real_samples)
             else:
                 diversity_ratio_t = one_scalar
         except Exception:

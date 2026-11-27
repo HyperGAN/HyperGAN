@@ -387,20 +387,20 @@ def write_summary_json(run_dir: Path | str, manifest: dict | None = None, metric
     # Advisory health alerts
     health_alerts = []
     gn_critic = latest_metrics.get("grad_norm/critic", latest_metrics.get("grad_norm_critic"))
-    if gn_critic is not None and isinstance(gn_critic, (int, float)) and gn_critic < 1e-5:
+    if gn_critic is not None and isinstance(gn_critic, (int, float)) and not isinstance(gn_critic, bool) and gn_critic < 1e-5:
         health_alerts.append("Discriminator vanishing gradient (grad_norm/critic < 1e-5)")
 
     gn_gen = latest_metrics.get("grad_norm/generator", latest_metrics.get("grad_norm_generator"))
-    if gn_gen is not None and isinstance(gn_gen, (int, float)) and gn_gen < 1e-5:
+    if gn_gen is not None and isinstance(gn_gen, (int, float)) and not isinstance(gn_gen, bool) and gn_gen < 1e-5:
         health_alerts.append("Generator vanishing gradient (grad_norm/generator < 1e-5)")
 
     div_ratio = latest_metrics.get("diversity/ratio", latest_metrics.get("diversity_ratio"))
-    if div_ratio is not None and isinstance(div_ratio, (int, float)) and div_ratio < 0.2:
+    if div_ratio is not None and isinstance(div_ratio, (int, float)) and not isinstance(div_ratio, bool) and div_ratio < 0.2:
         health_alerts.append("Mode collapse risk (diversity/ratio < 0.2)")
 
     if step is not None and step >= 20:
         c_acc = latest_metrics.get("critic/accuracy", latest_metrics.get("critic_accuracy"))
-        if c_acc is not None and isinstance(c_acc, (int, float)):
+        if c_acc is not None and isinstance(c_acc, (int, float)) and not isinstance(c_acc, bool):
             if c_acc > 0.98:
                 health_alerts.append("Discriminator overpowering generator (critic/accuracy > 0.98)")
             elif c_acc < 0.05:

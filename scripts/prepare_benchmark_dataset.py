@@ -34,6 +34,7 @@ import tarfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 import zipfile
 
 from PIL import Image, ImageOps, __version__ as PILLOW_VERSION
@@ -42,6 +43,9 @@ _CHUNK_BYTES = 1024 * 1024  # 1 MiB streaming IO
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".bmp"})
 _MANIFEST_NAME = "dataset-manifest.json"
 _SHARD_SIZE = 1000
+_MAX_ARCHIVE_MEMBERS = 200_000
+_MAX_MEMBER_BYTES = 64 * 1024 * 1024  # 64 MiB per image member
+_MAX_TOTAL_UNCOMPRESSED_BYTES = 4 * 1024 * 1024 * 1024  # 4 GiB total uncompressed budget
 
 
 @dataclass(frozen=True)
@@ -155,7 +159,10 @@ def download_and_verify_archive(
     retries: int = 3,
 ) -> Path:
     """Download ``spec.url`` atomically with HTTP Range resume and verify size + SHA-256."""
-    archive_path = archive_path.expanduser().resolve()
+    raw_archive_path = archive_path.expanduser()
+    if raw_archive_path.is_symlink() or raw_archive_path.is_dir():
+        raise ValueError(f"Unsafe archive path: {raw_archive_path}")
+    archive_path = raw_archive_path.resolve()
     archive_path.parent.mkdir(parents=True, exist_ok=True)
 
     if archive_path.is_file():
@@ -171,11 +178,24 @@ def download_and_verify_archive(
         archive_path.unlink()
 
     part_path = archive_path.with_name(archive_path.name + ".part")
+    if part_path.is_symlink() or part_path.is_dir():
+        raise ValueError(f"Unsafe partial download path: {part_path}")
+
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
+            if part_path.is_symlink() or part_path.is_dir():
+                raise ValueError(f"Unsafe partial download path: {part_path}")
             existing = part_path.stat().st_size if part_path.is_file() else 0
             if existing > spec.expected_bytes:
+                part_path.unlink()
+                existing = 0
+            if existing == spec.expected_bytes and existing > 0:
+                size, actual_sha = sha256_file(part_path)
+                if size == spec.expected_bytes and actual_sha == spec.archive_sha256:
+                    os.replace(part_path, archive_path)
+                    print(f"[verified] Completed cached partial {archive_path} ({size:,} bytes, sha256={actual_sha[:12]}...)", file=sys.stderr)
+                    return archive_path
                 part_path.unlink()
                 existing = 0
 
@@ -186,7 +206,19 @@ def download_and_verify_archive(
                 mode = "ab"
 
             req = urllib.request.Request(spec.url, headers=headers)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            try:
+                resp = urllib.request.urlopen(req, timeout=timeout)
+            except urllib.error.HTTPError as exc:
+                if existing > 0 and exc.code == 416:
+                    part_path.unlink(missing_ok=True)
+                    existing = 0
+                    mode = "wb"
+                    req = urllib.request.Request(spec.url, headers={"User-Agent": "HyperGAN-Benchmark-Fetcher/1.0"})
+                    resp = urllib.request.urlopen(req, timeout=timeout)
+                else:
+                    raise
+
+            with resp:
                 status = getattr(resp, "status", 200)
                 if existing > 0 and status != 206:
                     # Server ignored Range; restart cleanly.
@@ -200,6 +232,11 @@ def download_and_verify_archive(
                         chunk = resp.read(_CHUNK_BYTES)
                         if not chunk:
                             break
+                        if written + len(chunk) > spec.expected_bytes:
+                            raise ValueError(
+                                f"Download for {spec.name} exceeded expected size of "
+                                f"{spec.expected_bytes:,} bytes (received {written + len(chunk):,})"
+                            )
                         out.write(chunk)
                         written += len(chunk)
                         now = time.monotonic()
@@ -212,6 +249,8 @@ def download_and_verify_archive(
                                 file=sys.stderr,
                             )
                             last_log = now
+                    out.flush()
+                    os.fsync(out.fileno())
 
             size, actual_sha = sha256_file(part_path)
             if size != spec.expected_bytes:
@@ -248,22 +287,33 @@ def _process_image_bytes(
     """Decode, verify, center-crop + Lanczos resize (if needed), and write RGB PNG."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     with Image.open(BytesIO(raw_bytes)) as img:
+        limit = Image.MAX_IMAGE_PIXELS
+        if limit is not None and img.width * img.height > limit:
+            raise ValueError(f"Image dimensions {img.size} exceed Pillow MAX_IMAGE_PIXELS={limit}")
+        is_animated = getattr(img, "n_frames", 1) != 1 or bool(getattr(img, "is_animated", False))
+        if is_animated:
+            raise ValueError("Animated/multi-frame images are unsupported in benchmark datasets")
         img.load()
         orig_size = img.size
+        has_trns = "transparency" in getattr(img, "info", {})
         is_native_png = (
             allow_fast_copy
             and img.format == "PNG"
             and img.mode == "RGB"
             and img.size == (resolution, resolution)
             and "exif" not in img.info
+            and not has_trns
+            and not is_animated
         )
         if is_native_png:
             dest_path.write_bytes(raw_bytes)
             return False, orig_size
 
         transposed = ImageOps.exif_transpose(img)
-        if transposed.mode in ("RGBA", "LA", "PA") or (
-            transposed.mode == "P" and "transparency" in getattr(transposed, "info", {})
+        if (
+            transposed.mode in ("RGBA", "LA", "PA")
+            or has_trns
+            or "transparency" in getattr(transposed, "info", {})
         ):
             rgba = transposed.convert("RGBA")
             bg = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
@@ -287,6 +337,13 @@ def _target_relpath(index: int) -> Path:
     return Path(f"{shard:05d}") / f"img{index:08d}.png"
 
 
+def _read_bounded_stream(stream, *, max_bytes: int, member_name: str) -> bytes:
+    data = stream.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f"Archive member {member_name!r} exceeds maximum member size ({max_bytes} bytes)")
+    return data
+
+
 def _extract_from_zip(
     archive_path: Path,
     stage_dir: Path,
@@ -295,17 +352,55 @@ def _extract_from_zip(
     workers: int,
     max_images: int | None,
     allow_fast_copy: bool,
+    max_members: int = _MAX_ARCHIVE_MEMBERS,
+    max_member_bytes: int = _MAX_MEMBER_BYTES,
+    max_total_bytes: int = _MAX_TOTAL_UNCOMPRESSED_BYTES,
 ) -> tuple[int, int]:
     with zipfile.ZipFile(archive_path, "r") as zf:
-        members = sorted(name for name in zf.namelist() if _is_image_member(name))
+        all_infos = zf.infolist()
+        if len(all_infos) > max_members:
+            raise ValueError(
+                f"Archive {archive_path.name} has {len(all_infos)} members, exceeding limit ({max_members})"
+            )
+        selected_infos = []
+        declared_total = 0
+        for info in sorted(all_infos, key=lambda item: item.filename):
+            if ((info.external_attr >> 16) & 0o170000) == 0o120000:
+                continue  # Ignore symlinks inside archives.
+            if not _is_image_member(info.filename):
+                continue
+            if info.file_size < 0 or info.file_size > max_member_bytes:
+                raise ValueError(
+                    f"Archive member {info.filename!r} declared size {info.file_size} exceeds limit ({max_member_bytes})"
+                )
+            selected_infos.append(info)
         if max_images is not None:
-            members = members[:max_images]
+            selected_infos = selected_infos[:max_images]
+        for info in selected_infos:
+            declared_total += info.file_size
+            if declared_total > max_total_bytes:
+                raise ValueError(
+                    f"Archive {archive_path.name} uncompressed image payload exceeds limit ({max_total_bytes} bytes)"
+                )
 
         resized_count = 0
-        total = len(members)
+        total = len(selected_infos)
+        actual_total = 0
+
+        def _read_member(info: zipfile.ZipInfo) -> bytes:
+            nonlocal actual_total
+            with zf.open(info, "r") as member_stream:
+                raw = _read_bounded_stream(member_stream, max_bytes=max_member_bytes, member_name=info.filename)
+            actual_total += len(raw)
+            if actual_total > max_total_bytes:
+                raise ValueError(
+                    f"Archive {archive_path.name} extracted bytes exceeded limit ({max_total_bytes} bytes)"
+                )
+            return raw
+
         if workers <= 1:
-            for idx, name in enumerate(members):
-                raw = zf.read(name)
+            for idx, info in enumerate(selected_infos):
+                raw = _read_member(info)
                 was_resized, _ = _process_image_bytes(
                     raw,
                     stage_dir / _target_relpath(idx),
@@ -318,8 +413,8 @@ def _extract_from_zip(
             chunk_size = 512
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 for start in range(0, total, chunk_size):
-                    batch = members[start:start + chunk_size]
-                    payloads = [(start + offset, zf.read(name)) for offset, name in enumerate(batch)]
+                    batch = selected_infos[start:start + chunk_size]
+                    payloads = [(start + offset, _read_member(info)) for offset, info in enumerate(batch)]
                     futures = [
                         pool.submit(
                             _process_image_bytes,
@@ -344,14 +439,36 @@ def _extract_from_tgz(
     workers: int,
     max_images: int | None,
     allow_fast_copy: bool,
+    max_members: int = _MAX_ARCHIVE_MEMBERS,
+    max_member_bytes: int = _MAX_MEMBER_BYTES,
+    max_total_bytes: int = _MAX_TOTAL_UNCOMPRESSED_BYTES,
 ) -> tuple[int, int]:
     with tarfile.open(archive_path, "r:gz") as tf:
+        all_members = []
+        for member in tf:
+            all_members.append(member)
+            if len(all_members) > max_members:
+                raise ValueError(
+                    f"Archive {archive_path.name} has more than {max_members} members"
+                )
         lexical_members = sorted(
-            (m for m in tf.getmembers() if m.isfile() and _is_image_member(m.name)),
+            (m for m in all_members if m.isfile() and _is_image_member(m.name)),
             key=lambda m: m.name,
         )
         if max_images is not None:
             lexical_members = lexical_members[:max_images]
+
+        declared_total = 0
+        for member in lexical_members:
+            if member.size < 0 or member.size > max_member_bytes:
+                raise ValueError(
+                    f"Archive member {member.name!r} declared size {member.size} exceeds limit ({max_member_bytes})"
+                )
+            declared_total += member.size
+            if declared_total > max_total_bytes:
+                raise ValueError(
+                    f"Archive {archive_path.name} uncompressed image payload exceeds limit ({max_total_bytes} bytes)"
+                )
 
         rank_by_name = {m.name: idx for idx, m in enumerate(lexical_members)}
         # Iterate in forward archive byte order so gzip never rewinds on extractfile().
@@ -359,12 +476,25 @@ def _extract_from_tgz(
 
         resized_count = 0
         total = len(forward_members)
+        actual_total = 0
+
+        def _read_tar_member(member: tarfile.TarInfo) -> bytes:
+            nonlocal actual_total
+            extracted = tf.extractfile(member)
+            if extracted is None:
+                raise ValueError(f"Failed to read tar member: {member.name}")
+            with extracted:
+                raw = _read_bounded_stream(extracted, max_bytes=max_member_bytes, member_name=member.name)
+            actual_total += len(raw)
+            if actual_total > max_total_bytes:
+                raise ValueError(
+                    f"Archive {archive_path.name} extracted bytes exceeded limit ({max_total_bytes} bytes)"
+                )
+            return raw
+
         if workers <= 1:
             for member in forward_members:
-                extracted = tf.extractfile(member)
-                if extracted is None:
-                    raise ValueError(f"Failed to read tar member: {member.name}")
-                raw = extracted.read()
+                raw = _read_tar_member(member)
                 idx = rank_by_name[member.name]
                 was_resized, _ = _process_image_bytes(
                     raw,
@@ -378,12 +508,7 @@ def _extract_from_tgz(
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 for start in range(0, total, chunk_size):
                     batch = forward_members[start:start + chunk_size]
-                    payloads = []
-                    for member in batch:
-                        extracted = tf.extractfile(member)
-                        if extracted is None:
-                            raise ValueError(f"Failed to read tar member: {member.name}")
-                        payloads.append((rank_by_name[member.name], extracted.read()))
+                    payloads = [(rank_by_name[member.name], _read_tar_member(member)) for member in batch]
                     futures = [
                         pool.submit(
                             _process_image_bytes,
@@ -406,6 +531,7 @@ def verify_prepared_dataset(
     dataset: str | None = None,
     resolution: int | None = None,
     expected_count: int | None = None,
+    expected_archive_sha256: str | None = None,
     sample_check: int = 32,
 ) -> dict:
     """Verify an existing prepared dataset directory and its manifest receipt."""
@@ -418,6 +544,14 @@ def verify_prepared_dataset(
         raise ValueError(f"Manifest dataset mismatch: expected {dataset!r}, got {manifest.get('dataset')!r}")
     if resolution is not None and manifest.get("resolution") != resolution:
         raise ValueError(f"Manifest resolution mismatch: expected {resolution}, got {manifest.get('resolution')}")
+    target_sha = expected_archive_sha256
+    eff_dataset = dataset if dataset is not None else manifest.get("dataset")
+    if target_sha is None and eff_dataset in BENCHMARK_DATASETS:
+        target_sha = BENCHMARK_DATASETS[eff_dataset].archive_sha256
+    if target_sha is not None and manifest.get("archive_sha256") != target_sha:
+        raise ValueError(
+            f"Manifest archive_sha256 mismatch: expected {target_sha}, got {manifest.get('archive_sha256')!r}"
+        )
 
     pngs = sorted(output_dir.rglob("*.png"))
     recorded_count = manifest.get("image_count")
@@ -469,22 +603,35 @@ def prepare_dataset(
                 dataset=dataset,
                 resolution=resolution,
                 expected_count=expected_count,
+                expected_archive_sha256=spec.archive_sha256,
             )
-            if existing.get("archive_sha256") == spec.archive_sha256 or archive_path is not None:
-                print(
-                    f"[ready] {out_path} already prepared "
-                    f"({existing['image_count']:,} images @ {resolution}x{resolution} RGB)",
-                    file=sys.stderr,
-                )
-                return existing
+            print(
+                f"[ready] {out_path} already prepared "
+                f"({existing['image_count']:,} images @ {resolution}x{resolution} RGB)",
+                file=sys.stderr,
+            )
+            return existing
         except (OSError, ValueError) as exc:
             print(f"[rebuild] Existing directory {out_path} failed check ({exc}); rebuilding...", file=sys.stderr)
 
     if archive_path is not None:
-        resolved_archive = Path(archive_path).expanduser().resolve()
+        raw_archive = Path(archive_path).expanduser()
+        if raw_archive.is_symlink():
+            raise ValueError(f"Provided archive must not be a symlink: {raw_archive}")
+        resolved_archive = raw_archive.resolve()
         if not resolved_archive.is_file():
             raise FileNotFoundError(f"Provided archive does not exist: {resolved_archive}")
         archive_bytes, archive_sha = sha256_file(resolved_archive)
+        if archive_bytes != spec.expected_bytes:
+            raise ValueError(
+                f"Provided archive size mismatch for {spec.name}: "
+                f"expected {spec.expected_bytes:,} bytes, got {archive_bytes:,}"
+            )
+        if archive_sha != spec.archive_sha256:
+            raise ValueError(
+                f"Provided archive SHA-256 mismatch for {spec.name}: "
+                f"expected {spec.archive_sha256}, got {archive_sha}"
+            )
     else:
         cache_root = Path(cache_dir).expanduser().resolve() if cache_dir is not None else default_archive_cache_dir().resolve()
         resolved_archive = download_and_verify_archive(spec, cache_root / spec.archive_filename)
@@ -492,7 +639,7 @@ def prepare_dataset(
 
     num_workers = workers if workers is not None else min(8, os.cpu_count() or 1)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    stage_dir = out_path.with_name(f".{out_path.name}.staging-{os.getpid()}")
+    stage_dir = out_path.with_name(f".{out_path.name}.staging-{os.getpid()}-{uuid.uuid4().hex[:8]}")
     if stage_dir.exists():
         shutil.rmtree(stage_dir)
     stage_dir.mkdir(parents=True, exist_ok=True)
@@ -521,9 +668,10 @@ def prepare_dataset(
         else:
             raise ValueError(f"Unsupported archive format: {spec.archive_format!r}")
 
-        if max_images is None and archive_path is None and total != spec.expected_count:
+        expected_total = min(max_images, spec.expected_count) if max_images is not None else spec.expected_count
+        if total != expected_total:
             raise ValueError(
-                f"Extracted image count mismatch for {spec.name}: expected {spec.expected_count:,}, got {total:,}"
+                f"Extracted image count mismatch for {spec.name}: expected {expected_total:,}, got {total:,}"
             )
         if total == 0:
             raise ValueError(f"No images extracted from {resolved_archive}")
@@ -559,7 +707,7 @@ def prepare_dataset(
         )
 
         if out_path.exists():
-            backup = out_path.with_name(f".{out_path.name}.old-{os.getpid()}")
+            backup = out_path.with_name(f".{out_path.name}.old-{os.getpid()}-{uuid.uuid4().hex[:8]}")
             if backup.exists():
                 shutil.rmtree(backup)
             os.replace(out_path, backup)

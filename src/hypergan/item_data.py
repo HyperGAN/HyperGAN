@@ -26,8 +26,9 @@ resume state.
 from concurrent.futures import ThreadPoolExecutor
 import importlib
 import json
+import weakref
 
-from .data import _digest
+from .data import EvaluationDataExhausted, _digest
 
 
 def import_object(reference):
@@ -83,7 +84,21 @@ class ItemData:
         self._identity_sha256 = _digest(self._identity)
         self._epoch, self._cursor, self._epoch_seed = 0, self.length, 0
         self._pool = None
+        self._pool_finalizer = None
         self._order_cache = None
+
+    def __len__(self):
+        """Items in one epoch, so evaluation can refuse sample counts that would wrap."""
+        return self.length
+
+    def close(self):
+        """Shut down the worker thread pool; a later call reopens it if needed."""
+        if self._pool is not None:
+            self._pool.shutdown(wait=True, cancel_futures=True)
+            if self._pool_finalizer is not None:
+                self._pool_finalizer.detach()
+            self._pool = None
+            self._pool_finalizer = None
 
     def _order(self):
         import torch
@@ -102,6 +117,11 @@ class ItemData:
         order = self._order() if self._cursor < self.length else None
         while len(result) < batch_size:
             if self._cursor == self.length:
+                if not self.shuffle and self._epoch >= 1:
+                    raise EvaluationDataExhausted(
+                        f'ItemData sequential evaluation exhausted: {self.length} of {self.length} '
+                        'items used; it never wraps or repeats'
+                    )
                 import torch
                 # One draw from the engine's data stream per epoch; the epoch's
                 # permutation is a pure function of it.
@@ -118,7 +138,19 @@ class ItemData:
         import torch
         if type(batch_size) is not int or batch_size < 1:
             raise ValueError('batch_size must be a positive integer')
-        sharded = world_size is not None and world_size > 1
+        if world_size is None:
+            world_size = 1
+        if (
+            type(world_size) is not int
+            or world_size < 1
+            or type(rank) is not int
+            or not 0 <= rank < world_size
+            or batch_size % world_size != 0
+        ):
+            raise ValueError(
+                'Sharded data needs integer 0 <= rank < world_size and a batch_size divisible by world_size'
+            )
+        sharded = world_size > 1
         local_batch_size = (batch_size // world_size) if sharded else batch_size
         saved = (self._epoch, self._cursor, self._epoch_seed, generator.get_state())
         try:
@@ -131,6 +163,9 @@ class ItemData:
             if self.workers:
                 if self._pool is None:
                     self._pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix='item-data')
+                    self._pool_finalizer = weakref.finalize(
+                        self, self._pool.shutdown, wait=False, cancel_futures=True
+                    )
                 items = list(self._pool.map(self._load, load_indices))
             else:
                 items = [self._load(index) for index in load_indices]
@@ -165,5 +200,5 @@ class ItemData:
     def __getstate__(self):
         state = dict(self.__dict__)
         # Derived from the epoch seed; checkpoint candidates need not copy it.
-        state['_pool'], state['_order_cache'] = None, None
+        state['_pool'], state['_pool_finalizer'], state['_order_cache'] = None, None, None
         return state

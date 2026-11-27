@@ -497,7 +497,7 @@ def select_metrics(config, catalog, row, step, step_seconds, progress=None):
         if source.startswith(('custom:', 'preview:')):
             if name == 'diversity/ratio' and 'diversity/ratio' in values:
                 value = values['diversity/ratio']
-                if type(value) not in (int, float) or not math.isfinite(value):
+                if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
                     raise ValueError(f'Nonfinite or invalid metric value: {name}')
                 metrics[name] = float(value)
             continue

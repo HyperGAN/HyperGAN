@@ -15,6 +15,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 from .cache import OfflineError, cache_file_lock, ensure_cached_url, get_cache_dir, is_offline
 from .run_state import atomic_json
@@ -387,6 +388,8 @@ def download_dataset(
     effective_url = _validate_url(url) if url is not None else spec["url"]
 
     # 1. Check existing extracted directory for idempotency or verify_only.
+    if extracted_target.is_symlink():
+        raise ValueError(f"Extracted dataset target must not be a symlink: {extracted_target}")
     if extracted_target.exists():
         try:
             verified_files = _verify_extracted_dir(extracted_target, spec["files_sha256"])
@@ -520,16 +523,21 @@ def download_dataset(
         staged_extracted = _validate_and_extract_tar(archive_path, staging_dir, spec)
         verified_files = _verify_extracted_dir(staged_extracted, spec["files_sha256"])
 
+        if extracted_target.is_symlink():
+            raise ValueError(f"Extracted dataset target must not be a symlink: {extracted_target}")
         if extracted_target.exists():
-            backup_dir = dest_path / f".backup-{spec['extracted_dir']}-{os.getpid()}"
+            backup_dir = dest_path / f".backup-{spec['extracted_dir']}-{os.getpid()}-{uuid.uuid4().hex}"
             if backup_dir.exists():
                 shutil.rmtree(backup_dir)
             os.replace(extracted_target, backup_dir)
         os.replace(staged_extracted, extracted_target)
         if backup_dir is not None and backup_dir.exists():
-            shutil.rmtree(backup_dir, ignore_errors=True)
+            if backup_dir.is_dir() and not backup_dir.is_symlink():
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            else:
+                backup_dir.unlink(missing_ok=True)
     except BaseException:
-        if backup_dir is not None and backup_dir.exists() and not extracted_target.exists():
+        if backup_dir is not None and backup_dir.exists() and not extracted_target.exists() and not extracted_target.is_symlink():
             os.replace(backup_dir, extracted_target)
         raise
     finally:

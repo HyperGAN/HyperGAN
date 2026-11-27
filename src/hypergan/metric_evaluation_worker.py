@@ -130,13 +130,16 @@ def evaluate_snapshot(spec, expected, snapshot, snapshot_sha256, identity):
                      *factory_modules, evaluate_snapshot, apply_backend_policy])
     # Everything that fixes the reference images and the backend their features
     # are computed on; a metric adds its own weights/version before caching.
+    # Built-in reference extractors disable TF32 during evaluation, so normalize
+    # TF32 flags here to avoid spurious cache misses from training TF32 policy.
+    reference_backend = dict(backend_info(), matmul_allow_tf32=False, cudnn_allow_tf32=False)
     reference_identity = {
         'data_identity_sha256': data_identity_sha256,
         'data_sources': {name: code[name] for name in _sources([type(data)])},
         'data_factory': evaluation['data']['factory'], 'sample_count': evaluation['sample_count'],
         'batch_size': evaluation['batch_size'], 'seed': seed, 'inputs': spec['inputs'],
         'device': str(device), 'torch': torch.__version__, 'numpy': np.__version__,
-        'backend': backend_info()} if content_pinned else None
+        'backend': reference_backend} if content_pinned else None
     if reference_identity is not None and ':' in evaluation['data']['factory']:
         module = evaluation['data']['factory'].split(':', 1)[0]
         reference_identity['data_sources'][module] = code[module]

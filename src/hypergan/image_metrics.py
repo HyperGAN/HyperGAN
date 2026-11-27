@@ -558,30 +558,35 @@ def knn_radii(features, ks, *, chunk_size=DEFAULT_KNN_CHUNK_SIZE, device=None):
     if not unique_ks or any(type(k) is not int or k < 1 for k in unique_ks):
         raise ValueError('k-NN ks must be positive integers')
 
-    arr = np.asarray(features, dtype=np.float32)
-    if arr.ndim != 2 or not len(arr) or not np.isfinite(arr).all():
+    arr64 = np.asarray(features, dtype=np.float64)
+    if arr64.ndim != 2 or not len(arr64) or not np.isfinite(arr64).all():
         raise ValueError('k-NN features must be a finite nonempty 2D matrix')
-    n_samples = len(arr)
+    n_samples = len(arr64)
     k_max = unique_ks[-1]
     if n_samples <= k_max:
         raise ValueError(f'k-NN manifold requires at least {k_max + 1} samples, got {n_samples}')
 
+    centered = np.ascontiguousarray(arr64 - arr64.mean(axis=0, keepdims=True), dtype=np.float32)
     dev = torch.device('cpu') if device is None else torch.device(device)
-    with torch.inference_mode():
-        x = torch.as_tensor(arr, dtype=torch.float32, device=dev)
-        xc = x - x.mean(dim=0, keepdim=True)
-        x2 = (xc * xc).sum(dim=1)
-        out = {k: torch.empty(n_samples, dtype=torch.float32, device=dev) for k in unique_ks}
-        for i in range(0, n_samples, chunk_size):
-            j = min(i + chunk_size, n_samples)
-            d2 = x2[i:j].unsqueeze(1) + x2.unsqueeze(0) - 2.0 * (xc[i:j] @ xc.T)
-            d2.clamp_min_(0.0)
-            row_idx = torch.arange(j - i, device=dev)
-            d2[row_idx, row_idx + i] = float('inf')
-            topk_d2, _ = torch.topk(d2, k=k_max, dim=1, largest=False, sorted=True)
-            for k in unique_ks:
-                out[k][i:j] = topk_d2[:, k - 1].sqrt()
-        return {k: out[k].cpu().numpy() for k in unique_ks}
+    matmul, cudnn = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        with torch.inference_mode():
+            x = torch.as_tensor(centered, dtype=torch.float32, device=dev)
+            out = {k: torch.empty(n_samples, dtype=torch.float32, device=dev) for k in unique_ks}
+            for i in range(0, n_samples, chunk_size):
+                j = min(i + chunk_size, n_samples)
+                d = torch.cdist(x[i:j], x, p=2.0, compute_mode='donot_use_mm_for_euclid_dist')
+                row_idx = torch.arange(j - i, device=dev)
+                d[row_idx, row_idx + i] = float('inf')
+                topk_d, _ = torch.topk(d, k=k_max, dim=1, largest=False, sorted=True)
+                for k in unique_ks:
+                    out[k][i:j] = topk_d[:, k - 1]
+            return {k: out[k].cpu().numpy() for k in unique_ks}
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = matmul
+        torch.backends.cudnn.allow_tf32 = cudnn
 
 
 def compute_prdc(
@@ -608,8 +613,8 @@ def compute_prdc(
         if type(value) is not int or value < 1:
             raise ValueError(f'{name} must be a positive integer')
 
-    real_arr = np.asarray(real_features, dtype=np.float32)
-    fake_arr = np.asarray(fake_features, dtype=np.float32)
+    real_arr = np.asarray(real_features, dtype=np.float64)
+    fake_arr = np.asarray(fake_features, dtype=np.float64)
     if (real_arr.ndim != 2 or fake_arr.ndim != 2 or not len(real_arr) or not len(fake_arr)
             or real_arr.shape[1] != fake_arr.shape[1]):
         raise ValueError('PRDC requires nonempty 2D real and fake feature matrices with matching dimensions')
@@ -642,46 +647,50 @@ def compute_prdc(
 
     fake_radii_pr = knn_radii(fake_arr, (pr_k,), chunk_size=chunk_size, device=device)[pr_k]
 
+    origin = real_arr.mean(axis=0, keepdims=True)
+    rc_np = np.ascontiguousarray(real_arr - origin, dtype=np.float32)
+    gc_np = np.ascontiguousarray(fake_arr - origin, dtype=np.float32)
     dev = torch.device('cpu') if device is None else torch.device(device)
-    with torch.inference_mode():
-        r = torch.as_tensor(real_arr, dtype=torch.float32, device=dev)
-        g = torch.as_tensor(fake_arr, dtype=torch.float32, device=dev)
-        origin = r.mean(dim=0, keepdim=True)
-        rc = r - origin
-        gc = g - origin
-        r2 = (rc * rc).sum(dim=1)
-        g2 = (gc * gc).sum(dim=1)
+    matmul, cudnn = torch.backends.cuda.matmul.allow_tf32, torch.backends.cudnn.allow_tf32
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        with torch.inference_mode():
+            rc = torch.as_tensor(rc_np, dtype=torch.float32, device=dev)
+            gc = torch.as_tensor(gc_np, dtype=torch.float32, device=dev)
 
-        r_rad_pr = torch.as_tensor(real_radii_pr, dtype=torch.float32, device=dev)
-        r_rad_dc = torch.as_tensor(real_radii_dc, dtype=torch.float32, device=dev)
-        g_rad_pr = torch.as_tensor(fake_radii_pr, dtype=torch.float32, device=dev)
+            r_rad_pr = torch.as_tensor(real_radii_pr, dtype=torch.float32, device=dev)
+            r_rad_dc = torch.as_tensor(real_radii_dc, dtype=torch.float32, device=dev)
+            g_rad_pr = torch.as_tensor(fake_radii_pr, dtype=torch.float32, device=dev)
 
-        precision_hits = torch.zeros(n_fake, dtype=torch.bool, device=dev)
-        recall_hits = torch.zeros(n_real, dtype=torch.bool, device=dev)
-        density_counts = torch.zeros(n_fake, dtype=torch.int64, device=dev)
-        coverage_hits = torch.zeros(n_real, dtype=torch.bool, device=dev)
+            precision_hits = torch.zeros(n_fake, dtype=torch.bool, device=dev)
+            recall_hits = torch.zeros(n_real, dtype=torch.bool, device=dev)
+            density_counts = torch.zeros(n_fake, dtype=torch.int64, device=dev)
+            coverage_hits = torch.zeros(n_real, dtype=torch.bool, device=dev)
 
-        for i in range(0, n_real, chunk_size):
-            j = min(i + chunk_size, n_real)
-            r_pr_blk = r_rad_pr[i:j].unsqueeze(1)
-            r_dc_blk = r_rad_dc[i:j].unsqueeze(1)
-            r2_blk = r2[i:j].unsqueeze(1)
-            rc_blk = rc[i:j]
-            for p in range(0, n_fake, chunk_size):
-                q = min(p + chunk_size, n_fake)
-                d = (r2_blk + g2[p:q].unsqueeze(0) - 2.0 * (rc_blk @ gc[p:q].T)).clamp_min_(0.0).sqrt_()
-                precision_hits[p:q] |= (d < r_pr_blk).any(dim=0)
-                recall_hits[i:j] |= (d < g_rad_pr[p:q].unsqueeze(0)).any(dim=1)
-                in_dc = d < r_dc_blk
-                density_counts[p:q] += in_dc.sum(dim=0)
-                coverage_hits[i:j] |= in_dc.any(dim=1)
+            for i in range(0, n_real, chunk_size):
+                j = min(i + chunk_size, n_real)
+                r_pr_blk = r_rad_pr[i:j].unsqueeze(1)
+                r_dc_blk = r_rad_dc[i:j].unsqueeze(1)
+                rc_blk = rc[i:j]
+                for p in range(0, n_fake, chunk_size):
+                    q = min(p + chunk_size, n_fake)
+                    d = torch.cdist(rc_blk, gc[p:q], p=2.0, compute_mode='donot_use_mm_for_euclid_dist')
+                    precision_hits[p:q] |= (d < r_pr_blk).any(dim=0)
+                    recall_hits[i:j] |= (d < g_rad_pr[p:q].unsqueeze(0)).any(dim=1)
+                    in_dc = d < r_dc_blk
+                    density_counts[p:q] += in_dc.sum(dim=0)
+                    coverage_hits[i:j] |= in_dc.any(dim=1)
 
-        scores = {
-            'precision': float(precision_hits.double().mean().item()),
-            'recall': float(recall_hits.double().mean().item()),
-            'density': float(density_counts.double().mean().item() / float(dc_k)),
-            'coverage': float(coverage_hits.double().mean().item()),
-        }
+            scores = {
+                'precision': float(precision_hits.double().mean().item()),
+                'recall': float(recall_hits.double().mean().item()),
+                'density': float(density_counts.double().mean().item() / float(dc_k)),
+                'coverage': float(coverage_hits.double().mean().item()),
+            }
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = matmul
+        torch.backends.cudnn.allow_tf32 = cudnn
     if not all(math.isfinite(v) for v in scores.values()):
         raise ValueError('PRDC computation returned a nonfinite value')
     return scores
@@ -1248,11 +1257,24 @@ def _normalize_eval_data_spec(data, bundle_config):
         return None
     if data == 'train':
         base = deepcopy(bundle_config['data'])
-        if base.get('factory') == 'image_folder':
+        factory = base.get('factory')
+        if factory in (
+            'image_folder',
+            'hypergan.data:ImageFolder',
+            'hypergan.datasets:ImageFolder',
+            'hypergan.item_data:ItemData',
+            'hypergan.datasets:ItemData',
+        ):
             base.setdefault('args', {})['shuffle'] = False
-        elif base.get('factory') == 'hypergan.image_data:CIFAR10Data':
-            base.setdefault('args', {})['sampling'] = 'sequential'
-            base['args']['horizontal_flip'] = False
+        elif factory == 'hypergan.colorization_data:ColorizationData':
+            args = base.setdefault('args', {})
+            args['shuffle'] = False
+            if args.get('bad_image_policy') == 'skip':
+                args['bad_image_policy'] = 'error'
+        elif factory in ('hypergan.image_data:CIFAR10Data', 'hypergan.datasets:CIFAR10Data'):
+            args = base.setdefault('args', {})
+            args['sampling'] = 'sequential'
+            args['horizontal_flip'] = False
         return base
     if not isinstance(data, dict):
         raise ValueError("data must be 'train', a data spec dict, or a callable dataset")
@@ -1494,11 +1516,15 @@ def evaluate_bundle(
         if content_pinned:
             data_id_sha = hashlib.sha256(_canonical(raw_data_identity)).hexdigest()
             bounded_data_identity = _bounded_identity(raw_data_identity)
-            data_sources = {}
+            source_objs = [type(data_obj)]
+            if data_spec is not None and ':' in data_spec['factory']:
+                import importlib
+                source_objs.append(importlib.import_module(data_spec['factory'].split(':', 1)[0]))
             try:
-                data_sources = _sources([type(data_obj)])
+                data_sources = _sources(source_objs)
             except ValueError:
                 data_sources = {'class': f'{type(data_obj).__module__}:{type(data_obj).__qualname__}'}
+            reference_backend = dict(backend_info(), matmul_allow_tf32=False, cudnn_allow_tf32=False)
             reference_identity = {
                 'data_identity_sha256': data_id_sha,
                 'data_sources': data_sources,
@@ -1510,7 +1536,7 @@ def evaluate_bundle(
                 'device': str(exec_device),
                 'torch': torch.__version__,
                 'numpy': np.__version__,
-                'backend': backend_info(),
+                'backend': reference_backend,
             }
             if data_seed is not None:
                 reference_identity['data_seed'] = eff_data_seed

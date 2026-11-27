@@ -4,12 +4,12 @@
 # Architecture: Clean modern 64x64 scratch ResNet-GAN in pure HNDL (NO pretrained backbone, NO ADA, NO spectral norm).
 #   - Generator (6.22M params): 4 stages (4->8->16->32->64), 2 pre-act GroupNorm+SiLU ResBlocks/stage, bilinear upsample + 1/sqrt(2) skips.
 #   - Discriminator (7.84M params): 4 stages (64->32->16->8->4), 2 unnormalized pre-act SiLU ResBlocks/stage, AvgPool + 1/sqrt(2) skips + 4x4 conv head.
-# Formulation: ParticleGAN default preset (`defaults = "particlegan"` -> unified_v12) with ZERO recipe or optimizer overrides.
+# Formulation: Pinned ParticleGAN unified_v12 preset (`defaults = "particlegan:unified_v12"`) with ZERO recipe or optimizer overrides.
 # Paired baseline: benchmarks/whitepaper/ffhq64-resnet-adam.toml (exact same G & D).
 format = "hypergan-model/1"
 name = "whitepaper/ffhq64-resnet-v12"
 description = "FFHQ-64 64x64 clean modern scratch ResNet-GAN trained with ParticleGAN unified_v12 (zero recipe/optimizer overrides)."
-defaults = "particlegan"
+defaults = "particlegan:unified_v12"
 
 [data]
 builtin = "image_folder"

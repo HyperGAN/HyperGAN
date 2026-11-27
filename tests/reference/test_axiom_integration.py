@@ -113,27 +113,31 @@ def test_axiom_multi_critic_thermal_coordinator():
 
 
 def test_axiom_checkpoint_resume_exact_continuation(tmp_path: Path):
+    prev_threads = torch.get_num_threads()
     torch.set_num_threads(1)
-    cfg = load_config(_axiom_2d_model())
+    try:
+        cfg = load_config(_axiom_2d_model())
 
-    full_dir = tmp_path / "full"
-    res_full = train(cfg, full_dir, steps=4, checkpoint_every=4)
-    assert res_full["status"] == "complete"
+        full_dir = tmp_path / "full"
+        res_full = train(cfg, full_dir, steps=4, checkpoint_every=4)
+        assert res_full["status"] == "complete"
 
-    split_dir = tmp_path / "split"
-    res_part = train(cfg, split_dir, steps=4, checkpoint_every=2, stop_after_steps=2)
-    assert res_part["steps"] == 2
-    res_resumed = resume(split_dir)
-    assert res_resumed["status"] == "complete"
-    assert res_resumed["steps"] == 4
+        split_dir = tmp_path / "split"
+        res_part = train(cfg, split_dir, steps=4, checkpoint_every=2, stop_after_steps=2)
+        assert res_part["steps"] == 2
+        res_resumed = resume(split_dir)
+        assert res_resumed["status"] == "complete"
+        assert res_resumed["steps"] == 4
 
-    from hypergan.checkpoints import read_checkpoint
-    _, _, full_state = read_checkpoint(full_dir)
-    _, _, split_state = read_checkpoint(split_dir)
-    for k, v in full_state["graph"].items():
-        if isinstance(v, torch.Tensor):
-            torch.testing.assert_close(v, split_state["graph"][k], rtol=1e-6, atol=1e-6)
-    torch.testing.assert_close(full_state["prior"]["z"], split_state["prior"]["z"], rtol=1e-6, atol=1e-6)
+        from hypergan.checkpoints import read_checkpoint
+        _, _, full_state = read_checkpoint(full_dir)
+        _, _, split_state = read_checkpoint(split_dir)
+        for k, v in full_state["graph"].items():
+            if isinstance(v, torch.Tensor):
+                torch.testing.assert_close(v, split_state["graph"][k], rtol=1e-6, atol=1e-6)
+        torch.testing.assert_close(full_state["prior"]["z"], split_state["prior"]["z"], rtol=1e-6, atol=1e-6)
+    finally:
+        torch.set_num_threads(prev_threads)
 
 
 def test_unified_v15_record_binding_and_step():
@@ -152,6 +156,25 @@ def test_unified_v15_record_binding_and_step():
     row, _ = trainer.update()
     assert torch.isfinite(torch.tensor(row["d_loss"]))
     assert torch.isfinite(torch.tensor(row["g_loss"]))
+
+
+def test_unified_v15_non_simplicial_generator_probe_consumed():
+    """Non-simplicial unified_v15 step must capture and consume the generator secant probe."""
+    raw = _axiom_2d_model()
+    raw["defaults"] = "particlegan:unified_v15"
+    raw["prior"] = {"kind": "gaussian", "z_dim": 4}
+    raw["losses"] = [
+        {"type": "adversarial", "critic": "discriminator", "weight": 1.0, "penalty": 1.0},
+    ]
+    cfg = load_config(raw)
+    trainer = ReferenceTrainer(cfg)
+    assert trainer.recipe.name == "unified_v15"
+    row, _ = trainer.update()
+    assert torch.isfinite(torch.tensor(row["d_loss"]))
+    assert torch.isfinite(torch.tensor(row["g_loss"]))
+    assert trainer.opt_g.probe_consumptions >= 1
+    assert trainer.opt_g.last_probe_consumed is True
+    assert trainer.opt_d.record._g_probe_cache is None
 
 
 class _SyntheticConvData:
@@ -224,42 +247,45 @@ def _axiom_conv_model(*, gen_bn: bool = True, disc_bn: bool = True):
 
 
 def test_axiom_bn_layout_scoping_and_g_step_bn_tracking(tmp_path: Path):
+    prev_threads = torch.get_num_threads()
     torch.set_num_threads(1)
+    try:
+        # Active BN only in critic must not leak BN layout ids into a BN-free generator optimizer.
+        mixed_cfg = load_config(_axiom_conv_model(gen_bn=False, disc_bn=True))
+        mixed_trainer = ReferenceTrainer(mixed_cfg)
+        assert not mixed_trainer.opt_g._bn_net_ids
+        assert mixed_trainer.opt_d._bn_net_ids
 
-    # Active BN only in critic must not leak BN layout ids into a BN-free generator optimizer.
-    mixed_cfg = load_config(_axiom_conv_model(gen_bn=False, disc_bn=True))
-    mixed_trainer = ReferenceTrainer(mixed_cfg)
-    assert not mixed_trainer.opt_g._bn_net_ids
-    assert mixed_trainer.opt_d._bn_net_ids
+        # Active BN in both G and D: both bind BN ids, and G-step forwards do not mutate critic BN tracking.
+        bn_cfg = load_config(_axiom_conv_model(gen_bn=True, disc_bn=True))
+        bn_trainer = ReferenceTrainer(bn_cfg)
+        assert bn_trainer.opt_g._bn_net_ids
+        assert bn_trainer.opt_d._bn_net_ids
 
-    # Active BN in both G and D: both bind BN ids, and G-step forwards do not mutate critic BN tracking.
-    bn_cfg = load_config(_axiom_conv_model(gen_bn=True, disc_bn=True))
-    bn_trainer = ReferenceTrainer(bn_cfg)
-    assert bn_trainer.opt_g._bn_net_ids
-    assert bn_trainer.opt_d._bn_net_ids
+        disc_bns = [
+            m for m in bn_trainer.graph.models["discriminator"].modules()
+            if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)
+        ]
+        assert disc_bns
+        row, _ = bn_trainer.update()
+        assert torch.isfinite(torch.tensor(row["d_loss"]))
+        assert torch.isfinite(torch.tensor(row["g_loss"]))
+        # D step runs real + fake forwards (=2 tracked batches); G step keeps track_running_stats=False.
+        for m in disc_bns:
+            assert int(m.num_batches_tracked.item()) == 2
+            assert m.track_running_stats is True
 
-    disc_bns = [
-        m for m in bn_trainer.graph.models["discriminator"].modules()
-        if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)
-    ]
-    assert disc_bns
-    row, _ = bn_trainer.update()
-    assert torch.isfinite(torch.tensor(row["d_loss"]))
-    assert torch.isfinite(torch.tensor(row["g_loss"]))
-    # D step runs real + fake forwards (=2 tracked batches); G step keeps track_running_stats=False.
-    for m in disc_bns:
-        assert int(m.num_batches_tracked.item()) == 2
-        assert m.track_running_stats is True
-
-    # Exact checkpoint/resume continuation with Axiom BN momentum buffers (m_u).
-    full_dir = tmp_path / "bn_full"
-    assert train(bn_cfg, full_dir, steps=4, checkpoint_every=4)["status"] == "complete"
-    split_dir = tmp_path / "bn_split"
-    assert train(bn_cfg, split_dir, steps=4, checkpoint_every=2, stop_after_steps=2)["steps"] == 2
-    assert resume(split_dir)["status"] == "complete"
-    from hypergan.checkpoints import read_checkpoint
-    _, _, full_state = read_checkpoint(full_dir)
-    _, _, split_state = read_checkpoint(split_dir)
-    for k, v in full_state["graph"].items():
-        if isinstance(v, torch.Tensor):
-            torch.testing.assert_close(v, split_state["graph"][k], rtol=1e-6, atol=1e-6)
+        # Exact checkpoint/resume continuation with Axiom BN momentum buffers (m_u).
+        full_dir = tmp_path / "bn_full"
+        assert train(bn_cfg, full_dir, steps=4, checkpoint_every=4)["status"] == "complete"
+        split_dir = tmp_path / "bn_split"
+        assert train(bn_cfg, split_dir, steps=4, checkpoint_every=2, stop_after_steps=2)["steps"] == 2
+        assert resume(split_dir)["status"] == "complete"
+        from hypergan.checkpoints import read_checkpoint
+        _, _, full_state = read_checkpoint(full_dir)
+        _, _, split_state = read_checkpoint(split_dir)
+        for k, v in full_state["graph"].items():
+            if isinstance(v, torch.Tensor):
+                torch.testing.assert_close(v, split_state["graph"][k], rtol=1e-6, atol=1e-6)
+    finally:
+        torch.set_num_threads(prev_threads)

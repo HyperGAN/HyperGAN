@@ -5,6 +5,7 @@ HNDL verifies and loads the configured local artifact and selects its output.
 """
 from contextlib import contextmanager
 import importlib
+import os
 from pathlib import Path
 import sys
 import threading
@@ -32,16 +33,19 @@ def _resnet18_shape_fn(input_shape, output="features", layer="", readout="", lay
     h = input_shape[2] if len(input_shape) > 2 else 32
     w = input_shape[3] if len(input_shape) > 3 else 32
 
+    def _ceil_div(value, divisor):
+        return (value + divisor - 1) // divisor
+
     layer_map = {
-        "layer1": (b, 64, h // 4, w // 4),
-        "layer2": (b, 128, h // 8, w // 8),
-        "layer3": (b, 256, h // 16, w // 16),
-        "layer4": (b, 512, h // 32, w // 32),
+        "layer1": (b, 64, _ceil_div(h, 4), _ceil_div(w, 4)),
+        "layer2": (b, 128, _ceil_div(h, 8), _ceil_div(w, 8)),
+        "layer3": (b, 256, _ceil_div(h, 16), _ceil_div(w, 16)),
+        "layer4": (b, 512, _ceil_div(h, 32), _ceil_div(w, 32)),
     }
     if layers:
-        return tuple(layer_map.get(l, (b, 512, h // 32, w // 32)) for l in layers)
+        return tuple(layer_map.get(l, (b, 512, _ceil_div(h, 32), _ceil_div(w, 32))) for l in layers)
     if layer:
-        return layer_map.get(layer, (b, 512, h // 32, w // 32))
+        return layer_map.get(layer, (b, 512, _ceil_div(h, 32), _ceil_div(w, 32)))
     if output == "features":
         return (b, 512)
     if output in ("logits", "classifier"):
@@ -123,6 +127,19 @@ def _checkout_stamp(source):
             stamp.append((status.st_ino, status.st_mtime_ns, status.st_size))
         except OSError:
             stamp.append(None)
+    # Include working-tree file stats so unstaged edits or untracked files invalidate the stamp.
+    for dirpath, dirnames, filenames in os.walk(source):
+        dirnames[:] = sorted(d for d in dirnames if d not in ('.git', '__pycache__'))
+        for name in sorted(filenames):
+            if name.endswith(('.pyc', '.pyo')):
+                continue
+            fpath = Path(dirpath) / name
+            rel = fpath.relative_to(source).as_posix()
+            try:
+                status = fpath.lstat()
+                stamp.append((rel, status.st_ino, status.st_mtime_ns, status.st_size))
+            except OSError:
+                stamp.append((rel, None))
     return tuple(stamp)
 
 

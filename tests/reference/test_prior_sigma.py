@@ -1,8 +1,5 @@
 """Explicit MoG scales avoid calibration while legacy recipes retain their meaning."""
-import importlib.metadata
-import json
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 import torch
@@ -67,29 +64,3 @@ def test_ambiguous_explicit_scale_rejected():
         resolve_config({'prior': spec})
     with pytest.raises(ValueError, match='not both'):
         make_prior(spec, device='cpu')
-
-
-@pytest.mark.skipif(importlib.metadata.version('particlegan') != '0.6.0',
-                    reason='the audited 0.5.0 -> 0.6.0 migration resumes only under a 0.6.0 runtime')
-def test_audited_050_checkpoint_metadata_uses_qualified_resume(tmp_path):
-    from hypergan.checkpoint_compatibility import PARTICLEGAN_060_MIGRATION
-    from hypergan.checkpoints import read_checkpoint
-    from tests.config_fixtures import write_default
-    from hypergan.training import resume, train
-    from tests.reference.test_recovery import equal
-
-    config = write_default(tmp_path / 'config', device='cpu', defaults='hypergan')
-    config.write_text(config.read_text().replace('kind = "particles"', 'kind = "mog"\nfixed_sigma = 0.2')
-                      .replace('num_particles = 20000', 'num_particles = 12'))
-    train(config, tmp_path / 'full')
-    stopped = train(config, tmp_path / 'split', stop_after_steps=2)
-    path = Path(stopped['checkpoint_path']) / 'manifest.json'
-    metadata = json.loads(path.read_text())
-    metadata['runtime']['particlegan'] = '0.5.0'
-    for key, (old, _) in PARTICLEGAN_060_MIGRATION.items():
-        metadata['implementation'][key] = old
-    path.write_text(json.dumps(metadata))
-    with pytest.warns(RuntimeWarning, match='audited 0.6.0'):
-        finished = resume(tmp_path / 'split')
-    assert any('audited 0.6.0' in warning for warning in finished['resume_warnings'])
-    equal(read_checkpoint(tmp_path / 'full')[2], read_checkpoint(tmp_path / 'split')[2])

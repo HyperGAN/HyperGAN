@@ -1,11 +1,11 @@
 # Whitepaper Benchmark 1/8: CIFAR-10 32x32 OG Radford BN-DCGAN — ParticleGAN unified_v12 (ZERO overrides)
 # Architecture: Classic Radford et al. (2015) BatchNorm DCGAN in pure declarative HNDL.
-# Formulation: ParticleGAN default preset (`defaults = "particlegan"` -> unified_v12) with ZERO recipe or optimizer overrides.
+# Formulation: Pinned ParticleGAN unified_v12 preset (`defaults = "particlegan:unified_v12"`) with ZERO recipe or optimizer overrides.
 # Paired baseline: benchmarks/whitepaper/cifar10-dcgan-bn-adam.toml (exact same G & D).
 format = "hypergan-model/1"
 name = "whitepaper/cifar10-dcgan-bn-v12"
 description = "CIFAR-10 32x32 Radford BN-DCGAN trained with ParticleGAN unified_v12 (zero recipe/optimizer overrides)."
-defaults = "particlegan"
+defaults = "particlegan:unified_v12"
 
 [data]
 builtin = "cifar10"

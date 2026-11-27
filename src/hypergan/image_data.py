@@ -1,4 +1,5 @@
 """Pinned local CIFAR-10 bytes with explicit training/evaluation sampling."""
+import hashlib
 from pathlib import Path
 import pickle
 
@@ -7,7 +8,6 @@ import torch
 
 from .data import EvaluationDataExhausted
 from .dataset_download import CIFAR10_SHA256
-from .image_components import _verified_file
 
 
 class CIFAR10Data:
@@ -29,10 +29,20 @@ class CIFAR10Data:
         self.files = [f'data_batch_{i}' for i in range(1, 6)] if split == 'train' else ['test_batch']
         arrays, labels = [], []
         for name in self.files:
-            path = _verified_file(self.root / name, CIFAR10_SHA256[name])
-            # Deserialize only the exact published dataset bytes verified above.
-            with path.open('rb') as handle:
-                batch = pickle.load(handle, encoding='latin1')
+            path = (self.root / name).expanduser().resolve()
+            if not path.is_file():
+                raise FileNotFoundError(f'Required local artifact is missing: {path}; no automatic downloads')
+            # Read bytes once and verify SHA-256 on those exact bytes before deserializing (no TOCTOU).
+            raw_bytes = path.read_bytes()
+            expected_sha = CIFAR10_SHA256[name]
+            if len(expected_sha) != 64 or any(c not in '0123456789abcdef' for c in expected_sha):
+                raise ValueError('Expected a lowercase SHA256 digest')
+            actual_sha = hashlib.sha256(raw_bytes).hexdigest()
+            if actual_sha != expected_sha:
+                raise ValueError(
+                    f'Local artifact SHA256 mismatch for {path}: expected {expected_sha}, got {actual_sha}'
+                )
+            batch = pickle.loads(raw_bytes, encoding='latin1')
             data = batch['data']
             targets = np.asarray(batch['labels'], dtype=np.int64)
             if data.dtype != np.uint8 or data.ndim != 2 or data.shape[1] != 3072 or targets.shape != (len(data),):
@@ -43,10 +53,25 @@ class CIFAR10Data:
         self.labels = torch.from_numpy(np.concatenate(labels))
         self.cursor = 0
 
+    def __len__(self):
+        return len(self.images)
+
     def __call__(self, batch_size, *, generator, rank=0, world_size=1):
         if type(batch_size) is not int or batch_size <= 0:
             raise ValueError('CIFAR batch_size must be a positive integer')
-        sharded = world_size is not None and world_size > 1
+        if world_size is None:
+            world_size = 1
+        if (
+            type(world_size) is not int
+            or world_size < 1
+            or type(rank) is not int
+            or not 0 <= rank < world_size
+            or batch_size % world_size != 0
+        ):
+            raise ValueError(
+                'Sharded data needs integer 0 <= rank < world_size and a batch_size divisible by world_size'
+            )
+        sharded = world_size > 1
         local_batch_size = (batch_size // world_size) if sharded else batch_size
         device = generator.device
         if self.images.device != device:

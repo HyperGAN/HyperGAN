@@ -4,10 +4,11 @@ import math
 
 def _rgb(value):
     import torch
-    if (not isinstance(value, torch.Tensor) or value.ndim != 4 or value.shape[1] != 3
+    if (not isinstance(value, torch.Tensor) or not value.is_floating_point()
+            or value.ndim != 4 or value.shape[1] != 3
             or value.numel() == 0 or not torch.isfinite(value).all()
             or value.min() < -1 or value.max() > 1):
-        raise ValueError('Colorization metrics require finite nonempty RGB NCHW tensors in [-1,1]')
+        raise ValueError('Colorization metrics require finite nonempty floating-point RGB NCHW tensors in [-1,1]')
     return value.detach().to(device='cpu', dtype=torch.float64).add(1).div(2)
 
 

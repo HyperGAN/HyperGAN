@@ -343,8 +343,9 @@ def test_non_loopback_auth_none_refuses_control_mutations(tmp_path):
     definition["definition_hash"] = digest(definition)
     catalog = {"schema_version": 1, "metrics": {"loss/g_total": definition}}
     rev = digest(catalog)
-    atomic_json(tmp_path / "metrics" / f"catalog-{rev}.json", catalog)
-    atomic_json(tmp_path / "manifest.json", {
+    run_dir = tmp_path / "run"
+    atomic_json(run_dir / "metrics" / f"catalog-{rev}.json", catalog)
+    atomic_json(run_dir / "manifest.json", {
         "schema_version": 1, "run_id": "run", "attempt_id": "a",
         "steps": 1, "status": "running", "hostname": "remote.internal", "metrics_catalog": rev,
     })
@@ -353,7 +354,7 @@ def test_non_loopback_auth_none_refuses_control_mutations(tmp_path):
         session = LocalSession(8123, host=bind_host, auth="none")
         assert session.is_loopback_bind is False
         assert session.controls_allowed is False
-        with TestClient(create_app(tmp_path, session, poll_seconds=0.01), base_url=session.origin) as client:
+        with TestClient(create_app(run_dir, session, poll_seconds=0.01), base_url=session.origin) as client:
             caps = client.get("/api/v1/capabilities")
             assert caps.status_code == 200
             assert caps.json()["controls"] == []
@@ -367,7 +368,7 @@ def test_non_loopback_auth_none_refuses_control_mutations(tmp_path):
     # With auth='token' on wildcard bind, authenticated control mutations succeed.
     authed_session = LocalSession(8123, host="0.0.0.0", auth="token")
     assert authed_session.controls_allowed is True
-    with TestClient(create_app(tmp_path, authed_session, poll_seconds=0.01), base_url=authed_session.origin) as client:
+    with TestClient(create_app(run_dir, authed_session, poll_seconds=0.01), base_url=authed_session.origin) as client:
         client.headers["Authorization"] = "Bearer " + authed_session._token
         assert client.get("/api/v1/capabilities").json()["controls"] == ["checkpoint", "stop", "sample"]
         res = client.post("/api/v1/runs/run/checkpoint", json={"request_id": "authed-ckpt"})

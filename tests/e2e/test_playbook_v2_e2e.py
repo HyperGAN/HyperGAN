@@ -93,6 +93,7 @@ def isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HYPERGAN_HOME", str(state_dir))
     monkeypatch.setenv("HYPERGAN_STATE_DIR", str(state_dir))
     monkeypatch.setenv("HYPERGAN_CACHE_DIR", str(cache_dir))
+    monkeypatch.setenv("HYPERGAN_QUEUE_FILE", str(state_dir / "queue.json"))
     monkeypatch.setenv("HYPERGAN_NO_SERVER", "1")
     monkeypatch.setenv("CI", "1")
     monkeypatch.chdir(tmp_path)

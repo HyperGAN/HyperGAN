@@ -27,11 +27,11 @@ classifiers = [
 dependencies = ["foldlitedb>=0.5.0,<0.6"]
 
 [project.optional-dependencies]
-# CI tests only torch==2.14.0 (.github/workflows/ci.yml); the rest of the range is untested.
 # On `develop`, particlegan tracks upstream ParticleGAN@develop via a PEP 508 direct URL so
 # integration tests pick up unreleased ParticleGAN fixes/presets. Release commits on `master`
 # MUST replace this with a bounded PyPI specifier (enforced by .github/workflows/release.yml
 # and tests/foundation/test_repository_consistency.py).
+# CI tests only torch==2.14.0 (.github/workflows/ci.yml); the rest of the range is untested.
 train = ["hndl>=0.12.0,<1", "particlegan @ git+https://github.com/HyperGAN/ParticleGAN.git@develop", "torch>=2.6,<3", "numpy>=1.26,<3", "safetensors>=0.8,<1"]
 image = ["Pillow>=13.0.0,<14"]
 cifar = ["torchvision>=0.21,<1", "Pillow>=13.0.0,<14"]

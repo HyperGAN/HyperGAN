@@ -84,8 +84,12 @@ def _telemetry_parity_worker(rank, world_size, config_dict, batches, shared_dir,
             calls += 1
             if getattr(tensor, "dtype", None) == torch.float64:
                 f64_calls += 1
-            if tensor.dtype == torch.int32 and tensor.ndim == 0 and kwargs.get('op') == dist.ReduceOp.MAX:
-                assert tensor.item() == 0  # Healthy phase, before the rank agreement.
+            if (
+                tensor.dtype == torch.int64
+                and tuple(tensor.shape) == (17,)
+                and kwargs.get('op') == dist.ReduceOp.MAX
+            ):
+                assert int(tensor[0].item()) == 0  # Healthy phase/agreement digest, before rank agreement.
                 phase_calls += 1
             return orig_all_reduce(tensor, *args, **kwargs)
 
@@ -157,11 +161,13 @@ def test_replicated_trainer_telemetry_parity_and_rank_agreement(tmp_path, accumu
     rank0 = json.loads((tmp_path / "rank-0.json").read_text(encoding="utf-8"))
     rank1 = json.loads((tmp_path / "rank-1.json").read_text(encoding="utf-8"))
 
-    # Numerical work still uses exactly 5 dist.all_reduce calls under gradient_allreduce:
-    # (control + bucket for D) + (control + bucket for G) + 1 coalesced float64 metric scalar all_reduce.
-    # Phase failure checks are separate from telemetry and remain explicitly bounded (folded into 6 phase blocks).
-    phase_checks = 6
-    expected = {"total": 5 + phase_checks, "float64_metric_collectives": 1,
+    # Numerical work uses 6 dist.all_reduce calls under gradient_allreduce:
+    # (control + bucket for D) + (control + bucket for G) + 1 float64 global diversity feature-mean
+    # reduction (Chan's parallel variance identity) + 1 coalesced float64 metric scalar all_reduce.
+    # Hot-path phase & cross-rank agreement checks remain explicitly bounded (1 standalone _agree
+    # + 6 folded phase blocks via single 17-element int64 MAX digest all_reduces).
+    phase_checks = 7
+    expected = {"total": 6 + phase_checks, "float64_metric_collectives": 2,
                 "phase_failure_collectives": phase_checks}
     assert rank0["all_reduce_counts"][1] == expected
     assert rank1["all_reduce_counts"][1] == expected

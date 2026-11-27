@@ -1209,7 +1209,10 @@ def _model_matches_manifest(candidate_model: Model, manifest: dict) -> bool:
         cand_resolved = resolve(candidate_model)
         if saved_sha and _cfg_fp(cand_resolved) != saved_sha:
             return False
-        manifest_resolved = _resolve_cfg(saved_config)
+        manifest_input = {
+            k: v for k, v in saved_config.items() if k not in ('qualification', 'warnings')
+        }
+        manifest_resolved = _resolve_cfg(manifest_input)
         cand_vals = _cfg_values(cand_resolved)
         man_vals = _cfg_values(manifest_resolved)
         # Name can be updated post-training via `hypergan tag`.
